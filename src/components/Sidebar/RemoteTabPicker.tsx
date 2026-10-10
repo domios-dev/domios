@@ -55,9 +55,9 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="remote-tab-picker-title"
-        className="relative w-full max-w-md overflow-hidden rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl"
+        className="relative w-full max-w-md overflow-hidden rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)] shadow-2xl"
       >
-        <header className="flex h-12 items-center gap-2 border-b border-[var(--ct-border)] px-3">
+        <header className="ct-jobs-header flex h-12 items-center gap-2 px-3">
           {selectedPeer && (
             <button type="button" aria-label="Back to machines" onClick={() => { setSelectedPeer(null); setRemote(null); setError(null); }} className="flex h-7 w-7 items-center justify-center rounded hover:bg-[var(--ct-hover)]">
               <ArrowLeft size={14} />

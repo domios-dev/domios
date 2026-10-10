@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 /** Sidebar-row model switch: which tabs offer it, what the entry says, and the
  *  request it makes. Kept out of TabItem so the gate and the round-trip are
  *  testable without a menu. */
@@ -52,7 +53,7 @@ export function tabModelMenuView(
     models,
     currentModel: matchModel(models, tab.agent_session_model),
     tabId: tab.id,
-    blockedReason: status === "Working" ? "Working — switch the model once this turn ends" : null,
+    blockedReason: tabActivity(tab, status).active ? "Working — switch the model once this turn ends" : null,
   };
 }
 

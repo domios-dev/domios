@@ -1,0 +1,71 @@
+{
+  "rootPid": 5944,
+  "at": "2026-10-07T12:20:05.7976219Z",
+  "method": "Native Toolhelp parent closure at explicit test phases and after teardown",
+  "observed": [
+    {
+      "pid": 5944,
+      "parent": 26512,
+      "name": "node.exe",
+      "started": "2026-10-07T12:14:39.9292689Z"
+    },
+    {
+      "pid": 16564,
+      "parent": 5944,
+      "name": "codex.exe",
+      "started": "2026-10-07T12:14:40.1230716Z"
+    },
+    {
+      "pid": 19632,
+      "parent": 16564,
+      "name": "conhost.exe",
+      "started": "2026-10-07T12:14:40.1533561Z"
+    },
+    {
+      "pid": 19632,
+      "parent": 52116,
+      "name": "sleep.exe",
+      "started": "2026-10-07T12:19:20.8446448Z"
+    },
+    {
+      "pid": 39256,
+      "parent": 16564,
+      "name": "node.exe",
+      "started": "2026-10-07T12:14:41.5235779Z"
+    },
+    {
+      "pid": 44304,
+      "parent": 5944,
+      "name": "codex.exe",
+      "started": "2026-10-07T12:14:42.8698323Z"
+    },
+    {
+      "pid": 51260,
+      "parent": 5944,
+      "name": "node.exe",
+      "started": "2026-10-07T12:14:40.6318941Z"
+    },
+    {
+      "pid": 51260,
+      "parent": 48728,
+      "name": "Code.exe",
+      "started": "2026-10-07T12:18:48.4403918Z"
+    },
+    {
+      "pid": 51720,
+      "parent": 39256,
+      "name": "conhost.exe",
+      "started": "2026-10-07T12:14:41.5331767Z"
+    }
+  ],
+  "reusedPidsExcluded": [
+    {
+      "pid": 51260,
+      "originalStarted": "2026-10-07T12:14:40.6318941Z",
+      "currentStarted": "2026-10-07T12:18:48.4403918Z"
+    }
+  ],
+  "live": [],
+  "verified": true,
+  "pass": true
+}

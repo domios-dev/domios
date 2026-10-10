@@ -21,7 +21,7 @@ const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean 
 
 interface SubscriptionRecord {
   event: string;
-  kind: "chat" | "resize-owner";
+  kind: "chat" | "resize-owner" | "state";
   ordinaryTabId: string;
   peerId: string;
   remoteTabId: string;
@@ -95,6 +95,9 @@ function connect(record: SubscriptionRecord): void {
               tab_id: record.ordinaryTabId,
               pty_id: record.ordinaryTabId,
             } });
+          } else if (progressed && record.kind === "state"
+            && (message.event_type === "mux-state-changed" || message.event_type === "tab-status-changed")) {
+            record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
           }
         }
         boundary = buffer.indexOf("\n\n");
@@ -122,11 +125,13 @@ export function subscribeRemoteTabEvent<T>(
 ): (() => void) | null {
   const chatPrefix = "tab-chat-msg-";
   const ownerPrefix = "pty-resize-owner-changed:";
+  const statePrefix = "peer-state-changed:";
   const kind = event.startsWith(chatPrefix) ? "chat"
     : event.startsWith(ownerPrefix) ? "resize-owner"
+      : event.startsWith(statePrefix) ? "state"
       : null;
   if (!kind) return null;
-  const eventTarget = event.slice(kind === "chat" ? chatPrefix.length : ownerPrefix.length);
+  const eventTarget = event.slice(kind === "chat" ? chatPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
   if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
     throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
   }
@@ -158,10 +163,11 @@ export function subscribeRemoteTabEvent<T>(
   };
 }
 
-onRemoteTransportCredentials(() => resumeRemoteTabEvents());
+onRemoteTransportCredentials(() => resumeRemoteTabEvents(true));
 
-export function resumeRemoteTabEvents(): void {
+export function resumeRemoteTabEvents(credentialsChanged = false): void {
   for (const record of subscriptions.values()) {
+    if (record.kind === "state" && !credentialsChanged && !record.recovery.isAwaitingSignal()) continue;
     // Never supersede a connection still awaiting its first frame (the generation- churn race that blanked remote panes).
     if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal()) continue;
     record.recovery.signal();

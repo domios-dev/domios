@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
+import { createPortal } from "react-dom";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2, RotateCcw, Scan } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { SyntaxHighlighter } from "./syntaxHighlighter";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { inferCodeLanguage } from "./codeLanguage";
 import {
@@ -138,6 +140,8 @@ type CodeContentProps = {
   displayedText: string;
   language: string;
   mermaidMode: boolean;
+  wrapLines?: boolean;
+  showLineNumbers?: boolean;
   forcePlainText?: boolean;
   mermaidSvg: string | null;
   shouldDisplayMermaid: boolean;
@@ -160,6 +164,8 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   displayedText,
   language,
   mermaidMode,
+  wrapLines = false,
+  showLineNumbers = false,
   forcePlainText = false,
   mermaidSvg,
   shouldDisplayMermaid,
@@ -187,10 +193,14 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           style={{
             background: "var(--ct-bg)",
             color: "var(--ct-fg)",
-            whiteSpace: "pre",
+            whiteSpace: wrapLines ? "pre-wrap" : "pre",
+            width: wrapLines ? "100%" : undefined,
+            overflowWrap: wrapLines ? "anywhere" : undefined,
           }}
         >
-          {displayedText}
+          {showLineNumbers ? displayedText.replace(/\n$/, "").split("\n").map((line, index) => <span key={index} className="grid grid-cols-[4ch_minmax(0,1fr)]">
+            <span aria-hidden="true" className="select-none pr-2 text-right text-[var(--ct-muted-fg)]">{index + 1}</span><span>{line || " "}</span>
+          </span>) : displayedText}
         </pre>
       </div>
     );
@@ -246,6 +256,8 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           )}
           <SyntaxHighlighter
             language={resolvedLanguage}
+            showLineNumbers={showLineNumbers}
+            lineNumberStyle={{ color: "var(--ct-muted-fg)", userSelect: "none" }}
             style={themeAwarePrismStyle}
             useInlineStyles={false}
             PreTag="div"
@@ -256,19 +268,19 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
               fontSize: "0.75rem",
               lineHeight: "1.4",
               background: fullSize ? "var(--ct-bg)" : "var(--ct-bg)",
-              width: "max-content",
+              width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",
-              maxWidth: "none",
-              whiteSpace: "pre",
-              overflowWrap: "normal",
-              wordBreak: "normal",
+              maxWidth: wrapLines ? "100%" : "none",
+              whiteSpace: wrapLines ? "pre-wrap" : "pre",
+              overflowWrap: wrapLines ? "anywhere" : "normal",
+              wordBreak: wrapLines ? "break-word" : "normal",
             }}
             codeTagProps={{
               style: {
                 fontFamily: "inherit",
-                whiteSpace: "pre",
-                overflowWrap: "normal",
-                wordBreak: "normal",
+                whiteSpace: wrapLines ? "pre-wrap" : "pre",
+                overflowWrap: wrapLines ? "anywhere" : "normal",
+                wordBreak: wrapLines ? "break-word" : "normal",
               },
             }}
           >
@@ -286,12 +298,18 @@ export function CodeBlock({
   maxHeight = CODE_BLOCK_DEFAULT_MAX_HEIGHT,
   collapsible = false,
   collapseAfterLines = 20,
+  fullscreenScope = "container",
+  wrapLines = false,
+  showLineNumbers = false,
 }: {
   text: string;
   language?: string;
   maxHeight?: string;
   collapsible?: boolean;
   collapseAfterLines?: number;
+  fullscreenScope?: "container" | "viewport";
+  wrapLines?: boolean;
+  showLineNumbers?: boolean;
 }) {
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
@@ -313,6 +331,7 @@ export function CodeBlock({
   const copyTimer = useRef<number | null>(null);
   const fullscreenBoundsRaf = useRef<number | null>(null);
   const blockRef = useRef<HTMLDivElement>(null);
+  const fullscreenRef = useRef<HTMLDivElement>(null);
   const scrollHostRef = useRef<HTMLElement | null>(null);
   const mermaidPointerRef = useRef<Map<number, PointLike>>(new Map());
   const mermaidGestureRef = useRef<MermaidGesture | null>(null);
@@ -502,16 +521,8 @@ export function CodeBlock({
     };
   }, [mermaidMode, expanded, shouldUsePlainRenderer, mermaidRenderKey, mermaidNodeId, mermaidCandidates.length]);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !isFullscreen) {
-      return;
-    }
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [isFullscreen]);
+  const dismissFullscreen = useCallback(() => setIsFullscreen(false), []);
+  useFullscreenKeyboard(isFullscreen, fullscreenRef, dismissFullscreen);
 
   useEffect(() => {
     if (!isFullscreen) {
@@ -604,6 +615,8 @@ export function CodeBlock({
     return () => observer.disconnect();
   }, [fitMermaidView, isFullscreen, mermaidMode, shouldDisplayMermaid]);
 
+  const fullscreenSurface = (content: React.ReactNode) => fullscreenScope === "viewport" ? createPortal(content, document.body) : content;
+
   const openFullscreen = (event?: React.MouseEvent) => {
     event?.stopPropagation();
     if (mermaidMode) {
@@ -614,7 +627,7 @@ export function CodeBlock({
       setMermaidMode("fit");
     }
     setExpanded(true);
-    const host = findScrollableContainer(blockRef.current);
+    const host = fullscreenScope === "viewport" ? null : findScrollableContainer(blockRef.current);
     scrollHostRef.current = host;
     if (host) {
       const rect = host.getBoundingClientRect();
@@ -825,6 +838,8 @@ export function CodeBlock({
           </button>
         </div>
         <CodeBlockContent
+          wrapLines={wrapLines}
+          showLineNumbers={showLineNumbers}
           fullSize={false}
           maxHeight={maxHeight}
           displayedText={displayedText}
@@ -850,19 +865,8 @@ export function CodeBlock({
           </div>
         )}
       </div>
-      {isFullscreen && (
-        <div
-          className="fixed z-50 bg-black/85 backdrop-blur-sm"
-          style={fullscreenHostStyle ?? { inset: "0px" }}
-          onClick={closeFullscreen}
-          role={mermaidMode ? "dialog" : undefined}
-          aria-modal={mermaidMode ? "true" : undefined}
-          aria-label={mermaidMode ? "Fullscreen Mermaid diagram" : undefined}
-        >
-          <div
-            className="mx-auto flex h-full w-full flex-col border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
+      {isFullscreen && fullscreenSurface(
+        <FullscreenOverlay panelRef={fullscreenRef} style={fullscreenHostStyle ?? undefined} onClose={dismissFullscreen} label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}>
             <div
               className="flex select-none items-center gap-1.5 px-2 py-1.5 text-xs"
               style={{
@@ -929,6 +933,8 @@ export function CodeBlock({
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
               <CodeBlockContent
+                wrapLines={wrapLines}
+                showLineNumbers={showLineNumbers}
                 fullSize
                 maxHeight={maxHeight}
                 displayedText={displayedText}
@@ -950,8 +956,7 @@ export function CodeBlock({
                 onMermaidDoubleClick={fitMermaidView}
               />
             </div>
-          </div>
-        </div>
+        </FullscreenOverlay>,
       )}
     </div>
   );

@@ -607,9 +607,8 @@ impl ServiceContext {
     }
 }
 
-/// Task fields a Planner may never write: status, assignment, and everything an
-/// execution attempt owns. Routing (executor_role/personality/role_guidance) is
-/// planning, not execution: a draft Planner writes it at task-add time.
+/// Task fields a Planner may never write: lifecycle status, assignment, and
+/// everything an execution attempt owns, except an explicit labeled block.
 ///
 /// Shared so the owner-epoch seam and the update handler bound Planner authority
 /// by the SAME list. A field added here narrows both, never one of them.
@@ -630,12 +629,18 @@ pub(crate) const PLANNER_EXECUTION_FIELDS: &[&str] = &[
     "qa_state",
 ];
 
-/// The execution field this body carries, if any. `None` means the body is
-/// structure-only and therefore inside durable Planner authority.
+/// The execution field this body carries, if any. `None` means it is
+/// structure-only or an explicit labeled block decision.
 pub(crate) fn planner_forbidden_task_field(body: &Value) -> Option<&'static str> {
+    let block_decision = body.get("status").and_then(Value::as_str) == Some("blocked")
+        && body
+            .get("status_label")
+            .and_then(Value::as_str)
+            .is_some_and(|label| !label.trim().is_empty());
     PLANNER_EXECUTION_FIELDS
         .iter()
         .copied()
+        .filter(|field| !block_decision || !matches!(*field, "status" | "status_label"))
         .find(|field| body.get(field).is_some_and(|value| !value.is_null()))
 }
 

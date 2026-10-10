@@ -1,4 +1,4 @@
-# Baked Linux arm64 builder for CodeTerm (native aarch64 on an arm64 Docker host).
+# Baked Linux arm64 builder for Domios (native aarch64 on an arm64 Docker host).
 # Heavy apt/toolchain lives in image layers -> per-build start is instant; builds
 # themselves stay clean (fresh git clone of the tag, no cargo target cache).
 #

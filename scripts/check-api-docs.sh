@@ -71,7 +71,10 @@ def route_calls(text: str):
         i = pos
 
 registered = set()
-routes_text = routes_rs.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
+routes_text = "\n".join(
+    source.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
+    for source in (routes_rs, routes_rs.with_name("memory_router.rs"))
+)
 for call in route_calls(routes_text):
     m = re.match(r'\s*"([^"]+)"\s*,\s*(.*)\s*$', call, re.S)
     if not m:
@@ -82,7 +85,7 @@ for call in route_calls(routes_text):
         registered.add((method.upper(), path))
 
 documented = set()
-for line in api_md.read_text(encoding="utf-8").splitlines():
+for line in "\n".join(source.read_text(encoding="utf-8") for source in sorted(api_md.parent.glob("API*.md"))).splitlines():
     m = re.match(r"\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`", line)
     if m:
         documented.add((m.group(1), m.group(2)))

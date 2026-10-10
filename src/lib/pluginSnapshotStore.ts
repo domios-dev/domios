@@ -28,6 +28,7 @@ let snapshotState: PluginSnapshotStoreState = {
 };
 
 let inFlight: Promise<PluginSnapshot> | null = null;
+let snapshotEpoch = 0;
 const listeners = new Set<Listener>();
 
 function emit() {
@@ -63,6 +64,7 @@ async function fetchSnapshot({
   if (!force && isFresh(now)) return snapshotState.snapshot;
   if (inFlight) return inFlight;
 
+  const epoch = snapshotEpoch;
   const hasCachedRows = snapshotState.lastSuccessfulSnapshot !== null;
   setSnapshotState({
     loading: !hasCachedRows && !background,
@@ -72,6 +74,7 @@ async function fetchSnapshot({
 
   inFlight = invoke<PluginSnapshot>("plugin_manager_snapshot")
     .then((snapshot) => {
+      if (epoch !== snapshotEpoch) return snapshotState.snapshot;
       const normalized = normalizeSnapshot(snapshot);
       setSnapshotState({
         snapshot: normalized,
@@ -85,6 +88,7 @@ async function fetchSnapshot({
       return normalized;
     })
     .catch((error: unknown) => {
+      if (epoch !== snapshotEpoch) return snapshotState.snapshot;
       setSnapshotState({
         snapshot: snapshotState.lastSuccessfulSnapshot ?? EMPTY_SNAPSHOT,
         error: String(error),
@@ -95,20 +99,25 @@ async function fetchSnapshot({
       throw error;
     })
     .finally(() => {
-      inFlight = null;
+      if (epoch === snapshotEpoch) inFlight = null;
     });
 
   return inFlight;
 }
 
+export function subscribePluginSnapshotStore(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function getPluginSnapshotState(): PluginSnapshotStoreState {
+  return snapshotState;
+}
+
 export function usePluginSnapshotStore(): PluginSnapshotStoreState {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => snapshotState,
-  );
+  return useSyncExternalStore(subscribePluginSnapshotStore, getPluginSnapshotState);
 }
 
 export function ensurePluginSnapshot(options?: { force?: boolean; background?: boolean }) {
@@ -117,6 +126,8 @@ export function ensurePluginSnapshot(options?: { force?: boolean; background?: b
 
 export async function runPluginSnapshotAction(action: Record<string, unknown>): Promise<PluginSnapshot> {
   const next = normalizeSnapshot(await invoke<PluginSnapshot>("plugin_manager_action", { action }));
+  snapshotEpoch += 1;
+  inFlight = null;
   setSnapshotState({
     snapshot: next,
     lastSuccessfulSnapshot: next,
@@ -134,6 +145,7 @@ export function invalidatePluginSnapshotStore() {
 }
 
 export function __resetPluginSnapshotStoreForTest() {
+  snapshotEpoch += 1;
   inFlight = null;
   snapshotState = {
     snapshot: EMPTY_SNAPSHOT,

@@ -192,11 +192,7 @@ fn fetch_paste(
             if !status.is_success() {
                 crate::cmd::print::fail(1, format!("HTTP {}", status.as_u16()));
             }
-            if json {
-                println!("{}", serde_json::to_string_pretty(&val).unwrap());
-            } else if let Some(body) = val.get("body").and_then(|v| v.as_str()) {
-                print!("{}", body);
-            }
+            print!("{}", render_paste(&val, json));
         }
         Err(e) => {
             crate::cmd::print::fail(1, e.to_string());
@@ -305,5 +301,39 @@ mod tests {
         assert!(parse_duration_ms("abc").is_none());
         assert!(parse_duration_ms("1z").is_none());
         assert!(parse_duration_ms("0s").is_none());
+    }
+}
+
+/// One renderer for local and mesh `paste get`: the exact body, or the record with `--json`.
+pub(crate) fn render_paste(val: &serde_json::Value, json: bool) -> String {
+    if json {
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(val).unwrap_or_default()
+        )
+    } else {
+        val.get("body")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::render_paste;
+
+    #[test]
+    fn paste_get_prints_the_exact_body_without_metadata() {
+        let record = serde_json::json!({
+            "id": "paste:q6r92f",
+            "body": "line one\n  `ticks` $HOME\n",
+            "content_type": "text/plain",
+            "created_at": 1
+        });
+        assert_eq!(render_paste(&record, false), "line one\n  `ticks` $HOME\n");
+        let json = render_paste(&record, true);
+        assert!(json.contains("\"content_type\""));
+        assert!(json.ends_with('\n'));
     }
 }

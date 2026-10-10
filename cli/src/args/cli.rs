@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use crate::mesh_cli::MeshAction;
 
 use super::agent::AgentAction;
+use super::blueprint::BlueprintAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
@@ -31,6 +32,7 @@ use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
 use super::supporter::SupporterAction;
+use super::surface::SurfaceAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
 use super::team::TeamAction;
@@ -41,7 +43,7 @@ use super::usage::UsageAction;
 #[command(
     name = "codeterm",
     version,
-    about = "CodeTerm CLI — control your terminal multiplexer",
+    about = "Domios CLI — control your terminal multiplexer",
     after_help = "Plugin management is available via `codeterm plugin --help`."
 )]
 pub struct Cli {
@@ -63,8 +65,19 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
-    /// Show CodeTerm version and system info
+    /// Read this instance's DEV flow trace without contacting the daemon
+    Trace {
+        #[command(subcommand)]
+        action: super::trace::TraceAction,
+    },
+    /// Show Domios version and system info
     Identify,
+
+    /// Configure model endpoints through the installed provider capability
+    ModelProvider {
+        #[command(subcommand)]
+        action: super::model_provider::ModelProviderAction,
+    },
 
     /// List CLI commands and clearly marked RPC-only/internal methods
     Capabilities,
@@ -258,10 +271,22 @@ pub enum Commands {
         action: ThemeAction,
     },
 
+    /// Plugin surface tabs: app tabs whose content a plugin view renders
+    Surface {
+        #[command(subcommand)]
+        action: SurfaceAction,
+    },
+
     /// Agent hierarchy management
     Agent {
         #[command(subcommand)]
         action: AgentAction,
+    },
+
+    /// Cheap hash-gated watchers with closed-set routes
+    Blueprint {
+        #[command(subcommand)]
+        action: BlueprintAction,
     },
 
     /// Cron job management
@@ -276,7 +301,7 @@ pub enum Commands {
         action: ServiceAction,
     },
 
-    /// Check for updates and manage CodeTerm version
+    /// Check for updates and manage Domios version
     Update {
         #[command(subcommand)]
         action: Option<UpdateAction>,
@@ -291,7 +316,7 @@ pub enum Commands {
         after_update: Option<String>,
     },
 
-    /// Read or write CodeTerm configuration
+    /// Read or write Domios configuration
     Config {
         #[command(subcommand)]
         action: ConfigAction,
@@ -315,7 +340,8 @@ pub enum Commands {
         action: MemAction,
     },
 
-    /// Configure and inspect the Supporter Agent.
+    /// Configure and inspect Spinal Cord (Supporter Agent).
+    #[command(visible_alias = "spinal-cord")]
     Supporter {
         #[command(subcommand)]
         action: SupporterAction,
@@ -385,7 +411,7 @@ pub enum Commands {
         action: SystemAction,
     },
 
-    /// Read embedded CodeTerm documentation in full. Omit NAME to list documents.
+    /// Read embedded Domios documentation in full. Omit NAME to list documents.
     Docs {
         /// Document name. Omit to list every available name and purpose.
         name: Option<String>,

@@ -216,7 +216,7 @@ export function SnakeGame() {
       <div className="snake-shell">
         <header className="snake-header">
           <div>
-            <p className="snake-kicker">CodeTerm / local arcade</p>
+            <p className="snake-kicker">Domios / local arcade</p>
             <h1>Neon Snake</h1>
             <p className="snake-intro">A responsive Snake board with a visible head, glowing trail, and touch controls.</p>
           </div>

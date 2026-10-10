@@ -2,18 +2,11 @@ use serde::Serialize;
 
 use super::prompts_plan::REGRESSION_MILESTONE_KIND;
 use super::reflection::GROUP_CLOSE_MILESTONE_KIND;
-use crate::plan::{AgentRef, Milestone, Plan, RegressionGateOverride, Task};
+use crate::plan::{AgentRef, Milestone, Plan, RegressionGateOverride};
 
 use super::{PlanError, PlanStore};
 
 pub const GROUP_REGRESSION_LINK_PREFIX: &str = "group:";
-
-/// Task tag marking work whose purpose IS to run the regression/QA that clears
-/// pending gates — it must stay dispatchable so the frontier can be unblocked.
-pub const GATE_CLEARING_TAG: &str = "regression-gate";
-/// Task tag marking work the existing policy classifies as release-blocking, so
-/// it dispatches even while broad gates are pending.
-pub const RELEASE_BLOCKING_TAG: &str = "release-blocking";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RegressionGate {
@@ -21,43 +14,15 @@ pub struct RegressionGate {
     pub label: String,
 }
 
-/// Why a task escapes a pending regression gate without an explicit override.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum DispatchExemption {
-    GateClearing,
-    ReleaseBlocking,
-}
-
-impl DispatchExemption {
-    pub fn reason(self) -> &'static str {
-        match self {
-            DispatchExemption::GateClearing => {
-                "gate-clearing work (regression-gate tag): runs the QA that clears the gate"
-            }
-            DispatchExemption::ReleaseBlocking => {
-                "release-blocking work (release-blocking tag): dispatchable by policy"
-            }
-        }
-    }
-}
-
 /// Outcome of evaluating a task dispatch against a plan's pending gates.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum RegressionDispatchDecision {
-    /// No blocking gate stands in the way — ordinary dispatch semantics.
+    /// No terminal group has pending advisory records.
     Clear,
-    /// A narrow, visible exception carries the task past the gate.
-    Exempt {
-        exemption: DispatchExemption,
-        blocking: Vec<RegressionGate>,
-        retrospectives: Vec<RegressionGate>,
-    },
-    /// Dispatch must be refused until the regression gates go green or are
-    /// overridden and every terminal group has its retrospective recorded.
-    Blocked {
-        blocking: Vec<RegressionGate>,
+    /// Dispatch proceeds while the listed terminal-group records remain open.
+    Advisory {
+        regression_gates: Vec<RegressionGate>,
         retrospectives: Vec<RegressionGate>,
     },
 }
@@ -149,7 +114,7 @@ fn sorted_gates<'a>(plan: &Plan, keys: impl Iterator<Item = &'a str>) -> Vec<Reg
     out
 }
 
-// `respect_override` drops gates cleared by an authorized waiver, yielding the set that actually blocks dispatch; without it the full advisory set (what still needs a real QA run) shows.
+// The override-aware set remains useful for status, but neither set controls dispatch.
 fn compute_gates(plan: &Plan, respect_override: bool) -> Vec<RegressionGate> {
     let groups = completed_groups(plan);
     let keys = groups
@@ -162,8 +127,8 @@ fn compute_gates(plan: &Plan, respect_override: bool) -> Vec<RegressionGate> {
     sorted_gates(plan, keys)
 }
 
-/// Terminal groups whose retrospective stride is missing or predates their
-/// latest close. An override never waives these: recording one is the fix.
+/// Terminal groups whose optional retrospective stride is missing or predates
+/// their latest close. Overrides do not alter the recordkeeping status.
 pub fn pending_group_retrospectives(plan: &Plan) -> Vec<RegressionGate> {
     let groups = completed_groups(plan);
     let keys = groups
@@ -173,47 +138,36 @@ pub fn pending_group_retrospectives(plan: &Plan) -> Vec<RegressionGate> {
     sorted_gates(plan, keys)
 }
 
-// Advisory only — complete groups whose full-gate regression is missing or stale.
+// Complete groups whose optional regression evidence record is missing or stale.
 pub fn pending_regression_gates(plan: &Plan) -> Vec<RegressionGate> {
     compute_gates(plan, false)
 }
 
-// Enforcing set — pending gates minus those an authorized override has waived.
+// Unwaived pending QA records, used to identify dispatch advisories.
 pub fn blocking_regression_gates(plan: &Plan) -> Vec<RegressionGate> {
     compute_gates(plan, true)
 }
 
-/// Which narrow, always-visible exception (if any) lets a task past a pending gate.
-pub fn task_dispatch_exemption(task: &Task) -> Option<DispatchExemption> {
-    let has = |tag: &str| task.tags.iter().any(|t| t.eq_ignore_ascii_case(tag));
-    if has(GATE_CLEARING_TAG) {
-        Some(DispatchExemption::GateClearing)
-    } else if has(RELEASE_BLOCKING_TAG) {
-        Some(DispatchExemption::ReleaseBlocking)
-    } else {
-        None
+/// Decides whether terminal-group recordkeeping should accompany a dispatch.
+/// Never mutates and never refuses dispatch.
+pub fn regression_dispatch_advisory(
+    regression_gates: &[RegressionGate],
+    retrospectives: &[RegressionGate],
+) -> RegressionDispatchDecision {
+    if regression_gates.is_empty() && retrospectives.is_empty() {
+        return RegressionDispatchDecision::Clear;
+    }
+    RegressionDispatchDecision::Advisory {
+        regression_gates: regression_gates.to_vec(),
+        retrospectives: retrospectives.to_vec(),
     }
 }
 
-/// Decide whether dispatching `task` is allowed given the plan's pending gates.
-/// Never mutates. A blocked decision names every gate that stands in the way.
-pub fn regression_dispatch_decision(plan: &Plan, task: &Task) -> RegressionDispatchDecision {
-    let blocking = blocking_regression_gates(plan);
-    let retrospectives = pending_group_retrospectives(plan);
-    if blocking.is_empty() && retrospectives.is_empty() {
-        return RegressionDispatchDecision::Clear;
-    }
-    if let Some(exemption) = task_dispatch_exemption(task) {
-        return RegressionDispatchDecision::Exempt {
-            exemption,
-            blocking,
-            retrospectives,
-        };
-    }
-    RegressionDispatchDecision::Blocked {
-        blocking,
-        retrospectives,
-    }
+pub fn regression_dispatch_decision(plan: &Plan) -> RegressionDispatchDecision {
+    regression_dispatch_advisory(
+        &pending_regression_gates(plan),
+        &pending_group_retrospectives(plan),
+    )
 }
 
 impl PlanStore {
@@ -453,25 +407,6 @@ mod tests {
         ));
     }
 
-    fn candidate(tags: &[&str]) -> Task {
-        serde_json::from_value(serde_json::json!({
-            "id": "task_cand",
-            "name": "Frontier work",
-            "type": "implement",
-            "model": null,
-            "model_rationale": null,
-            "status": "pending",
-            "status_label": null,
-            "section_ids": [],
-            "body": "",
-            "intent": null,
-            "assigned_tab_id": null,
-            "peer": null,
-            "tags": tags,
-        }))
-        .expect("candidate task fixture")
-    }
-
     fn close_phase_1(store: &PlanStore, pid: &str, ids: &[String]) {
         set_status(store, pid, &ids[0], TaskStatus::Done, 10);
         set_status(store, pid, &ids[1], TaskStatus::Done, 20);
@@ -484,50 +419,49 @@ mod tests {
         // phase-1 still has an open member, so nothing gates.
         let plan = store.get(&pid).unwrap();
         assert_eq!(
-            regression_dispatch_decision(&plan, &candidate(&[])),
+            regression_dispatch_decision(&plan),
             RegressionDispatchDecision::Clear
         );
     }
 
     #[test]
-    fn dispatch_blocked_names_the_pending_gate() {
+    fn dispatch_advisory_names_the_pending_gate() {
         let (_d, store, pid, ids) = store_with_two_groups();
         close_phase_1(&store, &pid, &ids);
         let plan = store.get(&pid).unwrap();
-        match regression_dispatch_decision(&plan, &candidate(&[])) {
-            RegressionDispatchDecision::Blocked { blocking, .. } => {
-                assert_eq!(blocking.len(), 1);
-                assert_eq!(blocking[0].key, "phase-1");
+        match regression_dispatch_decision(&plan) {
+            RegressionDispatchDecision::Advisory {
+                regression_gates, ..
+            } => {
+                assert_eq!(regression_gates.len(), 1);
+                assert_eq!(regression_gates[0].key, "phase-1");
             }
-            other => panic!("expected Blocked, got {other:?}"),
+            other => panic!("expected advisory, got {other:?}"),
         }
     }
 
     #[test]
-    fn gate_clearing_and_release_blocking_tags_are_exempt() {
-        let (_d, store, pid, ids) = store_with_two_groups();
-        close_phase_1(&store, &pid, &ids);
-        let plan = store.get(&pid).unwrap();
-        for (tag, expected) in [
-            (GATE_CLEARING_TAG, DispatchExemption::GateClearing),
-            (RELEASE_BLOCKING_TAG, DispatchExemption::ReleaseBlocking),
-        ] {
-            match regression_dispatch_decision(&plan, &candidate(&[tag])) {
-                RegressionDispatchDecision::Exempt {
-                    exemption,
-                    blocking,
-                    ..
-                } => {
-                    assert_eq!(exemption, expected);
-                    assert_eq!(blocking[0].key, "phase-1", "exemption still names the gate");
-                }
-                other => panic!("expected Exempt for {tag}, got {other:?}"),
+    fn decision_is_a_pure_advisory_over_plain_gate_inputs() {
+        let gates = vec![RegressionGate {
+            key: "phase-1".into(),
+            label: "Phase 1".into(),
+        }];
+        let retrospectives = vec![RegressionGate {
+            key: "phase-2".into(),
+            label: "Phase 2".into(),
+        }];
+
+        assert_eq!(
+            regression_dispatch_advisory(&gates, &retrospectives),
+            RegressionDispatchDecision::Advisory {
+                regression_gates: gates,
+                retrospectives,
             }
-        }
+        );
     }
 
     #[test]
-    fn override_waives_gate_records_audit_and_clears_dispatch() {
+    fn override_records_audit_without_hiding_the_dispatch_advisory() {
         let (_d, store, pid, ids) = store_with_two_groups();
         close_phase_1(&store, &pid, &ids);
         let entry = store
@@ -556,10 +490,12 @@ mod tests {
         store
             .close_group(&pid, "phase-1", "retro", AgentRef::from_tab("orch"), 31)
             .unwrap();
-        assert_eq!(
-            regression_dispatch_decision(&store.get(&pid).unwrap(), &candidate(&[])),
-            RegressionDispatchDecision::Clear
-        );
+        match regression_dispatch_decision(&store.get(&pid).unwrap()) {
+            RegressionDispatchDecision::Advisory {
+                regression_gates, ..
+            } => assert_eq!(regression_gates[0].key, "phase-1"),
+            other => panic!("expected advisory, got {other:?}"),
+        }
     }
 
     #[test]
@@ -650,18 +586,17 @@ mod tests {
             .record_group_regression(&pid, "phase-1", "green", AgentRef::from_tab("qa"), 30)
             .unwrap();
         let plan = store.get(&pid).unwrap();
-        let next_group_task = plan.tasks.iter().find(|t| t.id == ids[2]).unwrap();
         assert!(blocking_regression_gates(&plan).is_empty());
-        match regression_dispatch_decision(&plan, next_group_task) {
-            RegressionDispatchDecision::Blocked {
-                blocking,
+        match regression_dispatch_decision(&plan) {
+            RegressionDispatchDecision::Advisory {
+                regression_gates,
                 retrospectives,
             } => {
-                assert!(blocking.is_empty());
+                assert!(regression_gates.is_empty());
                 assert_eq!(retrospectives.len(), 1);
                 assert_eq!(retrospectives[0].key, "phase-1");
             }
-            other => panic!("expected Blocked by the retrospective, got {other:?}"),
+            other => panic!("expected retrospective advisory, got {other:?}"),
         }
 
         record_retrospective(&store, &pid, 40);
@@ -674,7 +609,7 @@ mod tests {
             .unwrap();
         assert_eq!(retro.links, vec![regression_link("phase-1")]);
         assert_eq!(
-            regression_dispatch_decision(&plan, &plan.tasks[2]),
+            regression_dispatch_decision(&plan),
             RegressionDispatchDecision::Clear
         );
     }
@@ -720,8 +655,8 @@ mod tests {
         let plan = store.get(&pid).unwrap();
         assert!(blocking_regression_gates(&plan).is_empty());
         assert!(matches!(
-            regression_dispatch_decision(&plan, &candidate(&[])),
-            RegressionDispatchDecision::Blocked { ref retrospectives, .. } if retrospectives.len() == 1
+            regression_dispatch_decision(&plan),
+            RegressionDispatchDecision::Advisory { ref retrospectives, .. } if retrospectives.len() == 1
         ));
     }
 

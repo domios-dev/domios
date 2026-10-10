@@ -52,6 +52,7 @@ fi
 expect_log "environment gateway markers are not accepted" "$TEST_ROOT/forged-qa-env.log"
 
 source scripts/build-gateway.sh
+node --test scripts/cache-retention.test.mjs
 forged_parent_start="$(ct_gateway_process_start_token "$$")"
 if scripts/qa-prep.sh --gateway-context forged "$$" "$forged_parent_start" qa-prep --probe-only \
     > "$TEST_ROOT/forged-qa-parent.log" 2>&1; then
@@ -79,13 +80,23 @@ expect_log "/targets/release/release-policy" "$TEST_ROOT/release-policy.log"
 
 FAKE_BIN="$TEST_ROOT/fake-bin"
 mkdir -p "$FAKE_BIN"
-printf '#!/usr/bin/env bash\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$SCCACHE_CACHE_SIZE" > "$CODETERM_SCCACHE_CAP_RECEIPT"\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
 chmod +x "$FAKE_BIN/sccache"
-CT_BUILD_JOB_ID=worktree-policy PATH="$FAKE_BIN:$PATH" \
+env -u SCCACHE_CACHE_SIZE CT_BUILD_JOB_ID=worktree-policy CODETERM_SCCACHE_CAP_RECEIPT="$TEST_ROOT/sccache-cap" PATH="$FAKE_BIN:$PATH" \
   ./build.sh gateway-policy-probe worktree-target > "$TEST_ROOT/worktree-policy.log"
 expect_log "incremental=0" "$TEST_ROOT/worktree-policy.log"
 expect_log "/targets/exceptional/" "$TEST_ROOT/worktree-policy.log"
 expect_log "wrapper=sccache" "$TEST_ROOT/worktree-policy.log"
+[ "$(cat "$TEST_ROOT/sccache-cap")" = 10G ]
+node - <<'JS' "$TEST_ROOT/state"
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(process.argv[2], 'targets', 'exceptional');
+const markers = fs.readdirSync(root).map(name => JSON.parse(fs.readFileSync(path.join(root, name, '.codeterm-cache.json'))));
+if (!markers.some(marker => marker.checkout && marker.lastUsed > 0 && marker.sizeBytes >= 0)) {
+  throw new Error('gateway preparation did not persist retention metadata');
+}
+JS
 
 cli_flow="$(sed -n '/^  cli)/,/^    ;;/p' build.sh)"
 expect_log 'cargo build --release --manifest-path cli/Cargo.toml' <<< "$cli_flow"
@@ -115,6 +126,9 @@ dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cu
   exit 1
 }
 
+exceptional_flow="$(sed -n '/^prepare_exceptional_worktree_target() {/,/^}/p' build.sh)"
+expect_log 'ct_mark_exceptional_target || ' <<< "$exceptional_flow"
+
 worktree_flow="$(sed -n '/^  worktree-check)/,/^    ;;/p' build.sh)"
 expect_log 'prepare_exceptional_worktree_target' <<< "$worktree_flow"
 if grep -q 'enter_build_gateway' <<< "$worktree_flow"; then
@@ -134,16 +148,41 @@ check_tests_flow="$(sed -n '/^  check-tests)/,/^    ;;/p' build.sh)"
 expect_log 'prepare_exceptional_worktree_target' <<< "$check_tests_flow"
 expect_log 'prepare_dev_frontend_dist "$(pwd -P)"' <<< "$check_tests_flow"
 expect_log 'prepare_bundle_stubs' <<< "$check_tests_flow"
-expect_log 'cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets' <<< "$check_tests_flow"
-expect_log 'cargo check --manifest-path cli/Cargo.toml --all-targets' <<< "$check_tests_flow"
+expect_log 'cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-run' <<< "$check_tests_flow"
+expect_log 'cargo test --manifest-path cli/Cargo.toml --all-targets --no-run' <<< "$check_tests_flow"
 if grep -q 'enter_build_gateway' <<< "$check_tests_flow"; then
   echo "check-tests must compile test profiles without waiting behind the shared dev gateway" >&2
   exit 1
 fi
 
+mkdir -p "$TEST_ROOT/no-cargo"
+printf '#!/usr/bin/env bash\necho "cargo invoked" >&2\nexit 97\n' > "$TEST_ROOT/no-cargo/cargo"
+chmod +x "$TEST_ROOT/no-cargo/cargo"
+check_tests_wait_status=0
+PATH="$TEST_ROOT/no-cargo:$PATH" ./build.sh check-tests --wait-build \
+  > "$TEST_ROOT/check-tests-wait.log" 2>&1 || check_tests_wait_status=$?
+[ "$check_tests_wait_status" -eq 2 ] || {
+  echo "check-tests --wait-build must refuse with exit 2, got $check_tests_wait_status" >&2
+  cat "$TEST_ROOT/check-tests-wait.log" >&2
+  exit 1
+}
+expect_log "check-tests does not use the build gateway" "$TEST_ROOT/check-tests-wait.log"
+if grep -q "cargo invoked" "$TEST_ROOT/check-tests-wait.log"; then
+  echo "check-tests started cargo before refusing --wait-build" >&2
+  exit 1
+fi
+
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
 expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
+expect_log 'scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"' <<< "$test_one_flow"
 expect_log 'cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
+
+nextest_flow="$(sed -n '/^  nextest)/,/^  verify)/p' build.sh)"
+expect_log 'run_nextest_scope "${@:2}"' <<< "$nextest_flow"
+nextest_runner="$(sed -n '/^run_nextest_scope()/,/^}/p' build.sh)"
+expect_log 'enter_build_gateway' <<< "$nextest_runner"
+expect_log 'CARGO_TEST_BUILD_CMD="cargo nextest run"' <<< "$nextest_runner"
+expect_log 'scripts/test-capped.sh' <<< "$nextest_runner"
 
 verify_flow="$(sed -n '/^  verify)/,/^    ;;/p' build.sh)"
 verify_coverage_checks_typescript() {

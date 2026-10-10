@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../test/standaloneTest";
 import type { Tab } from "./types";
-import { loadAttachedRemoteTabs, projectAttachedRemoteTab, saveAttachedRemoteTabs } from "./remoteTabPortal";
+import { loadAttachedRemoteTabs, projectAttachedRemoteTab, reconcileAttachedRemoteTabs, saveAttachedRemoteTabs } from "./remoteTabPortal";
 
 const source = (backing: Tab["backing"], ptyId: string | null): Tab => ({
   id: "remote-tab",
@@ -12,6 +12,22 @@ const source = (backing: Tab["backing"], ptyId: string | null): Tab => ({
 });
 
 describe("remote Tab portal projection", () => {
+  it("refreshes live session and activity while preserving the attachment workspace", () => {
+    const attached = projectAttachedRemoteTab(source({ kind: "pty" }, "pty"), { peer_id: "peer", peer_name: "Peer" }, "local-ws");
+    const live = { ...attached, workspace_id: "remote-ws", agent_session_id: "new-session", agent_state: { state: "working" as const, elapsed_ms: 8000 } };
+    const result = reconcileAttachedRemoteTabs({ [live.id]: live }, { [attached.id]: attached });
+    expect(result[live.id].agent_state).toEqual(live.agent_state);
+    expect(result[live.id].agent_session_id).toBe("new-session");
+    expect(result[live.id].workspace_id).toBe("local-ws");
+  });
+
+  it("keeps unattached live tabs and disconnected attachments", () => {
+    const attached = projectAttachedRemoteTab(source({ kind: "pty" }, "pty"), { peer_id: "peer", peer_name: "Peer" }, "ws");
+    const live = { ...attached, id: "mesh:peer/other", remote_tab_id: "other" };
+    const result = reconcileAttachedRemoteTabs({ [live.id]: live }, { [attached.id]: attached });
+    expect(result[live.id]).toEqual(live);
+    expect(result[attached.id]).toEqual(attached);
+  });
   it("uses composite route identity without rewriting backing capabilities", () => {
     const projected = projectAttachedRemoteTab(
       source({ kind: "pty" }, "remote-pty"),

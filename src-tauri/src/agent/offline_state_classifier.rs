@@ -20,11 +20,11 @@ pub use codeterm_types::pty::{
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
 pub const DONE_MS: u64 = 800;
-const WORKING_GRACE_MS: u64 = 1500;
+pub(crate) const WORKING_GRACE_MS: u64 = 1500;
 const BOTTOM_REGION_ROWS: u16 = 8;
 /// Upper bound on how long a Working verdict may persist with zero active-work
 /// evidence and total PTY silence before resolving to Idle (anti-stuck-Working).
-const STUCK_WORKING_IDLE_MS: u64 = 5000;
+pub(crate) const STUCK_WORKING_IDLE_MS: u64 = 5000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassifiedSegment {
@@ -68,6 +68,7 @@ pub struct CastTimelineInput {
 ///   existing per-tab `ScreenState` parser (no second vt100).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassifyInput<'a> {
+    pub prompt_line: bool,
     /// Resolved provider chrome band. Required input, no default: it is built
     /// only via `classify_input::ClassifyInputBuilder`.
     pub status_bar_rows: StatusBarRows,
@@ -86,11 +87,7 @@ pub struct ClassifyInput<'a> {
     pub motion: Motion,
     /// Current VT cursor visibility.
     pub cursor_hidden: bool,
-    /// Structural "input composer is ready" signal for full-screen TUI composers
-    /// (e.g. opencode) whose idle prompt has no `❯`/`›`/`→` glyph: the VT cursor is
-    /// visible and sits in the bottom input region of an alt-screen. Lets such
-    /// providers settle to Idle promptly (structurally) instead of via the
-    /// stuck-Working timeout. Computed by both adapters via [`composer_cursor_ready`].
+    /// Cursor readiness under the provider's declared composer geometry.
     pub composer_ready: bool,
     /// The status widget's own elapsed counter, current versus the previous
     /// observation of the same widget, plus whether this widget has ever been
@@ -108,6 +105,14 @@ pub struct ClassifyInput<'a> {
 /// by the offline replay adapter and the live path so both agree.
 pub fn composer_cursor_ready(cursor_visible: bool, cursor_row: u16, rows: u16) -> bool {
     cursor_visible && rows > 0 && cursor_row + BOTTOM_REGION_ROWS >= rows
+}
+
+pub fn prompt_line_cursor_ready(
+    cursor_visible: bool,
+    cursor_row: u16,
+    last_nonblank_row: Option<u16>,
+) -> bool {
+    cursor_visible && last_nonblank_row == Some(cursor_row)
 }
 
 pub fn composer_evidence_excluded(classified_modal_or_trust_frame: bool) -> bool {
@@ -173,6 +178,23 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
             state: TimelineState::Question,
             subtype: Some(classify_question_subtype(input.tail, question)),
         };
+    }
+
+    if input.prompt_line {
+        if input.composer_ready {
+            return TabVerdict {
+                state: TimelineState::Idle,
+                subtype: None,
+            };
+        }
+        if input.byte_idle_ms < WAIT_MS
+            || matches!(input.motion, Motion::Streaming | Motion::Animating)
+        {
+            return TabVerdict {
+                state: TimelineState::Working,
+                subtype: None,
+            };
+        }
     }
 
     let ready_prompt_visible = ready_prompt_glyph(input.screen_lines);

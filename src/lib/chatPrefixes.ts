@@ -5,7 +5,14 @@
 
 export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
 import type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
-import { parseMarker } from "@codeterm/chat-core";
+import { automationOrigin } from "@codeterm/chat-core";
+import {
+  buildDomiosMessage,
+  DOMIOS_CLOSE_TAG,
+  parseDomiosMessage,
+  parseMarker,
+  systemOriginLabel,
+} from "@codeterm/chat-core";
 
 export interface PrefixMatch {
   origin: ChatOrigin;
@@ -23,7 +30,11 @@ const PASTED_CONTENT_TAG_RE = /<[\\/]{0,2}pasted_content(?:\s+id="[^"]*")?\s*>/g
 /** Claude transcripts wrap pasted text in `<pasted_content id="…">` tags, which hide leading markers. */
 export function stripPastedContentTags(content: string): string {
   if (!content.includes("pasted_content")) return content;
-  return content.replace(PASTED_CONTENT_TAG_RE, "").trim();
+  return content
+    .replace(/<pasted_content(?:\s+id="[^"]*")?\s*>\r?\n/g, "")
+    .replace(/\r?\n<\/pasted_content(?:\s+id="[^"]*")?\s*>/g, "")
+    .replace(PASTED_CONTENT_TAG_RE, "")
+    .replace(/\s+$/, "");
 }
 
 // Matches a bare /command line (new claude JSONL format).
@@ -43,52 +54,12 @@ export function detectChatPrefix(content: string): PrefixMatch | null {
 }
 
 function detectTransportPrefix(content: string): PrefixMatch | null {
+  const domios = content.startsWith("<domios")
+    ? parseTranscriptDomiosMessage(stripPastedContentTags(content))
+    : null;
+  if (domios) return domiosPrefix(domios.attrs, domios.body);
   const marker = parseMarker(content);
   if (!marker) return null;
-  const body = stripReplyHint(marker.payload);
-  if (marker.kind === "tab" || marker.kind === "report") {
-    const title = marker.attrs.label ?? marker.attrs.from ?? "tab";
-    const tabIdShort = marker.attrs.tab;
-    if (tabIdShort) {
-      return {
-        origin: {
-          kind: "tab",
-          title,
-          tabIdShort: tabIdShort,
-          ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
-          ...(marker.attrs.mesh ? { mesh: marker.attrs.mesh } : {}),
-          ...(marker.kind === "report" ? { report: true } : {}),
-        },
-        body,
-      };
-    }
-  }
-  if (marker.kind === "telegram") {
-    const userId = marker.attrs.user;
-    if (userId) {
-      return {
-        origin: { kind: "telegram", userId, messageId: marker.attrs.msg },
-        body,
-      };
-    }
-  }
-  if (marker.kind === "pebble") {
-    if (marker.attrs.plugin) {
-      return {
-        origin: {
-          kind: "plugin",
-          pluginId: marker.attrs.plugin,
-          name: marker.attrs.source,
-        },
-        body,
-      };
-    }
-    return { origin: { kind: "pebble" }, body };
-  }
-  if (marker.kind === "mesh") {
-    const peerId = marker.attrs.peer;
-    if (peerId) return { origin: { kind: "mesh", peerId }, body };
-  }
   if (marker.kind === "plugin_config" && marker.attrs.plugin) {
     return {
       origin: {
@@ -96,76 +67,99 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
         pluginId: marker.attrs.plugin,
         name: marker.attrs.name ?? marker.attrs.plugin,
       },
-      body,
+      body: marker.payload,
     };
   }
   if (marker.kind === "system_prompt") {
     return {
       origin: { kind: "system_prompt" },
-      body,
+      body: marker.payload,
     };
   }
-  if (marker.kind === "system") {
-    return {
-      origin: { kind: "system", ...(marker.attrs.context ? { context: marker.attrs.context } : {}) },
-      body,
-    };
-  }
-  if (marker.kind === "reminder") {
+  return null;
+}
+
+function parseTranscriptDomiosMessage(content: string) {
+  const parsed = parseDomiosMessage(content);
+  if (parsed) return parsed;
+  const close = content.indexOf(DOMIOS_CLOSE_TAG);
+  if (close < 0) return null;
+  const end = close + DOMIOS_CLOSE_TAG.length;
+  const prefix = parseDomiosMessage(content.slice(0, end));
+  if (!prefix || !REORDERED_FRAME_CONTENT.test(prefix.content)) return null;
+  return parseDomiosMessage(buildDomiosMessage(prefix.attrs, `${content.slice(end)}${prefix.content}`));
+}
+
+// Some transcripts store a large paste after the typed frame, leaving only the reply hint inside it.
+const REORDERED_FRAME_CONTENT = /^\s*(?:\[to reply, run: [^\]\n]*\])?\s*$/;
+
+function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch | null {
+  const automation = automationOrigin(attrs);
+  if (automation) return { origin: automation, body };
+  const from = attrs.from;
+  if (from === "tab" || from === "report") {
+    if (!attrs.tab) return null;
     return {
       origin: {
-        kind: "reminder",
-        ...(marker.attrs.from ? { whoSet: marker.attrs.from } : {}),
-        ...(marker.attrs.tab ? { tab: marker.attrs.tab } : {}),
-        ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
-        ...(marker.attrs.set_at ? { setAt: marker.attrs.set_at } : {}),
-        ...(marker.attrs.fire_at ? { fireAt: marker.attrs.fire_at } : {}),
-        ...(marker.attrs.id ? { id: marker.attrs.id } : {}),
-        ...(marker.attrs.every_ms ? { everyMs: marker.attrs.every_ms } : {}),
-        ...(marker.attrs.next_at ? { nextAt: marker.attrs.next_at } : {}),
-        ...(marker.attrs.skipped ? { skippedTicks: marker.attrs.skipped } : {}),
+        kind: "tab",
+        title: attrs.label ?? "tab",
+        tabIdShort: attrs.tab,
+        ...(attrs.model ? { model: attrs.model } : {}),
+        ...(attrs.mesh ? { mesh: attrs.mesh } : {}),
+        ...(from === "report" ? { report: true } : {}),
       },
       body,
     };
   }
-  if (marker.attrs.user) {
+  if (from === "telegram" && attrs.user) {
+    return { origin: { kind: "telegram", userId: attrs.user, messageId: attrs.msg }, body };
+  }
+  if (from === "mesh") {
+    const peerId = attrs.peer ?? attrs.mesh;
+    if (peerId) return { origin: { kind: "mesh", peerId }, body };
+  }
+  if (from === "pebble") {
+    return attrs.plugin
+      ? { origin: { kind: "plugin", pluginId: attrs.plugin, name: attrs.source }, body }
+      : { origin: { kind: "pebble" }, body };
+  }
+  if (from === "plugin" && attrs.plugin) {
+    return { origin: { kind: "plugin", pluginId: attrs.plugin }, body };
+  }
+  if (from === "system") {
+    return { origin: { kind: "system", ...(attrs.context ? { context: attrs.context } : {}) }, body };
+  }
+  if (from === "reminder") {
     return {
-      origin: { kind: "service", service: marker.kind, userId: marker.attrs.user },
+      origin: {
+        kind: "reminder",
+        ...(attrs.label ? { whoSet: attrs.label } : {}),
+        ...(attrs.tab ? { tab: attrs.tab } : {}),
+        ...(attrs.model ? { model: attrs.model } : {}),
+        ...(attrs.set_at ? { setAt: attrs.set_at } : {}),
+        ...(attrs.fire_at ? { fireAt: attrs.fire_at } : {}),
+        ...(attrs.id ? { id: attrs.id } : {}),
+        ...(attrs.every_ms ? { everyMs: attrs.every_ms } : {}),
+        ...(attrs.next_at ? { nextAt: attrs.next_at } : {}),
+        ...(attrs.skipped ? { skippedTicks: attrs.skipped } : {}),
+      },
       body,
     };
   }
   return null;
 }
 
-function stripReplyHint(payload: string): string {
-  const instructionStart = payload.lastIndexOf("\n[to reply, run: codeterm send ");
-  if (instructionStart >= 0 && payload.endsWith("]")) {
-    return payload.slice(0, instructionStart).trimEnd();
-  }
-  const start = payload.lastIndexOf("\n-=-codeterm:reply");
-  if (start < 0) return payload;
-  const marker = parseMarker(payload.slice(start + 1));
-  if (!marker || marker.kind !== "reply" || marker.payload.trim()) return payload;
-  return payload.slice(0, start).trimEnd();
-}
-
 export function splitChatPrefixedMessages(content: string): PrefixMatch[] | null {
-  const starts: number[] = [];
-  for (let i = 0; i < content.length; i++) {
-    if (!content.startsWith("-=-codeterm:", i)) continue;
-    if (detectTransportPrefix(content.slice(i))) starts.push(i);
-  }
-  if (starts.length < 2) {
-    const single = detectTransportPrefix(content);
-    return single ? [single] : null;
-  }
   const matches: PrefixMatch[] = [];
-  for (let i = 0; i < starts.length; i++) {
-    const start = starts[i];
-    const end = starts[i + 1] ?? content.length;
-    const chunk = content.slice(start, end).trim();
-    const match = detectTransportPrefix(chunk);
-    if (match) matches.push(match);
+  let remaining = content;
+  while (remaining.startsWith("<domios")) {
+    const close = remaining.indexOf(DOMIOS_CLOSE_TAG);
+    if (close < 0) break;
+    const end = close + DOMIOS_CLOSE_TAG.length;
+    const match = detectTransportPrefix(remaining.slice(0, end));
+    if (!match) break;
+    matches.push(match);
+    remaining = remaining.slice(end);
   }
   return matches.length > 0 ? matches : null;
 }
@@ -273,7 +267,9 @@ export function labelFor(origin: ChatOrigin): string {
     case "plugin_config":
       return `Configure · ${origin.name}`;
     case "system":
-      return origin.context ? `System · ${origin.context}` : "System";
+      return systemOriginLabel(origin.context);
+    case "automation":
+      return `${origin.source === "utility" ? origin.purpose ?? "shell" : origin.source} · ${origin.name}`;
     case "system_prompt":
       return "System prompt";
     case "reminder":

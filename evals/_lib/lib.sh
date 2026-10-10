@@ -19,6 +19,7 @@
 #        codeterm) cannot route the call to prod. It also executes
 #        the active dev CLI by absolute path, never through PATH.
 #     3. The HTTP helpers use the selected dev instance port and token.
+#   Named instances are supported when the caller sets CODETERM_INSTANCE.
 #     4. A child process that reads the connection from its environment
 #        runs under `dev_run <cmd...>`; shell code reads `dev_auth_header`
 #        and `dev_data_dir` instead of an inherited variable.
@@ -49,11 +50,20 @@ is_linux()   { case "$OSTYPE" in linux*) return 0;; *) return 1;; esac; }
 EVAL_LIB_REQUESTED_INSTANCE="${CODETERM_INSTANCE:-}"
 EVAL_LIB_REQUESTED_API_PORT="${CODETERM_API_PORT:-}"
 EVAL_LIB_DEV_API_PORT=7686
+EVAL_LIB_DEV_VITE_PORT=1420
+EVAL_LIB_DEV_CDP_PORT=9223
 EVAL_LIB_DEV_HOST=127.0.0.1
 EVAL_LIB_RESOLVED_DATA_DIR=""
 EVAL_LIB_RESOLVED_SOCKET_PATH=""
 EVAL_LIB_RESOLVED_INSTANCE=""
 EVAL_LIB_RESOLVED_API_TOKEN=""
+EVAL_LIB_TARGET_IDENTITY_VERIFIED=0
+EVAL_LIB_TARGET_DATA_DIR=""
+EVAL_LIB_TARGET_API_PORT=""
+EVAL_LIB_TARGET_VITE_PORT=""
+EVAL_LIB_TARGET_CDP_PORT=""
+EVAL_LIB_TARGET_SOCKET_PATH=""
+EVAL_LIB_TARGET_INSTANCE=""
 
 dev_default_data_dir() {
   printf '%s\n' "$HOME/.codeterm-dev"
@@ -66,8 +76,43 @@ dev_requested_data_dir() {
     dev_default_data_dir
     return
   fi
-  slug="$(printf '%s' "$instance" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
+  slug="$(dev_instance_slug "$instance")"
   printf '%s\n' "$HOME/.codeterm-dev-$slug"
+}
+
+dev_instance_slug() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g'
+}
+
+dev_expected_socket_name() {
+  local instance="${EVAL_LIB_REQUESTED_INSTANCE:-}" slug
+  if [ -z "$instance" ]; then
+    printf 'codeterm-dev.sock\n'
+    return
+  fi
+  slug="$(dev_instance_slug "$instance")"
+  printf 'codeterm-dev-%s.sock\n' "$slug"
+}
+
+dev_instance_port_offset() {
+  local instance="$1" slug offset
+  if [ -z "$instance" ]; then
+    printf '0\n'
+    return
+  fi
+  slug="$(dev_instance_slug "$instance")"
+  offset="$(printf '%s' "$slug" | od -An -tu1 | awk '{for (i=1;i<=NF;i++) sum+=$i} END {print (sum%200)+1}')"
+  printf '%s\n' "$offset"
+}
+
+dev_vite_port_from_instance() {
+  local offset; offset="$(dev_instance_port_offset "$1")"
+  printf '%s\n' "$((1420 + offset))"
+}
+
+dev_cdp_port_from_instance() {
+  local offset; offset="$(dev_instance_port_offset "$1")"
+  printf '%s\n' "$((9223 + offset))"
 }
 
 dev_resolution_error() {
@@ -108,10 +153,16 @@ config_token() {
 }
 
 dev_resolve_identity() {
-  local cli output parsed data_dir
+  local cli output parsed data_dir expected_data_dir expected_socket expected_instance expected_port
+  if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] &&
+     { [ "$EVAL_LIB_REQUESTED_API_PORT" = 7685 ] || [ "$EVAL_LIB_REQUESTED_API_PORT" = 7686 ]; }; then
+    dev_resolution_error '<conflicting target selectors>' "$(dev_requested_data_dir)"
+    echo "ERROR [dev-resolution]: CODETERM_INSTANCE cannot select a default API port; set its named instance port." >&2
+    return 7
+  fi
   cli="$(dev_bootstrap_cli)" || return 7
   if ! output="$(
-    unset CODETERM_API_TOKEN CODETERM_TAB_ID CODETERM_PARENT_TAB_ID
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_DATA_DIR CODETERM_TAB_ID CODETERM_PARENT_TAB_ID
     if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
       export CODETERM_INSTANCE="$EVAL_LIB_REQUESTED_INSTANCE"
       unset CODETERM_SOCKET_PATH
@@ -139,7 +190,7 @@ values = [
     connection["host"],
     str(connection["port"]),
     connection["socket_path"],
-    connection.get("instance") or "",
+    (connection.get("instance") or "").strip(),
 ]
 print("\t".join(values))
 ')"; then
@@ -149,10 +200,45 @@ print("\t".join(values))
   IFS=$'\t' read -r data_dir EVAL_LIB_DEV_HOST EVAL_LIB_DEV_API_PORT \
     EVAL_LIB_RESOLVED_SOCKET_PATH EVAL_LIB_RESOLVED_INSTANCE <<<"$parsed"
   EVAL_LIB_RESOLVED_DATA_DIR="$(dev_shell_path "$data_dir")"
+  expected_data_dir="$(dev_shell_path "$(dev_requested_data_dir)")"
+  expected_socket="$(dev_expected_socket_name)"
+  expected_instance="$(printf '%s' "$EVAL_LIB_REQUESTED_INSTANCE" | python3 -c 'import sys; print(sys.stdin.read().strip())')"
+  expected_port=7686
+  if [ -n "$expected_instance" ] && [ -n "$EVAL_LIB_REQUESTED_API_PORT" ] &&
+     [ "$EVAL_LIB_REQUESTED_API_PORT" != 7685 ]; then
+    expected_port="$EVAL_LIB_REQUESTED_API_PORT"
+  fi
+  if [ "$EVAL_LIB_RESOLVED_DATA_DIR" != "$expected_data_dir" ] ||
+     [ "$EVAL_LIB_RESOLVED_SOCKET_PATH" != "$expected_socket" ] ||
+     [ "$EVAL_LIB_RESOLVED_INSTANCE" != "$expected_instance" ] ||
+     { [ -n "$expected_instance" ] && [ -n "$EVAL_LIB_REQUESTED_API_PORT" ] &&
+       [ "$EVAL_LIB_REQUESTED_API_PORT" != 7685 ] &&
+       [ "$EVAL_LIB_DEV_API_PORT" != "$expected_port" ]; } ||
+     { [ -z "$expected_instance" ] && [ "$EVAL_LIB_DEV_API_PORT" != "$expected_port" ]; }; then
+    dev_resolution_error "$EVAL_LIB_RESOLVED_DATA_DIR" "$expected_data_dir"
+    printf 'ERROR [dev-resolution]: identify --json disagrees with the resolved target (port=%s socket=%s instance=%s).\n' \
+      "$EVAL_LIB_DEV_API_PORT" "$EVAL_LIB_RESOLVED_SOCKET_PATH" "${EVAL_LIB_RESOLVED_INSTANCE:-default}" >&2
+    return 7
+  fi
+  if [ -n "$expected_instance" ] &&
+     { [ "$EVAL_LIB_DEV_API_PORT" = 7685 ] || [ "$EVAL_LIB_DEV_API_PORT" = 7686 ]; }; then
+    dev_resolution_error "$EVAL_LIB_RESOLVED_DATA_DIR" "$expected_data_dir"
+    echo "ERROR [dev-resolution]: named instance resolved to a default API port; refusing to pair it." >&2
+    return 7
+  fi
   if [ "$EVAL_LIB_DEV_API_PORT" = 7685 ]; then
     dev_resolution_error "$EVAL_LIB_RESOLVED_DATA_DIR" "$EVAL_LIB_RESOLVED_DATA_DIR"
     return 7
   fi
+  EVAL_LIB_DEV_VITE_PORT="$(dev_vite_port_from_instance "$EVAL_LIB_RESOLVED_INSTANCE")"
+  EVAL_LIB_DEV_CDP_PORT="$(dev_cdp_port_from_instance "$EVAL_LIB_RESOLVED_INSTANCE")"
+  EVAL_LIB_TARGET_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
+  EVAL_LIB_TARGET_API_PORT="$EVAL_LIB_DEV_API_PORT"
+  EVAL_LIB_TARGET_VITE_PORT="$EVAL_LIB_DEV_VITE_PORT"
+  EVAL_LIB_TARGET_CDP_PORT="$EVAL_LIB_DEV_CDP_PORT"
+  EVAL_LIB_TARGET_SOCKET_PATH="$EVAL_LIB_RESOLVED_SOCKET_PATH"
+  EVAL_LIB_TARGET_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE"
+  EVAL_LIB_TARGET_IDENTITY_VERIFIED=1
 }
 
 dev_data_dir() {
@@ -185,6 +271,25 @@ dev_socket_path() {
     echo '\\.\pipe\codeterm-dev.sock'
   else
     echo 'codeterm-dev.sock'
+  fi
+}
+
+dev_cdp_port() {
+  dev_resolve || return 7
+  printf '%s\n' "$EVAL_LIB_DEV_CDP_PORT"
+}
+
+dev_vite_port() {
+  dev_resolve || return 7
+  printf '%s\n' "$EVAL_LIB_DEV_VITE_PORT"
+}
+
+dev_assert_restart_target() {
+  local allow_default="${1:-0}"
+  dev_resolve || return 7
+  if [ -z "$EVAL_LIB_RESOLVED_INSTANCE" ] && [ "$allow_default" != 1 ]; then
+    echo "ERROR [dev-target]: refusing to restart the default DEV instance; set CODETERM_INSTANCE or explicitly allow it." >&2
+    return 7
   fi
 }
 
@@ -228,8 +333,13 @@ dev_run() {
   dev_resolve || return 7
   local -a dev_vars=(
     "CODETERM_API_PORT=$EVAL_LIB_DEV_API_PORT"
+    "CODETERM_API_URL=http://$EVAL_LIB_DEV_HOST:$EVAL_LIB_DEV_API_PORT"
+    "CODETERM_VITE_PORT=$EVAL_LIB_DEV_VITE_PORT"
+    "CODETERM_CDP_PORT=$EVAL_LIB_DEV_CDP_PORT"
     "CODETERM_API_TOKEN=$EVAL_LIB_RESOLVED_API_TOKEN"
+    "CODETERM_DATA_DIR=$EVAL_LIB_RESOLVED_DATA_DIR"
     "CODETERM_SOCKET_PATH=$EVAL_LIB_RESOLVED_SOCKET_PATH"
+    "CODETERM_INSTANCE=$EVAL_LIB_RESOLVED_INSTANCE"
     "CODETERM_DEV_DATA_DIR=$EVAL_LIB_RESOLVED_DATA_DIR"
     "CODETERM_DEV_AUTH_HEADER=Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
     "CODETERM_TAB_ID=$caller_tab_id"
@@ -244,22 +354,51 @@ dev_api_url() {
 }
 
 dev_assert_target() {
-  local health actual_instance
-  if ! health="$(curl -sS --max-time 1 "$(dev_api_url)/api/health")"; then
+  local health actual_instance actual_port actual_vite_port actual_cdp_port
+  if ! health="$(curl -sS --max-time 5 "$(dev_api_url)/api/health")"; then
     dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
       "${EVAL_LIB_RESOLVED_DATA_DIR:-$(dev_default_data_dir)}"
     return 7
   fi
-  if [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
-    actual_instance="$(printf '%s\n' "$health" | python3 -c '
+  actual_instance="$(printf '%s\n' "$health" | python3 -c '
 import json, sys
-print(json.load(sys.stdin).get("instance", {}).get("name", ""))
+print((json.load(sys.stdin).get("instance", {}).get("name", "") or "").strip())
 ')"
-    if [ "$actual_instance" != "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
-      dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
-        "${EVAL_LIB_RESOLVED_DATA_DIR:-$(dev_default_data_dir)}"
-      return 7
-    fi
+  actual_port="$(printf '%s\n' "$health" | python3 -c '
+import json, sys
+print(json.load(sys.stdin).get("instance", {}).get("api_port", ""))
+')"
+  actual_vite_port="$(printf '%s\n' "$health" | python3 -c '
+import json, sys
+print(json.load(sys.stdin).get("instance", {}).get("vite_port", ""))
+')"
+  actual_cdp_port="$(printf '%s\n' "$health" | python3 -c '
+import json, sys
+print(json.load(sys.stdin).get("instance", {}).get("cdp_port", ""))
+')"
+  if [ "$actual_instance" != "$EVAL_LIB_TARGET_INSTANCE" ] ||
+     [ "$actual_port" != "$EVAL_LIB_TARGET_API_PORT" ] ||
+     [ "$actual_vite_port" != "$EVAL_LIB_TARGET_VITE_PORT" ] ||
+     [ "$actual_cdp_port" != "$EVAL_LIB_TARGET_CDP_PORT" ]; then
+    dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
+      "${EVAL_LIB_TARGET_DATA_DIR:-$(dev_default_data_dir)}"
+    echo "ERROR [dev-target]: health listeners do not match the resolved instance." >&2
+    return 7
+  fi
+}
+
+dev_assert_cached_identity() {
+  if [ "$EVAL_LIB_TARGET_IDENTITY_VERIFIED" != 1 ] ||
+     [ "$EVAL_LIB_RESOLVED_DATA_DIR" != "$EVAL_LIB_TARGET_DATA_DIR" ] ||
+     [ "$EVAL_LIB_DEV_API_PORT" != "$EVAL_LIB_TARGET_API_PORT" ] ||
+     [ "$EVAL_LIB_DEV_VITE_PORT" != "$EVAL_LIB_TARGET_VITE_PORT" ] ||
+     [ "$EVAL_LIB_DEV_CDP_PORT" != "$EVAL_LIB_TARGET_CDP_PORT" ] ||
+     [ "$EVAL_LIB_RESOLVED_SOCKET_PATH" != "$EVAL_LIB_TARGET_SOCKET_PATH" ] ||
+     [ "$EVAL_LIB_RESOLVED_INSTANCE" != "$EVAL_LIB_TARGET_INSTANCE" ]; then
+    dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
+      "${EVAL_LIB_TARGET_DATA_DIR:-$(dev_default_data_dir)}"
+    echo "ERROR [dc]: cached identify --json target no longer matches the resolved target." >&2
+    return 7
   fi
 }
 
@@ -268,6 +407,7 @@ print(json.load(sys.stdin).get("instance", {}).get("name", ""))
 dev_http() {
   local method="$1" path="$2" body="${3:-}" response status auth
   dev_resolve || return 7
+  dev_assert_cached_identity || return 7
   dev_assert_target || return 7
   auth="$(dev_auth_header)" || return 7
   local -a args=(-sS --max-time 30 -o - -w $'\n%{http_code}' -X "$method"
@@ -307,6 +447,7 @@ dev_post_as_tab() {
   local tab_id="$1" path="$2" body="${3:-{}}" auth
   [ -n "$tab_id" ] || { echo "dev_post_as_tab requires tab id" >&2; return 7; }
   dev_resolve || return 7
+  dev_assert_cached_identity || return 7
   dev_assert_target || return 7
   auth="$(dev_auth_header)" || return 7
   curl -s --fail --max-time 30 -X POST -H "$auth" \
@@ -348,14 +489,17 @@ dc() {
     echo "             (would have leaked to prod via socket-discovery fallback)" >&2
     return 7
   fi
+  dev_assert_cached_identity || return 7
   if [ -n "$caller_tab_id" ]; then
     # Plan mutations authenticate the live bound session, not just the tab id.
-    local inspect session nonce
-    inspect="$(dev_run "$cli" tab inspect "$caller_tab_id" --json 2>/dev/null)"
-    session="$(printf '%s' "$inspect" | grep -m1 -oE '"agent_session_id": *"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/')"
-    nonce="$(printf '%s' "$inspect" | grep -m1 -oE '"session_binding_nonce": *"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/')"
-    dev_run --as-tab "$caller_tab_id" env \
-      "CODETERM_SESSION_ID=$session" "CODETERM_SESSION_BINDING_NONCE=$nonce" "$cli" "$@"
+    # A plain shell tab has no bound session; under the caller's pipefail a missing match must not abort.
+    local inspect session nonce binding=()
+    inspect="$(dev_run "$cli" tab inspect "$caller_tab_id" --json 2>/dev/null)" || true
+    session="$(printf '%s' "$inspect" | { grep -m1 -oE '"agent_session_id": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
+    nonce="$(printf '%s' "$inspect" | { grep -m1 -oE '"session_binding_nonce": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
+    [ -z "$session" ] || binding+=("CODETERM_SESSION_ID=$session")
+    [ -z "$nonce" ] || binding+=("CODETERM_SESSION_BINDING_NONCE=$nonce")
+    dev_run --as-tab "$caller_tab_id" env ${binding[@]+"${binding[@]}"} "$cli" "$@"
   else
     dev_run "$cli" "$@"
   fi
@@ -363,7 +507,7 @@ dc() {
 
 # --- Lifecycle -------------------------------------------------------
 
-# Returns dev PID on stdout if listening on 7686, empty otherwise.
+# Returns the selected dev instance PID on stdout, or empty if it is stopped.
 dev_pid() {
   if is_windows; then
     netstat -ano 2>/dev/null | grep ":$EVAL_LIB_DEV_API_PORT.*LISTEN" | awk '{print $5}' | head -1
@@ -406,14 +550,14 @@ dev_start_bg() {
     cd "$EVAL_LIB_REPO_ROOT" || exit 1
     local log_dir; log_dir="$(dev_data_dir)/logs" || exit 7
     mkdir -p "$log_dir"
-    "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
+    dev_run "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
     disown "$!" 2>/dev/null || true
   )
 }
 
 # --- Snapshots -------------------------------------------------------
 
-# Capture workspaces + tabs + last.json under target-check/evals/<label>/.
+# Capture workspaces + tabs from the selected dev API under target-check/evals/<label>/.
 # Echoes the snapshot dir on stdout so callers can chain.
 snapshot() {
   local label="${1:?usage: snapshot <label>}"
@@ -421,12 +565,6 @@ snapshot() {
   mkdir -p "$dir"
   dev_get /api/workspaces > "$dir/ws.json"
   dev_get /api/tabs      > "$dir/tabs.json"
-  python3 - "$dir" "$(dev_data_dir)" <<'PYEOF'
-import os, sys, shutil
-src = os.path.join(sys.argv[2], 'sessions', 'last.json')
-if os.path.exists(src):
-    shutil.copy(src, os.path.join(sys.argv[1], 'last.json'))
-PYEOF
   echo "$dir"
 }
 
@@ -505,9 +643,8 @@ for w in json.load(sys.stdin):
 #     known backend bug where back-to-back close of *restored*
 #     workspaces (PTYs already killed by the restart) intermittently
 #     returns dropped connections; the retry loop covers the gap.
-#   - reset_dev_state_hard (nuclear) — kills the daemon, blanks
-#     last.json, restarts. Guarantees a single-workspace baseline
-#     (just General) regardless of what state the daemon was in.
+#   - reset_dev_state_hard — replaces the selected named dev Storage
+#     root from an empty typed import, then restarts that instance.
 #     Use when the bench's `pre` snapshot count must be exact.
 reset_dev_state() {
   local pass max_pass=4
@@ -528,39 +665,68 @@ for w in json.load(sys.stdin):
   done
 }
 
-# Nuclear reset — kills dev, removes last.json (so restart can't
-# restore old workspaces), restarts dev, waits for ready. Ends with
-# exactly one workspace (General). Slow (~30s) but bulletproof.
-reset_dev_state_hard() {
-  dev_kill_hard
-  local data_dir; data_dir="$(dev_data_dir)" || return 7
-  rm -f "$data_dir/sessions/last.json"
-  rm -rf "$data_dir/sessions/backups"
-  dev_start_bg
-  dev_wait_ready 600
-  sleep 3
+# Build an empty inert copy root and import it with the reviewed typed verifier.
+# Only the selected named dev instance's Storage root is replaced.
+seed_empty_storage_root() {
+  [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] || {
+    echo "ERROR: Storage reset requires CODETERM_INSTANCE for a named dev instance" >&2
+    return 7
+  }
+  dev_resolve || return 7
+  local data_dir stage imported previous
+  data_dir="$(dev_data_dir)" || return 7
+  dev_kill_hard || return
+  stage="$(mktemp -d "$data_dir/.storage-seed.XXXXXX")" || return 1
+  mkdir -p "$stage/copy-root" || { rm -rf "$stage"; return 1; }
+  if ! (
+    cd "$EVAL_LIB_REPO_ROOT" || exit 1
+    CARGO_TARGET_DIR="$data_dir/target" CODETERM_ALLOW_EXTERNAL_TARGET=1 \
+      cargo run --quiet --manifest-path "$EVAL_LIB_REPO_ROOT/src-tauri/Cargo.toml" \
+        --bin storage-verify -- --copy-root "$stage/copy-root" --work-root "$stage/work-root"
+  ); then
+    rm -rf "$stage"
+    return 1
+  fi
+  imported="$stage/work-root/instance/storage"
+  [ -f "$imported/state.db" ] || {
+    echo "ERROR: typed empty import did not create Storage state.db" >&2
+    rm -rf "$stage"
+    return 1
+  }
+  previous="$stage/previous-storage"
+  if [ -e "$data_dir/storage" ] && ! mv "$data_dir/storage" "$previous"; then
+    rm -rf "$stage"
+    return 1
+  fi
+  if ! mv "$imported" "$data_dir/storage"; then
+    if [ -e "$previous" ] && ! mv "$previous" "$data_dir/storage"; then
+      echo "ERROR: prior Storage root preserved at $previous" >&2
+      return 1
+    fi
+    rm -rf "$stage"
+    return 1
+  fi
+  rm -rf "$stage"
 }
 
-# Sanity check the on-disk session file is well-formed and that no
-# half-written .tmp got left behind. Returns non-zero on either issue.
-# Uses python3's os.path.expanduser so the path resolves correctly on
-# Windows (git bash $HOME is /c/Users/X — invalid for native Python).
+reset_dev_state_hard() {
+  seed_empty_storage_root || return
+  dev_start_bg
+  dev_wait_ready 600
+}
+
+# Confirm the selected named dev instance has its Storage database.
+assert_storage_root_present() {
+  local data_dir; data_dir="$(dev_data_dir)" || return 7
+  [ -f "$data_dir/storage/state.db" ] || {
+    echo "  FAIL Storage state.db missing from selected dev instance" >&2
+    return 1
+  }
+  echo "  OK Storage root present"
+}
+
 assert_atomic_save_clean() {
-  python3 - "$(dev_data_dir)" <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
-import json, os, sys
-sess = os.path.join(sys.argv[1], 'sessions')
-tmp = os.path.join(sess, 'last.json.tmp')
-last = os.path.join(sess, 'last.json')
-if os.path.exists(tmp):
-    print("  FAIL leftover last.json.tmp — atomic write didn't complete")
-    sys.exit(1)
-try:
-    json.load(open(last))
-except Exception as e:
-    print(f"  FAIL last.json: {e}")
-    sys.exit(1)
-print("  OK atomic save clean")
-PYEOF
+  assert_storage_root_present
 }
 
 # --- Plan-junk cleanup (test-harness hygiene) ------------------------

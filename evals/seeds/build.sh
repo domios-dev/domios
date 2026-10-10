@@ -5,36 +5,36 @@
 #   ./build.sh             # builds both clean.db and loaded.db
 #   ./build.sh clean       # only clean
 #   ./build.sh loaded      # only loaded (assumes clean already exists)
+# Set CODETERM_INSTANCE to an isolated dev instance before running.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-DEV_HOME="$HOME/.codeterm-dev"
+source "$REPO/evals/_lib/lib.sh"
+[ -n "${CODETERM_INSTANCE:-}" ] || {
+    echo "[build] CODETERM_INSTANCE must name an isolated dev instance" >&2
+    exit 7
+}
+dev_env || exit 7
+DEV_HOME="$(dev_data_dir)" || exit 7
 DB="$DEV_HOME/mem/knowledge.db"
 BLOBS="$DEV_HOME/mem/blobs"
-
-API="http://127.0.0.1:7686"
 
 target="${1:-both}"
 
 log() { printf '[build] %s\n' "$*"; }
 
 wait_health() {
-    for i in $(seq 1 30); do
-        if curl -s "$API/api/health" 2>/dev/null | grep -q ok; then
-            return 0
-        fi
-        sleep 2
-    done
-    echo "[build] dev didn't come up" >&2
-    return 1
+    dev_wait_ready 120 || {
+        echo "[build] dev didn't come up" >&2
+        return 1
+    }
 }
 
 wipe_dev() {
     log "killing dev instance"
-    (cd "$REPO" && ./build.sh kill) >/dev/null 2>&1 || true
-    sleep 1
+    dev_kill_hard
     log "wiping dev state"
     rm -f  "$DB" "${DB}-shm" "${DB}-wal" \
            "$DEV_HOME/mem/workers.json" \
@@ -46,17 +46,12 @@ wipe_dev() {
            "$DEV_HOME/general/AGENT.md" \
            "$DEV_HOME/general/CLAUDE.md" \
            "$DEV_HOME/general/AGENTS.md"
-    # Clear GA claude session so it doesn't resume
-    find "$HOME/.claude/projects/" -path "*general*"     -name "*.jsonl" -delete 2>/dev/null || true
-    find "$HOME/.claude/projects/" -path "*codeterm-dev*" -name "*.jsonl" -delete 2>/dev/null || true
-    if [ -f "$DEV_HOME/sessions/last.json" ]; then
-        sed -i '' 's/"claude_session_id": "[^"]*"/"claude_session_id": null/g' "$DEV_HOME/sessions/last.json"
-    fi
+    seed_empty_storage_root
 }
 
 start_dev() {
     log "starting dev"
-    (cd "$REPO" && ./build.sh dev) >/dev/null 2>&1 &
+    dev_start_bg
     wait_health
     log "dev ready"
     # Give bootstrap extraction workers a moment
@@ -78,11 +73,7 @@ snapshot() {
         mkdir -p "$out_blobs"
     fi
     local size=$(du -sh "$out_db" | cut -f1)
-    local item_count=$(sqlite3 "$out_db" "SELECT COUNT(*) FROM mem_items")
-    local ent_count=$(sqlite3 "$out_db" "SELECT COUNT(*) FROM entities")
-    local rel_count=$(sqlite3 "$out_db" "SELECT COUNT(*) FROM relations")
-    local vec_count=$(sqlite3 "$out_db" "SELECT COUNT(*) FROM mem_vectors" 2>/dev/null || echo "?")
-    log "$name: ${size} items=${item_count} entities=${ent_count} relations=${rel_count} vectors=${vec_count}"
+    log "$name: ${size}"
 }
 
 build_clean() {
@@ -96,7 +87,10 @@ build_loaded() {
     log "=== BUILDING LOADED ==="
     # Assume we just built clean, dev still running with empty mem
     log "loading 189 items via load.py"
-    python3 "$HERE/load.py"
+    local api token
+    api="$(dev_api_url)"
+    token="$(dev_token)" || return 7
+    python3 "$HERE/load.py" --api "$api" --token "$token"
     snapshot loaded
 }
 

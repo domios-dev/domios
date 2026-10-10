@@ -1,5 +1,4 @@
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc;
 use std::sync::{Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -17,38 +16,6 @@ pub(crate) fn join<T: Send + 'static>(
     done_rx
         .recv_timeout(TEST_WAIT_DEADLINE)
         .unwrap_or_else(|_| panic!("timed out joining {context}"))
-}
-
-pub(crate) fn watchdog<F>(context: &'static str, deadline: Duration, test: F)
-where
-    F: FnOnce() + Send + 'static,
-{
-    let (result_tx, result_rx) = mpsc::sync_channel(1);
-    let worker = thread::spawn(move || {
-        let result = catch_unwind(AssertUnwindSafe(test));
-        let _ = result_tx.send(result);
-    });
-
-    match result_rx.recv_timeout(deadline) {
-        Ok(Ok(())) => join(worker, context).expect("watchdog worker panicked after reporting"),
-        Ok(Err(payload)) => {
-            let _ = join(worker, context);
-            resume_unwind(payload);
-        }
-        Err(RecvTimeoutError::Timeout) => {
-            panic!("test {context} exceeded its {deadline:?} watchdog")
-        }
-        Err(RecvTimeoutError::Disconnected) => {
-            panic!("test {context} exited without reporting its result")
-        }
-    }
-}
-
-pub(crate) fn watchdog_10s<F>(context: &'static str, test: F)
-where
-    F: FnOnce() + Send + 'static,
-{
-    watchdog(context, TEST_WAIT_DEADLINE, test);
 }
 
 #[derive(Default)]

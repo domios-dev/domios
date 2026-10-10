@@ -15,29 +15,9 @@ pub const WORKER_COMPETITIVE_ISOLATION_RULES: [&str; 3] = [
 
 pub const HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE: &str = "Competitive attempts:";
 pub const REGRESSION_MILESTONE_KIND: &str = "regression";
-pub const MILESTONE_GATE_HEARTBEAT_TITLE: &str = "Regression gates:";
-
-pub const MILESTONE_GATE_SUGGESTION: &str = "group {label} complete — run the full gate once: cargo suite + ts-unit + playwright golden, serialized in the warm checkout / remote-test farm, then record it with `codeterm plan qa next --group {key} --claim --note \"<scope>\"`.";
-
-pub fn milestone_gate_suggestion(key: &str, label: &str) -> String {
-    MILESTONE_GATE_SUGGESTION
-        .replace("{label}", label)
-        .replace("{key}", key)
-}
-
-pub const GROUP_RETROSPECTIVE_HEARTBEAT_TITLE: &str = "Group retrospectives:";
-
-pub const GROUP_RETROSPECTIVE_SUGGESTION: &str = "group {label} is terminal — record its retrospective before the next group dispatches: `codeterm plan groups close {plan} {key} --note \"<what worked, what failed, what changes next>\"`.";
-
-pub fn group_retrospective_suggestion(plan_id: &str, key: &str, label: &str) -> String {
-    GROUP_RETROSPECTIVE_SUGGESTION
-        .replace("{label}", label)
-        .replace("{plan}", plan_id)
-        .replace("{key}", key)
-}
 
 pub const REFLECTION_HEARTBEAT_TITLE: &str = "Reflection:";
-pub const REFLECTION_BLOCK: &str = "{trigger} — self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window. Then run the VELOCITY AND COST sweep over the open frontier: is it shrinking — and if not, what blocks it? Which open tasks no longer earn their priority (descope, defer, or split — propose it to your Planner)? Which gates can batch into one QA run instead of several? Which remaining work fits a cheaper model or an idle machine? Green lanes get one-line verdicts, not essays — spend tokens on findings, not ceremony.";
+pub const REFLECTION_BLOCK: &str = "{trigger} — optional self-review at plan wrap-up (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route useful lessons with `codeterm orchestrator learn`; reusable procedures belong in plan skills, and prompt defects go to the Planner.";
 
 pub fn reflection_block(trigger: &str, window: &super::reflection::ReflectionWindow) -> String {
     REFLECTION_BLOCK
@@ -53,9 +33,8 @@ pub const PLAN_ARCHIVE_SUGGESTION: &str = "This plan is complete. Before archivi
 - Prune stale or superseded milestones so the completed plan reads clean.\n\
 Orphaned tabs, worktrees, branches, and dev daemons you spawned are THIS effort's mess to clear — never the next orchestrator's. Then archive with `codeterm plan archive <plan>`.";
 
-pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiving, write its retrospective:\n\
-`codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.\n\
-Graduate the proven ones: a durable know-how skill or helper script earned in this effort belongs in machine mem (`codeterm mem skill`) and, when it is repo-shaped, in `.agents/skills/` or `scripts/` — landed through a reviewed lane, never edited straight into the integration checkout.";
+pub const PLAN_RETROSPECTIVE_NUDGE: &str = "At plan wrap-up, optionally record one useful note with `codeterm plan retrospective <plan> --body \"...\"`, `codeterm plan groups close <plan> <group> --note \"<note>\"`, or `codeterm orchestrator learn \"<lesson>\"`. A plan can archive without any of these records.\n\
+Graduate proven procedures to machine mem (`codeterm mem skill`) and, when repo-shaped, to `.agents/skills/` or `scripts/` through a reviewed lane.";
 
 pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the Team planning specialist and \
      delegation is the default: read the Team's active Plan without a separate binding, refine the \

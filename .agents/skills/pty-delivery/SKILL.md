@@ -1,6 +1,6 @@
 ---
 name: pty-delivery
-description: "Review or change CodeTerm PTY input delivery under its owner-approval and evidence rules."
+description: "Review or change Domios PTY input delivery under its evidence rules."
 ---
 
 # PTY input delivery — the contract
@@ -24,12 +24,31 @@ well-meaning "one more heuristic" changes. Read this before touching
    triggers an attempt and never claims readiness. After a key, exact normalized
    user-turn evidence in this tab's bound-session append window stops remaining
    keys. Never use screen/composer text as acknowledgement or branch on provider
-   identity. Each PTY owns one resettable cycle: a new send cancels the old cycle
-   instead of queueing messages.
+   identity. Each PTY owns one resettable submit cycle; a newer send cancels the
+   previous cycle's remaining keys while preserving its already-queued payload.
+   The explicit user-send exception is a bounded durable queue of never-written
+   originals: 32 unsettled records and 4 MiB prepared/body bytes per tab, with
+   original storage separately bounded. Sends are held only until the current
+   launch's exact PTY generation reaches `AgentReady`, then queued sends flush in
+   admission order. Admission order applies only to sends held before readiness.
+   Every later send is written immediately while the agent is working or an
+   earlier cycle is unsettled, cancelling that cycle's remaining keys. If exact
+   session binding is missing before that readiness,
+   the owner-approved adapter fallback may release a restored head only after two
+   distinct same-launch, same-generation ready-idle verdicts at least 0.90, with
+   composer readiness at least 0.90 and prompt probability at most 0.10, followed
+   by immediate prewrite revalidation. Without an adapter or qualifying evidence,
+   the head stays held with a logged pending reason. Readiness latches for an `AgentReady`
+   launch; later busy state, missing turn evidence, or unsettled recovery never
+   gates another write. Possible handoffs and crashed claims remain held
+   uncertainty; no postwrite replay, reopen adoption, or rebind.
 3. **Exact turn evidence confirms delivery.** Missing evidence remains
    uncertainty, never a fabricated success or a zero-write claim. Once a paste
-   reaches the write queue, an unconfirmed send is `submit_unconfirmed` with
-   `bytes_written = true`.
+   reaches the write queue, its status becomes `written` immediately. Later
+   status is `delivered` only on exact own-session user-turn evidence, or
+   `submit_unconfirmed` when evidence is absent. Late evidence may upgrade an
+   unconfirmed send. Cancelling the remaining submit keys never fails a queued
+   payload.
 
 ## Classification invariants (`DeliveryError`)
 
@@ -45,29 +64,35 @@ well-meaning "one more heuristic" changes. Read this before touching
   serialized writer and normally still lands; claiming `pty_unavailable` here
   is exactly the false-failure incident this contract was written for.
 
-## User sends always deliver — never a user-facing refusal
+## Durable user admission conserves accepted sends
 
-A USER-initiated send (chat UI, via `start_chat_send`) may never surface a
-refusal. The wait-then-write path already waits on the observable link-readiness
-signals (`await_public_agent_input_ready_blocking`, `await_pty_link_blocking` —
-condvar-backed, bounded failure deadlines, no sleeps) before its single write,
-so a transient pre-write unlink (booting agent / unlinked PTY) or an unconfirmed
-submit degrades to `unknown` (pending-until-link, resolved by later turn
-evidence), never `failed`. This is `DeliveryError::surfaces_as_failure(origin)` /
-`into_surfaced(origin)`: `SendOrigin::User` always degrades; `Programmatic`
-(agent-to-agent / mesh / CLI `send_text`) keeps the honest typed split — a proven
-pre-write refusal fails, a post-write submit is unknown. Neutralizing a user
-refusal never re-writes the payload: the single write already happened upstream.
+An admitted USER-initiated send (chat UI, via `start_chat_send`) remains
+conserved or honestly classified. Bounded durable admission can refuse capacity,
+preparation, or persistence before acceptance; clear the composer immediately and retain the message and attachments on one optimistic
+bubble, including rejected or ambiguous RPC completion, without automatic resubmit.
+Acceptance requires payload and index durability off the UI/runtime and outside
+mux/ledger locks. This user backlog is separate from launch/bootstrap replacement.
+The prewrite owner holds only sends accepted before the current launch's readiness
+latch or owner-approved restored-session adapter fallback, then writes those held
+sends in admission order. A post-latch Chat UI send proceeds directly to its PTY
+write even when the provider is busy or another submit cycle is unsettled. Proven
+zero-write refusal retains that send as held; possible handoff becomes
+`submit_unconfirmed` and never replays. Programmatic agent/mesh/CLI sends keep the
+existing honest typed split. A queued record whose exact launch authority is
+from an ended launch is settled as `failed` with `launch_ended_before_write`;
+its never-written payload is removed and it never enters the next launch.
+Claimed or uncertain records remain held and are never replayed.
 
 ## The Chat send ledger reconciles by exact evidence
 
 `ChatSendLedger` is the authority the UI renders. Its rules:
 
-- The serialized states are `accepted`, `unknown`, `confirmed`, and `failed`.
-  Transport uncertainty is `unknown` with no user-facing error. A user send never
-  resolves to `failed`; only a programmatic send's proven pre-write refusal is
-  `failed`.
-- `accepted/unknown → confirmed` only happens
+- The serialized states are `held`, `written`, `submit_unconfirmed`, `delivered`,
+  and `failed`. Transport uncertainty is `submit_unconfirmed` with no user-facing
+  error. A user send resolves to `failed` only when its queued, never-written
+  launch has ended. Programmatic sends may also fail on a proven pre-write
+  refusal.
+- `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
   (`confirm_delivered_user_turn`). One turn confirms at most one send,
@@ -102,11 +127,14 @@ refusal never re-writes the payload: the single write already happened upstream.
   the remaining truth).
 - Evidence wins races: once a send is `sent` by turn evidence, a late
   transport classification must not downgrade it (`finish` guard).
-- A send with no evidence after the recovery deadline remains `unknown`.
+- A send with no evidence after the recovery deadline remains `submit_unconfirmed`.
   Anchored sends can still reconcile from later transcript evidence; a send
   whose session or bounded window cannot be identified remains honestly
-  live-evidence-only. Chat UI never renders delivery banners, failure cards,
-  Retry actions, or notifications.
+  live-evidence-only. Chat shows one bubble per send: sending for written or
+  unconfirmed input, queued while held, normal when delivered, and a quiet
+  not-delivered mark with Retry for proven refusal or failed never-written input.
+  Retry reuses the bubble with a fresh correlation token and transaction; it never
+  replays uncertain or written input. Provider echoes reconcile into that bubble.
 
 ## Hard don'ts
 
@@ -114,8 +142,9 @@ refusal never re-writes the payload: the single write already happened upstream.
   path — deadlines are failure bounds around event waits only.
 - No provider-id branches; capability descriptors only.
 - Do not add screen/composer acknowledgement, guessed readiness, payload
-  retries, or provider-id branches. Use exact claimed-session transcript
-  evidence to stop recovery and to reconcile later sends.
+  retries, or provider-id branches. Exact claimed-session transcript evidence
+  classifies a send and may stop its current key schedule; it never gates the
+  next post-ready send.
 - Do not "fix" a delivery bug by adding a retry that re-writes the payload.
 - Launch/bootstrap input never routes through the public post-ready send gate
   (see AGENTS.md "Agent launch delivery").
@@ -130,3 +159,5 @@ refusal never re-writes the payload: the single write already happened upstream.
 | Chat send ledger + turn-evidence reconciliation | `service/chat_send_transaction.rs` |
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
+
+<!-- revision: 1 -->

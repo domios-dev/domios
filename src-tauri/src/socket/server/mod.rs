@@ -7,6 +7,7 @@
 
 mod agent;
 mod agent_commands;
+mod blueprint;
 mod bridge;
 mod canvas;
 mod cron;
@@ -15,6 +16,7 @@ mod error_codes;
 mod local_api;
 mod mem;
 mod model_errors;
+mod model_providers;
 mod notification;
 mod orchestration;
 mod orchestrator;
@@ -95,6 +97,8 @@ struct JsonRpcRequest {
     protocol_version: Option<serde_json::Value>,
 }
 
+type PostResponseAction = Box<dyn FnOnce() + Send>;
+
 #[derive(Serialize)]
 struct JsonRpcResponse {
     jsonrpc: String,
@@ -103,6 +107,8 @@ struct JsonRpcResponse {
     result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<JsonRpcError>,
+    #[serde(skip)]
+    after_response: Option<PostResponseAction>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -120,6 +126,7 @@ impl JsonRpcResponse {
             id,
             result: Some(result),
             error: None,
+            after_response: None,
         }
     }
 
@@ -133,6 +140,7 @@ impl JsonRpcResponse {
                 message,
                 data: None,
             }),
+            after_response: None,
         }
     }
 }
@@ -253,7 +261,7 @@ impl SocketServer {
 
         log::info!("Socket server listening at {}", socket_display_path());
 
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("socket-listener", move || {
             for conn in listener.incoming() {
                 match conn {
                     Ok(stream) => {
@@ -272,7 +280,7 @@ impl SocketServer {
                         let out_buf = output_buf.clone();
                         let svc = svc_state.clone();
 
-                        std::thread::spawn(move || {
+                        codeterm_util::named_thread::spawn("socket-connection", move || {
                             handle_connection(
                                 stream,
                                 &mux,
@@ -524,12 +532,16 @@ fn handle_connection(
                     continue;
                 }
 
-                let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
+                let mut response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
                     Ok(req) => respond_to_request(req, mux, pty, notif, app, output_buf, svc),
                     Err(e) => JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e)),
                 };
 
+                let after_response = response.after_response.take();
                 if let Ok(keep_open) = write_json_rpc_response(reader.get_mut(), &response) {
+                    if let Some(after_response) = after_response {
+                        after_response();
+                    }
                     if !keep_open {
                         break;
                     }
@@ -567,6 +579,7 @@ fn respond_to_request(
             id: req.id,
             result: None,
             error: Some(error),
+            after_response: None,
         };
     }
 
@@ -583,7 +596,7 @@ fn respond_to_request(
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        dispatch::dispatch(
+        dispatch::dispatch_with_post_response(
             &req.method,
             local_params,
             mux,
@@ -595,12 +608,17 @@ fn respond_to_request(
         )
     }));
     match dispatched {
-        Ok(Ok(result)) => JsonRpcResponse::success(id, result),
+        Ok(Ok((result, after_response))) => {
+            let mut response = JsonRpcResponse::success(id, result);
+            response.after_response = after_response;
+            response
+        }
         Ok(Err(err)) => JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id,
             result: None,
             error: Some(err),
+            after_response: None,
         },
         Err(panic) => {
             let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
@@ -725,6 +743,132 @@ mod tests {
                 "{kind:?} should close only the client connection"
             );
         }
+    }
+
+    struct FlushProbe<F> {
+        input: io::Cursor<Vec<u8>>,
+        output: Vec<u8>,
+        is_tab_open: F,
+        tab_open_at_flush: Option<bool>,
+    }
+
+    impl<F: Fn() -> bool> Read for FlushProbe<F> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.input.read(buf)
+        }
+    }
+
+    impl<F: Fn() -> bool> Write for FlushProbe<F> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.output.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.tab_open_at_flush = Some((self.is_tab_open)());
+            Ok(())
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_settle_cron_complete_closes_after_response_flush() {
+        use crate::cron::store::{CronCreateParams, CronRunInfo, CronRunStatus, CronStore};
+        use crate::service::test_fixture::ServiceFixture;
+        use std::sync::Arc;
+        use tauri::Manager;
+
+        let (mut mux, initial_tab) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&initial_tab).unwrap();
+        let tab_id = mux.create_tab(&workspace).unwrap();
+        let fixture = ServiceFixture::new(mux);
+        let mut store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
+        let job_id = store
+            .create(CronCreateParams {
+                name: "rpc completion".into(),
+                workspace_id: "workspace".into(),
+                team_id: None,
+                detach_from_team: false,
+                schedule: "0 * * * *".into(),
+                task: "complete run".into(),
+                description: None,
+                agent: None,
+                model: None,
+                reasoning_effort: None,
+                cwd: None,
+                role: None,
+                skill: None,
+                creator_tab_id: None,
+                report_target_tab_id: None,
+                enabled: Some(false),
+                max_history: None,
+                oneshot: Some(false),
+                jitter_max_ms: Some(0),
+                tz: None,
+                timeout_seconds: None,
+            })
+            .unwrap()
+            .id;
+        store
+            .record_run(
+                &job_id,
+                CronRunInfo {
+                    run_id: "rpc-complete-run".into(),
+                    started_at: 1,
+                    finished_at: None,
+                    status: CronRunStatus::Running,
+                    tab_id: Some(tab_id.clone()),
+                    session_id: None,
+                    cwd: None,
+                    summary: None,
+                    report_delivery: None,
+                },
+            )
+            .unwrap();
+        store.register_tab(&tab_id, &job_id, "rpc-complete-run");
+        let cron: crate::CronState = Arc::new(parking_lot::Mutex::new(store));
+        let wake = Arc::new(std::sync::Condvar::new());
+        fixture._app.manage(cron.clone());
+        fixture._app.manage::<crate::CronWake>(wake);
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "protocol_version": protocol::PROTOCOL_VERSION,
+            "method": "cron.complete",
+            "params": {
+                "run_id": "rpc-complete-run",
+                "summary": "response-flush-summary",
+                "human_confirmed": true
+            }
+        });
+        let input = format!("{}\n", serde_json::to_string(&request).unwrap()).into_bytes();
+        let mux = fixture.service.mux.clone();
+        let flush_mux = mux.clone();
+        let flush_tab = tab_id.clone();
+        let mut stream = FlushProbe {
+            input: io::Cursor::new(input),
+            output: Vec::new(),
+            is_tab_open: move || flush_mux.read().get_tab(&flush_tab).is_some(),
+            tab_open_at_flush: None,
+        };
+        let svc = Arc::new(fixture.service.clone());
+
+        handle_connection(
+            &mut stream,
+            &svc.mux,
+            &svc.pty,
+            &svc.notif,
+            &svc.app_handle,
+            &svc.output_buf,
+            &svc,
+        );
+
+        assert_eq!(stream.tab_open_at_flush, Some(true));
+        let response: serde_json::Value =
+            serde_json::from_slice(stream.output.strip_suffix(b"\n").unwrap()).unwrap();
+        assert_eq!(response["result"]["ok"], true, "response: {response}");
+        assert!(mux.read().get_tab(&tab_id).is_none());
     }
 
     #[test]

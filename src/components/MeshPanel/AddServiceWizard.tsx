@@ -7,9 +7,8 @@ interface Props {
   onCreated: () => void;
 }
 
-const INPUT =
-  "bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-xs w-full text-[var(--ct-fg)]";
-const INPUT_MONO = `${INPUT} font-mono`;
+const INPUT = "ct-field w-full";
+const INPUT_MONO = `${INPUT} ct-text-mono`;
 
 export function AddServiceWizard({ onClose, onCreated }: Props) {
   const [name, setName] = useState("");
@@ -109,7 +108,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
           <p className="text-xs text-[var(--ct-yellow)] mb-2">
             Push token (save this NOW — will not be shown again):
           </p>
-          <div className="bg-[var(--ct-titlebar-bg)] p-3 rounded font-mono text-xs select-all break-all border border-[var(--ct-yellow)] text-[var(--ct-fg)]">
+          <div className="bg-[color-mix(in_srgb,var(--ct-fg)_3%,var(--ct-bg))] p-3 rounded-[10px] font-mono text-xs select-all break-all text-[var(--ct-fg)]">
             {token}
           </div>
           <div className="mt-4 flex justify-end">
@@ -180,7 +179,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
                 <button
                   onClick={handleInspect}
                   disabled={!url.trim() || inspecting}
-                  className="px-3 py-1 bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded text-xs text-[var(--ct-fg)] cursor-pointer disabled:opacity-40 whitespace-nowrap"
+                  className="ct-bar-pill disabled:opacity-40"
                 >
                   {inspecting ? "…" : "Inspect"}
                 </button>

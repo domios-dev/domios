@@ -65,13 +65,22 @@ qa_append_matches() {
 
 qa_zero_tests() {
   local file="$1"
-  if awk 'BEGIN { all_zero=1 } /test result:/ { seen=1; if ($0 !~ /0 passed; 0 failed/) all_zero=0 } END { exit !(seen && all_zero) }' "$file"; then
-    return 0
-  fi
-  if awk 'tolower($0) ~ /no test files found/ || tolower($0) ~ /(^|[^0-9])0 tests?([^0-9]|$)/ { found=1 } END { exit !found }' "$file"; then
-    return 0
-  fi
-  awk '/^# tests[[:space:]]+0[[:space:]]*$/ { found=1 } END { exit !found }' "$file"
+  awk '
+    /^test result: (ok|FAILED)\./ {
+      cargo_seen=1
+      if ($4 + 0 > 0 || $6 + 0 > 0) cargo_executed=1
+    }
+    tolower($0) ~ /no test files found/ { other_zero=1 }
+    /^# tests[[:space:]]+0[[:space:]]*$/ { other_zero=1 }
+    tolower($0) ~ /(^|[^0-9.])0 tests?([^0-9]|$)/ {
+      if ($0 ~ /^running 0 tests?[[:space:]]*$/) cargo_empty_target=1
+      else other_zero=1
+    }
+    END {
+      exit !((cargo_seen && !cargo_executed) || other_zero ||
+             (!cargo_seen && cargo_empty_target))
+    }
+  ' "$file"
 }
 
 qa_summary_line "QA report directory: $QA_RUN_DIR"

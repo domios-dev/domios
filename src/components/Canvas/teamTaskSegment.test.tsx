@@ -11,6 +11,7 @@ import { boardRefs } from "./missionControl/BoardRefText";
 import { MissionControlPlanSurface } from "./missionControl/MissionControlPlanSurface";
 import type { MissionControlState, PlanBoardState } from "./missionControl/missionControlState";
 import { PlanSidePanelLayer } from "./PlanSidePanelHost";
+import { returnToOrigin } from "../../lib/returnTo";
 import { planSidePanelStore } from "./planSidePanelStore";
 import { PlanViewShell } from "./PlanViewShell";
 import type { PlanIndexEntry, ResolvedPlanRef } from "./plansApi";
@@ -171,6 +172,36 @@ describe("task display key", () => {
     expect(findTaskByReference(TEAM_PLAN.tasks, "ct-7")).toBe(KEYED);
     expect(findTaskByReference(TEAM_PLAN.tasks, "legacy9")).toBe(LEGACY);
     expect(findTaskByReference(TEAM_PLAN.tasks, "CT-8")).toBeUndefined();
+  });
+});
+
+describe("composer plan return navigation", () => {
+  it("closing a header plan consumes its origin, while a later normal open has no return", async () => {
+    const activate = vi.fn(() => true);
+    const origin = { workspaceId: OTHER_WS, tabId: "origin-agent" };
+    const host = await render(<PlanSidePanelLayer plans={[TEAM_PLAN]} tabs={{}} onOpenPlanTarget={() => {}} onReturnTo={activate} />);
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, returnTo: origin }, context()); });
+    const target = planSidePanelStore.get()!.target;
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close plan"]')!.click());
+    expect(activate).toHaveBeenCalledExactlyOnceWith(origin);
+    expect(target.returnTo).toBeUndefined();
+    expect(planSidePanelStore.get()).toBeNull();
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id }, context()); });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close plan"]')!.click());
+    expect(activate).toHaveBeenCalledTimes(1);
+  });
+
+  it("expanding the header plan preserves its origin for full-view Back", async () => {
+    const origin = { workspaceId: OTHER_WS, tabId: "origin-agent" };
+    const host = await render(<PlanSidePanelLayer plans={[TEAM_PLAN]} tabs={{}} onOpenPlanTarget={(target) => { openPlanTarget(target, context()); }} />);
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, returnTo: origin }, context()); });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Open plan in full view"]')!.click());
+    const target = canvasFocusStore.getWorkspaceTarget()!;
+    expect(target.returnTo).toEqual(origin);
+    const activate = vi.fn(() => true);
+    expect(returnToOrigin(target, activate)).toBe(true);
+    expect(returnToOrigin(target, activate)).toBe(false);
+    expect(activate).toHaveBeenCalledExactlyOnceWith(origin);
   });
 });
 

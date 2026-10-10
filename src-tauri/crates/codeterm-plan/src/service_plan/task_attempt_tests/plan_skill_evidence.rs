@@ -135,3 +135,109 @@ fn report_snapshot_retains_loaded_plan_skills_after_restart() {
     assert_eq!(report.plan_skill_manifest, persisted.plan_skill_manifest);
     assert_eq!(report.loaded_plan_skills, persisted.loaded_plan_skills);
 }
+
+#[test]
+fn plan_skill_load_refuses_unannounced_or_modified_digest() {
+    let (_dir, store, plan_id, task_id, attempt_id) = prepared_store();
+    let before = store.get(&plan_id).unwrap();
+    for (slug, digest) in [
+        ("unannounced", "sha256:abc"),
+        ("dispatch-contract", "sha256:changed"),
+    ] {
+        assert!(store
+            .record_plan_skill_load(
+                &plan_id,
+                &task_id,
+                "worker",
+                "session",
+                "nonce",
+                Some(&attempt_id),
+                slug,
+                digest,
+                6,
+            )
+            .is_err());
+        assert_eq!(store.get(&plan_id).unwrap(), before);
+    }
+}
+
+#[test]
+fn plan_skill_load_refuses_ambiguous_open_assignment_even_with_explicit_attempt() {
+    let (_dir, store, plan_id, task_id, attempt_id) = prepared_store();
+    store
+        .with_plan(&plan_id, 6, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            let mut duplicate = task.execution_attempts[0].clone();
+            duplicate.id = "another-current-attempt".into();
+            task.execution_attempts.push(duplicate);
+            Ok(())
+        })
+        .unwrap();
+    let before = store.get(&plan_id).unwrap();
+    assert!(store
+        .record_plan_skill_load(
+            &plan_id,
+            &task_id,
+            "worker",
+            "session",
+            "nonce",
+            Some(&attempt_id),
+            "dispatch-contract",
+            "sha256:abc",
+            7,
+        )
+        .is_err());
+    assert_eq!(store.get(&plan_id).unwrap(), before);
+}
+
+#[test]
+fn plan_skill_load_refuses_foreign_or_retired_current_binding() {
+    let (_dir, store, plan_id, task_id, attempt_id) = prepared_store();
+    let before = store.get(&plan_id).unwrap();
+    for (session, nonce) in [("foreign-session", "nonce"), ("session", "foreign-nonce")] {
+        assert!(store
+            .record_plan_skill_load(
+                &plan_id,
+                &task_id,
+                "worker",
+                session,
+                nonce,
+                Some(&attempt_id),
+                "dispatch-contract",
+                "sha256:abc",
+                6,
+            )
+            .is_err());
+        assert_eq!(store.get(&plan_id).unwrap(), before);
+    }
+    store
+        .with_plan(&plan_id, 6, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap()
+                .execution_attempts[0]
+                .retired_at = Some(6);
+            Ok(())
+        })
+        .unwrap();
+    let retired = store.get(&plan_id).unwrap();
+    assert!(store
+        .record_plan_skill_load(
+            &plan_id,
+            &task_id,
+            "worker",
+            "session",
+            "nonce",
+            Some(&attempt_id),
+            "dispatch-contract",
+            "sha256:abc",
+            7,
+        )
+        .is_err());
+    assert_eq!(store.get(&plan_id).unwrap(), retired);
+}

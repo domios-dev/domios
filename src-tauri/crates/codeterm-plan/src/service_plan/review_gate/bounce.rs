@@ -1,4 +1,14 @@
 use super::*;
+use std::collections::HashSet;
+
+#[cfg(test)]
+mod cleaned_bounce_tests;
+
+enum ClosedReviewAttempt {
+    None,
+    Unique(usize),
+    Ambiguous,
+}
 
 fn review_attempt_matches_task(task: &Task, attempt: &crate::plan::TaskExecutionAttempt) -> bool {
     let assigned_executor =
@@ -36,7 +46,7 @@ fn exact_review_continuation_attempt(task: &Task) -> Option<usize> {
     Some(*index)
 }
 
-fn exact_closed_review_attempt(task: &Task) -> Option<usize> {
+fn exact_closed_review_attempt(task: &Task) -> ClosedReviewAttempt {
     let candidates = task
         .execution_attempts
         .iter()
@@ -46,10 +56,165 @@ fn exact_closed_review_attempt(task: &Task) -> Option<usize> {
         })
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
-    let [index] = candidates.as_slice() else {
+    match candidates.as_slice() {
+        [] => ClosedReviewAttempt::None,
+        [index] => ClosedReviewAttempt::Unique(*index),
+        _ => ClosedReviewAttempt::Ambiguous,
+    }
+}
+
+fn nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn has_competition_history(task: &Task) -> bool {
+    task.competition
+        .as_ref()
+        .is_some_and(|competition| competition.enabled)
+        || task.execution_attempts.iter().any(|attempt| {
+            attempt.competition_group_id.is_some()
+                || attempt.competition_lane.is_some()
+                || attempt.judge_verdict.is_some()
+                || attempt.judged_at.is_some()
+                || attempt.winner
+        })
+}
+
+fn continuation_matches_review(task: &Task, attempt: &crate::plan::TaskExecutionAttempt) -> bool {
+    match (
+        attempt.continuation.review_round,
+        attempt.continuation.state.as_deref(),
+        nonempty(attempt.continuation.milestone_id.as_deref()),
+        attempt.continuation.delivered_at,
+    ) {
+        (None, None, None, None) => attempt.continuation.epoch == 0,
+        (Some(round), Some("continued"), Some(milestone_id), Some(delivered_at)) => {
+            round > 0
+                && attempt.continuation.epoch > 0
+                && round == task.review_round
+                && task.milestones.iter().any(|milestone| {
+                    milestone.id == milestone_id && milestone.kind == REVIEW_MILESTONE_KIND
+                })
+                && attempt
+                    .assigned_at
+                    .is_some_and(|assigned_at| assigned_at < delivered_at)
+                && attempt
+                    .reported_at
+                    .is_some_and(|reported_at| delivered_at < reported_at)
+        }
+        _ => false,
+    }
+}
+
+fn cleaned_terminal_review_attempt(task: &Task) -> Option<usize> {
+    if task.status != TaskStatus::InReview
+        || task.assigned_tab_id.is_some()
+        || task.taken_by_role.is_some()
+        || task.peer.is_some()
+        || task.lane.tab_id.is_some()
+        || task.lane.worktree_path.is_some()
+        || task.lane.branch.is_some()
+        || task.lane.workspace_id.is_some()
+        || task.lane.workspace_name.is_some()
+        || !task
+            .lane
+            .cleanup_status
+            .as_deref()
+            .is_some_and(|status| status.trim().eq_ignore_ascii_case("done"))
+        || task.interruption.owner_tab_id.is_some()
+        || task.interruption.owner_session_id.is_some()
+        || task.interruption.handoff_required
+        || matches!(
+            task.status_label.as_deref(),
+            Some("awaiting_continuation" | "bounce_continuation_failed" | "review bounced")
+        )
+        || task.execution_attempts.is_empty()
+        || has_competition_history(task)
+    {
         return None;
-    };
-    Some(*index)
+    }
+
+    let mut attempt_ids = HashSet::new();
+    let mut session_ids = HashSet::new();
+    let mut report_ids = HashSet::new();
+    let mut previous_assignment = None;
+    let mut previous_closure = None;
+    for attempt in &task.execution_attempts {
+        let attempt_id = nonempty(Some(attempt.id.as_str()))?;
+        nonempty(Some(attempt.executor_tab_id.as_str()))?;
+        let assigned_at = attempt.assigned_at?;
+        let closed_at = attempt.closed_at?;
+        if !attempt_ids.insert(attempt_id)
+            || previous_assignment.is_some_and(|previous| previous >= assigned_at)
+            || previous_closure.is_some_and(|previous| previous > assigned_at)
+            || closed_at <= assigned_at
+            || attempt
+                .acknowledged_at
+                .is_some_and(|acknowledged_at| acknowledged_at <= assigned_at)
+            || attempt.reported_at.is_some_and(|reported_at| {
+                attempt
+                    .acknowledged_at
+                    .is_none_or(|acknowledged_at| reported_at <= acknowledged_at)
+            })
+            || attempt
+                .acknowledged_at
+                .is_some_and(|acknowledged_at| acknowledged_at >= closed_at)
+            || attempt
+                .reported_at
+                .is_some_and(|reported_at| reported_at >= closed_at)
+            || attempt.report.is_some() != attempt.reported_at.is_some()
+            || attempt
+                .retired_at
+                .is_some_and(|retired_at| retired_at < closed_at)
+            || attempt.mesh_peer.is_some()
+            || attempt.remote_dispatch_state.is_some()
+            || attempt.remote_worktree_path.is_some()
+            || attempt.remote_lane_tip.is_some()
+            || attempt.remote_merge_commit.is_some()
+        {
+            return None;
+        }
+        if let Some(session_id) = attempt.session_id.as_deref() {
+            let session_id = nonempty(Some(session_id))?;
+            if !session_ids.insert(session_id) {
+                return None;
+            }
+        }
+        if let Some(report) = attempt.report.as_ref() {
+            let report_id = nonempty(Some(report.id.as_str()))?;
+            if !report_ids.insert(report_id) {
+                return None;
+            }
+        }
+        previous_assignment = Some(assigned_at);
+        previous_closure = Some(closed_at);
+    }
+
+    let index = task.execution_attempts.len() - 1;
+    let terminal = &task.execution_attempts[index];
+    let assigned_at = terminal.assigned_at?;
+    let acknowledged_at = terminal.acknowledged_at?;
+    let reported_at = terminal.reported_at?;
+    let closed_at = terminal.closed_at?;
+    let retired_at = terminal.retired_at?;
+    nonempty(terminal.session_id.as_deref())?;
+    nonempty(terminal.session_binding_nonce.as_deref())?;
+    let report = terminal.report.as_ref()?;
+    if assigned_at >= acknowledged_at
+        || acknowledged_at >= reported_at
+        || reported_at >= closed_at
+        || closed_at > retired_at
+        || nonempty(Some(report.id.as_str())).is_none()
+        || report.status.as_deref() != Some("in_review")
+        || report
+            .reporter_tab_id
+            .as_deref()
+            .is_some_and(|reporter| reporter.trim() != terminal.executor_tab_id.trim())
+        || !continuation_matches_review(task, terminal)
+    {
+        return None;
+    }
+    Some(index)
 }
 
 impl PlanStore {
@@ -73,7 +238,9 @@ impl PlanStore {
         {
             return None;
         }
-        let attempt_index = exact_closed_review_attempt(task)?;
+        let ClosedReviewAttempt::Unique(attempt_index) = exact_closed_review_attempt(task) else {
+            return None;
+        };
         let attempt = &task.execution_attempts[attempt_index];
         Some(ReviewContinuation {
             attempt_id: attempt.id.clone(),
@@ -193,12 +360,14 @@ impl PlanStore {
                 }
                 let task_id = p.tasks[idx].id.clone();
                 let review_round = p.tasks[idx].review_round;
-                let attempt_index =
-                    exact_closed_review_attempt(&p.tasks[idx]).ok_or_else(|| {
-                        PlanError::ReviewContinuationAttemptNotFound {
+                let attempt_index = match exact_closed_review_attempt(&p.tasks[idx]) {
+                    ClosedReviewAttempt::Unique(index) => index,
+                    ClosedReviewAttempt::None | ClosedReviewAttempt::Ambiguous => {
+                        return Err(PlanError::ReviewContinuationAttemptNotFound {
                             task_id: task_id.clone(),
-                        }
-                    })?;
+                        })
+                    }
+                };
                 let (milestone_id, task_name) = {
                     let task = &mut p.tasks[idx];
                     let attempt = &mut task.execution_attempts[attempt_index];
@@ -247,14 +416,21 @@ impl PlanStore {
                 .collect::<Vec<_>>();
             let (attempt_index, can_continue) = match open_attempts.as_slice() {
                 [index] => (*index, true),
-                [] => (
-                    exact_closed_review_attempt(&p.tasks[idx]).ok_or_else(|| {
-                        PlanError::ReviewContinuationAttemptNotFound {
-                            task_id: p.tasks[idx].id.clone(),
+                [] => {
+                    let attempt_index = match exact_closed_review_attempt(&p.tasks[idx]) {
+                        ClosedReviewAttempt::Unique(index) => index,
+                        ClosedReviewAttempt::None => cleaned_terminal_review_attempt(&p.tasks[idx])
+                            .ok_or_else(|| PlanError::ReviewContinuationAttemptNotFound {
+                                task_id: p.tasks[idx].id.clone(),
+                            })?,
+                        ClosedReviewAttempt::Ambiguous => {
+                            return Err(PlanError::ReviewContinuationAttemptNotFound {
+                                task_id: p.tasks[idx].id.clone(),
+                            })
                         }
-                    })?,
-                    false,
-                ),
+                    };
+                    (attempt_index, false)
+                }
                 _ => {
                     return Err(PlanError::ReviewContinuationAttemptNotFound {
                         task_id: p.tasks[idx].id.clone(),

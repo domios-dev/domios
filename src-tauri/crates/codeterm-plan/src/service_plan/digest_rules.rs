@@ -87,6 +87,7 @@ mod tests {
 
     fn minimal_task(id: &str, name: &str, status: TaskStatus, status_changed_at: u64) -> Task {
         Task {
+            files: Default::default(),
             id: id.into(),
             name: name.into(),
             kind: "implement".into(),

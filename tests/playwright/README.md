@@ -1,9 +1,9 @@
 # Playwright — isolated dev console
 
-Drives a **real, dedicated** CodeTerm dev console (Tauri, named instance
-`playwright`, port 7786 by default), not a browser mock. The interactive dev
-instance on port 7686 and its `~/.codeterm-dev` store are never adopted,
-restarted, or mutated by this suite.
+The default profile drives a **real, dedicated** CodeTerm dev console (Tauri,
+named instance `playwright`, port 7786 by default), not a browser mock.
+`PW_TARGET=dev` explicitly adopts the interactive instance on port 7686 in
+attach-only mode and skips suite resets.
 
 For the canonical layer taxonomy and the "which layer do I write?" decision tree,
 see [`.agents/skills/testing/SKILL.md`](../../.agents/skills/testing/SKILL.md).
@@ -24,6 +24,10 @@ see [`.agents/skills/testing/SKILL.md`](../../.agents/skills/testing/SKILL.md).
   `~/.codeterm-dev-playwright/config.toml`.
 
 ## Run
+
+The opt-in [live model-switch acceptance](LIVE_MODEL_SWITCH.md) attaches to DEV
+7686/CDP 9223, requires an explicit product SHA, and is excluded from ordinary
+project discovery. Run it only under serialized Orchestrator QA authority.
 
 ```bash
 pnpm test:pw:lint    # fail if any Playwright test has no tier tag
@@ -65,6 +69,13 @@ It verifies the named instance identity, API health, and CDP/WebView readiness
 before launching Playwright. It always applies a 30-second per-test cap and a
 10-minute global cap. If preflight fails, it exits nonzero, names the missing
 precondition, and leaves every instance untouched.
+
+To adopt a named target already resolved by the bench library, run
+`env -u CODETERM_API_PORT CODETERM_INSTANCE=pwserial bash -c 'source evals/_lib/lib.sh; dev_run env PW_TARGET=named pnpm test:pw:selection -- --project full --grep @smoke'`;
+API/Vite/CDP ports, token, data directory, socket, and instance come from that resolution.
+Adopt targets are never started, restarted, or reset by Playwright, and
+`apiReset` refuses data directories outside the disposable `playwright`,
+`pwserial`, and `pwN` profiles.
 
 Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
 separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.

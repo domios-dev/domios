@@ -17,7 +17,7 @@ export function GeneralAgentCard({ config, onUpdate }: GeneralAgentCardProps) {
     <SettingsCard
       icon={<Bot size={16} />}
       title="General Agent"
-      description="Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm. Changes provider on next restart, or click Restart now."
+      description="Always-on AI assistant in a protected workspace. Starts automatically with Domios. Changes provider on next restart, or click Restart now."
     >
       <Toggle
         label="Enable General Agent"

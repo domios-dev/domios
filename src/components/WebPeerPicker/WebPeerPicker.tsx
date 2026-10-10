@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Check } from "lucide-react";
 import { flushSync } from "react-dom";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
 import { resetWebEvents } from "../../lib/webEvents";
+import { resetOutputStream } from "../../lib/outputStream";
 import { formatLastActiveBadge, rankPeersByLastActive } from "../../lib/peerRanking";
 import {
   clearRelayTarget,
@@ -46,7 +48,7 @@ interface MeshPeers {
  */
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
-  const [localName, setLocalName] = useState("CodeTerm");
+  const [localName, setLocalName] = useState("Domios");
   const [open, setOpen] = useState(false);
   const [displayTarget, setDisplayTarget] = useState(relayTarget);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
@@ -180,6 +182,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       }
       invalidateWebRequestContext();
       closeMenu();
+      resetOutputStream();
       resetWebEvents();
       window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
@@ -192,12 +195,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Switch CodeTerm host, current host ${label}`}
+        aria-label={`Switch Domios host, current host ${label}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
         className={`flex min-h-[44px] items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] sm:min-h-0 sm:h-7 ${compact ? "min-w-0 max-w-[126px] px-2" : "px-2.5"}`}
-        title="Switch CodeTerm host"
+        title="Switch Domios host"
       >
         <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
         <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
@@ -208,10 +211,15 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           ref={menuRef}
           data-testid="peer-picker-menu"
           role="menu"
-          aria-label="CodeTerm hosts"
+          aria-label="Domios hosts"
           onKeyDown={onMenuKeyDown}
-          className="fixed z-50 w-[min(320px,calc(100vw-0.5rem))] overflow-y-auto rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
-          style={{ top: menuPosition.top, left: menuPosition.left, maxHeight: menuPosition.maxHeight }}
+          className="ct-menu ct-peer-menu fixed z-50 w-[min(320px,calc(100vw-0.5rem))] overflow-y-auto"
+          style={{
+            top: menuPosition.top,
+            left: menuPosition.left,
+            maxHeight: menuPosition.maxHeight,
+            ...({ "--ct-menu-origin": compact ? "top right" : "top left" } as CSSProperties),
+          }}
         >
           <button
             type="button"
@@ -219,12 +227,15 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             data-testid="peer-picker-self"
             aria-current={onSelf ? "true" : undefined}
             onClick={() => switchTo(null)}
-            className={`w-full text-left px-3 min-h-[44px] flex items-center gap-2 text-xs hover:bg-[var(--ct-hover)] ${onSelf ? "text-[var(--ct-accent,#58a6ff)]" : "text-[var(--ct-fg)]"}`}
+            className="ct-menu-row"
           >
-            <span className="w-2 h-2 rounded-full bg-[var(--ct-green,#3fb950)]" />
-            <span className="flex-1 truncate">
+            <span className="ct-menu-row__icon">
+              <span className="w-2 h-2 rounded-full bg-[var(--ct-green)]" />
+            </span>
+            <span className="min-w-0 flex-1 truncate">
               {localName} ({selfHost().replace(/^https?:\/\//, "")})
             </span>
+            {onSelf && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
           </button>
           {peers.map((p) => {
             const active = target?.id === p.instance_id;
@@ -238,31 +249,33 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 key={p.instance_id}
                 data-testid="peer-picker-item"
                 aria-current={active ? "true" : undefined}
+                data-peer-id={p.instance_id}
                 data-peer-name={p.instance_name}
                 data-peer-online={String(!!p.online)}
                 disabled={!available}
                 onClick={() => switchTo(p)}
-                className={`w-full text-left px-3 min-h-[44px] flex items-center gap-2 text-xs hover:bg-[var(--ct-hover)] disabled:opacity-40 ${active ? "text-[var(--ct-accent,#58a6ff)]" : "text-[var(--ct-fg)]"}`}
-                title={!p.online ? `${p.instance_name} is offline` : compatible ? p.instance_name : `Update CodeTerm on ${p.instance_name}`}
+                className="ct-menu-row"
+                title={!p.online ? `${p.instance_name} is offline` : compatible ? p.instance_name : `Update Domios on ${p.instance_name}`}
               >
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${p.online ? "bg-[var(--ct-green,#3fb950)]" : "bg-[var(--ct-muted,#8b949e)]"}`}
-                />
-                <span className="flex-1 truncate">{p.instance_name}</span>
+                <span className="ct-menu-row__icon">
+                  <span className={`w-2 h-2 rounded-full ${p.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{p.instance_name}</span>
                 {badge && (
-                  <span className="text-[9px] opacity-60 shrink-0">{badge}</span>
+                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">{badge}</span>
                 )}
                 {!p.online && !badge && (
-                  <span className="text-[9px] opacity-60 shrink-0">offline</span>
+                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">offline</span>
                 )}
                 {p.online && !compatible && (
-                  <span className="text-[9px] opacity-60 shrink-0">update required</span>
+                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">update required</span>
                 )}
+                {active && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
               </button>
             );
           })}
           {peers.length === 0 && (
-            <div className="px-3 py-2 text-[10px] text-[var(--ct-muted,#8b949e)]">
+            <div className="px-2 py-1.5 text-[10.5px] text-[var(--ct-muted)]">
               no paired peers
             </div>
           )}

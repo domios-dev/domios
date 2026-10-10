@@ -2,8 +2,9 @@
 //!
 //! Layout:
 //!   - [`schedule`] — pure schedule parsing/validation/computation
-//!   - [`crud`]     — CronStore CRUD + run history recording
+//!   - [`crud`]     — prepared CronStore changes + run history recording
 //!   - [`tabs`]    — tab-ownership tracking + per-job log persistence
+//!   - [`storage`] — legacy JSON or Storage backend and the staged commit boundary
 //!
 //! Public surface: types + the `CronStore` constructors / save below, with the
 //! schedule helpers re-exported so callers keep using `cron::store::compute_next_run`
@@ -13,23 +14,39 @@
 mod corruption_tests;
 mod crud;
 mod schedule;
+mod storage;
+#[cfg(test)]
+mod storage_tests;
 mod tabs;
 #[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 pub use schedule::{
     cap_jitter_max_ms_at, compute_backoff, compute_next_run, compute_next_run_at,
     compute_next_run_in, compute_next_run_jittered, compute_next_run_jittered_at,
-    compute_next_run_jittered_in, parse_oneshot_schedule, parse_oneshot_schedule_at, parse_tz,
-    to_6field, validate_schedule, validate_tz, MAX_CONSECUTIVE_FAILURES,
+    compute_next_run_jittered_in, is_stale_fire, parse_oneshot_schedule, parse_oneshot_schedule_at,
+    parse_tz, to_6field, validate_schedule, validate_tz, MAX_CONSECUTIVE_FAILURES, STALE_FIRE_MS,
 };
 
-use crate::cron::clock::{system_clock, SharedClock};
+pub(crate) use crud::{CronChange, CronScope, Prepared, RunSession};
+pub(crate) use storage::{commit, finish_run, finish_run_with_summary};
+pub use storage::{
+    decode_legacy_cron_file, read_legacy_cron_file, settle_port, CronCommitError, CronCommitted,
+    CronStorageOptions, LegacyCronError, PortSettlement,
+};
+pub use tabs::write_log;
+
+#[cfg(test)]
+use crate::cron::clock::system_clock;
+use crate::cron::clock::SharedClock;
+#[cfg(test)]
 use crate::persisted_state::{Loaded, StateFile};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -41,7 +58,7 @@ pub enum CronRunStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CronRunInfo {
     pub run_id: String,
     pub started_at: u64,
@@ -59,7 +76,7 @@ pub struct CronRunInfo {
     pub report_delivery: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CronJob {
     pub id: String,
     pub name: String,
@@ -143,20 +160,25 @@ impl Default for CronFile {
     }
 }
 
+/// Cache of committed cron state. Under the legacy JSON backend the cache is the
+/// authority; under Storage it holds only what a commit or committed read published.
 pub struct CronStore {
     file: CronFile,
-    file_path: PathBuf,
+    backend: storage::Backend,
+    logs_root: PathBuf,
     tab_owners: HashMap<String, (String, String)>,
     clock: SharedClock,
 }
 
 impl CronStore {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::new_with_clock(system_clock())
     }
 
     /// Production path + an injected clock — the daemon uses this with a
     /// MockClock when CODETERM_TEST_CLOCK=1 (e2e time travel).
+    #[cfg(test)]
     pub fn new_with_clock(clock: SharedClock) -> Self {
         let dir = crate::paths::data_dir();
         Self::load(dir.join("crons.json"), clock)
@@ -175,14 +197,20 @@ impl CronStore {
     /// A crons.json that fails to load is preserved and recovered from backup;
     /// without one the store runs on an empty in-memory file and every save is
     /// refused, so built-in jobs are merged in memory only.
+    #[cfg(test)]
     fn load(file_path: PathBuf, clock: SharedClock) -> Self {
         let file = match state_file(&file_path).load(parse_cron_file) {
             Loaded::Parsed(file) | Loaded::Recovered { value: file, .. } => file,
             Loaded::Missing | Loaded::Unrecoverable { .. } => CronFile::default(),
         };
+        let logs_root = file_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("crons");
         Self {
             file,
-            file_path,
+            backend: storage::Backend::Legacy(file_path),
+            logs_root,
             tab_owners: HashMap::new(),
             clock,
         }
@@ -194,20 +222,26 @@ impl CronStore {
         self.clock.now_ms()
     }
 
+    /// Legacy JSON save; a Storage-backed store refuses it.
+    #[cfg(test)]
     pub fn save(&self) -> Result<(), String> {
+        let path = self.backend.legacy_path()?;
         let json = serde_json::to_string_pretty(&self.file).map_err(|e| e.to_string())?;
-        state_file(&self.file_path).save(&json)
+        state_file(path).save(&json)
     }
 }
 
+#[cfg(test)]
 fn state_file(path: &Path) -> StateFile {
     StateFile::new(path).with_validator(validate_cron_file)
 }
 
+#[cfg(test)]
 fn parse_cron_file(text: &str) -> Result<CronFile, String> {
     serde_json::from_str(text).map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 fn validate_cron_file(text: &str) -> Result<(), String> {
     parse_cron_file(text).map(|_| ())
 }

@@ -230,14 +230,13 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
         None,
         Some("fixture-cwd"),
         false,
-        false,
-        || {
+        |_| {
             store
                 .resolve(&digest)
                 .map(Some)
                 .map_err(|error| error.to_string())
         },
-        |stage, reason| *boot_failure.lock() = Some((stage, reason.to_string())),
+        |stage, reason, _| *boot_failure.lock() = Some((stage, reason.to_string())),
         |launch, payload| *launch_request.lock() = Some((launch, payload)),
     );
     let error = match result {
@@ -397,8 +396,9 @@ fn agent_prompt_sanitizer_preserves_literal_reply_text() {
 }
 
 #[test]
-fn agent_prompt_sanitizer_preserves_codeterm_prefix_text() {
-    let message = "-=-codeterm:tab label=worker tab=abc123 model=codex-=-run tests";
+fn agent_prompt_sanitizer_preserves_domios_route_frame_text() {
+    let message =
+        "<domios from=\"tab\" label=\"worker\" tab=\"abc123\" model=\"codex\">run tests</domios>";
     assert_eq!(send::sanitize_agent_prompt_input(message), message);
 }
 

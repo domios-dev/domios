@@ -47,8 +47,33 @@ impl PluginManifest {
 
     /// Strict parse plus the cross-field capability rules every load path enforces.
     pub fn from_json_str(text: &str) -> Result<Self, String> {
-        let manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let mut manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        if let Some(raw) = manifest.agent_prompt_line.take() {
+            match crate::agent_prompt_lines::validate_agent_prompt_line(&raw) {
+                Ok(line) => manifest.agent_prompt_line = Some(line),
+                Err(error) => log::warn!("[plugin] {}: {error}", manifest.id),
+            }
+        }
         manifest.capabilities.validate_tab_menu()?;
+        manifest.capabilities.validate_surfaces()?;
+        manifest
+            .capabilities
+            .drop_invalid_surface_icons(&manifest.id);
+        for credential in &manifest.credentials {
+            if let Some(environment) = &credential.file_environment {
+                environment.validate()?;
+            }
+        }
+        if let Some(environment) = manifest
+            .sessions
+            .as_ref()
+            .and_then(|sessions| sessions.root_environment.as_ref())
+        {
+            environment.validate()?;
+        }
+        if let Some(compatibility) = &manifest.cli_compatibility {
+            compatibility.validate()?;
+        }
         for capability in manifest.capabilities.unknown_capabilities() {
             log::debug!(
                 "[plugin] {} ignores unknown capability {}",
@@ -79,8 +104,15 @@ impl PluginManifest {
         true // platform-targeted plugins are out of scope for v1
     }
 
-    /// Expand a `~/...` path to the user's home directory.
+    /// Expand a `~/...` path to the user's home directory. `~/.codeterm` names the
+    /// running instance's data dir, so a dev or named instance never reaches prod's.
     pub fn expand_home(path: &str) -> Option<PathBuf> {
+        if path == "~/.codeterm" {
+            return Some(codeterm_paths::data_dir());
+        }
+        if let Some(rest) = path.strip_prefix("~/.codeterm/") {
+            return Some(codeterm_paths::data_dir().join(rest));
+        }
         if let Some(rest) = path.strip_prefix("~/") {
             dirs::home_dir().map(|h| h.join(rest))
         } else if path == "~" {
@@ -162,8 +194,7 @@ pub fn manifest_settings_sections(m: &PluginManifest) -> Vec<SettingField> {
                 state_query: Some("check_provider_integration".into()),
                 args: Some(serde_json::json!({
                     "provider_id": provider_id,
-                    "consent": true,
-                    "precompact_memory_export": false
+                    "consent": true
                 })),
                 confirm: Some(install_confirm),
                 style: ActionStyle::Primary,

@@ -115,6 +115,9 @@ fn manifest_launch_template_fixture_matrix_round_trips() {
 
     // Resume-with-context splices extra args through the existing append path.
     let resumed = p.build_resume_command_with_context(&AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: "sid-fixture-2".into(),
         skip_permissions: true,
         agent_name: None,

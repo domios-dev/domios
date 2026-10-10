@@ -1,0 +1,17 @@
+  cli       {"build_sha":"89adca23c319c09aae07abaa13a62ebf376383d0","version":"1.12.4"}
+  features  multiplexer, agent-detection, notifications
+  name      CodeTerm
+  platform  windows
+  version   1.12.4
+OK (sent)
+CODETERM_RESOLVED_TEXT=""
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\codex-remote-spike-slashes-20261007
+• Thread forked from 01a1164f-f8ac-7102-9785-6f9a7c2c7ad3
+› Reply with SEED_READY only. Do not use tools.
+• SEED_READY
+  Worked for 5s • 15:21
+• Fork created. You can continue here.
+› Ask Codex to do anything
+  GPT-6-Sol medium · ~\AppData\Local\Temp\codex-remote-spike-slashes-20261007
+  ? for shortcuts

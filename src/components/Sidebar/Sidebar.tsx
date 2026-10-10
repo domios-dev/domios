@@ -3,15 +3,15 @@ import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
 import { IS_WEB } from "../../lib/webApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { isPhoneViewport } from "../../hooks/useSidebarViewport";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { useMultiplexer, useMuxState } from "../../store/multiplexer";
-import { displayTitleForTab } from "../../store/multiplexer/tree";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { AppConfig, CronJob } from "../../lib/types";
+import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
-import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
-import { AgentIcon } from "../AgentIcon";
+import { ExtensionsIcon } from "../Icons";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
@@ -32,10 +32,16 @@ import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
+import type { JobsTarget } from "../Jobs/JobsView";
+import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
+import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
+import { SpinalCordButton } from "./SpinalCord";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
+import { BlueprintOwnerCloseDialog } from "./BlueprintOwnerCloseDialog";
 import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
@@ -43,10 +49,11 @@ import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
 import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
-import { declaredAttentionByTab } from "./declaredAttention";
+import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
+import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
+import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
 
-export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
 export const SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY = "codeterm.sidebar.workspaces-section-expanded";
 
@@ -74,6 +81,13 @@ export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
 
 /** Stable target for the collapse handle's aria-controls — the sidebar is a singleton region. */
 export const SIDEBAR_REGION_ID = "codeterm-sidebar";
+const SIDEBAR_COLLAPSED_WIDTH = 0;
+const SIDEBAR_COMPACT_WIDTH = 64;
+const SIDEBAR_COMPACT_SNAP = 150;
+const SIDEBAR_COLLAPSE_BELOW = 48;
+const SIDEBAR_DEFAULT_WIDTH = 280;
+const SIDEBAR_MAX_WIDTH = 400;
+const SIDEBAR_PEEK_DWELL_MS = 280;
 
 interface SidebarProps {
   onCollapse?: () => void;
@@ -86,7 +100,11 @@ interface SidebarProps {
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
   onOpenWorkspaceMap?: (workspaceId: string) => void;
+  onOpenWorkspaceAutomation?: (workspaceId: string, target?: JobsTarget, scope?: JobsOpenScope) => void;
   teamActions?: Partial<SidebarTeamActions>;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  /** Bumped by the titlebar burger to bring a collapsed sidebar back. */
+  expandRequest?: number;
 }
 
 export function Sidebar({
@@ -100,7 +118,10 @@ export function Sidebar({
   uiFontScale,
   workspaceCanvasActive = false,
   onOpenWorkspaceMap,
+  onOpenWorkspaceAutomation,
   teamActions,
+  onCollapsedChange,
+  expandRequest = 0,
 }: SidebarProps) {
   const {
     createWorkspace,
@@ -108,6 +129,7 @@ export function Sidebar({
     closeWorkspace,
     renameWorkspace,
     reorderTabs,
+    reorderDisplay,
     reorderWorkspaces,
     createTab,
     attachRemoteTab,
@@ -122,10 +144,10 @@ export function Sidebar({
     selectTabByTab,
     addNotification,
   } = useMultiplexer();
-  const state = useMuxState();
-  const declaredAttention = useMemo(
-    () => declaredAttentionByTab(state.notifications),
-    [state.notifications],
+  const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
+  const attention = useMemo(
+    () => tabAttentionByTab(state.tabs, state.tabStatuses, state.notifications),
+    [state.tabs, state.tabStatuses, state.notifications],
   );
   const isWorkspaceMode = mainView === "workspace";
   const [folderPicker, setFolderPicker] = useState<{
@@ -138,6 +160,7 @@ export function Sidebar({
     id: string;
     name: string;
     agentTitles: string[];
+    blueprints: string[];
     teams: TeamCloseResource[];
   } | null>(null);
   const [sessionPicker, setSessionPicker] = useState<{
@@ -243,18 +266,29 @@ export function Sidebar({
         sticky: true,
       });
     }
+    let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+    try {
+      blueprintSnapshots = await readWorkspaceBlueprints(workspaceId);
+    } catch (error) {
+      addNotification({ tab_id: null, workspace_id: workspaceId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+      return;
+    }
     const teams = teamCloseResourcesForWorkspace(
       workspace,
       state.tabs,
       state.teams ?? [],
       crons,
       fullPlans.plans,
+      blueprintSnapshots,
     );
     const teamMemberIds = new Set(teams.flatMap((team) => team.members.map((member) => member.tabId)));
-    const agentTitles = flattenSidebarTabs(workspace.tabs, state.tabs)
+    const workspaceTabs = flattenSidebarTabs(workspace.tabs, state.tabs);
+    const agentTitles = workspaceTabs
       .filter((tab) => tab.agent_type && !teamMemberIds.has(tab.id))
       .map((tab) => tab.title);
-    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, teams });
+    const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
+    const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name);
+    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, blueprints, teams });
   }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
 
   useEffect(() => {
@@ -348,41 +382,66 @@ export function Sidebar({
     });
   }, []);
 
-  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const lastExpandedWidth = useRef(220);
+  const lastExpandedWidth = useRef(SIDEBAR_DEFAULT_WIDTH);
   const sidebarDragging = useRef(false);
   const sidebarMoved = useRef(false);
-  const collapseOnRelease = useRef(false);
+  const [peeking, setPeeking] = useState(false);
+  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdPeek = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = null;
+    setPeeking(true);
+  }, []);
+  const releasePeek = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => setPeeking(false), 220);
+  }, []);
+  const [dropY, setDropY] = useState<number | null>(null);
+  const edgeEnter = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      setDropY(null);
+      setPeeking(true);
+    }, SIDEBAR_PEEK_DWELL_MS);
+  }, []);
+  const edgeLeave = useCallback(() => {
+    setDropY(null);
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => setPeeking(false), 220);
+  }, []);
+  useEffect(() => () => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+  }, []);
+  const onCollapsedChangeRef = useRef(onCollapsedChange);
+  onCollapsedChangeRef.current = onCollapsedChange;
+  useEffect(() => {
+    onCollapsedChangeRef.current?.(isSidebarCollapsed);
+  }, [isSidebarCollapsed]);
+  useEffect(() => {
+    if (expandRequest === 0) return;
+    setPeeking(false);
+    setSidebarWidth(lastExpandedWidth.current);
+    setIsSidebarCollapsed(false);
+  }, [expandRequest]);
 
   const handleSidebarDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    setPeeking(false);
     sidebarDragging.current = true;
     sidebarMoved.current = false;
-    collapseOnRelease.current = false;
     const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    const startCollapsed = isSidebarCollapsed;
-    if (!startCollapsed) {
-      lastExpandedWidth.current = sidebarWidth;
-    }
+    const startWidth = isSidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth;
+    let width = startWidth;
     const onMove = (ev: MouseEvent) => {
       if (!sidebarDragging.current) return;
       const delta = ev.clientX - startX;
-      if (Math.abs(delta) > 3) {
-        sidebarMoved.current = true;
-      }
-      const baseWidth = startCollapsed ? lastExpandedWidth.current : startWidth;
-      const newWidth = Math.max(48, Math.min(400, baseWidth + delta));
-      if (newWidth <= 56) {
-        collapseOnRelease.current = true;
-        setIsSidebarCollapsed(true);
-        return;
-      }
-      collapseOnRelease.current = false;
+      if (Math.abs(delta) > 3) sidebarMoved.current = true;
+      if (!sidebarMoved.current) return;
+      width = Math.max(SIDEBAR_COLLAPSED_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, startWidth + delta));
       setIsSidebarCollapsed(false);
-      setSidebarWidth(newWidth);
-      lastExpandedWidth.current = newWidth;
+      setSidebarWidth(width);
     };
     const onUp = () => {
       sidebarDragging.current = false;
@@ -390,7 +449,15 @@ export function Sidebar({
       document.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      if (collapseOnRelease.current) onCollapse?.();
+      if (!sidebarMoved.current) return;
+      if (width < SIDEBAR_COLLAPSE_BELOW) {
+        setIsSidebarCollapsed(true);
+        if (isPhoneViewport()) onCollapse?.();
+        return;
+      }
+      const settled = width < SIDEBAR_COMPACT_SNAP ? SIDEBAR_COMPACT_WIDTH : width;
+      lastExpandedWidth.current = settled;
+      setSidebarWidth(settled);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -403,7 +470,7 @@ export function Sidebar({
       sidebarMoved.current = false;
       return;
     }
-    if (onCollapse) {
+    if (onCollapse && isPhoneViewport()) {
       onCollapse();
       return;
     }
@@ -423,11 +490,13 @@ export function Sidebar({
   const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
   const scaledTouchSidebarWidth = Math.round(sidebarWidth * 1.3);
   const visibleSidebarWidth = isSidebarCollapsed
-    ? 16
+    ? SIDEBAR_COLLAPSED_WIDTH
     : touchMode
       ? `min(85vw, ${scaledTouchSidebarWidth}px)`
       : sidebarWidth;
-  const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
+  const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < SIDEBAR_COMPACT_SNAP;
+  const isPeeking = isSidebarCollapsed && peeking && !touchMode;
+  const peekWidth = sidebarWidth >= SIDEBAR_COMPACT_SNAP ? sidebarWidth : 240;
   const prevTabIdsRef = useRef<Set<string>>(new Set());
   const [appearingTabs, setAppearingTabs] = useState<Set<string>>(new Set());
   const [closingTabs, setClosingTabs] = useState<Map<string, { wsId: string }>>(new Map());
@@ -463,8 +532,10 @@ export function Sidebar({
     teamName: string;
     members: OrchestrationGroupMember[];
     crons: string[];
+    blueprints: string[];
     lanes: string[];
   } | null>(null);
+  const [pendingTabClose, setPendingTabClose] = useState<{ workspaceId: string; tabId: string; title: string; blueprints: string[] } | null>(null);
 
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
     setClosingTabs((prev) => {
@@ -483,8 +554,22 @@ export function Sidebar({
   }, [closeTab]);
 
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
-    performCloseTab(wsId, tabId);
-  }, [performCloseTab]);
+    void (async () => {
+      let blueprints: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+      try {
+        blueprints = await readWorkspaceBlueprints(wsId);
+      } catch (error) {
+        addNotification({ tab_id: tabId, workspace_id: wsId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+        return;
+      }
+      const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
+      if (running.length > 0) {
+        setPendingTabClose({ workspaceId: wsId, tabId, title: state.tabs[tabId]?.title || "Tab", blueprints: running });
+        return;
+      }
+      performCloseTab(wsId, tabId);
+    })();
+  }, [addNotification, performCloseTab, state.tabs]);
 
   const requestTeamClose = useCallback(async (wsId: string, teamId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
@@ -503,8 +588,15 @@ export function Sidebar({
         sticky: true,
       });
     }
+    let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+    try {
+      blueprintSnapshots = await readWorkspaceBlueprints(wsId);
+    } catch (error) {
+      addNotification({ tab_id: null, workspace_id: wsId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+      return;
+    }
     const resources = teamCloseResourcesForId(
-      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, fullPlans.plans),
+      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, fullPlans.plans, blueprintSnapshots),
       teamId,
     );
     const teamTabs = flattenSidebarTabs(ws.tabs, state.tabs).filter((tab) => tab.team_id === teamId);
@@ -522,6 +614,7 @@ export function Sidebar({
         };
       }),
       crons: resources?.crons ?? [],
+      blueprints: resources?.blueprints ?? runningBlueprintNamesForOwner(blueprintSnapshots, "team", teamId),
       lanes: resources?.lanes ?? [],
     });
   }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
@@ -621,6 +714,7 @@ export function Sidebar({
         .filter(isSidebarTabVisible)
         .map((tab) => tab.id),
       state.tabStatuses,
+      state.tabs,
     ),
   ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
   const workspaceSortIds = useMemo(
@@ -628,9 +722,23 @@ export function Sidebar({
     [ordinaryWorkspaces],
   );
   const dndHandlers = useMemo(
-    () => ({ reorderTabs, reorderWorkspaces }),
-    [reorderTabs, reorderWorkspaces],
+    () => ({ reorderTabs, reorderDisplay, reorderWorkspaces }),
+    [reorderTabs, reorderDisplay, reorderWorkspaces],
   );
+  const compactGroups = useMemo<CompactRailGroup[]>(() => {
+    if (!isCompact) return [];
+    const railGroup = (workspaceId: string, label: string, tabIds: readonly string[], keep: (tab: Tab) => boolean): CompactRailGroup => {
+      const workspaceActive = workspaceId === state.active_workspace_id && isWorkspaceMode;
+      const tabs = tabsInWorkspace(tabIds, state.tabs).filter((tab) => isSidebarTabVisible(tab) && !tab.parent_tab_id && keep(tab));
+      const active = tabs.find((tab) => isWorkspaceTabActive(workspaceActive, workspaceCanvasActive, tab.id, state.activeTabIds[workspaceId]));
+      return { workspaceId, label, tabs, activeTabId: active?.id ?? null };
+    };
+    const groups: CompactRailGroup[] = [];
+    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, (tab) => Boolean(tab.agent_type)));
+    const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
+    if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
+    return groups;
+  }, [generalWorkspace, isCompact, isWorkspaceMode, ordinaryWorkspaces, selectedWorkspaceId, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
 
   return (
     <>
@@ -638,7 +746,7 @@ export function Sidebar({
         className="relative overflow-visible shrink-0 h-full"
         style={{
           width: visibleSidebarWidth,
-          transition: sidebarDragging.current ? undefined : "width 180ms cubic-bezier(0.16, 1, 0.3, 1)",
+          transition: sidebarDragging.current ? undefined : "width var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle)",
         }}
         >
         <aside
@@ -647,12 +755,27 @@ export function Sidebar({
           aria-label="Sidebar"
           data-testid="sidebar"
           data-touch-mode={touchMode ? "true" : "false"}
-          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
-          style={{ width: visibleSidebarWidth }}
+          data-collapsed={isSidebarCollapsed && !isPeeking ? "true" : "false"}
+          data-peek={isPeeking || undefined}
+          className="ct-sidebar-panel shrink-0 h-full min-h-0 flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
+          style={isPeeking ? { width: "100%", "--ct-sidebar-peek-width": `${peekWidth}px` } as React.CSSProperties : { width: "100%" }}
+          onMouseEnter={isPeeking ? holdPeek : undefined}
+          onMouseLeave={isPeeking ? releasePeek : undefined}
         >
-          {!isSidebarCollapsed && (
+          {(!isSidebarCollapsed || isPeeking) && (
             <>
-            <div className="ct-hover-reveal-scrollbar flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+            <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+              {isCompact && (
+                <SidebarCompactRail
+                  groups={compactGroups}
+                  attentionByTab={attention}
+                  tabStatuses={state.tabStatuses}
+                  onActivate={(workspaceId, tabId) => {
+                    setActiveTab(workspaceId, tabId);
+                    onNavigateToTab?.();
+                  }}
+                />
+              )}
               {!isCompact && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
@@ -665,7 +788,7 @@ export function Sidebar({
                     role="region"
                     aria-label={`${generalWorkspace.name} workspace contents`}
                   >
-                    <div className="sidebar-structural-header w-full">
+                    <div className="sidebar-structural-header sidebar-general-header w-full">
                       <SidebarDisclosure
                         data-testid="general-section-toggle"
                         className="sidebar-structural-toggle min-w-0"
@@ -674,14 +797,17 @@ export function Sidebar({
                       >
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
+                      <SpinalCordButton api={config?.api} />
                     </div>
-                    {generalExpanded && <SidebarWorkspaceTabs
+                    {generalExpanded && <GeneralWorkspaceTabs
                       workspace={generalWorkspace}
+                      providerId={config?.general_agent.agent_provider}
+                      generalCwd={generalWorkspace.cwd ?? generalTabs.find((tab) => tab.protected)?.cwd ?? null}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
                       sortedTabs={generalTabs}
                       tabs={state.tabs}
                       tabStatuses={state.tabStatuses}
-                      declaredAttentionByTab={declaredAttention}
+                      tabAttentionByTab={attention}
                       teams={state.teams}
                       planIndex={planIndex}
                       plans={fullPlans.plans}
@@ -701,7 +827,6 @@ export function Sidebar({
                       onActivateTab={(tabId) => { setActiveTab(generalWorkspace.id, tabId); onNavigateToTab?.(); }}
                       onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
                       onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
-                      onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
                       onOpenRemoteTab={() => setRemotePickerWorkspaceId(generalWorkspace.id)}
                       newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
@@ -709,176 +834,121 @@ export function Sidebar({
                       onCloseTeam={teamActions?.onCloseTeam
                         ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
                         : undefined}
+                      onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
                     />}
                   </section>
                 );
               })()}
-              <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
-                {!isCompact && <SidebarDisclosure
-                  data-testid="workspaces-section-toggle"
-                  className="sidebar-structural-toggle"
-                  expanded={workspacesSectionExpanded}
-                  onClick={toggleWorkspacesSection}
-                >
-                  <span className="sidebar-structural-label">WORKSPACES</span>
-                </SidebarDisclosure>}
-                <div className="sidebar-structural-action">
-                  {isCompact && (
-                    <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace" aria-label="Create workspace">
-                      <FolderPlusIcon size={12} />
-                    </button>
-                  )}
+              {!isCompact && <div className="sidebar-structural-section">
+                <div className="sidebar-structural-header">
+                  <SidebarDisclosure
+                    data-testid="workspaces-section-toggle"
+                    className="sidebar-structural-toggle"
+                    expanded={workspacesSectionExpanded}
+                    onClick={toggleWorkspacesSection}
+                  >
+                    <span className="sidebar-structural-label">WORKSPACES</span>
+                  </SidebarDisclosure>
+                  <div className="sidebar-structural-action" />
                 </div>
-              </div>
-              {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (isCompact ? (
-                <div className="flex flex-col items-center py-1">
-                  {ordinaryWorkspaces.map((ws) => {
-                    const isActive = ws.id === state.active_workspace_id;
-                    const isActiveVisual = isActive && isWorkspaceMode;
-                    const isExpanded = expandedWorkspaces.has(ws.id);
-                    return (
-                      <div key={ws.id} className="w-full flex flex-col items-center">
-                        <button
-                          onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); onNavigateToTab?.(); }}
-                          className={`w-full py-1.5 flex items-center justify-center transition-colors ${
-                            isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
-                          }`}
-                          aria-label={`Workspace ${ws.name}`}
-                          aria-expanded={isExpanded}
-                          title={ws.name}
-                        >
-                          <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
-                        </button>
-                        {isExpanded && (
-                          <>
-                            {flattenSidebarTabs(ws.tabs, state.tabs).map((tab) => {
-                          const isTabActive = isWorkspaceTabActive(
-                            isActiveVisual,
-                            workspaceCanvasActive,
-                            tab.id,
-                            state.activeTabIds[ws.id],
-                          );
-                          return (
-                            <button
-                              key={tab.id}
-                              onClick={() => { setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
-                              className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
-                                isTabActive
-                                  ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                                  : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
-                              }`}
-                              aria-label={`Open tab ${displayTitleForTab(tab)}`}
-                              title={displayTitleForTab(tab)}
-                            >
-                              {tab?.agent_type ? (
-                                <AgentIcon providerId={tab.agent_type} className="text-[12px]" />
-                              ) : (
-                                <TerminalIcon size={11} />
-                              )}
-                            </button>
-                          );
-                            })}
-                          </>
-                        )}
-                        <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <SidebarDnd handlers={dndHandlers}>
-                  <WorkspaceCardGrid
-                    workspaces={ordinaryWorkspaces}
-                    selectedWorkspaceId={selectedWorkspaceId}
-                    statuses={workspaceStatuses}
-                    sortIds={workspaceSortIds}
-                    onSelect={(workspaceId) => {
-                      setSelectedWorkspaceId(workspaceId);
-                      persistSelectedWorkspaceId(workspaceId);
-                      setActiveWorkspace(workspaceId);
-                    }}
-                    onCreate={handleNewWorkspace}
-                  />
-                  {ordinaryWorkspaces.map((ws) => {
-                    const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
-                    const selected = ws.id === selectedWorkspaceId;
-                    const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
-                    return (
-                      <div
-                        key={ws.id}
-                        data-testid="workspace-detail"
-                        data-workspace-id={ws.id}
-                        role="region"
-                        aria-label={`${ws.name} workspace contents`}
-                        hidden={!selected}
-                      >
-                    <WorkspaceItem
-                      workspace={ws}
-                      isActive={isActiveVisual}
-                      isExpanded
-                      onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
-                      onToggleExpand={() => {}}
-                      onClose={() => requestWorkspaceClose(ws.id)}
-                      onRename={(name) => renameWorkspace(ws.id, name)}
-                      onNewTerminal={() => createTab(ws.id)}
-                      onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                      onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
-                      newSessionDisabled={firstRunActive}
-                      onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
-                      canClose={true}
-                      status={workspaceStatuses[ws.id]}
-                      showDisclosure={false}
-                      detailHeader
-                      touchMode={touchMode}
-                      uiFontScale={uiFontScale}
+                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
+                  <SidebarDnd handlers={dndHandlers}>
+                    <WorkspaceCardGrid
+                      workspaces={ordinaryWorkspaces}
+                      selectedWorkspaceId={selectedWorkspaceId}
+                      statuses={workspaceStatuses}
+                      sortIds={workspaceSortIds}
+                      onSelect={(workspaceId) => {
+                        setSelectedWorkspaceId(workspaceId);
+                        persistSelectedWorkspaceId(workspaceId);
+                        setActiveWorkspace(workspaceId);
+                      }}
+                      onCreate={handleNewWorkspace}
                     />
-                    <SidebarWorkspaceTabs
-                          workspace={ws}
-                          activeTabId={state.activeTabIds[ws.id] ?? null}
-                          sortedTabs={sortedTabs}
-                          tabs={state.tabs}
-                          tabStatuses={state.tabStatuses}
-                          declaredAttentionByTab={declaredAttention}
-                          teams={state.teams}
-                          planIndex={planIndex}
-                          plans={fullPlans.plans}
-                          activeWork={activeWork}
-                          providers={visibleProviders}
-                          providersLoading={providersLoading}
-                          closingTabIds={new Set(closingTabs.keys())}
-                          appearingTabIds={appearingTabs}
-                          isActiveVisual={isActiveVisual}
-                          workspaceCanvasActive={workspaceCanvasActive}
-                          touchMode={touchMode}
-                          uiFontScale={uiFontScale}
-                          compact={isCompact}
-                          sidebarActionText={sidebarActionText}
-                          orchestrators={wsOrchestrators}
-                          onBeforeOpenPlan={() => {
-                            setActiveWorkspace(ws.id);
-                            onNavigateToTab?.();
-                          }}
-                          onActivateTab={(tabId) => {
-                            setActiveTab(ws.id, tabId);
-                            onNavigateToTab?.();
-                          }}
-                          onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
-                          onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
-                          onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                          onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
-                          newSessionDisabled={firstRunActive}
-                          onRenameTeam={teamActions?.onRenameTeam}
-                          onAddTeamMember={teamActions?.onAddTeamMember}
-                          onCloseTeam={teamActions?.onCloseTeam
-                            ? (teamId) => requestTeamClose(ws.id, teamId)
-                            : undefined}
-                        />
-                      </div>
-                    );
-                  })}
-                </SidebarDnd>
-              ))}
+                    {ordinaryWorkspaces.map((ws) => {
+                      const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
+                      const selected = ws.id === selectedWorkspaceId;
+                      const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
+                      const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
+                      return (
+                        <div
+                          key={ws.id}
+                          data-testid="workspace-detail"
+                          data-workspace-id={ws.id}
+                          role="region"
+                          aria-label={`${ws.name} workspace contents`}
+                          hidden={!selected}
+                        >
+                      <WorkspaceItem
+                        workspace={ws}
+                        isActive={isActiveVisual}
+                        isExpanded
+                        onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
+                        onToggleExpand={() => {}}
+                        onClose={() => requestWorkspaceClose(ws.id)}
+                        onRename={(name) => renameWorkspace(ws.id, name)}
+                        onNewTerminal={(shell) => createTab(ws.id, undefined, shell)}
+                        onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                        onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
+                        onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}
+                        newSessionDisabled={firstRunActive}
+                        onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
+                        canClose={true}
+                        status={workspaceStatuses[ws.id]}
+                        showDisclosure={false}
+                        detailHeader
+                        touchMode={touchMode}
+                        countActiveJobs={selected}
+                        uiFontScale={uiFontScale}
+                      />
+                      <SidebarWorkspaceTabs
+                            workspace={ws}
+                            activeTabId={state.activeTabIds[ws.id] ?? null}
+                            sortedTabs={sortedTabs}
+                            tabs={state.tabs}
+                            tabStatuses={state.tabStatuses}
+                            tabAttentionByTab={attention}
+                            teams={state.teams}
+                            planIndex={planIndex}
+                            plans={fullPlans.plans}
+                            activeWork={activeWork}
+                            providers={visibleProviders}
+                            providersLoading={providersLoading}
+                            closingTabIds={new Set(closingTabs.keys())}
+                            appearingTabIds={appearingTabs}
+                            isActiveVisual={isActiveVisual}
+                            workspaceCanvasActive={workspaceCanvasActive}
+                            touchMode={touchMode}
+                            uiFontScale={uiFontScale}
+                            compact={isCompact}
+                            sidebarActionText={sidebarActionText}
+                            orchestrators={wsOrchestrators}
+                            onBeforeOpenPlan={() => {
+                              setActiveWorkspace(ws.id);
+                              onNavigateToTab?.();
+                            }}
+                            onActivateTab={(tabId) => {
+                              setActiveTab(ws.id, tabId);
+                              onNavigateToTab?.();
+                            }}
+                            onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
+                            onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
+                            onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                            onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
+                            newSessionDisabled={firstRunActive}
+                            onRenameTeam={teamActions?.onRenameTeam}
+                            onAddTeamMember={teamActions?.onAddTeamMember}
+                            onCloseTeam={teamActions?.onCloseTeam
+                              ? (teamId) => requestTeamClose(ws.id, teamId)
+                              : undefined}
+                            onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(ws.id, target) : undefined}
+                          />
+                        </div>
+                      );
+                    })}
+                  </SidebarDnd>
+                )}
+              </div>}
             </div>
             {remotePickerWorkspaceId && (
               <RemoteTabPicker
@@ -891,6 +961,7 @@ export function Sidebar({
               const hasOrphaned = views.some((v) => v.orphaned);
               return (
                 <RecentlyClosed
+                  structures={state.closed_structures ?? []}
                   views={views}
                   showWorkspace={state.workspaces.length > 1 || hasOrphaned}
                   onReopen={(wsId, idx, orphaned, tabId) => {
@@ -989,10 +1060,13 @@ export function Sidebar({
         aria-expanded={!isSidebarCollapsed}
         onMouseDown={handleSidebarDragStart}
         onClick={handleSidebarGrabClick}
-        className={`absolute top-1/2 z-20 flex -translate-y-1/2 cursor-col-resize items-center justify-center rounded-r !border border-l-0 !border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-surface)_78%,transparent)] text-[var(--ct-muted-fg)] shadow-sm transition-colors hover:border-[var(--ct-accent)] hover:bg-[var(--ct-surface)] hover:text-[var(--ct-fg)] shell-narrow:hidden ${isSidebarCollapsed ? "left-0 h-8 w-2.5" : "left-[100%] -ml-[2px] h-9 w-3"}`}
+        onMouseEnter={isSidebarCollapsed ? edgeEnter : undefined}
+        onMouseMove={isSidebarCollapsed ? (event) => setDropY(event.clientY - event.currentTarget.getBoundingClientRect().top) : undefined}
+        onMouseLeave={isSidebarCollapsed ? edgeLeave : undefined}
+        className={`ct-sidebar-grip shell-narrow:hidden ${isSidebarCollapsed ? "ct-sidebar-grip--collapsed" : ""}`}
         title={isSidebarCollapsed ? "Expand sidebar" : "Resize sidebar; click to collapse"}
       >
-        <span className="h-4 w-px rounded-full bg-current opacity-60" />
+        {isSidebarCollapsed && dropY !== null && <span className="ct-sidebar-drop" style={{ top: dropY }} aria-hidden="true" />}
       </button>
     </div>
 
@@ -1032,6 +1106,7 @@ export function Sidebar({
           orchestratorTitle={pendingTeamClose.teamName}
           members={pendingTeamClose.members}
           crons={pendingTeamClose.crons}
+          blueprints={pendingTeamClose.blueprints}
           lanes={pendingTeamClose.lanes}
           onCancel={() => setPendingTeamClose(null)}
           onConfirm={() => { void confirmTeamClose(); }}
@@ -1041,11 +1116,24 @@ export function Sidebar({
         <WorkspaceCloseConfirmDialog
           workspaceName={pendingWorkspaceClose.name}
           agentTitles={pendingWorkspaceClose.agentTitles}
+          blueprints={pendingWorkspaceClose.blueprints}
           teams={pendingWorkspaceClose.teams}
           onCancel={() => setPendingWorkspaceClose(null)}
           onConfirm={() => {
             closeWorkspace(pendingWorkspaceClose.id, true);
             setPendingWorkspaceClose(null);
+          }}
+        />
+      )}
+      {pendingTabClose && (
+        <BlueprintOwnerCloseDialog
+          owner={`Tab ${pendingTabClose.title}`}
+          blueprints={pendingTabClose.blueprints}
+          onCancel={() => setPendingTabClose(null)}
+          onConfirm={() => {
+            const pending = pendingTabClose;
+            setPendingTabClose(null);
+            performCloseTab(pending.workspaceId, pending.tabId);
           }}
         />
       )}

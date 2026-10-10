@@ -1,0 +1,2805 @@
+{
+  "observed_on": "2026-10-02",
+  "source_commit": "ddc23c2ff64ab1e1a2e075a5b5eafd2490f88382",
+  "prompt_status": "pending",
+  "providers": {
+    "claude": {
+      "package": "@anthropic-ai/claude-code",
+      "older": "2.1.286",
+      "target": "2.1.287",
+      "prompt_status": "pending",
+      "versions": {
+        "2.1.286": {
+          "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/2.1.286",
+          "metadata_sha256": "9a7b893c8afcf8138b80963f31400af8f2a8c3f2aec958f0ce691efd0d6abae9",
+          "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.286.tgz",
+          "integrity": "sha512-5UNEDKy2znv81PWqNqgPJO4qPqH5NRenh52XTtx2tT5Q6xIxjI1q0RyucY+AUHMABImzDOlh6ztuj4qNiAaRvA==",
+          "tarball_sha256": "ec7bc407e38d0281edf5662bdc7ee932748e5826abe4715e46e0207b40ce9027",
+          "bin": {
+            "claude": "bin/claude.exe"
+          },
+          "scripts": {
+            "postinstall": "node install.cjs",
+            "prepare": "node -e \"if (!process.env.AUTHORIZED) { console.error('ERROR: Direct publishing is not allowed.\\nPlease see the release workflow documentation to publish this package.'); process.exit(1); }\""
+          },
+          "optional_dependencies": {
+            "@anthropic-ai/claude-code-darwin-arm64": "2.1.286",
+            "@anthropic-ai/claude-code-darwin-x64": "2.1.286",
+            "@anthropic-ai/claude-code-linux-x64": "2.1.286",
+            "@anthropic-ai/claude-code-linux-arm64": "2.1.286",
+            "@anthropic-ai/claude-code-linux-x64-musl": "2.1.286",
+            "@anthropic-ai/claude-code-linux-arm64-musl": "2.1.286",
+            "@anthropic-ai/claude-code-win32-x64": "2.1.286",
+            "@anthropic-ai/claude-code-win32-arm64": "2.1.286"
+          },
+          "native_distribution_metadata": {
+            "@anthropic-ai/claude-code-darwin-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-darwin-arm64/2.1.286",
+              "metadata_sha256": "c28b78b9f525feecde098bb1ee3a1660b11ffcd9c8ef3dc1079f1210e2099e4f",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.286.tgz",
+              "integrity": "sha512-QlU1+S7cNO1BKzlMJGRR/ZqdsP6c3+QAA2u9EX7dTO6HUo1/RAenn/q+mlyX60MZzTZOjPkAmTt77eYrH1IAwg==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-darwin-x64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-darwin-x64/2.1.286",
+              "metadata_sha256": "5c891f938c9208687bc76422551ffd27427be80363996ebfe92f7a71bccb7a46",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-x64/-/claude-code-darwin-x64-2.1.286.tgz",
+              "integrity": "sha512-RlnglbMpkdvIdKzPphXI+KMwXefKpMJXYGpGAfpTI6XvkDcjgj5j8WXxvoySyl2qTetWOEqjkFB/V8rtW4qp4g==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-x64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-x64/2.1.286",
+              "metadata_sha256": "f85fff1e4c155310e85407908f58acc557a66dc4d80e1007e293823b548234f2",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.286.tgz",
+              "integrity": "sha512-PnVL8ZCEev3IexLeOc9/QRfqRDUZRgnsaMLdpjlBN0VaieeTrf7mZ2JJi29ue2KAqHvq6SsOadU5G/shnFE4MA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-arm64/2.1.286",
+              "metadata_sha256": "fbb00d9d1f6d9aca3d297ef3b564c4372cedec2a7834b6290fbb1c8096ba907c",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.286.tgz",
+              "integrity": "sha512-dHQ/ObyC4jaGHVk+gFE8P8PALMIVLhQSyhiC3y3kkuLp0H0MHgLxHt/srQ3zJs892ClDbtl1swxv4bw1ioruZA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-x64-musl": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-x64-musl/2.1.286",
+              "metadata_sha256": "b0e65918464b395e569951dacc1b93c0fa254fe167a7053e2c6ce3591384e461",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64-musl/-/claude-code-linux-x64-musl-2.1.286.tgz",
+              "integrity": "sha512-+jDoHSkrSoucNqsnwQP/bioMEb39r3pBxn0sZPA7MINUZUBdrdG87nr/lzXxEAHaqspWvHMLaWMtmduEg4cIhg==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-arm64-musl": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-arm64-musl/2.1.286",
+              "metadata_sha256": "463b760ae877e367c8bb51ff3501183a996236cdf2f47e0f966a1e9a04f5a638",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64-musl/-/claude-code-linux-arm64-musl-2.1.286.tgz",
+              "integrity": "sha512-FZVGE3iU0eFRudjgyooGRsPAUqjqlcJ4dq64g4HDp9Wg6FsUpDFpVsKn9S6phSXogwSyMU3SfiI9oOTKvw4wVA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-win32-x64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-win32-x64/2.1.286",
+              "metadata_sha256": "3fbdf616baf1fbda96935f90a61f7edbac3bf3c97197a1c322ea9b3ae7afa480",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-win32-x64/-/claude-code-win32-x64-2.1.286.tgz",
+              "integrity": "sha512-Cvq6m1e2eP0p47Ze+b6rw+DjXMhLCcT9g8ZKfFDxT0NB9d9mjHcNs6Qjb1oTqbO6AsN3Ie1DIqWt50J7kboz7g==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-win32-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-win32-arm64/2.1.286",
+              "metadata_sha256": "259c0997a7244adaae3875fa4214031296498717b641f2fadaad2c11b0e2b40e",
+              "version": "2.1.286",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-win32-arm64/-/claude-code-win32-arm64-2.1.286.tgz",
+              "integrity": "sha512-d1pLr6/Z+/y4J+9j2AwpsfkKlGzf93cA2nfCbSqV81rciTCZpYYMKG1T0AhtJ2RbfQFicO1/rl1XdLOZAHZn0w==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            }
+          },
+          "installer_source": {
+            "url": "https://unpkg.com/@anthropic-ai/claude-code@2.1.286/install.cjs",
+            "sha256": "5cbab1670597f492cd4eeb946f3c344ebcb1fbd43c623ba192c9b33744461b85",
+            "bytes": 7196,
+            "path": "install.cjs",
+            "archive_source_match": "NOT RUN"
+          }
+        },
+        "2.1.287": {
+          "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/2.1.287",
+          "metadata_sha256": "351353b88ff2101e01e058a0f171d0db5d1175d4b46a0a3f1d6347e6ca1e7ab5",
+          "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.287.tgz",
+          "integrity": "sha512-V5WRpA+p41siSlf/Ujxjm//RtYvySxH/p9/rh6zRxNoHeBzqTgSDw3nP8PgtACM/KcVx/g5TFUNdVkq51dfg0g==",
+          "tarball_sha256": "b829179017c73acbc4084b764ca3a8cd9d0f3554ec2107519a272c8ded975efb",
+          "bin": {
+            "claude": "bin/claude.exe"
+          },
+          "scripts": {
+            "postinstall": "node install.cjs",
+            "prepare": "node -e \"if (!process.env.AUTHORIZED) { console.error('ERROR: Direct publishing is not allowed.\\nPlease see the release workflow documentation to publish this package.'); process.exit(1); }\""
+          },
+          "optional_dependencies": {
+            "@anthropic-ai/claude-code-darwin-arm64": "2.1.287",
+            "@anthropic-ai/claude-code-darwin-x64": "2.1.287",
+            "@anthropic-ai/claude-code-linux-x64": "2.1.287",
+            "@anthropic-ai/claude-code-linux-arm64": "2.1.287",
+            "@anthropic-ai/claude-code-linux-x64-musl": "2.1.287",
+            "@anthropic-ai/claude-code-linux-arm64-musl": "2.1.287",
+            "@anthropic-ai/claude-code-win32-x64": "2.1.287",
+            "@anthropic-ai/claude-code-win32-arm64": "2.1.287"
+          },
+          "native_distribution_metadata": {
+            "@anthropic-ai/claude-code-darwin-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-darwin-arm64/2.1.287",
+              "metadata_sha256": "de92378178db6afaea0411a822c5868620fcdcfcb29d76b5b6b08c51cf52e24c",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.287.tgz",
+              "integrity": "sha512-ZQLmkEpiWd8sxUYRpQr1yZ39DyVBhrl8MUtbxe33E+z4jFPtUy+CrJXmeRRyyM+FEfvGe/2ab+E59GiSKkprRw==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-darwin-x64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-darwin-x64/2.1.287",
+              "metadata_sha256": "35269a104d2f8c2804904370d19f56e2a7c423fef6d5847d6164bba93c202447",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-x64/-/claude-code-darwin-x64-2.1.287.tgz",
+              "integrity": "sha512-B5TXBZxGKqglEj5DUp0EjZRBypee4hLSfgkTJIPHdLNB4PAtt6hBkNZVxytny0jUjk0ReWUNtVSb0PTldKRW7Q==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-x64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-x64/2.1.287",
+              "metadata_sha256": "bf567b5b03f1a01454b3c829057ff6c712a9f6785b3d1717a0bdcc7bf33000e2",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.287.tgz",
+              "integrity": "sha512-Q31ekN28viVjgfDuZKXUR5vxIBgUYoLGe+cRmjx/f01omqFDMi6IrgmcK5pWMnRbu/cjsTA/zO+bVES5oY3XUg==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-arm64/2.1.287",
+              "metadata_sha256": "dd3ba092cf9fbdae9109d975cf0f4df747ecda5317457a8e5cfc9ebe6f9133a3",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.287.tgz",
+              "integrity": "sha512-MU3ReK1kjstDmjEOzhFZaphh2AVUKnPaik6lOV0WLs3/mOM7mE/mqkdcQ/Sv0KwHH5MnOhSkIjCEl0/8tr+vRg==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-x64-musl": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-x64-musl/2.1.287",
+              "metadata_sha256": "91ec8030861da463ce546124d31bdfb216e6b7ceac6ec71d78e2a8b7c0fce9a3",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64-musl/-/claude-code-linux-x64-musl-2.1.287.tgz",
+              "integrity": "sha512-gBOT4E6fRaEJ+PyP/KU66dIn+aXoZ/+jMkFLJFNcsEppIGH1R9n90rV7/lHZr43b/0ngHPc4n+JRrVKz/AX6/Q==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-linux-arm64-musl": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-linux-arm64-musl/2.1.287",
+              "metadata_sha256": "f05cfdd57a8f19d136076d5d950cec6b03ac818d3dbd388b70bd04af198c49b3",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64-musl/-/claude-code-linux-arm64-musl-2.1.287.tgz",
+              "integrity": "sha512-sdFvq6Aasxv1BzkqkUVPZyGaKxALdTmo0B03K7zsB7Lt8RDzOn/yQj6vPluS/464XkLyqlesTsziYtkdOpjocw==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-win32-x64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-win32-x64/2.1.287",
+              "metadata_sha256": "1baaafe7392a39d61c16d5401e1aaf1ffc954b5c823a03a82f7c17303ac4d98a",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-win32-x64/-/claude-code-win32-x64-2.1.287.tgz",
+              "integrity": "sha512-PWFxa2+cd8sIco+W3qDR85GhumGzNNdwgqHkz2u5jNhvoH8i4loBvOMEyrtZo3bYVwNeEt905GImhchv2duQGg==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@anthropic-ai/claude-code-win32-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code-win32-arm64/2.1.287",
+              "metadata_sha256": "2d2a1a5a619b5ea5cd5aa2977ac20f25f9f4a7c1a3e9550c988ffc147572eaa4",
+              "version": "2.1.287",
+              "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code-win32-arm64/-/claude-code-win32-arm64-2.1.287.tgz",
+              "integrity": "sha512-p0w81huWrtOHqn7AU2VOY2G9AV7hZLl1KcbDPPrD3edvjU3wPSvoCUVeJp1qDs/7EHySa8H5UyQshgCTeuwrlg==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            }
+          },
+          "installer_source": {
+            "url": "https://unpkg.com/@anthropic-ai/claude-code@2.1.287/install.cjs",
+            "sha256": "5cbab1670597f492cd4eeb946f3c344ebcb1fbd43c623ba192c9b33744461b85",
+            "bytes": 7196,
+            "path": "install.cjs",
+            "archive_source_match": "NOT RUN"
+          }
+        }
+      },
+      "provider_manifest_sha256": "1ed359befe0377f8bbd1d8f6c1f0e9c153e8fac0c46e75d72d861a669fb91765",
+      "provider_declared_updater": {
+        "macos": "claude update",
+        "linux": "claude update",
+        "windows": "claude update"
+      }
+    },
+    "codex": {
+      "package": "@openai/codex",
+      "older": "0.159.3",
+      "target": "0.160.0",
+      "prompt_status": "pending",
+      "versions": {
+        "0.159.3": {
+          "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.159.3",
+          "metadata_sha256": "a77401508b05ff1e7b90bb0715549b30106ed84d5eeea261fe13931640ab1db5",
+          "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3.tgz",
+          "integrity": "sha512-hg4nlqCwRb87GocxNnHvz4sadOrdJ71mO0a4CUYWXjAozJe2gtuAdRFldKGSQXw9m7SgR4ydis12KDVVPgzDkQ==",
+          "tarball_sha256": "31d5e584e93e118dd37dbb8bc89ddbbe9998178fc437dc0b9d0f7cc72ef0cf79",
+          "bin": {
+            "codex": "bin/codex.js"
+          },
+          "scripts": {},
+          "optional_dependencies": {
+            "@openai/codex-linux-x64": "npm:@openai/codex@0.159.3-linux-x64",
+            "@openai/codex-linux-arm64": "npm:@openai/codex@0.159.3-linux-arm64",
+            "@openai/codex-darwin-x64": "npm:@openai/codex@0.159.3-darwin-x64",
+            "@openai/codex-darwin-arm64": "npm:@openai/codex@0.159.3-darwin-arm64",
+            "@openai/codex-win32-x64": "npm:@openai/codex@0.159.3-win32-x64",
+            "@openai/codex-win32-arm64": "npm:@openai/codex@0.159.3-win32-arm64"
+          },
+          "native_distribution_metadata": {
+            "@openai/codex-linux-x64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.159.3-linux-x64",
+              "metadata_sha256": "2dd59c68412435614726359871cce0b42166498b2d6a9b0e1ead079d0aef32bb",
+              "version": "0.159.3-linux-x64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-linux-x64.tgz",
+              "integrity": "sha512-xlHydfOksnNt/qz4BEVFvjMWunweaVSNtha/DkVUwWZnVZxbqiJwsXSl2iZDk04b6k/g0OI7jU06XqzHB2s5og==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-linux-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.159.3-linux-arm64",
+              "metadata_sha256": "9a34bb23cc1ba8a554882d1f9eb9838826518d0d91f6ab9af0475e58b9b53ce8",
+              "version": "0.159.3-linux-arm64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-linux-arm64.tgz",
+              "integrity": "sha512-84C1yhAI+i0hqh77Akp/Ma09Z4d5oLKcZKqW1WZpEDh8bKbNvvbNEd6pE+GMUe2Kwg7jCbuvkRNH1zgK+SCM3Q==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-darwin-x64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.159.3-darwin-x64",
+              "metadata_sha256": "c3499e131176c1a784242550db243371c1d70ee1d24b4e37c1ce5ada7de1188b",
+              "version": "0.159.3-darwin-x64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-darwin-x64.tgz",
+              "integrity": "sha512-KTOQOD184DMXpR3TqnDUnLsgad14WJn+x3XmjBaXRHchKYGttjREwqrwzC61xQYFeh6VkogAceybR+SMbbgvYQ==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-darwin-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.159.3-darwin-arm64",
+              "metadata_sha256": "08ee12d8f79a7330bd4fc89f697224e2a8f782d1d6e8ce4afbb75847f425c099",
+              "version": "0.159.3-darwin-arm64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-darwin-arm64.tgz",
+              "integrity": "sha512-aI4UY14YURYxJxnRK+AE4QU+aek0mgtyyo7Rw9rNbCQUYETRQ0NYdJzU9ytljERGpPlht3dHHI1u4NhqHoDJDQ==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-win32-x64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.159.3-win32-x64",
+              "metadata_sha256": "4e3f6849dac2fa87057ea08572528284ec620282c9c79271bb922e260daca679",
+              "version": "0.159.3-win32-x64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-win32-x64.tgz",
+              "integrity": "sha512-h8w5nslfQyoYbonZaRlLwvPKFS9Mcxz5vUeCeoHKF5SsZUP9jSBH7hxUdc8RWJffJtfbV2qxdnImVAj9zy2fwA==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-win32-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.159.3-win32-arm64",
+              "metadata_sha256": "7854602c7f9d78131bae1d305727862719bd8717118a7d8ccfb732f65b7350d2",
+              "version": "0.159.3-win32-arm64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-win32-arm64.tgz",
+              "integrity": "sha512-4C+EuH1zE4rO5w1MsrnS98Tvq6Ff4+zeNr3pVeR/UsQ+VrTY5BCA9nZuXuCXNLKak1tLOw81b+fQM4jKGFCeDA==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-cli/bin/codex.js",
+            "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+            "bytes": 8790,
+            "path": "bin/codex.js",
+            "archive_source_match": "NOT RUN"
+          }
+        },
+        "0.160.0": {
+          "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.160.0",
+          "metadata_sha256": "d61a592473442230ebfa5cc32976967bd023c6ed1243871c38cedcbed26f0733",
+          "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0.tgz",
+          "integrity": "sha512-kEtVGzjRAYAMOwJxN39bGcna7LT3IDQgq64NNJ/dDTfu4OzZaocJcyNb5/gGJ/IVF/Vj7oK7E2m3nmTan7lpjg==",
+          "tarball_sha256": "373517768e912eeb5054024ae9215e2c90a1420957b66fe134ef745a00948d4a",
+          "bin": {
+            "codex": "bin/codex.js"
+          },
+          "scripts": {},
+          "optional_dependencies": {
+            "@openai/codex-linux-x64": "npm:@openai/codex@0.160.0-linux-x64",
+            "@openai/codex-linux-arm64": "npm:@openai/codex@0.160.0-linux-arm64",
+            "@openai/codex-darwin-x64": "npm:@openai/codex@0.160.0-darwin-x64",
+            "@openai/codex-darwin-arm64": "npm:@openai/codex@0.160.0-darwin-arm64",
+            "@openai/codex-win32-x64": "npm:@openai/codex@0.160.0-win32-x64",
+            "@openai/codex-win32-arm64": "npm:@openai/codex@0.160.0-win32-arm64"
+          },
+          "native_distribution_metadata": {
+            "@openai/codex-linux-x64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.160.0-linux-x64",
+              "metadata_sha256": "d55bb954b4533360a7303d092ed11f4354a79333ef314a1519aa440f4e520703",
+              "version": "0.160.0-linux-x64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-linux-x64.tgz",
+              "integrity": "sha512-KI/73OqGrHmR18s7ya7E1NqV6rT0y3lxr0s8S1qR2m6zU6QRF/HlR529jALLh5vjdUnsRT4Ahoxt0axb4kY99g==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-linux-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.160.0-linux-arm64",
+              "metadata_sha256": "df14fb0cf85c5e01a93d482b970ee81b37da862fb8c97548fdf3dfbe711bbdd6",
+              "version": "0.160.0-linux-arm64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-linux-arm64.tgz",
+              "integrity": "sha512-VnVdsS06YlDsL8OwaJjQ3xdqdJNG4i+eBJBV3LytddknzSaF/urijLzVg3ptkwvoj8C7Gn7iWpVE+y8WEaPiCg==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-darwin-x64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.160.0-darwin-x64",
+              "metadata_sha256": "9bb24240884a48ae637c46a06fbbec2d01373da03a59b75fd340f42c899c37e1",
+              "version": "0.160.0-darwin-x64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-darwin-x64.tgz",
+              "integrity": "sha512-ir7cdsPrb9VkqNqpTECoTiomv04xws/FQ968mHQzuL+2J5Da0Dkh2Qlxp7sguDDZJab4YpYmNjQvBVMXbTeQaQ==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-darwin-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.160.0-darwin-arm64",
+              "metadata_sha256": "8a26cc1831292167171ee673a65c43bab128f4b1f110572b98ea21f804963653",
+              "version": "0.160.0-darwin-arm64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-darwin-arm64.tgz",
+              "integrity": "sha512-aefV6cqZA2REZgR//4McyXlp7zLcTti4CI2v3j9IVgNndPBv2kCeNEcz07qeelXcwOdSFPUKb6roA48vZmDgrQ==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-win32-x64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.160.0-win32-x64",
+              "metadata_sha256": "4f0029035cbe3fbbd9887820643665f1f519a02b022389c4713a073b2b5ab7c0",
+              "version": "0.160.0-win32-x64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-win32-x64.tgz",
+              "integrity": "sha512-/gCFcuOmGlQkgGivWCtY8BNEDixh70Pue0HZOk9S8bj2vUIE1GLD9zcNB/KqqDJmn0S+lIttauLpzQnw6HOCHA==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "@openai/codex-win32-arm64": {
+              "metadata_url": "https://registry.npmjs.org/@openai%2Fcodex/0.160.0-win32-arm64",
+              "metadata_sha256": "85d50029f41eb8294d4dc74e9ab16c53bc2b8ff8568e13aa6b546b7f856949e9",
+              "version": "0.160.0-win32-arm64",
+              "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-win32-arm64.tgz",
+              "integrity": "sha512-tTvK9ZIGuj9WnYaYOAnfjJVSfPV7dKqWtDHqUPLf0Hadp6SgynTxx7S7iMXRieFeXVOI2XH76KxEHSOTOnz3zw==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.160.0/codex-cli/bin/codex.js",
+            "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+            "bytes": 8790,
+            "path": "bin/codex.js",
+            "archive_source_match": "NOT RUN"
+          }
+        }
+      },
+      "provider_manifest_sha256": "7a4a782a73aeda1878eee1b1ceb08fd900ed472c1342e432a0bc80e2a8ef159b",
+      "provider_declared_updater": {
+        "macos": "codex update",
+        "linux": "codex update",
+        "windows": "codex update"
+      }
+    },
+    "opencode": {
+      "package": "opencode-ai",
+      "older": "1.18.33",
+      "target": "1.18.34",
+      "prompt_status": "pending",
+      "versions": {
+        "1.18.33": {
+          "metadata_url": "https://registry.npmjs.org/opencode-ai/1.18.33",
+          "metadata_sha256": "555a4b815ef96160fb850cdb1fd5a7739fc0a2cad2e41ec23405f1228b6d135d",
+          "tarball": "https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.18.33.tgz",
+          "integrity": "sha512-58P1ffLRXiAY4QeoABqUjqf6DEzm1ihpovvn9Ad+oOLbLiwK/rf88wruT9IATJ7AtNjmi8iA7pC8tN4o5y799Q==",
+          "tarball_sha256": "6fed32445d04df1d9d56aef0f15ae200618663ef532f7ec4241432024f84097c",
+          "bin": {
+            "opencode": "./bin/opencode.exe"
+          },
+          "scripts": {
+            "postinstall": "node ./postinstall.mjs"
+          },
+          "optional_dependencies": {
+            "opencode-linux-x64": "1.18.33",
+            "opencode-linux-arm64": "1.18.33",
+            "opencode-darwin-x64-baseline": "1.18.33",
+            "opencode-darwin-arm64": "1.18.33",
+            "opencode-windows-arm64": "1.18.33",
+            "opencode-linux-x64-baseline": "1.18.33",
+            "opencode-darwin-x64": "1.18.33",
+            "opencode-linux-x64-baseline-musl": "1.18.33",
+            "opencode-linux-x64-musl": "1.18.33",
+            "opencode-linux-arm64-musl": "1.18.33",
+            "opencode-windows-x64": "1.18.33",
+            "opencode-windows-x64-baseline": "1.18.33"
+          },
+          "native_distribution_metadata": {
+            "opencode-linux-x64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64/1.18.33",
+              "metadata_sha256": "f649d745f58246edf183c79bddf01feecae7b8ce98e450b26088b1aea00c2cd8",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.33.tgz",
+              "integrity": "sha512-q/t/3p2CTxOT9y2kvjesb/LZab2+1eqlhhWA02Be6mjTtmYtNBcBsrI5yDo4Fw7ZSPBW2oyMIGMNRqiKQjiAWw==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-arm64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-arm64/1.18.33",
+              "metadata_sha256": "dfafe8a9efdcac5741a9da92b5c14279b740b3b228f18f544a087678b0903b04",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-linux-arm64/-/opencode-linux-arm64-1.18.33.tgz",
+              "integrity": "sha512-8aKOjIz6Cw3POGpvLvaByyMmfV2OCWgDdOBB9h7nqYV6rCGOzOsdQkT0OhjbAa5/JKGp28RSBEhDeMhINajs1g==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-darwin-x64-baseline": {
+              "metadata_url": "https://registry.npmjs.org/opencode-darwin-x64-baseline/1.18.33",
+              "metadata_sha256": "1226687faadc80baa996f1b056509c542ab222d1d2fcd0dd0705d8c86693a2d1",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-darwin-x64-baseline/-/opencode-darwin-x64-baseline-1.18.33.tgz",
+              "integrity": "sha512-WSDWMcsz//P4fk43KqMObQ9KP62z7QP8dn4AuC1BFxmpD/krMw6NJXvXwbXHRwTAlejpK08vKwK3B9m9Ygn9BQ==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-darwin-arm64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-darwin-arm64/1.18.33",
+              "metadata_sha256": "39b4a84f59b9c0c3f470f2bd8f060fe0ceccc54ccf67441f22a872eaa1d188c3",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-darwin-arm64/-/opencode-darwin-arm64-1.18.33.tgz",
+              "integrity": "sha512-rZm4Phz7eu/kVz2lynergU/LzKS/L0ofErB2fRXfaoAH528b3EnVcISZ/13dwk78FPxVhop7hWXshowT88C8Yw==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-windows-arm64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-windows-arm64/1.18.33",
+              "metadata_sha256": "41d57052ee727406353ed086bfd491aae697625603d377789ce6d6077d69d0ca",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-windows-arm64/-/opencode-windows-arm64-1.18.33.tgz",
+              "integrity": "sha512-ZuUMjYBlY8mGuQvCRYTKOluqsh47+XmOZw62e3+Gn2XdSBe+fysxQaZqdhzYHq0kOFm30kEkp8alN7X5rLticg==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-x64-baseline": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64-baseline/1.18.33",
+              "metadata_sha256": "2d23beec7e6a6dfb96c19ca642dbde244838e0fc466be26eff236438a53fda9c",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64-baseline/-/opencode-linux-x64-baseline-1.18.33.tgz",
+              "integrity": "sha512-1KQGBiiDDeL/VHHbHkOvvFo8Jr97WT5+C1tear+p7IcDTnXgVHXqIjU4O4jM4mHQzykTP2i884FCnW5LDa+zCA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-darwin-x64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-darwin-x64/1.18.33",
+              "metadata_sha256": "feb2ebd23d448d617bbb2c91d36b7ce4e1b7a269c57fa9abcbc00d025ac975d5",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-darwin-x64/-/opencode-darwin-x64-1.18.33.tgz",
+              "integrity": "sha512-2y+0nvT9SEJu4MFJbymDR0YPoJNILEZrvguG4/dvkJm1EAKE9dzwfXk9iBsiq7BI2V3dnXqcg95e5Si/MNflxw==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-x64-baseline-musl": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64-baseline-musl/1.18.33",
+              "metadata_sha256": "d693c890c3b60048feab5fff77d06bf1a484c6db12770e10b8d4bc29381626c5",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64-baseline-musl/-/opencode-linux-x64-baseline-musl-1.18.33.tgz",
+              "integrity": "sha512-G/PAs06QCX3e7D/47I13bxzgTuH5mDqGVL7PSR/148DshvrZpLgzn3lBD5XoZoCf00yGA9N7J/RCPIAhaO/QoA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-x64-musl": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64-musl/1.18.33",
+              "metadata_sha256": "74ed9f129135bfa0bb8ff2bf0652f2d557e9c2954517861deccc34269cce1369",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64-musl/-/opencode-linux-x64-musl-1.18.33.tgz",
+              "integrity": "sha512-5HEFrYzg1N9hEYc/II7LlgGvHrsnMyVMk9U4ZW/hCKzZdrVFRAdEZ5pNV2Ud49xvOnwb2Zjp/ayLa1alxp+l4A==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-arm64-musl": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-arm64-musl/1.18.33",
+              "metadata_sha256": "a58f3a68638e2a382799cfc1a8659cde908382a00e16e9093aace0efd882c71b",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-linux-arm64-musl/-/opencode-linux-arm64-musl-1.18.33.tgz",
+              "integrity": "sha512-fWMAQdQk2M/34FWbiJytTyxMq/yg6HvktiZtRo3uu+mceHcVlQW+FeUXFeV6KuoG++od9VcyglHvciAP1+XbCA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-windows-x64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-windows-x64/1.18.33",
+              "metadata_sha256": "3528900385d3e332ebcdf6f3c502412d244788480f57ded9ae3d6b17c23eeb52",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-windows-x64/-/opencode-windows-x64-1.18.33.tgz",
+              "integrity": "sha512-jNrfHad+xUpGNL7doZkjfDGvNYuff1IzPT7VqqjzUUeH4ZOIDpzpC1VRsiauSczhrhfj0X59lb72U7DbUGl/dg==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-windows-x64-baseline": {
+              "metadata_url": "https://registry.npmjs.org/opencode-windows-x64-baseline/1.18.33",
+              "metadata_sha256": "cfbd2d6ce42217f59f2926597f62e1dda3fcbbc4b99e5c4ab8fe8474f9a7f0de",
+              "version": "1.18.33",
+              "tarball": "https://registry.npmjs.org/opencode-windows-x64-baseline/-/opencode-windows-x64-baseline-1.18.33.tgz",
+              "integrity": "sha512-ydc5xt5frz+vEF9iUpBHjRUgYm/j7NT18TnHjihWBixOnPwaVZ+0dp8VMfAWMZGIcSgCaYZ8Qn2cQtKV2jcV/g==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1.18.33/packages/opencode/script/postinstall.mjs",
+            "sha256": "5a7c990fe552e76b16422cdba3f4b0550590c7a487f7932c773362f74317c87b",
+            "bytes": 5496,
+            "path": "postinstall.mjs",
+            "archive_source_match": "NOT RUN"
+          }
+        },
+        "1.18.34": {
+          "metadata_url": "https://registry.npmjs.org/opencode-ai/1.18.34",
+          "metadata_sha256": "3c7099a0c395a86485739cff41fbdd1fce421d6df53ab18bd074ece058e22f36",
+          "tarball": "https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.18.34.tgz",
+          "integrity": "sha512-9WUS2T0t4HHDVzXvuwTHF0nvhXvZ9mQ0r+ozCvKdJu0LVoQpOzqAW4qWTC3ygNc5Oedcc7j+Oct24JYlQYnySA==",
+          "tarball_sha256": "279923bb5754e810b173a8a7401cf17699fccad3c1159500c10c477887f0b53b",
+          "bin": {
+            "opencode": "./bin/opencode.exe"
+          },
+          "scripts": {
+            "postinstall": "node ./postinstall.mjs"
+          },
+          "optional_dependencies": {
+            "opencode-darwin-x64": "1.18.34",
+            "opencode-linux-x64-baseline-musl": "1.18.34",
+            "opencode-linux-x64-baseline": "1.18.34",
+            "opencode-windows-x64-baseline": "1.18.34",
+            "opencode-linux-arm64": "1.18.34",
+            "opencode-darwin-arm64": "1.18.34",
+            "opencode-windows-x64": "1.18.34",
+            "opencode-linux-x64-musl": "1.18.34",
+            "opencode-darwin-x64-baseline": "1.18.34",
+            "opencode-windows-arm64": "1.18.34",
+            "opencode-linux-arm64-musl": "1.18.34",
+            "opencode-linux-x64": "1.18.34"
+          },
+          "native_distribution_metadata": {
+            "opencode-darwin-x64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-darwin-x64/1.18.34",
+              "metadata_sha256": "030ee4b4374e9b6af96f02e1e7ef9ca4addf353d337ba862ba58da531ca54d9a",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-darwin-x64/-/opencode-darwin-x64-1.18.34.tgz",
+              "integrity": "sha512-o8KXQ4jP5zfEHJAYpCz5Ifs0aa5dX+26wyLbxHEvfyGJu8hrBoNiJed3PE0uiPIlHCrj5yzF0b6k5aWonaPcTw==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-x64-baseline-musl": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64-baseline-musl/1.18.34",
+              "metadata_sha256": "ed8ce849758bc24e97af38d6b0d04a953255c29f72e04efc1fb9661f974ecfcf",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64-baseline-musl/-/opencode-linux-x64-baseline-musl-1.18.34.tgz",
+              "integrity": "sha512-LXNBBe4MBKwa1msQdVdKdr6J48zW4zC05h++6n9a2vwrm9zUQR5n7ZcS6qvVnEprl/qSBx9JTTZbkRrB4FIezQ==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-x64-baseline": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64-baseline/1.18.34",
+              "metadata_sha256": "0dd2c768a84580815fb49a2c789e155928fc98309e33a467061e99b7e1b534c9",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64-baseline/-/opencode-linux-x64-baseline-1.18.34.tgz",
+              "integrity": "sha512-StWC81sqAGzsig602U6xui3t0Y/kJtZRmJd+H1xYTY7zVLIZ4Iucb1Wp0no6A7/sDj6VqtFKdL718usH92sHBA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-windows-x64-baseline": {
+              "metadata_url": "https://registry.npmjs.org/opencode-windows-x64-baseline/1.18.34",
+              "metadata_sha256": "9852a23c8425262479dc7aa394f1f7c160edae3a3df952eab88bc42be7c826e2",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-windows-x64-baseline/-/opencode-windows-x64-baseline-1.18.34.tgz",
+              "integrity": "sha512-Ng4R5BDWS/xHmHyjBC2hQpakIrvu3vYvO7U2oF820xjih1VJl4zON52VGtT4Zh1o6kbf8f6s7yLPMzzblGSXuw==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-arm64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-arm64/1.18.34",
+              "metadata_sha256": "17121a4f9b18e3da837f3395b58776914961da6b2b4063e633c63053a2ba6aca",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-linux-arm64/-/opencode-linux-arm64-1.18.34.tgz",
+              "integrity": "sha512-ZSjqcH0MEbAzLEmkRC9Aop1PbWZxe2NuKONAE/x8MRQdjKdOepX7M50UpjbsNoiLMkP584Z98Mg4a42fJhouvA==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-darwin-arm64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-darwin-arm64/1.18.34",
+              "metadata_sha256": "0530fccd26e0d66f5e48e2976c377708b72dc51bbd528d9e82c0ce1328768ec2",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-darwin-arm64/-/opencode-darwin-arm64-1.18.34.tgz",
+              "integrity": "sha512-ioBEvc3nUA64waDIVsphh92LgJgyTbq+uRd0OurdqqT9WEI9rp4J7NrA24NfL6epCa1Xr06TnRx5+th9W3T/sA==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-windows-x64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-windows-x64/1.18.34",
+              "metadata_sha256": "4d4391934e0006df4d1ce3c9736664be9c321a9bbbc45b88b3b5a0a9d607d215",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-windows-x64/-/opencode-windows-x64-1.18.34.tgz",
+              "integrity": "sha512-Nbw1JUHcMd+6Zab97tvhiR/wzMBrtFbHMog3w+HssBqt0068BLdpPadLmo72+vPtBu+ZxXIZzqNB9R3qtca7qg==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-x64-musl": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64-musl/1.18.34",
+              "metadata_sha256": "6cc4cbf6af84aec2f30d712e92fb626bf59432d75490e5eeff86817bb7c81aba",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64-musl/-/opencode-linux-x64-musl-1.18.34.tgz",
+              "integrity": "sha512-PigrBoMSnozys5C5ls8YZTrUPNNN1AhbySib7yJETkqGRUFOkg1Z1eTUnz9dXJRXshWA4n15dOVo+Sqx1FYPIg==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-darwin-x64-baseline": {
+              "metadata_url": "https://registry.npmjs.org/opencode-darwin-x64-baseline/1.18.34",
+              "metadata_sha256": "4281d4a8f475c3e57ed2dce03c09afec516153006bf936a7216e7b5065984154",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-darwin-x64-baseline/-/opencode-darwin-x64-baseline-1.18.34.tgz",
+              "integrity": "sha512-WF9kdwGRDkss6jBR6lR3bG66U804onEaROY0zRtpWx2uyhaxKtLnOV74BYuS71meqkbsxLNA1SZKfi8qvS8HJA==",
+              "os": [
+                "darwin"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-windows-arm64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-windows-arm64/1.18.34",
+              "metadata_sha256": "4af38552ececb0f8146445f4729f1072de2e144042e6a4a05a8aff5adeff5b93",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-windows-arm64/-/opencode-windows-arm64-1.18.34.tgz",
+              "integrity": "sha512-W1sCmZPywVjHTaK88ASWTLOR2UcF70LBNiJddKoBG8Yxb70avl+GUlpNNa026E6y9T84s3n5xZ07ZL7u6Wo3Ew==",
+              "os": [
+                "win32"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-arm64-musl": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-arm64-musl/1.18.34",
+              "metadata_sha256": "c44944258012643a1245e74b7c643898ea1e3e83fcf4d81b6090c87af536a911",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-linux-arm64-musl/-/opencode-linux-arm64-musl-1.18.34.tgz",
+              "integrity": "sha512-3iCUYcJ0a6z4QjqgpCCA0G0cJHCNiJSg6zxUz9nQZvQ8tAJH0fgrI8Qu5E3RuRvFwk75oOQL8iHBW5cD3Pwrrw==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "arm64"
+              ],
+              "archive_bytes_verified": false
+            },
+            "opencode-linux-x64": {
+              "metadata_url": "https://registry.npmjs.org/opencode-linux-x64/1.18.34",
+              "metadata_sha256": "5d83a0c48f06e0f7295fe2fead5be62e405724260b2586f7d9041256554dc275",
+              "version": "1.18.34",
+              "tarball": "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.34.tgz",
+              "integrity": "sha512-RTAMjCve4euxP2QKLuvRmdoW5J5DQK1DiZqt+7slfixyjAEi79QC2Df2oYKogibaAI4IEU8uzenoJeEl3k+UEw==",
+              "os": [
+                "linux"
+              ],
+              "cpu": [
+                "x64"
+              ],
+              "archive_bytes_verified": false
+            }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1.18.34/packages/opencode/script/postinstall.mjs",
+            "sha256": "5a7c990fe552e76b16422cdba3f4b0550590c7a487f7932c773362f74317c87b",
+            "bytes": 5496,
+            "path": "postinstall.mjs",
+            "archive_source_match": "NOT RUN"
+          }
+        }
+      },
+      "provider_manifest_sha256": "afeee9a20302c978e02c742082db7d3120cdc8d72241ab9279f91c8fa8cd5f39",
+      "provider_declared_updater": {
+        "macos": "opencode upgrade",
+        "linux": "opencode upgrade",
+        "windows": "opencode upgrade"
+      }
+    }
+  },
+  "cursor": {
+    "status": "pending",
+    "binary": "/Users/dev/.local/bin/cursor-agent",
+    "archive": "/Users/dev/.local/share/cursor-agent/versions/2026.06.19-20-24-33-653a7fb",
+    "current": "/Users/dev/.local/share/cursor-agent/versions/2026.07.01-41b2de7",
+    "platform": "macos-arm64",
+    "prompt_status": "pending",
+    "updater_capability": null,
+    "reason": "Local archive exists; no launch/update behavior or portable archive acquisition established.",
+    "archive_sha256": {
+      "cursor-agent": "b7babf47d8b1eee28ac27a74affa02a559bb38103a6e71fbb1f120805d51fedf",
+      "index.js": "e128afdebfe3df908d476cfbd8d8e63e34d35447da19d985bf8f6e8cb345e01e",
+      "node": "336b5b3ebc5deb86df842102b20b6e4761605b7a667823e68dda7761b91a161b"
+    },
+    "current_sha256": {
+      "cursor-agent": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831",
+      "index.js": "b974679f9f421360ac6f063ba54d5032b75230a58f28fc5c3017de5ff481f230",
+      "node": "336b5b3ebc5deb86df842102b20b6e4761605b7a667823e68dda7761b91a161b"
+    },
+    "archive_file_manifest": [
+      {
+        "path": "1070.index.js",
+        "bytes": 49600,
+        "sha256": "9cdccfecffb5820ad983044127eaf36c24460602e3bf5125e1dd367958df42b0"
+      },
+      {
+        "path": "1411.index.js",
+        "bytes": 36146,
+        "sha256": "ace06a0f8b99f4b055621cab5a6eaad066c5679346c9157ac3021438f4ff268b"
+      },
+      {
+        "path": "1799.index.js",
+        "bytes": 9136,
+        "sha256": "651fd2b37db531b3b602d28722de3942306b5dfacd11909190619f8d7b8a78db"
+      },
+      {
+        "path": "1956.index.js",
+        "bytes": 6597,
+        "sha256": "6d75a1174349cfb96e80a88d6c711368bc0a4b186fbcc0dce5130731e34a49ba"
+      },
+      {
+        "path": "2010.index.js",
+        "bytes": 3949,
+        "sha256": "52a962ac6713a19871cbf2a3bf3456bd193c969511655746d59806cd2659ca5c"
+      },
+      {
+        "path": "202.index.js",
+        "bytes": 6067,
+        "sha256": "eb7c6deea0c03595cebbfd38f8013e7078b5272856be74e4dfc2c50c8ee7b21b"
+      },
+      {
+        "path": "2097.index.js",
+        "bytes": 59554,
+        "sha256": "371e98dc0c3874ef2b3f6cfe24ae26234a19ccb0881d8465d59a290e7863e8a2"
+      },
+      {
+        "path": "2130.index.js",
+        "bytes": 7585,
+        "sha256": "6818ccdb2b690ef620dbdc84265888f88aeca31a3719a651bf22f0c100530afb"
+      },
+      {
+        "path": "2149.index.js",
+        "bytes": 1324,
+        "sha256": "90e746155cd9a10e89de91aa3fd6cce41c8aeddf5907dd0f1d880c5a1cf1ac37"
+      },
+      {
+        "path": "2153.index.js",
+        "bytes": 223646,
+        "sha256": "f4154608c003fbd89eb299c718fc474fd7c0d4c9169d84ea10b393e9053a0840"
+      },
+      {
+        "path": "2240.index.js",
+        "bytes": 227613,
+        "sha256": "c57041018968a2ecba1545964433006bc1cd47c789cb0832d62a658ae0ac1402"
+      },
+      {
+        "path": "2403.index.js",
+        "bytes": 2622,
+        "sha256": "29a60e881491c8b982b62e7f8beded63c7f9b161e73d629a52165dbb4e75bd2a"
+      },
+      {
+        "path": "2583.index.js",
+        "bytes": 2884,
+        "sha256": "164371759ec8db21907d020c0d8f255693c300f45fd995a5b1b999c4b72ed1fa"
+      },
+      {
+        "path": "2599.index.js",
+        "bytes": 760,
+        "sha256": "75125cd95132d557859c4e2867b8cc9d3d320ac35e4833768f91dc7df7032ef7"
+      },
+      {
+        "path": "2665.index.js",
+        "bytes": 100003,
+        "sha256": "30567a9525cb5965c51d6bbbb0ae51803a9209a20dacf4d75d57605948c34547"
+      },
+      {
+        "path": "269.index.js",
+        "bytes": 22654,
+        "sha256": "6b7ee5bd365c6b83557159147778edbc70310e6bb44bd763c93697da43599ba0"
+      },
+      {
+        "path": "2779.index.js",
+        "bytes": 35520,
+        "sha256": "8064f5850827c3426556fcc579cfaaa6aff249f0ce43efc4d37343cb587f64c7"
+      },
+      {
+        "path": "2884.index.js",
+        "bytes": 6829,
+        "sha256": "96b4656d9923bf4aee5ed0d5f53604ecbf5e808f7f978d6d0be2775689cf53d7"
+      },
+      {
+        "path": "2937.index.js",
+        "bytes": 2054,
+        "sha256": "99098d6a1d560b270de401f3db6c3ea4b845dd8e4fb38fa9ff7664b6582173f9"
+      },
+      {
+        "path": "3168.index.js",
+        "bytes": 9361,
+        "sha256": "630b987f622863150c2b7f411a8f80c5b516fe76a5661ae011876b4048cd4dd4"
+      },
+      {
+        "path": "317.index.js",
+        "bytes": 1378,
+        "sha256": "3869983cf441c5032a2794e7af3491a946e0794e8feeb24b469cf9a9784036b0"
+      },
+      {
+        "path": "3377.index.js",
+        "bytes": 8951,
+        "sha256": "e816fca2a7c9896cf09ab962cabe186e1f939d67cf49af8271ab1daef790ff66"
+      },
+      {
+        "path": "3410.index.js",
+        "bytes": 6518,
+        "sha256": "6ac176e2627cb2d7d9fb2bed10d421cd0c5e1e9c14e02d8cf466a8a018c051e9"
+      },
+      {
+        "path": "3570.index.js",
+        "bytes": 7540,
+        "sha256": "2f71d7cf324fb1c0b4105202ffeb7a1e81427b8db688b0af59609620540ce3a0"
+      },
+      {
+        "path": "4341.index.js",
+        "bytes": 23180,
+        "sha256": "1d3bf6ded263faf32989962d227edab6c0248878f9b39f1159b837928b4b5908"
+      },
+      {
+        "path": "4343.index.js",
+        "bytes": 663,
+        "sha256": "acedda6bb529aa77c4cb793a06e15fac4bb4f23c56e43219d6f2524258dd9d8b"
+      },
+      {
+        "path": "4484.index.js",
+        "bytes": 6389,
+        "sha256": "59658adf72dd6126890017ad7d5e335a15b64350bb91e29fadeb28d8daf2bfe3"
+      },
+      {
+        "path": "459.index.js",
+        "bytes": 50699,
+        "sha256": "2213a555a1def4af11e8137717eeb135a24dcc1bf5a6ede2aeb0d695a459a25e"
+      },
+      {
+        "path": "4823.index.js",
+        "bytes": 24536,
+        "sha256": "20501af4a1fb09bee79d244f2a32138f193ca28970414258e9b283ecf37bb7c5"
+      },
+      {
+        "path": "4897.index.js",
+        "bytes": 5391,
+        "sha256": "c9001f1d615187fc337d66eefc87a3a69995d52ee2798fa1886da452735960d4"
+      },
+      {
+        "path": "4964.index.js",
+        "bytes": 43604,
+        "sha256": "77216ccb245529c4e8c68db52bce347bcab4cf9152b7d6d7e1e2eb32a952a3fe"
+      },
+      {
+        "path": "5160.index.js",
+        "bytes": 24796,
+        "sha256": "aa809ee90a96a5bcb842ff983feb18f9a78bf0520f72f16fc9bb522763b98721"
+      },
+      {
+        "path": "5292.index.js",
+        "bytes": 4264,
+        "sha256": "eeadea818fd68e39f5c2016f1985fb4fa85fb5d5d2a2aef5539b34df4d2dfee3"
+      },
+      {
+        "path": "558.index.js",
+        "bytes": 131554,
+        "sha256": "5dd4766fe82aa90e1021a3646da69a1925a15d53b4b305bbdadcbeba74cd76e1"
+      },
+      {
+        "path": "5657.index.js",
+        "bytes": 2679,
+        "sha256": "afb5ec75af39da46979166ae86772b306a6cdf038bf4a8cc1001a14c003bc295"
+      },
+      {
+        "path": "5941.index.js",
+        "bytes": 4995,
+        "sha256": "87583fcf58761e0d4b23be0fd9472230ef327af4bdd8528b77782e6e293d430f"
+      },
+      {
+        "path": "647.index.js",
+        "bytes": 993821,
+        "sha256": "0a446fdc4259bff741948fb76352f9f30d99a5104e8a24f9c42e242e843610b9"
+      },
+      {
+        "path": "6494.index.js",
+        "bytes": 1665,
+        "sha256": "7abcb72023fd8b93f85f468baa3580dc69b0ce72256dfbdd9cfa7b1138f8aa47"
+      },
+      {
+        "path": "6887.index.js",
+        "bytes": 666,
+        "sha256": "a69f90f546f63b8764c27c8908f434ff75f380db00402b1591a052fa9a1b2ee3"
+      },
+      {
+        "path": "7341.index.js",
+        "bytes": 40143,
+        "sha256": "a575ded176d8de4f53c4da8d12d8491428456bbf29769cd96eaf2e1e99d8259a"
+      },
+      {
+        "path": "7514.index.js",
+        "bytes": 662,
+        "sha256": "0fd36580be59053d0b599be06b357279cf4f88608f9b98c8d9295623f7e9e130"
+      },
+      {
+        "path": "7717.index.js",
+        "bytes": 11779,
+        "sha256": "28a1f9a6efa2ae0765857e8350c2d6007bbd0a58c08de0bb7b12fac7f27eac4f"
+      },
+      {
+        "path": "7742.index.js",
+        "bytes": 2274,
+        "sha256": "d571f9811cfcc0cfe70a117413068bbd847866e40ae7a23d7729234e74c66b3d"
+      },
+      {
+        "path": "787.index.js",
+        "bytes": 902,
+        "sha256": "913d1f2e13fa23d01152a67cf4254fd471f11bcadf358c674860a7ba32c80180"
+      },
+      {
+        "path": "7923.index.js",
+        "bytes": 15840,
+        "sha256": "5d1fb3b13c73278b9c54c0b9b00b644828336466e093a8946d24329cc313a46b"
+      },
+      {
+        "path": "7982.index.js",
+        "bytes": 27184,
+        "sha256": "14f109394d5702bfdc8912eaf073c5a549d7a4f5c3fbea76f40dd137e7938d2e"
+      },
+      {
+        "path": "8017.index.js",
+        "bytes": 10046,
+        "sha256": "0d348fb4eac3876097bd23026555eb1fc740321f5354b5b26db919391ac76701"
+      },
+      {
+        "path": "8019.index.js",
+        "bytes": 6658,
+        "sha256": "5896eaeb043fe4939d7c29a97e169f34c940cc76f8b3682ff28136d7addf30e0"
+      },
+      {
+        "path": "8096.index.js",
+        "bytes": 1911222,
+        "sha256": "20ac27aad4325cab0cc616cddb67be99342fd153e5263c1a9671706e0068c699"
+      },
+      {
+        "path": "8096.index.js.LICENSE.txt",
+        "bytes": 1617,
+        "sha256": "235c1195234c159fbff03975223c763596cc1091c6e7928ec6d9d83028749b96"
+      },
+      {
+        "path": "8200.index.js",
+        "bytes": 2626,
+        "sha256": "8196433bca99e276459275706f26ecf81c0cb03aba0b4cbd5800b544a9408502"
+      },
+      {
+        "path": "8750.index.js",
+        "bytes": 859,
+        "sha256": "6c4f217b28d45b3b6045f4265addda109af409d50d57ab1e46ab298231d8da3b"
+      },
+      {
+        "path": "8891.index.js",
+        "bytes": 3246031,
+        "sha256": "3ee6e0216a84b40e822364a14f45017bdc704a2ad41453a37c7f1b77f61027c0"
+      },
+      {
+        "path": "8914.index.js",
+        "bytes": 686,
+        "sha256": "2ca64bdaee4a800916c8e2ba070c504a15fdfe7774f3586acfa52e22f6319be5"
+      },
+      {
+        "path": "916.index.js",
+        "bytes": 3800,
+        "sha256": "fda9019438e929c6e4617fbd00bbac05f948a85f50530c6feb4677c2906e28b5"
+      },
+      {
+        "path": "9231.index.js",
+        "bytes": 1092,
+        "sha256": "59df7b3279526c6022c4ee4b8732adfda32446ed8c0eae909147ee7fd4f9f98e"
+      },
+      {
+        "path": "9268.index.js",
+        "bytes": 5790,
+        "sha256": "e6e5b99cc23b77f3b358e5e11c486af34ab7d2714d4a803315e740076ed0f8ed"
+      },
+      {
+        "path": "927.index.js",
+        "bytes": 21786,
+        "sha256": "9c59ae37ffdbfac4f19facc796fa808fa2a448e329f69bf3b86c35b12c5b2751"
+      },
+      {
+        "path": "9334.index.js",
+        "bytes": 36582,
+        "sha256": "e021a32779b14b25b1b7f53148662a57c0954360ab0f66d2c9f303076574cd98"
+      },
+      {
+        "path": "9469.index.js",
+        "bytes": 12454,
+        "sha256": "3946ab4927a4abac08a11c99c9f72d348f8266c5ff0a53012b47ef8696f8883f"
+      },
+      {
+        "path": "9499.index.js",
+        "bytes": 241,
+        "sha256": "13cbf145aec8406ea15be5083d3a950f9cd47f9f6994308528be3f6409068c1c"
+      },
+      {
+        "path": "9570.index.js",
+        "bytes": 906,
+        "sha256": "1c95bfe4e38f9e91d98c395c75e252b1254f39a1205c7ddb42f7ba16e8f41b69"
+      },
+      {
+        "path": "966.index.js",
+        "bytes": 6855,
+        "sha256": "da3844a8aec8162b5c19f5212d8c666d6a43151db2ed4860fd46dcb22de95c6b"
+      },
+      {
+        "path": "9778.index.js",
+        "bytes": 7323,
+        "sha256": "4a4222ae3a68d047046e2b28a97572f3a9332fe2b54f402aae266f64fab5a87f"
+      },
+      {
+        "path": "97f64a4d8eca9a2e35bb.mp4",
+        "bytes": 63178,
+        "sha256": "938365cd23989da3afc4a4613565b88a609de46a282b5c3ef101b7e092738bb9"
+      },
+      {
+        "path": "cursor-agent",
+        "bytes": 922,
+        "sha256": "b7babf47d8b1eee28ac27a74affa02a559bb38103a6e71fbb1f120805d51fedf"
+      },
+      {
+        "path": "cursor-agent-svc",
+        "bytes": 184,
+        "sha256": "1484336be9a32b60f4a10f7d1248aff246f97f4df3d432c082555cc52151e3fa"
+      },
+      {
+        "path": "cursor-agent-svc.js",
+        "bytes": 4636432,
+        "sha256": "a15ea4eda4d9e2e2caa97f8908e605c58bffb27beba3d83a6a647812040d1c04"
+      },
+      {
+        "path": "cursor-agent-svc.js.LICENSE.txt",
+        "bytes": 6302,
+        "sha256": "44d07531952f08cde3eda475d42639b034ffd34ddc765e52fb433479bbedb781"
+      },
+      {
+        "path": "cursor-askpass",
+        "bytes": 175,
+        "sha256": "123948eb5c8af59377b4addec6c5b0e8c55e4ef64ac71b44025621aa56013d73"
+      },
+      {
+        "path": "cursor-askpass.js",
+        "bytes": 5882,
+        "sha256": "1975264f669f2ef3dc1ee6de2f807456d45a248efe7b56a00f0621c3759aa75a"
+      },
+      {
+        "path": "cursorsandbox",
+        "bytes": 3329360,
+        "sha256": "00447ad8c5004dfec4fad3df95acc7e7730efd341042b5e8bf51280fb6d338c9"
+      },
+      {
+        "path": "diff-patch-worker.js",
+        "bytes": 6646,
+        "sha256": "8de87d1ba7886c6135522679c5d29756afcefb0fe91bdec2023cd42c911a4d0d"
+      },
+      {
+        "path": "diff-worker.js",
+        "bytes": 6000,
+        "sha256": "ee6fa0a05de52e1db66b8a67296252eb2fa8d2b86ab8998f2eb6907469f08a51"
+      },
+      {
+        "path": "file_service.darwin-arm64.node",
+        "bytes": 22839552,
+        "sha256": "99233bd4be17bde77a3a56fb97aa645faccedadc072d4c46e269053ba165e967"
+      },
+      {
+        "path": "index.js",
+        "bytes": 9812311,
+        "sha256": "e128afdebfe3df908d476cfbd8d8e63e34d35447da19d985bf8f6e8cb345e01e"
+      },
+      {
+        "path": "index.js.LICENSE.txt",
+        "bytes": 7548,
+        "sha256": "c133a807a250ffdb01ca478b1e9e99b6afa36521ad7dced2edcf5f425023bd1f"
+      },
+      {
+        "path": "merkle-tree-napi.darwin-arm64.node",
+        "bytes": 3552720,
+        "sha256": "57076ae6a8f471b76ffbefdbd0eeb59fde2f2aad6597088ce703a9628591edaa"
+      },
+      {
+        "path": "node",
+        "bytes": 116870064,
+        "sha256": "336b5b3ebc5deb86df842102b20b6e4761605b7a667823e68dda7761b91a161b"
+      },
+      {
+        "path": "node_modules/piscina/.taprc",
+        "bytes": 298,
+        "sha256": "4fba8ac572baeb549e835e6bc9c9dd10f1eb3bcdef5ea75cb775994927b28eae"
+      },
+      {
+        "path": "node_modules/piscina/CHANGELOG.md",
+        "bytes": 5377,
+        "sha256": "e5c2c68eed2416070616ec574c82f71b25d2c06c217863799cadcd5b9c533582"
+      },
+      {
+        "path": "node_modules/piscina/CODE_OF_CONDUCT.md",
+        "bytes": 5268,
+        "sha256": "6834d92658d25666d1b0a5615048eb32cf0792ff6b7d1b479ec48dce9dc1a2d6"
+      },
+      {
+        "path": "node_modules/piscina/CONTRIBUTING",
+        "bytes": 1236,
+        "sha256": "4289dc75a8c1b096fecf605f4ba10ee135a2ee778a53c2c1d7f2dc39413de585"
+      },
+      {
+        "path": "node_modules/piscina/LICENSE",
+        "bytes": 1209,
+        "sha256": "0d506ca1b2adc4ee63a9e2384a85d6cf9f014b4cf3d00c162cd60216450324fa"
+      },
+      {
+        "path": "node_modules/piscina/README.md",
+        "bytes": 39331,
+        "sha256": "e14d785ddae064d79e69c60b75770dfa9fe112a2e08fe106a2c170d9eaad1718"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/fixtures/add.js",
+        "bytes": 52,
+        "sha256": "48c3b9da5c294a707f11cfd562fe1092c68d50d52c124ac0f5305d81f874d726"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/piscina-queue-comparison.js",
+        "bytes": 1093,
+        "sha256": "621d25cf2645f11be9df950199e43ab7b46a0f78cc8730f54a6484be8c6298d8"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/queue-comparison.js",
+        "bytes": 758,
+        "sha256": "0f2a3d44e1f3c64b2cd7223c484b49bafb98a5c8dfd1fe34c6d327ebebc14910"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/simple-benchmark-fixed-queue.js",
+        "bytes": 801,
+        "sha256": "66ab8b3ee623b26d77460a3aa954890605e3407944654891bf1919d22582ce1a"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/simple-benchmark.js",
+        "bytes": 743,
+        "sha256": "10ec3fdba4616419d0d6ca8984c3d16db2d65543f19fe539eff08655e3fcc50c"
+      },
+      {
+        "path": "node_modules/piscina/dist/abort.d.ts",
+        "bytes": 812,
+        "sha256": "0b28da8f239e8d2c85d97c8c64b8991b54d0c46d5cedcca99adc7c059fd2990f"
+      },
+      {
+        "path": "node_modules/piscina/dist/abort.js",
+        "bytes": 690,
+        "sha256": "96bda77290b59f3f05f054fc67f8dd3c911c5b41615c767653f9c5be1100f181"
+      },
+      {
+        "path": "node_modules/piscina/dist/common.d.ts",
+        "bytes": 1074,
+        "sha256": "80fbe53011de34d57e72ec081e1b7628db06013e7e417a90886a025be4848b97"
+      },
+      {
+        "path": "node_modules/piscina/dist/common.js",
+        "bytes": 3159,
+        "sha256": "7408b87975c0b2daf9f82f13b201f4e53b6f4a571ab1b4e997cbfe4204690695"
+      },
+      {
+        "path": "node_modules/piscina/dist/errors.d.ts",
+        "bytes": 213,
+        "sha256": "565d28ff66b982b0710a4b02d30b3bc2708d55bd86448449796d787cb0e55ead"
+      },
+      {
+        "path": "node_modules/piscina/dist/errors.js",
+        "bytes": 551,
+        "sha256": "8a1ba396c508b3981573e61d9d7c46c311a50f1a94891e3951b4a8a1e58d488d"
+      },
+      {
+        "path": "node_modules/piscina/dist/esm-wrapper.mjs",
+        "bytes": 496,
+        "sha256": "7422394f0ceee72f99fb608dfbd024a8bc8d35f12c4cf0fd5acf26d70c1e6791"
+      },
+      {
+        "path": "node_modules/piscina/dist/index.d.ts",
+        "bytes": 3620,
+        "sha256": "4ed188b1d7051a0e91d479d3a67bd047cff001b8ac95c91da4dbdc4e364e9ef2"
+      },
+      {
+        "path": "node_modules/piscina/dist/index.js",
+        "bytes": 33454,
+        "sha256": "49429bf4cf9ed778549948b06caf0621e1225dc54695fc7617b3a4798839cab0"
+      },
+      {
+        "path": "node_modules/piscina/dist/main.d.ts",
+        "bytes": 49,
+        "sha256": "0c9b5e6457e42cf0f32916d032a8b7f539d275c44238b7cfd860bb2b23b7cd5a"
+      },
+      {
+        "path": "node_modules/piscina/dist/main.js",
+        "bytes": 272,
+        "sha256": "66553ddfb435a0093214eacb1c44971dc862e896f222ce9251cc6a9a15212bb6"
+      },
+      {
+        "path": "node_modules/piscina/dist/symbols.d.ts",
+        "bytes": 321,
+        "sha256": "74810526b57fd0214b27d58de40daa60caf1122c1839c404900481766612064a"
+      },
+      {
+        "path": "node_modules/piscina/dist/symbols.js",
+        "bytes": 686,
+        "sha256": "d0e30b1d318751183ffab01979895bc0fc45f1db6c6db36f83d58f2329f0011a"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/array_queue.d.ts",
+        "bytes": 230,
+        "sha256": "9d0d4d5b44e62831ce1f83c83068f7f81622ad85f97ec78b56a2c37d3b9d91f8"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/array_queue.js",
+        "bytes": 862,
+        "sha256": "29fe6991e3eab05119782880776adac3813e693b6c82ed8cbeab68296dca3921"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/common.d.ts",
+        "bytes": 415,
+        "sha256": "3267b84a7d1145bab153882b3b357fa22d8a62fd6270d4ecdafac1137b57b497"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/common.js",
+        "bytes": 113,
+        "sha256": "efa0b2439294e1510ac01e9e254e9fbd509834ed9c4fdc73559c6b62f69a8264"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/fixed_queue.d.ts",
+        "bytes": 667,
+        "sha256": "80a49370716347cbf246a073ee9a9940f016d42a85f99949f26cfb05ce861d15"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/fixed_queue.js",
+        "bytes": 6594,
+        "sha256": "626b1062fcfccd7568a349cd3ca2c0cb224dde65ddd98099d5b618d594c9eb10"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/index.d.ts",
+        "bytes": 1569,
+        "sha256": "1161d58cd3644f0b122b0edc3655af9868e40fc94b89a7ecd02bedf80514ac14"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/index.js",
+        "bytes": 3723,
+        "sha256": "e0bab14fc4f6e3e84adc1ed9d9190de1cda03af0894c21e7d8697382dd8741df"
+      },
+      {
+        "path": "node_modules/piscina/dist/types.d.ts",
+        "bytes": 1441,
+        "sha256": "8e902b158a4030fca35ab0e77e303b6b859d6858c88eec5258a5fabae9b41371"
+      },
+      {
+        "path": "node_modules/piscina/dist/types.js",
+        "bytes": 220,
+        "sha256": "d6a24e27e1b415e8b9a6861d070c599c2fc71a86513c3a1b7d22c96798c9e14f"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker.d.ts",
+        "bytes": 11,
+        "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker.js",
+        "bytes": 8248,
+        "sha256": "081e85839bad17b8d895bae9e39ebb890933148185a9a547eb11cf4f3b410ceb"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker_pool/index.d.ts",
+        "bytes": 1614,
+        "sha256": "8431abb363afb0be0d2db5ece7bd7642b19d1938288970d4453a64610db7cd0b"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker_pool/index.js",
+        "bytes": 6654,
+        "sha256": "b784db251a8f114d3ca0410468d25d05b1889050fbd266425bafc8d59664a867"
+      },
+      {
+        "path": "node_modules/piscina/docs/README.md",
+        "bytes": 768,
+        "sha256": "8e8baa0e2d95bccf8317278acc831396484eabb0c42b3b7acfdbfb3e014ca2ec"
+      },
+      {
+        "path": "node_modules/piscina/docs/babel.config.js",
+        "bytes": 88,
+        "sha256": "41ca08aeae8c513e3c31501ff5686c255aad344a6f5ed2c3d11fadd4e500c39d"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/Introduction.md",
+        "bytes": 1767,
+        "sha256": "5764806a971d0dbbe90b23718ca2a73d111ea1e467fa67e773b6c2232a5c3bd6"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/advanced-topics/_category_.json",
+        "bytes": 426,
+        "sha256": "f5b5e62951f3dca834a7e8879a568d6bcda5d60c957c29f8b1a210b79f6e5b36"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/advanced-topics/custom-task-queues.mdx",
+        "bytes": 4367,
+        "sha256": "994459e09e13bced9bcbd68ded8d50bf2ada0b831acf0ab3987fcab24a15eb1a"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/advanced-topics/performance.mdx",
+        "bytes": 6222,
+        "sha256": "b36d63771dba22d9f3a60540a7a4fb2b0bed75b63b06528f2c619e3936891e8c"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/_category_.json",
+        "bytes": 254,
+        "sha256": "b3232158af8f7d7c3ce16a70509e906522c8bc82db95249f907a9907e49d8032"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/api-overview.md",
+        "bytes": 9251,
+        "sha256": "3c19abb869c15c83e1aa3905f2792ee350a2af531cd3b6963b082e279400c373"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/class.md",
+        "bytes": 7126,
+        "sha256": "e098572856b93f153958ce1fa1c8a475f18bd4bda5b5f4bf5445494da115b208"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/event.md",
+        "bytes": 884,
+        "sha256": "bd9b2f17722e59cf8c441237e41b8c63f08228e9e0b3531ab2ffdb74d4558be3"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/interface.md",
+        "bytes": 1283,
+        "sha256": "94791325f8f488f305caf8e6567f077ff36e8df7148c8aef9f2e81677de22d32"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/method.md",
+        "bytes": 3299,
+        "sha256": "ca1a8e31af3bf3047cf21d93270574e515ca068ccfacb769c72979ddbdaf039c"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/property.md",
+        "bytes": 3835,
+        "sha256": "34d9a6fe35dec26516901760c02454beaccc90e2632ed5677d2adff10af2cc53"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/static-property.md",
+        "bytes": 1178,
+        "sha256": "0e7ef3ba333be1a3f80f2e4e64e8519d3e62c7da40c437a5c89c955278232e66"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/Installation.mdx",
+        "bytes": 1086,
+        "sha256": "0674314345f753978985466e4d4572c346ded994f49371aacc4fa0c1eaeb672f"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/_category_.json",
+        "bytes": 177,
+        "sha256": "fd84d29155813d790f4dbf915e7bd793e7f7214569cdadf5c7b71f50345f0a38"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/basic-usage.mdx",
+        "bytes": 9674,
+        "sha256": "d237f49f085f2ad346bda0222499673a60621335d9a419259485516a796558e4"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/managing-worker-threads.mdx",
+        "bytes": 4878,
+        "sha256": "f2df15bb5cd9a5a0ce58158bc12317a3e26393e6823a6ab9d58e94e54a0c88d2"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/update-log/_category_.json",
+        "bytes": 186,
+        "sha256": "33d6ba9fae701cf88ef8b3a54240c2a3d18a10484b5d7a00a519a784d8c0f0f9"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/update-log/changelog.md",
+        "bytes": 109,
+        "sha256": "e9fe1b4fa710dc64cb6e68b6154ca071aa1d68813a74dea04487f519d1a5887a"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/update-log/release-notes.md",
+        "bytes": 2770,
+        "sha256": "fecacd3961a3ecd7bcc38da2e3823385f48169709f0cdc98ecf3fe2ce3401a70"
+      },
+      {
+        "path": "node_modules/piscina/docs/package.json",
+        "bytes": 1198,
+        "sha256": "7939221ad4331a86f9703672eec21b730910f60d15413597c01abf148f673010"
+      },
+      {
+        "path": "node_modules/piscina/docs/src/components/WorkerWrapper.mdx",
+        "bytes": 410,
+        "sha256": "4c797f14738ee98ad5721cf8985b99c541864f610304c09d6c282e36e81aea1e"
+      },
+      {
+        "path": "node_modules/piscina/docs/src/css/custom.css",
+        "bytes": 1098,
+        "sha256": "9586d4965886bde5847e2658ea1b53b752f8b7bc5ad11952034ee55eb9b5faf3"
+      },
+      {
+        "path": "node_modules/piscina/docs/src/pages/index.module.css",
+        "bytes": 365,
+        "sha256": "89ec29a5b3d2d9a2ea8b9f7e18ea656000061bed6378af2f5bc44e46b4cb3209"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/.nojekyll",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/docusaurus-social-card.jpg",
+        "bytes": 55746,
+        "sha256": "7e3f3833e6742ffcc323c56380b3d1faf185c175534ea5591686bf879a1f7cfb"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/docusaurus.png",
+        "bytes": 5142,
+        "sha256": "9204212d3905bc1b8d1d882825d1eceb5ad942329222277d7257831a7d47d827"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/favicon.ico",
+        "bytes": 15406,
+        "sha256": "8376a44f7fe34920c09b8c1fd1780cc1f482ae4c4ee1d024c719adfa77b33a1e"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/logo.png",
+        "bytes": 34626,
+        "sha256": "b4dcb5ae60d989c2a9dc92abdd15def7fa0b2285becba5e091d79f42f8dc1da4"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/logo.svg",
+        "bytes": 6438,
+        "sha256": "c2ae4b0e5603791e869ed5bc34a60a709d1ec6343fc22f75d97937aaafafd7f7"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/undraw_docusaurus_mountain.svg",
+        "bytes": 31486,
+        "sha256": "5d63a81ff3dd5ea266e99156f8e33f76cc02df0f04e1a4487240663704660b7f"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/undraw_docusaurus_react.svg",
+        "bytes": 36002,
+        "sha256": "1f2c1d7bcdd4219c9869d94b45c052e2856464e91c3e0704d99b4714d32cc668"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/undraw_docusaurus_tree.svg",
+        "bytes": 11887,
+        "sha256": "09704d88ef849647bf2ee02a4cb1b1b413f000de059a8d794019238ef2c5e4a7"
+      },
+      {
+        "path": "node_modules/piscina/docs/tsconfig.json",
+        "bytes": 87,
+        "sha256": "8506e7957fa69b5f3d09575049df65a42e70e4b670b954073202a9cdeb60a301"
+      },
+      {
+        "path": "node_modules/piscina/output.txt",
+        "bytes": 1265,
+        "sha256": "8fa9ed5b8b7a431acea1d43c768981c4f89beb2b63b110b9cfaf26d0010da556"
+      },
+      {
+        "path": "node_modules/piscina/package.json",
+        "bytes": 2842,
+        "sha256": "dde134e26dab12b1c5d349a016634cd11f6d126485927e0f7e0900e2ab565930"
+      },
+      {
+        "path": "node_modules/piscina/playground.js",
+        "bytes": 585,
+        "sha256": "d3eeccf1507d193c791e2c00da27bb06fd8bfcdb54f0cdfa5ec4ea7d81de2ef5"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/esm-async.mjs",
+        "bytes": 241,
+        "sha256": "5ae42106655d38e6e424acdde743790c2dda23ff7af86764eab772cf9f126c2a"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/esm-export.mjs",
+        "bytes": 91,
+        "sha256": "65b088a0c72871da5fa0e4b3600508650607f461d952a9d2c90f55a21421dbf9"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/eval-async.js",
+        "bytes": 267,
+        "sha256": "01ff257a8f50fd0ae46531a7240dead492be9dae82c5cc0dd8537120c8a91cc8"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/eval.js",
+        "bytes": 93,
+        "sha256": "ad103ef0038cda945182d95f2e8a610b44a1e46ef07771ced2e61b498567331a"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/multiple.js",
+        "bytes": 116,
+        "sha256": "60c74291d42de9f7310de63c25a21d667ccf6b1dfe46adb87af80b70f4e7fabb"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/notify-then-sleep-or.js",
+        "bytes": 347,
+        "sha256": "1e3baabedf56a7af1cd2d1411334d9fe361bae91b0a87e64ffeb7704415e04bd"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/resource-limits.js",
+        "bytes": 109,
+        "sha256": "7dfd8f172c3328b7626399e2041a3d2c67a95bd5046a7a781628fa8a8342d7cf"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/send-buffer-then-get-length.js",
+        "bytes": 313,
+        "sha256": "b6646486752c157f6822ad178dea9bbf16c98611404afcaa773afc6ab61410f5"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/send-transferrable-then-get-length.js",
+        "bytes": 642,
+        "sha256": "fa8a63779d65ee6d41f329a948f9e75acb663c1956e0c0e84f1c11caf4985628"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/sleep.js",
+        "bytes": 277,
+        "sha256": "53133a2a5ef9bd1ece0d0a3ea276cdf598d7cfcb6c295bcec2152819787fedf0"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/vm.js",
+        "bytes": 164,
+        "sha256": "e1682e3cb237dbc16d19f28c0950d8978858d5b5d8b385997a8c5e963ac2e974"
+      },
+      {
+        "path": "node_modules/piscina/test/tsconfig.json",
+        "bytes": 143,
+        "sha256": "418057721dad7e5e3b52f0a56a0c24b92610088a6ed60f9bcdd3958de174fc47"
+      },
+      {
+        "path": "node_modules/piscina/tsconfig.json",
+        "bytes": 647,
+        "sha256": "9bdec7baf502349a12548af4ece2d87f5656fd996a80ccb2dfec5825beff062f"
+      },
+      {
+        "path": "node_modules/piscina/tsconfig.tsbuildinfo",
+        "bytes": 32421,
+        "sha256": "60fe3e9472fdb4815ee631d77ebc8ec0af13fc67fcfd5413fd6a43fbd4de906a"
+      },
+      {
+        "path": "node_sqlite3.node",
+        "bytes": 1885216,
+        "sha256": "f60762ab574280570158371c660242b84adf589a013d09a745f307593568ed26"
+      },
+      {
+        "path": "package.json",
+        "bytes": 64,
+        "sha256": "625a6b5d64e45fd989706ab6fd21a95f454d4e70cab7c0c1c151d37582d8bee2"
+      },
+      {
+        "path": "pdf-worker.js",
+        "bytes": 480691,
+        "sha256": "023a014af43583a1be5ba0b6ddd62d5b6f19c80ec56dc879e4a99e221efc0396"
+      },
+      {
+        "path": "pdf-worker.js.LICENSE.txt",
+        "bytes": 795,
+        "sha256": "b5e8c493d516d9b156045ec3b83cc3e26785363af56db22bd52382942b394242"
+      },
+      {
+        "path": "pty.node",
+        "bytes": 102944,
+        "sha256": "4027d2b200fcc50f888305179dcdead3456237fac7901a4f2b71389c4686047b"
+      },
+      {
+        "path": "rg",
+        "bytes": 4042416,
+        "sha256": "110d0cddb4a5cd9ab6c4be8e3d6d20928de0d23419dbf95caa2f41ab1a90fa7f"
+      },
+      {
+        "path": "spawn-helper",
+        "bytes": 68496,
+        "sha256": "7abb7e003c34ee5771f8d61d4180398d6d921ffe8402b751b38e8a247c18ad2e"
+      },
+      {
+        "path": "unified-diff-worker.js",
+        "bytes": 6816,
+        "sha256": "043981c64a66e32eab4d9f2e37b559263c2241eca592d290a8abb1f2792fd807"
+      }
+    ],
+    "archive_manifest_sha256": "e7d784385151fca8d58ff9d25743bf90eea0481e2788a78821712c518cb4a767",
+    "current_file_manifest": [
+      {
+        "path": "1014.index.js",
+        "bytes": 49338,
+        "sha256": "c6e14547e6dc095dd93f7b57bbe243508fe7a79c786a266914fa84d45dc6da65"
+      },
+      {
+        "path": "1033.index.js",
+        "bytes": 2679,
+        "sha256": "613b7cc3770a74329afa2277c9066e4448baa554f788c0eed12b9adaa5678265"
+      },
+      {
+        "path": "1315.index.js",
+        "bytes": 36541,
+        "sha256": "b7b3c7d8859825b7a475bcee276129d53bd045023747955e18dde89561286c92"
+      },
+      {
+        "path": "1439.index.js",
+        "bytes": 23109,
+        "sha256": "8a93c3fe655ae4ce0379215a047971a8bf320ca1385fe5aae41e3645082833b1"
+      },
+      {
+        "path": "1527.index.js",
+        "bytes": 2851,
+        "sha256": "e0c966cc08aa29fd54216a0fc8fde0cfeb6c47b2269cf6335b0965a67d17457d"
+      },
+      {
+        "path": "1535.index.js",
+        "bytes": 1092,
+        "sha256": "052483b78da6737e0ea2a7add6e57c70dd49c54d1070f369e886a244e3434efd"
+      },
+      {
+        "path": "157.index.js",
+        "bytes": 65728,
+        "sha256": "76dad98b453bd6c4030f934c24a956c6cab021c292cf4364ff8c1015cf3df22d"
+      },
+      {
+        "path": "1639.index.js",
+        "bytes": 10585,
+        "sha256": "b861817cd9c97211db82d0233f758aff1f5a24890d7e324031bf901140947f16"
+      },
+      {
+        "path": "1812.index.js",
+        "bytes": 6475,
+        "sha256": "44797af239a0c1bd8aa69805a58740c77734fd7ea1302bda2904260324f7e58e"
+      },
+      {
+        "path": "2097.index.js",
+        "bytes": 59488,
+        "sha256": "0a6763b08f671a2fe240f3ef9aceeef6f76fa4846eaeb559dfe99babe40ecbb0"
+      },
+      {
+        "path": "2240.index.js",
+        "bytes": 226326,
+        "sha256": "b6c2790228582e844f550f507c8a4dc0581620ca0dd1bc75bc0f5f22397df11f"
+      },
+      {
+        "path": "2244.index.js",
+        "bytes": 5724,
+        "sha256": "93ecefb9845a3805ab5d4f7befe3b15ff9200f98f3460e596a84fa92b79517a7"
+      },
+      {
+        "path": "2441.index.js",
+        "bytes": 2054,
+        "sha256": "0819ed6d875b9bf2980468d6a9391ef6cd53d96504c2164f8164e7924ea9e14f"
+      },
+      {
+        "path": "3056.index.js",
+        "bytes": 10309,
+        "sha256": "a75351e55cebe2422d133c861289b72609f327d4fee36295a9262e9323882ace"
+      },
+      {
+        "path": "3083.index.js",
+        "bytes": 241,
+        "sha256": "50d1b8f27bf106140772c76577508cff427497e50e8046e6606eff4df92584cc"
+      },
+      {
+        "path": "309.index.js",
+        "bytes": 23031,
+        "sha256": "733c43b77144999e350c964f0f78a2a4ae8269dce6fa0bea8587060398a88159"
+      },
+      {
+        "path": "3283.index.js",
+        "bytes": 6592,
+        "sha256": "a87cd0d7aa6fdd7957d9393368cc179f568031019087034eb86bbe130c38bd59"
+      },
+      {
+        "path": "3394.index.js",
+        "bytes": 906,
+        "sha256": "51e8173ff3fe2a1f78f67faa25557c6a2f2fe8f1d16151dcc768984c3495c805"
+      },
+      {
+        "path": "3453.index.js",
+        "bytes": 1380,
+        "sha256": "8287609f04134d3027d95dbcea8d0a7af34559b9614a5378267a2fa704e8caf5"
+      },
+      {
+        "path": "3479.index.js",
+        "bytes": 1025393,
+        "sha256": "ac4050a1cd5c798979f890d21c4abc2faf074f6ac3586036090ad87f36191811"
+      },
+      {
+        "path": "3515.index.js",
+        "bytes": 24682,
+        "sha256": "3f2bc4867ef4cb8baa0ccb330ca5aa099612315a098f056e24e565fb79f0d13e"
+      },
+      {
+        "path": "3540.index.js",
+        "bytes": 43571,
+        "sha256": "04ef5f3484d7b3f92d8c194821222b7ffac7a8309bb79d06734fb76ef57f8e4d"
+      },
+      {
+        "path": "3575.index.js",
+        "bytes": 9136,
+        "sha256": "eb4da0be06d9fe0a2fadfd961c6086293208cdf5435349e6870c62c679b7353c"
+      },
+      {
+        "path": "3962.index.js",
+        "bytes": 3916,
+        "sha256": "9412dd6c2474a4c37d2f0b863b7bf4b28a64a39e8cbb038dbfdcc88fda00cf41"
+      },
+      {
+        "path": "401.index.js",
+        "bytes": 8916,
+        "sha256": "99c77cdce09bc26a039df1532e18d344dc25b66fe613ce59ab6b89051a76d19a"
+      },
+      {
+        "path": "4052.index.js",
+        "bytes": 6796,
+        "sha256": "59b7565431a6140dcbfcbe291c41a47627d4fb1fe3d4a5e5e11d01172270aa46"
+      },
+      {
+        "path": "4267.index.js",
+        "bytes": 37043,
+        "sha256": "5fd91d571f65ebdfa9d5d2f798d6c3c202989fda892639b357c1d3c653f7f17c"
+      },
+      {
+        "path": "4343.index.js",
+        "bytes": 663,
+        "sha256": "acedda6bb529aa77c4cb793a06e15fac4bb4f23c56e43219d6f2524258dd9d8b"
+      },
+      {
+        "path": "4692.index.js",
+        "bytes": 6432,
+        "sha256": "3f460e8cdef759c93a7427b1b4fa19212b3734be259a455423aa1f4f9a14e728"
+      },
+      {
+        "path": "4738.index.js",
+        "bytes": 6522,
+        "sha256": "9cf5052027876273223ba92841013fcbba032f5f9cf46f1707c297cbab145e86"
+      },
+      {
+        "path": "4997.index.js",
+        "bytes": 1291,
+        "sha256": "541f56dd79e8912961150edd77723d5e67914d6e0a5e2f24d82432bab0e19969"
+      },
+      {
+        "path": "520.index.js",
+        "bytes": 2591,
+        "sha256": "b6a5a499aaee351c1dae2c000a65c669b7b528acb22b04609df9064d05274596"
+      },
+      {
+        "path": "5721.index.js",
+        "bytes": 99872,
+        "sha256": "0332efbd33814b900e00b52753eb2b9d4ab0fa022dc264c162d2b4f535bda48f"
+      },
+      {
+        "path": "6146.index.js",
+        "bytes": 7519,
+        "sha256": "e1fd8ba5506668aca60fabb269b6cf207670b10da043fc5ea1015c6e5aee45fb"
+      },
+      {
+        "path": "6212.index.js",
+        "bytes": 666,
+        "sha256": "deb351d4ac93a3cfbacfe991ba0c2e8c76b6f07bb85eba5742b131afa3a18923"
+      },
+      {
+        "path": "6429.index.js",
+        "bytes": 12355,
+        "sha256": "a8f70035de1ef441d206d15a82f66c6a3c325c0bf2e70b3ec98831004ed4211b"
+      },
+      {
+        "path": "6476.index.js",
+        "bytes": 4232,
+        "sha256": "98c9223b1bef6027a7b09e848331ea8fa0a9ad356e3107a2950a7210ca9b3c82"
+      },
+      {
+        "path": "6511.index.js",
+        "bytes": 36502,
+        "sha256": "4fa6b548bc858611ee7ef99bf4c4a5d522c7177d9e028e5f0d38b87f004f76ca"
+      },
+      {
+        "path": "6558.index.js",
+        "bytes": 27070,
+        "sha256": "462fb66814be4e6090ba95dad05954a48706ce9998482d3f04b015e448a53237"
+      },
+      {
+        "path": "6648.index.js",
+        "bytes": 10046,
+        "sha256": "48739f08e7d596b27929ebbb1c29f3cf8fc7df536be30c9c12cb3633f9012c32"
+      },
+      {
+        "path": "675.index.js",
+        "bytes": 903,
+        "sha256": "9b11cd600f05fcc09c2490302ecaa5656d787b9c8d0dca5aa103155e6ae8933e"
+      },
+      {
+        "path": "6819.index.js",
+        "bytes": 23597,
+        "sha256": "1c742d1b6c330631aab92792c259ca0a5331cb7da71b9737b46d4c0a40dac223"
+      },
+      {
+        "path": "6901.index.js",
+        "bytes": 4812,
+        "sha256": "fd3535d9023e942459ab97a126dbcd19b68b3a3a91184661c96fbf3fffd4f043"
+      },
+      {
+        "path": "7828.index.js",
+        "bytes": 3751,
+        "sha256": "9a8877c57b198a12eda411d3b8da6f3899d0aece527abb98bfe5a660a6f9567f"
+      },
+      {
+        "path": "7898.index.js",
+        "bytes": 662,
+        "sha256": "c5fecb48f7f0ae4e97fc7f6b98113c939f3778ed448f453e69defc6d27eccd25"
+      },
+      {
+        "path": "7923.index.js",
+        "bytes": 15883,
+        "sha256": "b137a330e37495119a7da3f6063d2237effa4b86d357b02b126a206d6efc0f90"
+      },
+      {
+        "path": "7936.index.js",
+        "bytes": 142383,
+        "sha256": "7eeae01629352d1b8ef8bcb1450b03b1c4bda6517bb33e32d5e78f3d75c980c1"
+      },
+      {
+        "path": "8096.index.js",
+        "bytes": 2272130,
+        "sha256": "139cb9c33b3464c2763044ab82b79a599ab197a27c5691dd6fce86d00f6557d5"
+      },
+      {
+        "path": "8096.index.js.LICENSE.txt",
+        "bytes": 1708,
+        "sha256": "225e93e35ee92196a072104cf6efcde38d1a03daacb36f3b57c85ef029843cdf"
+      },
+      {
+        "path": "830.index.js",
+        "bytes": 1630,
+        "sha256": "f8209d582974fbcc97003509e474908333dffaa56a21abe0db5c896e078c3975"
+      },
+      {
+        "path": "8598.index.js",
+        "bytes": 6791,
+        "sha256": "dfc9539291002374baa1cde51e054a1effd9325ef8d8b56231413acdbe8fd620"
+      },
+      {
+        "path": "8802.index.js",
+        "bytes": 7535,
+        "sha256": "db5cdd528c717def478ccb82d08ac10079847adce8a8fcd290c188b2f9b08564"
+      },
+      {
+        "path": "8891.index.js",
+        "bytes": 3243028,
+        "sha256": "453d739828b76404714bcfb3ff6b6af8c68800a1f6fa990f299b89e264c3ce8e"
+      },
+      {
+        "path": "8914.index.js",
+        "bytes": 686,
+        "sha256": "2ca64bdaee4a800916c8e2ba070c504a15fdfe7774f3586acfa52e22f6319be5"
+      },
+      {
+        "path": "8916.index.js",
+        "bytes": 6069,
+        "sha256": "44b44c821675adce8fca4933e317360c75f478324502a3e90c04fb2677a60c7a"
+      },
+      {
+        "path": "9253.index.js",
+        "bytes": 11779,
+        "sha256": "a64fa9b03a7dfd05b5c9df5a2472f6cf14e8bb41b6517f81b18338f629c3f97e"
+      },
+      {
+        "path": "9282.index.js",
+        "bytes": 5292,
+        "sha256": "aca48b2dcc5cec37edb0adf504d8ea8b6b8d2d07659cb54ba18cbcdd1258bc36"
+      },
+      {
+        "path": "9383.index.js",
+        "bytes": 24503,
+        "sha256": "e8938c8da5a8bcd4ed165a222ef10500f8521a7a865f6535105d4977bc6bd5ca"
+      },
+      {
+        "path": "9614.index.js",
+        "bytes": 2241,
+        "sha256": "925881013c3f6064db330f058bc25e68e442be264a99302e1c4e534ab5818a95"
+      },
+      {
+        "path": "9645.index.js",
+        "bytes": 233665,
+        "sha256": "fceaf95d37870d4c4962697957ff9e3646821608a6fbabbbca1eba326552d46f"
+      },
+      {
+        "path": "9650.index.js",
+        "bytes": 7327,
+        "sha256": "20d91054f8128647099f94fce62eba5a27405c37fc079dada8d717568795f650"
+      },
+      {
+        "path": "97f64a4d8eca9a2e35bb.mp4",
+        "bytes": 63178,
+        "sha256": "938365cd23989da3afc4a4613565b88a609de46a282b5c3ef101b7e092738bb9"
+      },
+      {
+        "path": "9822.index.js",
+        "bytes": 859,
+        "sha256": "6322bda19cacb534c6fd4c0d889e3648e0ed8d8f99e0dd4be61eaee7f36cca6e"
+      },
+      {
+        "path": "9859.index.js",
+        "bytes": 2589,
+        "sha256": "4427a6ecde497a0dd7c3de9f7d3f35a3f83f29438b5e0d08cba00ec72260f5b7"
+      },
+      {
+        "path": "9949.index.js",
+        "bytes": 39886,
+        "sha256": "6fbb23ce571f94a7544a599d38b5d3f5197d29a278abfee36762b8c0edd1dbe1"
+      },
+      {
+        "path": "crepectl",
+        "bytes": 5129776,
+        "sha256": "acc3fac935e976e71a6bb76b9bb6d4c13c99539d937c36fe18ab8bfda8e335c4"
+      },
+      {
+        "path": "cursor-agent",
+        "bytes": 1074,
+        "sha256": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831"
+      },
+      {
+        "path": "cursor-agent-svc",
+        "bytes": 184,
+        "sha256": "1484336be9a32b60f4a10f7d1248aff246f97f4df3d432c082555cc52151e3fa"
+      },
+      {
+        "path": "cursor-agent-svc.js",
+        "bytes": 4534409,
+        "sha256": "4e881806670830fbf561a4770eba628fedb217aadde47bea0f810c210b290a4c"
+      },
+      {
+        "path": "cursor-agent-svc.js.LICENSE.txt",
+        "bytes": 633,
+        "sha256": "1b1680b06938e2e7750b11fb1c280245a9402c4356e02b809976fbd762f29df5"
+      },
+      {
+        "path": "cursor-askpass",
+        "bytes": 175,
+        "sha256": "123948eb5c8af59377b4addec6c5b0e8c55e4ef64ac71b44025621aa56013d73"
+      },
+      {
+        "path": "cursor-askpass.js",
+        "bytes": 5882,
+        "sha256": "b4c0b44d21c5377e93dde92246888220c129a24ceba20acad0dcee1b27a82e79"
+      },
+      {
+        "path": "cursorsandbox",
+        "bytes": 3329360,
+        "sha256": "d430c34223b7f8d538111205733f6a9937efd693f1ed766e6436ca2042c2115d"
+      },
+      {
+        "path": "diff-patch-worker.js",
+        "bytes": 6646,
+        "sha256": "8de87d1ba7886c6135522679c5d29756afcefb0fe91bdec2023cd42c911a4d0d"
+      },
+      {
+        "path": "diff-worker.js",
+        "bytes": 6000,
+        "sha256": "ee6fa0a05de52e1db66b8a67296252eb2fa8d2b86ab8998f2eb6907469f08a51"
+      },
+      {
+        "path": "file_service.darwin-arm64.node",
+        "bytes": 23224368,
+        "sha256": "211c02d7a9b495c79631112aa6b50fd2be91f8f33b15f1d28616df60e61062c4"
+      },
+      {
+        "path": "index.js",
+        "bytes": 9247555,
+        "sha256": "b974679f9f421360ac6f063ba54d5032b75230a58f28fc5c3017de5ff481f230"
+      },
+      {
+        "path": "index.js.LICENSE.txt",
+        "bytes": 1788,
+        "sha256": "284a342884f1eb253c07e54ed04625488993329e8a0892102f8007e0166b24b0"
+      },
+      {
+        "path": "merkle-tree-napi.darwin-arm64.node",
+        "bytes": 3569440,
+        "sha256": "ed5ab97a9b1d7c0f42d29557da8bda57239036ac574b6abcf8c62a92cd7d69b6"
+      },
+      {
+        "path": "node",
+        "bytes": 116870064,
+        "sha256": "336b5b3ebc5deb86df842102b20b6e4761605b7a667823e68dda7761b91a161b"
+      },
+      {
+        "path": "node_modules/piscina/.taprc",
+        "bytes": 298,
+        "sha256": "4fba8ac572baeb549e835e6bc9c9dd10f1eb3bcdef5ea75cb775994927b28eae"
+      },
+      {
+        "path": "node_modules/piscina/CHANGELOG.md",
+        "bytes": 5377,
+        "sha256": "e5c2c68eed2416070616ec574c82f71b25d2c06c217863799cadcd5b9c533582"
+      },
+      {
+        "path": "node_modules/piscina/CODE_OF_CONDUCT.md",
+        "bytes": 5268,
+        "sha256": "6834d92658d25666d1b0a5615048eb32cf0792ff6b7d1b479ec48dce9dc1a2d6"
+      },
+      {
+        "path": "node_modules/piscina/CONTRIBUTING",
+        "bytes": 1236,
+        "sha256": "4289dc75a8c1b096fecf605f4ba10ee135a2ee778a53c2c1d7f2dc39413de585"
+      },
+      {
+        "path": "node_modules/piscina/LICENSE",
+        "bytes": 1209,
+        "sha256": "0d506ca1b2adc4ee63a9e2384a85d6cf9f014b4cf3d00c162cd60216450324fa"
+      },
+      {
+        "path": "node_modules/piscina/README.md",
+        "bytes": 39331,
+        "sha256": "e14d785ddae064d79e69c60b75770dfa9fe112a2e08fe106a2c170d9eaad1718"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/fixtures/add.js",
+        "bytes": 52,
+        "sha256": "48c3b9da5c294a707f11cfd562fe1092c68d50d52c124ac0f5305d81f874d726"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/piscina-queue-comparison.js",
+        "bytes": 1093,
+        "sha256": "621d25cf2645f11be9df950199e43ab7b46a0f78cc8730f54a6484be8c6298d8"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/queue-comparison.js",
+        "bytes": 758,
+        "sha256": "0f2a3d44e1f3c64b2cd7223c484b49bafb98a5c8dfd1fe34c6d327ebebc14910"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/simple-benchmark-fixed-queue.js",
+        "bytes": 801,
+        "sha256": "66ab8b3ee623b26d77460a3aa954890605e3407944654891bf1919d22582ce1a"
+      },
+      {
+        "path": "node_modules/piscina/benchmark/simple-benchmark.js",
+        "bytes": 743,
+        "sha256": "10ec3fdba4616419d0d6ca8984c3d16db2d65543f19fe539eff08655e3fcc50c"
+      },
+      {
+        "path": "node_modules/piscina/dist/abort.d.ts",
+        "bytes": 812,
+        "sha256": "0b28da8f239e8d2c85d97c8c64b8991b54d0c46d5cedcca99adc7c059fd2990f"
+      },
+      {
+        "path": "node_modules/piscina/dist/abort.js",
+        "bytes": 690,
+        "sha256": "96bda77290b59f3f05f054fc67f8dd3c911c5b41615c767653f9c5be1100f181"
+      },
+      {
+        "path": "node_modules/piscina/dist/common.d.ts",
+        "bytes": 1074,
+        "sha256": "80fbe53011de34d57e72ec081e1b7628db06013e7e417a90886a025be4848b97"
+      },
+      {
+        "path": "node_modules/piscina/dist/common.js",
+        "bytes": 3159,
+        "sha256": "7408b87975c0b2daf9f82f13b201f4e53b6f4a571ab1b4e997cbfe4204690695"
+      },
+      {
+        "path": "node_modules/piscina/dist/errors.d.ts",
+        "bytes": 213,
+        "sha256": "565d28ff66b982b0710a4b02d30b3bc2708d55bd86448449796d787cb0e55ead"
+      },
+      {
+        "path": "node_modules/piscina/dist/errors.js",
+        "bytes": 551,
+        "sha256": "8a1ba396c508b3981573e61d9d7c46c311a50f1a94891e3951b4a8a1e58d488d"
+      },
+      {
+        "path": "node_modules/piscina/dist/esm-wrapper.mjs",
+        "bytes": 496,
+        "sha256": "7422394f0ceee72f99fb608dfbd024a8bc8d35f12c4cf0fd5acf26d70c1e6791"
+      },
+      {
+        "path": "node_modules/piscina/dist/index.d.ts",
+        "bytes": 3620,
+        "sha256": "4ed188b1d7051a0e91d479d3a67bd047cff001b8ac95c91da4dbdc4e364e9ef2"
+      },
+      {
+        "path": "node_modules/piscina/dist/index.js",
+        "bytes": 33454,
+        "sha256": "49429bf4cf9ed778549948b06caf0621e1225dc54695fc7617b3a4798839cab0"
+      },
+      {
+        "path": "node_modules/piscina/dist/main.d.ts",
+        "bytes": 49,
+        "sha256": "0c9b5e6457e42cf0f32916d032a8b7f539d275c44238b7cfd860bb2b23b7cd5a"
+      },
+      {
+        "path": "node_modules/piscina/dist/main.js",
+        "bytes": 272,
+        "sha256": "66553ddfb435a0093214eacb1c44971dc862e896f222ce9251cc6a9a15212bb6"
+      },
+      {
+        "path": "node_modules/piscina/dist/symbols.d.ts",
+        "bytes": 321,
+        "sha256": "74810526b57fd0214b27d58de40daa60caf1122c1839c404900481766612064a"
+      },
+      {
+        "path": "node_modules/piscina/dist/symbols.js",
+        "bytes": 686,
+        "sha256": "d0e30b1d318751183ffab01979895bc0fc45f1db6c6db36f83d58f2329f0011a"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/array_queue.d.ts",
+        "bytes": 230,
+        "sha256": "9d0d4d5b44e62831ce1f83c83068f7f81622ad85f97ec78b56a2c37d3b9d91f8"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/array_queue.js",
+        "bytes": 862,
+        "sha256": "29fe6991e3eab05119782880776adac3813e693b6c82ed8cbeab68296dca3921"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/common.d.ts",
+        "bytes": 415,
+        "sha256": "3267b84a7d1145bab153882b3b357fa22d8a62fd6270d4ecdafac1137b57b497"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/common.js",
+        "bytes": 113,
+        "sha256": "efa0b2439294e1510ac01e9e254e9fbd509834ed9c4fdc73559c6b62f69a8264"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/fixed_queue.d.ts",
+        "bytes": 667,
+        "sha256": "80a49370716347cbf246a073ee9a9940f016d42a85f99949f26cfb05ce861d15"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/fixed_queue.js",
+        "bytes": 6594,
+        "sha256": "626b1062fcfccd7568a349cd3ca2c0cb224dde65ddd98099d5b618d594c9eb10"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/index.d.ts",
+        "bytes": 1569,
+        "sha256": "1161d58cd3644f0b122b0edc3655af9868e40fc94b89a7ecd02bedf80514ac14"
+      },
+      {
+        "path": "node_modules/piscina/dist/task_queue/index.js",
+        "bytes": 3723,
+        "sha256": "e0bab14fc4f6e3e84adc1ed9d9190de1cda03af0894c21e7d8697382dd8741df"
+      },
+      {
+        "path": "node_modules/piscina/dist/types.d.ts",
+        "bytes": 1441,
+        "sha256": "8e902b158a4030fca35ab0e77e303b6b859d6858c88eec5258a5fabae9b41371"
+      },
+      {
+        "path": "node_modules/piscina/dist/types.js",
+        "bytes": 220,
+        "sha256": "d6a24e27e1b415e8b9a6861d070c599c2fc71a86513c3a1b7d22c96798c9e14f"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker.d.ts",
+        "bytes": 11,
+        "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker.js",
+        "bytes": 8248,
+        "sha256": "081e85839bad17b8d895bae9e39ebb890933148185a9a547eb11cf4f3b410ceb"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker_pool/index.d.ts",
+        "bytes": 1614,
+        "sha256": "8431abb363afb0be0d2db5ece7bd7642b19d1938288970d4453a64610db7cd0b"
+      },
+      {
+        "path": "node_modules/piscina/dist/worker_pool/index.js",
+        "bytes": 6654,
+        "sha256": "b784db251a8f114d3ca0410468d25d05b1889050fbd266425bafc8d59664a867"
+      },
+      {
+        "path": "node_modules/piscina/docs/README.md",
+        "bytes": 768,
+        "sha256": "8e8baa0e2d95bccf8317278acc831396484eabb0c42b3b7acfdbfb3e014ca2ec"
+      },
+      {
+        "path": "node_modules/piscina/docs/babel.config.js",
+        "bytes": 88,
+        "sha256": "41ca08aeae8c513e3c31501ff5686c255aad344a6f5ed2c3d11fadd4e500c39d"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/Introduction.md",
+        "bytes": 1767,
+        "sha256": "5764806a971d0dbbe90b23718ca2a73d111ea1e467fa67e773b6c2232a5c3bd6"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/advanced-topics/_category_.json",
+        "bytes": 426,
+        "sha256": "f5b5e62951f3dca834a7e8879a568d6bcda5d60c957c29f8b1a210b79f6e5b36"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/advanced-topics/custom-task-queues.mdx",
+        "bytes": 4367,
+        "sha256": "994459e09e13bced9bcbd68ded8d50bf2ada0b831acf0ab3987fcab24a15eb1a"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/advanced-topics/performance.mdx",
+        "bytes": 6222,
+        "sha256": "b36d63771dba22d9f3a60540a7a4fb2b0bed75b63b06528f2c619e3936891e8c"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/_category_.json",
+        "bytes": 254,
+        "sha256": "b3232158af8f7d7c3ce16a70509e906522c8bc82db95249f907a9907e49d8032"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/api-overview.md",
+        "bytes": 9251,
+        "sha256": "3c19abb869c15c83e1aa3905f2792ee350a2af531cd3b6963b082e279400c373"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/class.md",
+        "bytes": 7126,
+        "sha256": "e098572856b93f153958ce1fa1c8a475f18bd4bda5b5f4bf5445494da115b208"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/event.md",
+        "bytes": 884,
+        "sha256": "bd9b2f17722e59cf8c441237e41b8c63f08228e9e0b3531ab2ffdb74d4558be3"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/interface.md",
+        "bytes": 1283,
+        "sha256": "94791325f8f488f305caf8e6567f077ff36e8df7148c8aef9f2e81677de22d32"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/method.md",
+        "bytes": 3299,
+        "sha256": "ca1a8e31af3bf3047cf21d93270574e515ca068ccfacb769c72979ddbdaf039c"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/property.md",
+        "bytes": 3835,
+        "sha256": "34d9a6fe35dec26516901760c02454beaccc90e2632ed5677d2adff10af2cc53"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/api-reference/static-property.md",
+        "bytes": 1178,
+        "sha256": "0e7ef3ba333be1a3f80f2e4e64e8519d3e62c7da40c437a5c89c955278232e66"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/Installation.mdx",
+        "bytes": 1086,
+        "sha256": "0674314345f753978985466e4d4572c346ded994f49371aacc4fa0c1eaeb672f"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/_category_.json",
+        "bytes": 177,
+        "sha256": "fd84d29155813d790f4dbf915e7bd793e7f7214569cdadf5c7b71f50345f0a38"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/basic-usage.mdx",
+        "bytes": 9674,
+        "sha256": "d237f49f085f2ad346bda0222499673a60621335d9a419259485516a796558e4"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/getting-started/managing-worker-threads.mdx",
+        "bytes": 4878,
+        "sha256": "f2df15bb5cd9a5a0ce58158bc12317a3e26393e6823a6ab9d58e94e54a0c88d2"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/update-log/_category_.json",
+        "bytes": 186,
+        "sha256": "33d6ba9fae701cf88ef8b3a54240c2a3d18a10484b5d7a00a519a784d8c0f0f9"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/update-log/changelog.md",
+        "bytes": 109,
+        "sha256": "e9fe1b4fa710dc64cb6e68b6154ca071aa1d68813a74dea04487f519d1a5887a"
+      },
+      {
+        "path": "node_modules/piscina/docs/docs/update-log/release-notes.md",
+        "bytes": 2770,
+        "sha256": "fecacd3961a3ecd7bcc38da2e3823385f48169709f0cdc98ecf3fe2ce3401a70"
+      },
+      {
+        "path": "node_modules/piscina/docs/package.json",
+        "bytes": 1198,
+        "sha256": "7939221ad4331a86f9703672eec21b730910f60d15413597c01abf148f673010"
+      },
+      {
+        "path": "node_modules/piscina/docs/src/components/WorkerWrapper.mdx",
+        "bytes": 410,
+        "sha256": "4c797f14738ee98ad5721cf8985b99c541864f610304c09d6c282e36e81aea1e"
+      },
+      {
+        "path": "node_modules/piscina/docs/src/css/custom.css",
+        "bytes": 1098,
+        "sha256": "9586d4965886bde5847e2658ea1b53b752f8b7bc5ad11952034ee55eb9b5faf3"
+      },
+      {
+        "path": "node_modules/piscina/docs/src/pages/index.module.css",
+        "bytes": 365,
+        "sha256": "89ec29a5b3d2d9a2ea8b9f7e18ea656000061bed6378af2f5bc44e46b4cb3209"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/.nojekyll",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/docusaurus-social-card.jpg",
+        "bytes": 55746,
+        "sha256": "7e3f3833e6742ffcc323c56380b3d1faf185c175534ea5591686bf879a1f7cfb"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/docusaurus.png",
+        "bytes": 5142,
+        "sha256": "9204212d3905bc1b8d1d882825d1eceb5ad942329222277d7257831a7d47d827"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/favicon.ico",
+        "bytes": 15406,
+        "sha256": "8376a44f7fe34920c09b8c1fd1780cc1f482ae4c4ee1d024c719adfa77b33a1e"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/logo.png",
+        "bytes": 34626,
+        "sha256": "b4dcb5ae60d989c2a9dc92abdd15def7fa0b2285becba5e091d79f42f8dc1da4"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/logo.svg",
+        "bytes": 6438,
+        "sha256": "c2ae4b0e5603791e869ed5bc34a60a709d1ec6343fc22f75d97937aaafafd7f7"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/undraw_docusaurus_mountain.svg",
+        "bytes": 31486,
+        "sha256": "5d63a81ff3dd5ea266e99156f8e33f76cc02df0f04e1a4487240663704660b7f"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/undraw_docusaurus_react.svg",
+        "bytes": 36002,
+        "sha256": "1f2c1d7bcdd4219c9869d94b45c052e2856464e91c3e0704d99b4714d32cc668"
+      },
+      {
+        "path": "node_modules/piscina/docs/static/img/undraw_docusaurus_tree.svg",
+        "bytes": 11887,
+        "sha256": "09704d88ef849647bf2ee02a4cb1b1b413f000de059a8d794019238ef2c5e4a7"
+      },
+      {
+        "path": "node_modules/piscina/docs/tsconfig.json",
+        "bytes": 87,
+        "sha256": "8506e7957fa69b5f3d09575049df65a42e70e4b670b954073202a9cdeb60a301"
+      },
+      {
+        "path": "node_modules/piscina/output.txt",
+        "bytes": 1265,
+        "sha256": "8fa9ed5b8b7a431acea1d43c768981c4f89beb2b63b110b9cfaf26d0010da556"
+      },
+      {
+        "path": "node_modules/piscina/package.json",
+        "bytes": 2842,
+        "sha256": "dde134e26dab12b1c5d349a016634cd11f6d126485927e0f7e0900e2ab565930"
+      },
+      {
+        "path": "node_modules/piscina/playground.js",
+        "bytes": 585,
+        "sha256": "d3eeccf1507d193c791e2c00da27bb06fd8bfcdb54f0cdfa5ec4ea7d81de2ef5"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/esm-async.mjs",
+        "bytes": 241,
+        "sha256": "5ae42106655d38e6e424acdde743790c2dda23ff7af86764eab772cf9f126c2a"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/esm-export.mjs",
+        "bytes": 91,
+        "sha256": "65b088a0c72871da5fa0e4b3600508650607f461d952a9d2c90f55a21421dbf9"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/eval-async.js",
+        "bytes": 267,
+        "sha256": "01ff257a8f50fd0ae46531a7240dead492be9dae82c5cc0dd8537120c8a91cc8"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/eval.js",
+        "bytes": 93,
+        "sha256": "ad103ef0038cda945182d95f2e8a610b44a1e46ef07771ced2e61b498567331a"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/multiple.js",
+        "bytes": 116,
+        "sha256": "60c74291d42de9f7310de63c25a21d667ccf6b1dfe46adb87af80b70f4e7fabb"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/notify-then-sleep-or.js",
+        "bytes": 347,
+        "sha256": "1e3baabedf56a7af1cd2d1411334d9fe361bae91b0a87e64ffeb7704415e04bd"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/resource-limits.js",
+        "bytes": 109,
+        "sha256": "7dfd8f172c3328b7626399e2041a3d2c67a95bd5046a7a781628fa8a8342d7cf"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/send-buffer-then-get-length.js",
+        "bytes": 313,
+        "sha256": "b6646486752c157f6822ad178dea9bbf16c98611404afcaa773afc6ab61410f5"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/send-transferrable-then-get-length.js",
+        "bytes": 642,
+        "sha256": "fa8a63779d65ee6d41f329a948f9e75acb663c1956e0c0e84f1c11caf4985628"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/sleep.js",
+        "bytes": 277,
+        "sha256": "53133a2a5ef9bd1ece0d0a3ea276cdf598d7cfcb6c295bcec2152819787fedf0"
+      },
+      {
+        "path": "node_modules/piscina/test/fixtures/vm.js",
+        "bytes": 164,
+        "sha256": "e1682e3cb237dbc16d19f28c0950d8978858d5b5d8b385997a8c5e963ac2e974"
+      },
+      {
+        "path": "node_modules/piscina/test/tsconfig.json",
+        "bytes": 143,
+        "sha256": "418057721dad7e5e3b52f0a56a0c24b92610088a6ed60f9bcdd3958de174fc47"
+      },
+      {
+        "path": "node_modules/piscina/tsconfig.json",
+        "bytes": 647,
+        "sha256": "9bdec7baf502349a12548af4ece2d87f5656fd996a80ccb2dfec5825beff062f"
+      },
+      {
+        "path": "node_modules/piscina/tsconfig.tsbuildinfo",
+        "bytes": 32421,
+        "sha256": "60fe3e9472fdb4815ee631d77ebc8ec0af13fc67fcfd5413fd6a43fbd4de906a"
+      },
+      {
+        "path": "node_sqlite3.node",
+        "bytes": 1909824,
+        "sha256": "17c9d5f2297d4e0b46443b32b8ada87258a4a4ae033fe9cc00957bb2839a383c"
+      },
+      {
+        "path": "package.json",
+        "bytes": 64,
+        "sha256": "625a6b5d64e45fd989706ab6fd21a95f454d4e70cab7c0c1c151d37582d8bee2"
+      },
+      {
+        "path": "pdf-worker.js",
+        "bytes": 480675,
+        "sha256": "30a32b09ea9dd2efa6511725c27f88d6419d2f6ff49a900cb414d1b31064a144"
+      },
+      {
+        "path": "pdf-worker.js.LICENSE.txt",
+        "bytes": 795,
+        "sha256": "b5e8c493d516d9b156045ec3b83cc3e26785363af56db22bd52382942b394242"
+      },
+      {
+        "path": "pty.node",
+        "bytes": 102944,
+        "sha256": "10f0d8b73516398cd11b4dcd4236fb462ec2206569181655430682b5eddd9c4d"
+      },
+      {
+        "path": "rg",
+        "bytes": 4042416,
+        "sha256": "196e3a2b18e1e6fa7c253190f48506bf475650a3e35def85d0855eb629b6c9be"
+      },
+      {
+        "path": "spawn-helper",
+        "bytes": 68496,
+        "sha256": "ac588378ac4d15f86a023630288d841fe7f55295ea1188e05fc49e70d7c870c2"
+      },
+      {
+        "path": "unified-diff-worker.js",
+        "bytes": 6816,
+        "sha256": "043981c64a66e32eab4d9f2e37b559263c2241eca592d290a8abb1f2792fd807"
+      }
+    ],
+    "current_manifest_sha256": "17d73a2df94f8e5daeae6a31277bfbf8df916e5e01b7c3671a96c867dc69f149"
+  },
+  "trigger_sources": {
+    "codex-main.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/cli/src/main.rs",
+      "sha256": "dc0356a131108ace0f63f7e9f5040b1f0fc19a71057eeeb4108e04623267c502",
+      "bytes": 177127
+    },
+    "update_action.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/tui/src/update_action.rs",
+      "sha256": "1428d924e2c6a20c83d3f2b2a8c78f66c849e454ea6318d81cdcf2e88783030e",
+      "bytes": 7500
+    },
+    "update_prompt.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/tui/src/update_prompt.rs",
+      "sha256": "ca20368a13e633f01f613ee42f1f8d459d629396b798b444d378928c5f736de9",
+      "bytes": 12804
+    },
+    "updates.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/tui/src/updates.rs",
+      "sha256": "34864b94a7379e99995256e63e39d9b78d83d1f256a8e4911a1f941d8b3dd793",
+      "bytes": 5893
+    },
+    "install-context.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/install-context/src/lib.rs",
+      "sha256": "b7305f28586f61f7a3cc7d3c53c95dacabca05529b1ba3aa4b5e42d306db2ae5",
+      "bytes": 33763
+    }
+  },
+  "native_assembly_status": "first_canonical_claude_2.1.286_darwin_arm64_attempt_failed_unqualified",
+  "native_transport_status": "canonical_pure217_passed_actual_wrapper_acquisition_failed_URLError",
+  "native_tls_source_status": "fixed_macos_public_ca_snapshot_and_typed_failure_source_authored_NOT_RUN",
+  "native_version_status": "NOT_RUN",
+  "native_failure_receipt": "/tmp/codeterm-qa/probe-native-first-20261002-193022-32030",
+  "native_failed_fixture_disposition": "preserve promptmatrix:7794 native/claude/2.1.286 unchanged; no retry or overwrite authorization"
+}

@@ -30,7 +30,7 @@ Must run on the **source** machine. Running it through `--mesh PEER` is rejected
    ```
    codeterm config set integrations.telegram_enabled true && codeterm bridge restart
    ```
-10. **Optional `--announce`.** When `--announce` is set, post `[CodeTerm] Telegram bridge migrated to <to> from <from>` to `--announce-chat-id` (defaults to the target's first allow-listed bridge user) via `POST /api/bridge/announce` on the target. Failures here are non-fatal — the migration is already done.
+10. **Optional `--announce`.** When `--announce` is set, post `[Domios] Telegram bridge migrated to <to> from <from>` to `--announce-chat-id` (defaults to the target's first allow-listed bridge user) via `POST /api/bridge/announce` on the target. Failures here are non-fatal — the migration is already done.
 
 ### Secret locality guarantee
 
@@ -42,7 +42,7 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 |------|---------|-------------|
 | `--to` | *(required)* | Target peer `instance_name` (or `instance_id`) as shown in `codeterm mesh peers`. |
 | `--service` | `telegram` | Which bridge to migrate. Only `telegram` today. |
-| `--announce` | `false` | Post a one-shot sentinel message after success. |
+| `--announce` | `false` | Post a one-shot blueprint message after success. |
 | `--announce-chat-id` | *(first allow-listed user)* | Telegram chat id for `--announce`. Defaults to the target's first allow-listed bridge user. |
 | `--no-rollback` | `false` | Skip the source-recovery step on failure (leaves source disabled). |
 | `--force` | `false` | Skip the target preflight (`token_present || has_secret_in_vault`) check. |
@@ -58,4 +58,4 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 | `6` | Usage error (e.g. ran via `--mesh` — must run on the source machine) |
 | `7` | Split-brain (rollback also failed — manual repair needed) |
 
-<!-- revision: 3 -->
+<!-- revision: 5 -->

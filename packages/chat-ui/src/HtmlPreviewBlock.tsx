@@ -1,3 +1,4 @@
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code2, Copy, Check, Eye, Maximize2, Minimize2, RefreshCw } from "lucide-react";
 import { CodeBlock, findScrollableContainer } from "./CodeBlock";
@@ -180,7 +181,8 @@ function PreviewFrame({
   );
 }
 
-export function HtmlPreviewBlock({ text }: { text: string }) {
+export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: { text: string; fullscreenRequest?: number; renderError?: (error: string) => React.ReactNode }) {
+  const tabId = useLocalArtifactTabId();
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const filePath = useMemo(() => parseHtmlFileDirective(normalizedText), [normalizedText]);
   const [fileSource, setFileSource] = useState<FileSourceState>({ status: "idle", source: "", error: "" });
@@ -188,6 +190,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
   const oversized = !filePath && normalizedText.length > HTML_PREVIEW_LENGTH_LIMIT;
   const [showCode, setShowCode] = useState(oversized);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => { if (fullscreenRequest) setIsFullscreen(true); }, [fullscreenRequest]);
   const [height, setHeight] = useState(HTML_PREVIEW_MIN_HEIGHT);
   const [copied, setCopied] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
@@ -210,7 +213,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
     requestGeneration.current = generation;
     setFileSource({ status: "loading", source: "", error: "" });
     try {
-      const source = await loadHtmlFile(filePath);
+      const source = await loadHtmlFile(filePath, tabId);
       if (requestGeneration.current === generation) {
         setFileSource({ status: "ready", source, error: "" });
       }
@@ -219,7 +222,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
         setFileSource({ status: "error", source: "", error: error instanceof Error ? error.message : String(error) });
       }
     }
-  }, [filePath]);
+  }, [filePath, tabId]);
 
   useEffect(() => {
     if (!filePath) {
@@ -228,8 +231,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
       return;
     }
     void reloadFile();
-    window.addEventListener("focus", reloadFile);
-    return () => window.removeEventListener("focus", reloadFile);
+    return () => { requestGeneration.current += 1; };
   }, [filePath, reloadFile]);
 
   const copySource = useCallback(async (event: React.MouseEvent) => {
@@ -373,6 +375,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
       return <div className="p-4 text-xs text-[var(--ct-muted-fg)]">Loading local HTML…</div>;
     }
     if (filePath && fileSource.status === "error") {
+      if (renderError) return renderError(fileSource.error);
       return (
         <div className="border-t border-[var(--ct-border)] p-4 text-xs text-red-400" role="alert">
           {fileSource.error}

@@ -68,7 +68,7 @@ send "…" --choice "Turn it on" --choice "Not now" --offer desktop --offer-acce
 "Turn it on"` sends a question, and the surface changes only when you tap the
 accepting label. An untapped or declined offer changes nothing. The refusal is
 not agent-specific — the daemon cannot tell you from an agent inside a tab, so
-the same command typed by hand in a CodeTerm tab is refused too.
+the same command typed by hand in a Domios tab is refused too.
 
 A Needs you notification can point at one chat message: `codeterm notify send
 "…" --level action_needed --target-tab <tab id> --chat-message <message id>`. On
@@ -98,16 +98,16 @@ the pad body), and a `--target-tab` that names no open tab on this machine.
 
 Pending prompt detection updates tab state but never creates a notification.
 Agents that need owner attention must explicitly run
-`codeterm notify send "<title>" --level action_needed`. CodeTerm still raises process-exit
+`codeterm notify send "<title>" --level action_needed`. Domios still raises process-exit
 and recovery-stopped notices for tabs that need a restart; each notice belongs to
 one standing condition of one tab and resolves when that condition ends or the
 tab closes. Hidden automation routes prompts and exits to a live report owner,
-and only writes them to the CodeTerm log when it has none. A cron run with a
+and only writes them to the Domios log when it has none. A cron run with a
 pending prompt remains awaiting its owner; prompt detection itself does not
 notify the user.
 
 Unread sticky notices — the condition notices above, and any record created with
-`sticky` over the API — survive a restart of CodeTerm, kept in
+`sticky` over the API — survive a restart of Domios, kept in
 `notifications.json` in the data folder; one whose tab did not come back resolves
 at startup. Read, resolved and non-sticky records do not persist, and neither
 does an offer to turn a surface on, which must be sent again.
@@ -117,4 +117,8 @@ does an offer to turn a surface on, which must be sent again.
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 9 -->
+## Provider access incidents
+
+Provider access refusals from a tab's own session are incidents even when optional structured-signal settings are disabled. The notification has severity `error` and level `action_needed`, names the tab, role, machine and provider, and asks for `/login` in that tab (or `claude setup-token` for Claude). It opens once per access-loss transition and resolves after a successful provider turn. Existing notification surface and channel settings decide where it is carried. They apply to plain tabs as well as role tabs. Detection uses typed session-record error codes or HTTP status, including OAuth org-disabled and refresh failures; terminal text and message prose cannot establish an incident. The tab remains in an auth-required attention state while access is lost.
+
+<!-- revision: 11 -->

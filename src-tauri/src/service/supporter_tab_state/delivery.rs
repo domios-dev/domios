@@ -3,8 +3,7 @@ use serde_json::{json, Value};
 use super::{
     NumberedPromptOption, ObservationTrigger, SignalAction, TabStateMetadata, CRASHED_TO_SHELL,
     ERROR_LOOP, LOGIN_OR_AUTH_REQUIRED, MODEL_UNAVAILABLE_OR_QUOTA, PROVIDER_UPDATE_PROMPT,
-    READY_IDLE, SPAWN_OK_LINE, STILL_STARTING, TRUST_OR_PERMISSION_PROMPT, WEAK_HINT_PREFIX,
-    WORKING_NORMALLY,
+    READY_IDLE, SPAWN_OK_LINE, STILL_STARTING, TRUST_OR_PERMISSION_PROMPT, WORKING_NORMALLY,
 };
 use crate::service::message_gateway::DeliveryClass;
 use crate::service::messenger::MessageEnvelope;
@@ -38,9 +37,7 @@ pub(super) fn deliver(
 ) {
     match action {
         SignalAction::SpawnOk => publish_spawn_ok(service, tab_id, metadata, episode),
-        SignalAction::WeakHint => {
-            publish_weak_hint(service, tab_id, metadata, label, confidence, episode)
-        }
+        SignalAction::WeakHint => publish_weak_hint(service, tab_id, label, confidence, episode),
         SignalAction::StrongAction => publish_event(
             service, tab_id, metadata, trigger, label, confidence, episode,
         ),
@@ -83,34 +80,36 @@ fn publish_spawn_ok(
         .as_deref()
         .or(metadata.parent_tab_id.as_deref())
     {
-        deliver_to_target(service, target, SPAWN_OK_LINE);
+        if super::super::supporter_notify::spawn_ok_notice_allowed(
+            super::super::supporter_notify::launch_was_restored(target),
+        ) {
+            deliver_to_target(service, target, SPAWN_OK_LINE);
+        }
     }
 }
 
 fn publish_weak_hint(
     service: &ServiceContext,
     tab_id: &str,
-    metadata: &TabStateMetadata,
     label: &str,
     confidence: f64,
     episode: u64,
 ) {
-    let line = format!(
-        "{WEAK_HINT_PREFIX}: tab={tab_id} label={label} confidence={confidence:.2} episode={episode}"
-    );
     service.events.publish_generic(
         "tab-state-signal",
-        json!({
-            "tab_id": tab_id,
-            "label": label,
-            "confidence": confidence,
-            "band": "weak",
-            "episode": episode,
-        }),
+        weak_hint_event(tab_id, label, confidence, episode),
     );
-    if let Some(target) = orchestrator_target(service, metadata) {
-        deliver_to_target(service, &target, &line);
-    }
+}
+
+fn weak_hint_event(tab_id: &str, label: &str, confidence: f64, episode: u64) -> Value {
+    json!({
+        "tab_id": tab_id,
+        "label": label,
+        "confidence": confidence,
+        "band": "weak",
+        "actionable": false,
+        "episode": episode,
+    })
 }
 
 fn publish_event(

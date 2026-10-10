@@ -14,19 +14,29 @@ pub struct TurnEvidenceNormalization {
     pub unwrap_pasted_content_wrapper: bool,
     pub collapse_horizontal_whitespace: bool,
     pub drop_supplementary_characters: bool,
+    pub drop_line_breaks: bool,
 }
 
 impl TurnEvidenceNormalization {
     pub fn normalize(self, text: &str) -> String {
         let text = text.trim();
-        let text = if self.unwrap_pasted_content_wrapper {
-            unwrap_pasted_content_wrapper(text).unwrap_or(text)
+        let unwrapped = self
+            .unwrap_pasted_content_wrapper
+            .then(|| unwrap_pasted_content_wrapper(text))
+            .flatten();
+        let text = unwrapped.as_deref().unwrap_or(text);
+        let text = if codeterm_types::domios::parse_message(text).is_some() {
+            text.strip_suffix(codeterm_types::domios::DOMIOS_CLOSE_TAG)
+                .unwrap_or(text)
         } else {
             text
         };
         let mut normalized = String::with_capacity(text.len());
         let mut horizontal_whitespace = false;
         for character in text.chars() {
+            if self.drop_line_breaks && matches!(character, '\r' | '\n') {
+                continue;
+            }
             if self.drop_supplementary_characters && character as u32 > 0xFFFF {
                 continue;
             }
@@ -44,9 +54,40 @@ impl TurnEvidenceNormalization {
     }
 }
 
-fn unwrap_pasted_content_wrapper(text: &str) -> Option<&str> {
-    let (opening, content) = text.split_once('\n')?;
-    let opening = opening.trim_end_matches('\r');
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pasted_content_wrapper_between_typed_route_tags_keeps_exact_turn_evidence() {
+        let normalization = TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            collapse_horizontal_whitespace: true,
+            drop_supplementary_characters: false,
+            drop_line_breaks: false,
+        };
+        let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
+        let body = "routed body";
+        let suffix = format!(
+            " [reply] {}{}",
+            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
+            codeterm_types::domios::DOMIOS_CLOSE_TAG
+        );
+        let expected = format!("{open}{body}{suffix}");
+        let observed = format!(
+            "{open}<pasted_content id=\"opaque\">\n{body}\n</pasted_content id=\"opaque\">{suffix}"
+        );
+
+        let normalized = normalization.normalize(&observed);
+        assert_eq!(normalized, normalization.normalize(&expected));
+        assert!(!normalized.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+    }
+}
+
+fn unwrap_pasted_content_wrapper(text: &str) -> Option<String> {
+    let opening_start = text.find("<pasted_content id=\"")?;
+    let opening_end = text[opening_start..].find('>')? + opening_start;
+    let opening = &text[opening_start..=opening_end];
     let id = opening
         .strip_prefix("<pasted_content id=\"")?
         .strip_suffix("\">")?;
@@ -54,7 +95,15 @@ fn unwrap_pasted_content_wrapper(text: &str) -> Option<&str> {
         return None;
     }
     let closing = format!("</pasted_content id=\"{id}\">");
-    content.strip_suffix(&closing).map(str::trim)
+    let body_start = opening_end + 1;
+    let close_at = text[body_start..].find(&closing)? + body_start;
+    let pasted = text[body_start..close_at].trim();
+    let suffix_start = close_at + closing.len();
+    Some(format!(
+        "{}{pasted}{}",
+        &text[..opening_start],
+        &text[suffix_start..]
+    ))
 }
 
 /// How to wait for agent readiness after PTY spawn.
@@ -70,6 +119,17 @@ pub enum ProviderReadinessStrategy {
     StructuralComposer { timeout: Duration },
 }
 
+/// When a provider-declared startup dialog is auto-answered during launch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnboardingAutoAnswer {
+    /// Only for delegated roles (Worker / planner Manager).
+    #[default]
+    DelegatedOnly,
+    /// For every launch, including owner-launched tabs.
+    Always,
+}
+
 /// Terminal cursor placement accepted as composer evidence for a lazy session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -78,6 +138,9 @@ pub enum ComposerCursorPosition {
     BottomRegion,
     /// Visible cursor on the provider's alternate-screen TUI may be centered.
     VisibleAnywhere,
+    /// Line-mode REPL (no alternate screen): ready when the cursor is visible
+    /// and sits on the last non-blank screen row (its prompt line).
+    PromptLine,
 }
 
 impl Default for ProviderReadinessStrategy {
@@ -191,16 +254,23 @@ impl StarterPrompt {
             Self::StartupHandshake => "startup-handshake",
             Self::NoStarter => return None,
         };
-        Some(
-            codeterm_types::message_markers::Marker::new("system")
-                .attr("context", context)
-                .build(),
-        )
+        Some(codeterm_types::domios::build_opening_tag(&[
+            ("from", "system"),
+            ("context", context),
+        ]))
+    }
+}
+
+impl OnboardingAutoAnswer {
+    pub fn answers_for_owner_launch(self) -> bool {
+        matches!(self, Self::Always)
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
+    pub context_files: Option<codeterm_types::plan::TaskFiles>,
+    pub tool_less_instructions_path: Option<String>,
     pub agent_name: Option<String>,
     pub task: Option<String>,
     pub starter_prompt: StarterPrompt,
@@ -224,6 +294,8 @@ pub struct LaunchArtifactSweepRequest {
     pub instance_id: String,
     pub live_tab_ids: Vec<String>,
     #[serde(default)]
+    pub gone_instance_ids: Vec<String>,
+    #[serde(default)]
     pub confirm: bool,
     #[serde(default)]
     pub include_legacy: bool,
@@ -241,6 +313,9 @@ pub struct LaunchArtifactSweepReport {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeParams {
+    pub cwd: Option<String>,
+    pub context_files: Option<codeterm_types::plan::TaskFiles>,
+    pub tool_less_instructions_path: Option<String>,
     pub session_id: String,
     pub skip_permissions: bool,
     pub agent_name: Option<String>,

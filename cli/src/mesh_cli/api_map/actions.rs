@@ -255,6 +255,11 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             if let Some(v) = changed_by { payload["changed_by"] = json!(v.trim()); }
             ("POST".into(), "/api/mem/merge".into(), Some(payload.to_string()))
         }
+        MemAction::Area { action: crate::args::mem::MemAreaAction::Merge { from, into, dry_run } } => (
+            "POST".into(), "/api/mem/area/merge".into(),
+            Some(json!({ "from": from, "into": into, "dry_run": dry_run,
+                "worker_id": std::env::var("CODETERM_WORKER_ID").ok() }).to_string()),
+        ),
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {
                 Some(w) => format!("/api/mem/taxonomy?workspace={}", enc(w)),
@@ -512,8 +517,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         },
         // Local-only subcommands (PTY/subprocess/folders/keychain) never relay.
         // Return explicit errors; `Secret` is rejected upstream.
-        MemAction::Flush { .. }
-        | MemAction::RunWorker { .. }
+        MemAction::RunWorker { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
         | MemAction::Secret { .. }
@@ -575,6 +579,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             format!("/api/mem/items/{}", enc(id)),
             Some(json!({"pinned": false}).to_string()),
         ),
+        MemAction::PurgePrecompact { .. } => unsupported("mem purge-precompact is local-socket-only; run it on the owning peer"),
         MemAction::Pinned { limit } => {
             let path = match limit {
                 Some(n) => format!("/api/mem/pinned?limit={}", n),
@@ -908,12 +913,24 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         }
         crate::AgentAction::Restart {
             tab: Some(tab),
+            provider,
+            handoff_history,
+            fresh,
             force,
             grace_secs,
         } if !tab.trim().is_empty() => (
             "POST".into(),
             format!("/api/tabs/{}/agent/restart", urlencoding::encode(tab)),
-            Some(serde_json::json!({"force": force, "grace_secs": grace_secs}).to_string()),
+            Some(
+                serde_json::json!(crate::cmd::agent_restart::RestartRequest {
+                    force: *force,
+                    grace_secs: *grace_secs,
+                    provider: provider.as_deref(),
+                    handoff_history: *handoff_history,
+                    fresh: *fresh,
+                })
+                .to_string(),
+            ),
         ),
         crate::AgentAction::Restart { .. } => unsupported(
             "agent restart --mesh requires a non-empty explicit --tab <ID> from the target peer",
@@ -927,8 +944,13 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         crate::AgentAction::StartupAck => unsupported_agent_action("startup-ack"),
         crate::AgentAction::StartupHold { .. } => unsupported_agent_action("startup-hold"),
         crate::AgentAction::Ledger { .. } => unsupported_agent_action("ledger"),
+        crate::AgentAction::Turns { .. } => unsupported_agent_action("turns"),
         crate::AgentAction::Compact { .. } => unsupported_agent_action("compact"),
         crate::AgentAction::Model { .. } => unsupported_agent_action("model"),
+        crate::AgentAction::Fork { .. } => unsupported_agent_action("fork"),
+        crate::AgentAction::Cli { .. } => unsupported(
+            "agent cli is local-only: run it in a tab on the target peer so the utility tab and completion report have a local caller",
+        ),
     }
 }
 

@@ -1,0 +1,94 @@
+.ct-row-kebab {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-row-kebab::before {
+  position: absolute;
+  inset: 0 1px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
+  content: "";
+  opacity: 0;
+  transform: scale(0.4, 0.6);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.ct-row-kebab:hover,
+.ct-row-kebab:focus-visible {
+  color: var(--ct-fg);
+  outline: none;
+}
+
+.ct-row-kebab:hover::before,
+.ct-row-kebab:focus-visible::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ct-row-kebab:focus-visible::before {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+.ct-row-kebab:active::before {
+  transform: scale(0.82, 0.9);
+  transition-duration: var(--ct-duration-liquid-press);
+}
+
+.ct-kebab-glyph {
+  position: relative;
+  width: 4px;
+  height: 14px;
+  overflow: visible;
+  fill: currentColor;
+}
+
+.ct-kebab-glyph circle {
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.ct-row-kebab:hover .ct-kebab-glyph circle:first-child,
+.sidebar-team-kebab:hover .ct-kebab-glyph circle:first-child {
+  transform: translateY(-1px);
+}
+
+.ct-row-kebab:hover .ct-kebab-glyph circle:last-child,
+.sidebar-team-kebab:hover .ct-kebab-glyph circle:last-child {
+  transform: translateY(1px);
+}
+
+.ct-row-kebab--touch {
+  width: 44px;
+  height: 44px;
+}
+
+.ct-row-kebab--touch .ct-kebab-glyph {
+  width: 5px;
+  height: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-row-kebab,
+  .ct-row-kebab::before,
+  .ct-kebab-glyph circle {
+    transition: none;
+  }
+
+  .ct-row-kebab:hover .ct-kebab-glyph circle,
+  .sidebar-team-kebab:hover .ct-kebab-glyph circle {
+    transform: none;
+  }
+}

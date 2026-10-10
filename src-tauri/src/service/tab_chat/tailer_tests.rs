@@ -220,140 +220,43 @@ impl crate::agent::provider::AgentProvider for AlwaysPathProvider {
     }
 }
 
-/// RED before the fix: with no consecutive-missing-poll reap, `handle.is_alive()`
-/// stays true forever once the file is deleted, so this `wait_until` times out.
-#[test]
-fn tailer_reaps_itself_after_file_disappears_past_threshold() {
-    let tmp = TempDir::new().unwrap();
-    let sid = "sess-reap-001";
-    let jsonl = tmp.path().join(format!("{sid}.jsonl"));
-    std::fs::write(
-        &jsonl,
-        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
-    )
-    .unwrap();
-
-    let agent_registry = AgentRegistry::new();
-    agent_registry.register_provider(Box::new(AlwaysPathProvider {
-        path: jsonl.clone(),
-    }));
-    let agent_registry = Arc::new(agent_registry);
-
-    let sink = Arc::new(Collector {
-        msgs: Mutex::new(vec![]),
-    });
-    let handle = spawn_tailer(
-        TailConfig {
-            tab_id: "p-reap".into(),
-            provider_id: "always-path".into(),
-            cwd: "/proj".into(),
-            session_id: sid.into(),
-            start_offset: 0,
-            poll_interval: Duration::from_millis(20),
-        },
-        agent_registry,
-        sink.clone() as Arc<dyn DeltaSink>,
-    );
-
-    assert!(
-        wait_until(2000, || sink.msgs.lock().len() >= 1),
-        "initial message must arrive before the file disappears"
-    );
-    assert!(
-        handle.is_alive(),
-        "tailer must still be running while the file exists"
-    );
-
-    std::fs::remove_file(&jsonl).unwrap();
-
-    assert!(
-        wait_until(2000, || !handle.is_alive()),
-        "a previously-seen session file staying absent past the consecutive-poll threshold must reap the tailer",
-    );
+struct SignalledCollector {
+    ready: std::sync::mpsc::SyncSender<()>,
 }
 
-/// RED before the fix: the tailer thread never exits on its own, so
-/// `chat_registry.acquire` keeps returning `true` forever — the second
-/// `wait_until` never observes `false` and the registry never evicts the
-/// corpse for reattachment.
-#[test]
-fn chat_registry_reattaches_after_tailer_reaps_missing_file() {
-    let tmp = TempDir::new().unwrap();
-    let sid = "sess-reap-registry-001";
-    let jsonl = tmp.path().join(format!("{sid}.jsonl"));
-    std::fs::write(
-        &jsonl,
-        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
-    )
-    .unwrap();
+impl DeltaSink for SignalledCollector {
+    fn emit(&self, _: &str, _: Vec<RichMessage>, _: u64, _: u64) {
+        let _ = self.ready.try_send(());
+    }
+}
 
-    let agent_registry = AgentRegistry::new();
-    agent_registry.register_provider(Box::new(AlwaysPathProvider {
+#[test]
+fn event_tailer_keeps_the_session_across_file_replacement() {
+    let tmp = TempDir::new().unwrap();
+    let jsonl = tmp.path().join("own.jsonl");
+    std::fs::write(&jsonl, b"initial\n").unwrap();
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(AlwaysPathProvider {
         path: jsonl.clone(),
     }));
-    let agent_registry = Arc::new(agent_registry);
-    let chat_registry = ChatRegistry::new();
-
-    let sink = Arc::new(Collector {
-        msgs: Mutex::new(vec![]),
-    });
+    let (ready, messages) = std::sync::mpsc::sync_channel(8);
     let handle = spawn_tailer(
         TailConfig {
-            tab_id: "p-reap-registry".into(),
+            tab_id: "own-tab".into(),
             provider_id: "always-path".into(),
             cwd: "/proj".into(),
-            session_id: sid.into(),
+            session_id: "own-session".into(),
             start_offset: 0,
-            poll_interval: Duration::from_millis(20),
         },
-        agent_registry.clone(),
-        sink.clone() as Arc<dyn DeltaSink>,
+        Arc::new(registry),
+        Arc::new(SignalledCollector { ready }),
     );
-    assert!(chat_registry.insert("tab".into(), sid.into(), "desktop".into(), handle));
-    assert!(
-        wait_until(2000, || sink.msgs.lock().len() >= 1),
-        "initial message must arrive"
-    );
-
+    messages.recv_timeout(Duration::from_secs(2)).unwrap();
     std::fs::remove_file(&jsonl).unwrap();
-
-    assert!(
-        wait_until(2000, || !chat_registry.acquire("tab", sid, "desktop")),
-        "registry must detect the reaped tailer and refuse to hand back a dead stream",
-    );
-    assert!(
-        !chat_registry.is_running("tab"),
-        "the corpse must be evicted so the caller spawns a fresh tailer"
-    );
-
-    // Recreate the session file (e.g. agent restarted) and confirm a fresh
-    // tailer registers and streams again — proving the tab can reattach.
-    std::fs::write(
-        &jsonl,
-        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi again\"}}\n",
-    )
-    .unwrap();
-    let sink2 = Arc::new(Collector {
-        msgs: Mutex::new(vec![]),
-    });
-    let handle2 = spawn_tailer(
-        TailConfig {
-            tab_id: "p-reap-registry".into(),
-            provider_id: "always-path".into(),
-            cwd: "/proj".into(),
-            session_id: sid.into(),
-            start_offset: 0,
-            poll_interval: Duration::from_millis(20),
-        },
-        agent_registry,
-        sink2.clone() as Arc<dyn DeltaSink>,
-    );
-    assert!(chat_registry.insert("tab".into(), sid.into(), "desktop".into(), handle2));
-    assert!(
-        wait_until(2000, || sink2.msgs.lock().len() >= 1),
-        "reattached tailer must stream the recreated session"
-    );
-    chat_registry.stop("tab", "desktop");
+    std::fs::write(&jsonl, b"replacement\n").unwrap();
+    messages.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(handle.is_alive());
+    handle.shutdown();
 }
 
 /// A pending store watch has no missing-poll budget at all: a store that
@@ -381,6 +284,7 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
             provider_id: "delayed-store".into(),
             cwd: "/project".into(),
             session_id: sid.into(),
+            session_binding_nonce: None,
             poll_interval: Duration::from_millis(15),
         },
         Arc::new(agent_registry),
@@ -409,6 +313,69 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
         "watch must still promote once the store settles",
     );
     chat_registry.stop("p-flap", "desktop");
+}
+
+#[test]
+fn binding_completion_preserves_new_session_stream() {
+    use std::io::Write;
+
+    struct ChannelSink(std::sync::mpsc::Sender<Vec<RichMessage>>);
+    impl DeltaSink for ChannelSink {
+        fn emit(&self, _: &str, messages: Vec<RichMessage>, _: u64, _: u64) {
+            self.0.send(messages).unwrap();
+        }
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let project = tmp.path().join("-proj-bind");
+    std::fs::create_dir_all(&project).unwrap();
+    let path = project.join("new-session.jsonl");
+    std::fs::write(&path, b"").unwrap();
+    let providers = registry_with_claude_at(tmp.path());
+    let chat = ChatRegistry::new();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let handle = spawn_tailer(
+        TailConfig {
+            tab_id: "mounted-chat".into(),
+            provider_id: "claude".into(),
+            cwd: "/proj/bind".into(),
+            session_id: "new-session".into(),
+            start_offset: 0,
+        },
+        providers,
+        Arc::new(ChannelSink(sender)),
+    );
+    assert!(chat.insert(
+        "mounted-chat".into(),
+        "new-session".into(),
+        None,
+        "desktop".into(),
+        handle,
+    ));
+    let source = chat.jsonl_source("mounted-chat");
+
+    chat.shutdown_session("mounted-chat", "previous-session");
+    assert!(chat.acquire("mounted-chat", "new-session", None, "desktop"));
+    assert!(Arc::ptr_eq(&source, &chat.jsonl_source("mounted-chat")));
+
+    for answer in ["first-answer", "later-answer"] {
+        let record = serde_json::json!({
+            "type": "assistant",
+            "message": { "role": "assistant", "content": [{ "type": "text", "text": answer }] },
+        });
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(file, "{record}").unwrap();
+        file.flush().unwrap();
+        drop(file);
+        let rows = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].blocks[0].data["text"], answer);
+    }
+    chat.shutdown_session("mounted-chat", "new-session");
+    assert!(!chat.is_running("mounted-chat"));
 }
 
 #[test]
@@ -446,7 +413,6 @@ fn tailer_streams_new_messages_as_file_grows() {
             cwd: cwd.into(),
             session_id: sid.into(),
             start_offset: 0,
-            poll_interval: Duration::from_millis(100),
         },
         registry,
         sink.clone() as Arc<dyn DeltaSink>,
@@ -508,7 +474,6 @@ fn tailer_repopulates_when_session_file_appears_late() {
             cwd: cwd.into(),
             session_id: sid.into(),
             start_offset: 0,
-            poll_interval: Duration::from_millis(50),
         },
         registry,
         sink.clone() as Arc<dyn DeltaSink>,
@@ -553,6 +518,7 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
             provider_id: "delayed-store".into(),
             cwd: "/project".into(),
             session_id: sid.into(),
+            session_binding_nonce: None,
             poll_interval: Duration::from_millis(20),
         },
         Arc::new(agent_registry),
@@ -577,7 +543,7 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
         wait_until(2000, || !sink.msgs.lock().is_empty()),
         "one watch must promote to a tailer and emit the initial batch",
     );
-    chat_registry.stop("p-pending", "desktop");
+    chat_registry.shutdown_tab("p-pending");
     assert!(
         !chat_registry.is_running("p-pending"),
         "one mount is released by one stop after promotion",
@@ -613,6 +579,7 @@ fn pending_store_watch_needs_registration_authority_before_promotion() {
             provider_id: "delayed-store".into(),
             cwd: "/project".into(),
             session_id: sid.into(),
+            session_binding_nonce: None,
             poll_interval: Duration::from_millis(5),
         },
         Arc::new(agent_registry),
@@ -702,7 +669,6 @@ fn tailer_skips_when_provider_returns_no_jsonl_path() {
             cwd: "/anything".into(),
             session_id: "x".into(),
             start_offset: 0,
-            poll_interval: Duration::from_millis(50),
         },
         reg,
         sink.clone() as Arc<dyn DeltaSink>,

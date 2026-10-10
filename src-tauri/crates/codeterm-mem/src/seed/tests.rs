@@ -75,6 +75,39 @@ fn seed_runs_once() {
     assert!(second.skipped.is_empty());
 }
 
+#[test]
+fn spinal_cord_seed_is_searchable_on_new_and_existing_installs() {
+    for existing in [false, true] {
+        let mem = MemManager::open_in_memory().unwrap();
+        if existing {
+            seed_from(&mem, legacy_1_10_7_items()).unwrap();
+        }
+        seed_bundled(&mem).unwrap();
+        let expected = bundled_items()
+            .into_iter()
+            .find(|item| item.title == "Spinal Cord (Supporter Agent)")
+            .unwrap();
+        for query in ["Spinal Cord", "supporter"] {
+            let hits = mem
+                .search(&SearchQuery {
+                    query: query.into(),
+                    kind: Some("skill".into()),
+                    limit: Some(20),
+                    ..Default::default()
+                })
+                .unwrap();
+            let hit = hits
+                .into_iter()
+                .find(|hit| hit.item.title == expected.title)
+                .unwrap();
+            let (payload, fingerprint) = mem.managed_payload(&hit.item.id).unwrap().unwrap();
+            assert_eq!(payload, expected);
+            assert_eq!(fingerprint, Some(seed_fingerprint(&expected)));
+        }
+        assert_eq!(seed_bundled(&mem).unwrap().written(), 0);
+    }
+}
+
 /// DRIFT GUARD: two payloads differing in exactly one managed field produce
 /// different fingerprints, parameterised over every field in the set.
 #[test]

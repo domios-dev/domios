@@ -32,7 +32,7 @@ function exec(opts) {
   }
 }
 function git(cwd, args) {
-  return exec({ bin: "git", args: ["-C", cwd].concat(args) });
+  return exec({ bin: "git", args: ["-C", cwd].concat(args), env: { GIT_OPTIONAL_LOCKS: "0" } });
 }
 function parsePorcelain(out) {
   const lines = (out || "").split("\n").filter((l) => l.length > 0);
@@ -332,7 +332,7 @@ function gitCommitDiff(cwd, sha, path) {
 function gitWorkdirFiles(cwd) {
   const s = git(cwd, ["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z"]);
   if (!ok(s)) return fail(s, "git status failed");
-  const ns = git(cwd, ["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"]);
+  const ns = git(cwd, ["-c", "core.quotePath=false", "diff-index", "-M", "--numstat", "HEAD"]);
   return mergeWorkdirFiles(parseStatusPorcelain(s.stdout), ok(ns) ? parseNumstatCounts(ns.stdout) : {});
 }
 function gitWorkdirDiff(cwd, path) {

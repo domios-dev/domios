@@ -3,7 +3,7 @@ import React from "react";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { BusyState } from "./BusyState";
 
-export type ButtonVariant = "primary" | "ghost" | "accent" | "danger" | "icon";
+export type ButtonVariant = "primary" | "ghost" | "accent" | "danger" | "icon" | "capsule" | "capsuleAdd";
 export type ButtonSize = "sm" | "md" | "lg" | "compact";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -11,6 +11,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   size?: ButtonSize;
   loading?: boolean;
   "data-testid"?: string;
+  ref?: React.Ref<HTMLButtonElement>;
 }
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
@@ -19,6 +20,8 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
   accent: "ct-btn ct-btn-accent",
   danger: "ct-btn ct-btn-danger",
   icon: "ct-btn ct-btn-icon ct-btn-ghost",
+  capsule: "ct-btn ct-btn-capsule",
+  capsuleAdd: "ct-btn ct-btn-capsule-add",
 };
 
 const SIZE_CLASS: Record<ButtonSize, string> = {

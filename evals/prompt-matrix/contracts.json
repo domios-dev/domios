@@ -1,0 +1,451 @@
+{
+  "decision": {
+    "status": "pending",
+    "owner": "Auditor",
+    "required_fields": [
+      "tab",
+      "launch",
+      "session",
+      "occurrence",
+      "point",
+      "observation_id",
+      "completed",
+      "decided_by",
+      "heuristic_verdict",
+      "adapter_result",
+      "selected_verdict"
+    ],
+    "decided_by": [
+      "adapter",
+      "heuristic",
+      "fallback(no_adapter)",
+      "fallback(timeout)",
+      "fallback(other)",
+      "fallback(low_confidence)",
+      "fallback(error)",
+      "fallback(budget)"
+    ],
+    "covered_points": [],
+    "point_field": null,
+    "case_points": {},
+    "reason": "Retained strict criteria remain pending owner disposition. Reviewed bfdde439 adds passive captured correlation and actual partial Q2 data but is unmerged behind held slice3, qualification disabled. It supplies no external event/action receipt or full paired heuristic. No new disconnected work is requested. Strict field mappings remain unchanged/null.",
+    "fields": {
+      "tab": "tab",
+      "launch": null,
+      "session": null,
+      "occurrence": null,
+      "point": null,
+      "observation_id": "observation_id",
+      "completed": null,
+      "decided_by": "decided_by",
+      "heuristic_verdict": null,
+      "adapter_result": null,
+      "selected_verdict": null
+    },
+    "covered_points_status": "pending",
+    "producer": "src-tauri/src/service/supporter_tab_state/identity.rs::journal; observer.rs::record; candidates.rs::Pending::record",
+    "tab_identity_fields": {
+      "tab": "id",
+      "launch": "session_binding_nonce",
+      "session": "agent_session_id",
+      "occurrence": null
+    },
+    "required_disagreements": [
+      {
+        "id": "scrape_candidate",
+        "provider": "claude",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      },
+      {
+        "id": "scrape_candidate",
+        "provider": "codex",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      },
+      {
+        "id": "scrape_candidate",
+        "provider": "opencode",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      },
+      {
+        "id": "scrape_candidate",
+        "provider": "cursor",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      }
+    ],
+    "owner_disposition": {
+      "status": "pending",
+      "notification": "1a74efb3-6446-46a0-b654-23e9091521d9",
+      "requested": "Actual deterministic outcome/receipt with unavailable IDs on disconnected cells; same-event comparison only where actual same-question opinions exist; separate Sentinel cross-run comparison. No adjustment approved."
+    },
+    "reviewed_passive_schema": {
+      "status": "pending",
+      "source_commit": "bfdde439a2ac717458570604f2cd15dd0cd072a3",
+      "integration_status": "reviewed_unmerged_held_slice3",
+      "held_ancestor": "812c9f8f985877e2bbf86ba29b44579d8a3823c0",
+      "qualification": "disabled",
+      "sources": [
+        "src-tauri/src/service/supporter_tab_state/identity/correlation.rs::Correlation::capture/RecordIdentity::decorate/project_diagnostics",
+        "src-tauri/src/service/supporter_tab_state/observer.rs::prepare_observation/observe",
+        "src-tauri/src/service/supporter_tab_state/candidates.rs::Pending::record/spawn",
+        "src-tauri/src/service/supporter/feed.rs::entry"
+      ],
+      "top_level_fields": [
+        "decision_point",
+        "observation_status",
+        "correlation",
+        "model_verdict",
+        "alternate_verdict"
+      ],
+      "correlation_fields": [
+        "version",
+        "decision_point",
+        "observation_id",
+        "launch_id",
+        "session_id",
+        "occurrence_id",
+        "occurrence",
+        "frame_hash",
+        "candidate_evidence"
+      ],
+      "version": 1,
+      "point_labels": [
+        "launch_ready",
+        "startup_deadline",
+        "startup_escalation",
+        "prompt_candidate",
+        "worker_idle_without_report",
+        "busy_without_output",
+        "tab_exit"
+      ],
+      "identity_semantics": {
+        "observation_id": "numeric capture id; outer/nested equality only; receipt replay identity, not source-event sequence",
+        "launch_id": "SHA256 local captured launch key including PTY and launch nonce, or captured generation when local identity unavailable",
+        "session_id": "SHA256 captured claimed session, or null",
+        "occurrence_id": "SHA256 serialized [launch_id,session_id,occurrence] tuple",
+        "frame_hash": "16 hexadecimal characters of captured transport frame hash"
+      },
+      "observation_status": {
+        "completed": "existing classifier consumed parsed response, including other and low-confidence; not distinct external producer event/action/receipt",
+        "rejected": "discarded or failed captured work; returned valid Q2 may still be retained",
+        "unavailable": "no valid captured receipt; uncaptured numeric action rows cannot invent one"
+      },
+      "model_verdict": "observed only for real returned criteria-allowed Q2 label and finite confidence [0,1]; otherwise unavailable. Not safe choice/action proof.",
+      "alternate_verdict": "skipped on adapter classification, otherwise unavailable. No diagnostic heuristic rerun or full paired verdict.",
+      "candidate_evidence": "observed source=provider_safe_target kind=update|onboarding only from existing captured metadata; otherwise unavailable. Not full heuristic/opinion.",
+      "feed_semantics": "bounded whitelist requires version, known point, matching outer/nested id/point and valid hashes; malformed receipts omitted and status unavailable; no raw/extraneous fields",
+      "unresolved": [
+        "distinct external producer-event barrier",
+        "exact action-row envelope join",
+        "approved same-question opinion criteria",
+        "independent expected launch/session/occurrence/point binding",
+        "owner admission/PTY disposition and bounded slice3 repair before real integration"
+      ],
+      "strict_mapping_status": "pending; informational producer paths are not adapters to decision.fields; completed is not mapped to a stronger receipt predicate"
+    }
+  },
+  "coordinator": {
+    "status": "pending",
+    "owner": "Courier",
+    "variants": [
+      "default",
+      "busy",
+      "fail"
+    ],
+    "reason": "Event-driven CoordinatorScenario authored behind preflight. Authentic Codex prompt, daemon updater confinement/failure injection, exact action-envelope join, provider-side safe occurrence, own-session tool pairing and complete tree/failure observation barrier remain pending.",
+    "outcome_status": "source_traced",
+    "configuration": "updater.allow_provider_updates_in_non_prod",
+    "consent": "automatic provider-declared capability; no consent click in current source",
+    "journal_fields": [
+      "kind",
+      "tab",
+      "provider",
+      "target_version",
+      "label",
+      "confidence",
+      "action",
+      "reason",
+      "asked",
+      "time"
+    ],
+    "labels": [
+      "update_started",
+      "update_succeeded",
+      "update_failed",
+      "safe_choice_answered",
+      "restart_requested",
+      "resumed",
+      "fresh_launch",
+      "restart_failed"
+    ],
+    "state_path": "daemon-home/.codeterm/provider-update-state.json",
+    "state_key": "provider:target",
+    "authentic_trigger_status": "pending",
+    "updater_confinement_status": "pending",
+    "termination_status": "pending",
+    "session_field": null,
+    "launch_field": null,
+    "run_path": null,
+    "receipt_paths": {
+      "real_prompt": null,
+      "isolated_update_scope": null,
+      "safe_receipts": null,
+      "prompt_occurrences": null,
+      "safe_choice": null,
+      "restart_launches": null,
+      "failure_barrier": null,
+      "tree_stopped": null,
+      "busy_checkpoint": null,
+      "idle_receipt": null,
+      "install_n": null,
+      "busy_restart_n": null,
+      "decision_rows": null,
+      "decision_identity": null,
+      "path": null
+    }
+  },
+  "sentinel": {
+    "status": "pending",
+    "owner": "Lookout",
+    "cli_status": "bound",
+    "outcome_status": "bound",
+    "source_commit": "49be4862d3bc76ff256cf4e056bc9661cebb39a5",
+    "visibility_commit": "b1c93918ea3d12191b138840451cabd7c51e0b13",
+    "commands": [
+      "create",
+      "list",
+      "show",
+      "stop"
+    ],
+    "routes": [
+      "notify",
+      "send:<tab>",
+      "cron:<name>",
+      "stop"
+    ],
+    "journal_fields": [
+      "time",
+      "kind",
+      "sentinel_id",
+      "tab",
+      "team_id",
+      "workspace_id",
+      "state_hash",
+      "evaluation_id",
+      "observation_id",
+      "classification_source",
+      "classification_reason",
+      "label",
+      "confidence",
+      "stage",
+      "route_status",
+      "action",
+      "reason",
+      "route",
+      "route_target",
+      "recipient_receipt",
+      "asked",
+      "budget"
+    ],
+    "actions": [
+      "decision",
+      "route_claim",
+      "notify",
+      "send",
+      "cron",
+      "stop",
+      "skip"
+    ],
+    "variants": [
+      "git",
+      "fake-ci",
+      "regex-no-jev",
+      "budget-exhausted"
+    ],
+    "not_applicable": [
+      {
+        "variant": "budget-exhausted",
+        "jev": "off",
+        "authority": "Brahms b8a1e869, 2026-10-02",
+        "reason": "Owner accepted N/A: regex mode never spends model budget; the Jev-on explicit cap plus regex companion covers exhaustion."
+      }
+    ],
+    "reason": "Raw UUID attempt/stage schema ancestry-merged and mechanism-tested only; live qualification, both-arm criteria and recipient receipts remain pending. No same-event paired-oracle adjustment approved.",
+    "raw_source_commit": "ecb3973cdc7cb291058cc555bddbe4b336d0ea9a",
+    "raw_source_status": "ancestry_merged_canonical_0c93eebb",
+    "raw_schema_status": "source_bound",
+    "executable_status": "pending",
+    "attribution_status": "pending_owner_disposition",
+    "classification_source": [
+      "adapter",
+      "regex",
+      "disconnected",
+      "not_attempted"
+    ],
+    "stage_status": {
+      "decision": "not_attempted",
+      "route_claim": "claimed",
+      "route_completed": "api_completed",
+      "route_failed": "failed",
+      "skip": "not_attempted"
+    },
+    "observation_semantics": "UUID equals evaluation_id only for selected adapter/regex attempt, including refusal/error; not a completed response or physical model-call count. Different from numeric tab_state observation_id.",
+    "receipt_semantics": "recipient_receipt is always null; route_target is configured intended target, api_completed is API return only. Independent own-session receipt mandatory.",
+    "hash_semantics": "state_hash identifies probe bytes and exit; request JSON hash is a different domain and cannot correlate by equality.",
+    "canonical_merge": "0c93eebb94802918193d9339d541f7c6e6f6faaf",
+    "mechanism_receipt": "Fermi reports sentinel_ 28/28; read independent check-tests rc0 summary /tmp/codeterm-qa/sentinel-check-tests-20261002-172516-71202/summary.txt. No live qualification."
+  },
+  "visibility": {
+    "status": "bound",
+    "uncapped_budget": null,
+    "status_budget_field": "budget.calls_per_hour",
+    "feed_fields": [
+      "time",
+      "team_id",
+      "kind",
+      "label",
+      "confidence_band",
+      "action",
+      "reason",
+      "budget_reached",
+      "fallback"
+    ],
+    "feed_variant": "activity-feed",
+    "sentinel_feed_status": "mechanism_passed_Sentinel28_live_NOT_RUN",
+    "reason": "feed.rs::entry accepts Sentinel rows; original6029471427 source-expected-red checkpoint retained. Fermi reports focused feed regression passed within canonical Sentinel28; no repeat requested. Live visibility cell remains NOT RUN.",
+    "repair_commit": "a97badc2d"
+  },
+  "isolation": {
+    "status": "pending",
+    "required": "Every case has isolated provider HOME, CODEX_HOME, CLAUDE_CONFIG_DIR and XDG roots",
+    "observed": "Strict fixture-home allowlist and exact cwd launch scopes authored; no owner profile or provider binary fallback",
+    "owner": "Fermi",
+    "reason": "Strict fixture source is bound to acceptance. Actual fixture-owned authentication readiness and owner runtime disposition remain pending notification 5a2c6367-cace-4c24-84d4-6a544f633c66. Empty homes and standalone version checks do not prove authenticated prompt readiness.",
+    "source_status": "strict_fixture_recipe_auth_unqualified"
+  },
+  "launch_prompt_matrix": {
+    "status": "pending",
+    "owner": "Orchestrator",
+    "owner_decision": {
+      "status": "pending",
+      "notification": "5a2c6367-cace-4c24-84d4-6a544f633c66",
+      "choice": null,
+      "stride": null,
+      "rule": null,
+      "accepted_choices": ["A", "B", "C"]
+    },
+    "reason": "Owner isolation choice and stride are pending. Provider homes remain credential-free and no real-profile trust state is borrowed.",
+    "cell_key": ["provider", "folder", "jev"],
+    "folders": ["owner-dir", "new-dir", "lane", "home"],
+    "jev_arms": ["off", "on"],
+    "bindings": {
+      "prompt": {
+        "status": "bound",
+        "field": "launch_prompt_capture.prompt + screen",
+        "source": "evals/prompt-matrix/transport.py::Dev.snapshot; matrix.py::launch_prompt_evidence"
+      },
+      "provisioned_cwd": {
+        "status": "bound",
+        "field": "tab.provisioned_cwd == provider_launch.cwd",
+        "source": "src-tauri/src/cron/spawn_spec.rs::build_cron_spawn_spec; evals/prompt-matrix/provider_exec.py::main"
+      },
+      "decided_by": {
+        "status": "bound",
+        "field": "action=unattended_launch_prompt.decided_by",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::journal_unattended_route"
+      },
+      "observation_id": {
+        "status": "bound",
+        "field": "action=unattended_launch_prompt.observation_id",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::journal_unattended_route; identity.rs::journal"
+      },
+      "action_phase": {
+        "status": "bound",
+        "field": "phase=action_authorized|action_stale with observation_id",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response.rs::try_model_safe_response"
+      },
+      "provider_answer": {
+        "status": "bound",
+        "field": "provider_safe_step_authorized on the correlated observation, or deterministic_directory_trust",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response.rs::try_model_safe_response; src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::provider_target; src-tauri/src/service/directory_trust.rs::answer_directory_trust_prompt"
+      },
+      "owner_notice": {
+        "status": "bound",
+        "field": "new owner-routed non-verbose notification count",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::notify_unattended_owner; evals/prompt-matrix/oracles.py::tab_notifications"
+      },
+      "cron_status": {
+        "status": "bound",
+        "field": "CronRunInfo.run_id|status|finished_at|session_id",
+        "source": "src-tauri/src/service/cron.rs::cron_complete; src-tauri/src/cron/store/mod.rs::CronRunInfo"
+      },
+      "provider_session": {
+        "status": "bound",
+        "field": "tab.agent_session_id|session_binding_nonce joined to CronRunInfo.session_id",
+        "source": "src-tauri/src/api/tab_routes.rs::inspect_tabs; evals/prompt-matrix/transport.py::Dev.snapshot"
+      },
+      "non_trust_prompt": {
+        "status": "bound",
+        "field": "zero action_authorized/action_stale or deterministic trust action for non-trust kind",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::unattended_launch_gate; evals/prompt-matrix/launch_prompt.py::judge"
+      },
+      "provider_auth_policy": {
+        "status": "pending",
+        "field": "provider executable HOME/credentials for recorded A/B/C owner rule",
+        "source": "evals/prompt-matrix/launch_env.py::isolated_environment",
+        "reason": "Current provider wrapper deliberately strips real-profile credentials; no owner rule is recorded or wired to a provider-auth transport."
+      }
+    },
+    "providers": {
+      "claude": {
+        "status": "pending",
+        "reason": "Fixture-native target authentication readiness under the owner-selected isolation rule remains unqualified; versions.json::providers.claude.prompt_status."
+      },
+      "codex": {
+        "status": "pending",
+        "reason": "Fixture-native target authentication readiness under the owner-selected isolation rule remains unqualified; versions.json::providers.codex.prompt_status."
+      },
+      "opencode": {
+        "status": "pending",
+        "reason": "Fixture-native target authentication readiness under the owner-selected isolation rule remains unqualified; versions.json::providers.opencode.prompt_status."
+      },
+      "cursor": {
+        "status": "pending",
+        "reason": "Provider launchability is unobserved; versions.json::providers.cursor.reason says no launch behavior or portable archive acquisition is established."
+      }
+    }
+  },
+  "update_fixture": {
+    "status": "pending",
+    "reason": "Original promptmatrix failed acquisition is preserved. Six corrected darwin/arm64 archive assemblies in promptmatrixtls have scoped canonical receipts; every native version remains NOT RUN. Dedicated direct-resource version source repair is pending review/pure verification. Codex startup trigger remains disabled; supported real update trigger and complete updater confinement remain pending.",
+    "native_status": "six_darwin_arm64_archive_assemblies_passed_version_NOT_RUN",
+    "trigger_status": "pending",
+    "confinement_status": "pending",
+    "absolute_transport_status": "scoped_macos_normal_acquisition_passed_cancellation_and_other_platforms_pending",
+    "absolute_transport_source": "canonical_bb699281_pure270_and_six_archive_assemblies_passed",
+    "absolute_transport_reason": "Canonical2a18d9fa pure217/red and bb699281 pure270 qualify fake controls. Six corrected macOS assemblies have exact pinned bytes/tree/layout and request/helper/parent joins, exit0, closed handles and finished nonliving waiters before the original deadline. Failed original fixture is unchanged. Cancellation, native execution, other platforms and complete process-tree confinement remain unqualified.",
+    "tls_source_status": "ancestry_merged_pure270_passed_scoped_macos_normal_acquisition_passed",
+    "tls_source": "/etc/ssl/cert.pem; resolved regular root-owned non-group/world-writable source; exclusive fixture public-ca.pem snapshot with request-bound identity/bytes/SHA256",
+    "tls_runtime_status": "scoped_macos_bound_public_ca_normal_acquisition_passed",
+    "trust_diagnostic": "/tmp/codeterm-qa/probe-isolated-tls-diagnostic-20261002-193147-35375/full.log: default isolated context x509_ca=0; original URLError cause unavailable",
+    "failed_fixture": "promptmatrix:7794/native/claude/2.1.286 preserved byte-unchanged; corrected evidence is a distinct promptmatrixtls fixture",
+    "version_source_status": "dedicated_schema2_runner_and_platform_adapters_authored_pending_review_green",
+    "version_scope": "direct_native_version_and_owned_handles",
+    "version_descendants": "not_proven",
+    "version_runtime_status": "NOT RUN",
+    "version_expected_pure_count": 294,
+    "version_tests_first_source": "675202d069db11ddd9e6caaadc49b05ac6cfc1e8",
+    "version_red_receipt": "/tmp/codeterm-qa/probe-version-red-20261002-200636-64415/full.log: exactly1 selected, exit1, FixtureError not raised; intended red confirmed only"
+  }
+}

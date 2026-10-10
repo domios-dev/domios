@@ -2,7 +2,9 @@ use std::io::Read;
 use tauri::AppHandle;
 
 use crate::multiplexer::commands::MuxState;
-use crate::service::restored_launch::{restored_fresh_launch_input, RestoredFreshLaunchInput};
+use crate::service::restored_launch::{
+    restored_fresh_launch_input, restored_resume_session_id, RestoredFreshLaunchInput,
+};
 use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
@@ -35,8 +37,15 @@ pub async fn spawn_pty_core(
     };
     let state = &svc.pty;
     let mux_state = &svc.mux;
-    // Protected tabs reuse their backend PTY; wait briefly to avoid duplicate launch.
+    // Protected tabs belong to the backend lifecycle, including while it is starting.
     if let Some(ref pid) = tab_id {
+        if mux_state.read().get_tab(pid).is_some_and(|tab| {
+            tab.close_restore
+                .as_ref()
+                .is_some_and(|state| state.stopped)
+        }) {
+            return Err("Restored shell is stopped; use Rerun command or Start shell".into());
+        }
         let (is_protected, existing) = {
             let m = mux_state.read();
             let p = m.get_tab(pid);
@@ -89,21 +98,21 @@ pub async fn spawn_pty_core(
         }
         if is_protected {
             drop(pty_claim.take());
-            let svc_wait = svc.clone();
-            let tab_wait = pid.clone();
-            let relinked = tokio::task::spawn_blocking(move || {
-                svc_wait.await_pty_link_blocking(&tab_wait, std::time::Duration::from_secs(5))
+            return crate::service::await_relink(|| {
+                let existing = {
+                    let mux = mux_state.read();
+                    let Some(tab) = mux.get_tab(pid) else {
+                        return Some(Err(format!("Tab {pid} closed before PTY link")));
+                    };
+                    tab.pty_id.clone()
+                }?;
+                state
+                    .lock()
+                    .get_session(&existing)
+                    .is_some()
+                    .then_some(Ok(existing))
             })
-            .await
-            .map_err(|error| format!("protected Tab relink waiter failed: {error}"))?;
-            if let Ok(existing) = relinked {
-                return Ok(existing);
-            }
-            log::warn!(
-                "[spawn_pty] protected Tab {} still has no backend pty after 5s — falling through",
-                pid,
-            );
-            pty_claim = Some(svc.pty_ownership.acquire_async(pid.clone()).await?);
+            .await;
         }
     }
 
@@ -116,17 +125,31 @@ pub async fn spawn_pty_core(
             .await
             .map_err(|error| format!("spawn_pty env join error: {error}"))?;
 
+    let profile = tab_id.as_deref().and_then(|id| {
+        let mux = mux_state.read();
+        mux.get_tab(id)
+            .filter(|tab| tab.agent_type.is_none())
+            .and_then(|tab| tab.shell_profile.clone())
+    });
     let t0 = std::time::Instant::now();
     let spawn_gate = state.lock().spawn_gate();
     let built = tokio::task::spawn_blocking(move || {
-        crate::pty::manager::build_session(spawn_gate, command, cwd, cols, rows, env_vars)
+        crate::pty::manager::build_session_with_profile(
+            spawn_gate,
+            command,
+            cwd,
+            cols,
+            rows,
+            env_vars,
+            profile.as_ref(),
+        )
     })
     .await
     .map_err(|e| format!("spawn_pty join error: {}", e))??;
     let build_ms = t0.elapsed().as_millis();
 
     let (mut pty_id, _session) = state.lock().register_session(predicted_id, built);
-    svc.screen_state.lock().resize(&pty_id, cols, rows);
+    crate::service::pty_resize::resize(&svc.pty, &svc.screen_state, &pty_id, None)?;
     log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
     let reader_pty_id = if let Some(ref pid) = tab_id {
@@ -156,47 +179,57 @@ pub async fn spawn_pty_core(
     if let Some(ref pid) = tab_id {
         let recovery_service = svc.clone();
         let recovery_tab = pid.clone();
-        tokio::task::spawn_blocking(move || {
+        let recovery = tokio::task::spawn_blocking(move || {
             recovery_service.recover_missing_restored_provider(&recovery_tab)
         })
         .await
-        .map_err(|error| format!("restore provider recovery failed: {error}"))??;
+        .map_err(|error| format!("restore provider recovery failed: {error}"))?;
+        if let Err(error) = recovery {
+            if error.starts_with("restored_provider_unresolved:") {
+                log::warn!("[restore] {error}");
+                return Ok(pty_id);
+            }
+            return Err(error);
+        }
+        let exact_restore = mux_state.read().get_tab(pid).is_some_and(|tab| {
+            tab.restored_from_snapshot
+                && tab
+                    .close_restore
+                    .as_ref()
+                    .is_some_and(|state| state.exact_session)
+        });
+        if exact_restore {
+            let restore_service = svc.clone();
+            let restore_tab = pid.clone();
+            tokio::task::spawn_blocking(move || {
+                restore_service.materialize_restored_agent_for_send(&restore_tab)
+            })
+            .await
+            .map_err(|error| error.to_string())??;
+            return Ok(pty_id);
+        }
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);
         };
         crate::service::mark_tab_agent_launch_started(mux_state, pid);
-        let session_id = restore.session_id;
-        let tab_cwd = restore.cwd;
         let stored_agent_type = restore.provider_id;
+        let restored_session_id = restore.session_id;
+        let resume_enabled = crate::config::resume_sessions_enabled(&stored_agent_type);
+        log::debug!(
+            "[restore-resume-target] tab={} provider={} saved_session={:?} resume_enabled={} cwd={:?}",
+            pid, stored_agent_type, restored_session_id, resume_enabled, restore.cwd
+        );
+        let session_id = restored_resume_session_id(resume_enabled, restored_session_id.as_deref())
+            .map(str::to_owned);
+        if !resume_enabled && restored_session_id.is_some() {
+            svc.set_agent_session_id(pid, None);
+        }
+        let tab_cwd = restore.cwd;
         let tab_model = restore.model;
         let launch_parameters = restore.launch_parameters;
         let tab_role = restore.role;
         let tab_role_profile = restore.role_profile;
-        let agent_type = match (session_id.as_deref(), tab_cwd.as_deref()) {
-            (Some(session_id), Some(cwd)) => {
-                let registry = svc.agent_registry.clone();
-                let cwd = cwd.to_string();
-                let session_id = session_id.to_string();
-                tokio::task::spawn_blocking(move || {
-                    crate::agent::provider_identity::provider_for_claimed_session(
-                        &registry,
-                        &cwd,
-                        &session_id,
-                    )
-                })
-                .await
-                .map_err(|error| format!("restore provider probe failed: {error}"))?
-            }
-            (Some(_), None) => None,
-            (None, _) => Some(stored_agent_type),
-        };
-        let Some(agent_type) = agent_type else {
-            svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
-            svc.clear_unproven_restored_provider(pid);
-            svc.emit_boot_stage(pid, BootStage::ShellReady, None);
-            svc.emit_state_changed();
-            return Ok(pty_id);
-        };
+        let agent_type = stored_agent_type;
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
@@ -213,27 +246,34 @@ pub async fn spawn_pty_core(
             let provider_id = agent_type;
 
             // Clear stale id if session is gone to avoid resume loop.
-            let session_valid = tab_cwd
-                .as_deref()
-                .map(|cwd| {
-                    svc.agent_registry
-                        .with_provider(&provider_id, |p| p.session_exists(cwd, &session_id))
-                        .unwrap_or(false)
+            let presence = svc
+                .agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider.session_exists(tab_cwd.as_deref().unwrap_or_default(), &session_id)
                 })
-                .unwrap_or(false);
+                .flatten();
+            let session_valid =
+                crate::service::restored_launch::restored_session_resumable(presence);
+            log::debug!(
+                "[restore-session-probe] tab={} provider={} session={} cwd={:?} presence={:?}",
+                pid,
+                provider_id,
+                session_id,
+                tab_cwd,
+                presence
+            );
             if !session_valid {
                 log::info!(
-                    "[resume] session {} for Tab {} has no backing file under {:?} — clearing, will try fresh launch",
+                    "[resume] session {} for Tab {} is confirmed absent under {:?} — clearing, will try fresh launch",
                     session_id, pid, tab_cwd
                 );
                 svc.set_agent_session_id(pid, None);
                 svc.emit_state_changed();
             } else {
                 // Build the resume command from the persisted launch inputs.
-                let pc = crate::config::provider_config(&provider_id);
-                let resume_enabled = pc.resume_sessions.unwrap_or(true);
                 let permission_bypass_authorization =
                     crate::service::restored_launch::restore_permission_bypass_authorization(
+                        &svc.app_handle,
                         &svc.agent_registry,
                         pid,
                         &provider_id,
@@ -258,21 +298,7 @@ pub async fn spawn_pty_core(
                 );
                 let resume_cmd = input.command(svc.as_ref(), pid);
                 if let Some(cmd) = resume_cmd {
-                    if resume_enabled {
-                        dispatch_restored_snapshot_launch(
-                            svc.as_ref(),
-                            pid,
-                            &provider_id,
-                            &input,
-                            cmd,
-                        );
-                    } else {
-                        if let Some(tab) = mux_state.write().get_tab_mut(pid) {
-                            tab.agent_booting = false;
-                        }
-                        svc.clear_tab_restored_flag(pid);
-                        svc.emit_boot_stage(pid, BootStage::AgentReady, None);
-                    }
+                    dispatch_restored_snapshot_launch(svc.as_ref(), pid, &provider_id, &input, cmd);
                     should_fresh_launch = false;
                 } else {
                     log::warn!(
@@ -289,6 +315,7 @@ pub async fn spawn_pty_core(
             let provider_id = agent_type_for_fresh;
             let permission_bypass_authorization =
                 crate::service::restored_launch::restore_permission_bypass_authorization(
+                    &svc.app_handle,
                     &svc.agent_registry,
                     pid,
                     &provider_id,
@@ -347,16 +374,20 @@ fn dispatch_restored_snapshot_launch(
         &input.params,
         &input.launch_parameters,
     );
-    crate::service::launch_agent_in_background(
+    crate::service::orchestrator::launch_agent_in_background_with_env(
         svc.clone(),
         tab_id.to_string(),
         launch_cmd,
         provider_id.to_string(),
         crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        false,
+        None,
         input.launch_task.clone(),
         None,
+        Default::default(),
         None,
         None,
+        input.params.resume_session_id.clone(),
     );
 }
 
@@ -380,7 +411,6 @@ pub async fn read_pty(
 /// ServiceContext.
 pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>, String> {
     let state = &svc.pty;
-    let output_buf = &svc.output_buf;
     let mux = &svc.mux;
     let tracker = &svc.agent_tracker;
     let app = &svc.app_handle;
@@ -391,67 +421,17 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
-    // Prefer backend-reader output when available; it handles decoding/state transitions.
-    {
-        let rx_opt = session.backend_reader_rx.lock().unwrap().take();
-        if let Some(mut rx) = rx_opt {
-            let result = rx.recv().await;
-            match result {
-                Some(mut data) => {
-                    if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
-                        log::info!(
-                            "[pty-first-byte] pty={} elapsed={}ms bytes={} (via backend channel)",
-                            &pty_id[..pty_id.len().min(8)],
-                            mark.when.elapsed().as_millis(),
-                            data.len()
-                        );
-                    }
-                    coalesce_backend_chunks(&mut rx, &mut data);
-                    *session.backend_reader_rx.lock().unwrap() = Some(rx);
-                    return Ok(data);
-                }
-                None => {
-                    *session.backend_reader_rx.lock().unwrap() = None;
-                    return Err("PTY closed".to_string());
-                }
-            }
+    if session.backend_output.is_configured() {
+        let data = session.backend_output.read().await?;
+        if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
+            log::info!(
+                "[pty-first-byte] pty={} elapsed={}ms bytes={} (via backend channel)",
+                &pty_id[..pty_id.len().min(8)],
+                mark.when.elapsed().as_millis(),
+                data.len()
+            );
         }
-    }
-
-    {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
-        loop {
-            let backend_active = { svc.pty.lock().has_backend_reader(&pty_id) };
-            if !backend_active {
-                break;
-            }
-            let rx_ready = session.backend_reader_rx.lock().unwrap().is_some();
-            if rx_ready {
-                let rx_opt = session.backend_reader_rx.lock().unwrap().take();
-                if let Some(mut rx) = rx_opt {
-                    let result = rx.recv().await;
-                    match result {
-                        Some(mut data) => {
-                            coalesce_backend_chunks(&mut rx, &mut data);
-                            *session.backend_reader_rx.lock().unwrap() = Some(rx);
-                            return Ok(data);
-                        }
-                        None => {
-                            *session.backend_reader_rx.lock().unwrap() = None;
-                            return Err("PTY closed".to_string());
-                        }
-                    }
-                }
-            }
-            if std::time::Instant::now() >= deadline {
-                log::warn!(
-                    "[read_pty] backend reader active but channel never appeared for {} — falling back to raw clone",
-                    &pty_id[..pty_id.len().min(8)]
-                );
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
+        return Ok(data);
     }
 
     if !svc
@@ -533,54 +513,17 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                     crate::agent::status::TabStatus::Dead,
                 );
 
-                // Cron fallback marks failed if agent dies without cron completion.
                 use tauri::Manager;
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
-                    let owner = cron_state.lock().get_tab_owner(pid).cloned();
-                    if let Some((job_id, run_id)) = owner {
-                        let mut fresh_transition = false;
-                        {
-                            let mut store = cron_state.lock();
-                            // Only save if no log exists yet (don't overwrite clean summary)
-                            if store.read_log(&job_id, &run_id).is_none() {
-                                let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
-                                let clean = crate::pty::ansi::clean_terminal_output(&text);
-                                let _ = store.save_log(&job_id, &run_id, &clean);
-                                fresh_transition = store
-                                    .update_run_status(
-                                        &job_id,
-                                        &run_id,
-                                        crate::cron::store::CronRunStatus::Failed,
-                                    )
-                                    .unwrap_or(false);
-                            }
-                            store.unregister_tab(pid);
-                        }
-                        // Notify after the store guard drops — it re-locks internally.
-                        if fresh_transition {
-                            crate::cron::notify::notify_on_consecutive_failure(
-                                svc,
-                                &cron_state,
-                                &job_id,
-                            );
-                        }
-                        log::info!("Cron Tab exited: job={}, run={}", job_id, run_id);
-                        crate::api::events::emit_everywhere(&app, "cron-run-finished", ());
-                    }
+                    crate::cron::pty_death_fallback::fail_run_on_pty_death(
+                        svc,
+                        &cron_state,
+                        pid,
+                        &pty_id,
+                    );
                 }
             }
             Err(e)
-        }
-    }
-}
-
-fn coalesce_backend_chunks(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>) {
-    const COALESCE_CAP: usize = 64 * 1024;
-
-    while data.len() < COALESCE_CAP {
-        match rx.try_recv() {
-            Ok(mut next) => data.append(&mut next),
-            Err(_) => break,
         }
     }
 }
@@ -595,6 +538,7 @@ pub async fn write_pty_string(
     raw: Option<bool>,
 ) -> Result<(), String> {
     let _ = (&state, &mux_state);
+    svc.require_managed_terminal_input_allowed(&pty_id, data.as_bytes())?;
     if raw.unwrap_or(true) {
         write_pty_string_core(&svc, pty_id, data)
     } else {
@@ -640,7 +584,21 @@ fn deliver_composed_text(
 pub async fn interrupt_agent(
     svc: tauri::State<'_, ServiceState>,
     pty_id: String,
+    tab_id: Option<String>,
 ) -> Result<(), String> {
+    if let Some(tab_id) = tab_id {
+        let owns_pty = svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .is_some_and(|tab| tab.pty_id.as_deref() == Some(&pty_id));
+        if !owns_pty {
+            return Err("Tab does not own this PTY".to_string());
+        }
+        crate::service::stop_execution::stop_agent_turn(svc.inner().as_ref().clone(), tab_id)
+            .await?;
+        return Ok(());
+    }
     write_pty_string_core(&svc, pty_id, "\x1b".to_string())
 }
 
@@ -652,6 +610,7 @@ pub async fn write_pty_launch_command(
     pty_id: String,
     command: String,
 ) -> Result<(), String> {
+    svc.require_managed_terminal_input_allowed(&pty_id, command.as_bytes())?;
     let svc = svc.inner().clone();
     tokio::task::spawn_blocking(move || svc.send_launch_command_to_pty(&pty_id, &command))
         .await
@@ -664,6 +623,7 @@ pub fn write_pty_string_core(
     pty_id: String,
     data: String,
 ) -> Result<(), String> {
+    svc.require_managed_terminal_input_allowed(&pty_id, data.as_bytes())?;
     let session = {
         let manager = svc.pty.lock();
         manager
@@ -679,7 +639,10 @@ pub fn write_pty_string_core(
         &bytes,
     );
     mark_manual_agent_interrupt(svc, &pty_id, &bytes);
-    session.write_queue.send(bytes)
+    let encoded = svc.encode_provider_control_key(&pty_id, &bytes);
+    session
+        .write_queue
+        .send(encoded.map(Vec::from).unwrap_or(bytes))
 }
 
 #[tauri::command]
@@ -690,6 +653,7 @@ pub async fn write_pty(
     pty_id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
+    svc.require_managed_terminal_input_allowed(&pty_id, &data)?;
     let session = {
         let manager = state.lock();
         manager
@@ -700,7 +664,10 @@ pub async fn write_pty(
     mark_user_activity(&svc, &mux_state, &pty_id);
     crate::pty::capture::CaptureRegistry::global().tap_input(&pty_id, "write_pty", &data);
     mark_manual_agent_interrupt(&svc, &pty_id, &data);
-    session.write_queue.send(data)
+    let encoded = svc.encode_provider_control_key(&pty_id, &data);
+    session
+        .write_queue
+        .send(encoded.map(Vec::from).unwrap_or(data))
 }
 
 fn mark_manual_agent_interrupt(svc: &ServiceState, pty_id: &str, bytes: &[u8]) {
@@ -815,17 +782,7 @@ pub fn resize_pty_core(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let session = {
-        let manager = state.lock();
-        manager
-            .get_session(&pty_id)
-            .ok_or_else(|| format!("PTY not found: {}", pty_id))?
-    };
-
-    let _ = session.resize(cols, rows)?;
-    screen_state.lock().resize(&pty_id, cols, rows);
-    crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
-    Ok(())
+    crate::service::pty_resize::resize(state, screen_state, &pty_id, Some((cols, rows)))
 }
 
 #[tauri::command]

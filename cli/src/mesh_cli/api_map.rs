@@ -290,6 +290,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
             crate::TabAction::New {
+                shell,
+                list_shells,
+                purpose,
+                description,
+                icon,
                 workspace,
                 cwd,
                 title,
@@ -300,7 +305,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 chat_backend,
                 config,
             } => {
-                let mut body = serde_json::json!({});
+                if *list_shells { return ("GET".into(), "/api/shells".into(), None); }
+                let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
                 if let Some(w) = workspace {
                     body["workspace_id"] = serde_json::Value::String(w.clone());
                 }
@@ -441,6 +447,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::TabAction::AdoptAgent { .. } => unsupported(
                 "tab adopt-agent is caller-local and cannot target a mesh peer",
+            ),
+            crate::TabAction::ReleaseOwnership { .. } => unsupported(
+                "tab release-ownership is local-only and cannot target a mesh peer",
             ),
             crate::TabAction::Search { .. } => {
                 // tab search runs local CLI-side; peer only supplies raw list.
@@ -682,10 +691,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),
             MeshAction::Peers => ("GET".into(), "/api/mesh/peers".into(), None),
             MeshAction::Discover => ("POST".into(), "/api/mesh/discover".into(), None),
-            MeshAction::Connect { instance_id } => (
+            MeshAction::Connect { instance_id, addr } => (
                 "POST".into(),
                 "/api/mesh/connect".into(),
-                Some(serde_json::json!({"instance_id": instance_id}).to_string()),
+                Some(crate::cmd::mesh::connect_body(instance_id, addr.as_ref()).to_string()),
             ),
             MeshAction::Approve { request_id } => (
                 "POST".into(),
@@ -921,12 +930,15 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         // match was reached. Listed explicitly so a new variant must choose.
         Commands::Web { .. }
         | Commands::Plugin { .. }
+        | Commands::ModelProvider { .. }
         | Commands::Supporter { .. }
+        | Commands::Blueprint { .. }
         | Commands::Plan { .. }
         | Commands::Team { .. }
         | Commands::Spec { .. }
         | Commands::Effort { .. }
         | Commands::EssenceMap { .. }
+        | Commands::Trace { .. }
         | Commands::Orchestrator { .. }
         | Commands::Persona { .. }
         | Commands::Task { .. }
@@ -937,6 +949,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Pad { .. }
         | Commands::System { .. }
         | Commands::Docs { .. }
+        | Commands::Surface { .. }
         | Commands::Debug { .. } => {
             unreachable!("transport table declares this command non-REST")
         }

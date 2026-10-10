@@ -20,6 +20,16 @@ impl MultiplexerState {
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
+            purpose: Default::default(),
+            icon: None,
+            shell_profile: None,
+            utility_created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as u64,
+            utility_command_pending: false,
+            close_restore: None,
+            shell_command_state: Default::default(),
             pending_delivery,
             title: "Terminal".to_string(),
             description: None,
@@ -30,11 +40,17 @@ impl MultiplexerState {
             agent_type_locked: false,
             agent_session_id: None,
             agent_session_name: None,
+            context: None,
+            provider_signals: Default::default(),
+            fork_source_session_id: None,
             agent_session_model: None,
             agent_session_model_identity: None,
             pending_model_switch_observation: None,
+            pending_model_selection: None,
             agent_planned_model: None,
             agent_requested_model: None,
+            structured_control_active: false,
+            structured_runtime_mode: None,
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
@@ -49,6 +65,7 @@ impl MultiplexerState {
             lifecycle_operation_id: None,
             task_binding: None,
             roleless_tracked: false,
+            managed: None,
             role: None,
             role_profile: None,
             team_id: None,
@@ -66,6 +83,7 @@ impl MultiplexerState {
             pending_prompt: None,
             pending_prompt_kind: None,
             agent_state: None,
+            turn_resume: None,
             auto_approve: false,
             permission_auto_confirm: false,
             permission_auto_confirmations: Vec::new(),
@@ -335,7 +353,11 @@ impl MultiplexerState {
         let workspace_id = self.find_workspace_for_tab(tab_id);
         self.remove_tab_from_tree(tab_id)?;
 
-        for child_id in self.get_children_ids(tab_id) {
+        let (owned_surfaces, children): (Vec<String>, Vec<String>) = self
+            .get_children_ids(tab_id)
+            .into_iter()
+            .partition(|child_id| self.tabs.get(child_id).is_some_and(Tab::closes_with_owner));
+        for child_id in children {
             if let Some(child) = self.tabs.get_mut(&child_id) {
                 child.parent_tab_id = None;
                 child.depth = 0;
@@ -355,6 +377,12 @@ impl MultiplexerState {
                 .map(str::to_string);
             if self.focused_tab_id.is_none() {
                 self.fallback_focus_to_general();
+            }
+        }
+
+        for surface_id in owned_surfaces {
+            if self.tabs.contains_key(&surface_id) {
+                pty_ids.extend(self.close_tab_inner(&surface_id)?);
             }
         }
 

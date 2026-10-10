@@ -124,6 +124,58 @@ impl MultiplexerState {
         Ok(())
     }
 
+    /// Rewrite the sidebar display order of a workspace across every tab level.
+    /// `ordered_tab_ids` may mix top-level and child tabs; each must belong to
+    /// the workspace. Unlisted tabs keep their relative order after the listed
+    /// ones, so one workspace-wide sequence never collides between levels.
+    pub fn reorder_display(
+        &mut self,
+        workspace_id: &str,
+        ordered_tab_ids: &[String],
+    ) -> Result<(), String> {
+        let ws = self
+            .workspaces
+            .iter()
+            .find(|w| w.id == workspace_id)
+            .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+        let mut seen = std::collections::HashSet::new();
+        for id in ordered_tab_ids {
+            if !ws.tabs.contains(id) {
+                return Err(format!("Tab not in workspace: {}", id));
+            }
+            if !seen.insert(id.as_str()) {
+                return Err(format!("Duplicate tab in order: {}", id));
+            }
+        }
+        let mut unlisted: Vec<(usize, &String)> = ws
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, id)| !seen.contains(id.as_str()))
+            .collect();
+        unlisted.sort_by_key(|(position, id)| {
+            (self.tabs.get(*id).map(|tab| tab.sort_order), *position)
+        });
+        let requested: Vec<String> = ordered_tab_ids
+            .iter()
+            .cloned()
+            .chain(unlisted.into_iter().map(|(_, id)| id.clone()))
+            .collect();
+        let protected_tabs: std::collections::HashSet<String> = self
+            .tabs
+            .iter()
+            .filter(|(_, tab)| tab.protected)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let final_order = pin_protected_tabs_first(ws, &requested, &protected_tabs);
+        for (index, tab_id) in final_order.iter().enumerate() {
+            if let Some(tab) = self.tabs.get_mut(tab_id) {
+                tab.sort_order = index as i32;
+            }
+        }
+        Ok(())
+    }
+
     /// Reorder workspaces. `ordered_workspace_ids` is the full new order; every
     /// id must be a known workspace. Assigns `sort_order = index`. The General
     /// (protected) workspace is clamped to index 0 — it never moves and nothing
@@ -243,6 +295,94 @@ mod tests {
         let top = state.create_tab(&ws).unwrap();
         // `top` is top-level, not a child of parent_tab → must be rejected.
         assert!(state.reorder_children(&parent_tab, &[top]).is_err());
+    }
+
+    fn make_child(state: &mut MultiplexerState, ws: &str, parent: &str) -> String {
+        let child = state.create_tab(ws).unwrap();
+        state.get_tab_mut(&child).unwrap().parent_tab_id = Some(parent.to_string());
+        child
+    }
+
+    #[test]
+    fn reorder_display_orders_mixed_levels_in_one_sequence() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws = state.list_workspaces()[0].id.clone();
+        let root = state.get_workspace(&ws).unwrap().tabs[0].clone();
+        let lead = state.create_tab(&ws).unwrap();
+        let worker_a = make_child(&mut state, &ws, &lead);
+        let worker_b = make_child(&mut state, &ws, &lead);
+        let loose = state.create_tab(&ws).unwrap();
+        state
+            .reorder_display(
+                &ws,
+                &[
+                    root.clone(),
+                    loose.clone(),
+                    lead.clone(),
+                    worker_b.clone(),
+                    worker_a.clone(),
+                ],
+            )
+            .unwrap();
+        let orders: Vec<i32> = [&root, &loose, &lead, &worker_b, &worker_a]
+            .iter()
+            .map(|id| order_of(&state, id))
+            .collect();
+        assert_eq!(orders, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn reorder_display_appends_unlisted_tabs_in_their_current_order() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws = state.list_workspaces()[0].id.clone();
+        let root = state.get_workspace(&ws).unwrap().tabs[0].clone();
+        let t1 = state.create_tab(&ws).unwrap();
+        let t2 = state.create_tab(&ws).unwrap();
+        let child = make_child(&mut state, &ws, &t1);
+        state.get_tab_mut(&t2).unwrap().sort_order = 50;
+        state.get_tab_mut(&child).unwrap().sort_order = 10;
+        state.reorder_display(&ws, &[t1.clone()]).unwrap();
+        assert_eq!(order_of(&state, &t1), 0);
+        assert_eq!(order_of(&state, &root), 1);
+        assert_eq!(order_of(&state, &child), 2);
+        assert_eq!(order_of(&state, &t2), 3);
+    }
+
+    #[test]
+    fn reorder_display_keeps_the_general_tab_first() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws = state.list_workspaces()[0].id.clone();
+        let general_tab = state.get_workspace(&ws).unwrap().tabs[0].clone();
+        state.get_tab_mut(&general_tab).unwrap().protected = true;
+        let t1 = state.create_tab(&ws).unwrap();
+        let child = make_child(&mut state, &ws, &t1);
+        state
+            .reorder_display(&ws, &[child.clone(), t1.clone(), general_tab.clone()])
+            .unwrap();
+        assert_eq!(order_of(&state, &general_tab), 0);
+        assert_eq!(order_of(&state, &child), 1);
+        assert_eq!(order_of(&state, &t1), 2);
+    }
+
+    #[test]
+    fn reorder_display_rejects_a_foreign_tab() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws = state.list_workspaces()[0].id.clone();
+        let t1 = state.create_tab(&ws).unwrap();
+        let other = state.create_workspace("B".into(), None).id;
+        let foreign = state.create_tab(&other).unwrap();
+        let before = order_of(&state, &t1);
+        assert!(state
+            .reorder_display(&ws, &[foreign.clone(), t1.clone()])
+            .is_err());
+        assert_eq!(
+            order_of(&state, &t1),
+            before,
+            "a rejected order changes nothing"
+        );
+        assert!(state
+            .reorder_display(&ws, &[t1.clone(), t1.clone()])
+            .is_err());
     }
 
     #[test]

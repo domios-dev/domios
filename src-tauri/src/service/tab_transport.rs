@@ -98,16 +98,9 @@ impl TabTransport for PtyTransport<'_> {
             raw
         };
         let output = if strip_ansi {
-            // Re-emulate at the pty's REAL width: shell partial-line redraws
-            // (zsh's % padding) erase the last output line at any other width.
-            let cols = self
-                .svc
-                .pty
-                .lock()
-                .size(&pty_id)
-                .map(|(c, _)| c)
-                .unwrap_or(200);
-            crate::pty::ansi::clean_terminal_output_sized(truncated, 500, cols)
+            // ConPTY cursor addresses and shell redraws refer to the real viewport.
+            let (cols, rows) = self.svc.pty.lock().size(&pty_id).unwrap_or((200, 50));
+            crate::pty::ansi::clean_terminal_output_sized(truncated, rows, cols)
         } else {
             truncated.to_string()
         };
@@ -142,7 +135,7 @@ impl ServiceContext {
                 plugin_id,
                 session_id,
             } => Some((plugin_id, session_id)),
-            TabBacking::Pty => None,
+            TabBacking::Pty | TabBacking::Surface(_) => None,
         }
     }
 
@@ -216,6 +209,7 @@ impl ServiceContext {
                 plugin_id,
                 session_id,
             })),
+            TabBacking::Surface(_) => Ok(Box::new(super::surface::SurfaceTransport)),
         }
     }
 }

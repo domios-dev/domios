@@ -148,6 +148,33 @@ fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value
     call_plan_rpc(client, method, params)
 }
 
+fn targeted_rebind_response(
+    response: Value,
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+) -> Result<Value, String> {
+    let status = response.get("status").and_then(Value::as_str);
+    if response.get("ok").and_then(Value::as_bool) != Some(true)
+        || response.get("plan_id").and_then(Value::as_str) != Some(plan_id)
+        || response.get("task_id").and_then(Value::as_str) != Some(task_id)
+        || response.get("attempt_id").and_then(Value::as_str) != Some(attempt_id)
+        || !matches!(status, Some("restored" | "already_current"))
+    {
+        return Err(
+            "targeted plan rebind was not confirmed by a compatible daemon; update the daemon before retrying"
+                .into(),
+        );
+    }
+    Ok(json!({
+        "ok": true,
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "status": status.unwrap(),
+    }))
+}
+
 pub fn handle_plan(client: &mut dyn RpcClient, json: bool, action: PlanAction) {
     let action = match action {
         PlanAction::Task {
@@ -351,9 +378,10 @@ fn run_plan(
         PlanAction::LaneRemove {
             worktree,
             branch,
+            force,
             project,
         } => {
-            let mut params = json!({ "worktree_path": worktree });
+            let mut params = json!({ "worktree_path": worktree, "force": force });
             if let Some(branch) = branch {
                 params["branch"] = json!(branch);
             }
@@ -669,14 +697,51 @@ fn run_plan(
             call(client, "plan.mode.set", params)
         }
 
-        PlanAction::Rebind { plan_id } => {
-            let mut params = json!({});
-            if let Some(plan_id) = plan_id {
-                params["plan_id"] = json!(plan_id);
+        PlanAction::Rebind {
+            plan_id,
+            task_id,
+            attempt_id,
+        } => match (task_id, attempt_id) {
+            (Some(task_id), Some(attempt_id)) => {
+                let plan_id = plan_id.ok_or(
+                    "targeted plan rebind requires an explicit plan id before --task and --attempt",
+                )?;
+                let shown = call(client, "task.show", json!({ "task_id": &task_id }))?;
+                if shown.get("plan_id").and_then(Value::as_str) != Some(plan_id.as_str()) {
+                    return Err("the exact task does not belong to the requested plan".into());
+                }
+                let task = shown.get("task").unwrap_or(&shown);
+                let owner_epoch = task
+                    .get("interruption")
+                    .and_then(|value| value.get("owner_epoch"))
+                    .and_then(Value::as_u64)
+                    .filter(|epoch| *epoch > 0)
+                    .ok_or("task detail did not include a current owner epoch")?;
+                let exact_task_id = task
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or("task detail did not include the exact task id")?;
+                let mut params = json!({
+                    "plan_id": &plan_id,
+                    "task_id": exact_task_id,
+                    "attempt_id": &attempt_id,
+                    "owner_epoch": owner_epoch,
+                });
+                inject_trusted_session(&mut params);
+                let response = call(client, "plan.session.rebind", params)?;
+                targeted_rebind_response(response, &plan_id, exact_task_id, &attempt_id)
             }
-            inject_trusted_session(&mut params);
-            call(client, "plan.session.rebind", params)
-        }
+            (None, None) => {
+                let mut params = json!({});
+                if let Some(plan_id) = plan_id {
+                    params["plan_id"] = json!(plan_id);
+                }
+                inject_trusted_session(&mut params);
+                call(client, "plan.session.rebind", params)
+            }
+            _ => Err("targeted plan rebind requires both --task and --attempt".into()),
+        },
 
         PlanAction::PlanningState {
             plan_id,

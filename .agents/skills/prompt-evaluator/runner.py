@@ -396,7 +396,10 @@ def _do_one_run(
         slots: list[MatchResult | None] = [None] * len(ev.expectations)
         with ThreadPoolExecutor(max_workers=max(1, judge_concurrency)) as pool:
             fut_to_idx = {
-                pool.submit(match_expectation, exp, response, judge_model, run_idx=run_idx): i
+                pool.submit(
+                    match_expectation, exp, response, judge_model,
+                    run_idx=run_idx, response_mode=ev.response_mode,
+                ): i
                 for i, exp in enumerate(ev.expectations)
             }
             for fut in as_completed(fut_to_idx):
@@ -758,7 +761,7 @@ def render_ab_report(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Evaluate or A/B compare CodeTerm prompt files against an eval set.",
+        description="Evaluate or A/B compare Domios prompt files against an eval set.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 

@@ -16,6 +16,23 @@ struct Shell {
     models: Arc<RwLock<Vec<ModelInfo>>>,
 }
 
+#[test]
+fn codex_rpc_registry_preserves_structured_control() {
+    let agents = Arc::new(AgentRegistry::new());
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/plugin.json");
+    agents.register_provider(Box::new(
+        codeterm_plugin::js_runtime::load_one(&manifest).unwrap(),
+    ));
+    let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
+    let descriptors = registry.describe_all();
+    assert_eq!(
+        descriptors[0].structured_control.as_ref().unwrap().protocol,
+        "codex-app-server"
+    );
+    assert_eq!(descriptors[0].transport, ProviderTransport::Pty);
+}
+
 impl ChatBackendProvider for Shell {
     fn id(&self) -> &str {
         self.id
@@ -63,6 +80,7 @@ fn registry() -> (
         description: None,
         available: None,
         availability: None,
+        primary: None,
         featured: None,
         badge: None,
         group: None,
@@ -130,6 +148,7 @@ fn describe_all_reads_registration_snapshot_until_provider_refresh() {
         description: None,
         available: None,
         availability: None,
+        primary: None,
         featured: None,
         badge: None,
         group: None,
@@ -187,4 +206,16 @@ fn readiness_gate_unknown_provider() {
         reg.wait_for_agent_startup("nope"),
         crate::agent::registry::ProviderStartupStatus::Ready
     ));
+}
+
+#[test]
+fn chat_backend_cli_status_requires_no_binary_or_installer() {
+    let (registry, _, _) = registry();
+    let status = registry.cli_status("shell", "windows").unwrap();
+    assert!(!status.required);
+    assert_eq!(status.binary, None);
+    assert_eq!(status.installed, None);
+    assert_eq!(status.installer, None);
+    assert_eq!(status.updater, None);
+    assert!(registry.cli_status("missing", "linux").is_err());
 }

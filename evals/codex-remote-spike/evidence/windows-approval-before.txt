@@ -1,0 +1,22 @@
+• I’ll run the single read-only command to print the two named values and invoke dc identify.
+• Failed (exit 1) Write-Output "CODETERM_TAB_ID=$env:CODETERM_TAB_ID"; Write-Output "CODETERM_SESSION_BINDING_NONCE=$en…
+  └ CODETERM_TAB_ID=bc042710
+    CODETERM_SESSION_BINDING_NONCE=489d5168-7fda-46d5-a2a5-a861617095f9
+    ERROR [dev-resolution]: instance='default' resolved_path='<unresolved>' expected_data_dir='<identify --json unavail…
+    + 1 line (ctrl+t to expand)
+• ENV_CHECK_DONE
+  Worked for 14s • 14:20
+› For this approval fan-out test, use exec_command to run the harmless command Write-Output SPIKE_APPROVAL with
+  sandbox_permissions require_escalated and justification 'May I print the spike marker?'. Explicitly request
+  escalation even though it only prints. Do not substitute another tool, do not write files, and do not retry after a
+  denial.
+• I’ll request escalation for the marker command as specified.
+• Running Write-Output SPIKE_APPROVAL
+  Would you like to run the following command?
+  Environment: local
+  Reason: May I print the spike marker?
+  $ Write-Output SPIKE_APPROVAL
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `Write-Output SPIKE_APPROVAL` (p)
+  3. No, and tell Codex what to do differently (esc)
+  Press enter to confirm or esc to cancel

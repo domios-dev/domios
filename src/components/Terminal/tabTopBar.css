@@ -1,0 +1,22 @@
+.ct-tab-top-bar,
+.ct-jobs-header,
+.plan-side-panel__header,
+.ct-toolbar {
+  position: relative;
+  z-index: 3;
+  background: var(--ct-bg);
+}
+
+.ct-tab-top-bar::after,
+.ct-jobs-header::after,
+.plan-side-panel__header::after,
+.ct-toolbar::after {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 12px;
+  background: linear-gradient(var(--ct-bg), transparent);
+  content: "";
+  pointer-events: none;
+}

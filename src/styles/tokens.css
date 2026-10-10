@@ -1,5 +1,5 @@
 /* ==========================================================================
-   CodeTerm Design Tokens
+   Domios Design Tokens
    Complements the dynamic theme vars (--ct-bg, --ct-fg, etc.)
    ========================================================================== */
 
@@ -74,6 +74,10 @@
     0 8px 16px rgba(0, 0, 0, 0.35),
     0 24px 64px rgba(0, 0, 0, 0.3),
     0 0 0 1px rgba(255, 255, 255, 0.06);
+  --ct-shadow-capsule:
+    0 4px 8px rgba(0, 0, 0, 0.24),
+    0 12px 32px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
 
   /* Blur values */
   --ct-blur-sm: 8px;
@@ -81,11 +85,41 @@
   --ct-blur-lg: 32px;
   --ct-blur-overlay: 24px;
 
+  /* Automation kind tones, shared by the composer context, Jobs and chat deliveries */
+  --ct-tone-blueprint: color-mix(in srgb, var(--ct-accent) 62%, var(--ct-fg));
+  --ct-tone-cron: var(--ct-yellow);
+  --ct-tone-delayed: var(--ct-green);
+  --ct-tone-build: color-mix(in srgb, var(--ct-red) 45%, var(--ct-yellow));
+  --ct-tone-dev: var(--ct-cyan);
+  --ct-tone-qa: var(--ct-magenta);
+  --ct-tone-deploy: color-mix(in srgb, var(--ct-blue) 55%, var(--ct-magenta));
+  --ct-tone-logs: var(--ct-muted-fg);
+  --ct-tone-db: color-mix(in srgb, var(--ct-cyan) 55%, var(--ct-green));
+  --ct-tone-shell: var(--ct-muted-fg);
+
+  /* Frosted glass surfaces (menus, popovers) */
+  --ct-glass-blur: 40px;
+  --ct-glass-saturate: 1.6;
+  --ct-glass-bg: color-mix(in srgb, var(--ct-surface) 86%, var(--ct-bg) 10%);
+  --ct-glass-sheen: linear-gradient(180deg, color-mix(in srgb, var(--ct-fg) 5%, transparent), transparent 42%);
+  --ct-glass-edge: inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 9%, transparent);
+
   /* Radii */
   --ct-radius-sm: 4px;
   --ct-radius-md: 8px;
   --ct-radius-lg: 12px;
   --ct-radius-xl: 16px;
+
+  /* Window controls keep the host platform's colours whatever the theme */
+  --ct-window-close: #ff5f57;
+  --ct-window-close-glyph: #4d0000;
+  --ct-window-minimize: #febc2e;
+  --ct-window-minimize-glyph: #995700;
+  --ct-window-maximize: #28c840;
+  --ct-window-maximize-glyph: #006500;
+  --ct-window-close-hover: #e81123;
+
+  --ct-sheen: #fff;
 }
 
 /* Reduced motion */

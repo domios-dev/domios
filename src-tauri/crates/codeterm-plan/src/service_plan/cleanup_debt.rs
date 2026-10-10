@@ -76,6 +76,7 @@ mod tests {
     fn detects_terminal_task_cleanup_debt_from_lane_metadata() {
         let mut plan = Plan::new("Cleanup".into(), "/repo".into(), OrchestratorRef::default());
         let task = Task {
+            files: Default::default(),
             id: "task_1".into(),
             name: "Worker lane".into(),
             kind: "implement".into(),

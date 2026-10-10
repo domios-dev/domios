@@ -1,4 +1,5 @@
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
+import type {ProviderSignals} from "./providerSignals";
 
 /** Title priority: higher levels cannot be overwritten by lower ones. */
 export enum TitleLevel {
@@ -50,6 +51,21 @@ export interface ClosedTabView extends ClosedTab {
   group_kind: "single" | "cascade" | "workspace";
 }
 
+export interface ClosedStructureView {
+  id: string;
+  state: "closed" | "restoring" | "restored";
+  kind: "team" | "workspace";
+  label: string;
+  closed_at: number;
+  undo_until: number;
+  member_count: number;
+  team_count: number;
+  shell_count: number;
+  agent_count: number;
+  cron_count: number;
+  blueprint_count: number;
+}
+
 export type AgentRole = "Manager" | "Worker";
 
 export interface PromptOption {
@@ -83,11 +99,22 @@ export interface PendingPrompt {
   selected_values?: string[] | null;
 }
 
-/** What backs a tab's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors
- *  the Rust `TabBacking` (serde `tag = "kind"`, snake_case). */
+/** A plugin surface tab: a plugin view rendered inside a core-owned tab frame. */
+export interface SurfaceTabBacking {
+  kind: "surface";
+  plugin_id: string;
+  surface_id: string;
+  instance_id: string;
+  /** The tab is labelled after its owner (`parent_tab_id`). */
+  owner_label?: boolean;
+}
+
+/** What backs a tab's I/O — a PTY (terminal), a plugin chatBackend, or a plugin
+ *  surface. Mirrors the Rust `TabBacking` (serde `tag = "kind"`, snake_case). */
 export type TabBacking =
   | { kind: "pty" }
-  | { kind: "chat_backend"; plugin_id: string; session_id: string };
+  | { kind: "chat_backend"; plugin_id: string; session_id: string }
+  | SurfaceTabBacking;
 
 /** Tunable watcher limits set by the spawner; host clamps to safe bounds. */
 export interface WatcherPolicy {
@@ -122,15 +149,7 @@ export interface TabAgentState {
   phase?: string | null;
   /** Parsed elapsed time for the provider status line, in milliseconds. */
   elapsed_ms?: number | null;
-  subtype?:
-    | "model_choice"
-    | "model_picker"
-    | "permission"
-    | "auth"
-    | "rate_limit"
-    | "update"
-    | "error"
-    | "unknown";
+  subtype?: "model_choice" | "model_picker" | "permission" | "auth" | "rate_limit" | "update" | "error" | "unknown";
 }
 
 /** Truthful tab-boot progress, emitted by the daemon at real launch
@@ -160,6 +179,15 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  pending_model_selection?: { model: string; effort: string | null } | null;
+  pending_model_switch_observation?: { launched_model: string } | null;
+  close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
+  shell_profile?: ShellProfile | null;
+  purpose?: import("./shellCommandState").ShellPurpose;
+  icon?: string | null;
+  shell_command_state?: import("./shellCommandState").ShellCommandState;
+  context?: { used_tokens: number; window_tokens: number; cost_usd: number | null; source: string };
+  provider_signals?: ProviderSignals;
   id: string;
   workspace_id?: string | null;
   /** Per-group sibling ordinal within the owning workspace or hierarchy. */
@@ -186,6 +214,8 @@ export interface Tab {
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   agent_requested_model?: string | null;
+  structured_control_active?: boolean;
+  structured_runtime_mode?: string | null;
   agent_provider_resolved_model?: string | null;
   agent_label?: string | null;
   reasoning_effort_identity?: {
@@ -202,8 +232,10 @@ export interface Tab {
   }>;
   role?: AgentRole | null;
   role_profile?: string | null;
+  roleless_tracked?: boolean;
   team_id?: string | null;
   spawned_by_tab_id?: string | null;
+  managed?: { manager_tab_id: string; manager_name: string; manager_closed: boolean } | null;
   parent_tab_id?: string | null;
   can_spawn?: boolean;
   depth?: number;
@@ -258,6 +290,7 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedTabView[];
+  closed_structures?: ClosedStructureView[];
   /** Aggregate Idle/Working/Waiting/Error/Dead per PTY-backed tab, mirrored from the
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */
@@ -308,69 +341,13 @@ export interface PtyInfo {
   status: "running" | "dead";
 }
 
-/** What one notification button does, as the daemon stores and emits it. */
-export type NotificationAction =
-  { type: "url"; label: string; value: string }
-  | { type: "dismiss"; label: string }
-  | { type: "answer"; label: string }
-  | {
-      type: "respond_prompt_option";
-      label: string;
-      value: string;
-      identity: NotificationPromptIdentity;
-    };
-
-export type CallerNotificationAction =
-  | Extract<NotificationAction, { type: "url" }>
-  | Extract<NotificationAction, { type: "dismiss" }>
-  | Extract<NotificationAction, { type: "answer" }>;
-
-export interface NotificationPromptIdentity {
-  kind: "provider" | "directory_trust" | "structured" | "manual_update";
-  options: Array<{ label: string; value: string }>;
-}
-
-/** The answer slot of one notification: the tab captured when the question was
- * sent, and the single label it may ever hold. */
-export interface NotificationAnswer {
-  asked_from_tab: string | null;
-  answered: string | null;
-  /** Whether the standing answer reached the asking tab. Recording an answer and
-   * carrying it back are separate facts, so a refused send never reads as done. */
-  delivered: boolean;
-}
-
-export interface Notification {
-  id: string;
-  key?: string;
-  tab_id: string | null;
-  workspace_id: string | null;
-  /** Navigation hint: the tab whose chat holds the message this is about. */
-  target_tab_id?: string | null;
-  /** The exact `data-message-id` inside `target_tab_id`; never matched by text. */
-  chat_message_id?: string | null;
-  title: string;
-  body: string | null;
-  icon_svg?: string | null;
-  icon_color?: string | null;
-  icon_hint?: string | null;
-  /** Wire and dedupe axis only: it joins provenance and title in the record's
-   *  identity. No surface tones by it — `level` is the single tone axis. */
-  severity: "Info" | "Warning" | "Error";
-  /** The tone axis, named by the sender and routed on by the destination
-   *  matrix. Absent means the caller named no level — a distinct, legal state,
-   *  not a lost one — and every surface paints it the neutral tone. */
-  level?: "verbose" | "action_needed" | "failure";
-  timestamp: number;
-  read: boolean;
-  /** Action buttons — if present, toast shows buttons instead of auto-dismiss */
-  actions?: NotificationAction[];
-  /** Present when the notification offers a choice */
-  answer?: NotificationAnswer;
-  resolved?: boolean;
-  /** Persist toast — don't auto-dismiss, require explicit action */
-  sticky?: boolean;
-}
+export type {
+  Notification,
+  NotificationAction,
+  NotificationAnswer,
+  NotificationPromptIdentity,
+  CallerNotificationAction,
+} from "./notificationTypes";
 
 export type TabStatus = "Working" | "Waiting" | "Idle" | "Error" | "Dead";
 
@@ -435,6 +412,13 @@ export interface GraphWorkerInfo {
   color: string;
   report: string | null;
   done_at: number | null;
+  last_observed_at?: number | null;
+  extraction_retry?: {
+    attempt: number;
+    parked: boolean;
+    retry_after: number | null;
+    reason: string | null;
+  } | null;
   log_path?: string | null;
   agent_provider?: string | null;
   model?: string | null;
@@ -539,7 +523,16 @@ export interface FontConfig {
   ligatures: boolean;
 }
 
+export interface ShellProfile {
+  id: string;
+  name: string;
+  executable: string;
+  args: string[];
+  wsl_distro: string | null;
+}
+
 export interface TerminalConfigSettings {
+  default_shell?: string | null;
   cursor_style: string;
   cursor_blink: boolean;
   scrollback: number;
@@ -598,6 +591,16 @@ export interface PushChannelConfig {
 }
 
 export interface KeybindingsConfig {
+  new_tab?: string;
+  close_tab?: string;
+  new_workspace?: string;
+  copy?: string;
+  paste?: string;
+  search?: string;
+  zoom_in?: string;
+  zoom_out?: string;
+  zoom_reset?: string;
+  open_settings?: string;
   reopen_tab?: string;
   /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
   next_tab?: string;
@@ -610,6 +613,7 @@ export interface SocketConfigSettings {
 }
 
 export interface AgentConfig {
+  reply_relay_max_hops?: number;
   poll_interval_ms: number;
   idle_timeout_s: number;
   resume_sessions: boolean;
@@ -623,6 +627,7 @@ export interface ApiConfig {
   token: string | null;
   cors: boolean;
   cors_allow_origins?: string[];
+  preview_secret_paths?: string[];
 }
 
 export interface GeneralAgentConfig {
@@ -767,26 +772,21 @@ export interface SupporterSources {
 }
 
 export interface MemoryRerankConfig {
-  enabled: boolean;
   docs_hybrid: boolean;
   sources: SupporterSources;
   candidates: number;
   max_concurrency: number;
+  request_mode: "per_candidate" | "shared_state";
   low_confidence_threshold: number;
   max_body_chars: number;
 }
 
-export interface SupporterTabStateConfig {
-  enabled: boolean;
-}
-
 export interface SupporterConfig {
-  adapter: string;
-  endpoint?: string | null;
-  model?: string | null;
+  adapter?: string | null;
+  connections: Record<string, { model: string | null; endpoint: string | null }>;
   deadline_ms: number;
   memory_rerank: MemoryRerankConfig;
-  tab_state: SupporterTabStateConfig;
+  calls_per_hour?: number | null;
 }
 
 export interface MemoryConfig {
@@ -829,6 +829,19 @@ export interface AppConfig {
   mesh: MeshConfig;
   orchestration: OrchestrationConfig;
   ui?: UiConfig;
+  model_defaults?: ModelDefaultsConfig;
+}
+
+/** A stored model default the daemon moved off a model its catalogue stopped offering. */
+export interface ReplacedModelDefault {
+  provider: string;
+  from: string;
+  to: string;
+  reason: string;
+}
+
+export interface ModelDefaultsConfig {
+  replaced?: Record<string, ReplacedModelDefault>;
 }
 
 // Provider descriptor wire types mirror `src-tauri/src/agent/provider.rs`.
@@ -836,6 +849,7 @@ export interface AppConfig {
 
 export interface ModelInfo {
   id: string;
+  primary?: boolean | null;
   display_name: string;
   description?: string;
   available?: boolean | null;
@@ -903,10 +917,7 @@ export type BehaviorConfig =
   | { model: "graph" };
 
 /** How a system prompt reaches the provider. */
-export type SystemPromptDelivery =
-  | { cli_flag: string }
-  | "session_config"
-  | "external";
+export type SystemPromptDelivery = { cli_flag: string } | "session_config" | "external";
 
 export type NoteLevel = "info" | "warn" | "error";
 export type BadgeStyle = "green" | "orange" | "red" | "gray";
@@ -922,11 +933,44 @@ export interface BadgeVariant {
 /// Discriminated union — `kind` field tags the variant. Mirror of
 /// `SettingField` enum (snake_case rename) on the Rust side.
 export type SettingField =
-  | { kind: "section"; title: string; description?: string; fields: SettingField[] }
-  | { kind: "toggle"; key: string; label: string; default: boolean; description?: string }
-  | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
-  | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
-  | { kind: "select"; key: string; label: string; options: [string, string][]; default?: string; description?: string }
+  | {
+      kind: "section";
+      title: string;
+      description?: string;
+      fields: SettingField[];
+    }
+  | {
+      kind: "toggle";
+      key: string;
+      label: string;
+      default: boolean;
+      description?: string;
+    }
+  | {
+      kind: "text";
+      key: string;
+      label: string;
+      default?: string;
+      placeholder?: string;
+      description?: string;
+    }
+  | {
+      kind: "number";
+      key: string;
+      label: string;
+      default?: number;
+      min?: number;
+      max?: number;
+      description?: string;
+    }
+  | {
+      kind: "select";
+      key: string;
+      label: string;
+      options: [string, string][];
+      default?: string;
+      description?: string;
+    }
   | {
       kind: "array";
       key: string;
@@ -937,10 +981,38 @@ export type SettingField =
       item: {
         kind: "object";
         fields: Array<
-          | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
-          | { kind: "textarea"; key: string; label: string; default?: string; placeholder?: string; description?: string }
-          | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
-          | { kind: "json"; key: string; label: string; default?: Record<string, unknown>; description?: string }
+          | {
+              kind: "text";
+              key: string;
+              label: string;
+              default?: string;
+              placeholder?: string;
+              description?: string;
+            }
+          | {
+              kind: "textarea";
+              key: string;
+              label: string;
+              default?: string;
+              placeholder?: string;
+              description?: string;
+            }
+          | {
+              kind: "number";
+              key: string;
+              label: string;
+              default?: number;
+              min?: number;
+              max?: number;
+              description?: string;
+            }
+          | {
+              kind: "json";
+              key: string;
+              label: string;
+              default?: Record<string, unknown>;
+              description?: string;
+            }
         >;
       };
     }
@@ -972,11 +1044,14 @@ export interface ModelCatalogueCapability {
   liveDiscoveryRequired: boolean;
 }
 
-export type ModelSwitchMode = "restart_resume" | "unsupported";
+export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
+  supports_session_fork?: boolean;
+  cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;
+  catalogue_version?: number;
   display_name: string;
   /** Runtime backing — the spawn discriminant (replaces the old `kind` string). */
   transport: ProviderTransport;
@@ -1005,6 +1080,8 @@ export interface ProviderDescriptor {
   notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
+  /** Provider writes custom model endpoints into its own config. */
+  supports_model_endpoints?: boolean;
   supports_permission_bypass?: boolean;
   /// Provider can render a tab as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
@@ -1040,6 +1117,11 @@ export interface ProviderDescriptor {
   /// Absent (older peer) means nothing was observed — read it as `unknown`,
   /// never as the negative. Use `providerAvailability()` rather than this field.
   availability?: ProviderAvailability;
+}
+
+export interface ModelCatalogueChanged {
+  provider: string;
+  version: number;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

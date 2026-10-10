@@ -17,12 +17,12 @@ const PAGE_REGION = /<div role="region" aria-labelledby="([^"]*)"/;
 const CARD_GROUP = /aria-labelledby="([^"]*)"/;
 
 function openingTag(html: string): string {
-  return html.match(/<div[^>]*>/)?.[0] ?? "";
+  return html.match(/<[a-z]+\b[^>]*>/)?.[0] ?? "";
 }
 
 function page(title: string): string {
   return renderToStaticMarkup(
-    <SettingsPage title={title} subtitle="subtitle">
+    <SettingsPage title={title}>
       <span>body</span>
     </SettingsPage>,
   );
@@ -40,7 +40,7 @@ describe("settings page and card accessibility surface", () => {
   });
 
   it("keeps the settings page addressable as a named region", () => {
-    const html = page("Integrations");
+    const html = page("Logs");
     expect(html).toContain('role="region"');
     expect(html).toContain('data-testid="settings-page"');
   });
@@ -59,7 +59,7 @@ describe("settings page and card accessibility surface", () => {
   });
 
   it("names each toggle switch from the label it was given", () => {
-    for (const label of ["Ligatures", "Copy on select", "Launch CodeTerm on system start"]) {
+    for (const label of ["Ligatures", "Copy on select", "Launch Domios on system start"]) {
       const html = renderToStaticMarkup(
         <Toggle label={label} checked={false} onChange={() => undefined} />,
       );

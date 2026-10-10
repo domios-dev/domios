@@ -1,10 +1,12 @@
 ---
+name: gap-analysis
+description: Audit a cut plan against the real codebase before any lane is dispatched, catching tasks that assume missing code or rebuild what already exists. Use between structure_ready and approved.
 title: Gap analysis — verify-before-claim audit of a plan before execution
 area: planning
 tags: [planning, review, verify-before-claim, pre-execution]
 ---
 
-# Gap analysis — pre-execution audit of a CodeTerm plan
+# Gap analysis — pre-execution audit of a Domios plan
 
 Run this AFTER a plan's structure is cut (GOAL + Spec + Plan sections + Tasks
 with briefs) and BEFORE the Orchestrator dispatches any lane. It is the stage

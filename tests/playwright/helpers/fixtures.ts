@@ -1,6 +1,6 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
-import { ApiClient, readDevToken } from "./api-client";
-import { currentDevInstance, type DevInstance } from "./dev-instance";
+import { ApiClient, readDevToken, type ApiRequestOptions } from "./api-client";
+import { currentDevInstance, isAdoptTarget, type DevInstance } from "./dev-instance";
 import { apiReset, diffReset, snapshotBaseline } from "./reset";
 import {
   API_BASE,
@@ -23,7 +23,7 @@ type WorkerFixtures = {
 };
 
 export type ManagedUiSession = UiSession & {
-  reconnect: () => Promise<ManagedUiSession>;
+  reconnect: (allowRestart?: boolean) => Promise<ManagedUiSession>;
 };
 
 export type TabCleanup = {
@@ -34,6 +34,7 @@ export type TabCleanup = {
 
 export type SpawnAgent = <T extends { tab_id: string } = { tab_id: string }>(
   body: Record<string, unknown>,
+  options?: ApiRequestOptions,
 ) => Promise<T>;
 
 export type PollMarkerInDomOptions = {
@@ -123,7 +124,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   uiSession: [
     async ({ devInstance }, use) => {
-      let current = await connectUi(devInstance);
+      let current = isAdoptTarget()
+        ? await connectUi(devInstance, { safeAttach: true })
+        : await connectUi(devInstance);
       const session: ManagedUiSession = {
         get browser() {
           return current.browser;
@@ -131,9 +134,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         get page() {
           return current.page;
         },
-        reconnect: async () => {
+        reconnect: async (allowRestart = false) => {
           await current.browser.close().catch(() => {});
-          current = await connectUi(devInstance);
+          current = await connectUi(devInstance, {
+            safeAttach: isAdoptTarget() && !allowRestart,
+          });
           return session;
         },
       };
@@ -202,10 +207,13 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   api: [
     async ({ devInstance, resetTracker }, use, testInfo) => {
       if (!(await isHealthy(devInstance))) {
+        if (isAdoptTarget()) {
+          throw new Error(`PW_TARGET=${process.env.PW_TARGET} will not start or restart the selected CodeTerm instance`);
+        }
         await ensureDevConsole(devInstance);
       }
       const client = new ApiClient(undefined, devInstance);
-      if (resetTracker.lastFile !== testInfo.file) {
+      if (!isAdoptTarget() && resetTracker.lastFile !== testInfo.file) {
         resetTracker.lastFile = testInfo.file;
         await apiReset(client);
       }
@@ -213,7 +221,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       try {
         await use(client);
       } finally {
-        await diffReset(client, baseline).catch(() => {});
+        if (!isAdoptTarget()) await diffReset(client, baseline).catch(() => {});
       }
     },
     { timeout: DEV_FIXTURE_TIMEOUT_MS },
@@ -247,8 +255,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   },
 
   spawnAgent: async ({ api, tabCleanup }, use) => {
-    await use(async <T extends { tab_id: string } = { tab_id: string }>(body: Record<string, unknown>) => {
-      const spawned = await api.post<T>("/agents/spawn", body);
+    await use(async <T extends { tab_id: string } = { tab_id: string }>(
+      body: Record<string, unknown>,
+      options?: ApiRequestOptions,
+    ) => {
+      const spawned = await api.post<T>("/agents/spawn", body, options);
       tabCleanup.track(spawned.tab_id);
       return spawned;
     });

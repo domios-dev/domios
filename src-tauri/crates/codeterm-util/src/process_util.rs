@@ -5,6 +5,9 @@
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[cfg(all(windows, debug_assertions))]
+pub mod diagnostics;
+
 /// Suppress the auto-spawned console window for `std::process::Command`
 /// on Windows. No-op everywhere else.
 #[cfg(windows)]

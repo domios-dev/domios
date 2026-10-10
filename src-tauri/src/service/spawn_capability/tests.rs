@@ -82,6 +82,7 @@ fn spawn_routing_capability_ids_are_stable_discriminants() {
 #[test]
 fn spawn_routing_agent_launch_slot_exists_only_on_the_pty_command() {
     let mut pty = SpawnTabSpec {
+        shell: None,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: "alpha-agent".into(),
             ..Default::default()
@@ -95,6 +96,7 @@ fn spawn_routing_agent_launch_slot_exists_only_on_the_pty_command() {
     );
 
     let mut chat = SpawnTabSpec {
+        shell: None,
         command: TabCommand::ChatBackend {
             plugin_id: "gamma-shell".into(),
             config: serde_json::Value::Null,

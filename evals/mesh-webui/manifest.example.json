@@ -1,0 +1,150 @@
+{
+  "rcRoot": "/Users/dev/Developer/codeterm-worktrees/rc-mac",
+  "mac": {
+    "origin": "http://100.64.10.2:7697",
+    "peerId": "REPLACE_EXACT_PEER_ID",
+    "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
+    "tabs": [
+      {
+        "provider": "claude",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "haiku",
+        "switchModel": null,
+        "source": {
+          "provider": "claude",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB"
+        }
+      },
+      {
+        "provider": "codex",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "gpt-6-luna",
+        "switchModel": null,
+        "source": {
+          "provider": "codex",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB"
+        }
+      },
+      {
+        "provider": "opencode",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "deepseek/deepseek-flash",
+        "switchModel": null,
+        "source": {
+          "provider": "opencode",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB"
+        }
+      },
+      {
+        "provider": "grok",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "grok-4.6",
+        "switchModel": null,
+        "source": {
+          "provider": "grok",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB",
+          "summary_path": "REPLACE_EXACT_SESSION_SUMMARY_JSON"
+        }
+      }
+    ]
+  },
+  "windows": {
+    "origin": "http://100.64.10.1:7686",
+    "peerId": "REPLACE_EXACT_PEER_ID",
+    "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
+    "tabs": [
+      {
+        "provider": "claude",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "haiku",
+        "switchModel": null,
+        "source": {
+          "provider": "claude",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB"
+        }
+      },
+      {
+        "provider": "codex",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "gpt-6-luna",
+        "switchModel": null,
+        "source": {
+          "provider": "codex",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB"
+        }
+      },
+      {
+        "provider": "opencode",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "deepseek/deepseek-flash",
+        "switchModel": null,
+        "source": {
+          "provider": "opencode",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB"
+        }
+      },
+      {
+        "provider": "grok",
+        "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
+        "sessionId": "REPLACE_CLAIMED_SESSION_ID",
+        "title": "REPLACE_ONE_WORD_TITLE",
+        "testOwned": true,
+        "controllerTitle": "REPLACE_CONTROLLER_TITLE_FROM_TAB_OWNERSHIP",
+        "model": "grok-4.6",
+        "switchModel": null,
+        "source": {
+          "provider": "grok",
+          "session_id": "REPLACE_CLAIMED_SESSION_ID",
+          "path": "REPLACE_ABSOLUTE_NATIVE_SESSION_FILE_OR_OPENCODE_DB",
+          "summary_path": "REPLACE_EXACT_SESSION_SUMMARY_JSON"
+        }
+      }
+    ],
+    "recordShellTab": "REPLACE_TEST_SHELL_ID",
+    "recordShellTestOwned": true,
+    "python": "python"
+  }
+}

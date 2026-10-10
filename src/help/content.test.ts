@@ -14,7 +14,7 @@ function assert(condition: unknown, message: string): asserts condition {
 
 test("english content exposes all guide sections", () => {
   const ids = getHelpSectionIds("en");
-  assert(ids.length === 9, `expected 9 sections, got ${ids.length}`);
+  assert(ids.length === 12, `expected 12 sections, got ${ids.length}`);
   assert(ids.includes("plans"), "missing plans section");
   assert(ids.includes("supporter-agent"), "missing supporter agent section");
   assert(ids.includes("tips"), "missing tips section");

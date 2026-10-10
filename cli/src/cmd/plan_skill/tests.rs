@@ -248,8 +248,8 @@ fn plan_skill_show_omits_unproduced_session_id() {
     assert_eq!(params["caller_tab_id"], "ced263e9");
     assert_eq!(params["session_binding_nonce"], "nonce-5upl98");
     assert_eq!(params["plan_id"], "pl_zzmxgb");
-    assert_eq!(params["task_id"], "task_6bd5ky");
-    assert_eq!(params["attempt_id"], "attempt_5upl98");
+    assert!(params.get("task_id").is_none());
+    assert!(params.get("attempt_id").is_none());
     assert!(params.get("caller_session_id").is_none());
     for (key, value) in previous {
         match value {
@@ -388,5 +388,58 @@ fn plan_skill_show_refusal_exits_nonzero() {
             Some(value) => std::env::set_var(key, value),
             None => std::env::remove_var(key),
         }
+    }
+}
+
+#[test]
+fn plan_skill_default_uses_live_caller_despite_stale_launch_plan() {
+    let _guard = crate::test_env_lock().lock().unwrap();
+    let keys = [
+        "CODETERM_TAB_ID",
+        "CODETERM_PLAN_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+        "CODETERM_SESSION_ID",
+    ];
+    let previous = keys.map(|key| (key, std::env::var(key).ok()));
+    for key in keys {
+        std::env::remove_var(key);
+    }
+    for (key, value) in [
+        ("CODETERM_TAB_ID", "live-tab"),
+        ("CODETERM_SESSION_BINDING_NONCE", "live-nonce"),
+        ("CODETERM_PLAN_ID", "previous-plan"),
+        ("CODETERM_TASK_ID", "previous-task"),
+        ("CODETERM_ATTEMPT_ID", "previous-attempt"),
+    ] {
+        std::env::set_var(key, value);
+    }
+    let mut client = FakeRpc::default();
+    handle(&mut client, true, PlanSkillAction::List { plan: None }).unwrap();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::Show {
+            slug: "deploy".into(),
+            plan: None,
+        },
+    )
+    .unwrap();
+    let calls = client.calls.clone();
+    for (key, value) in previous {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+    assert_eq!(calls.len(), 2);
+    for (_, params) in calls {
+        let params = params.unwrap();
+        assert_eq!(params["caller_tab_id"], "live-tab");
+        assert_eq!(params["session_binding_nonce"], "live-nonce");
+        assert!(params.get("plan_id").is_none());
+        assert!(params.get("task_id").is_none());
+        assert!(params.get("attempt_id").is_none());
     }
 }

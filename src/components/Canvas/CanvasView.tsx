@@ -1,3 +1,5 @@
+import { returnToOrigin } from "../../lib/returnTo";
+import { useReturnToChat } from "../../hooks/useReturnToChat";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
@@ -22,7 +24,7 @@ import { nextWorld, worldThresholds, type World } from "./worlds";
 import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planTabMatch";
 import { useCanvasPlans, usePlanDataContextKey } from "./PlansProvider";
-import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
+import { canvasFocusStore, useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./canvasView/models";
 import type { Plan, Section, TagFacet } from "./types";
@@ -916,11 +918,20 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
   const projectPath = activeWs?.cwd ?? null;
   const planDataContextKey = usePlanDataContextKey();
   const workspaceTarget = useCanvasWorkspaceTarget();
+  const activateReturnTo = useReturnToChat();
+  const close = () => {
+    if (returnToOrigin(mode === "workspace" ? workspaceTarget : null, activateReturnTo)) return;
+    if (onClose) onClose();
+    else canvasFocusStore.closeWorkspace();
+  };
   const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
   const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
+  const scopeWorkspaceId =
+    mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined;
   const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
     mode,
     projectPath,
+    { workspaceId: scopeWorkspaceId, workspaces: state.workspaces, teams: state.teams },
   );
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
@@ -960,8 +971,6 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
             : buildPerfFixtureTabs(plans);
     return { ...state.tabs, ...fixtureTabs };
   }, [perfN, useReal, perfProfile, plans, state.tabs]);
-  const scopeWorkspaceId =
-    mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined;
   const shownFixtureOwnerTabIds = useMemo(
     () => fixtureOwnerTabIds(fixturePlans, plans),
     [fixturePlans, plans],
@@ -989,7 +998,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
       teams={state.teams}
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
-      onClose={onClose}
+      onClose={onClose || (mode === "workspace" && workspaceTarget?.returnTo) ? close : undefined}
       onOpenTab={onOpenTab}
       notifications={state.notifications}
       onSelectTab={selectTabByTab}

@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 
+use super::recording::record_hook_post;
 use super::{header_str, resolve_hook_tab};
 use crate::api::routes::AppState;
 
@@ -18,8 +19,12 @@ pub(crate) async fn hook_provider_event(
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<ProviderEventBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let started = std::time::Instant::now();
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "provider_event")?;
+    if let Some(response) = super::hook_authority::telemetry_response(&tab_id, "provider_event") {
+        return Ok(axum::response::IntoResponse::into_response(response));
+    }
     let provider = header_str(&headers, "x-codeterm-agent-provider").ok_or((
         StatusCode::UNAUTHORIZED,
         "provider identity missing".to_string(),
@@ -53,6 +58,8 @@ pub(crate) async fn hook_provider_event(
             "provider event does not match the tab's claimed session".to_string(),
         ));
     }
+    let raw_event = serde_json::json!({"session_id": &body.session_id, "event": &body.event});
+    record_hook_post(&state, &tab_id, "provider_event", Some(&raw_event));
     let event_json = serde_json::to_string(&body.event).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
@@ -82,16 +89,29 @@ pub(crate) async fn hook_provider_event(
                 "provider idle tab has no PTY status".to_string(),
             ));
         }
+        state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+        state
+            .svc
+            .staged_model_turn_completed(&tab_id, &body.session_id, nonce);
     } else if turn_started && (pty_id.is_none() || !state.svc.mark_agent_turn_started(&tab_id)) {
         return Err((
             StatusCode::CONFLICT,
             "provider active tab has no PTY status".to_string(),
         ));
     }
-    Ok(Json(serde_json::json!({
+    let response = Json(serde_json::json!({
         "ok": true,
         "turn_error": turn_error,
         "turn_complete": turn_complete,
         "turn_started": turn_started,
-    })))
+    }));
+    log::info!(
+        "[hook/timing] tab={tab_id} route=provider_event phase=response_ready elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    Ok(if turn_started || turn_complete || turn_error {
+        super::reconciliation::after_response(response, state.svc, tab_id, "provider_event")
+    } else {
+        axum::response::IntoResponse::into_response(response)
+    })
 }

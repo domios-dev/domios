@@ -31,16 +31,29 @@ fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
     }
 }
 
+/// Legacy JSON edits apply in memory until `save`; Storage edits collect in a draft that
+/// `cron::store::settle_port` commits once the caller released the cron lock.
 pub struct CronSchedulerPort<'a>(pub &'a mut CronStore);
+
+impl CronSchedulerPort<'_> {
+    fn job(&self, id: &str) -> Result<store::CronJob, String> {
+        self.0
+            .port_jobs()
+            .iter()
+            .find(|job| job.id == id)
+            .cloned()
+            .ok_or_else(|| format!("cron job not found: {id}"))
+    }
+}
 
 impl MemSchedulerPort for CronSchedulerPort<'_> {
     fn list_jobs(&self) -> Vec<MemCronJob> {
-        self.0.list().iter().map(cron_to_mem).collect()
+        self.0.port_jobs().iter().map(cron_to_mem).collect()
     }
 
     fn find_job_by_name(&self, name: &str) -> Option<MemCronJob> {
         self.0
-            .list()
+            .port_jobs()
             .iter()
             .find(|j| j.name == name)
             .map(cron_to_mem)
@@ -51,11 +64,8 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
         id: &str,
         update: &mut dyn FnMut(&mut MemCronJob),
     ) -> Result<(), String> {
-        let job = self
-            .0
-            .get_mut(id)
-            .ok_or_else(|| format!("cron job not found: {id}"))?;
-        let mut view = cron_to_mem(job);
+        let mut job = self.job(id)?;
+        let mut view = cron_to_mem(&job);
         update(&mut view);
         job.agent = view.agent;
         job.schedule = view.schedule;
@@ -66,52 +76,47 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
         job.oneshot = view.oneshot;
         job.protected = view.protected;
         job.tz = view.tz;
-        Ok(())
+        self.0.port_update(job)
     }
 
     fn set_job_protected(&mut self, id: &str, protected: bool) -> Result<(), String> {
-        let job = self
-            .0
-            .get_mut(id)
-            .ok_or_else(|| format!("cron job not found: {id}"))?;
+        let mut job = self.job(id)?;
         job.protected = protected;
-        Ok(())
+        self.0.port_update(job)
     }
 
     fn create_job(&mut self, params: MemCronCreateParams) -> Result<(), String> {
-        self.0
-            .create(CronCreateParams {
-                name: params.name,
-                workspace_id: params.workspace_id,
-                team_id: None,
-                detach_from_team: false,
-                schedule: params.schedule,
-                task: params.task,
-                description: params.description,
-                agent: params.agent,
-                model: params.model,
-                reasoning_effort: None,
-                cwd: params.cwd,
-                role: params.role,
-                skill: None,
-                creator_tab_id: params.creator_tab_id,
-                report_target_tab_id: None,
-                enabled: params.enabled,
-                max_history: params.max_history,
-                oneshot: params.oneshot,
-                jitter_max_ms: params.jitter_max_ms,
-                tz: params.tz,
-                timeout_seconds: params.timeout_seconds,
-            })
-            .map(|_| ())
+        self.0.port_create(CronCreateParams {
+            name: params.name,
+            workspace_id: params.workspace_id,
+            team_id: None,
+            detach_from_team: false,
+            schedule: params.schedule,
+            task: params.task,
+            description: params.description,
+            agent: params.agent,
+            model: params.model,
+            reasoning_effort: None,
+            cwd: params.cwd,
+            role: params.role,
+            skill: None,
+            creator_tab_id: params.creator_tab_id,
+            report_target_tab_id: None,
+            enabled: params.enabled,
+            max_history: params.max_history,
+            oneshot: params.oneshot,
+            jitter_max_ms: params.jitter_max_ms,
+            tz: params.tz,
+            timeout_seconds: params.timeout_seconds,
+        })
     }
 
     fn delete_job(&mut self, id: &str) -> Result<(), String> {
-        self.0.delete(id).map(|_| ())
+        self.0.port_delete(id)
     }
 
     fn save(&mut self) -> Result<(), String> {
-        self.0.save()
+        self.0.port_save()
     }
 
     fn compute_next_run_jittered_in(
@@ -177,6 +182,14 @@ pub fn spawn_headless_worker(
     svc: Arc<ServiceContext>,
     params: workers::MemWorkerSpawnParams,
 ) -> Result<String, String> {
+    spawn_worker(svc, params, None)
+}
+
+fn spawn_worker(
+    svc: Arc<ServiceContext>,
+    params: workers::MemWorkerSpawnParams,
+    extraction_fingerprint: Option<String>,
+) -> Result<String, String> {
     let workers::MemWorkerSpawnParams {
         intent,
         task_prompt,
@@ -207,6 +220,18 @@ pub fn spawn_headless_worker(
     info.agent_provider = Some(agent_provider.clone());
     if !model.is_empty() {
         info.model = Some(model.clone());
+    }
+    if let Some(fingerprint) = extraction_fingerprint {
+        let Some(retry) = svc.workers.extraction_retries.claim(
+            &intent,
+            &fingerprint,
+            &worker_id,
+            info.spawned_at,
+        )?
+        else {
+            return Err("extraction is completed, active, backing off, or parked; use mem extract-pending to retry".into());
+        };
+        info.extraction_retry = Some(retry);
     }
     svc.workers.register(info.clone());
     AppMemEventSink(svc.app_handle.clone()).emit_graph_worker_spawned(&info);
@@ -272,9 +297,13 @@ pub fn spawn_headless_worker(
                     worker_id_task,
                     e
                 );
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, WorkerStatus::Error);
+                let _ = svc_task.workers.finish_execution(
+                    &worker_id_task,
+                    None,
+                    codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                        detail: format!("spawn_tab failed: {e}"),
+                    },
+                );
                 drop(permit);
                 return;
             }
@@ -285,9 +314,13 @@ pub fn spawn_headless_worker(
                     worker_id_task,
                     e
                 );
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, WorkerStatus::Error);
+                let _ = svc_task.workers.finish_execution(
+                    &worker_id_task,
+                    None,
+                    codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                        detail: format!("spawn task failed: {e}"),
+                    },
+                );
                 drop(permit);
                 return;
             }
@@ -307,51 +340,43 @@ pub fn spawn_headless_worker(
         let run_deadline_secs =
             crate::mem::worker_deadline::worker_deadline_secs(&intent_for_spawn, &memory_config);
         let watchdog_deadline_secs =
-            run_deadline_secs + crate::mem::worker_deadline::WORKER_WATCHDOG_GRACE_SECS;
+            crate::mem::worker_deadline::worker_watchdog_deadline_secs(run_deadline_secs);
+        let watchdog_grace_secs = watchdog_deadline_secs - run_deadline_secs;
         let watchdog_detail = format!(
             "worker watchdog deadline {}s (run deadline {}s + {}s grace)",
-            watchdog_deadline_secs,
-            run_deadline_secs,
-            crate::mem::worker_deadline::WORKER_WATCHDOG_GRACE_SECS
+            watchdog_deadline_secs, run_deadline_secs, watchdog_grace_secs
         );
         let deadline =
             tokio::time::Instant::now() + std::time::Duration::from_secs(watchdog_deadline_secs);
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            let Some(current) = svc_task.workers.get(&worker_id_task) else {
-                break;
-            };
-            if current.status.is_terminal() {
-                break;
-            }
-            if tokio::time::Instant::now() > deadline {
-                log::warn!(
+        if tokio::time::timeout_at(deadline, svc_task.workers.wait_terminal(&worker_id_task))
+            .await
+            .is_err()
+        {
+            log::warn!(
                     "[worker] {}/{} exceeded {}s watchdog (run deadline {}s + {}s grace), recording timeout + closing Tab",
                     intent_for_spawn,
                     worker_id_task,
                     watchdog_deadline_secs,
                     run_deadline_secs,
-                    crate::mem::worker_deadline::WORKER_WATCHDOG_GRACE_SECS
+                    watchdog_grace_secs
                 );
-                let _ = svc_task.workers.finish_execution(
-                    &worker_id_task,
-                    None,
-                    codeterm_mem::dream_status::ExecutionEnd::TimedOut {
-                        detail: watchdog_detail.clone(),
-                    },
-                );
-                let _ = svc_task.close_tab_with_reason(&handle.tab_id, TabCloseReason::Watchdog);
-                let (svc_end, worker_end) = (svc_task.clone(), worker_id_task.clone());
-                let _ = tokio::task::spawn_blocking(move || {
-                    crate::mem::dream_runs::finalize_dream_at_deadline(
-                        &svc_end,
-                        &worker_end,
-                        &watchdog_detail,
-                    )
-                })
-                .await;
-                break;
-            }
+            let _ = svc_task.workers.finish_execution(
+                &worker_id_task,
+                None,
+                codeterm_mem::dream_status::ExecutionEnd::TimedOut {
+                    detail: watchdog_detail.clone(),
+                },
+            );
+            let _ = svc_task.close_tab_with_reason(&handle.tab_id, TabCloseReason::Watchdog);
+            let (svc_end, worker_end) = (svc_task.clone(), worker_id_task.clone());
+            let _ = tokio::task::spawn_blocking(move || {
+                crate::mem::dream_runs::finalize_dream_at_deadline(
+                    &svc_end,
+                    &worker_end,
+                    &watchdog_detail,
+                )
+            })
+            .await;
         }
         drop(permit);
     });
@@ -409,6 +434,9 @@ pub fn spawn_extraction_worker(
     let agent_provider = resolved.agent;
     let model = resolved.model;
     let intent = format!("extract:{mem_item_id}");
+    if let Some(worker_id) = svc.workers.active_by_intent(&intent) {
+        return Some(worker_id);
+    }
 
     // A source that vanished before we got here has no row to bind, so there is nothing to authorize and no worker worth spawning.
     let Some(source_uid) = source_uid_of(svc, &mem_item_id) else {
@@ -423,13 +451,32 @@ pub fn spawn_extraction_worker(
         .extraction_authority()
         .open(&mem_item_id, &source_uid);
 
-    match spawn_headless(
-        svc,
-        intent,
-        prompt,
-        "auto:save".into(),
-        agent_provider,
-        model,
+    let availability = crate::service::spawn::provider_launch_preflight(
+        &svc.agent_registry,
+        &agent_provider,
+        true,
+    )
+    .is_ok()
+    .to_string();
+    let fingerprint = codeterm_mem::extraction_retry::fingerprint(&[
+        &source_uid,
+        &title,
+        &body,
+        &agent_provider,
+        &model,
+        &availability,
+        env!("BUILD_SHA"),
+    ]);
+    match spawn_worker(
+        svc.clone(),
+        workers::MemWorkerSpawnParams {
+            intent,
+            task_prompt: prompt,
+            spawned_by: "auto:save".into(),
+            agent_provider,
+            model,
+        },
+        Some(fingerprint),
     ) {
         Ok(worker_id) => {
             let authority = svc.mem.extraction_authority();
@@ -483,15 +530,45 @@ impl codeterm_mem::ExtractionCancelSink for WorkerCancelSink {
 }
 
 pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
+    extract_pending(svc, limit, true)
+}
+
+pub fn resume_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
+    extract_pending(svc, limit, false)
+}
+
+fn extract_pending(svc: Arc<ServiceContext>, limit: usize, explicit: bool) -> usize {
     let mem_cfg = crate::config::memory_config();
     let default_agent = crate::config::default_agent_provider();
-    let pending = match codeterm_mem::auto_extract::find_pending_items(&svc.mem, limit) {
+    let mut pending = match codeterm_mem::auto_extract::find_pending_items(&svc.mem, limit) {
         Ok(p) => p,
         Err(e) => {
             log::error!("[auto-extract] find_pending_items failed: {}", e);
             return 0;
         }
     };
+    if explicit {
+        match svc.workers.extraction_retries.failed_intents() {
+            Ok(intents) => {
+                for intent in intents {
+                    let Some(id) = intent.strip_prefix("extract:") else {
+                        continue;
+                    };
+                    if pending.len() >= limit
+                        || pending.iter().any(|(existing, _, _, _)| existing == id)
+                    {
+                        continue;
+                    }
+                    if let Ok(Some(item)) = svc.mem.get(id) {
+                        if let Some(kind) = codeterm_mem::store::MemKind::from_str(&item.kind) {
+                            pending.push((item.id, item.title, item.body, kind));
+                        }
+                    }
+                }
+            }
+            Err(error) => log::error!("[auto-extract] failed item lookup: {error}"),
+        }
+    }
     let count = pending.len();
     log::info!(
         "[auto-extract] queued {} pending items for extraction",
@@ -501,8 +578,29 @@ pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
     let fut = async move {
         let _permit = mem.acquire_heavy_permit().await;
         for (id, title, body, kind) in pending {
+            if explicit
+                && svc
+                    .workers
+                    .active_by_intent(&format!("extract:{id}"))
+                    .is_none()
+            {
+                if let Err(error) = svc
+                    .workers
+                    .extraction_retries
+                    .reset(&format!("extract:{id}"))
+                {
+                    log::error!("[auto-extract] reset failed: {error}");
+                    continue;
+                }
+            }
+            let (title, body) = svc
+                .mem
+                .get(&id)
+                .ok()
+                .flatten()
+                .map(|item| (item.title, item.body))
+                .unwrap_or((title, body));
             spawn_extraction_worker(&svc, &mem_cfg, &default_agent, id, title, body, kind);
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     };
     match tokio::runtime::Handle::try_current() {

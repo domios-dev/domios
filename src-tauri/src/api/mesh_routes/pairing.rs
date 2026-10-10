@@ -6,7 +6,7 @@ use axum::{
 
 use crate::api::routes::AppState;
 
-fn record_incoming_pairing_request(
+pub(super) fn record_incoming_pairing_request(
     mesh: &mut crate::mesh::MeshManager,
     request: crate::mesh::types::PairingRequest,
 ) -> Result<(String, String, String), String> {

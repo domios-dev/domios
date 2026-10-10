@@ -1,7 +1,22 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Weak};
+
+mod live_evidence;
+mod rpc_evidence;
+mod service_context;
+mod turn_matching;
+mod turn_reconciliation;
+use live_evidence::{ConsumedTurnWatermark, LiveEvidenceProgress};
+pub(crate) use live_evidence::{LiveProvenance, TurnPosition};
+use turn_matching::matching_turn_send_ids;
+pub(crate) use turn_matching::normalize_turn_evidence_with;
+
+use super::pending_delivery_payloads::user_sends::{
+    PreparedUserBody, UserReservation, UserSendAuthority, UserSendRecord, MAX_PREPARED_BYTES,
+};
 
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const MAX_RESULTS: usize = 256;
 const MAX_IN_FLIGHT: usize = 32;
@@ -9,10 +24,12 @@ const MAX_IN_FLIGHT: usize = 32;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSendState {
-    #[serde(rename = "accepted")]
+    #[serde(rename = "held")]
     Pending,
+    Written,
+    #[serde(rename = "submit_unconfirmed")]
     Unknown,
-    #[serde(rename = "confirmed")]
+    #[serde(rename = "delivered")]
     Sent,
     Failed,
 }
@@ -31,10 +48,13 @@ pub struct ChatSendStatus {
     /// on NormalizedChatMessage. Absent when the send carried none — never synthesized.
     #[serde(rename = "correlationId", skip_serializing_if = "Option::is_none")]
     pub correlation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_reason: Option<String>,
 }
 
 /// Capability-based append-window boundary captured at send start.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum EvidenceWindow {
     /// Append-only transcript file: the window is bytes at/after this offset.
     Jsonl { transcript_offset: u64 },
@@ -47,7 +67,7 @@ pub(crate) enum EvidenceWindow {
 /// Authoritative transcript identity captured at send start. Evidence for the
 /// send may only come from THIS session, inside its append window — never from
 /// another/latest session and never from pre-send history.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SendEvidenceAnchor {
     pub(crate) provider_id: String,
     pub(crate) cwd: String,
@@ -60,6 +80,20 @@ pub(crate) struct SendEvidenceAnchor {
 pub(crate) struct SendLiveBinding {
     pub(crate) session_id: Option<String>,
     pub(crate) binding_nonce: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DeferredFirstTurnEvidence {
+    pub(crate) provider_id: String,
+    pub(crate) cwd: String,
+    pub(crate) binding_nonce: String,
+}
+
+pub(crate) struct DeferredFirstTurnCandidate {
+    pub(crate) send_id: String,
+    pub(crate) payload: String,
+    pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+    pub(crate) evidence: DeferredFirstTurnEvidence,
 }
 
 pub(crate) struct EvidenceCandidate {
@@ -80,10 +114,22 @@ struct ChatSendLedgerState {
     /// emitted status, never read by evidence/confirm/retry logic.
     token_by_id: HashMap<String, String>,
     anchor_by_id: HashMap<String, SendEvidenceAnchor>,
+    rpc_by_id: HashMap<String, SendLiveBinding>,
     live_binding_by_id: HashMap<String, SendLiveBinding>,
     latest_by_tab: HashMap<String, String>,
     latest_failure_by_tab: HashMap<String, String>,
     order: VecDeque<String>,
+    owned: HashMap<String, (UserSendAuthority, bool)>,
+    terminal_failures: HashSet<String>,
+    consumed_merged_turns: HashMap<String, usize>,
+    consumed_merged_turn_order: VecDeque<String>,
+    held_before_readiness_by_id: HashMap<String, UserSendAuthority>,
+    absence_witness_by_id: HashMap<String, Arc<str>>,
+    sessionless_first_turn_by_id: HashSet<String>,
+    deferred_first_turn_by_id: HashMap<String, DeferredFirstTurnEvidence>,
+    claimed_first_turn_by_tab: HashMap<String, (String, String)>,
+    live_evidence_progress_by_tab: HashMap<String, LiveEvidenceProgress>,
+    consumed_turn_by_tab: HashMap<String, ConsumedTurnWatermark>,
 }
 
 impl Default for ChatSendLedgerState {
@@ -96,30 +142,401 @@ impl Default for ChatSendLedgerState {
             turn_normalization_by_id: HashMap::new(),
             token_by_id: HashMap::new(),
             anchor_by_id: HashMap::new(),
+            rpc_by_id: HashMap::new(),
             live_binding_by_id: HashMap::new(),
             latest_by_tab: HashMap::new(),
             latest_failure_by_tab: HashMap::new(),
             order: VecDeque::new(),
+            owned: HashMap::new(),
+            terminal_failures: HashSet::new(),
+            consumed_merged_turns: HashMap::new(),
+            consumed_merged_turn_order: VecDeque::new(),
+            held_before_readiness_by_id: HashMap::new(),
+            absence_witness_by_id: HashMap::new(),
+            sessionless_first_turn_by_id: HashSet::new(),
+            deferred_first_turn_by_id: HashMap::new(),
+            claimed_first_turn_by_tab: HashMap::new(),
+            live_evidence_progress_by_tab: HashMap::new(),
+            consumed_turn_by_tab: HashMap::new(),
         }
     }
-}
-
-/// The shape a delivered payload takes when it reappears as a session user
-/// turn: control bytes stripped by the send path, surrounding whitespace
-/// trimmed by TUI/transcript rendering.
-pub(crate) fn normalize_turn_evidence_with(
-    text: &str,
-    normalization: crate::agent::provider::TurnEvidenceNormalization,
-) -> String {
-    normalization.normalize(&crate::service::pty_io::sanitize_agent_prompt_input(text))
 }
 
 #[derive(Default)]
 pub(crate) struct ChatSendLedger {
     state: Mutex<ChatSendLedgerState>,
+    owner: Mutex<Option<Weak<super::ServiceContext>>>,
+    submit_claims:
+        Mutex<HashMap<String, crate::service::pty_io::submit_transaction::SubmitCycleClaim>>,
 }
 
 impl ChatSendLedger {
+    pub(crate) fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let state = self.state.lock();
+        state
+            .by_id
+            .get(send_id)
+            .cloned()
+            .map(|status| Self::with_retention_window(&state, status))
+    }
+
+    pub(crate) fn track_retired_agent_delivery(
+        &self,
+        tab_id: &str,
+        send_id: &str,
+        sequence: u64,
+        payload: &str,
+        anchor: SendEvidenceAnchor,
+    ) {
+        let mut state = self.state.lock();
+        let status = ChatSendStatus {
+            send_id: send_id.to_string(),
+            tab_id: tab_id.to_string(),
+            state: ChatSendState::Unknown,
+            error: Some("submit_unconfirmed: delivery was claimed before restart".into()),
+            ledger_id: state.ledger_id.clone(),
+            sequence,
+            retained_from: sequence,
+            correlation_id: None,
+            pending_reason: None,
+        };
+        let payload = normalize_turn_evidence_with(payload, anchor.turn_normalization);
+        let position = state.order.iter().position(|id| {
+            state
+                .by_id
+                .get(id)
+                .is_some_and(|previous| previous.sequence > sequence)
+        });
+        if let Some(position) = position {
+            state.order.insert(position, send_id.to_string());
+        } else {
+            state.order.push_back(send_id.to_string());
+        }
+        state.payload_by_id.insert(send_id.to_string(), payload);
+        state
+            .turn_normalization_by_id
+            .insert(send_id.to_string(), anchor.turn_normalization);
+        state.anchor_by_id.insert(send_id.to_string(), anchor);
+        state.by_id.insert(send_id.to_string(), status);
+        state.next_sequence = state.next_sequence.max(sequence.saturating_add(1));
+        let latest_sequence = state
+            .latest_by_tab
+            .get(tab_id)
+            .and_then(|id| state.by_id.get(id))
+            .map_or(0, |latest| latest.sequence);
+        if sequence >= latest_sequence {
+            state
+                .latest_by_tab
+                .insert(tab_id.to_string(), send_id.to_string());
+        }
+    }
+
+    pub(crate) fn reserve_identity(&self) -> (String, u64) {
+        let mut state = self.state.lock();
+        let sequence = state.next_sequence;
+        state.next_sequence += 1;
+        (uuid::Uuid::new_v4().to_string(), sequence)
+    }
+
+    pub(crate) fn admit_user(&self, record: &UserSendRecord) -> ChatSendStatus {
+        let mut state = self.state.lock();
+        if !state.by_id.contains_key(&record.send_id) {
+            crate::flow_trace::record(
+                &record.send_id,
+                "send.started",
+                &record.authority.tab_id,
+                &record.authority.provider_id,
+                "accepted",
+                None,
+            );
+        }
+        let status = ChatSendStatus {
+            send_id: record.send_id.clone(),
+            tab_id: record.authority.tab_id.clone(),
+            state: ChatSendState::Pending,
+            error: None,
+            ledger_id: state.ledger_id.clone(),
+            sequence: record.ledger_sequence,
+            retained_from: record.ledger_sequence,
+            correlation_id: record.client_token.clone(),
+            pending_reason: None,
+        };
+        state
+            .owned
+            .insert(record.send_id.clone(), (record.authority.clone(), false));
+        if record.held_before_readiness {
+            state
+                .held_before_readiness_by_id
+                .insert(record.send_id.clone(), record.authority.clone());
+        } else {
+            state.held_before_readiness_by_id.remove(&record.send_id);
+        }
+        let latest_sequence = state
+            .latest_by_tab
+            .get(&status.tab_id)
+            .and_then(|id| state.by_id.get(id))
+            .map_or(0, |latest| latest.sequence);
+        if status.sequence >= latest_sequence {
+            state
+                .latest_by_tab
+                .insert(status.tab_id.clone(), status.send_id.clone());
+        }
+        if !state.by_id.contains_key(&status.send_id) {
+            let position = state.order.iter().position(|id| {
+                state
+                    .by_id
+                    .get(id)
+                    .is_some_and(|prior| prior.sequence > status.sequence)
+            });
+            if let Some(position) = position {
+                state.order.insert(position, status.send_id.clone());
+            } else {
+                state.order.push_back(status.send_id.clone());
+            }
+        }
+        state.anchor_by_id.remove(&status.send_id);
+        state.live_binding_by_id.remove(&status.send_id);
+        state.absence_witness_by_id.remove(&status.send_id);
+        state.sessionless_first_turn_by_id.remove(&status.send_id);
+        state.deferred_first_turn_by_id.remove(&status.send_id);
+        state.terminal_failures.remove(&status.send_id);
+        state.payload_by_id.remove(&status.send_id);
+        state.by_id.insert(status.send_id.clone(), status.clone());
+        if let Some(token) = &record.client_token {
+            state
+                .token_by_id
+                .insert(status.send_id.clone(), token.clone());
+        }
+        Self::prune_terminal(&mut state);
+        Self::with_retention_window(&state, status)
+    }
+
+    pub(crate) fn bind_user_pty_session_generation(
+        &self,
+        send_id: &str,
+        authority: &UserSendAuthority,
+    ) -> bool {
+        let Some(generation) = authority.pty_session_generation else {
+            return false;
+        };
+        let mut state = self.state.lock();
+        let Some(current) = state
+            .owned
+            .get(send_id)
+            .map(|(authority, _)| authority.clone())
+        else {
+            return false;
+        };
+        let mut unbound = authority.clone();
+        unbound.pty_session_generation = None;
+        if current == unbound {
+            if let Some((current, _)) = state.owned.get_mut(send_id) {
+                current.pty_session_generation = Some(generation);
+            } else {
+                return false;
+            }
+            if let Some(held_authority) = state.held_before_readiness_by_id.get_mut(send_id) {
+                held_authority.pty_session_generation = Some(generation);
+            }
+            true
+        } else {
+            &current == authority
+        }
+    }
+
+    pub(crate) fn rebind_queued_user_authority(
+        &self,
+        send_id: &str,
+        previous: &UserSendAuthority,
+        current: &UserSendAuthority,
+    ) -> bool {
+        let mut state = self.state.lock();
+        let Some((authority, active)) = state.owned.get_mut(send_id) else {
+            return false;
+        };
+        if authority != previous || *active {
+            return false;
+        }
+        *authority = current.clone();
+        if let Some(held_authority) = state.held_before_readiness_by_id.get_mut(send_id) {
+            if held_authority == previous {
+                *held_authority = current.clone();
+            }
+        }
+        true
+    }
+
+    pub(crate) fn store_user_submit_claim(
+        &self,
+        send_id: &str,
+        claim: crate::service::pty_io::submit_transaction::SubmitCycleClaim,
+    ) {
+        self.submit_claims
+            .lock()
+            .insert(send_id.to_string(), claim.with_trace_id(send_id));
+    }
+
+    pub(crate) fn take_user_submit_claim(
+        &self,
+        send_id: &str,
+    ) -> Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim> {
+        self.submit_claims.lock().remove(send_id)
+    }
+
+    pub(crate) fn begin_user_handoff(
+        &self,
+        record: &UserSendRecord,
+        text: &str,
+        evidence: super::chat_send_evidence::CapturedSendEvidence,
+    ) -> bool {
+        let absence_witness = evidence.absence_witness.clone();
+        let sessionless_first_turn = evidence.session_starts_on_first_user_turn
+            && evidence
+                .live_binding
+                .as_ref()
+                .is_some_and(|binding| binding.session_id.is_none())
+            && record.authority.session_id.is_none()
+            && record.authority.observed_session_id.is_none();
+        let binding = evidence.live_binding;
+        if binding.as_ref().is_some_and(|binding| {
+            binding
+                .binding_nonce
+                .as_deref()
+                .is_some_and(|nonce| nonce != record.authority.binding_nonce)
+        }) {
+            return false;
+        }
+        let payload = normalize_turn_evidence_with(text, evidence.turn_normalization);
+        let mut state = self.state.lock();
+        let Some((authority, active)) = state.owned.get_mut(&record.send_id) else {
+            return false;
+        };
+        if authority != &record.authority || *active {
+            return false;
+        }
+        *active = true;
+        if let Some(binding) = binding {
+            state
+                .live_binding_by_id
+                .insert(record.send_id.clone(), binding);
+        } else {
+            state.live_binding_by_id.remove(&record.send_id);
+        }
+        state
+            .turn_normalization_by_id
+            .insert(record.send_id.clone(), evidence.turn_normalization);
+        state.payload_by_id.insert(record.send_id.clone(), payload);
+        if let Some(anchor) = evidence.anchor {
+            state.anchor_by_id.insert(record.send_id.clone(), anchor);
+            state.absence_witness_by_id.remove(&record.send_id);
+            state.sessionless_first_turn_by_id.remove(&record.send_id);
+            state.deferred_first_turn_by_id.remove(&record.send_id);
+        } else if let Some(witness) = absence_witness {
+            state
+                .absence_witness_by_id
+                .insert(record.send_id.clone(), witness);
+            state.sessionless_first_turn_by_id.remove(&record.send_id);
+            state.deferred_first_turn_by_id.remove(&record.send_id);
+        } else if sessionless_first_turn {
+            state
+                .sessionless_first_turn_by_id
+                .insert(record.send_id.clone());
+            if let Some(evidence) = evidence.deferred_first_turn {
+                if evidence.binding_nonce == record.authority.binding_nonce {
+                    state
+                        .deferred_first_turn_by_id
+                        .insert(record.send_id.clone(), evidence);
+                }
+            }
+        }
+        true
+    }
+
+    pub(crate) fn set_deferred_first_turn_evidence(
+        &self,
+        send_id: &str,
+        evidence: DeferredFirstTurnEvidence,
+    ) -> bool {
+        let mut state = self.state.lock();
+        let Some(status) = state.by_id.get(send_id) else {
+            return false;
+        };
+        let binding_matches = state
+            .live_binding_by_id
+            .get(send_id)
+            .is_some_and(|binding| {
+                binding.session_id.is_none()
+                    && binding.binding_nonce.as_deref() == Some(evidence.binding_nonce.as_str())
+            });
+        if status.state == ChatSendState::Sent || !binding_matches {
+            return false;
+        }
+        state
+            .sessionless_first_turn_by_id
+            .insert(send_id.to_string());
+        state
+            .deferred_first_turn_by_id
+            .insert(send_id.to_string(), evidence);
+        true
+    }
+
+    pub(crate) fn mark_user_written(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        if !state.owned.contains_key(send_id) {
+            return None;
+        }
+        let status = state.by_id.get_mut(send_id)?;
+        if matches!(
+            status.state,
+            ChatSendState::Written | ChatSendState::Sent | ChatSendState::Failed
+        ) {
+            return None;
+        }
+        status.state = ChatSendState::Written;
+        crate::flow_trace::record(send_id, "send.written", &status.tab_id, "", "pty", None);
+        status.error = None;
+        status.pending_reason = None;
+        let status = status.clone();
+        Some(Self::with_retention_window(&state, status))
+    }
+
+    pub(crate) fn zero_write_user_handoff(&self, send_id: &str) {
+        let mut state = self.state.lock();
+        if let Some((_, active)) = state.owned.get_mut(send_id) {
+            *active = false;
+        }
+        state.anchor_by_id.remove(send_id);
+        state.live_binding_by_id.remove(send_id);
+        state.absence_witness_by_id.remove(send_id);
+        state.sessionless_first_turn_by_id.remove(send_id);
+        state.deferred_first_turn_by_id.remove(send_id);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn user_confirmed(&self, send_id: &str) -> bool {
+        self.state
+            .lock()
+            .by_id
+            .get(send_id)
+            .is_some_and(|status| status.state == ChatSendState::Sent)
+    }
+
+    pub(crate) fn user_payload_may_have_been_written(&self, send_id: &str) -> bool {
+        self.state.lock().by_id.get(send_id).is_some_and(|status| {
+            matches!(
+                status.state,
+                ChatSendState::Written | ChatSendState::Unknown | ChatSendState::Sent
+            )
+        })
+    }
+
+    fn wake_owner(&self, tab_id: &str) {
+        let owner = self.owner.lock().as_ref().and_then(Weak::upgrade);
+        if let Some(owner) = owner {
+            owner.wake_user_owner(tab_id, super::parked_user_delivery::UserWake::Housekeeping);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn try_start(
         &self,
@@ -168,7 +585,9 @@ impl ChatSendLedger {
         let in_flight = state
             .by_id
             .values()
-            .filter(|status| status.state == ChatSendState::Pending)
+            .filter(|status| {
+                status.state == ChatSendState::Pending && !state.owned.contains_key(&status.send_id)
+            })
             .count();
         if in_flight >= MAX_IN_FLIGHT {
             return Err(format!(
@@ -186,6 +605,7 @@ impl ChatSendLedger {
             sequence,
             retained_from: sequence,
             correlation_id: None,
+            pending_reason: None,
         };
         state
             .latest_by_tab
@@ -206,30 +626,15 @@ impl ChatSendLedger {
                 .live_binding_by_id
                 .insert(status.send_id.clone(), binding);
         }
-        while state.order.len() > MAX_RESULTS {
-            let Some(position) = state.order.iter().position(|send_id| {
-                state
-                    .by_id
-                    .get(send_id)
-                    .is_some_and(|status| status.state != ChatSendState::Pending)
-            }) else {
-                break;
-            };
-            let expired = state
-                .order
-                .remove(position)
-                .expect("the selected terminal result exists");
-            state.by_id.remove(&expired);
-            state.payload_by_id.remove(&expired);
-            state.turn_normalization_by_id.remove(&expired);
-            state.token_by_id.remove(&expired);
-            state.anchor_by_id.remove(&expired);
-            state.live_binding_by_id.remove(&expired);
-            state.latest_by_tab.retain(|_, send_id| send_id != &expired);
-            state
-                .latest_failure_by_tab
-                .retain(|_, send_id| send_id != &expired);
-        }
+        crate::flow_trace::record(
+            &status.send_id,
+            "send.started",
+            tab_id,
+            "",
+            "accepted",
+            None,
+        );
+        Self::prune_terminal(&mut state);
         Ok(Self::with_retention_window(&state, status))
     }
 
@@ -257,23 +662,61 @@ impl ChatSendLedger {
         result: Result<(), String>,
     ) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
+        let user_owned = state.owned.contains_key(send_id);
+        let terminal_failure = state.terminal_failures.contains(send_id);
+        let rpc_accepted = state.rpc_by_id.contains_key(send_id)
+            && state
+                .by_id
+                .get(send_id)
+                .is_some_and(|status| status.state == ChatSendState::Written)
+            && result.is_ok();
+        let result = if user_owned { Ok(()) } else { result };
         let failed_tab = {
             let status = state.by_id.get_mut(send_id)?;
             // Exact turn evidence already proved delivery — a late transport
             // classification must never downgrade it back to a false failure.
             match result {
-                _ if status.state == ChatSendState::Sent => None,
+                _ if status.state == ChatSendState::Sent => {
+                    status.pending_reason = None;
+                    None
+                }
+                _ if terminal_failure => None,
+                _ if rpc_accepted => None,
+                _ if user_owned
+                    && matches!(
+                        status.state,
+                        ChatSendState::Written | ChatSendState::Unknown
+                    ) =>
+                {
+                    status.state = ChatSendState::Unknown;
+                    status.error = None;
+                    status.pending_reason = None;
+                    None
+                }
+                _ if user_owned && status.pending_reason.is_some() => {
+                    status.state = ChatSendState::Pending;
+                    status.error = None;
+                    None
+                }
+                _ if user_owned => {
+                    status.state = ChatSendState::Pending;
+                    status.error = None;
+                    None
+                }
                 Ok(()) => {
+                    status.pending_reason = None;
                     status.state = ChatSendState::Unknown;
                     status.error = None;
                     None
                 }
                 Err(error) if error.starts_with("submit_unconfirmed:") => {
+                    status.pending_reason = None;
                     status.state = ChatSendState::Unknown;
                     status.error = None;
                     None
                 }
                 Err(error) => {
+                    status.pending_reason = None;
                     status.state = ChatSendState::Failed;
                     status.error = Some(error);
                     Some(status.tab_id.clone())
@@ -289,102 +732,64 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
-    /// Exact-evidence reconciliation: a user turn with exactly this content was
-    /// appended to the tab's own bound session transcript. Confirms the oldest
-    /// unconfirmed send with the matching payload; one turn confirms at most
-    /// one send. Unrelated, stale, or other-tab turns never match.
-    #[cfg(test)]
-    pub(crate) fn confirm_delivered_user_turn(
+    pub(crate) fn expire_owned_before_write(
         &self,
-        tab_id: &str,
-        source_session_id: &str,
-        turn_text: &str,
+        send_id: &str,
+        reason: &str,
     ) -> Option<ChatSendStatus> {
-        self.confirm_delivered_user_turn_scoped(tab_id, source_session_id, None, turn_text)
-    }
-
-    pub(crate) fn confirm_delivered_user_turn_scoped(
-        &self,
-        tab_id: &str,
-        source_session_id: &str,
-        source_binding_nonce: Option<&str>,
-        turn_text: &str,
-    ) -> Option<ChatSendStatus> {
-        let candidates = {
-            let state = self.state.lock();
-            state
-                .order
-                .iter()
-                .filter_map(|send_id| {
-                    let status = state.by_id.get(send_id)?;
-                    let binding_matches =
-                        state.live_binding_by_id.get(send_id).is_none_or(|binding| {
-                            binding
-                                .session_id
-                                .as_deref()
-                                .is_none_or(|session_id| session_id == source_session_id)
-                                && binding
-                                    .binding_nonce
-                                    .as_deref()
-                                    .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
-                        });
-                    if status.tab_id != tab_id
-                        || status.state == ChatSendState::Sent
-                        || !binding_matches
-                    {
-                        return None;
-                    }
-                    Some((
-                        send_id.clone(),
-                        state.payload_by_id.get(send_id)?.clone(),
-                        state
-                            .turn_normalization_by_id
-                            .get(send_id)
-                            .copied()
-                            .unwrap_or_default(),
-                    ))
-                })
-                .collect::<Vec<_>>()
-        };
-        let matching_ids = candidates
-            .into_iter()
-            .filter_map(|(send_id, expected, normalization)| {
-                let evidence = normalize_turn_evidence_with(turn_text, normalization);
-                (!evidence.is_empty() && evidence == expected).then_some(send_id)
-            })
-            .collect::<Vec<_>>();
-        if matching_ids.is_empty() {
+        let mut state = self.state.lock();
+        if state.owned.get(send_id).is_none_or(|(_, active)| *active) {
             return None;
         }
+        let tab_id = {
+            let status = state.by_id.get_mut(send_id)?;
+            if status.state != ChatSendState::Pending {
+                return None;
+            }
+            status.state = ChatSendState::Failed;
+            status.error = Some(reason.to_string());
+            status.pending_reason = None;
+            status.tab_id.clone()
+        };
+        state.owned.remove(send_id);
+        state.held_before_readiness_by_id.remove(send_id);
+        state.terminal_failures.insert(send_id.to_string());
+        state
+            .latest_failure_by_tab
+            .insert(tab_id, send_id.to_string());
+        let status = state.by_id.get(send_id).cloned()?;
+        Some(Self::with_retention_window(&state, status))
+    }
+
+    pub(crate) fn set_user_pending_reason(
+        &self,
+        send_id: &str,
+        reason: Option<&str>,
+    ) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
-        let send_id = state
-            .order
-            .iter()
-            .find(|send_id| {
-                matching_ids.contains(*send_id)
-                    && state.by_id.get(*send_id).is_some_and(|status| {
-                        status.tab_id == tab_id && status.state != ChatSendState::Sent
-                    })
-                    && state
-                        .live_binding_by_id
-                        .get(*send_id)
-                        .is_none_or(|binding| {
-                            binding
-                                .session_id
-                                .as_deref()
-                                .is_none_or(|session_id| session_id == source_session_id)
-                                && binding
-                                    .binding_nonce
-                                    .as_deref()
-                                    .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
-                        })
-            })?
-            .clone();
-        let status = Self::mark_sent(&mut state, &send_id)?;
+        let status = state.by_id.get_mut(send_id)?;
+        if matches!(
+            status.state,
+            ChatSendState::Written
+                | ChatSendState::Unknown
+                | ChatSendState::Sent
+                | ChatSendState::Failed
+        ) {
+            return None;
+        }
+        let reason = reason.map(str::to_string);
+        if status.pending_reason == reason {
+            return None;
+        }
+        status.pending_reason = reason;
+        let status = status.clone();
         Some(Self::with_retention_window(&state, status))
     }
 
     fn mark_sent(state: &mut ChatSendLedgerState, send_id: &str) -> Option<ChatSendStatus> {
+        if state.terminal_failures.contains(send_id) {
+            return None;
+        }
         {
             let status = state.by_id.get_mut(send_id)?;
             if status.state == ChatSendState::Sent {
@@ -392,19 +797,69 @@ impl ChatSendLedger {
             }
             status.state = ChatSendState::Sent;
             status.error = None;
+            status.pending_reason = None;
         }
         state
             .latest_failure_by_tab
             .retain(|_, failed| failed != send_id);
-        state.by_id.get(send_id).cloned()
+        state.sessionless_first_turn_by_id.remove(send_id);
+        state.deferred_first_turn_by_id.remove(send_id);
+        state.owned.remove(send_id);
+        let status = state.by_id.get(send_id).cloned();
+        if let Some(status) = status.as_ref() {
+            crate::flow_trace::record(
+                send_id,
+                "send.delivered",
+                &status.tab_id,
+                "",
+                "exact_turn",
+                None,
+            );
+            crate::flow_trace::record(
+                send_id,
+                "transcript.append",
+                &status.tab_id,
+                "",
+                "own_user_turn",
+                None,
+            );
+        }
+        status
     }
 
     /// Confirm one send by id after exact append-window evidence was found in
     /// its own recorded session transcript. No-op if already sent.
     pub(crate) fn confirm_send(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let owned = {
+            let state = self.state.lock();
+            state
+                .owned
+                .get(send_id)
+                .cloned()
+                .map(|value| (value, state.live_binding_by_id.get(send_id).cloned()))
+        };
+        if let Some(((authority, active), binding)) = owned {
+            let owner = self.owner.lock().as_ref().and_then(Weak::upgrade)?;
+            let (session, nonce) = binding
+                .and_then(|binding| Some((binding.session_id?, binding.binding_nonce?)))
+                .or_else(|| {
+                    owner.mux.read().get_tab(&authority.tab_id).and_then(|tab| {
+                        Some((
+                            tab.agent_session_id.clone()?,
+                            tab.reported_session_binding_nonce.clone()?,
+                        ))
+                    })
+                })?;
+            if !active || !owner.user_authority_is_current_session(&authority, &session, &nonce) {
+                return None;
+            }
+        }
         let mut state = self.state.lock();
         let status = Self::mark_sent(&mut state, send_id)?;
-        Some(Self::with_retention_window(&state, status))
+        let status = Self::with_retention_window(&state, status);
+        drop(state);
+        self.wake_owner(&status.tab_id);
+        Some(status)
     }
 
     /// Unconfirmed sends (oldest first) that carry an evidence anchor and a
@@ -416,7 +871,19 @@ impl ChatSendLedger {
             .iter()
             .filter_map(|send_id| {
                 let status = state.by_id.get(send_id)?;
-                if status.tab_id != tab_id || status.state == ChatSendState::Sent {
+                if status.tab_id != tab_id
+                    || status.state == ChatSendState::Sent
+                    || state.terminal_failures.contains(send_id)
+                    || state.owned.get(send_id).is_some_and(|(_, active)| !active)
+                {
+                    return None;
+                }
+                if state.owned.contains_key(send_id)
+                    && !matches!(
+                        status.state,
+                        ChatSendState::Written | ChatSendState::Unknown
+                    )
+                {
                     return None;
                 }
                 let payload = state.payload_by_id.get(send_id).cloned()?;
@@ -433,15 +900,100 @@ impl ChatSendLedger {
             .collect()
     }
 
-    /// Sends already confirmed for this tab+session+payload — each one already
-    /// consumed a matching transcript turn, so a scan must find MORE matching
-    /// turns than this count before it may confirm another send.
-    pub(crate) fn claimed_turn_count(
+    pub(crate) fn deferred_first_turn_candidates(
+        &self,
+        tab_id: &str,
+    ) -> Vec<DeferredFirstTurnCandidate> {
+        let state = self.state.lock();
+        state
+            .order
+            .iter()
+            .filter_map(|send_id| {
+                let status = state.by_id.get(send_id)?;
+                if status.tab_id != tab_id
+                    || !matches!(
+                        status.state,
+                        ChatSendState::Written | ChatSendState::Unknown
+                    )
+                    || state.terminal_failures.contains(send_id)
+                    || state.owned.get(send_id).is_some_and(|(_, active)| !active)
+                {
+                    return None;
+                }
+                let payload = state.payload_by_id.get(send_id)?.clone();
+                if payload.is_empty() {
+                    return None;
+                }
+                Some(DeferredFirstTurnCandidate {
+                    send_id: send_id.clone(),
+                    payload,
+                    turn_normalization: state
+                        .turn_normalization_by_id
+                        .get(send_id)
+                        .copied()
+                        .unwrap_or_default(),
+                    evidence: state.deferred_first_turn_by_id.get(send_id)?.clone(),
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn confirm_deferred_first_turn(
+        &self,
+        candidate: &DeferredFirstTurnCandidate,
+        session_id: &str,
+    ) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        let status = state.by_id.get(&candidate.send_id)?;
+        if !matches!(
+            status.state,
+            ChatSendState::Written | ChatSendState::Unknown
+        ) || state.terminal_failures.contains(&candidate.send_id)
+            || state.deferred_first_turn_by_id.get(&candidate.send_id) != Some(&candidate.evidence)
+        {
+            return None;
+        }
+        let tab_id = status.tab_id.clone();
+        let claim = (
+            session_id.to_string(),
+            candidate.evidence.binding_nonce.clone(),
+        );
+        if state.claimed_first_turn_by_tab.get(&tab_id) == Some(&claim) {
+            return None;
+        }
+        state
+            .claimed_first_turn_by_tab
+            .insert(tab_id.clone(), claim);
+        let same_launch = state
+            .deferred_first_turn_by_id
+            .iter()
+            .filter(|(send_id, evidence)| {
+                *evidence == &candidate.evidence
+                    && state
+                        .by_id
+                        .get(*send_id)
+                        .is_some_and(|status| status.tab_id == tab_id)
+            })
+            .map(|(send_id, _)| send_id.clone())
+            .collect::<Vec<_>>();
+        for send_id in same_launch {
+            state.deferred_first_turn_by_id.remove(&send_id);
+        }
+        let status = Self::mark_sent(&mut state, &candidate.send_id)?;
+        let status = Self::with_retention_window(&state, status);
+        drop(state);
+        self.wake_owner(&tab_id);
+        Some(status)
+    }
+
+    /// Anchors of sends already confirmed for this tab+session+payload — each
+    /// one already consumed a matching transcript turn inside its own window.
+    pub(crate) fn claimed_turn_anchors(
         &self,
         tab_id: &str,
         session_id: &str,
         payload: &str,
-    ) -> usize {
+    ) -> Vec<SendEvidenceAnchor> {
         let state = self.state.lock();
         state
             .by_id
@@ -450,30 +1002,34 @@ impl ChatSendLedger {
             .filter(|status| {
                 state.payload_by_id.get(&status.send_id).map(String::as_str) == Some(payload)
             })
-            .filter(|status| {
-                state
-                    .anchor_by_id
-                    .get(&status.send_id)
-                    .is_some_and(|anchor| anchor.session_id == session_id)
-            })
-            .count()
+            .filter_map(|status| state.anchor_by_id.get(&status.send_id))
+            .filter(|anchor| anchor.session_id == session_id)
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
         let state = self.state.lock();
-        let unresolved = state
+        let retained = state
             .order
             .iter()
             .filter_map(|send_id| state.by_id.get(send_id))
             .filter(|status| {
                 status.tab_id == tab_id
-                    && matches!(status.state, ChatSendState::Unknown | ChatSendState::Failed)
+                    && (state.latest_by_tab.get(tab_id) == Some(&status.send_id)
+                        || status.state == ChatSendState::Sent
+                        || matches!(
+                            status.state,
+                            ChatSendState::Written | ChatSendState::Unknown | ChatSendState::Failed
+                        )
+                        || (status.state == ChatSendState::Pending
+                            && state.owned.contains_key(&status.send_id)))
             })
             .cloned()
             .map(|status| Self::with_retention_window(&state, status))
             .collect::<Vec<_>>();
-        if !unresolved.is_empty() {
-            return unresolved;
+        if !retained.is_empty() {
+            return retained;
         }
         state
             .latest_by_tab
@@ -483,6 +1039,40 @@ impl ChatSendLedger {
             .map(|status| Self::with_retention_window(&state, status))
             .into_iter()
             .collect()
+    }
+
+    fn prune_terminal(state: &mut ChatSendLedgerState) {
+        while state.order.len() > MAX_RESULTS {
+            let Some(position) = state.order.iter().position(|send_id| {
+                state
+                    .by_id
+                    .get(send_id)
+                    .is_some_and(|status| status.state != ChatSendState::Pending)
+                    && !state.owned.contains_key(send_id)
+            }) else {
+                break;
+            };
+            let expired = state
+                .order
+                .remove(position)
+                .expect("the selected terminal result exists");
+            state.by_id.remove(&expired);
+            state.payload_by_id.remove(&expired);
+            state.turn_normalization_by_id.remove(&expired);
+            state.token_by_id.remove(&expired);
+            state.anchor_by_id.remove(&expired);
+            state.rpc_by_id.remove(&expired);
+            state.live_binding_by_id.remove(&expired);
+            state.absence_witness_by_id.remove(&expired);
+            state.sessionless_first_turn_by_id.remove(&expired);
+            state.deferred_first_turn_by_id.remove(&expired);
+            state.terminal_failures.remove(&expired);
+            state.held_before_readiness_by_id.remove(&expired);
+            state.latest_by_tab.retain(|_, send_id| send_id != &expired);
+            state
+                .latest_failure_by_tab
+                .retain(|_, send_id| send_id != &expired);
+        }
     }
 
     fn with_retention_window(
@@ -508,6 +1098,18 @@ pub(crate) fn run_chat_send(
     submit: impl FnOnce(&str) -> Result<(), crate::service::delivery_error::DeliveryError>,
 ) -> ChatSendStatus {
     let result = submit(text).map_err(|error| error.ledger_message());
+    crate::flow_trace::record(
+        &pending.send_id,
+        "send.transport",
+        &pending.tab_id,
+        "",
+        if result.is_ok() {
+            "accepted"
+        } else {
+            "uncertain_or_refused"
+        },
+        None,
+    );
     ledger
         .finish(&pending.send_id, result)
         .expect("a started Chat send remains in the bounded ledger until completion")
@@ -522,670 +1124,51 @@ pub(crate) fn delivered_turn_confirmations(
     source_session_id: &str,
     source_binding_nonce: Option<&str>,
     messages: &[crate::agent::chat_types::ChatMsg],
+    provenance: Option<&LiveProvenance>,
 ) -> Vec<ChatSendStatus> {
+    if let Some(provenance) = provenance {
+        ledger.advance_live_evidence(tab_id, source_session_id, source_binding_nonce, provenance);
+    }
     let mut confirmed = Vec::new();
-    for msg in messages.iter().filter(|msg| msg.kind == "user") {
-        let Some(status) = ledger.confirm_delivered_user_turn_scoped(
-            tab_id,
-            source_session_id,
-            source_binding_nonce,
-            &msg.content,
-        ) else {
-            continue;
-        };
-        log::info!(
-            "[chat-send] send_id={} tab={} session={} confirmed by exact turn evidence",
-            status.send_id,
-            status.tab_id,
-            source_session_id
-        );
-        confirmed.push(status);
+    for (index, msg) in messages
+        .iter()
+        .enumerate()
+        .filter(|(_, msg)| msg.kind == "user")
+    {
+        let positioned = provenance.and_then(|provenance| {
+            provenance.positions.get(index).copied().map(|position| {
+                ledger.confirm_owned_live_turns(
+                    tab_id,
+                    source_session_id,
+                    source_binding_nonce,
+                    msg,
+                    position,
+                    provenance,
+                )
+            })
+        });
+        let statuses = positioned
+            .filter(|statuses| !statuses.is_empty())
+            .unwrap_or_else(|| {
+                ledger.confirm_delivered_user_turns_scoped(
+                    tab_id,
+                    source_session_id,
+                    source_binding_nonce,
+                    &msg.content,
+                )
+            });
+        for status in statuses {
+            log::info!(
+                "[chat-send] send_id={} tab={} session={} confirmed by exact turn evidence",
+                status.send_id,
+                status.tab_id,
+                source_session_id
+            );
+            confirmed.push(status);
+        }
     }
     confirmed
 }
 
-impl crate::service::ServiceContext {
-    pub(crate) fn start_chat_send(
-        &self,
-        tab_id: &str,
-        text: String,
-        submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
-        client_token: Option<String>,
-    ) -> Result<ChatSendStatus, String> {
-        let evidence = self.chat_send_anchor(tab_id);
-        let turn_evidence_text = self.chat_send_turn_evidence(tab_id, &text);
-        let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
-            tab_id,
-            &turn_evidence_text,
-            evidence.anchor.clone(),
-            evidence.live_binding.clone(),
-            evidence.turn_normalization,
-        )?;
-        let pending = match client_token {
-            Some(token) => self
-                .chat_send_ledger
-                .attach_client_token(&pending.send_id, token)
-                .unwrap_or(pending),
-            None => pending,
-        };
-        let response = pending.clone();
-        let send_id = pending.send_id.clone();
-        let svc = self.clone();
-        let tab_id = tab_id.to_string();
-        std::thread::spawn(move || {
-            let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
-                // User-origin always-deliver: a transient pre-write unlink or an
-                // unconfirmed submit degrades to pending-until-link, never a refusal.
-                svc.send_chat_text_claimed(&tab_id, text, submit_claim)
-                    .or_else(|err| {
-                        log::info!(
-                            "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
-                            err.code()
-                        );
-                        svc.park_refused_user_send(&tab_id, &send_id, text, &err);
-                        err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
-                    })
-            });
-            crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
-            if let Some(error) = status.error.as_deref() {
-                log::warn!(
-                    "[chat-send] send_id={} tab={} failed: {}",
-                    status.send_id,
-                    status.tab_id,
-                    error
-                );
-            }
-        });
-        Ok(response)
-    }
-
-    fn chat_send_turn_evidence(&self, tab_id: &str, text: &str) -> String {
-        let provider_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
-            matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
-                .then(|| tab.agent_type.clone())
-                .flatten()
-        });
-        let Some(provider_id) = provider_id else {
-            return text.to_string();
-        };
-        let sanitized = crate::service::pty_io::sanitize_agent_prompt_input(text);
-        let follow_up = self
-            .agent_registry
-            .with_provider(&provider_id, |provider| {
-                provider
-                    .paste_capability()?
-                    .typed_follow_up_for(&sanitized)
-                    .map(str::to_string)
-            })
-            .flatten();
-        follow_up.map_or_else(
-            || text.to_string(),
-            |follow_up| format!("{sanitized}{follow_up}"),
-        )
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::service::delivery_error::{DeliveryError, SendOrigin};
-    use crate::service::inject_verify::InjectionError;
-
-    fn submit_unconfirmed(detail: impl Into<String>) -> DeliveryError {
-        DeliveryError::SubmitUnconfirmed {
-            tab: "tab-1".into(),
-            detail: detail.into(),
-        }
-    }
-
-    fn tab_busy(detail: impl Into<String>) -> DeliveryError {
-        DeliveryError::TabBusyRefused {
-            tab: "tab-1".into(),
-            detail: detail.into(),
-        }
-    }
-
-    fn pty_unavailable(detail: impl Into<String>) -> DeliveryError {
-        DeliveryError::PtyUnavailable {
-            tab: "tab-1".into(),
-            detail: detail.into(),
-        }
-    }
-
-    #[test]
-    fn user_send_booting_agent_degrades_to_pending_not_failed() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
-        let mut writes = 0;
-        // Exact neutralization start_chat_send applies at the user-origin boundary.
-        let status = run_chat_send(&ledger, pending, "hello", |_text| {
-            writes += 1;
-            Err(tab_busy("Agent in Tab tab-1 is still booting"))
-                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
-        });
-        assert_eq!(writes, 1, "submit invoked exactly once — no retry loop");
-        assert_eq!(status.state, ChatSendState::Unknown);
-        assert!(status.error.is_none());
-        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Unknown);
-    }
-
-    #[test]
-    fn user_send_unlinked_pty_degrades_to_pending_not_failed() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
-        let status = run_chat_send(&ledger, pending, "hello", |_text| {
-            Err(pty_unavailable("PTY did not link within 15s"))
-                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
-        });
-        assert_eq!(status.state, ChatSendState::Unknown);
-        assert!(status.error.is_none());
-    }
-
-    #[test]
-    fn user_submit_unconfirmed_neither_fails_nor_rewrites() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
-        let mut writes = 0;
-        let status = run_chat_send(&ledger, pending, "hi", |_text| {
-            writes += 1;
-            Err(submit_unconfirmed("submit key not acknowledged"))
-                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
-        });
-        assert_eq!(
-            writes, 1,
-            "write count stays 1 — submit recovery never re-writes"
-        );
-        assert_eq!(status.state, ChatSendState::Unknown);
-        assert!(status.error.is_none());
-    }
-
-    #[test]
-    fn user_send_turn_evidence_still_confirms_a_degraded_send() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "deploy", None).unwrap();
-        run_chat_send(&ledger, pending.clone(), "deploy", |_text| {
-            Err(tab_busy("still booting"))
-                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
-        });
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "deploy")
-            .expect("turn evidence confirms the pending user send once the PTY links");
-        assert_eq!(confirmed.send_id, pending.send_id);
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-    }
-
-    #[test]
-    fn programmatic_pre_write_refusal_still_surfaces_as_failed() {
-        // Same DeliveryError WITHOUT the user neutralization (the programmatic
-        // path returns it typed) stays Failed — the split is real.
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
-        let status = run_chat_send(&ledger, pending, "hi", |_| Err(tab_busy("still booting")));
-        assert_eq!(status.state, ChatSendState::Failed);
-    }
-
-    #[test]
-    fn serialized_states_separate_acceptance_uncertainty_and_confirmation() {
-        assert_eq!(
-            serde_json::to_string(&ChatSendState::Pending).unwrap(),
-            "\"accepted\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ChatSendState::Unknown).unwrap(),
-            "\"unknown\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ChatSendState::Sent).unwrap(),
-            "\"confirmed\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ChatSendState::Failed).unwrap(),
-            "\"failed\""
-        );
-    }
-
-    #[test]
-    fn unconfirmed_submit_retains_one_payload_and_correlated_result() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "payload", None).unwrap();
-        let mut writes = Vec::new();
-        let result = run_chat_send(&ledger, pending.clone(), "one payload", |text| {
-            writes.push(text.to_string());
-            Err(submit_unconfirmed("submit key was not acknowledged"))
-        });
-
-        assert_eq!(writes, ["one payload"]);
-        assert_eq!(result.send_id, pending.send_id);
-        assert_eq!(result.state, ChatSendState::Unknown);
-        assert_eq!(result.error, None);
-        assert_eq!(ledger.reconcile("tab-1"), vec![result]);
-    }
-
-    #[test]
-    fn unknown_transaction_survives_ui_detach_and_activation() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "payload", None).unwrap();
-
-        assert_eq!(ledger.reconcile("tab-1"), vec![pending.clone()]);
-
-        let result = run_chat_send(&ledger, pending, "hello", |_| Ok(()));
-
-        assert_eq!(result.state, ChatSendState::Unknown);
-        assert_eq!(ledger.reconcile("tab-1"), vec![result]);
-    }
-
-    #[test]
-    fn a_missed_failure_survives_a_newer_pending_send() {
-        let ledger = ChatSendLedger::default();
-        let first = ledger.try_start("tab-1", "payload", None).unwrap();
-        let second = ledger.try_start("tab-1", "payload", None).unwrap();
-        let failed = run_chat_send(&ledger, first, "first", |_| {
-            Err(submit_unconfirmed("Enter swallowed"))
-        });
-
-        assert_eq!(ledger.reconcile("tab-1"), vec![failed]);
-        assert_eq!(second.state, ChatSendState::Pending);
-    }
-
-    #[test]
-    fn in_flight_cap_rejects_before_growth_and_releases_on_completion() {
-        let ledger = ChatSendLedger::default();
-        let mut pending = Vec::new();
-        for index in 0..MAX_IN_FLIGHT {
-            pending.push(
-                ledger
-                    .try_start(&format!("tab-{index}"), "payload", None)
-                    .unwrap(),
-            );
-        }
-
-        assert!(ledger.try_start("overflow", "payload", None).is_err());
-        assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT);
-
-        ledger.finish(&pending[0].send_id, Ok(())).unwrap();
-        assert!(ledger.try_start("released", "payload", None).is_ok());
-        ledger
-            .confirm_delivered_user_turn("tab-0", "session-0", "payload")
-            .unwrap();
-        assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT + 1);
-    }
-
-    #[test]
-    fn reconcile_retains_every_unknown_send_missed_while_chat_is_detached() {
-        let ledger = ChatSendLedger::default();
-        let first = ledger.try_start("tab-1", "payload", None).unwrap();
-        let second = ledger.try_start("tab-1", "payload", None).unwrap();
-        run_chat_send(&ledger, first, "first", |_| {
-            Err(submit_unconfirmed("first failed"))
-        });
-        run_chat_send(&ledger, second, "second", |_| {
-            Err(submit_unconfirmed("second failed"))
-        });
-
-        let statuses = ledger.reconcile("tab-1");
-        assert_eq!(statuses.len(), 2);
-        assert!(statuses
-            .iter()
-            .all(|status| status.state == ChatSendState::Unknown && status.error.is_none()));
-    }
-
-    #[test]
-    fn reconciliation_exposes_the_backend_retention_window() {
-        let ledger = ChatSendLedger::default();
-        for index in 0..=MAX_RESULTS {
-            let pending = ledger.try_start("tab-1", "payload", None).unwrap();
-            run_chat_send(&ledger, pending, "message", |_| {
-                Err(submit_unconfirmed(format!("failure-{index}")))
-            });
-        }
-
-        let retained = ledger.reconcile("tab-1");
-        assert_eq!(retained.len(), MAX_RESULTS);
-        assert_eq!(retained[0].sequence, 2);
-        assert!(retained.iter().all(|status| status.retained_from == 2));
-    }
-
-    #[test]
-    fn echo_mismatch_reaches_ledger_as_submit_unconfirmed() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "payload", None).unwrap();
-        let result = run_chat_send(&ledger, pending, "wrapped payload", |_| {
-            Err(DeliveryError::from_injection(
-                "tab-1",
-                InjectionError::EchoMismatch {
-                    expected_substr: "wrapped payload".into(),
-                    screen_tail: "bordered frame".into(),
-                },
-            ))
-        });
-
-        assert_eq!(result.state, ChatSendState::Unknown);
-        assert_eq!(result.error, None);
-    }
-
-    #[test]
-    fn exact_turn_evidence_clears_a_false_failure() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "deploy the fix", None).unwrap();
-        run_chat_send(&ledger, pending.clone(), "deploy the fix", |_| {
-            Err(submit_unconfirmed("acknowledgement heuristics timed out"))
-        });
-
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "deploy the fix")
-            .expect("exact same-tab turn evidence confirms the failed send");
-        assert_eq!(confirmed.send_id, pending.send_id);
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-        assert_eq!(confirmed.error, None);
-        assert_eq!(ledger.reconcile("tab-1"), vec![confirmed]);
-    }
-
-    #[test]
-    fn typed_follow_up_is_part_of_exact_chat_turn_evidence() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger
-            .try_start_scoped_with_normalization(
-                "tab-1",
-                "opaque-body suffix-token",
-                None,
-                None,
-                Default::default(),
-            )
-            .unwrap();
-        ledger.finish(&pending.send_id, Ok(())).unwrap();
-
-        assert!(ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "opaque-body")
-            .is_none());
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "opaque-body suffix-token")
-            .expect("the exact typed follow-up is included in the user turn");
-
-        assert_eq!(confirmed.send_id, pending.send_id);
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-    }
-
-    #[test]
-    fn provider_normalized_user_turn_confirms_chat_send() {
-        let ledger = ChatSendLedger::default();
-        let normalization = crate::agent::provider::TurnEvidenceNormalization {
-            unwrap_pasted_content_wrapper: true,
-            collapse_horizontal_whitespace: true,
-            drop_supplementary_characters: false,
-        };
-        let pending = ledger
-            .try_start_scoped_with_normalization(
-                "tab-1",
-                "name\tvalue\n\talpha\tbeta",
-                None,
-                Some(SendLiveBinding {
-                    session_id: Some("session-1".into()),
-                    binding_nonce: Some("binding-1".into()),
-                }),
-                normalization,
-            )
-            .unwrap();
-        ledger.finish(&pending.send_id, Ok(())).unwrap();
-
-        let confirmed = ledger
-            .confirm_delivered_user_turn_scoped(
-                "tab-1",
-                "session-1",
-                Some("binding-1"),
-                "<pasted_content id=\"4\">\nname      value\n        alpha    beta\n</pasted_content id=\"4\">",
-            )
-            .expect("the provider-normalized exact user turn confirms its send");
-
-        assert_eq!(confirmed.send_id, pending.send_id);
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-    }
-
-    #[test]
-    fn evidence_during_flight_wins_over_late_transport_failure() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "restart dev", None).unwrap();
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "  restart dev  ")
-            .expect("turn evidence may arrive before classification finishes");
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-
-        let result = run_chat_send(&ledger, pending, "restart dev", |_| {
-            Err(DeliveryError::from_injection(
-                "tab-1",
-                InjectionError::PtyClosed {
-                    pty_id: "pty-1".into(),
-                },
-            ))
-        });
-        assert_eq!(result.state, ChatSendState::Sent);
-        assert_eq!(result.error, None);
-        assert_eq!(ledger.reconcile("tab-1"), vec![result]);
-    }
-
-    #[test]
-    fn unrelated_stale_or_foreign_turns_never_confirm() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "exact payload", None).unwrap();
-        run_chat_send(&ledger, pending, "exact payload", |_| {
-            Err(submit_unconfirmed("no evidence"))
-        });
-
-        assert!(ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "different text")
-            .is_none());
-        assert!(ledger
-            .confirm_delivered_user_turn("tab-2", "session-1", "exact payload")
-            .is_none());
-        assert!(ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "   ")
-            .is_none());
-        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Unknown);
-    }
-
-    #[test]
-    fn stale_session_or_binding_delta_cannot_confirm_a_rebound_send() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger
-            .try_start_scoped(
-                "tab-1",
-                "exact payload",
-                None,
-                Some(SendLiveBinding {
-                    session_id: Some("session-new".into()),
-                    binding_nonce: Some("binding-new".into()),
-                }),
-            )
-            .unwrap();
-        ledger.finish(&pending.send_id, Ok(())).unwrap();
-
-        assert!(ledger
-            .confirm_delivered_user_turn_scoped(
-                "tab-1",
-                "session-new",
-                Some("binding-old"),
-                "exact payload",
-            )
-            .is_none());
-        assert!(ledger
-            .confirm_delivered_user_turn_scoped(
-                "tab-1",
-                "session-old",
-                Some("binding-new"),
-                "exact payload",
-            )
-            .is_none());
-        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Unknown);
-
-        let confirmed = ledger
-            .confirm_delivered_user_turn_scoped(
-                "tab-1",
-                "session-new",
-                Some("binding-new"),
-                "exact payload",
-            )
-            .unwrap();
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-    }
-
-    #[test]
-    fn one_turn_confirms_at_most_one_send_oldest_first() {
-        let ledger = ChatSendLedger::default();
-        let first = ledger.try_start("tab-1", "same text", None).unwrap();
-        let second = ledger.try_start("tab-1", "same text", None).unwrap();
-
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "same text")
-            .unwrap();
-        assert_eq!(confirmed.send_id, first.send_id);
-        assert!(ledger
-            .state
-            .lock()
-            .by_id
-            .get(&second.send_id)
-            .is_some_and(|status| status.state == ChatSendState::Pending));
-
-        let confirmed_second = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "same text")
-            .unwrap();
-        assert_eq!(confirmed_second.send_id, second.send_id);
-        assert!(ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "same text")
-            .is_none());
-    }
-
-    #[test]
-    fn rebind_window_send_is_not_sent_by_transport_classification_alone() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger
-            .try_start("tab-1", "Reply with exactly: REBIND-1", None)
-            .unwrap();
-        let finished = ledger.finish(&pending.send_id, Ok(())).unwrap();
-        assert_eq!(
-            finished.state,
-            ChatSendState::Unknown,
-            "transport Ok is not attribution: sent requires a turn in the tab's own bound session"
-        );
-    }
-
-    #[test]
-    fn transport_ok_for_rebind_window_send_defers_to_turn_evidence() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger
-            .try_start("tab-1", "Reply with exactly: REBIND-2", None)
-            .unwrap();
-        let mut writes = Vec::new();
-        let result = run_chat_send(
-            &ledger,
-            pending.clone(),
-            "Reply with exactly: REBIND-2",
-            |text| {
-                writes.push(text.to_string());
-                Ok(())
-            },
-        );
-        assert_eq!(writes.len(), 1, "payload written exactly once");
-        assert_eq!(
-            result.state,
-            ChatSendState::Unknown,
-            "transport completion stays unknown until exact turn evidence"
-        );
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "rebound-session", "Reply with exactly: REBIND-2")
-            .expect("the attributable turn confirms the held send");
-        assert_eq!(confirmed.send_id, pending.send_id);
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Sent);
-    }
-
-    #[test]
-    fn already_sent_deliveries_are_never_reconfirmed() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
-        run_chat_send(&ledger, pending, "hello", |_| Ok(()));
-        ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "hello")
-            .unwrap();
-        assert!(ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "hello")
-            .is_none());
-    }
-
-    // W5-3: the send envelope's opaque client correlation token is echoed
-    // verbatim onto the committed user turn and nowhere else.
-
-    #[test]
-    fn client_token_echoes_verbatim_onto_committed_turn() {
-        let ledger = ChatSendLedger::default();
-        let token = "opt-1717-42";
-        let pending = ledger.try_start("tab-1", "deploy", None).unwrap();
-        let stamped = ledger
-            .attach_client_token(&pending.send_id, token.to_string())
-            .unwrap();
-        // Rides on the accepted status too — the wire carries it from the start.
-        assert_eq!(stamped.correlation_id.as_deref(), Some(token));
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "deploy")
-            .expect("turn evidence confirms the pending send");
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-        // Token IN == token OUT, verbatim, on the committed (confirmed) turn.
-        assert_eq!(confirmed.correlation_id.as_deref(), Some(token));
-    }
-
-    #[test]
-    fn tokenless_send_emits_no_synthesized_token() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
-        assert_eq!(pending.correlation_id, None);
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "hello")
-            .unwrap();
-        assert_eq!(confirmed.correlation_id, None);
-        // Wire shape: the field is OMITTED, never emitted as a synthesized null.
-        let json = serde_json::to_value(&confirmed).unwrap();
-        assert!(json.get("correlationId").is_none());
-    }
-
-    #[test]
-    fn token_is_passthrough_only_and_never_gates_confirmation() {
-        let ledger = ChatSendLedger::default();
-        // Two sends, identical payload, DISTINCT tokens.
-        let first = ledger.try_start("tab-1", "yes", None).unwrap();
-        ledger
-            .attach_client_token(&first.send_id, "tok-A".into())
-            .unwrap();
-        let second = ledger.try_start("tab-1", "yes", None).unwrap();
-        ledger
-            .attach_client_token(&second.send_id, "tok-B".into())
-            .unwrap();
-        // The confirm path carries NO token — selection is purely payload/binding,
-        // oldest-first, exactly as before this change. The token never gates it.
-        let c1 = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "yes")
-            .unwrap();
-        let c2 = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "yes")
-            .unwrap();
-        assert_eq!(c1.send_id, first.send_id);
-        assert_eq!(c2.send_id, second.send_id);
-        // Each committed turn echoes its OWN send's token — passthrough, not a
-        // match key: the token rode along but never chose which send confirmed.
-        assert_eq!(c1.correlation_id.as_deref(), Some("tok-A"));
-        assert_eq!(c2.correlation_id.as_deref(), Some("tok-B"));
-    }
-
-    #[test]
-    fn emitted_wire_field_matches_chat_core_consumer_correlation_id() {
-        let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
-        ledger
-            .attach_client_token(&pending.send_id, "tok-Z".into())
-            .unwrap();
-        let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "session-1", "hi")
-            .unwrap();
-        let json = serde_json::to_value(&confirmed).unwrap();
-        // The serialized key is the contract the chat-core consumer (lane
-        // ca6aebc5) reads as NormalizedChatMessage.correlationId.
-        assert_eq!(json["correlationId"], serde_json::json!("tok-Z"));
-    }
-}
+mod tests;

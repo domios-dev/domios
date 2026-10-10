@@ -714,3 +714,26 @@ mod notification_deep_link {
         assert_eq!(trimmed.chat_message_id, None);
     }
 }
+
+#[test]
+fn provider_update_summary_mutates_one_record_without_reopening_read_state() {
+    let mut store = NotificationStore::new(10);
+    let id = store.add(
+        "initial".into(),
+        Some("pending".into()),
+        NotificationSeverity::Info,
+        None,
+        None,
+    );
+    store.mark_read(&id);
+    assert!(store
+        .update_summary(&id, "complete".into(), "new counts".into())
+        .is_some());
+    assert!(store
+        .update_summary(&id, "complete".into(), "new counts".into())
+        .is_none());
+    let record = store.notification(&id).unwrap();
+    assert!(record.read);
+    assert_eq!(record.body.as_deref(), Some("new counts"));
+    assert_eq!(store.list(false).len(), 1);
+}

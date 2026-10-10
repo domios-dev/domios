@@ -38,6 +38,9 @@ pub(super) fn envelope_notice(response: &Value) -> Option<String> {
 }
 
 fn token_summary(token: &Value) -> String {
+    if token.get("token_mode").and_then(Value::as_str) == Some("none") {
+        return "No token needed".into();
+    }
     match token.get("present").and_then(Value::as_bool) {
         Some(true) => {
             let mode = match token.get("mode_ok").and_then(Value::as_bool) {
@@ -47,17 +50,19 @@ fn token_summary(token: &Value) -> String {
             };
             format!("Token set ({mode})")
         }
-        _ => "No token".into(),
+        Some(false) => "No token".into(),
+        None => "Token status unavailable".into(),
     }
 }
 
 fn state_text(status: &Value) -> String {
     match status.get("state").and_then(Value::as_str) {
         Some("active") => "Active".into(),
-        Some("token_only") => "Token set, all features off".into(),
+        Some("budget_reached") => "Budget reached".into(),
+        Some("credit_exhausted") => "Credit exhausted".into(),
+        Some("not_connected") => "Not connected".into(),
         Some("token_unusable") => "Token file needs attention".into(),
         Some("no_token") => "No token".into(),
-        Some("feature_without_token") => "Feature on, no token".into(),
         Some("adapter_unavailable") => "Adapter unavailable".into(),
         _ => "Unavailable".into(),
     }
@@ -65,30 +70,51 @@ fn state_text(status: &Value) -> String {
 
 pub(super) fn render_token_status(token: &Value) -> String {
     let adapter = token.get("adapter").and_then(Value::as_str).unwrap_or("?");
-    format!("{adapter}: {}\n", token_summary(token))
+    if let Some(message) = token.get("message").and_then(Value::as_str) {
+        return format!("{adapter}: {message}\n");
+    }
+    let mode = token.get("token_mode").and_then(Value::as_str);
+    let mode = mode
+        .map(|mode| format!(" (token mode: {mode})"))
+        .unwrap_or_default();
+    format!("{adapter}: {}{mode}\n", token_summary(token))
 }
 
 pub(super) fn render_token_set(token: &Value) -> String {
     let adapter = token.get("adapter").and_then(Value::as_str).unwrap_or("?");
+    if let Some(message) = token.get("message").and_then(Value::as_str) {
+        return format!("{adapter}: {message}\n");
+    }
     format!("Token set for {adapter}\n")
 }
 
 pub(super) fn render_token_clear(reply: &Value) -> String {
     let adapter = reply.get("adapter").and_then(Value::as_str).unwrap_or("?");
+    if let Some(message) = reply.get("message").and_then(Value::as_str) {
+        return format!("{adapter}: {message}\n");
+    }
     match reply.get("removed").and_then(Value::as_bool) {
         Some(true) => format!("Token removed for {adapter}\n"),
         _ => format!("No token was stored for {adapter}\n"),
     }
 }
 
+pub(super) fn request_cap(status: &Value) -> Option<u64> {
+    status["budget"]["calls_per_hour"]
+        .as_u64()
+        .filter(|cap| *cap > 0)
+}
+
 pub(super) fn render_status(status: &Value) -> String {
-    let adapter = status.get("adapter").and_then(Value::as_str).unwrap_or("?");
+    let adapter = status
+        .get("adapter")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
     let model = status.get("model").and_then(Value::as_str).unwrap_or("?");
     let token = status.get("token").unwrap_or(&Value::Null);
     let registered = status.get("adapter_registered").and_then(Value::as_bool) == Some(true);
-    let features = status.get("features").unwrap_or(&Value::Null);
     let mut out = format!(
-        "{}\nAdapter: {} ({})\nModel: {}\n{}\nMemory re-rank: {}\nTab-state: {}\nDeadline: {} ms\n",
+        "{}\nAdapter: {} ({})\nModel: {}\nToken mode: {}\n{}\nDeadline: {} ms\n",
         state_text(status),
         adapter,
         if registered {
@@ -97,15 +123,60 @@ pub(super) fn render_status(status: &Value) -> String {
             "not registered"
         },
         model,
+        status
+            .get("token_mode")
+            .and_then(Value::as_str)
+            .unwrap_or("required"),
         token_summary(token),
-        on_off(features.get("memory_rerank")),
-        on_off(features.get("tab_state")),
         status
             .get("deadline_ms")
             .and_then(Value::as_u64)
             .map(|n| n.to_string())
             .unwrap_or_else(|| "?".into())
     );
+    let cap = request_cap(status);
+    let budget = cap.map_or_else(
+        || "no cap".into(),
+        |cap| {
+            format!(
+                "{} (cap {cap} / hour, free at {})",
+                if status["budget"]["reached"] == true {
+                    "reached"
+                } else {
+                    "available"
+                },
+                status["budget"]["free_at"]
+            )
+        },
+    );
+    out.push_str(&format!(
+        "Calls: {} in the last hour / {} in the last day\nLast activity: {}\nBudget: {budget}\n",
+        status["calls_last_hour"], status["calls_last_day"], status["last_activity"]
+    ));
+    for kind in ["rerank", "tab_state"] {
+        if let Some(verdict) = status["last_verdict"].get(kind) {
+            out.push_str(&format!(
+                "Last {kind}: {} at {}\n",
+                verdict["label"], verdict["time"]
+            ));
+        }
+    }
+    if let Some(spend) = status.get("spend") {
+        for (key, label) in [("today", "Today"), ("month", "This month")] {
+            out.push_str(&format!(
+                "{label}: {} input / {} output tokens; estimated USD {}\n",
+                spend[key]["input_tokens"],
+                spend[key]["output_tokens"],
+                spend[key]["estimated_usd"]
+            ));
+        }
+        if spend["exhausted"] == true {
+            out.push_str(&format!(
+                "Credit exhausted; next request probe after {}\n",
+                spend["next_probe_at"]
+            ));
+        }
+    }
     if token.get("mode_ok").and_then(Value::as_bool) == Some(false) {
         out.push_str("Token file permissions are not owner-only.\n");
     }
@@ -178,12 +249,4 @@ fn model_names(value: Option<&Value>) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn on_off(value: Option<&Value>) -> &'static str {
-    if value.and_then(Value::as_bool) == Some(true) {
-        "on"
-    } else {
-        "off"
-    }
 }

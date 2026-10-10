@@ -247,7 +247,7 @@ describe("mission control board visual system", () => {
       for (const row of rows) {
         expect(textLeaves(row).filter((leaf) => /%$/.test(leaf.textContent?.trim() ?? ""))).toEqual([row.children[2]]);
       }
-      expect(rows.map((row) => row.children[1]?.textContent)).toEqual(["2.4M", "1.4M", "67.5K"]);
+      expect(rows.map((row) => row.children[1]?.textContent)).toEqual(["2.4M", "1.4M", "68k"]);
       const words = (models.textContent ?? "").toLowerCase();
       for (const banned of ["output", "total", "bytes", "·", "needs"]) {
         expect(words).not.toContain(banned);
@@ -284,7 +284,7 @@ describe("mission control board visual system", () => {
     });
   }
 
-  it("mission_control_board_contains_every_card_in_a_ruled_panel", async () => {
+  it("mission_control_board_contains_every_card_in_a_calm_panel", async () => {
     const css = readRepo(BOARD_CSS_PATH);
     const { host, unmount } = await renderAt(OWNER_WIDTH);
 
@@ -297,8 +297,8 @@ describe("mission control board visual system", () => {
       expect(panel.getAttribute("aria-labelledby")).toBe(head.querySelector("h2")?.id);
     }
     expect(rule(readRepo("src/styles/primitives.css"), ".ct-panel-card")).toContain("border: 1px solid");
-    expect(rule(css, ".mc-board .mc-board-panel")).toContain("background: var(--ct-surface);");
-    expect(rule(css, ".mc-board-panel-head")).toContain("border-bottom: 1px solid var(--ct-border);");
+    expect(rule(css, ".mc-board .mc-board-panel")).toContain("background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));");
+    expect(rule(css, ".mc-board-panel-head")).not.toContain("border-bottom");
     expect(rule(css, ".mc-board-sub + .mc-board-sub")).toContain("padding-top: 0;");
     expect(rule(css, ".mc-board-sub-label")).toContain("font-size: var(--mc-text-meta);");
     expect(rule(css, ".mc-board-models-table thead th")).toContain("border-bottom: 1px solid var(--ct-border);");

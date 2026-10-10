@@ -223,6 +223,7 @@ impl crate::chatbackend::ChatBackendProvider for ListingShell {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -303,6 +304,8 @@ fn provider_listing_includes_spawnable_chatbackend_tagged_transport() {
 
     assert!(shell.get("kind").is_none());
     assert_eq!(shell["transport"], "chat_backend");
+    assert_eq!(shell["cli_status"]["required"], false);
+    assert!(shell["cli_status"]["binary"].is_null());
     assert_eq!(shell["display_name"], "Local Shell");
     assert_eq!(shell["available_models"][0]["id"], "qwen");
 }
@@ -361,6 +364,7 @@ impl BinaryProvider {
                 description: None,
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -569,3 +573,5 @@ fn enumeration_agrees_with_the_shared_resolver() {
         "the row must be the shared resolver's verdict, not a second ladder's"
     );
 }
+
+mod spawn_input;

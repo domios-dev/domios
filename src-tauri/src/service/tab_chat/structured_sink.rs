@@ -5,10 +5,11 @@
 
 use std::sync::Arc;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::commands::MuxState;
+use crate::service::chat_send_transaction::{LiveProvenance, TurnPosition};
 
 pub trait StructuredSink: Send + Sync {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>);
@@ -82,6 +83,7 @@ impl StructuredSink for TauriStructuredSink {
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
             &messages,
+            None,
         );
         let pty_id = self
             .mux
@@ -99,6 +101,9 @@ impl StructuredSink for TauriStructuredSink {
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
         );
+        if let Some(service) = self.app.try_state::<crate::service::ServiceState>() {
+            service.run_watcher.check_pending_cron(&service, tab_id);
+        }
     }
 }
 
@@ -171,9 +176,19 @@ fn drop_already_stored_inbound(messages: Vec<ChatMsg>) -> Vec<ChatMsg> {
 
 fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
     msg.kind == "user"
-        && crate::message_markers::parse_host_injected(&msg.content)
-            .map(|marker| marker.kind == "inbound")
-            .unwrap_or(false)
+        && crate::message_markers::parse_host_injected(&msg.content).is_some_and(|marker| {
+            matches!(
+                marker.kind.as_str(),
+                "tab"
+                    | "report"
+                    | "system"
+                    | "reminder"
+                    | "mesh"
+                    | "telegram"
+                    | "pebble"
+                    | "plugin"
+            )
+        })
 }
 
 /// Adapter that turns a JSONL [`DeltaSink`] (RichMessage) into the structured
@@ -200,11 +215,63 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         start_offset: u64,
         offset: u64,
     ) {
+        self.emit_inner(tab_id, messages, start_offset, offset, None);
+    }
+
+    fn emit_sourced(
+        &self,
+        tab_id: &str,
+        messages: Vec<crate::agent::chat_types::RichMessage>,
+        range: super::tailer::SourceRange,
+    ) {
+        self.emit_inner(
+            tab_id,
+            messages,
+            range.start_offset,
+            range.offset,
+            Some(range),
+        );
+    }
+}
+
+impl FlattenDeltaSink {
+    fn emit_inner(
+        &self,
+        tab_id: &str,
+        messages: Vec<crate::agent::chat_types::RichMessage>,
+        start_offset: u64,
+        offset: u64,
+        source_range: Option<super::tailer::SourceRange>,
+    ) {
         use std::sync::atomic::Ordering;
+        if let (Some(session), Some(nonce), Some(svc)) = (
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+            self.app.try_state::<crate::service::ServiceState>(),
+        ) {
+            crate::service::provider_signals::apply(&svc, tab_id, session, nonce, &messages);
+            crate::service::background_work::apply(&svc, tab_id, session, nonce, &messages);
+            if let Some(context) = messages
+                .iter()
+                .rev()
+                .find_map(|message| message.context_usage.clone())
+            {
+                crate::api::hook_routes::context_feed::apply(&svc, tab_id, session, nonce, context);
+            }
+        }
         let mut out: Vec<ChatMsg> = Vec::new();
+        let mut positions = Vec::new();
         for r in &messages {
             let base = self.base.fetch_add(1, Ordering::Relaxed);
-            out.extend(super::rich_to_chat_msgs_live(r, base));
+            let flattened = super::rich_to_chat_msgs_live(r, base);
+            positions.extend(
+                std::iter::repeat(TurnPosition {
+                    record_start: r.record_start,
+                    record_row: r.record_row,
+                })
+                .take(flattened.len()),
+            );
+            out.extend(flattened);
         }
         if out.is_empty() {
             return;
@@ -221,6 +288,12 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
                 &out,
             );
         }
+        let provenance = source_range.map(|range| LiveProvenance {
+            source_session_id: self.source_session_id.clone().unwrap_or_default(),
+            source_binding_nonce: self.session_binding_nonce.clone(),
+            range,
+            positions,
+        });
         reconcile_current_session_turns(
             &self.app,
             &self.mux,
@@ -229,6 +302,7 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
             &out,
+            provenance.as_ref(),
         );
         let event = format!("tab-chat-msg-{}", tab_id);
         let payload = ChatMsgEvent {
@@ -274,6 +348,7 @@ fn reconcile_current_session_turns(
     source_session_id: Option<&str>,
     source_binding_nonce: Option<&str>,
     messages: &[ChatMsg],
+    provenance: Option<&LiveProvenance>,
 ) {
     for status in current_binding_turn_confirmations(
         mux,
@@ -282,6 +357,7 @@ fn reconcile_current_session_turns(
         source_session_id,
         source_binding_nonce,
         messages,
+        provenance,
     ) {
         crate::api::events::emit_everywhere(app, "chat-send-status", &status);
     }
@@ -296,6 +372,7 @@ pub(crate) fn current_binding_turn_confirmations(
     source_session_id: Option<&str>,
     source_binding_nonce: Option<&str>,
     messages: &[ChatMsg],
+    provenance: Option<&LiveProvenance>,
 ) -> Vec<crate::service::chat_send_transaction::ChatSendStatus> {
     let (Some(ledger), Some(source_session_id)) = (ledger, source_session_id) else {
         return Vec::new();
@@ -303,12 +380,23 @@ pub(crate) fn current_binding_turn_confirmations(
     if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
         return Vec::new();
     }
+    if messages.iter().any(|message| message.kind == "user") {
+        let key = { mux.read().lifecycle_key(tab_id) };
+        if let Some(key) = key {
+            if let Err(error) = crate::session::lifecycle::TabLifecycleJournal::shared()
+                .note_conversation_started(key, source_session_id)
+            {
+                log::warn!("[conversation-evidence] Tab {tab_id}: {error}");
+            }
+        }
+    }
     crate::service::chat_send_transaction::delivered_turn_confirmations(
         ledger,
         tab_id,
         source_session_id,
         source_binding_nonce,
         messages,
+        provenance,
     )
 }
 
@@ -336,9 +424,356 @@ fn source_is_current_binding(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
+    use crate::agent::provider::{
+        AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
+    };
     use crate::lock_hold::TimedRwLock;
     use crate::multiplexer::state::MultiplexerState;
+    use crate::service::chat_send_transaction::ChatSendState;
     use crate::service::tab_chat::chatbackend_history;
+    use std::io::{Read, Seek, SeekFrom};
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tauri::{Listener, Manager};
+
+    struct SourcedJsonlProvider {
+        root: PathBuf,
+    }
+
+    impl AgentProvider for SourcedJsonlProvider {
+        fn id(&self) -> &str {
+            "sourced-jsonl"
+        }
+
+        fn detect_session_id(
+            &self,
+            _cwd: &str,
+            _exclude: &[String],
+            _max_age: Option<Duration>,
+        ) -> Option<String> {
+            None
+        }
+
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
+            None
+        }
+
+        fn display_name(&self) -> &str {
+            "Sourced JSONL"
+        }
+
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+            String::new()
+        }
+
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::ZERO,
+            }
+        }
+
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+
+        fn session_jsonl_path(&self, _: &str, session_id: &str) -> Option<PathBuf> {
+            Some(self.root.join(format!("{session_id}.jsonl")))
+        }
+
+        fn parse_session_delta(&self, path: &Path, from_offset: u64) -> SessionDelta {
+            let mut file = std::fs::File::open(path).unwrap();
+            file.seek(SeekFrom::Start(from_offset)).unwrap();
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).unwrap();
+            let mut record_start = from_offset;
+            let messages = bytes
+                .split_inclusive(|byte| *byte == b'\n')
+                .filter_map(|line| {
+                    let start = record_start;
+                    record_start += line.len() as u64;
+                    let value: serde_json::Value = serde_json::from_slice(line).ok()?;
+                    Some(RichMessage {
+                        role: value.get("role")?.as_str()?.to_string(),
+                        blocks: vec![MessageBlock {
+                            kind: "text".into(),
+                            data: serde_json::json!({
+                                "text": value.get("content")?.as_str()?
+                            }),
+                        }],
+                        record_start: Some(start),
+                        record_row: 0,
+                        ..Default::default()
+                    })
+                })
+                .collect();
+            SessionDelta {
+                new_offset: from_offset + bytes.len() as u64,
+                messages,
+            }
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum SourcedEvidenceFault {
+        None,
+        StaleSession,
+        WrongIncarnation,
+        WrongBinding,
+    }
+
+    fn sourced_jsonl_send_state(
+        fault: SourcedEvidenceFault,
+    ) -> crate::service::chat_send_transaction::ChatSendState {
+        use crate::service::tab_chat::registry::SourceObservation;
+        use crate::service::tab_chat::tailer::{spawn_sourced_tailer, TailConfig};
+        use std::sync::mpsc;
+
+        const PAYLOAD: &str = "anchorless-live-evidence-ø-42";
+        let session_id = "session-current";
+        let binding_nonce = "binding-current";
+        let root = tempfile::tempdir().unwrap();
+        let (mut mux, tab_id) = MultiplexerState::new();
+        {
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.backing = crate::multiplexer::types::TabBacking::Pty;
+            tab.pty_id = Some("pty-current".into());
+            tab.agent_type = Some("sourced-jsonl".into());
+            tab.cwd = Some(root.path().to_string_lossy().into_owned());
+            tab.agent_session_id = Some(session_id.into());
+            tab.session_binding_nonce = Some(binding_nonce.into());
+            tab.reported_session_binding_nonce = Some(binding_nonce.into());
+            tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        }
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture
+            .service
+            .pty
+            .lock()
+            .spawn_with_id(
+                Some("pty-current".into()),
+                None,
+                None,
+                120,
+                40,
+                Default::default(),
+            )
+            .expect("the exact PTY session must be attached before admission");
+        let service_state = Arc::new(fixture.service.clone()) as crate::service::ServiceState;
+        assert!(fixture._app.manage(service_state));
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(SourcedJsonlProvider {
+                root: root.path().to_path_buf(),
+            }));
+
+        let reservation = fixture
+            .service
+            .reserve_user_send(&tab_id, None)
+            .expect("the exact PTY binding must reserve an owned send");
+        let record = fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .admit(&reservation, PAYLOAD, PAYLOAD, None)
+            .unwrap();
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .set_admission_wake(&tab_id, Arc::new(|| {}));
+        drop(reservation);
+        let accepted = fixture.service.chat_send_ledger.admit_user(&record);
+        assert!(fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .claim(&record, session_id)
+            .unwrap());
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .settle_cycle(&record, false)
+            .unwrap();
+        let captured = fixture.service.chat_send_anchor(&tab_id);
+        assert!(
+            captured.anchor.is_none(),
+            "the exact JSONL path was absent at capture"
+        );
+        let absence_witness = captured.absence_witness.clone().unwrap();
+        assert!(fixture
+            .service
+            .chat_send_ledger
+            .begin_user_handoff(&record, PAYLOAD, captured));
+        assert!(fixture
+            .service
+            .chat_send_ledger
+            .mark_user_written(&accepted.send_id)
+            .is_some());
+        assert_eq!(
+            fixture
+                .service
+                .chat_send_ledger
+                .finish(&accepted.send_id, Ok(()))
+                .unwrap()
+                .state,
+            ChatSendState::Unknown
+        );
+
+        let source = fixture.service.chat_registry.jsonl_source(&tab_id);
+        let transcript = root.path().join(format!("{session_id}.jsonl"));
+        let row = serde_json::to_vec(&serde_json::json!({
+            "role": "user",
+            "content": PAYLOAD,
+        }))
+        .unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&transcript)
+            .unwrap();
+        use std::io::Write;
+        file.write_all(&row).unwrap();
+        file.write_all(b"\n").unwrap();
+        file.sync_all().unwrap();
+        let original_len = row.len() as u64 + 1;
+
+        if matches!(fault, SourcedEvidenceFault::WrongIncarnation) {
+            let SourceObservation::Present {
+                incarnation: Some(first),
+                ..
+            } = source.observe(session_id, &transcript, None, 0)
+            else {
+                panic!("the appended JSONL must establish its captured incarnation");
+            };
+            assert_eq!(
+                first.absence_witness.as_deref(),
+                Some(absence_witness.as_ref())
+            );
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&transcript)
+                .unwrap();
+            file.write_all(b" ").unwrap();
+            file.write_all(&row).unwrap();
+            file.write_all(b"\n").unwrap();
+            file.sync_all().unwrap();
+            let SourceObservation::Present {
+                incarnation: Some(second),
+                restart: true,
+            } = source.observe(session_id, &transcript, Some(&first), original_len)
+            else {
+                panic!("truncate and regrow must invalidate the prior source incarnation");
+            };
+            assert_ne!(first.id, second.id);
+            assert_eq!(second.absence_witness, None);
+        }
+
+        if matches!(fault, SourcedEvidenceFault::StaleSession) {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("session-next".into());
+            tab.session_binding_nonce = Some("binding-next".into());
+            tab.reported_session_binding_nonce = Some("binding-next".into());
+        }
+
+        let sink_nonce = if matches!(fault, SourcedEvidenceFault::WrongBinding) {
+            "binding-wrong"
+        } else {
+            binding_nonce
+        };
+        let sink = make_flatten_sink(
+            fixture.service.app_handle.clone(),
+            fixture.service.mux.clone(),
+            0,
+            Some(session_id.into()),
+            Some(sink_nonce.into()),
+            Some(fixture.service.chat_send_ledger.clone()),
+        );
+        let event_name = format!("tab-chat-msg-{tab_id}");
+        let (event_tx, event_rx) = mpsc::sync_channel(1);
+        let listener = fixture._app.listen(&event_name, move |event| {
+            let payload = serde_json::from_str::<serde_json::Value>(event.payload()).unwrap();
+            let _ = event_tx.try_send(payload);
+        });
+        let tailer = spawn_sourced_tailer(
+            TailConfig {
+                tab_id: tab_id.clone(),
+                provider_id: "sourced-jsonl".into(),
+                cwd: root.path().to_string_lossy().into_owned(),
+                session_id: session_id.into(),
+                start_offset: 0,
+            },
+            Some(source),
+            fixture.service.agent_registry.clone(),
+            sink,
+        );
+        let event = event_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the sourced tailer must emit through FlattenDeltaSink");
+        tailer.shutdown();
+        fixture._app.unlisten(listener);
+        assert_eq!(event["messages"][0]["type"], "user");
+        assert_eq!(event["messages"][0]["content"], PAYLOAD);
+
+        let status = fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap();
+        match fault {
+            SourcedEvidenceFault::None => {
+                assert!(!absence_witness.is_empty());
+                assert_eq!(status.state, ChatSendState::Sent);
+            }
+            _ => assert_eq!(status.state, ChatSendState::Unknown),
+        }
+        status.state
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "requires the shared interactive desktop ServiceContext fixture"
+    )]
+    fn sourced_jsonl_confirmation_traverses_tailer_flattening_and_ledger_gates() {
+        assert_eq!(
+            sourced_jsonl_send_state(SourcedEvidenceFault::None),
+            ChatSendState::Sent
+        );
+        assert_eq!(
+            sourced_jsonl_send_state(SourcedEvidenceFault::StaleSession),
+            ChatSendState::Unknown
+        );
+        assert_eq!(
+            sourced_jsonl_send_state(SourcedEvidenceFault::WrongIncarnation),
+            ChatSendState::Unknown
+        );
+        assert_eq!(
+            sourced_jsonl_send_state(SourcedEvidenceFault::WrongBinding),
+            ChatSendState::Unknown
+        );
+    }
 
     #[derive(Default)]
     struct CountingSink {
@@ -448,6 +883,7 @@ mod tests {
             Some("sess-old"),
             Some("nonce-old"),
             &user_turn,
+            None,
         );
         assert!(stale.is_empty(), "stale-scope turns cannot confirm");
 
@@ -458,6 +894,7 @@ mod tests {
             Some("sess-live"),
             Some("nonce-live"),
             &user_turn,
+            None,
         );
         assert_eq!(confirmed.len(), 1);
         assert_eq!(confirmed[0].send_id, send.send_id);
@@ -536,12 +973,16 @@ mod tests {
 
         let inner = Arc::new(CountingSink::default());
         let sink = ChatBackendStructuredSink::new(inner.clone(), plugin, session, None);
-        let inbound = crate::message_markers::Marker::new("inbound")
-            .attr("kind", "tab")
-            .attr("from_label", "Alice")
-            .attr("from_tab", "tab-a")
-            .payload("hello")
-            .build();
+        let inbound = codeterm_types::domios::DomiosFrame {
+            opening_tag: codeterm_types::domios::build_opening_tag(&[
+                ("from", "tab"),
+                ("label", "Alice"),
+                ("tab", "tab-a"),
+            ]),
+            body: "hello".into(),
+            suffix: String::new(),
+        }
+        .to_message();
 
         sink.emit(
             "tab-1",

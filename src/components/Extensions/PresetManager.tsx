@@ -4,8 +4,9 @@
  * and the active selection (with a live `sessionId`) switches the session onto the preset's model.
  * Generalized — any chatBackend with presets, no hardcoded provider id.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { agentDescriptorsRefreshing, subscribeAgentDescriptors } from "../../lib/agentDescriptorCache";
 import type { ModelInfo } from "../../lib/types";
 import { GroupLabel } from "./shared";
 import { getPresetManagerApi, type Preset, type PresetState } from "./presetManagerApi";
@@ -23,13 +24,15 @@ function readTemperature(preset: Preset | undefined): string {
 
 export function PresetManager({
   pluginId,
-  models,
+  models: retainedModels,
   sessionId,
 }: {
   pluginId: string;
   models: ModelInfo[];
   sessionId?: string;
 }) {
+  const refreshing = useSyncExternalStore(subscribeAgentDescriptors, agentDescriptorsRefreshing, () => false);
+  const models = refreshing ? [] : retainedModels;
   const [state, setState] = useState<PresetState>({ presets: [], activePreset: null });
   const [selectedId, setSelectedId] = useState<string | null>(null);
 

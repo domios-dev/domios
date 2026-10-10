@@ -1,4 +1,8 @@
+import { ConnectedTabAttentionBanner } from "./TabAttentionBanner";
 import { TerminalTab } from "./TerminalTab";
+import { useLayoutEffect } from "react";
+import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
+import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
 import { TabTopBar } from "./TabTopBar";
 import { isTabVisible } from "../MemoryPanel/workerFocusStore";
@@ -15,6 +19,8 @@ import type {
 import { usageTrackingEnabled } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
+import { SurfaceTabHost } from "./SurfaceTabHost";
+import { surfaceBacking } from "../../lib/surfaceTab";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -48,8 +54,14 @@ export function TabContent({
   api,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(tab?.agent_type);
-  const { providers } = useAgentProviders();
+  const { providers, loading, error } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
+  useLayoutEffect(() => {
+    if (tab?.close_restore?.record_id) {
+      consumePendingCommand(tab.id);
+      consumePendingCwd(tab.id);
+    }
+  }, [tab?.id, tab?.close_restore?.record_id]);
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
@@ -59,6 +71,18 @@ export function TabContent({
     return (
       <TabWrapper tabId={tab.id}>
         <FirstRunGeneralPicker providers={providers} />
+      </TabWrapper>
+    );
+  }
+
+  const surface = surfaceBacking(tab);
+  if (surface) {
+    return (
+      <TabWrapper tabId={tab.id}>
+        <div className="flex h-full flex-col">
+          <ConnectedTabAttentionBanner key={tab.id} tab={tab} active={isVisible && isFocused} chatCapable={false} />
+          <div className="min-h-0 flex-1"><SurfaceTabHost tab={tab} backing={surface} api={api} isVisible={isVisible} /></div>
+        </div>
       </TabWrapper>
     );
   }
@@ -77,7 +101,7 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = isChatBackend ? (
+  const body = tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalTab
@@ -100,20 +124,27 @@ export function TabContent({
   return (
     <TabWrapper tabId={tab.id}>
       <div className="flex h-full w-full flex-col">
+        <ConnectedTabAttentionBanner key={tab.id} tab={tab} active={isVisible && isFocused} chatCapable={isChatBackend || showSwitch} />
         <TabTopBar
           tabId={tab.id}
+          shellTab={tab}
           cwd={cwd}
+          workspaceId={workspaceId}
           showSwitch={showSwitch}
           usageProvider={usageProvider}
           usageVisible={usageVisible}
           usageModelId={usageModelId}
           usageModelGroups={descriptor?.model_groups}
-          api={api}
           isWatcherTab={tab.watcher != null}
           watcherLastStatus={tab.watcher?.last_status ?? null}
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
         />
+        {!isChatBackend && tab.agent_type && !descriptor && (
+          <div role="status" data-testid="provider-capability-state" className="px-2 py-1 text-xs">
+            {loading ? "Loading agent capabilities…" : error ?? `Agent capabilities unavailable for ${tab.agent_type}`}
+          </div>
+        )}
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}
         </div>

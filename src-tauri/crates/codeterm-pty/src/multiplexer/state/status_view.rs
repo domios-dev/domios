@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use codeterm_types::pty::{TabStatus, TabStatusTracker, TimelineState};
+use codeterm_types::pty::{AgentLiveState, TabStatus, TabStatusTracker, TabVerdict, TimelineState};
 use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
@@ -13,6 +13,10 @@ pub fn resolved_tab_status(
     tracker: &TabStatusTracker,
     resolve: impl Fn(&Tab, TabStatus) -> TabStatus,
 ) -> Option<TabStatus> {
+    if tab.provider_signals.access_lost() {
+        log::debug!("[provider-access] status waiting tab={}", tab.id);
+        return Some(TabStatus::Waiting);
+    }
     let tracked = tab
         .pty_id
         .as_deref()
@@ -30,11 +34,35 @@ pub fn resolved_tab_status(
 /// The status every tab surface reports. A tab with no tracked PTY (a chat
 /// backend, or a PTY not spawned yet) reports its provider-declared state.
 pub fn effective_tab_status(tab: &Tab, resolved: Option<TabStatus>) -> TabStatus {
+    if tab.provider_signals.access_lost() {
+        return TabStatus::Waiting;
+    }
     resolved.unwrap_or_else(|| match tab.agent_state.as_ref().map(|s| s.state) {
         Some(TimelineState::Working) => TabStatus::Working,
         Some(TimelineState::Question) => TabStatus::Waiting,
         Some(TimelineState::Idle) | None => TabStatus::Idle,
     })
+}
+
+pub(super) fn agent_state_for_status(
+    current: Option<&AgentLiveState>,
+    status: TabStatus,
+) -> AgentLiveState {
+    let state = match status {
+        TabStatus::Working => TimelineState::Working,
+        TabStatus::Waiting => TimelineState::Question,
+        TabStatus::Idle | TabStatus::Error | TabStatus::Dead => TimelineState::Idle,
+    };
+    current
+        .filter(|current| current.state == state)
+        .cloned()
+        .unwrap_or_else(|| {
+            TabVerdict {
+                state,
+                subtype: None,
+            }
+            .into()
+        })
 }
 
 pub fn tab_status_label(tab: &Tab, resolved: Option<TabStatus>) -> &'static str {
@@ -54,3 +82,6 @@ pub fn snapshot_with_status_until(
     let tracker = tracker.try_lock_until(deadline)?;
     Some(mux.snapshot_with_status_resolver(&tracker, resolve))
 }
+
+#[cfg(test)]
+mod tests;

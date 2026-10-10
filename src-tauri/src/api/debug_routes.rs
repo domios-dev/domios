@@ -42,6 +42,16 @@ pub async fn clock_advance(
     ))?;
     let now_ms = clock.advance_ms(body.ms);
     state.cron_wake.notify_all();
+    {
+        use tauri::Manager;
+        if let Some(sentinels) = state
+            .svc
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            sentinels.notify();
+        }
+    }
     Ok(Json(serde_json::json!({"now_ms": now_ms})))
 }
 
@@ -56,21 +66,36 @@ pub async fn event_stats(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use std::sync::atomic::Ordering;
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let st = &state.svc.mux_emit_stats;
     let pending = state.svc.mux_emit_pending.load(Ordering::Acquire);
-    let since = st.pending_since_ms.load(Ordering::Relaxed);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    Ok(Json(serde_json::json!({
+    Ok(Json(event_stats_snapshot(
+        &state.svc.mux_emit_stats,
+        pending,
+        now,
+        &super::stream_census::STREAMS,
+    )))
+}
+
+pub(crate) fn event_stats_snapshot(
+    st: &crate::service::MuxEmitStats,
+    pending: bool,
+    now: u64,
+    streams: &super::stream_census::StreamCensus,
+) -> serde_json::Value {
+    use std::sync::atomic::Ordering;
+    let since = st.pending_since_ms.load(Ordering::Relaxed);
+    serde_json::json!({
+        "streams": streams.snapshot(),
         "emit_requests": st.requests.load(Ordering::Relaxed),
         "emit_fires": st.fires.load(Ordering::Relaxed),
         "emit_suppressed": st.suppressed.load(Ordering::Relaxed),
         "pending": pending,
         "frozen": st.frozen.load(Ordering::Acquire),
         "pending_since_ms": if pending && since > 0 { now.saturating_sub(since) } else { 0 },
-    })))
+    })
 }
 
 /// Fault injection (debug builds only): latch `mux_emit_pending` true WITHOUT a
@@ -149,3 +174,6 @@ pub async fn clean_restart(
     });
     Ok(Json(serde_json::json!({"accepted": true})))
 }
+
+#[cfg(test)]
+mod tests;

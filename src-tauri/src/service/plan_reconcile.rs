@@ -9,6 +9,7 @@ pub(crate) fn tab_has_live_agent(tab: &crate::multiplexer::types::Tab) -> bool {
         && match &tab.backing {
             crate::multiplexer::types::TabBacking::ChatBackend { .. } => true,
             crate::multiplexer::types::TabBacking::Pty => tab.pty_id.is_some(),
+            crate::multiplexer::types::TabBacking::Surface(_) => false,
         };
     tab.agent_type.is_some()
         && tab.agent_session_id.is_some()
@@ -220,6 +221,7 @@ impl ServiceContext {
                         && match &tab.backing {
                             crate::multiplexer::types::TabBacking::ChatBackend { .. } => true,
                             crate::multiplexer::types::TabBacking::Pty => tab.pty_id.is_some(),
+                            crate::multiplexer::types::TabBacking::Surface(_) => false,
                         },
                 ),
                 None => (false, None, None, None, None, None, None, None, false),
@@ -252,6 +254,7 @@ impl ServiceContext {
     }
 
     pub(super) fn emit_plan_changed(&self, plan_id: &str) {
+        self.provider_update_task_state_changed();
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",

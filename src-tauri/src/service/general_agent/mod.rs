@@ -5,7 +5,7 @@
 //!     plus the `sync_identity_to_mem` helper.
 //!   - [`workspace`] — General workspace + protected tab setup.
 //!   - [`lifecycle`] — start / restart of the GA PTY + launch flow.
-//!   - [`watchdog`] — periodic health-check + auto-restart.
+//!   - [`watchdog`] — lifecycle-event recovery.
 //!
 //! Public surface is re-exported below so external callers continue to use
 //! `service::general_agent::ensure_directories`, `start_general_agent`,
@@ -14,10 +14,15 @@
 pub(crate) mod binding_wait;
 pub mod blocker;
 mod first_run;
+mod fresh_session;
 pub mod identity;
 mod instructions;
+mod launch_files;
 pub(crate) mod launch_lock;
 mod lifecycle;
+pub(crate) mod recovery;
+mod recovery_episode;
+pub(crate) mod session_contract;
 mod state;
 pub mod team_membership;
 mod watchdog;
@@ -25,10 +30,13 @@ mod workspace;
 
 use std::path::PathBuf;
 
+pub(crate) use lifecycle::restart_general_agent_fresh_after_exit;
+
 pub use first_run::{
     complete_first_run_core, ensure_first_run_tab, needs_first_run_picker, purge_snapshot_ghosts,
     snapshot_has_protected_main, FIRST_RUN_TAB_MARKER,
 };
+pub use fresh_session::FreshGeneralSessionRequest;
 pub use identity::{confine_general_agent_kind, is_general_agent, GENERAL_AGENT_KIND};
 pub use instructions::{generate_instructions, sync_identity_to_mem};
 pub use lifecycle::{
@@ -38,7 +46,7 @@ pub use lifecycle::{
 pub use team_membership::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
-pub use watchdog::start_watchdog;
+pub(crate) use watchdog::WatchdogEvent;
 pub use workspace::{
     apply_general_chat_view_default, default_chat_view_for_provider, ensure_general_workspace,
     general_workspace_id,
@@ -110,3 +118,7 @@ mod tests {
         assert!(dir.ends_with("secrets"));
     }
 }
+
+pub(crate) use lifecycle::restart_general_agent_with_force;
+
+mod restart_guard;

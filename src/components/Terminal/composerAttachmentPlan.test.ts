@@ -1,3 +1,4 @@
+import { formatAttachmentMarker, parseAttachmentMarkers } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
 import { planComposerAttachments } from "./composerAttachmentPlan";
 import {
@@ -52,10 +53,14 @@ async function main() {
     const { events, deps } = consumer(null);
     const draft = await composeAttachmentDraft("tab-7", "look", [sourceImage, sourceVoice], [sourceVoice], deps);
     assert.deepEqual(draft, {
-      composed: `look ${sourceImage} [voice ${sourceVoice}: origin transcript]`,
+      composed: `look ${formatAttachmentMarker(sourceImage)} [voice ${sourceVoice}: origin transcript]`,
       transcribeFailed: false,
     });
     assert.deepEqual(events, [{ step: "transcribe-local", path: sourceVoice }], "local sends never transfer");
+    assert.ok(draft.composed.includes(`path="${sourceImage}"`), "the agent receives the exact absolute path");
+    const parsed = parseAttachmentMarkers(draft.composed);
+    assert.equal(parsed.text, `look [voice ${sourceVoice}: origin transcript]`);
+    assert.deepEqual(parsed.attachments, [{ kind: "image", path: sourceImage }]);
   }
 
   {
@@ -72,7 +77,7 @@ async function main() {
       step: "transfer",
       request: { ordinaryTabId: "mesh:air/tab-7", peerId: "air", path: sourceImage, kind: "file" },
     }]);
-    assert.equal(draft.composed, `look ${peerImage}`);
+    assert.equal(draft.composed, `look ${formatAttachmentMarker(peerImage)}`);
     assert.ok(!draft.composed.includes("blackstar"), "no source-machine path in the outgoing marker");
   }
 
@@ -84,7 +89,7 @@ async function main() {
       [["mesh:air/tab-7", "file"], ["mesh:air/tab-7", "voice"]],
       "a relayed web mirror hands bytes to the relay peer that owns the tab",
     );
-    assert.equal(draft.composed, `${peerImage} [voice ${peerVoice}: peer transcript]`);
+    assert.equal(draft.composed, `${formatAttachmentMarker(peerImage)} [voice ${peerVoice}: peer transcript]`);
   }
 
   {

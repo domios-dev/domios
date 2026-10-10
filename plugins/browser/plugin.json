@@ -1,0 +1,59 @@
+{
+  "id": "browser",
+  "version": "1.12.4",
+  "minCodeterm": "1.12.4",
+  "hostApi": 2,
+  "displayName": "Browser",
+  "description": "An agent-owned live browser: the agent drives a real Chromium, the user watches it inside the agent's tab, joins in, and points at elements to ask the agent about them.",
+  "entry": "plugin.js",
+  "capabilities": {
+    "surfaces": [
+      {
+        "id": "browser",
+        "title": "Browser",
+        "renderer": "stream",
+        "runtime": "browser",
+        "agentBound": true,
+        "restore": "relaunch",
+        "icon": "globe"
+      }
+    ]
+  },
+  "permissions": {
+    "agentCommands": true,
+    "surfaces": true
+  },
+  "agentVerbs": [
+    "help (any verb + --of <agent>: act in that agent's browser)",
+    "open [url] [--profile NAME]",
+    "status",
+    "profiles",
+    "goto <url>",
+    "back | forward | reload",
+    "snapshot [limit]",
+    "click @eN | <role> <name>",
+    "type @eN | <role> <name> <text>",
+    "press <key> [shift|ctrl|alt|meta]",
+    "scroll <dy>",
+    "text [limit]",
+    "wait --text T | --url U | --selector S",
+    "screenshot [file] [--full]",
+    "inbox [all]",
+    "annotate @eN | <role> <name> <comment> --of <agent> [--intent question|change|bug]",
+    "endpoint",
+    "close"
+  ],
+  "agentKeywords": [
+    "browser",
+    "web page",
+    "website",
+    "click",
+    "screenshot",
+    "accessibility snapshot",
+    "test web ui",
+    "form",
+    "login"
+  ],
+  "agentGuide": "BROWSER.md",
+  "agentPromptLine": "Browser: a real browser tab the user watches inside Domios — use it for any web page or UI testing task instead of Chrome extensions or other browser tools. How to use: `codeterm docs BROWSER`."
+}

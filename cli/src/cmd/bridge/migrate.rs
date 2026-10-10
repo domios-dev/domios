@@ -247,14 +247,14 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
             "service": args.service,
             "chat_id": args.announce_chat_id,
             "text": format!(
-                "[CodeTerm] Telegram bridge migrated to {} from {}",
+                "[Domios] Telegram bridge migrated to {} from {}",
                 args.to, source_name
             ),
         });
         if let Err(e) = relay_post(&target_id, "/api/bridge/announce", &payload) {
             eprintln!("Warning: announce failed (non-fatal): {}", e);
         } else {
-            log_step(json, "announce", "queued sentinel message on target");
+            log_step(json, "announce", "queued Blueprint message on target");
         }
     }
 

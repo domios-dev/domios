@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use super::graph_nodes::GraphNodesCap;
+use super::surfaces::SurfaceDecl;
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
+use codeterm_types::decision::TokenMode;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatPreprocessorCap {
@@ -60,6 +63,61 @@ impl Serialize for ChatPreprocessorCap {
             }
             _ => s.serialize_bool(self.enabled),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DecisionModelCap {
+    pub enabled: bool,
+    pub token_mode: TokenMode,
+}
+
+impl<'de> Deserialize<'de> for DecisionModelCap {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Obj {
+                #[serde(rename = "tokenMode")]
+                token_mode: TokenMode,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Flag(enabled) => Self {
+                enabled,
+                token_mode: if enabled {
+                    TokenMode::Optional
+                } else {
+                    TokenMode::None
+                },
+            },
+            Raw::Obj { token_mode } => Self {
+                enabled: true,
+                token_mode,
+            },
+        })
+    }
+}
+
+impl Serialize for DecisionModelCap {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if !self.enabled {
+            return serializer.serialize_bool(false);
+        }
+        if self.token_mode == TokenMode::Optional {
+            return serializer.serialize_bool(true);
+        }
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry("tokenMode", &self.token_mode)?;
+        map.end()
     }
 }
 
@@ -288,15 +346,29 @@ pub struct WebhookReceiverCap {
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     #[serde(default)]
+    pub structured_control: Option<crate::provider::StructuredControl>,
+    #[serde(default)]
+    pub context_attach: Option<crate::provider::ContextAttach>,
+    #[serde(default)]
     pub agent_provider: bool,
+    #[serde(default)]
+    pub reply_relay: bool,
+    #[serde(default)]
+    pub tool_less: bool,
+    #[serde(default)]
+    pub model_provider_config: bool,
     /// Bool (the plugin is the store) or `{ autoUnlock }` object (the store
     /// also declares it can restore its own session headlessly).
     #[serde(default)]
     pub secret_backend: SecretBackendCap,
     #[serde(default)]
     pub transcriber: bool,
+    /// Graph node declarations: media conversions and typed, bounded event
+    /// sources. Object only; see `graph_nodes` for the accepted subset.
+    #[serde(default, skip_serializing_if = "GraphNodesCap::is_empty")]
+    pub graph_nodes: GraphNodesCap,
     #[serde(default)]
-    pub decision_model: bool,
+    pub decision_model: DecisionModelCap,
     /// Renders a read-only "glance" popover (ViewNode tree) when pinned.
     #[serde(default)]
     pub glance_view: bool,
@@ -324,6 +396,9 @@ pub struct Capabilities {
     /// Items the host renders in every tab's kebab menu; each action is host-owned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tab_menu: Vec<TabMenuItem>,
+    /// App tabs whose content the plugin renders; core owns the frame.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<SurfaceDecl>,
     #[serde(default, flatten, skip_serializing)]
     pub(crate) unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }

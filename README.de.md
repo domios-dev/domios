@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+  <img src="assets/logo.png" alt="Domios" width="128" />
 </p>
 
-<h1 align="center">CodeTerm</h1>
+<h1 align="center">Domios</h1>
 > Die Übersetzung von README.md kann hinterherhinken. Die englische Version ist maßgeblich.
 
 <p align="center">
@@ -31,7 +31,7 @@
 </p>
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- ![Domios Screenshot](assets/screenshot.png) -->
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "Download": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
@@ -39,11 +39,11 @@
 
 ---
 
-## Was ist CodeTerm?
+## Was ist Domios?
 
-CodeTerm ist ein plattformübergreifender Terminal-Multiplexer, der von Grund auf für KI-gestützte Entwicklung konzipiert wurde. Er vereint die Leistungsfähigkeit eines Terminal-Multiplexers (wie tmux) mit erstklassiger Unterstützung für KI-Coding-Agenten wie Claude Code.
+Domios ist ein plattformübergreifender Terminal-Multiplexer, der von Grund auf für KI-gestützte Entwicklung konzipiert wurde. Er vereint die Leistungsfähigkeit eines Terminal-Multiplexers (wie tmux) mit erstklassiger Unterstützung für KI-Coding-Agenten wie Claude Code.
 
-**Der wesentliche Unterschied zu anderen Terminals:** CodeTerm bietet eine vollständige REST-API, ein CLI-Tool und eine Socket-API — sodass KI-Agenten Workspaces und Tabs erstellen, Befehle ausführen, Ausgaben lesen und das gesamte Terminal programmatisch steuern können. Ihr KI-Assistent wird zum vollwertigen Teilnehmer in Ihrem Terminal-Workflow.
+**Der wesentliche Unterschied zu anderen Terminals:** Domios bietet eine vollständige REST-API, ein CLI-Tool und eine Socket-API — sodass KI-Agenten Workspaces und Tabs erstellen, Befehle ausführen, Ausgaben lesen und das gesamte Terminal programmatisch steuern können. Ihr KI-Assistent wird zum vollwertigen Teilnehmer in Ihrem Terminal-Workflow.
 
 Gebaut mit **Tauri v2** (Rust) + **React** + **xterm.js**.
 
@@ -164,7 +164,7 @@ cd cli && cargo build --release
 
 ## API
 
-CodeTerm stellt drei APIs zur Integration bereit:
+Domios stellt drei APIs zur Integration bereit:
 
 ### REST-API (Port 7685)
 
@@ -217,11 +217,11 @@ codeterm browser open "http://localhost:3000"
 
 ### Umgebungsvariablen
 
-CodeTerm setzt diese in jeder PTY-Sitzung:
+Domios setzt diese in jeder PTY-Sitzung:
 
 | Variable | Beschreibung |
 |----------|-------------|
-| `CODETERM` | Immer `1` — erkennen, ob CodeTerm aktiv ist |
+| `CODETERM` | Immer `1` — erkennen, ob Domios aktiv ist |
 | `CODETERM_TAB_ID` | UUID des aktuellen Tabs |
 | `CODETERM_SOCKET_PATH` | Socket-Pfad für die JSON-RPC-API |
 | `TERM_PROGRAM` | `CodeTerm` |
@@ -261,7 +261,7 @@ Siehe [Konfigurationsanleitung](prod-docs/CONFIG.md) für alle Optionen.
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  CodeTerm                    │
+│                  Domios                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
 │  │ Sidebar  │  │ Terminal │  │    Tabs    │  │

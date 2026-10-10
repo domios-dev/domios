@@ -1,4 +1,4 @@
-import { buildTeamActions } from "./teamActions";
+import { buildTeamActions, requestTeamMember } from "./teamActions";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -102,6 +102,15 @@ async function run() {
       () => assert(false, "403 staffing rejection must be surfaced"),
       (error: Error) => assert(error.message.includes("403"), "403 error remains actionable"),
     );
+
+  const brief = "opaque-owner-data\n`$()`";
+  const briefCalls: Array<{ command: string; args: Record<string, unknown> }> = [];
+  await requestTeamMember(async (command, args) => {
+    briefCalls.push({ command, args });
+  }, { teamId: "team-brief", role: "cartographer", providerId: "fixture-provider", managerTabId: "fixture-manager", brief });
+  assert(briefCalls.length === 1, "Cartographer brief uses the staffing action once");
+  assert(briefCalls[0].command === "mux_add_team_member", "brief shares the Team member command");
+  assert(briefCalls[0].args.brief === brief, "owner brief is transported opaquely");
 
   console.log("team actions tests passed");
 }

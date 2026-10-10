@@ -1,4 +1,4 @@
-use super::{DeferredSubmitWait, SubmitTransport, MAX_SUBMIT_KEY_WRITES};
+use super::{DeferredSubmitWait, SubmitTransport};
 use crate::agent::provider::{PasteCapability, VerifySubmitStrategy};
 use crate::service::inject_verify::{InjectionError, InjectionResult, VerifyOpts};
 use std::time::{Duration, Instant};
@@ -79,6 +79,57 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     typed_follow_up: Option<&str>,
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
+    key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
+) -> Result<InjectionResult, InjectionError> {
+    run_with_submit_key_and_parts(
+        transport,
+        text,
+        enter,
+        submit_key,
+        None,
+        typed_follow_up,
+        true,
+        strategy,
+        opts,
+        key_guard,
+    )
+}
+
+pub(super) fn run_with_submit_key_and_frame<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
+) -> Result<InjectionResult, InjectionError> {
+    run_with_submit_key_and_parts(
+        transport,
+        text,
+        enter,
+        submit_key,
+        typed_prefix,
+        typed_suffix,
+        false,
+        strategy,
+        opts,
+        key_guard,
+    )
+}
+
+fn run_with_submit_key_and_parts<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    type_suffix_after_paste: bool,
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
     if let Err(error) = transport.dialog_guard() {
@@ -92,13 +143,16 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     transport.prepare_paste(text, enter);
     let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
-    let typed_follow_up = typed_follow_up
-        .filter(|follow_up| PasteCapability::is_valid_typed_follow_up(follow_up))
-        .filter(|_| enter && !text.is_empty());
+    let typed_suffix = typed_suffix
+        .filter(|suffix| {
+            !type_suffix_after_paste || PasteCapability::is_valid_typed_follow_up(suffix)
+        })
+        .filter(|_| enter && (!text.is_empty() || typed_prefix.is_some()));
     let expected_user_turn = if enter && !text.is_empty() {
-        typed_follow_up.map_or_else(
-            || text.to_string(),
-            |follow_up| format!("{text}{follow_up}"),
+        format!(
+            "{}{text}{}",
+            typed_prefix.unwrap_or_default(),
+            typed_suffix.unwrap_or_default()
         )
     } else {
         text.to_string()
@@ -112,9 +166,13 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     };
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let bytes_written = transport.write_paste(text, turn_deadline)?;
+    let bytes_written = if type_suffix_after_paste {
+        transport.write_paste(text, turn_deadline)?
+    } else {
+        transport.write_paste_with_frame(text, typed_prefix, typed_suffix, turn_deadline)?
+    };
     let mut submit_key_writes = 0;
-    let mut typed_follow_up_written = false;
+    let mut typed_suffix_written = !type_suffix_after_paste || typed_suffix.is_none();
     let mut paste_observed =
         text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
 
@@ -134,7 +192,10 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     let mut submit_observed = !two_phase;
     let mut dialog_blocked = false;
     let mut force_key_schedule_after_deadline = false;
-    while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
+    while submit_key_writes < transport.max_submit_keys() {
+        if submit_key_writes > 0 && !transport.retry_active() {
+            break;
+        }
         if (submit_key_writes > 0 && submit_observed)
             || (exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn))
         {
@@ -143,16 +204,11 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         }
         if submit_key_writes == 0 && !initial_key_delay.is_zero() {
             let first_key_deadline = submit_started + initial_key_delay;
-            if transport.wait_retry_deadline_for_turn(
+            if transport.wait_initial_key_deadline_for_turn(
                 first_key_deadline.min(turn_deadline),
                 &expected_user_turn,
             ) {
                 submit_observed = true;
-                break;
-            }
-            if !transport.retry_active()
-                || (submit_key_writes > 0 && Instant::now() >= turn_deadline)
-            {
                 break;
             }
         } else if submit_key_writes > 0 {
@@ -184,10 +240,9 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         let mut key_error = None;
         let mut readiness_deadline_expired = false;
         let key_ready = if force_key_schedule_after_deadline {
-            if !transport.retry_active() {
-                false
-            } else {
-                match transport.dialog_guard() {
+            match transport.retry_active() {
+                false => false,
+                true if !allow_initial_key => match key_guard(false, turn_was_started) {
                     Ok(()) => true,
                     Err(InjectionError::AgentTuiPresent { .. }) => {
                         log::info!("[submit-transaction] automatic submit stopped: provider dialog detected during deadline fallback");
@@ -198,7 +253,22 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
                         key_error = Some(error);
                         false
                     }
+                },
+                true if transport.draft_evidence_count(text) > baseline_evidence => {
+                    match transport.dialog_guard() {
+                        Ok(()) => true,
+                        Err(InjectionError::AgentTuiPresent { .. }) => {
+                            log::info!("[submit-transaction] automatic submit stopped: provider dialog detected during deadline fallback");
+                            dialog_blocked = true;
+                            false
+                        }
+                        Err(error) => {
+                            key_error = Some(error);
+                            false
+                        }
+                    }
                 }
+                true => false,
             }
         } else {
             loop {
@@ -229,6 +299,14 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         };
         if !key_ready {
             if submit_key_writes > 0 {
+                log::info!(
+                    "[submit-transaction] recovery key schedule stopped after {} key(s): {}",
+                    submit_key_writes,
+                    key_error
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| "draft evidence absent".into())
+                );
                 break;
             }
             if bytes_written == 0 {
@@ -238,7 +316,7 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
                 && !dialog_blocked
                 && transport.draft_evidence_count(text) > baseline_evidence
             {
-                match transport.dialog_guard() {
+                match key_guard(allow_initial_key, turn_was_started) {
                     Ok(()) if transport.retry_active() => {
                         log::info!("[submit-transaction] readiness deadline expired with draft present; starting bounded submit-key schedule");
                         force_key_schedule_after_deadline = true;
@@ -246,6 +324,19 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
                     }
                     Err(InjectionError::AgentTuiPresent { .. }) => {
                         log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
+                    }
+                    Err(InjectionError::AgentInputUnavailable { .. }) => {
+                        match transport.dialog_guard() {
+                            Ok(()) if transport.retry_active() => {
+                                log::info!("[submit-transaction] readiness deadline expired with draft present; starting bounded submit-key schedule");
+                                force_key_schedule_after_deadline = true;
+                                continue;
+                            }
+                            Err(InjectionError::AgentTuiPresent { .. }) => {
+                                log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 }
@@ -268,10 +359,10 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         } else {
             Instant::now() + opts.submit_timeout
         };
-        if !typed_follow_up_written {
-            if let Some(follow_up) = typed_follow_up {
+        if !typed_suffix_written {
+            if let Some(suffix) = typed_suffix {
                 if transport
-                    .write_typed_follow_up(follow_up, key_deadline)
+                    .write_typed_follow_up(suffix, key_deadline)
                     .is_err()
                 {
                     let screen_tail = transport
@@ -283,7 +374,7 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
                         screen_tail,
                     });
                 }
-                typed_follow_up_written = true;
+                typed_suffix_written = true;
             }
         }
         let enter_armed = transport.generation();
@@ -354,6 +445,12 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
             }
             if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
                 submit_observed = true;
+                break;
+            }
+            if transport.max_submit_keys() == 1 && submit_key_writes >= 1 {
+                if transport.wait_retry_deadline_for_turn(deferred_deadline, &expected_user_turn) {
+                    submit_observed = true;
+                }
                 break;
             }
             match key_guard(false, turn_was_started) {

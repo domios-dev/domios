@@ -276,7 +276,8 @@ fn pty_provider_descriptors_unchanged_by_context_owner_field() {
         let is_provider_bundle = dir
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("provider-"));
+            .is_some_and(|name| name.starts_with("provider-"))
+            && dir.join("plugin.json").is_file();
         if !is_provider_bundle {
             continue;
         }

@@ -39,7 +39,7 @@ const cases: Array<[string, () => Promise<void>]> = [
   }],
   ["error renders dashed card and result", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "search", phase: "result", status: "error", result: "RESULT" })} expanded onToggle={() => {}} />);
-    if (!host.textContent?.includes("RESULT") || !host.querySelector('[style*="dashed"]')) throw new Error("error lifecycle regression");
+    if (!host.textContent?.includes("RESULT") || !host.querySelector(".ct-card--error")) throw new Error("error lifecycle regression");
   }],
   ["long output stays bounded and scrollable", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "fetch", phase: "result", status: "success", result: "line\n".repeat(500) })} expanded onToggle={() => {}} />);

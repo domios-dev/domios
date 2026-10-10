@@ -1,256 +1,165 @@
-// Run: npx tsx src/components/CrashReportToast.test.tsx
-
-import React, { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Window } from "happy-dom";
-import { __setInvokeForTest, __setListenForTest } from "../lib/bridge";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { AppConfig, Notification } from "../lib/types";
 import { RecoveryStatusBanner } from "./CrashReportToast";
+import { UpdateProgressLayer } from "./UpdateProgressLayer";
+import { InternalToast } from "./Toast/InternalToast";
+import { SecretsTab } from "./Settings/SecretsTab";
+import { usePluginActivity } from "../lib/usePluginActivity";
+import { useBlueprintRunPopups } from "./Automation/useBlueprintRunPopups";
+import { NotificationToastContainer } from "./Notifications/NotificationToast";
+import { NotificationPanel } from "./Notifications/NotificationPanel";
 
-type TestFn = () => void | Promise<void>;
+const fakes = vi.hoisted(() => ({
+  upsert: vi.fn(), add: vi.fn(), dismiss: vi.fn(), invoke: vi.fn(),
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+  update: { status: "up-to-date", latestVersion: "2", error: null, toastOpen: true, blocking: false, dismissUpdateToast: vi.fn() },
+  graphChanged: undefined as (() => void) | undefined,
+}));
+vi.mock("../store/multiplexer", () => ({
+  useMultiplexer: () => ({ upsertToast: fakes.upsert, addNotification: fakes.add, dismissToast: fakes.dismiss }),
+  useMuxState: () => ({ workspaces: [], active_workspace_id: null }),
+}));
+vi.mock("../lib/bridge", () => ({
+  invoke: fakes.invoke,
+  listen: vi.fn(async (name: string, handler: (event: { payload: unknown }) => void) => {
+    fakes.listeners.set(name, handler);
+    return () => fakes.listeners.delete(name);
+  }),
+}));
+vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => fakes.update }));
+vi.mock("./Automation/resource", () => ({ AutomationResource: class {
+  subscribe(handler: () => void) { fakes.graphChanged = handler; return () => { fakes.graphChanged = undefined; }; }
+  getSnapshot() { return { graph: {}, failed: false }; }
+} }));
+vi.mock("./Automation/runPopupModel", () => ({
+  emptyPopupState: () => ({}),
+  advanceRunPopups: () => ({ state: {}, toasts: [{ id: "run-source", title: "opaque run", body: null, tab_id: null, workspace_id: "workspace", severity: "Info" }] }),
+}));
 
-const tests: Array<[string, TestFn]> = [];
-function test(name: string, fn: TestFn) {
-  tests.push([name, fn]);
-}
+let host: HTMLDivElement;
+let root: Root;
+const recoveryState = (settled = false) => ({
+  current: { epoch: "new", pid: 42, started_at: 1, last_healthy_at: 2 },
+  crash_presentation: settled ? "settled" : "active",
+  last_crash: {
+    classification: "abnormal_exit", detected_at: 3, new_epoch: "new",
+    previous: { epoch: "previous", pid: 41, last_healthy_at: 1 },
+    supervisor_action: { backoff_ms: 1000, loop_protected: false, crash_count_in_window: 1 },
+    work_policy: { ambiguous_execution: { missing_bindings: 2, disposition: "review" }, duplicate_worker_guard: "guarded", report_route_guard: "guarded" },
+  },
+});
 
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
-
-function setupDom() {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/" });
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
-  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
-  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
-  Object.defineProperty(globalThis, "MouseEvent", { value: window.MouseEvent, configurable: true });
-}
-
-async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  await act(async () => {
-    root.render(ui);
-  });
-  await act(async () => {
-    await Promise.resolve();
-  });
-  return { host, root };
-}
-
-function recoveryState(overrides: Record<string, unknown> = {}) {
-  return {
-    current: { epoch: "epoch-current", pid: 42, started_at: 1, last_healthy_at: 2 },
-    crash_presentation: "active",
-    last_crash: {
-      classification: "abnormal_exit",
-      detected_at: 3,
-      new_epoch: "epoch-current",
-      previous: { epoch: "epoch-previous", pid: 41, last_healthy_at: 1 },
-      supervisor_action: {
-        backoff_ms: 1000,
-        loop_protected: false,
-        crash_count_in_window: 1,
-      },
-      work_policy: {
-        ambiguous_execution: null,
-        duplicate_worker_guard: "guarded",
-        report_route_guard: "guarded",
-      },
-    },
-    ...overrides,
-  };
-}
-
-function stubRecovery(state: unknown) {
-  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
-    assert(cmd === "get_recovery_state", "only recovery state should be requested");
-    return state as T;
-  });
-  __setListenForTest(async () => () => undefined);
-}
-
-test("crash recovery renders as a dismissible toast, not a full-width banner", async () => {
-  setupDom();
-  stubRecovery(recoveryState());
-
-  const { host, root } = await render(<RecoveryStatusBanner />);
-  const toast = host.querySelector('[data-testid="recovery-status-banner"]');
-  assert(toast, "recovery toast should render");
-  assert(toast.className.includes("right-3"), "toast should be anchored to the right");
-  assert(!toast.className.includes("inset-x-0"), "toast must not span the viewport");
-
-  const close = host.querySelector<HTMLButtonElement>('button[aria-label="Dismiss crash recovery"]');
-  assert(close, "toast should expose a dismiss button");
-  await act(async () => {
-    close.click();
-  });
-
-  assert(!host.querySelector('[data-testid="recovery-status-banner"]'), "dismiss should hide this crash");
+beforeEach(() => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  vi.clearAllMocks();
+  localStorage.clear();
+  fakes.listeners.clear();
+  fakes.invoke.mockImplementation(async (command: string) => command === "get_recovery_state" ? recoveryState() : {});
+  fakes.update.status = "up-to-date";
+  fakes.update.blocking = false;
+  fakes.update.toastOpen = true;
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(async () => {
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
-  __setListenForTest(null);
+  host.remove();
+  vi.unstubAllGlobals();
 });
-
-test("a settled crash record does not resurface on refresh", async () => {
-  setupDom();
-  stubRecovery(recoveryState({ crash_presentation: "settled" }));
-
-  const { host, root } = await render(<RecoveryStatusBanner />);
-  assert(
-    !host.querySelector('[data-testid="recovery-status-banner"]'),
-    "a healthy current epoch must not carry a stale crash accusation",
-  );
-  await act(async () => root.unmount());
-  __setInvokeForTest(null);
-  __setListenForTest(null);
-});
-
-test("a durable recovery-state transition removes an already-mounted status", async () => {
-  setupDom();
-  const listeners = new Map<string, (event: { payload: unknown }) => void>();
-  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
-    assert(cmd === "get_recovery_state", "only recovery state should be requested");
-    return recoveryState() as T;
-  });
-  __setListenForTest(async (event, handler) => {
-    listeners.set(event, handler as (event: { payload: unknown }) => void);
-    return () => listeners.delete(event);
-  });
-
-  const { host, root } = await render(<RecoveryStatusBanner />);
-  assert(
-    host.querySelector('[role="status"][aria-label="Crash recovery status"]'),
-    "the active recovery status should be exposed by accessible name",
-  );
-  await act(async () => {
-    await Promise.resolve();
-    listeners.get("recovery-state-changed")?.({
-      payload: recoveryState({ crash_presentation: "settled" }),
-    });
-  });
-  assert(
-    !host.querySelector('[aria-label="Crash recovery status"]'),
-    "backend settlement should remove the mounted status without a refresh",
-  );
-
-  await act(async () => root.unmount());
-  __setInvokeForTest(null);
-  __setListenForTest(null);
-});
-
-test("a stale initial read cannot overwrite a newer settled event", async () => {
-  setupDom();
-  const listeners = new Map<string, (event: { payload: unknown }) => void>();
-  let resolveInvoke: ((value: unknown) => void) | undefined;
-  __setInvokeForTest(
-    async <T,>(cmd: string): Promise<T> => {
-      assert(cmd === "get_recovery_state", "only recovery state should be requested");
-      return new Promise<T>((resolve) => {
-        resolveInvoke = (value) => resolve(value as T);
-      });
-    },
-  );
-  __setListenForTest(async (event, handler) => {
-    listeners.set(event, handler as (event: { payload: unknown }) => void);
-    return () => listeners.delete(event);
-  });
-
-  const { host, root } = await render(<RecoveryStatusBanner />);
-  assert(listeners.has("recovery-state-changed"), "settlement listener should register first");
-  assert(resolveInvoke, "the initial recovery read should remain in flight");
-  await act(async () => {
-    listeners.get("recovery-state-changed")?.({
-      payload: recoveryState({ crash_presentation: "settled" }),
-    });
-    await Promise.resolve();
-  });
-  await act(async () => {
-    resolveInvoke?.(recoveryState());
-    await Promise.resolve();
-  });
-  assert(
-    !host.querySelector('[aria-label="Crash recovery status"]'),
-    "an older active response must not resurrect a settled recovery status",
-  );
-
-  await act(async () => root.unmount());
-  __setInvokeForTest(null);
-  __setListenForTest(null);
-});
-
-test("the same crash notification is not replayed by a frontend refresh", async () => {
-  setupDom();
-  stubRecovery(recoveryState());
-
-  const first = await render(<RecoveryStatusBanner />);
-  assert(first.host.querySelector('[data-testid="recovery-status-banner"]'), "a new crash is presented once");
-  await act(async () => first.root.unmount());
-
-  const refreshed = await render(<RecoveryStatusBanner />);
-  assert(
-    !refreshed.host.querySelector('[data-testid="recovery-status-banner"]'),
-    "refresh does not misrepresent an already-presented crash as a new exit",
-  );
-  await act(async () => refreshed.root.unmount());
-  __setInvokeForTest(null);
-  __setListenForTest(null);
-});
-
-test("fully restored bindings raise no ambiguous-work claim", async () => {
-  setupDom();
-  stubRecovery(recoveryState());
-
-  const { host, root } = await render(<RecoveryStatusBanner />);
-  const toast = host.querySelector('[data-testid="recovery-status-banner"]');
-  assert(toast, "recovery toast should render");
-  assert(
-    !toast.textContent?.includes("Ambiguous work"),
-    "nothing was lost, so nothing is ambiguous",
-  );
-  await act(async () => root.unmount());
-  __setInvokeForTest(null);
-  __setListenForTest(null);
-});
-
-test("ambiguous work reports the bindings that never came back", async () => {
-  setupDom();
-  const state = recoveryState();
-  state.last_crash.work_policy.ambiguous_execution = {
-    missing_bindings: 2,
-    disposition: "needs-review/reassign",
-  } as never;
-  stubRecovery(state);
-
-  const { host, root } = await render(<RecoveryStatusBanner />);
-  const text = host.querySelector('[data-testid="recovery-status-banner"]')?.textContent ?? "";
-  assert(text.includes("Ambiguous work"), "a lost binding must surface");
-  assert(text.includes("2 bindings not restored"), "the claim must cite the lost bindings");
-  assert(text.includes("needs-review/reassign"), "the disposition must remain visible");
-  await act(async () => root.unmount());
-  __setInvokeForTest(null);
-  __setListenForTest(null);
-});
-
-async function run() {
-  let failed = 0;
-  for (const [name, fn] of tests) {
-    try {
-      await fn();
-      console.log(`  ✓ ${name}`);
-    } catch (err) {
-      failed++;
-      console.error(`  ✗ ${name}`);
-      console.error(err);
-    }
-  }
-  if (failed > 0) process.exit(1);
-  console.log(`\n✓ ${tests.length}/${tests.length} CrashReportToast tests passed`);
+const render = async (node: ReactNode) => { await act(async () => root.render(node)); };
+async function showCapturedToast(source: "upsert" | "add" = "upsert") {
+  const calls = fakes[source].mock.calls;
+  const value = calls[calls.length - 1]?.[0] as Notification;
+  expect(value).toBeDefined();
+  await render(<NotificationToastContainer toasts={[{ ...value, id: value.id ?? "local", timestamp: 1, read: false }]} onDismiss={fakes.dismiss} />);
+  expect(host.querySelectorAll('[data-testid="toast-host"]')).toHaveLength(1);
+  expect(host.querySelectorAll('button[aria-label="Dismiss"]')).toHaveLength(1);
+  return value;
 }
 
-void run();
+test("crash recovery routes through the host and keeps report actions in the bell", async () => {
+  await render(<RecoveryStatusBanner />);
+  expect(fakes.upsert).toHaveBeenCalledTimes(1);
+  await act(async () => fakes.listeners.get("crash_report_available")?.({ payload: { dir: "reports", files: ["report.txt"], recovery: recoveryState() } }));
+  const value = await showCapturedToast();
+  expect(value.body).toContain("2 bindings not restored");
+  await render(<NotificationPanel notifications={[{ ...value, timestamp: 1, read: false }]} onMarkRead={() => {}} onMarkAllRead={() => {}} onDelete={() => {}} onClearAll={() => {}} onJumpToTab={() => {}} onClose={() => {}} />);
+  const action = [...host.querySelectorAll("button")].find((button) => button.textContent === "Open folder");
+  expect(action).toBeDefined();
+  await act(async () => action!.click());
+  expect(fakes.invoke).toHaveBeenCalledWith("open_folder", { path: "reports" });
+});
+
+test("settled crash history does not create a toast", async () => {
+  fakes.invoke.mockResolvedValue(recoveryState(true));
+  await render(<RecoveryStatusBanner />);
+  expect(fakes.upsert).not.toHaveBeenCalled();
+});
+
+test("the same crash is not replayed after frontend remount", async () => {
+  await render(<RecoveryStatusBanner />);
+  expect(fakes.upsert).toHaveBeenCalledTimes(1);
+  await render(null);
+  await render(<RecoveryStatusBanner />);
+  expect(fakes.upsert).toHaveBeenCalledTimes(1);
+});
+
+test("new settled event wins over a stale initial recovery read", async () => {
+  let resolve!: (value: unknown) => void;
+  fakes.invoke.mockImplementation(() => new Promise((done) => { resolve = done; }));
+  await render(<RecoveryStatusBanner />);
+  await act(async () => fakes.listeners.get("recovery-state-changed")?.({ payload: recoveryState(true) }));
+  await act(async () => resolve(recoveryState()));
+  expect(fakes.upsert).not.toHaveBeenCalled();
+});
+
+test("internal prompt notices render through the host once", async () => {
+  const source = <InternalToast pendingPrompt={{ question: "opaque prompt" }} tabId="tab" agentType="provider" />;
+  await render(source);
+  await render(source);
+  expect(fakes.upsert).toHaveBeenCalledTimes(1);
+  const value = await showCapturedToast();
+  expect(value.tab_id).toBe("tab");
+});
+
+test("update transient notices render through the host", async () => {
+  await render(<UpdateProgressLayer />);
+  expect(fakes.update.dismissUpdateToast).toHaveBeenCalledTimes(1);
+  await showCapturedToast();
+});
+
+test("blocking update progress remains a persistent progress surface", async () => {
+  fakes.update.blocking = true;
+  fakes.update.status = "applying";
+  await render(<UpdateProgressLayer />);
+  expect(fakes.upsert).not.toHaveBeenCalled();
+  expect(host.childElementCount).toBe(1);
+});
+
+function PluginSource() { usePluginActivity(); return null; }
+test("plugin activity events render through the host", async () => {
+  await render(<PluginSource />);
+  await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind: "install", label: "opaque progress", status: "running", startedAt: 1, updatedAt: 2 } }));
+  const value = await showCapturedToast();
+  expect(value.update_only).toBe(true);
+});
+
+function RunSource() { useBlueprintRunPopups([{ id: "workspace" }], 1, [], fakes.upsert); return null; }
+test("blueprint run updates render through the host", async () => {
+  await render(<RunSource />);
+  await act(async () => fakes.graphChanged?.());
+  const value = await showCapturedToast();
+  expect(value.id).toBe("run-source");
+});
+
+test("secret backend confirmation renders through the host", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ backend: "mock", status: { status: "locked" } }) })));
+  await render(<SecretsTab config={{ integrations: { secrets: { backend: "local" } } } as AppConfig} onUpdate={() => {}} />);
+  const select = host.querySelector<HTMLSelectElement>('[data-testid="settings-secrets-backend-select"]')!;
+  expect(select).toBeTruthy();
+  await act(async () => { select.value = "mock"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await showCapturedToast("add");
+});

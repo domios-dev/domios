@@ -1,10 +1,19 @@
+/// Storage blocks a cron mutation until COMMIT, so it never runs on the IPC thread.
+async fn off_runtime<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("cron worker failed: {error}"))
+}
+
 #[tauri::command]
 pub fn cron_list(
     cron: tauri::State<'_, crate::CronState>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     workspace_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let jobs = svc.cron_list(&cron, workspace_id.as_deref());
+    let jobs = svc.cron_list(&cron, workspace_id.as_deref())?;
     serde_json::to_value(jobs).map_err(|e| e.to_string())
 }
 
@@ -19,7 +28,7 @@ pub fn cron_get(
 }
 
 #[tauri::command]
-pub fn cron_create(
+pub async fn cron_create(
     cron: tauri::State<'_, crate::CronState>,
     wake: tauri::State<'_, crate::CronWake>,
     svc: tauri::State<'_, crate::service::ServiceState>,
@@ -60,12 +69,17 @@ pub fn cron_create(
         tz,
         timeout_seconds,
     };
-    let job = svc.cron_create(&cron, &wake, params)?;
+    let (cron, wake, svc) = (
+        cron.inner().clone(),
+        wake.inner().clone(),
+        svc.inner().clone(),
+    );
+    let job = off_runtime(move || svc.cron_create(&cron, &wake, params)).await??;
     serde_json::to_value(job).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn cron_update(
+pub async fn cron_update(
     cron: tauri::State<'_, crate::CronState>,
     wake: tauri::State<'_, crate::CronWake>,
     svc: tauri::State<'_, crate::service::ServiceState>,
@@ -100,49 +114,66 @@ pub fn cron_update(
         tz,
         timeout_seconds,
     };
-    let job = svc.cron_update(&cron, &wake, &id, patch)?;
+    let (cron, wake, svc) = (
+        cron.inner().clone(),
+        wake.inner().clone(),
+        svc.inner().clone(),
+    );
+    let job = off_runtime(move || svc.cron_update(&cron, &wake, &id, patch)).await??;
     serde_json::to_value(job).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn cron_delete(
+pub async fn cron_delete(
     cron: tauri::State<'_, crate::CronState>,
     wake: tauri::State<'_, crate::CronWake>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     id: String,
 ) -> Result<(), String> {
-    svc.cron_delete(&cron, &wake, &id)
+    let (cron, wake, svc) = (
+        cron.inner().clone(),
+        wake.inner().clone(),
+        svc.inner().clone(),
+    );
+    off_runtime(move || svc.cron_delete(&cron, &wake, &id)).await?
 }
 
 #[tauri::command]
-pub fn cron_toggle(
+pub async fn cron_toggle(
     cron: tauri::State<'_, crate::CronState>,
     wake: tauri::State<'_, crate::CronWake>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     id: String,
     enabled: bool,
 ) -> Result<serde_json::Value, String> {
-    let job = svc.cron_enable(&cron, &wake, &id, enabled)?;
+    let (cron, wake, svc) = (
+        cron.inner().clone(),
+        wake.inner().clone(),
+        svc.inner().clone(),
+    );
+    let job = off_runtime(move || svc.cron_enable(&cron, &wake, &id, enabled)).await??;
     serde_json::to_value(job).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn cron_trigger(
+pub async fn cron_trigger(
     cron: tauri::State<'_, crate::CronState>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let run = svc.cron_trigger(&cron, &id)?;
+    let (cron, svc) = (cron.inner().clone(), svc.inner().clone());
+    let run = off_runtime(move || svc.cron_trigger(&cron, &id)).await??;
     serde_json::to_value(run).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn cron_cancel(
+pub async fn cron_cancel(
     cron: tauri::State<'_, crate::CronState>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let cancelled = svc.cron_cancel_running(&cron, &id)?;
+    let (cron, svc) = (cron.inner().clone(), svc.inner().clone());
+    let cancelled = off_runtime(move || svc.cron_cancel_running(&cron, &id)).await??;
     Ok(serde_json::json!({ "cancelled": cancelled }))
 }
 
@@ -157,19 +188,29 @@ pub fn cron_history(
 }
 
 #[tauri::command]
-pub fn cron_read_log(
+pub async fn cron_read_log(
     cron: tauri::State<'_, crate::CronState>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     job_id: String,
     run_id: String,
 ) -> Result<String, String> {
-    if let Some(text) = cron.lock().read_log(&job_id, &run_id) {
+    let (cron, svc) = (cron.inner().clone(), svc.inner().clone());
+    off_runtime(move || read_log(&cron, &svc, &job_id, &run_id)).await?
+}
+
+fn read_log(
+    cron: &crate::CronState,
+    svc: &crate::service::ServiceState,
+    job_id: &str,
+    run_id: &str,
+) -> Result<String, String> {
+    if let Some(text) = cron.lock().read_log(job_id, run_id) {
         return Ok(text);
     }
 
     let tab_id = cron
         .lock()
-        .get_history(&job_id)
+        .get_history(job_id)
         .iter()
         .find(|r| r.run_id == run_id)
         .and_then(|r| r.tab_id.clone());
@@ -195,3 +236,6 @@ pub fn cron_read_log(
 
     Err("Log not found".to_string())
 }
+
+#[cfg(test)]
+mod tests;

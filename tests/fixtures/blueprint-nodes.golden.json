@@ -1,0 +1,241 @@
+{
+  "nodes": [
+    {
+      "role": "trigger",
+      "kind": "trigger",
+      "type": "schedule",
+      "title": "Trigger: on a schedule",
+      "params_schema": {
+        "every": {
+          "type": "duration",
+          "minimum": "10s"
+        }
+      }
+    },
+    {
+      "role": "trigger",
+      "kind": "trigger",
+      "type": "event",
+      "title": "Trigger: on an event",
+      "params_schema": {
+        "kind": "event source kind",
+        "params": "event source schema"
+      }
+    },
+    {
+      "role": "trigger",
+      "kind": "trigger",
+      "type": "input",
+      "title": "Trigger: on input data",
+      "params_schema": {
+        "kind": "text|file|audio|video|image",
+        "source": "text|file|url"
+      }
+    },
+    {
+      "role": "step",
+      "kind": "step",
+      "type": "command",
+      "title": "Pipeline step: command",
+      "params_schema": {
+        "command": {
+          "type": "string",
+          "max_length": 16384
+        }
+      }
+    },
+    {
+      "role": "agent",
+      "kind": "step",
+      "type": "ask",
+      "title": "Pipeline step: ask an agent",
+      "params_schema": {
+        "question": "string",
+        "buckets": "declared string array"
+      }
+    },
+    {
+      "role": "logic",
+      "kind": "step",
+      "type": "filter",
+      "title": "Pipeline step: filter",
+      "params_schema": {
+        "pattern": "regex",
+        "bucket": "optional bucket"
+      }
+    },
+    {
+      "role": "step",
+      "kind": "step",
+      "type": "convert",
+      "title": "Pipeline step: convert",
+      "params_schema": {
+        "from": "media kind",
+        "to": "media kind"
+      }
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "notify",
+      "title": "Action: notify the creator",
+      "params_schema": {}
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "send",
+      "title": "Action: send the payload to a terminal or agent",
+      "params_schema": {
+        "target": "same-Team tab"
+      },
+      "payload_schema": {
+        "source": "stage output or graph text input"
+      }
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "cron",
+      "title": "Action: start a cron job",
+      "params_schema": {
+        "name": "cron name"
+      }
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "command",
+      "title": "Action: run a labelled command",
+      "params_schema": {
+        "label": "short name",
+        "command": "shell command",
+        "timeout_ms": "bound"
+      }
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "blueprint",
+      "title": "Action: activate the next stage",
+      "params_schema": {
+        "target": "blueprint:<exact-id>"
+      }
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "escalate",
+      "title": "Action: escalate to the creator or an agent",
+      "params_schema": {
+        "target": "creator|agent:<tab>"
+      }
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "respond_prompt",
+      "title": "Action: answer a provider-declared prompt",
+      "params_schema": {
+        "kind": "declared prompt option"
+      }
+    },
+    {
+      "role": "action",
+      "kind": "handler",
+      "type": "stop",
+      "title": "Action: stop the Blueprint",
+      "params_schema": {}
+    },
+    {
+      "role": "trigger",
+      "kind": "trigger",
+      "type": "activated",
+      "title": "Trigger: after an earlier stage",
+      "params_schema": {
+        "route": "blueprint:<exact-id> on the earlier stage",
+        "paused": true
+      }
+    },
+    {
+      "role": "source",
+      "kind": "source",
+      "type": "probe",
+      "title": "Source: run a bounded probe command",
+      "params_schema": {
+        "probe": "shell command printing one stable verdict"
+      },
+      "payload_schema": {
+        "type": "text",
+        "max_bytes": 32768
+      }
+    },
+    {
+      "role": "source",
+      "kind": "source",
+      "type": "terminal",
+      "title": "Source: Team terminal output",
+      "params_schema": {
+        "observe": "tab:<same-Team tab>",
+        "terminal_pattern": "optional regex",
+        "output_settled": "optional idle milliseconds (10..60000)"
+      },
+      "payload_schema": {
+        "type": "text",
+        "max_bytes": 32768
+      }
+    },
+    {
+      "role": "source",
+      "kind": "source",
+      "type": "observe",
+      "title": "Source: observed tab or cron run",
+      "params_schema": {
+        "observe": "tab:<id>|cron-run:<id>"
+      }
+    },
+    {
+      "role": "source",
+      "kind": "source",
+      "type": "text_input",
+      "title": "Source: graph text input",
+      "params_schema": {
+        "command": "blueprint input <id> --from-pad <path>"
+      },
+      "payload_schema": {
+        "type": "text",
+        "max_bytes": 32768
+      }
+    },
+    {
+      "role": "agent",
+      "kind": "decision",
+      "type": "agent",
+      "title": "Agent: chooses one bucket by instruction",
+      "params_schema": {
+        "question": "instruction naming every bucket and what is other",
+        "buckets": "declared string array"
+      }
+    },
+    {
+      "role": "logic",
+      "kind": "decision",
+      "type": "pattern",
+      "title": "Logic: deterministic bucket patterns",
+      "params_schema": {
+        "match": "bucket=regex, checked before the agent"
+      }
+    },
+    {
+      "role": "mode",
+      "kind": "mode",
+      "type": "session",
+      "title": "Mode: conversation",
+      "params_schema": {
+        "session": true,
+        "safety_limit": 16384,
+        "rate_limit_per_minute": 120
+      }
+    }
+  ]
+}

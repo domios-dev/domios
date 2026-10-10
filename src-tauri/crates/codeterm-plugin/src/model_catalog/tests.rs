@@ -6,6 +6,7 @@ use super::*;
 mod cache_schema;
 mod freshness;
 mod model_resolution;
+mod opencode_listing;
 
 // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
 // test depends on the registry being empty or seeing another test's writes.
@@ -23,6 +24,7 @@ fn register_and_read_back() {
                 description: None,
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -72,6 +74,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -84,6 +87,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -100,6 +104,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -114,6 +119,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -126,6 +132,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -155,6 +162,7 @@ fn merge_with_empty_override_is_builtin_verbatim() {
         description: None,
         available: None,
         availability: None,
+        primary: None,
         featured: None,
         badge: None,
         group: None,
@@ -174,6 +182,7 @@ fn merge_with_empty_builtin_is_override_verbatim() {
         description: None,
         available: None,
         availability: None,
+        primary: None,
         featured: None,
         badge: None,
         group: None,
@@ -249,6 +258,7 @@ fn register_twice_replaces() {
                 description: None,
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -267,6 +277,7 @@ fn register_twice_replaces() {
                 description: None,
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -474,6 +485,7 @@ fn is_stale_uses_injected_now() {
                 description: None,
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -492,6 +504,7 @@ fn is_stale_uses_injected_now() {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -783,6 +796,7 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
             description: None,
             available: Some(true),
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -876,6 +890,7 @@ fn availability_flag_is_carried_through_resolve() {
                     description: None,
                     available: Some(false),
                     availability: None,
+                    primary: None,
                     featured: None,
                     badge: None,
                     group: None,
@@ -904,12 +919,14 @@ fn featured_models_lead_preserving_catalog_order_within_each_group() {
                 model("a", "A"),
                 ModelInfo {
                     default_reasoning_effort: None,
+                    primary: None,
                     featured: Some(true),
                     ..model("b", "B")
                 },
                 model("c", "C"),
                 ModelInfo {
                     default_reasoning_effort: None,
+                    primary: None,
                     featured: Some(true),
                     ..model("d", "D")
                 },
@@ -935,6 +952,7 @@ fn override_parser_reads_featured_badge_and_group() {
         r#"[[models]]
 id = "deepseek-v4-flash"
 display_name = "DeepSeek V4 Flash"
+primary = true
 featured = true
 badge = "own"
 group = "deepseek"
@@ -942,6 +960,7 @@ group = "deepseek"
     )
     .expect("featured/badge/group must parse");
 
+    assert_eq!(parsed.models[0].primary, Some(true));
     assert_eq!(parsed.models[0].featured, Some(true));
     assert_eq!(parsed.models[0].badge.as_deref(), Some("own"));
     assert_eq!(parsed.models[0].group.as_deref(), Some("deepseek"));
@@ -952,6 +971,7 @@ fn example_renderer_emits_featured_badge_and_group() {
     let defaults = RegisteredDefaults {
         models: vec![ModelInfo {
             default_reasoning_effort: None,
+            primary: Some(true),
             featured: Some(true),
             badge: Some("own".into()),
             group: Some("deepseek".into()),
@@ -961,6 +981,8 @@ fn example_renderer_emits_featured_badge_and_group() {
     };
     let body = render_example("fixture", &defaults, &RegisteredEfforts::default());
 
+    let parsed = toml::from_str::<CatalogFile>(&body).expect("example parses");
+    assert_eq!(parsed.models[0].primary, Some(true));
     assert!(
         body.contains("featured = true"),
         "example must carry featured"
@@ -991,6 +1013,7 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
                     description: None,
                     available: Some(false),
                     availability: None,
+                    primary: None,
                     featured: None,
                     badge: None,
                     group: None,
@@ -1042,6 +1065,7 @@ fn unknown_model(id: &str, display: &str) -> ModelInfo {
         description: None,
         available: None,
         availability: Some(ModelAvailability::Unknown),
+        primary: None,
         featured: None,
         badge: None,
         group: None,
@@ -1066,6 +1090,7 @@ fn unknown_verdict_never_persists_as_a_negative() {
                 description: None,
                 available: Some(false),
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,

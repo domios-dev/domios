@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/chat-ui",
-  "version": "1.12.3",
+  "version": "1.14.0",
   "private": true,
   "type": "module",
   "description": "Shared React chat rendering primitives for CodeTerm providers.",
@@ -8,7 +8,8 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./MessageBubble": "./src/MessageBubble.tsx"
+    "./MessageBubble": "./src/MessageBubble.tsx",
+    "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts"
   },
   "dependencies": {
     "@codeterm/chat-core": "workspace:*"

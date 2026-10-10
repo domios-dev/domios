@@ -2,7 +2,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::agent::reports::{ReportDetails, ReportStatus};
-use crate::plan::{AgentRef, TaskStatus};
+use crate::plan::AgentRef;
+#[cfg(test)]
+use crate::plan::TaskStatus;
 use crate::service::plan::batch::{BatchOp, BatchRequest};
 use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::PlanStore;
@@ -348,24 +350,13 @@ fn persist_explicit_report(
     now_ms: u64,
 ) -> Result<(), ReportPersistenceFailure> {
     let mut ops = Vec::new();
-    let blocked_review_note = details.status == Some(ReportStatus::Blocked)
-        && store
-            .get(plan_id)
-            .and_then(|plan| {
-                plan.tasks
-                    .into_iter()
-                    .find(|task| task.id == task_id)
-                    .map(|task| task.status == TaskStatus::InReview)
-            })
-            .unwrap_or(false);
-    if !blocked_review_note {
+    if details.status != Some(ReportStatus::Blocked) {
         if let Some(status) = task_status {
             ops.push(BatchOp::SetTaskStatus {
                 client_id: None,
                 task: task_id.to_string(),
                 status: status.to_string(),
-                status_label: (details.status == Some(ReportStatus::Blocked))
-                    .then(|| message.to_string()),
+                status_label: None,
             });
         }
     }
@@ -571,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn blocked_explicit_report_sets_status_and_reason() {
+    fn blocked_explicit_report_persists_as_proposal_without_task_transition() {
         let dir = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(dir.path());
         let mut plan = Plan::new(
@@ -582,6 +573,12 @@ mod tests {
         store.save(&mut plan, 1).unwrap();
         let task_id = add_task(&store, &plan.id, "blocked task", 2);
         let reason = "explicit worker report reason";
+        store
+            .with_plan(&plan.id, 3, |plan| {
+                plan.tasks[0].status = TaskStatus::InProgress;
+                Ok(())
+            })
+            .unwrap();
         let details = ReportDetails {
             status: Some(ReportStatus::Blocked),
             ..Default::default()
@@ -597,14 +594,15 @@ mod tests {
             &details,
             Some("blocked"),
             Some("worker_report"),
-            3,
+            4,
         )
         .unwrap();
 
         let task = store.get(&plan.id).unwrap().tasks.remove(0);
-        assert_eq!(task.status, TaskStatus::Blocked);
-        assert_eq!(task.status_label.as_deref(), Some(reason));
+        assert_eq!(task.status, TaskStatus::InProgress);
         assert_eq!(task.milestones.len(), 1);
+        assert!(task.milestones[0].text.starts_with("BLOCK PROPOSAL: "));
+        assert!(task.milestones[0].text.contains(reason));
     }
 
     #[test]
@@ -653,7 +651,7 @@ mod tests {
         assert_eq!(task.milestones.len(), 1);
         assert_eq!(
             task.milestones[0].text,
-            "BLOCKED: review still owns this task"
+            "BLOCK PROPOSAL: review still owns this task"
         );
     }
 

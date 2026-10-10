@@ -111,11 +111,13 @@ impl SpawnTabSpec {
                 spawned_by: None,
                 spawned_by_tab_id: params.spawned_by_tab_id.clone(),
                 resume_session_id: params.resume_session_id.clone(),
+                fork_session: params.fork_session,
                 activate: params.activate,
                 launch_purpose: Default::default(),
             })
         });
         Self {
+            shell: None,
             workspace_id: params.workspace_id.clone(),
             parent_tab_id: params.parent_tab_id.clone(),
             team_id: params.team_id.clone(),
@@ -124,11 +126,23 @@ impl SpawnTabSpec {
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             description: params.description.clone(),
+            purpose: Default::default(),
+            icon: None,
+            cmd: None,
             visibility: TabVisibility::Visible,
             audience: params.audience,
             eager: false,
             command: agent_command,
         }
+    }
+
+    pub(crate) fn to_agent_launch_params(
+        &self,
+        resolved_cwd: Option<String>,
+    ) -> Result<SpawnAgentParams, String> {
+        let mut params = self.to_agent_params()?;
+        params.cwd = resolved_cwd;
+        Ok(params)
     }
 
     pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
@@ -145,6 +159,8 @@ impl SpawnTabSpec {
         let starter_prompt =
             starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some(agent.provider.clone()),
             agent_name: agent.agent_name.clone(),
             args: if args.is_empty() { None } else { Some(args) },
@@ -189,6 +205,7 @@ impl SpawnTabSpec {
             manager_bootstrap: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
+            fork_session: agent.fork_session,
             charter: None,
             tick_interval_secs: None,
             nudge_cooldown_secs: None,
@@ -266,6 +283,12 @@ impl ServiceContext {
     pub(crate) fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
         match self.agent_registry.wait_for_provider_startup(provider_id) {
             crate::agent::registry::ProviderStartupStatus::Ready => {
+                super::spawn_cli::provider_launch_preflight(
+                    &self.agent_registry,
+                    provider_id,
+                    false,
+                )
+                .map_err(|error| error.to_string())?;
                 let command = self.agent_registry.with_provider(provider_id, |provider| {
                     provider
                         .build_launch_command(&crate::agent::provider::AgentLaunchParams::default())
@@ -444,6 +467,8 @@ mod tests {
     #[test]
     fn worker_launch_has_no_manager_bootstrap() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("worker-provider".into()),
             role: Some("Worker".into()),
             task: Some("worker task fixture".into()),
@@ -472,6 +497,8 @@ mod tests {
     #[test]
     fn tab_name_contract_spawn_name_paths_keep_name_and_description_separate() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("codex".into()),
             title: Some("Ada".into()),
             description: Some("Worker · rust-backend-dev · pending".into()),
@@ -495,6 +522,8 @@ mod tests {
     #[test]
     fn assigned_worker_task_authority_reaches_pty_spec() {
         let mut params = SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("worker-provider".into()),
             role: Some("Worker".into()),
             plan_id: Some("assigned-plan".into()),
@@ -665,6 +694,8 @@ mod tests {
     #[test]
     fn team_attach_fields_round_trip_through_the_tab_spec() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("claude".into()),
             team_id: Some("team_alpha".into()),
             creator_tab_id: Some("tab_manager".into()),

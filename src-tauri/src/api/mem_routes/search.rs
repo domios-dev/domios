@@ -22,6 +22,8 @@ pub(crate) const RERANK_EXCLUSIVE: &str = "rerank and supporter are mutually exc
 #[derive(Deserialize, Clone, Default)]
 pub(crate) struct SearchParams {
     pub q: String,
+    #[serde(skip)]
+    pub caller_tab_id: Option<String>,
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]
@@ -100,6 +102,10 @@ pub async fn mem_search(
         ));
     }
     let svc = state.svc.clone();
+    let p = SearchParams {
+        caller_tab_id: crate::api::tab_routes::caller_tab_header(&headers),
+        ..p
+    };
     run_blocking_search(move || execute_search(&svc, p))
         .await
         .map(Json)
@@ -141,7 +147,18 @@ pub(crate) fn resolve_search<B: DecisionBackend + ?Sized>(
     if legacy && p.supporter == Some(true) {
         return Err(SearchError::InvalidParams(RERANK_EXCLUSIVE.into()));
     }
-    if !p.supporter.unwrap_or(cfg.memory_rerank.enabled) {
+    let run_supporter = p.supporter.unwrap_or_else(|| {
+        crate::service::supporter::supporter_connected(
+            cfg,
+            models,
+            &crate::service::supporter::read_token_snapshot(
+                &backend.supporter_runtime(),
+                &decision::token_store(),
+                cfg.active_id().unwrap_or(""),
+            ),
+        )
+    });
+    if !run_supporter {
         return Ok(baseline_search(backend, &p)?);
     }
     if legacy {

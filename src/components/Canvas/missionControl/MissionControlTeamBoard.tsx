@@ -1,3 +1,5 @@
+import type { ApiConfig } from "../../../lib/types";
+import { ActivityFeed } from "../../Supporter/ActivityFeed";
 import { useMemo, useRef } from "react";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { ModelsCard, NeedsYouPanel, NoActivePlanCard, SpendCard } from "./BoardCards";
@@ -24,6 +26,8 @@ const NO_PLAN_LOG: EventLog = { recorded_events: 0, truncated: false, entries: [
 export interface MissionControlTeamBoardProps {
   team: TeamMissionControlView;
   teamSpend?: TeamSpend | null;
+  api?: ApiConfig;
+  teamId?: string | null;
   deepLinks?: NeedsYouDeepLinks;
   onOpenPlan?: (planId: string) => void;
 }
@@ -32,6 +36,8 @@ export interface MissionControlTeamBoardProps {
 export function MissionControlTeamBoard({
   team,
   teamSpend = null,
+  api,
+  teamId,
   deepLinks,
   onOpenPlan,
 }: MissionControlTeamBoardProps) {
@@ -56,6 +62,7 @@ export function MissionControlTeamBoard({
         <ModelsCard spend={NO_MACHINE_SPEND} teamSpend={teamSpend} />
         <NoActivePlanCard previousPlans={team.archivedPlans} onOpenPlan={onOpenPlan} />
       </div>
+      {api && teamId && <ActivityFeed api={api} teamId={teamId} />}
       <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
       <BoardEventLog log={NO_PLAN_LOG} milestoneKinds={[]} refs={refs} pager={team.events} />
     </div>

@@ -57,19 +57,11 @@ pub async fn install_provider_integration(
     provider_id: String,
     api_port: Option<u16>,
     consent: bool,
-    precompact_memory_export: Option<bool>,
 ) -> Result<(), String> {
     let registry = svc.agent_registry.clone();
     let config = config.inner().clone();
     run_install_off_runtime(move || {
-        install_provider_integration_body(
-            &registry,
-            &config,
-            provider_id,
-            api_port,
-            consent,
-            precompact_memory_export,
-        )
+        install_provider_integration_body(&registry, &config, provider_id, api_port, consent)
     })
     .await
 }
@@ -94,7 +86,6 @@ fn install_provider_integration_body(
     provider_id: String,
     api_port: Option<u16>,
     consent: bool,
-    precompact_memory_export: Option<bool>,
 ) -> Result<(), String> {
     if !consent {
         return Err(
@@ -107,7 +98,7 @@ fn install_provider_integration_body(
         })
         .ok_or_else(|| format!("Unknown provider: {provider_id}"))?;
     if has_unowned_plugin_file(kind, &status) {
-        return Err("CodeTerm will not change an unmarked provider plugin file".into());
+        return Err("Domios will not change an unmarked provider plugin file".into());
     }
     let port = match api_port {
         Some(port) => port,
@@ -118,24 +109,12 @@ fn install_provider_integration_body(
         .and_then(|value| value.as_str())
         .map(str::to_owned)
         .unwrap_or_else(|| "provider global configuration".into());
-    let reported_precompact = read_precompact_choice(&status);
-    let recorded_precompact = config.lock().agents.get(&provider_id).and_then(|provider| {
-        provider
-            .extra
-            .get("precompact_memory_export")
-            .and_then(toml::Value::as_bool)
-    });
     let recorded_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_secs() as i64;
     let options = crate::agent::provider::IntegrationInstallOptions {
         consent,
-        precompact_memory_export: resolve_precompact_choice(
-            precompact_memory_export,
-            &status,
-            recorded_precompact,
-        ),
         repair: false,
     };
     install_and_record_integration(
@@ -169,13 +148,6 @@ fn install_provider_integration_body(
                     .extra
                     .insert("integration_target".into(), toml::Value::String(target));
             }
-            if reported_precompact.is_some() {
-                update_precompact_choice(
-                    &mut updated,
-                    &provider_id,
-                    Some(options.precompact_memory_export),
-                );
-            }
             crate::config::save_config_pub(&updated)?;
             *current = updated;
             Ok(())
@@ -195,16 +167,8 @@ pub fn install_provider_integration_with_consent(
     config: &crate::config::ConfigState,
     provider_id: String,
     api_port: u16,
-    precompact_memory_export: Option<bool>,
 ) -> Result<(), String> {
-    install_provider_integration_body(
-        registry,
-        config,
-        provider_id,
-        Some(api_port),
-        true,
-        precompact_memory_export,
-    )
+    install_provider_integration_body(registry, config, provider_id, Some(api_port), true)
 }
 
 fn install_and_record_integration(
@@ -235,7 +199,7 @@ pub fn uninstall_provider_integration(
         .with_provider(&provider_id, |provider| {
             let status = provider.check_integration();
             if has_unowned_plugin_file(provider.integration_kind(), &status) {
-                return Err("CodeTerm will not remove an unmarked provider plugin file".into());
+                return Err("Domios will not remove an unmarked provider plugin file".into());
             }
             provider.uninstall_integration()
         })
@@ -329,24 +293,6 @@ fn has_unowned_plugin_file(kind: crate::agent::provider::IntegrationKind, status
         && status.get("plugin_file_owned").and_then(Json::as_bool) != Some(true)
 }
 
-fn resolve_precompact_choice(
-    requested: Option<bool>,
-    status: &Json,
-    recorded: Option<bool>,
-) -> bool {
-    requested.unwrap_or_else(|| {
-        status
-            .get("precompact_hook")
-            .and_then(Json::as_bool)
-            .or(recorded)
-            .unwrap_or(false)
-    })
-}
-
-fn read_precompact_choice(status: &Json) -> Option<bool> {
-    status.get("precompact_hook").and_then(Json::as_bool)
-}
-
 /// One reconciliation per provider at a time. Daemon start and a plugin reload
 /// both reach this, and the hook files are machine-global: two interleaved
 /// read-modify-writes over one file is the duplication being fixed.
@@ -362,6 +308,9 @@ fn spawn_reconciliation(
     config: Option<crate::config::ConfigState>,
     service: Option<ServiceState>,
 ) {
+    if !codeterm_plugin::global_writes::machine_global_write_allowed() {
+        return;
+    }
     let id = provider.id().to_string();
     if !provider.has_installable_integration() {
         log_reconciliation(
@@ -394,18 +343,12 @@ fn spawn_reconciliation(
                 &id,
                 crate::config::schema::INTEGRATION_CONSENT_GRANTED,
             ) == Some(true);
-            let precompact = resolve_precompact_choice(
-                None,
-                &status,
-                recorded_flag(&consented, &id, "precompact_memory_export"),
-            );
-            let reported_precompact = read_precompact_choice(&status);
             let mut consent_inferred = false;
             if !previously_consented
                 && crate::service::integration_silence::read_integration_owned(&status)
             {
                 if let Some(config) = config.as_ref() {
-                    match record_inferred_owned_consent(config, &id, &status, reported_precompact) {
+                    match record_inferred_owned_consent(config, &id, &status) {
                         Ok(recorded) => consent_inferred = recorded,
                         Err(error) => {
                             log_reconciliation(
@@ -427,28 +370,12 @@ fn spawn_reconciliation(
                 &id,
                 crate::config::schema::INTEGRATION_CONSENT_GRANTED,
             ) == Some(true);
-            if previously_consented {
-                if let Some(config) = config.as_ref() {
-                    if let Err(error) = record_precompact_choice(config, &id, reported_precompact) {
-                        log_reconciliation(
-                            &id,
-                            &IntegrationRepairOutcome::Skipped(format!(
-                                "could not record PreCompact choice: {error}"
-                            )),
-                            consent_inferred,
-                        );
-                        reconciling().lock().remove(&done);
-                        return;
-                    }
-                }
-            }
             let outcome = match port {
                 Ok(port) => repair_integration_on_startup(
                     provider.as_ref(),
                     port,
                     &status,
                     previously_consented,
-                    precompact,
                 ),
                 Err(error) => IntegrationRepairOutcome::Skipped(format!(
                     "runtime API port unavailable: {error}"
@@ -482,7 +409,6 @@ fn infer_consent_for_owned_install(
     provider_id: &str,
     status: &Json,
     recorded_at: i64,
-    precompact_memory_export: Option<bool>,
 ) -> bool {
     if config.agents.get(provider_id).is_some_and(|provider| {
         provider
@@ -507,7 +433,6 @@ fn infer_consent_for_owned_install(
             toml::Value::String("inferred from an existing CodeTerm-owned integration".into()),
         );
     }
-    update_precompact_choice(config, provider_id, precompact_memory_export);
     true
 }
 
@@ -515,7 +440,6 @@ fn record_inferred_owned_consent(
     config: &crate::config::ConfigState,
     provider_id: &str,
     status: &Json,
-    precompact_memory_export: Option<bool>,
 ) -> Result<bool, String> {
     let mut current = config.lock();
     let mut updated = current.clone();
@@ -523,56 +447,12 @@ fn record_inferred_owned_consent(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_secs() as i64;
-    if !infer_consent_for_owned_install(
-        &mut updated,
-        provider_id,
-        status,
-        recorded_at,
-        precompact_memory_export,
-    ) {
+    if !infer_consent_for_owned_install(&mut updated, provider_id, status, recorded_at) {
         return Ok(false);
     }
     crate::config::save_hook_reconciliation_config(&updated)?;
     *current = updated;
     Ok(true)
-}
-
-fn record_precompact_choice(
-    config: &crate::config::ConfigState,
-    provider_id: &str,
-    precompact_memory_export: Option<bool>,
-) -> Result<(), String> {
-    let mut current = config.lock();
-    let mut updated = current.clone();
-    if !update_precompact_choice(&mut updated, provider_id, precompact_memory_export) {
-        return Ok(());
-    }
-    crate::config::save_hook_reconciliation_config(&updated)?;
-    *current = updated;
-    Ok(())
-}
-
-fn update_precompact_choice(
-    config: &mut crate::config::schema::AppConfig,
-    provider_id: &str,
-    precompact_memory_export: Option<bool>,
-) -> bool {
-    let Some(precompact_memory_export) = precompact_memory_export else {
-        return false;
-    };
-    let provider = config.agents.entry(provider_id.to_string()).or_default();
-    let recorded = provider
-        .extra
-        .get("precompact_memory_export")
-        .and_then(toml::Value::as_bool);
-    if recorded == Some(precompact_memory_export) {
-        return false;
-    }
-    provider.extra.insert(
-        "precompact_memory_export".into(),
-        toml::Value::Boolean(precompact_memory_export),
-    );
-    true
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -604,7 +484,7 @@ fn reconciliation_log_line(outcome: &IntegrationRepairOutcome, consent_inferred:
         IntegrationRepairOutcome::RepairFailed(detail) => format!("repair failed ({detail})"),
     };
     let inferred = if consent_inferred {
-        "; consent inferred from existing CodeTerm-owned install"
+        "; consent inferred from existing Domios-owned install"
     } else {
         ""
     };
@@ -687,7 +567,6 @@ fn repair_integration_on_startup(
     api_port: u16,
     status: &Json,
     previously_consented: bool,
-    precompact_memory_export: bool,
 ) -> IntegrationRepairOutcome {
     use crate::service::integration_silence::{
         authorize_reconciliation, facts_from_status, ReconcileAuthorization,
@@ -714,7 +593,7 @@ fn repair_integration_on_startup(
     }
     let options = crate::agent::provider::IntegrationInstallOptions {
         consent: true,
-        precompact_memory_export,
+
         repair: true,
     };
     // Trust is keyed to content, so a rewrite without the grant disarms the hook.

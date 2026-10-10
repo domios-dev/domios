@@ -483,3 +483,40 @@ fn seed_initial_different_boot_emits_boot_changed_and_starts_at_tail() {
     assert_eq!(starts[0].replay_truncated, Some(false));
     assert!(starts[0].boot_changed);
 }
+
+#[test]
+fn chunk_ending_mid_codepoint_waits_for_the_rest() {
+    // "a─" = [0x61, 0xE2, 0x94, 0x80]; a partial PTY read delivered only the first two bytes of "─".
+    let bytes = "a─".as_bytes();
+    let r = plan_emit(0, &bytes[..3], 3, PER_TAB_SWEEP_CAP);
+    assert_eq!(r.output, b"a");
+    assert_eq!(r.new_offset, 1);
+    assert!(!r.has_more);
+    let waiting = plan_emit(1, &bytes[1..3], 3, PER_TAB_SWEEP_CAP);
+    assert!(waiting.output.is_empty());
+    assert_eq!(waiting.new_offset, 1);
+    let r2 = plan_emit(1, &bytes[1..], 4, PER_TAB_SWEEP_CAP);
+    assert_eq!(r2.output, "─".as_bytes());
+    assert_eq!(r2.new_offset, 4);
+}
+
+#[test]
+fn every_split_of_a_box_drawing_line_decodes_without_replacement() {
+    let line = "──┤ab├──".as_bytes();
+    for split in 0..=line.len() {
+        let first = plan_emit(0, &line[..split], split as u64, PER_TAB_SWEEP_CAP);
+        let rest = plan_emit(
+            first.new_offset,
+            &line[first.new_offset as usize..],
+            line.len() as u64,
+            PER_TAB_SWEEP_CAP,
+        );
+        let mut out = first.output.clone();
+        out.extend_from_slice(&rest.output);
+        assert_eq!(
+            String::from_utf8(out).as_deref(),
+            Ok("──┤ab├──"),
+            "split at {split}"
+        );
+    }
+}

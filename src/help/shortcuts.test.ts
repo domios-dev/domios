@@ -1,7 +1,7 @@
 // Run: npx tsx src/help/shortcuts.test.ts
 
 import { resolveHelpShortcut } from "./shortcuts";
-import type { AppConfig } from "../lib/types";
+import type { AppConfig, KeybindingsConfig } from "../lib/types";
 
 type TestFn = () => void;
 const tests: Array<[string, TestFn]> = [];
@@ -12,9 +12,8 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const config = {
-  keybindings: { reopen_tab: "Ctrl+Shift+T" },
-} as AppConfig;
+const keybindings: KeybindingsConfig = { reopen_tab: "Ctrl+Shift+T" };
+const config = { keybindings } as AppConfig;
 
 test("resolves app shortcuts from registry", () => {
   assert(
@@ -27,6 +26,13 @@ test("resolves config keybindings from live config", () => {
   assert(
     resolveHelpShortcut({ kind: "config", key: "reopen_tab" }, config) === "Ctrl+Shift+T",
     "reopen_tab from config",
+  );
+});
+
+test("falls back to empty string for a missing optional binding", () => {
+  assert(
+    resolveHelpShortcut({ kind: "config", key: "search" }, config) === "",
+    "missing optional binding falls back to empty string",
   );
 });
 

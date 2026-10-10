@@ -168,30 +168,17 @@ pub async fn mesh_exit(
 }
 
 #[tauri::command]
-pub fn mesh_add_manual(
+pub async fn mesh_add_manual(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     address: String,
     port: u16,
 ) -> Result<(), String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let peer = crate::mesh::types::DiscoveredPeer {
-        instance_id: format!("manual-{}", uuid::Uuid::new_v4()),
-        instance_name: format!("{}:{}", address, port),
-        addresses: vec![crate::mesh::types::PeerAddress::from_ip(&address)],
-        api_port: port,
-        discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
-        last_seen: now,
-        dev: false,
-        mesh_id: None,
-        vouched_by: Vec::new(),
-    };
-    mesh.lock()
-        .discovered_peers
-        .insert(peer.instance_id.clone(), peer);
+    let ip = address
+        .parse::<std::net::IpAddr>()
+        .map_err(|_| "Invalid peer IP")?;
+    crate::mesh::manual::discover_at(mesh.inner(), std::net::SocketAddr::new(ip, port), None)
+        .await?;
     crate::api::events::emit_everywhere(
         &svc.app_handle,
         "mesh-state-changed",

@@ -34,6 +34,7 @@ pub(crate) struct StartupAuthority {
     pub task_identity: Option<StartupTaskIdentity>,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,
+    pub task_owner_epoch: Option<u64>,
 }
 
 impl StartupAuthority {
@@ -46,6 +47,7 @@ impl StartupAuthority {
             task_identity: None,
             session_id: None,
             binding_nonce: None,
+            task_owner_epoch: None,
         }
     }
 
@@ -62,6 +64,11 @@ impl StartupAuthority {
     pub(crate) fn for_binding(mut self, session_id: Option<&str>, binding_nonce: &str) -> Self {
         self.session_id = session_id.map(str::to_string);
         self.binding_nonce = Some(binding_nonce.to_string());
+        self
+    }
+
+    pub(crate) fn for_task_owner_epoch(mut self, epoch: Option<u64>) -> Self {
+        self.task_owner_epoch = epoch;
         self
     }
 

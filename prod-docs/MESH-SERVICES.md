@@ -74,7 +74,7 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/mesh/peers/add-manual` | Inject a `Manual` discovered peer by Tailscale IP + port (skips mDNS / UDP scan). Body `{address, port}`. Returns `{ok, instance_id}`. Used by the +Peer popup auto-discovery. |
+| `POST` | `/api/mesh/peers/add-manual` | Read the signed identity at IP + port and register a `Manual` discovery sighting (skips mDNS / UDP scan; no trust granted). Body `{address, port}`. Returns `{ok, instance_id}`. Used by the +Peer popup auto-discovery. |
 | `POST` | `/api/mesh/peers/approve/{id}` | Path-style alias for `POST /api/mesh/approve {request_id}`. |
 | `POST` | `/api/mesh/peers/reject/{id}` | Path-style alias for `POST /api/mesh/reject {request_id}`. |
 | `POST` | `/api/mesh/peers/disconnect/{id}` | Path-style alias for `POST /api/mesh/disconnect {instance_id}`. |
@@ -82,4 +82,4 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 All four respond `503` when `mesh.enabled=false` (see top of doc).
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

@@ -11,6 +11,23 @@ use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin}
 
 use super::AppState;
 
+fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
+    if detail.starts_with("admission_unknown:") {
+        SendRejection {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            body: serde_json::json!({
+                "ok": false, "admission": "unknown", "safe_to_resend": false,
+                "error": { "code": "admission_unknown", "tab": tab_id, "message": detail },
+            }),
+        }
+    } else {
+        SendRejection::from(DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
+            detail,
+        })
+    }
+}
+
 pub async fn chat_send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -19,6 +36,14 @@ pub async fn chat_send_text(
 ) -> Result<Json<crate::service::agent_pad::ChatSendResult>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    surface_send_refusal(&state, &tab_id)?;
+    state
+        .svc
+        .require_managed_send_allowed(&tab_id, None)
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.clone(),
+            detail,
+        })?;
     let has_agent_identity = state.svc.tab_has_agent_identity(&tab_id);
     if let Some(error) = chat_send_target_refusal(
         &tab_id,
@@ -27,35 +52,55 @@ pub async fn chat_send_text(
     ) {
         return Err(error.into());
     }
-    if state.svc.tab_chat_backing(&tab_id).is_none()
-        && state.svc.has_public_send_launch_gate(&tab_id)
-    {
-        await_public_send_readiness(&state.svc, &tab_id).await?;
-    }
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
-    let (text, pad_file) = state
-        .svc
-        .prepare_chat_send_text(&tab_id, body.text.unwrap_or_default(), run_stages)
-        .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-    let submit_claim = state.svc.claim_chat_submit_cycle(&tab_id);
-    let client_token = body.client_token;
+    let reservation = if state.svc.tab_chat_backing(&tab_id).is_none() {
+        Some(
+            state
+                .svc
+                .reserve_user_send_with_replay_only(
+                    &tab_id,
+                    body.client_token.clone(),
+                    body.replay_only,
+                )
+                .map_err(|detail| chat_admission_rejection(&tab_id, detail))?,
+        )
+    } else {
+        if body.replay_only {
+            return Err(chat_admission_rejection(
+                &tab_id,
+                "admission_unknown: replay admission is unavailable for this backing".into(),
+            ));
+        }
+        None
+    };
     let svc = state.svc.clone();
     let send_tab = tab_id.clone();
-    // Anchor capture reads the session file and may enter a plugin VM.
-    let status = tokio::task::spawn_blocking(move || {
-        svc.start_chat_send(&send_tab, text, submit_claim, client_token)
+    let result = tokio::task::spawn_blocking(move || {
+        if let Some(reservation) = reservation {
+            svc.prepare_and_admit_user_send(reservation, body.text.unwrap_or_default(), run_stages)
+        } else {
+            let (text, pad_file) =
+                svc.prepare_chat_send_text(&send_tab, body.text.unwrap_or_default(), run_stages)?;
+            let status = svc.start_chat_send(&send_tab, text, None, body.client_token)?;
+            Ok(crate::service::agent_pad::ChatSendResult::new(
+                status, pad_file,
+            ))
+        }
     })
     .await
     .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
-    .map_err(|detail| {
-        SendRejection::from(DeliveryError::TabBusyRefused {
-            tab: tab_id,
+    .map_err(|detail| chat_admission_rejection(&tab_id, detail))?;
+    Ok(Json(result))
+}
+
+fn surface_send_refusal(state: &AppState, tab_id: &str) -> Result<(), DeliveryError> {
+    match state.svc.tab_surface_input_refusal(tab_id) {
+        Some(detail) => Err(DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
             detail,
-        })
-    })?;
-    Ok(Json(crate::service::agent_pad::ChatSendResult::new(
-        status, pad_file,
-    )))
+        }),
+        None => Ok(()),
+    }
 }
 
 fn chat_send_target_refusal(
@@ -99,6 +144,23 @@ fn classify_delivery_failure(tab: &str, err: &str) -> DeliveryError {
     DeliveryError::from_opaque(tab, err)
 }
 
+async fn run_programmatic_delivery<T: Send + 'static>(
+    tab: &str,
+    delivery: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, SendRejection> {
+    log::debug!("[api/send] tab={tab} branch=blocking_programmatic_delivery");
+    tokio::task::spawn_blocking(delivery)
+        .await
+        .map_err(|error| DeliveryError::SubmitUnconfirmed {
+            tab: tab.to_string(),
+            detail: format!("programmatic delivery task failed; replay refused: {error}"),
+        })?
+        .map_err(|error| classify_delivery_failure(tab, &error).into())
+}
+
+#[cfg(test)]
+mod mesh_rpc_delivery_tests;
+
 fn pad_write_refusal(tab: &str, detail: String) -> SendRejection {
     DeliveryError::TabBusyRefused {
         tab: tab.to_string(),
@@ -119,6 +181,13 @@ pub struct SendRejection {
 
 impl IntoResponse for SendRejection {
     fn into_response(self) -> Response {
+        log::warn!(
+            "[api/send] status={} code={} tab={} bytes_written={}",
+            self.status,
+            self.body["error"]["code"],
+            self.body["error"]["tab"],
+            self.body["error"]["bytes_written"]
+        );
         (self.status, Json(self.body)).into_response()
     }
 }
@@ -193,6 +262,13 @@ pub(crate) fn should_prepend_source(
     has_source && target_has_agent && transport == TabInputTransport::Pty
 }
 
+pub(crate) fn utility_shell_purpose(tab: &crate::multiplexer::types::Tab) -> Option<String> {
+    (tab.is_utility_shell()
+        && !tab.agent_booting
+        && tab.purpose != crate::multiplexer::types::ShellPurpose::Shell)
+        .then(|| tab.purpose.as_str().to_string())
+}
+
 /// A return address describes a message, and a keystroke-only send carries no
 /// message. Wrapping its empty body produced a marker with nothing to introduce,
 /// which the target then received as the payload of the keystroke itself.
@@ -238,11 +314,11 @@ pub(crate) struct SendTextBody {
     /// `source_peer` so a local send can't forge report framing.
     #[serde(default)]
     pub(crate) kind: Option<String>,
-    /// Opaque client correlation token. Echoed verbatim onto the committed
-    /// user turn's ChatSendStatus (`correlationId`) so the optimistic bubble
-    /// reconciles by identity. Never interpreted; never gates delivery.
+    /// Same-tab admission token, echoed as `correlationId` on the send status.
     #[serde(default)]
     pub(crate) client_token: Option<String>,
+    #[serde(default, alias = "replayOnly")]
+    pub(crate) replay_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -365,6 +441,15 @@ pub async fn send_text(
         resolve_tab(&state, &raw_tab_id).map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
         })?;
+    surface_send_refusal(&state, &tab_id)?;
+
+    state
+        .svc
+        .require_managed_send_allowed(&tab_id, body.source_tab.as_deref())
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.clone(),
+            detail,
+        })?;
 
     // Refuse over-bound programmatic payloads (16MB bound) before any delivery
     // machinery runs; user-origin sends keep today's behavior.
@@ -441,6 +526,10 @@ pub async fn send_text(
         }
     }
 
+    log::debug!(
+        "[api/send] tab={tab_id} source_peer={:?} has_source={} agent={target_has_agent} chat_backend={}",
+        body.source_peer, body.source_tab.is_some(), transport == TabInputTransport::ChatBackend
+    );
     let source_envelope: Option<crate::service::messenger::MessageEnvelope> =
         body.source_tab.as_deref().and_then(|src| {
             match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
@@ -473,9 +562,11 @@ pub async fn send_text(
                     let from_agent =
                         source_tab.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
                     let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
+                    let purpose = source_tab.and_then(utility_shell_purpose);
                     Some(
                         crate::service::messenger::MessageEnvelope::tab(from_label, resolved)
                             .model(model)
+                            .purpose(purpose)
                             .from_agent(Some(from_agent)),
                     )
                 }
@@ -553,32 +644,8 @@ pub async fn send_text(
             let bytes_written = std::cell::Cell::new(false);
             let keys_only = raw_text.is_empty();
             let action_result = tokio::task::spawn_blocking(move || {
-                let provider_action_refusal = || svc.provider_action_refusal(&action_tab);
-                let action_refusal = || {
-                    let detail = provider_action_refusal()?;
-                    log::info!(
-                        "[send-actions] refused tab={} detail={}",
-                        action_tab,
-                        detail
-                    );
-                    Some(if bytes_written.get() {
-                        DeliveryError::SubmitUnconfirmed {
-                            tab: action_tab.clone(),
-                            detail,
-                        }
-                    } else {
-                        DeliveryError::TabBusyRefused {
-                            tab: action_tab.clone(),
-                            detail,
-                        }
-                    })
-                };
-                if keys_only && provider_action_refusal().is_some() {
-                    // The owner answers a provider dialog with keys; only pasted text stays refused.
-                    log::info!(
-                        "[send-actions] owner keys into provider dialog tab={}",
-                        action_tab
-                    );
+                if keys_only {
+                    // Keys alone answer whatever the screen shows, so they are written as-is.
                     return crate::service::pty_io::execute_ordered_actions(
                         "",
                         &owner_dialog_keys(&ordered),
@@ -590,48 +657,34 @@ pub async fn send_text(
                         crate::service::pty_io::await_action_deadline,
                     );
                 }
-                if let Some(error) = action_refusal() {
-                    return Err(error);
-                }
                 crate::service::pty_io::execute_ordered_actions(
                     &text,
                     &ordered,
-                    |body, enter| {
-                        if enter {
-                            if let Some(error) = action_refusal() {
-                                return Err(error);
-                            }
+                    |body, enter| match svc.send_text_input_delivery(&action_tab, body, enter, None)
+                    {
+                        Ok(()) => {
+                            bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
+                            Ok(())
                         }
-                        match svc.send_text_input_delivery(&action_tab, body, enter, None) {
-                            Ok(()) => {
-                                bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
-                                Ok(())
-                            }
-                            Err(error) if enter && !error.bytes_written() => {
-                                if let Some(action_error) = action_refusal() {
-                                    Err(action_error)
-                                } else if bytes_written.get() {
-                                    Err(DeliveryError::SubmitUnconfirmed {
-                                        tab: action_tab.clone(),
-                                        detail: error.to_string(),
-                                    })
-                                } else {
-                                    Err(error)
-                                }
-                            }
-                            Err(error) if bytes_written.get() && !error.bytes_written() => {
+                        Err(error) if enter && !error.bytes_written() => {
+                            if bytes_written.get() {
                                 Err(DeliveryError::SubmitUnconfirmed {
                                     tab: action_tab.clone(),
                                     detail: error.to_string(),
                                 })
+                            } else {
+                                Err(error)
                             }
-                            Err(error) => Err(error),
                         }
+                        Err(error) if bytes_written.get() && !error.bytes_written() => {
+                            Err(DeliveryError::SubmitUnconfirmed {
+                                tab: action_tab.clone(),
+                                detail: error.to_string(),
+                            })
+                        }
+                        Err(error) => Err(error),
                     },
                     |bytes| {
-                        if let Some(error) = action_refusal() {
-                            return Err(error);
-                        }
                         svc.write_raw(&action_tab, bytes)
                             .map_err(|error| {
                                 if bytes_written.get() {
@@ -739,41 +792,33 @@ pub async fn send_text(
     }
 
     let raw_text = body.text.unwrap_or_default();
-    if source_envelope.is_some()
-        && body
-            .source_peer
-            .as_deref()
-            .is_some_and(|peer| !peer.is_empty())
-        && transport == TabInputTransport::Pty
-    {
-        let raw_text = stage(raw_text);
-        let wrapped = prepend(&raw_text);
-        let (raw_text, pad_file) = state
-            .svc
-            .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
-            .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-        let text = prepend(&raw_text);
-        state.svc.send_text_when_ready(&tab_id, &text).await?;
-        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({
-            "ok": true,
-            "mesh": true,
-            "delivery": "sent",
-            "pad_file": pad_file.map(|path| path.display().to_string())
-        })));
-    }
     if let Some(envelope) = source_envelope {
         let raw_text = stage(raw_text);
-        let (_delivery, pad_file) = crate::service::messenger::Messenger::deliver_with_pad_file(
-            &state.svc, &tab_id, envelope, &raw_text,
-        )
-        .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+        let svc = state.svc.clone();
+        let target = tab_id.clone();
+        let payload = raw_text.clone();
+        let (_delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
+            crate::service::messenger::Messenger::deliver_with_pad_file(
+                &svc, &target, envelope, &payload,
+            )
+        })
+        .await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({
+        let mut response = serde_json::json!({
             "ok": true,
             "delivery": "pending",
             "pad_file": pad_file.map(|path| path.display().to_string())
-        })));
+        });
+        if transport == TabInputTransport::Pty
+            && body
+                .source_peer
+                .as_deref()
+                .is_some_and(|peer| !peer.is_empty())
+        {
+            response["mesh"] = serde_json::json!(true);
+            response["delivery"] = serde_json::json!("sent");
+        }
+        return Ok(Json(response));
     }
 
     let raw_text = stage(raw_text);
@@ -783,6 +828,58 @@ pub async fn send_text(
         .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
         .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
     let text = prepend(&raw_text);
+
+    if origin == SendOrigin::User
+        && (target_has_agent || transport == TabInputTransport::ChatBackend)
+    {
+        let status = state
+            .svc
+            .start_chat_send(&tab_id, text, None, body.client_token)
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.clone(),
+                detail,
+            })?;
+        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "send_id": status.send_id,
+            "pad_file": pad_file.map(|path| path.display().to_string())
+        })));
+    }
+
+    if origin == SendOrigin::Programmatic && target_has_agent && transport == TabInputTransport::Pty
+    {
+        let text = crate::service::pty_io::sanitize_agent_prompt_input(&text);
+        let svc = state.svc.clone();
+        let target = tab_id.clone();
+        let payload = text.clone();
+        let delivery = run_programmatic_delivery(&tab_id, move || {
+            svc.deliver_agent_payload(
+                &target,
+                crate::service::messenger::AgentDeliveryPayload {
+                    trace_id: None,
+                    transport: crate::service::messenger::QueuedAgentPayload::Text {
+                        text: payload.clone(),
+                    },
+                    observer: None,
+                    idempotency_key: None,
+                    expected_pty_id: None,
+                    expected_session_id: None,
+                    expected_binding_nonce: None,
+                },
+                &payload,
+            )
+        })
+        .await?;
+        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "delivery": if matches!(delivery, crate::service::messenger::Delivery::Pending { .. }) { "pending" } else { "sent" },
+            "pad_file": pad_file.map(|path| path.display().to_string())
+        })));
+    }
+
     // A plain text send always submits — no-Enter/keystroke cases go through
     // `actions` or `raw`.
     state.svc.send_text_when_ready(&tab_id, &text).await?;
@@ -898,6 +995,9 @@ mod delivery_classification_tests {
 mod action_delivery_tests;
 
 #[cfg(test)]
+mod purpose_tests;
+
+#[cfg(test)]
 mod payload_preflight_tests {
     use super::{route_payload_bytes, route_send_origin, BatchCommand};
     use crate::service::delivery_error::{
@@ -981,5 +1081,31 @@ mod payload_preflight_tests {
         ];
         assert_eq!(route_payload_bytes(None, Some(&batch)), 8);
         assert_eq!(route_payload_bytes(Some("ab"), Some(&batch)), 10);
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn replay_mode_is_explicit_and_defaults_to_fresh_admission() {
+        let fresh: SendTextBody =
+            serde_json::from_value(serde_json::json!({"text": "opaque"})).unwrap();
+        assert!(!fresh.replay_only);
+        for field in ["replayOnly", "replay_only"] {
+            let replay: SendTextBody =
+                serde_json::from_value(serde_json::json!({(field): true})).unwrap();
+            assert!(replay.replay_only);
+        }
+    }
+
+    #[test]
+    fn unknown_replay_admission_is_never_reported_safe_to_resend() {
+        let rejection =
+            chat_admission_rejection("opaque-tab", "admission_unknown: opaque detail".into());
+        assert_eq!(rejection.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(rejection.body["safe_to_resend"], false);
+        assert_eq!(rejection.body["error"]["code"], "admission_unknown");
     }
 }

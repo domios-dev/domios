@@ -1,8 +1,7 @@
 use super::{
     infer_consent_for_owned_install, install_and_record_integration,
     install_provider_integration_body, reconciliation_log_line, repair_integration_on_startup,
-    resolve_precompact_choice, restore_integration_for_provider, run_install_off_runtime,
-    update_precompact_choice, IntegrationRepairOutcome,
+    restore_integration_for_provider, run_install_off_runtime, IntegrationRepairOutcome,
 };
 use crate::agent::provider::{
     install_integration_with_trust_grant, AgentLaunchParams, AgentProvider,
@@ -10,6 +9,8 @@ use crate::agent::provider::{
     TaskDelivery,
 };
 use crate::agent::registry::AgentRegistry;
+use codeterm_plugin::agent_claude::provider::hook_ownership::is_codeterm_hook;
+use codeterm_plugin::agent_claude::provider::integration::install_integration_at;
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -18,15 +19,20 @@ use std::time::Duration;
 
 type ThreadProbe = Arc<StdMutex<Option<ThreadId>>>;
 
+const LEGACY_PANE_SESSION_START: &str = r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -d '{}' > /dev/null 2>&1 || true"#;
+const FOREIGN_PANE_ROUTE: &str =
+    "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start";
+
 struct InstallProbeProvider {
     id: String,
     integration_kind: IntegrationKind,
     status: serde_json::Value,
     install_result: Result<(), String>,
     install_thread: ThreadProbe,
-    precompact_choices: Arc<StdMutex<Vec<bool>>>,
+
     grant_outcome: Option<serde_json::Value>,
     grant_thread: ThreadProbe,
+    integration_calls: Arc<StdMutex<Vec<&'static str>>>,
 }
 
 impl InstallProbeProvider {
@@ -45,9 +51,10 @@ impl InstallProbeProvider {
             status,
             install_result,
             install_thread: Arc::new(StdMutex::new(None)),
-            precompact_choices: Arc::new(StdMutex::new(Vec::new())),
+
             grant_outcome: None,
             grant_thread: Arc::new(StdMutex::new(None)),
+            integration_calls: Arc::new(StdMutex::new(Vec::new())),
         }
     }
 
@@ -59,18 +66,6 @@ impl InstallProbeProvider {
     ) -> Self {
         Self {
             integration_kind,
-            ..Self::with_status(id, install_result, status)
-        }
-    }
-
-    fn with_choice_sink(
-        id: &str,
-        install_result: Result<(), String>,
-        status: serde_json::Value,
-        precompact_choices: Arc<StdMutex<Vec<bool>>>,
-    ) -> Self {
-        Self {
-            precompact_choices,
             ..Self::with_status(id, install_result, status)
         }
     }
@@ -122,21 +117,23 @@ impl AgentProvider for InstallProbeProvider {
         None
     }
     fn check_integration(&self) -> serde_json::Value {
+        self.integration_calls.lock().unwrap().push("status");
         self.status.clone()
     }
     fn integration_kind(&self) -> IntegrationKind {
+        self.integration_calls.lock().unwrap().push("kind");
         self.integration_kind
+    }
+    fn ensure_integration_on_startup(&self, _api_port: u16) {
+        self.integration_calls.lock().unwrap().push("startup");
     }
     fn install_integration(
         &self,
         _api_port: u16,
-        options: &IntegrationInstallOptions,
+        _options: &IntegrationInstallOptions,
     ) -> Result<(), String> {
+        self.integration_calls.lock().unwrap().push("install");
         *self.install_thread.lock().unwrap() = Some(std::thread::current().id());
-        self.precompact_choices
-            .lock()
-            .unwrap()
-            .push(options.precompact_memory_export);
         self.install_result.clone()
     }
     fn integration_trust_grant_capability(&self) -> Option<IntegrationTrustGrantCapability> {
@@ -156,6 +153,45 @@ fn empty_config() -> crate::config::ConfigState {
     Arc::new(parking_lot::Mutex::new(
         crate::config::schema::AppConfig::default(),
     ))
+}
+
+#[test]
+fn startup_reconciliation_machine_owner_false_never_calls_provider_or_changes_consent() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CODETERM_MACHINE_OWNER", "false");
+    env.set("CODETERM_INSTANCE", "nonowner-integration-test");
+    let provider = Arc::new(InstallProbeProvider::new("nonowner", Ok(())));
+    let config = empty_config();
+    config
+        .lock()
+        .agents
+        .entry("nonowner".into())
+        .or_default()
+        .extra
+        .insert(
+            crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
+            toml::Value::Boolean(true),
+        );
+    let before = serde_json::to_value(&*config.lock()).unwrap();
+    let consented = config.lock().agents.clone();
+
+    super::spawn_reconciliation(provider.clone(), consented, Some(config.clone()), None);
+
+    assert!(provider.integration_calls.lock().unwrap().is_empty());
+    assert!(provider.install_thread.lock().unwrap().is_none());
+    assert!(provider.grant_thread.lock().unwrap().is_none());
+    assert_eq!(serde_json::to_value(&*config.lock()).unwrap(), before);
+}
+
+#[test]
+fn startup_reconciliation_machine_owner_true_keeps_provider_capability_check() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CODETERM_MACHINE_OWNER", "true");
+    let provider = Arc::new(InstallProbeProvider::new("owner-no-integration", Ok(())));
+
+    super::spawn_reconciliation(provider.clone(), Default::default(), None, None);
+
+    assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
 }
 
 fn current_thread_runtime() -> tokio::runtime::Runtime {
@@ -182,7 +218,6 @@ fn install_offload_runs_provider_install_off_runtime_thread() {
             "offload-probe".into(),
             Some(7686),
             true,
-            None,
         )
     }));
 
@@ -209,108 +244,10 @@ fn install_offload_error_path_round_trips_fixture_error() {
             "offload-probe".into(),
             Some(7686),
             true,
-            None,
         )
     }));
 
     assert_eq!(result, Err(fixture_error));
-}
-
-#[test]
-fn refresh_without_precompact_flag_preserves_existing_precompact_hook() {
-    let choices = Arc::new(StdMutex::new(Vec::new()));
-    let registry = Arc::new(AgentRegistry::new());
-    registry.register_provider(Box::new(InstallProbeProvider::with_choice_sink(
-        "offload-probe",
-        Err("halt before persist".into()),
-        serde_json::json!({ "precompact_hook": true }),
-        choices.clone(),
-    )));
-    let config = empty_config();
-    config
-        .lock()
-        .agents
-        .entry("offload-probe".into())
-        .or_default()
-        .extra
-        .insert(
-            "precompact_memory_export".into(),
-            toml::Value::Boolean(false),
-        );
-
-    let result = install_provider_integration_body(
-        &registry,
-        &config,
-        "offload-probe".into(),
-        Some(7686),
-        true,
-        None,
-    );
-
-    assert!(result.is_err());
-    assert_eq!(*choices.lock().unwrap(), vec![true]);
-    let status = serde_json::json!({ "precompact_hook": true });
-    assert!(resolve_precompact_choice(None, &status, Some(false)));
-    assert!(!resolve_precompact_choice(
-        None,
-        &serde_json::json!({ "precompact_hook": false }),
-        Some(true)
-    ));
-    assert!(resolve_precompact_choice(
-        None,
-        &serde_json::json!({}),
-        Some(true)
-    ));
-    assert!(!resolve_precompact_choice(Some(false), &status, Some(true)));
-    assert!(resolve_precompact_choice(
-        Some(true),
-        &serde_json::json!({}),
-        Some(false)
-    ));
-
-    let disabled_choices = Arc::new(StdMutex::new(Vec::new()));
-    let disabled_registry = Arc::new(AgentRegistry::new());
-    disabled_registry.register_provider(Box::new(InstallProbeProvider::with_choice_sink(
-        "no-precompact",
-        Err("halt before persist".into()),
-        serde_json::json!({ "precompact_hook": false }),
-        disabled_choices.clone(),
-    )));
-    let disabled_config = empty_config();
-    disabled_config
-        .lock()
-        .agents
-        .entry("no-precompact".into())
-        .or_default()
-        .extra
-        .insert(
-            "precompact_memory_export".into(),
-            toml::Value::Boolean(true),
-        );
-    assert!(install_provider_integration_body(
-        &disabled_registry,
-        &disabled_config,
-        "no-precompact".into(),
-        Some(7686),
-        true,
-        None,
-    )
-    .is_err());
-    assert_eq!(*disabled_choices.lock().unwrap(), vec![false]);
-}
-
-#[test]
-fn precompact_choice_updates_only_when_reported_and_changed() {
-    let mut config = crate::config::schema::AppConfig::default();
-    assert!(!update_precompact_choice(&mut config, "opencode", None));
-    assert!(!config.agents.contains_key("opencode"));
-    assert!(update_precompact_choice(&mut config, "claude", Some(true)));
-    assert!(!update_precompact_choice(&mut config, "claude", Some(true)));
-    assert!(update_precompact_choice(&mut config, "claude", Some(false)));
-    assert_eq!(
-        config.agents["claude"].extra["precompact_memory_export"].as_bool(),
-        Some(false)
-    );
 }
 
 #[test]
@@ -332,7 +269,7 @@ fn install_offload_success_path_round_trips_install_and_grant_result() {
                 7686,
                 &IntegrationInstallOptions {
                     consent: true,
-                    precompact_memory_export: false,
+
                     repair: false,
                 },
             )
@@ -378,7 +315,7 @@ struct RepairProbeProvider {
     status: StdMutex<serde_json::Value>,
     writes: std::sync::atomic::AtomicUsize,
     consents: StdMutex<Vec<bool>>,
-    precompact_choices: StdMutex<Vec<bool>>,
+
     repairs: StdMutex<Vec<bool>>,
     grant_calls: std::sync::atomic::AtomicUsize,
     error: Option<String>,
@@ -401,7 +338,7 @@ impl RepairProbeProvider {
             status: StdMutex::new(status),
             writes: std::sync::atomic::AtomicUsize::new(0),
             consents: StdMutex::new(Vec::new()),
-            precompact_choices: StdMutex::new(Vec::new()),
+
             repairs: StdMutex::new(Vec::new()),
             grant_calls: std::sync::atomic::AtomicUsize::new(0),
             error: None,
@@ -420,16 +357,9 @@ impl RepairProbeProvider {
 fn reconcile_probe(
     provider: &RepairProbeProvider,
     previously_consented: bool,
-    precompact_memory_export: bool,
 ) -> IntegrationRepairOutcome {
     let status = provider.check_integration();
-    repair_integration_on_startup(
-        provider,
-        7686,
-        &status,
-        previously_consented,
-        precompact_memory_export,
-    )
+    repair_integration_on_startup(provider, 7686, &status, previously_consented)
 }
 
 impl AgentProvider for RepairProbeProvider {
@@ -482,10 +412,6 @@ impl AgentProvider for RepairProbeProvider {
         options: &IntegrationInstallOptions,
     ) -> Result<(), String> {
         self.consents.lock().unwrap().push(options.consent);
-        self.precompact_choices
-            .lock()
-            .unwrap()
-            .push(options.precompact_memory_export);
         self.repairs.lock().unwrap().push(options.repair);
         if let Some(error) = &self.error {
             return Err(error.clone());
@@ -501,6 +427,7 @@ impl AgentProvider for RepairProbeProvider {
             }),
             _ => serde_json::json!({
                 "hooks_installed": true,
+                "hook_contract_current": true,
                 "session_start_route": "tab-session-start"
             }),
         };
@@ -521,7 +448,7 @@ impl AgentProvider for RepairProbeProvider {
 #[test]
 fn hook_contract_repair_repairs_stale_contract_to_session_start_route() {
     let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
-    reconcile_probe(&provider, true, false);
+    reconcile_probe(&provider, true);
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(
         provider.check_integration()["session_start_route"],
@@ -535,11 +462,12 @@ fn fresh_install_reconciles_after_recorded_consent() {
         "integration_state": "absent",
         "hooks_installed": false
     }));
-    let outcome = reconcile_probe(&provider, true, false);
+    let outcome = reconcile_probe(&provider, true);
     assert_eq!(outcome, repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
     assert_eq!(grants(&provider), 1);
+    assert_eq!(provider.check_integration()["hook_contract_current"], true);
 }
 
 #[test]
@@ -552,7 +480,7 @@ fn upgraded_owned_stale_hook_reconciles_after_recorded_consent() {
         "session_start_hook": false,
         "stop_hook": false
     }));
-    let outcome = reconcile_probe(&provider, true, false);
+    let outcome = reconcile_probe(&provider, true);
     assert_eq!(outcome, repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
@@ -570,8 +498,7 @@ fn startup_reconciles_stale_claude_and_opencode_with_recorded_consent() {
         serde_json::json!({
             "hooks_installed": true,
             "integration_owned": true,
-            "hook_contract_current": false,
-            "precompact_hook": true
+            "hook_contract_current": false
         }),
     );
     let opencode = RepairProbeProvider::with_kind(
@@ -585,14 +512,10 @@ fn startup_reconciles_stale_claude_and_opencode_with_recorded_consent() {
         }),
     );
 
-    assert_eq!(reconcile_probe(&claude, true, true), repaired_with_grant());
-    assert_eq!(
-        reconcile_probe(&opencode, true, false),
-        repaired_with_grant()
-    );
+    assert_eq!(reconcile_probe(&claude, true), repaired_with_grant());
+    assert_eq!(reconcile_probe(&opencode, true), repaired_with_grant());
     assert_eq!(claude.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(opencode.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert_eq!(*claude.precompact_choices.lock().unwrap(), vec![true]);
 }
 
 #[test]
@@ -600,8 +523,7 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
     let status = serde_json::json!({
         "hooks_installed": true,
         "integration_owned": true,
-        "hook_contract_current": false,
-        "precompact_hook": true
+        "hook_contract_current": false
     });
     let mut config = crate::config::schema::AppConfig::default();
 
@@ -610,7 +532,6 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
         "claude",
         &status,
         1_790_403_600,
-        Some(true),
     ));
     let provider_config = &config.agents["claude"];
     assert_eq!(
@@ -625,16 +546,11 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
         provider_config.extra["integration_consent_note"].as_str(),
         Some("inferred from an existing CodeTerm-owned integration")
     );
-    assert_eq!(
-        provider_config.extra["precompact_memory_export"].as_bool(),
-        Some(true)
-    );
     assert!(!infer_consent_for_owned_install(
         &mut config,
         "claude",
         &status,
         1_790_403_700,
-        Some(false),
     ));
     assert_eq!(
         config.agents["claude"].extra["integration_consent_recorded_at"].as_integer(),
@@ -651,14 +567,10 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
         "legacy-provider",
         &legacy_status,
         1_790_403_700,
-        None,
     ));
 
     let provider = RepairProbeProvider::with_id("claude", status);
-    assert_eq!(
-        reconcile_probe(&provider, true, false),
-        repaired_with_grant()
-    );
+    assert_eq!(reconcile_probe(&provider, true), repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
@@ -677,14 +589,12 @@ fn opencode_plugin_file_integration_is_reconciled_at_startup() {
         "opencode",
         &status,
         1_790_403_600,
-        None,
     ));
     assert!(!infer_consent_for_owned_install(
         &mut config,
         "opencode",
         &status,
         1_790_403_700,
-        None,
     ));
     assert_eq!(
         config.agents["opencode"].extra["integration_consent_recorded_at"].as_integer(),
@@ -693,7 +603,7 @@ fn opencode_plugin_file_integration_is_reconciled_at_startup() {
 
     let provider = RepairProbeProvider::with_kind("opencode", IntegrationKind::PluginFile, status);
     assert!(provider.has_installable_integration());
-    let outcome = reconcile_probe(&provider, true, false);
+    let outcome = reconcile_probe(&provider, true);
     assert_eq!(outcome, repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(
@@ -719,14 +629,13 @@ fn unmarked_opencode_plugin_file_is_never_rewritten() {
         "opencode",
         &status,
         1_790_403_600,
-        None,
     ));
     assert_eq!(
-        reconcile_probe(&provider, false, false),
+        reconcile_probe(&provider, false),
         IntegrationRepairOutcome::ConsentMissing
     );
     assert_eq!(
-        reconcile_probe(&provider, true, false),
+        reconcile_probe(&provider, true),
         IntegrationRepairOutcome::ForeignPluginFilePreserved
     );
     assert_eq!(
@@ -755,12 +664,8 @@ fn unmarked_opencode_plugin_file_is_never_rewritten() {
         "opencode-install-probe".into(),
         Some(7686),
         true,
-        None,
     );
-    assert_eq!(
-        result,
-        Err("CodeTerm will not change an unmarked provider plugin file".into())
-    );
+    assert!(result.is_err());
     assert!(install_thread.lock().unwrap().is_none());
 }
 
@@ -787,7 +692,6 @@ fn explicit_consent_false_blocks_owned_install_inference() {
         "claude",
         &status,
         1_790_403_600,
-        Some(true),
     ));
     let provider_config = &config.agents["claude"];
     assert_eq!(
@@ -816,13 +720,13 @@ fn unowned_hooks_are_never_rewritten_at_startup() {
     );
 
     assert_eq!(
-        reconcile_probe(&provider, false, false),
+        reconcile_probe(&provider, false),
         IntegrationRepairOutcome::ConsentMissing
     );
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert!(provider.consents.lock().unwrap().is_empty());
     assert_eq!(
-        reconcile_probe(&unowned_plugin, false, false),
+        reconcile_probe(&unowned_plugin, false),
         IntegrationRepairOutcome::ConsentMissing
     );
     assert_eq!(
@@ -836,17 +740,14 @@ fn unowned_hooks_are_never_rewritten_at_startup() {
 #[test]
 fn reconciliation_returns_structured_repair_outcome_with_trust_grant() {
     let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
-    assert_eq!(
-        reconcile_probe(&provider, true, false),
-        repaired_with_grant()
-    );
+    assert_eq!(reconcile_probe(&provider, true), repaired_with_grant());
 }
 
 #[test]
 fn hook_contract_repair_is_idempotent_by_write_count() {
     let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
-    reconcile_probe(&provider, true, false);
-    reconcile_probe(&provider, true, false);
+    reconcile_probe(&provider, true);
+    reconcile_probe(&provider, true);
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
@@ -863,10 +764,10 @@ fn repaired_with_grant() -> IntegrationRepairOutcome {
 #[test]
 fn hook_contract_repair_uses_recorded_consent_and_grants_trust_in_the_same_step() {
     let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
-    reconcile_probe(&provider, false, false);
+    reconcile_probe(&provider, false);
     assert!(provider.consents.lock().unwrap().is_empty());
     assert_eq!(grants(&provider), 0);
-    reconcile_probe(&provider, true, false);
+    reconcile_probe(&provider, true);
     assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
     assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
     assert_eq!(grants(&provider), 1);
@@ -876,7 +777,7 @@ fn hook_contract_repair_uses_recorded_consent_and_grants_trust_in_the_same_step(
 fn untrusted_hash_with_recorded_consent_is_rewritten_and_regranted() {
     let provider =
         RepairProbeProvider::new(serde_json::json!({ "integration_state": "untrusted_hash" }));
-    let outcome = reconcile_probe(&provider, true, false);
+    let outcome = reconcile_probe(&provider, true);
     assert_eq!(outcome, repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(grants(&provider), 1);
@@ -886,7 +787,7 @@ fn untrusted_hash_with_recorded_consent_is_rewritten_and_regranted() {
 fn untrusted_hash_without_consent_is_left_untouched() {
     let provider =
         RepairProbeProvider::new(serde_json::json!({ "integration_state": "untrusted_hash" }));
-    let outcome = reconcile_probe(&provider, false, false);
+    let outcome = reconcile_probe(&provider, false);
     assert_eq!(outcome, IntegrationRepairOutcome::TrustGrantRequired);
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert!(provider.consents.lock().unwrap().is_empty());
@@ -897,7 +798,7 @@ fn untrusted_hash_without_consent_is_left_untouched() {
 fn failed_repair_grants_no_trust() {
     let provider =
         RepairProbeProvider::unclassifiable(serde_json::json!({ "hooks_installed": false }));
-    reconcile_probe(&provider, true, false);
+    reconcile_probe(&provider, true);
     assert_eq!(grants(&provider), 0);
 }
 
@@ -905,7 +806,7 @@ fn failed_repair_grants_no_trust() {
 fn hook_contract_repair_preserves_live_session() {
     let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
     let before = provider.live_session.lock().unwrap().clone();
-    reconcile_probe(&provider, true, false);
+    reconcile_probe(&provider, true);
     assert_eq!(*provider.live_session.lock().unwrap(), before);
 }
 
@@ -914,7 +815,7 @@ fn hook_contract_repair_is_capability_driven_for_non_claude_fixture() {
     let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
     assert_ne!(provider.id(), "claude");
     assert!(provider.has_installable_integration());
-    reconcile_probe(&provider, true, false);
+    reconcile_probe(&provider, true);
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
@@ -922,8 +823,89 @@ fn hook_contract_repair_is_capability_driven_for_non_claude_fixture() {
 fn hook_contract_repair_leaves_unclassifiable_entry_and_reports_outcome() {
     let provider =
         RepairProbeProvider::unclassifiable(serde_json::json!({ "hooks_installed": false }));
-    let outcome = reconcile_probe(&provider, true, false);
+    let outcome = reconcile_probe(&provider, true);
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
     assert!(matches!(outcome, IntegrationRepairOutcome::RepairFailed(_)));
+}
+
+#[test]
+fn hooks_legacy_pane_fingerprint_is_owned_and_repaired() {
+    let legacy_entry = serde_json::json!({
+        "hooks": [{ "type": "command", "command": LEGACY_PANE_SESSION_START }]
+    });
+    let status = serde_json::json!({
+        "hooks_installed": false,
+        "integration_owned": is_codeterm_hook(&legacy_entry),
+        "hook_contract_current": false
+    });
+    assert_eq!(status["integration_owned"], true);
+
+    let mut config = crate::config::schema::AppConfig::default();
+    assert!(infer_consent_for_owned_install(
+        &mut config,
+        "claude",
+        &status,
+        1_790_403_600,
+    ));
+    let provider = RepairProbeProvider::with_id("claude", status);
+    assert_eq!(reconcile_probe(&provider, true), repaired_with_grant());
+    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
+    assert_eq!(grants(&provider), 1);
+    assert_eq!(provider.check_integration()["hook_contract_current"], true);
+}
+
+#[test]
+fn hooks_similar_foreign_route_is_not_claimed() {
+    let foreign_entry = serde_json::json!({
+        "hooks": [{ "type": "command", "command": FOREIGN_PANE_ROUTE }]
+    });
+    let status = serde_json::json!({
+        "hooks_installed": false,
+        "integration_owned": is_codeterm_hook(&foreign_entry),
+        "hook_contract_current": false
+    });
+    assert_eq!(status["integration_owned"], false);
+
+    let mut config = crate::config::schema::AppConfig::default();
+    assert!(!infer_consent_for_owned_install(
+        &mut config,
+        "claude",
+        &status,
+        1_790_403_600,
+    ));
+    let provider = RepairProbeProvider::with_id("claude", status);
+    assert_eq!(
+        reconcile_probe(&provider, false),
+        IntegrationRepairOutcome::ConsentMissing
+    );
+    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[test]
+fn hooks_repaired_content_is_instance_agnostic() {
+    let dir = tempfile::tempdir().unwrap();
+    let dev_path = dir.path().join("dev-settings.json");
+    let prod_path = dir.path().join("prod-settings.json");
+    let options = IntegrationInstallOptions {
+        consent: true,
+
+        repair: true,
+    };
+
+    install_integration_at(&dev_path, &options).unwrap();
+    install_integration_at(&prod_path, &options).unwrap();
+    let dev_content = std::fs::read_to_string(dev_path).unwrap();
+    let prod_content = std::fs::read_to_string(prod_path).unwrap();
+
+    assert_eq!(dev_content.as_bytes(), prod_content.as_bytes());
+    assert!(dev_content.contains("$CODETERM_API_URL"));
+    assert!(dev_content.contains("$CODETERM_API_TOKEN"));
+    assert!(dev_content.contains("$CODETERM_TAB_ID"));
+    assert!(!dev_content.contains("localhost"));
+    assert!(!dev_content.contains("7685"));
+    assert!(!dev_content.contains("7686"));
+    assert!(!dev_content.contains("CODETERM_API_PORT"));
+    assert!(!dev_content.contains("Bearer ct_"));
 }

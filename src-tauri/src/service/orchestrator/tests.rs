@@ -42,7 +42,8 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
 fn roleless_spawn_task_stays_plain() {
     let task = role_onboarding_task(Some("inspect"), None, None).unwrap();
     assert!(task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(task.ends_with("inspect"));
+    assert_eq!(task.matches("inspect").count(), 1);
+    assert!(task.ends_with(crate::prompts::MEM_MANAGEMENT.trim()));
     let primer = role_onboarding_task(None, None, None).unwrap();
     assert!(primer.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(primer.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
@@ -63,7 +64,7 @@ fn ordinary_tab_receives_primer_only_through_a_system_prompt_channel() {
 #[test]
 fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
     let worker = role_launch_task(Some("repair delivery"), Some("Worker"), None, false).unwrap();
-    assert!(worker.starts_with("You are a CodeTerm Worker."));
+    assert!(worker.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert!(worker.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
     assert!(worker.contains(crate::prompts::WORKER_SUFFIX.trim()));
     assert_eq!(
@@ -128,7 +129,7 @@ fn worker_without_task_identity_still_leads_with_a_generic_identity() {
         .unwrap()
         .contains(crate::prompts::WORKER_SUFFIX.trim()));
     let prompt = role_onboarding_task(None, Some("Worker"), None).unwrap();
-    assert!(prompt.starts_with("You are a CodeTerm Worker."));
+    assert!(prompt.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert!(prompt.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 
@@ -279,6 +280,8 @@ fn launch_paths_route_through_seam() {
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: Some(agent.to_string()),
         task: task.map(|t| t.to_string()),
         starter_prompt: Default::default(),
@@ -320,6 +323,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        fork_session: false,
         charter: None,
         tick_interval_secs: None,
         nudge_cooldown_secs: None,
@@ -368,12 +372,10 @@ fn test_build_claude_no_task() {
     if cfg!(target_os = "windows") {
         assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
         assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
-        assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
+        assert!(cmd.contains(" claude --dangerously-skip-permissions --settings "));
     } else {
-        assert_eq!(
-            cmd,
-            "unset CLAUDECODE && claude --dangerously-skip-permissions"
-        );
+        assert!(cmd
+            .starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions --settings "));
     }
 }
 
@@ -623,7 +625,8 @@ fn test_build_claude_with_extra_args() {
     let cmd = build_agent_command("claude", &params, None, None, &reg);
     assert!(cmd.contains("--verbose"));
     assert!(cmd.contains("--no-cache"));
-    assert!(cmd.ends_with("--verbose --no-cache"));
+    assert!(cmd.contains("--verbose --no-cache"));
+    assert_eq!(cmd.matches("--settings ").count(), 1);
 }
 
 #[test]
@@ -655,6 +658,7 @@ fn build_agent_command_canonicalizes_display_model_before_launch_args() {
                 description: None,
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -695,6 +699,21 @@ fn test_build_with_resume_session_id_uses_provider_resume_form() {
         "claude resume: {}",
         cmd
     );
+}
+
+#[test]
+fn agent_fork_command_resumes_source_with_provider_declared_fork_flag() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    let mut params = make_params("claude", None);
+    params.resume_session_id = Some("source-fixture".into());
+    params.fork_session = true;
+    let command = build_agent_command("claude", &params, None, None, &registry);
+    assert!(command.contains("--resume"));
+    assert!(command.contains("source-fixture"));
+    assert!(command.contains("--fork-session"));
+    assert!(!command.contains("--session-id"));
+    assert_eq!(command.matches("--settings").count(), 1);
 }
 
 #[test]

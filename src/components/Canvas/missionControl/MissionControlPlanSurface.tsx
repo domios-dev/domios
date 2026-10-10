@@ -216,8 +216,7 @@ export function MissionControlPlanSurface({
       ) : (
         <header
           data-testid="mission-control-surface-header"
-          className="mission-control-surface-header flex shrink-0 items-center gap-3 border-b px-3 py-1.5"
-          style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
+          className="mission-control-surface-header ct-jobs-header flex shrink-0 items-center gap-3 px-3 py-1.5"
         >
           <div className="min-w-0 flex-1">
             {showSwitcher && selectedPlan && (
@@ -260,6 +259,8 @@ export function MissionControlPlanSurface({
         />
         {showsData && !selectedPlan && team && (
           <MissionControlTeamBoard
+            teamId={boardTeamId}
+            api={api}
             team={team}
             teamSpend={teamSpend}
             deepLinks={deepLinks}
@@ -278,6 +279,7 @@ export function MissionControlPlanSurface({
         )}
         {showsData && selectedPlan && (
           <MissionControlBoard
+            api={api}
             plan={selectedPlan}
             state={boardState.state}
             loading={boardState.loading}

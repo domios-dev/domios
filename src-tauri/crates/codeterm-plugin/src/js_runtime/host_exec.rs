@@ -7,16 +7,18 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
-use std::sync::LazyLock;
-use std::time::Duration;
+use std::sync::{Arc, LazyLock};
+use std::time::{Duration, Instant};
 
 use parking_lot::{Condvar, Mutex};
 use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
 
 use super::bin_resolve::{resolve_bin, well_known_bin_dirs};
+use super::host_api::PluginSandbox;
 
-const MAX_EXEC_JOBS: usize = 128;
+const MAX_EXEC_JOBS_PER_PLUGIN: usize = 128;
+const EXEC_JOB_RETENTION: Duration = Duration::from_secs(5 * 60);
 const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
 
 thread_local! {
@@ -83,16 +85,24 @@ fn err(msg: &str) -> String {
 /// Run the subprocess described by `opts_json`. The binary is already
 /// permission-checked. Resolves the binary through the shared current PATH
 /// ladder, falling back to the bare name for the OS to resolve.
+#[cfg(test)]
 pub(super) fn run(opts_json: &str) -> String {
-    run_with_host_env(opts_json, &HashMap::new())
+    run_with_host_env(opts_json, &HashMap::new(), &PluginSandbox::unrestricted())
 }
 
-pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, String>) -> String {
+pub(super) fn run_with_host_env(
+    opts_json: &str,
+    host_env: &HashMap<String, String>,
+    sandbox: &PluginSandbox,
+) -> String {
     let opts: ExecOpts = match serde_json::from_str(opts_json) {
         Ok(o) => o,
         Err(e) => return err(&format!("bad exec opts: {e}")),
     };
     let opts = with_host_env(opts, host_env);
+    if let Err(error) = validate_detached_log(&opts, sandbox) {
+        return err(&error);
+    }
     if let Some(conversation) = opts.conversation.as_deref() {
         return run_conversation(&opts, conversation);
     }
@@ -455,6 +465,7 @@ impl DoneEvent {
 struct ExecJob {
     plugin_id: String,
     done: bool,
+    finished_at: Option<Instant>,
     done_event: std::sync::Arc<DoneEvent>,
     code: Option<i32>,
     stdout: Option<String>,
@@ -478,16 +489,26 @@ fn normalize_plugin_id(plugin_id: &str) -> String {
 /// (`PluginSandbox::can_exec`) that the blocking `run` callsite applies.
 #[allow(dead_code)] // host-env-less convenience wrapper; kept symmetric with start_with_host_env
 pub(super) fn start(plugin_id: &str, opts_json: &str) -> String {
-    start_with_host_env(plugin_id, opts_json, &HashMap::new())
+    start_with_host_env(
+        plugin_id,
+        opts_json,
+        &HashMap::new(),
+        Arc::new(PluginSandbox::unrestricted()),
+    )
 }
 
 pub(super) fn start_with_host_env(
     plugin_id: &str,
     opts_json: &str,
     host_env: &HashMap<String, String>,
+    sandbox: Arc<PluginSandbox>,
 ) -> String {
-    if let Err(e) = serde_json::from_str::<ExecOpts>(opts_json) {
-        return err(&format!("bad exec opts: {e}"));
+    let opts: ExecOpts = match serde_json::from_str(opts_json) {
+        Ok(opts) => opts,
+        Err(error) => return err(&format!("bad exec opts: {error}")),
+    };
+    if let Err(error) = validate_detached_log(&opts, &sandbox) {
+        return err(&error);
     }
 
     let job_id = match start_exec_job(plugin_id) {
@@ -500,7 +521,7 @@ pub(super) fn start_with_host_env(
         Err(e) => return err(&e),
     };
     let worker_job_id = job_id.clone();
-    std::thread::spawn(move || run_exec_worker(worker_job_id, owned));
+    std::thread::spawn(move || run_exec_worker(worker_job_id, owned, sandbox));
 
     serde_json::json!({ "jobId": job_id }).to_string()
 }
@@ -518,6 +539,19 @@ fn inject_host_env_json(
 fn with_host_env(mut opts: ExecOpts, host_env: &HashMap<String, String>) -> ExecOpts {
     opts.env.extend(host_env.clone());
     opts
+}
+
+fn validate_detached_log(opts: &ExecOpts, sandbox: &PluginSandbox) -> Result<(), String> {
+    if opts.detach {
+        if let Some(path) = opts.log_file.as_deref() {
+            if !sandbox.can_write(path) {
+                return Err(format!(
+                    "detached exec log denied: {path} is outside plugin write roots"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
@@ -642,8 +676,15 @@ where
 fn start_exec_job(plugin_id: &str) -> Result<String, String> {
     let plugin_id = normalize_plugin_id(plugin_id);
     let mut jobs = EXEC_JOBS.lock();
-    if jobs.len() >= MAX_EXEC_JOBS {
-        return Err("too many exec jobs".to_string());
+    reap_expired_jobs(&mut jobs, Instant::now());
+    let plugin_jobs = jobs
+        .values()
+        .filter(|job| job.plugin_id == plugin_id)
+        .count();
+    if plugin_jobs >= MAX_EXEC_JOBS_PER_PLUGIN {
+        return Err(format!(
+            "plugin {plugin_id} reached the exec job limit ({MAX_EXEC_JOBS_PER_PLUGIN})"
+        ));
     }
 
     let job_id = format!("exec:{plugin_id}:{}", uuid::Uuid::new_v4().simple());
@@ -657,8 +698,19 @@ fn start_exec_job(plugin_id: &str) -> Result<String, String> {
     Ok(job_id)
 }
 
-fn run_exec_worker(job_id: String, opts_json: String) {
-    let value = match std::panic::catch_unwind(|| run(&opts_json)) {
+fn reap_expired_jobs(jobs: &mut HashMap<String, ExecJob>, now: Instant) {
+    jobs.retain(|_, job| {
+        let age = job
+            .finished_at
+            .and_then(|finished_at| now.checked_duration_since(finished_at));
+        !matches!(age, Some(age) if age >= EXEC_JOB_RETENTION)
+    });
+}
+
+fn run_exec_worker(job_id: String, opts_json: String, sandbox: Arc<PluginSandbox>) {
+    let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_with_host_env(&opts_json, &HashMap::new(), &sandbox)
+    })) {
         Ok(s) => serde_json::from_str::<serde_json::Value>(&s)
             .unwrap_or_else(|_| serde_json::json!({ "error": "exec produced invalid json" })),
         Err(_) => serde_json::json!({ "error": "exec worker panicked" }),
@@ -670,6 +722,7 @@ fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
     let mut jobs = EXEC_JOBS.lock();
     if let Some(job) = jobs.get_mut(job_id) {
         job.done = true;
+        job.finished_at = Some(Instant::now());
         job.code = value.get("code").and_then(|v| v.as_i64()).map(|c| c as i32);
         job.stdout = value
             .get("stdout")
@@ -693,6 +746,7 @@ fn finish_json_job(job_id: &str, result: &str) {
     let mut jobs = EXEC_JOBS.lock();
     if let Some(job) = jobs.get_mut(job_id) {
         job.done = true;
+        job.finished_at = Some(Instant::now());
         job.result = Some(result);
         job.done_event.signal();
     }
@@ -792,6 +846,47 @@ mod tests {
     }
 
     #[test]
+    fn detached_exec_rejects_log_paths_outside_plugin_write_roots() {
+        let _guard = TEST_LOCK.lock();
+        reset_exec_jobs();
+        let temp = tempfile::tempdir().unwrap();
+        let allowed = temp.path().join("allowed");
+        std::fs::create_dir_all(&allowed).unwrap();
+        let outside = temp.path().join("outside.log");
+        let outside_path = outside.to_string_lossy().into_owned();
+        let sandbox = PluginSandbox::restricted(vec![], vec![allowed]);
+        let opts = serde_json::json!({
+            "bin": "missing-executable",
+            "detach": true,
+            "logFile": outside_path,
+        });
+        let opts_json = opts.to_string();
+        let expected = format!(
+            "detached exec log denied: {} is outside plugin write roots",
+            outside.display()
+        );
+
+        let result: serde_json::Value =
+            serde_json::from_str(&run_with_host_env(&opts_json, &HashMap::new(), &sandbox))
+                .unwrap();
+        let async_result: serde_json::Value = serde_json::from_str(&start_with_host_env(
+            "log-denial-plugin",
+            &opts_json,
+            &HashMap::new(),
+            Arc::new(PluginSandbox::restricted(
+                vec![],
+                vec![temp.path().join("allowed")],
+            )),
+        ))
+        .unwrap();
+
+        assert_eq!(result["error"].as_str(), Some(expected.as_str()));
+        assert_eq!(async_result["error"].as_str(), Some(expected.as_str()));
+        assert!(EXEC_JOBS.lock().is_empty());
+        assert!(!outside.exists());
+    }
+
+    #[test]
     fn host_exec_env_overrides_plugin_env_for_identity() {
         let opts = serde_json::json!({
             "bin": "codeterm",
@@ -848,16 +943,18 @@ mod tests {
     }
 
     #[test]
-    fn exec_job_count_is_capped() {
+    fn exec_job_cap_is_per_plugin() {
         let _guard = TEST_LOCK.lock();
         reset_exec_jobs();
-        for _ in 0..MAX_EXEC_JOBS {
+        for _ in 0..MAX_EXEC_JOBS_PER_PLUGIN {
             start_exec_job("cap-plugin").unwrap();
         }
         assert_eq!(
             start_exec_job("cap-plugin").unwrap_err(),
-            "too many exec jobs"
+            format!("plugin cap-plugin reached the exec job limit ({MAX_EXEC_JOBS_PER_PLUGIN})")
         );
+        let other_plugin_job = start_exec_job("other-plugin").unwrap();
+        close("other-plugin", &other_plugin_job);
         drop_plugin_jobs("cap-plugin");
     }
 
@@ -878,6 +975,26 @@ mod tests {
         assert_eq!(result["code"], 0);
         assert_eq!(result["stdout"], "owned");
         close("other-plugin", &unrelated);
+    }
+
+    #[test]
+    fn insertion_reaps_completed_unpolled_jobs_past_retention() {
+        let _guard = TEST_LOCK.lock();
+        reset_exec_jobs();
+        let completed = start_exec_job("leaky-plugin").unwrap();
+        finish_exec_job(
+            &completed,
+            &serde_json::json!({ "code": 0, "stdout": "done", "stderr": "" }),
+        );
+        EXEC_JOBS.lock().get_mut(&completed).unwrap().finished_at =
+            Some(Instant::now() - EXEC_JOB_RETENTION - Duration::from_millis(1));
+
+        let next = start_exec_job("leaky-plugin").unwrap();
+        let result: serde_json::Value =
+            serde_json::from_str(&poll("leaky-plugin", &completed)).unwrap();
+
+        assert_eq!(result["error"], "job not found");
+        close("leaky-plugin", &next);
     }
 
     #[test]

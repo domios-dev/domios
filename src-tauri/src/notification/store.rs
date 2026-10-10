@@ -426,7 +426,19 @@ impl NotificationStore {
         {
             return DeliveryAdmission::Duplicate(id);
         }
-        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
+        let prompt_choices = ask
+            .actions
+            .iter()
+            .flatten()
+            .filter_map(|action| match action {
+                NotificationAction::RespondPromptOption {
+                    identity, value, ..
+                } => Some(format!("{identity:?}:{value}")),
+                _ => None,
+            })
+            .collect();
+        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref())
+            .with_prompt_choices(prompt_choices);
         if let Some(id) = self.deliveries.existing(&identity) {
             return DeliveryAdmission::Duplicate(id);
         }
@@ -596,6 +608,26 @@ impl NotificationStore {
         true
     }
 
+    pub(crate) fn update_summary(
+        &mut self,
+        id: &str,
+        title: String,
+        body: String,
+    ) -> Option<serde_json::Value> {
+        let record = self
+            .notifications
+            .iter_mut()
+            .find(|record| record.id == id)?;
+        if record.title == title && record.body.as_deref() == Some(body.as_str()) {
+            return None;
+        }
+        record.title = title;
+        record.body = Some(body);
+        let payload = serde_json::to_value(&*record).ok()?;
+        self.sync_persisted();
+        Some(payload)
+    }
+
     pub fn notification(&self, id: &str) -> Option<&Notification> {
         self.notifications
             .iter()
@@ -608,6 +640,30 @@ impl NotificationStore {
         } else {
             self.notifications.iter().collect()
         }
+    }
+
+    pub(crate) fn set_condition(&mut self, id: &str, condition: TabCondition) {
+        if let Some(notification) = self.notifications.iter_mut().find(|n| n.id == id) {
+            notification.condition = Some(condition);
+            self.sync_persisted();
+        }
+    }
+
+    pub(crate) fn resolve_id(&mut self, id: &str) -> bool {
+        let Some(notification) = self
+            .notifications
+            .iter_mut()
+            .find(|n| n.id == id && !n.resolved)
+        else {
+            return false;
+        };
+        notification.resolved = true;
+        notification.read = true;
+        notification.actions = None;
+        self.close_push_slot_for(id);
+        self.deliveries.release(id);
+        self.sync_persisted();
+        true
     }
 
     pub fn mark_read(&mut self, id: &str) -> bool {
@@ -656,12 +712,13 @@ impl NotificationStore {
                     )
                 })
             });
-            let unanswered = notification.answer.as_ref().is_some_and(|answer| {
-                answer.answered.is_none() && answer.asked_from_tab.as_deref() == Some(tab_id)
-            });
+            let asked_here = notification
+                .answer
+                .as_ref()
+                .is_some_and(|answer| answer.asked_from_tab.as_deref() == Some(tab_id));
             if notification.tab_id.as_deref() == Some(tab_id)
                 && matching_prompt
-                && unanswered
+                && asked_here
                 && !notification.resolved
             {
                 notification.resolved = true;

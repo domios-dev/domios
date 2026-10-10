@@ -152,3 +152,59 @@ fn launch_command_carries_the_granted_commands() {
         assert!(command.contains(&rule(command_prefix)), "{command}");
     }
 }
+
+fn tab(hidden: bool, audience: TabAudience, authenticated: bool) -> Tab {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some(PROVIDER.into());
+    tab.hidden = hidden;
+    tab.audience = audience;
+    if authenticated {
+        tab.agent_session_id = Some("bound-session".into());
+        tab.session_binding_nonce = Some("launch-nonce".into());
+        tab.reported_session_binding_nonce = Some("launch-nonce".into());
+    }
+    tab.clone()
+}
+
+#[test]
+fn unattended_launch_prompt_predicate_covers_cron_and_hidden_automation_only() {
+    for audience in [TabAudience::UserOwnedAutomation, TabAudience::Automation] {
+        assert!(runs_unattended(&tab(true, audience, false)));
+        assert!(at_unattended_launch(&tab(true, audience, false)));
+        assert!(runs_unattended(&tab(true, audience, true)));
+        assert!(!at_unattended_launch(&tab(true, audience, true)));
+        assert!(!runs_unattended(&tab(false, audience, false)));
+    }
+    assert!(!runs_unattended(&tab(true, TabAudience::User, false)));
+    assert!(!runs_unattended(&tab(false, TabAudience::User, false)));
+    let mut agentless = tab(true, TabAudience::UserOwnedAutomation, false);
+    agentless.agent_type = None;
+    assert!(!at_unattended_launch(&agentless));
+}
+
+#[test]
+fn prompt_answer_ownership_uses_structure_not_visibility() {
+    let direct = tab(false, TabAudience::User, false);
+    assert_eq!(
+        direct.role,
+        Some(codeterm_types::agent::roles::AgentRole::Manager)
+    );
+    assert!(!owns_prompt_answers(&direct));
+    assert!(!owns_prompt_answers(&tab(true, TabAudience::User, false)));
+
+    let mut worker = direct.clone();
+    worker.role = Some(codeterm_types::agent::roles::AgentRole::Worker);
+    assert!(owns_prompt_answers(&worker));
+
+    let mut team_member = direct.clone();
+    team_member.team_id = Some("team".into());
+    assert!(owns_prompt_answers(&team_member));
+
+    let mut manager_child = direct.clone();
+    manager_child.spawned_by_tab_id = Some("agent".into());
+    assert!(owns_prompt_answers(&manager_child));
+
+    let cron = tab(false, TabAudience::UserOwnedAutomation, false);
+    assert!(owns_prompt_answers(&cron));
+}

@@ -21,8 +21,9 @@ mod task_keys;
 mod workspace;
 
 pub use closed::{
-    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose,
-    TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+    ArchivedTab, ClosedGroup, ClosedStructure, ClosedStructureView, ClosedTabView, ClosedTabsStore,
+    GroupKind, PreparedWorkspaceClose, StructureState, TabCloseReservation, CLOSED_GROUP_CAP,
+    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 pub use snapshot::SnapshotMergeReport;
 pub use status_view::{
@@ -74,6 +75,7 @@ pub struct MultiplexerState {
     /// `team_id`; this holds the team's own metadata (name, lifecycle). Persisted
     /// in the session snapshot.
     teams: HashMap<String, Team>,
+    team_order: Vec<String>,
     /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
     /// increasing value so the frontend reducer can ignore a stale snapshot
     /// (older generation) that resolves after a newer one — kills the
@@ -85,6 +87,7 @@ pub struct MultiplexerState {
     /// store at startup via [`MultiplexerState::attach_closed_store`].
     pub(super) closed_store: ClosedTabsStore,
     workspace_close_reservations: HashMap<String, String>,
+    tab_close_reservations: HashMap<String, (String, String)>,
 }
 
 pub struct TeamCloseTransaction {
@@ -107,6 +110,7 @@ impl TeamCloseTransaction {
         target.pty_to_tab = self.staged.pty_to_tab;
         target.tab_aliases = self.staged.tab_aliases;
         target.teams = self.staged.teams;
+        target.team_order = self.staged.team_order;
         target.generation.store(
             self.staged.generation.load(Ordering::Relaxed),
             Ordering::Relaxed,
@@ -137,6 +141,8 @@ pub struct MultiplexerSnapshot {
     /// persisted session snapshot — keeps both lean.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recently_closed: Vec<ClosedTabView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closed_structures: Vec<ClosedStructureView>,
     /// Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from
     /// `TabStatusTracker` so a fresh page load hydrates the same rail color a
     /// live `tab-status-changed` event would have delivered. Only populated by
@@ -157,9 +163,11 @@ impl MultiplexerState {
                 pty_to_tab: self.pty_to_tab.clone(),
                 tab_aliases: self.tab_aliases.clone(),
                 teams: self.teams.clone(),
+                team_order: self.team_order.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
+                tab_close_reservations: self.tab_close_reservations.clone(),
             },
         }
     }
@@ -198,14 +206,19 @@ impl MultiplexerState {
             pty_to_tab: HashMap::new(),
             tab_aliases: HashMap::new(),
             teams: HashMap::new(),
+            team_order: Vec::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
+            tab_close_reservations: HashMap::new(),
         }
     }
 
     /// Register or replace a team by its id.
     pub fn upsert_team(&mut self, team: Team) {
+        if !self.teams.contains_key(&team.id) {
+            self.team_order.push(team.id.clone());
+        }
         self.teams.insert(team.id.clone(), team);
     }
 
@@ -245,14 +258,19 @@ impl MultiplexerState {
 
     /// Remove a team by id, returning it if present.
     pub fn remove_team(&mut self, id: &str) -> Option<Team> {
-        self.teams.remove(id)
+        let removed = self.teams.remove(id);
+        if removed.is_some() {
+            self.team_order.retain(|team_id| team_id != id);
+        }
+        removed
     }
 
-    /// All registered teams (unordered).
+    /// All registered teams in their persistence order.
     pub fn list_teams(&self) -> Vec<Team> {
-        let mut teams: Vec<_> = self.teams.values().cloned().collect();
-        teams.sort_by(|a, b| a.id.cmp(&b.id));
-        teams
+        self.team_order
+            .iter()
+            .filter_map(|team_id| self.teams.get(team_id).cloned())
+            .collect()
     }
 
     pub fn rename_team(&mut self, id: &str, name: String) -> Result<Team, String> {
@@ -300,6 +318,13 @@ impl MultiplexerState {
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
+            purpose: Default::default(),
+            icon: None,
+            shell_profile: None,
+            utility_created_at: 0,
+            utility_command_pending: false,
+            close_restore: None,
+            shell_command_state: Default::default(),
             pending_delivery: None,
             title: names::generate_tab_name(),
             description: None,
@@ -310,11 +335,17 @@ impl MultiplexerState {
             agent_type_locked: false,
             agent_session_id: None,
             agent_session_name: None,
+            context: None,
+            provider_signals: Default::default(),
+            fork_source_session_id: None,
             agent_session_model: None,
             agent_session_model_identity: None,
             pending_model_switch_observation: None,
+            pending_model_selection: None,
             agent_planned_model: None,
             agent_requested_model: None,
+            structured_control_active: false,
+            structured_runtime_mode: None,
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
@@ -329,6 +360,7 @@ impl MultiplexerState {
             lifecycle_operation_id: None,
             task_binding: None,
             roleless_tracked: false,
+            managed: None,
             role: Some(AgentRole::Manager),
             role_profile: Some(role_kind::builtins::ORCHESTRATOR.to_string()),
             team_id: None,
@@ -346,6 +378,7 @@ impl MultiplexerState {
             pending_prompt: None,
             pending_prompt_kind: None,
             agent_state: None,
+            turn_resume: None,
             auto_approve: false,
             permission_auto_confirm: false,
             permission_auto_confirmations: Vec::new(),
@@ -391,11 +424,16 @@ impl MultiplexerState {
             pty_to_tab: HashMap::new(),
             tab_aliases: HashMap::new(),
             teams: HashMap::new(),
+            team_order: Vec::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
+            tab_close_reservations: HashMap::new(),
         };
 
         (state, tab_id)
     }
 }
+
+#[cfg(test)]
+mod background_work_tests;

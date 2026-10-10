@@ -1,21 +1,16 @@
-// Run: npx tsx src/components/Terminal/useChatSession.optimisticIdentity.test.ts
 // addOptimistic reaches memoized rows: identity survives streaming, the send key is captured once.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { Window } from "happy-dom";
+import { test } from "vitest";
 
 function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
 }
 
 function setupHookDom(): void {
-  const hookWindow = new Window({ url: "http://localhost/" });
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
-  for (const key of ["window", "document", "navigator", "HTMLElement", "Event", "CustomEvent"] as const) {
-    Object.defineProperty(globalThis, key, { configurable: true, value: (hookWindow as never)[key] });
-  }
 }
 
 function msg(id: string, content: string, seq: number): NormalizedChatMessage {
@@ -30,7 +25,7 @@ interface HookView {
   observeChatSendStatus: (status: ChatSendStatus) => void;
 }
 
-async function main(): Promise<void> {
+test("optimistic chat session preserves committed send identity across stream updates", async () => {
   setupHookDom();
   const bridge = await import("../../lib/bridge");
   const { useChatSession } = await import("./useChatSession");
@@ -110,7 +105,7 @@ async function main(): Promise<void> {
     v().observeChatSendStatus({
       send_id: "send-chip",
       tab_id: "tab",
-      state: "accepted",
+      state: "held",
       error: null,
       ledger_id: "ledger",
       sequence: 1,
@@ -121,7 +116,7 @@ async function main(): Promise<void> {
   confirmedStatuses = [{
     send_id: "send-chip",
     tab_id: "tab",
-    state: "confirmed",
+    state: "delivered",
     error: null,
     ledger_id: "ledger",
     sequence: 1,
@@ -205,10 +200,4 @@ async function main(): Promise<void> {
 
   await act(async () => root.unmount());
   host.remove();
-  console.log("optimistic identity + ordering checks passed");
-}
-
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
 });

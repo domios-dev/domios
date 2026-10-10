@@ -407,6 +407,17 @@ pub(crate) fn restore_item(
         .map(sanitize_actor)
         .unwrap_or_else(|| "restore".to_string());
 
+    let area = with_changed_by(&actor, || {
+        svc.mem.with_conn(|conn| {
+            store::area_merge::restore_area(conn, svc.mem.blobs_dir(), id, body.version)
+        })
+    })
+    .map_err(internal)?;
+    if let Some(area) = area {
+        svc.mem.refresh_embedding(id);
+        return Ok(serde_json::json!({ "restored": id, "area": area }));
+    }
+
     if let Some(kind) = pick_restore_kind(&history) {
         let restored_body = body
             .version

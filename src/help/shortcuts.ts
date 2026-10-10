@@ -14,6 +14,5 @@ export function resolveHelpShortcut(source: HelpShortcutSource, config: AppConfi
   if (source.kind === "app") {
     return APP_SHORTCUTS[source.id];
   }
-  const bindings = config.keybindings as Record<string, string | undefined>;
-  return bindings[source.key] ?? "";
+  return config.keybindings[source.key] ?? "";
 }

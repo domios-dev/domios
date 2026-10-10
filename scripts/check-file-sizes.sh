@@ -37,6 +37,12 @@ esac
 violations=()           # files exceeding LIMIT
 mod_rs_violations=()    # mod.rs files over MOD_RS_LIMIT (advisory, always warn)
 
+artifact_prune_path=""
+if git -C "$ROOT" check-ignore -q -- target-check/ &&
+    [ -z "$(git -C "$ROOT" ls-files -- target-check)" ]; then
+    artifact_prune_path="$ROOT/target-check"
+fi
+
 # Count all files in ONE batched `wc -l` pass — per-file wc+tr subprocess spawns
 # over 1000+ source files dominated the runtime. `wc -l <many>` prints
 # "<count> <path>" per line plus a trailing "total"; read count+path directly.
@@ -61,7 +67,7 @@ while read -r lines file; do
 done < <(find "$ROOT" \( -type d \( \
         -name target -o -name node_modules -o -name dist -o -name build -o \
         -name gen -o -name references -o -name vendor -o -name pty-fork -o \
-        -name .git -o -name .claude -o -path "$ROOT/refs" \
+        -name .git -o -name .claude -o -path "$ROOT/refs" -o -path "$artifact_prune_path" \
     \) -prune \) -o \( -type f \( \
         -name '*.rs' -o \
         -name '*.ts' -o \

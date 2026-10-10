@@ -1,8 +1,15 @@
 pub mod atomic_write;
 pub mod child_slot;
+pub mod headless_cli;
 pub mod lock_hold;
+pub mod named_thread;
+pub mod network_host;
 pub mod persisted_state;
+pub mod plugin_agent_guide;
+pub mod plugin_config;
+pub mod plugin_grants;
 pub mod process_util;
+pub mod secret_file;
 pub mod shell;
 pub mod task_files;
 pub mod terminal;

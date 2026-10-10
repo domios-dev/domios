@@ -1,3 +1,5 @@
+import type { ApiConfig } from "../../../lib/types";
+import { ActivityFeed } from "../../Supporter/ActivityFeed";
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
@@ -29,6 +31,7 @@ export interface MissionControlBoardProps {
   eventPager?: EventPager;
   /** The team's token spend by plan, model and day; machine spend is shown without it. */
   teamSpend?: TeamSpend | null;
+  api?: ApiConfig;
 }
 
 export function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -61,6 +64,7 @@ export function MissionControlBoard({
   deepLinks,
   eventPager,
   teamSpend = null,
+  api,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -85,6 +89,7 @@ export function MissionControlBoard({
           {loading ? "Reading the plan record…" : "No stored Mission Control reading for this plan."}
         </p>
       )}
+      {api && plan.team_id && <ActivityFeed api={api} teamId={plan.team_id} />}
       {boardState && mc && (
         <>
           <div

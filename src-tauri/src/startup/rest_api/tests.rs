@@ -3,12 +3,7 @@ use super::*;
 const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 async fn reserve_initial_listener(control: &RestApiControl) -> SocketAddr {
-    let socket = tokio::net::TcpSocket::new_v4().unwrap();
-    socket.set_reuseaddr(true).unwrap();
-    #[cfg(unix)]
-    enable_shared_port_binding(&socket).unwrap();
-    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-    let listener = socket.listen(1024).unwrap();
+    let listener = bind_listener("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     control.install_initial_listener(listener);
     address
@@ -89,6 +84,67 @@ fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
         .expect("failure must explain recovery");
     assert!(message.contains(detail));
     assert!(!message.contains("Restart CodeTerm"));
+}
+
+#[tokio::test]
+async fn mesh_tailnet_production_runtime_binds_serves_and_publishes_both_listeners() {
+    let control = Arc::new(RestApiControl::new());
+    control
+        .listeners
+        .configure(Some("127.0.0.1:0".parse().unwrap()), Arc::new(|_| {}));
+    let mut status = control.subscribe_status();
+    let server = spawn(control.clone(), "127.0.0.1:0".into(), health_router());
+    wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
+    let addresses = control.listeners.ready();
+    assert_eq!(addresses.len(), 2);
+    assert_eq!(Some(addresses[0]), control.bound_addr());
+    assert_ne!(addresses[0], addresses[1]);
+    tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for address in &addresses {
+            let response = client
+                .get(format!("http://{address}/api/health"))
+                .header(reqwest::header::CONNECTION, "close")
+                .send()
+                .await
+                .unwrap();
+            assert!(response.status().is_success());
+            assert_eq!(response.text().await.unwrap(), "ok");
+        }
+        control.shutdown_and_wait().await.unwrap();
+        tokio::task::spawn_blocking(move || server.join().unwrap())
+            .await
+            .unwrap();
+    })
+    .await
+    .expect("production listener requests and shutdown must complete");
+    assert!(control.listeners.ready().is_empty());
+}
+
+#[tokio::test]
+async fn health_proof_deadline_fails_the_bound_generation_with_address_diagnostic() {
+    let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
+    let mut status = control.subscribe_status();
+    let router = axum::Router::new().route(
+        "/api/health",
+        axum::routing::get(|| std::future::pending::<&'static str>()),
+    );
+    let server = start(control.clone(), address.to_string(), router);
+    tokio::pin!(server);
+    let failed = tokio::select! {
+        _ = &mut server => panic!("supervisor exited instead of reporting health failure"),
+        failed = wait_for_status(&control, &mut status, |s| s.phase == RestApiPhase::Failed) => failed,
+    };
+    assert_eq!(failed.generation, 1);
+    assert_eq!(failed.diagnostic, Some(RestApiDiagnostic::WorkersBlocked));
+    assert!(control.listener_owned());
+    assert!(control.listeners.ready().is_empty());
+    assert_recoverable_failure(&failed, "failure deadline");
+    assert_recoverable_failure(&failed, &address.to_string());
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 ---
 name: build-reference
-description: "Look up CodeTerm build environment, outputs, toolchain, and repository layout."
+description: "Look up Domios build environment, outputs, toolchain, and repository layout."
 ---
 
 # Build reference
@@ -123,13 +123,14 @@ release use `./build.sh build`, above.
 
 ## Icons
 
-Icon source files: `src-tauri/icons/`
+Native app source: `src-tauri/icons/app-icon.svg`. Tray assets are independent.
 
 | File | Size | Usage |
 |------|------|-------|
 | `icon.png` | 512x512 | Window icon, installer |
 | `256x256.png` | 256x256 | High-DPI displays |
-| `32x32.png` | 32x32 | System tray (Windows/Linux) |
+| `app-32x32.png` | 32x32 | Application bundle |
+| `32x32.png` | 32x32 | System tray (Windows/Linux), preserve independently |
 | `tray-template.png` | — | macOS tray (template image, auto light/dark) |
 | `icon.ico` | 256x256 | Windows executable |
 
@@ -141,10 +142,10 @@ Icon source files: `src-tauri/icons/`
 
 ### Regenerating icons
 
-1. Edit SVG source or create new design
-2. Render to PNG at multiple sizes using `sharp` (Node.js) or ImageMagick
-3. Replace files in `src-tauri/icons/`
-4. Rebuild — icons are embedded at compile time via `include_bytes!()`
+1. Edit `src-tauri/icons/app-icon.svg`; `assets/icon.svg` is not the native app source.
+2. In canonical, run `pnpm exec tauri icon src-tauri/icons/app-icon.svg --output <temp>/native`, then repeat with `--output <temp>/png --png 32 --png 512`.
+3. Verify outputs and copy only the generated ICNS/ICO, 32px PNG as `app-32x32.png`, and 512px PNG as `icon.png`. Preserve tray assets, `32x32.png`, and website/in-app logos.
+4. Review at actual display sizes before rebuilding; icons are embedded at compile time via `include_bytes!()`.
 
 ### Windows icon cache
 
@@ -162,7 +163,7 @@ If build fails with `link.exe` errors, ensure MSVC is properly configured. The p
 
 If a focused test fails while `link.exe` or `mt.exe` reads
 `windows-app-manifest.xml` from a deleted worktree, the shell inherited
-CodeTerm's private local-install `CARGO_TARGET_DIR`. Run the test through
+Domios's private local-install `CARGO_TARGET_DIR`. Run the test through
 `scripts/test-capped.sh`; it removes that private override and uses this
 checkout's warm manifest target, or isolated `target-check` while dev is
 running. Do not delete the shared build cache.

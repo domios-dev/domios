@@ -102,6 +102,54 @@ fn restore_contract_only_restored_members_with_a_bound_exited_session_are_flagge
 }
 
 #[test]
+fn restore_decision_marks_unidentified_role_shell_without_guessing_provider() {
+    let (mut state, _) = MultiplexerState::new();
+    let workspace = state.create_workspace("legacy-role".into(), None).id;
+    let tab_id = state.create_tab(&workspace).unwrap();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.restored_from_snapshot = true;
+    tab.role = Some(AgentRole::Manager);
+    tab.role_profile = Some("orchestrator".into());
+    let mut profile_only = tab.clone();
+    profile_only.role = None;
+
+    assert!(legacy_role_shell_failure(state.get_tab(&tab_id).unwrap()).is_some());
+    assert!(legacy_role_shell_failure(&profile_only).is_some());
+    assert_eq!(exited_member_session(state.get_tab(&tab_id).unwrap()), None);
+
+    let failures = mark_legacy_role_shell_failures(&mut state);
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, tab_id);
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_type, None);
+    assert_eq!(
+        tab.boot_stage,
+        Some(crate::service::boot_stage::BootStage::SpawnFailed)
+    );
+    assert_eq!(tab.boot_failure_reason.as_deref(), Some(failures[0].1));
+}
+
+#[test]
+fn restore_decision_does_not_mark_protected_or_lineage_owned_role_shells() {
+    let (mut state, _) = MultiplexerState::new();
+    let workspace = state.create_workspace("legacy-role".into(), None).id;
+    let tab_id = state.create_tab(&workspace).unwrap();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.restored_from_snapshot = true;
+    tab.role = Some(AgentRole::Manager);
+    tab.protected = true;
+    assert_eq!(legacy_role_shell_failure(tab), None);
+
+    tab.protected = false;
+    tab.prior_session_binding_nonces.push(PriorBindingNonce {
+        session_id: Some("owned-session".into()),
+        resume_target_session_id: None,
+        nonce: "owned-nonce".into(),
+    });
+    assert_eq!(legacy_role_shell_failure(tab), None);
+}
+
+#[test]
 fn restore_contract_exited_tab_is_claimed_for_auto_recovery_once() {
     let claims = Mutex::new(HashSet::new());
     assert!(claim_auto_recovery(&claims, "tab-a"));

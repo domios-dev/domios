@@ -64,7 +64,7 @@ test("watcher_verdict renders status card with actions", async () => {
   });
   const { host, root } = await renderMessage(baseMessage("watcher_verdict", content));
   assert(host.querySelector('[data-testid="chat-watcher-verdict-card"]'), "verdict card");
-  assert(host.querySelector('[data-testid="watcher-verdict-status-chip"]')?.textContent === "STALLED", "status chip");
+  assert(host.querySelector('[data-testid="watcher-verdict-status-chip"]')?.textContent === "Stalled", "status chip");
   assert(host.getAttribute("data-verdict-tone") == null, "tone on card element");
   assert(
     host.querySelector('[data-testid="chat-watcher-verdict-card"]')?.getAttribute("data-verdict-tone") === "danger",
@@ -80,7 +80,7 @@ test("malformed watcher_verdict degrades to attention chip with raw summary", as
   const card = host.querySelector('[data-testid="chat-watcher-verdict-card"]');
   assert(card, "verdict card");
   assert(card?.getAttribute("data-verdict-tone") === "warn", "malformed uses attention/warn tone");
-  assert(host.querySelector('[data-testid="watcher-verdict-status-chip"]')?.textContent === "ATTENTION", "attention chip");
+  assert(host.querySelector('[data-testid="watcher-verdict-status-chip"]')?.textContent === "Attention", "attention chip");
   assert(host.textContent?.includes(raw), "raw summary visible");
   await act(async () => root.unmount());
 });

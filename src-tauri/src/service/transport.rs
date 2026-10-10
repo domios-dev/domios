@@ -17,6 +17,9 @@ use crate::multiplexer::types::TabBacking;
 #[serde(rename_all = "camelCase")]
 pub struct AtomicSpawnParams {
     pub agent_id: String,
+    pub preset: Option<String>,
+    #[serde(skip)]
+    pub(crate) preset_args: Vec<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
     #[serde(default)]
@@ -48,6 +51,7 @@ pub struct AtomicSpawn {
 
 /// Per-spawn context handed to a transport's `launch`.
 pub struct TransportLaunchCtx<'a> {
+    pub preset_args: &'a [String],
     pub provider_id: &'a str,
     pub tab_id: &'a str,
     pub skip_permissions: bool,
@@ -110,6 +114,7 @@ impl AgentTransport for PtyTransport {
             })
             .unwrap_or_default();
         let mut args = model_args;
+        args.extend_from_slice(ctx.preset_args);
         args.extend(svc.reasoning_effort_launch_args_or_notice(
             ctx.tab_id,
             ctx.provider_id,
@@ -147,6 +152,8 @@ impl AgentTransport for PtyTransport {
             role_profile.as_deref(),
         );
         let mut params = AgentLaunchParams {
+            context_files: None,
+            tool_less_instructions_path: None,
             agent_name: None,
             task: launch_task.clone(),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
@@ -164,6 +171,26 @@ impl AgentTransport for PtyTransport {
                 ctx.tab_id,
                 &cwd,
                 &mut params,
+                super::codex_rpc::launch::Selection {
+                    model: model_resolution.model.clone(),
+                    effort: ctx
+                        .reasoning_effort
+                        .filter(|effort| {
+                            svc.agent_registry
+                                .with_provider(ctx.provider_id, |provider| {
+                                    provider
+                                        .reasoning_efforts_for_model(
+                                            model_resolution.model.as_deref(),
+                                        )
+                                        .iter()
+                                        .any(|level| level.id == *effort)
+                                })
+                                .unwrap_or(false)
+                        })
+                        .map(str::to_owned),
+                    resume: None,
+                    extra_args: !ctx.preset_args.is_empty(),
+                },
             )
             .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;
         Ok(backend_owned_pty_launch(launch_command, |launch_command| {
@@ -223,11 +250,42 @@ impl ServiceContext {
     /// The atomic spawn entry: pick the transport, build the tab, launch it,
     /// then return the authoritative snapshot.
     pub fn spawn_tab_atomic(&self, params: AtomicSpawnParams) -> Result<AtomicSpawn, String> {
+        self.spawn_tab_atomic_origin(params, false)
+    }
+
+    pub(crate) fn spawn_tab_atomic_from_ui(
+        &self,
+        params: AtomicSpawnParams,
+    ) -> Result<AtomicSpawn, String> {
+        self.spawn_tab_atomic_origin(params, true)
+    }
+
+    fn spawn_tab_atomic_origin(
+        &self,
+        mut params: AtomicSpawnParams,
+        ui: bool,
+    ) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
             crate::config::default_agent_provider()
         } else {
             params.agent_id.clone()
         };
+        if let Some(name) = params.preset.as_deref() {
+            let adapter = self
+                .agent_registry
+                .with_provider(&provider, |p| p.model_provider_config())
+                .flatten()
+                .ok_or("provider does not support model presets")?;
+            let (model, args) = super::model_providers::presets::resolve(
+                &*adapter,
+                name,
+                params.model.as_deref(),
+                &[],
+            )
+            .map_err(|error| error.to_string())?;
+            params.model = Some(model);
+            params.preset_args = args;
+        }
 
         match self.provider_registry.transport_of(&provider) {
             Some(ProviderTransport::ChatBackend) => {
@@ -238,7 +296,7 @@ impl ServiceContext {
                     ));
                 }
                 self.validate_atomic_reasoning_effort(&provider, &params)?;
-                self.spawn_tab_atomic_with(&provider, &params, &ChatTransport, true, None)
+                self.spawn_tab_atomic_with(&provider, &params, &ChatTransport, true, None, ui)
             }
             Some(ProviderTransport::Pty) => {
                 self.require_agent_provider_ready(&provider)?;
@@ -250,6 +308,7 @@ impl ServiceContext {
                     &PtyTransport,
                     chat_view,
                     Some(&provider),
+                    ui,
                 )
             }
             None => {
@@ -263,6 +322,7 @@ impl ServiceContext {
                     &PtyTransport,
                     chat_view,
                     Some(&provider),
+                    ui,
                 )
             }
         }
@@ -305,6 +365,7 @@ impl ServiceContext {
         transport: &dyn AgentTransport,
         chat_view: bool,
         agent_type: Option<&str>,
+        ui: bool,
     ) -> Result<AtomicSpawn, String> {
         let (ws_id, ws_cwd) = self.resolve_spawn_workspace(params.workspace_id.clone())?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
@@ -331,6 +392,9 @@ impl ServiceContext {
             tab_id
         };
 
+        if ui {
+            super::supporter_notify::record_ui_origin(&tab_id);
+        }
         let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
             &self.agent_registry,
             provider,
@@ -338,6 +402,25 @@ impl ServiceContext {
         .is_some();
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             tab.auto_approve = permission_bypass;
+        }
+        if !params.preset_args.is_empty() {
+            super::restored_launch::capture_tab_launch_parameters(
+                &self.mux,
+                &tab_id,
+                &self.agent_registry,
+                super::restored_launch::RestorableLaunchCapture {
+                    provider_id: provider,
+                    requested_model: params.model.clone(),
+                    model: params.model.clone(),
+                    reasoning_effort: params.reasoning_effort.clone(),
+                    args: Some(params.preset_args.clone()),
+                    agent_name: None,
+                    task: None,
+                    role: None,
+                    role_profile: None,
+                    permission_bypass_requested: permission_bypass,
+                },
+            );
         }
 
         if let Some(at) = agent_type {
@@ -355,11 +438,38 @@ impl ServiceContext {
         })?;
         let _ = self.focus_tab(&tab_id);
 
+        let persistence =
+            crate::service::session_persist::write_session_snapshot(&self.app_handle, &self.mux)
+                .and_then(|outcome| match outcome {
+                    crate::session::store::SaveOutcome::Saved => Ok(()),
+                    crate::session::store::SaveOutcome::RefusedReduction(refusal) => {
+                        Err(format!("desk persistence refused the new Tab: {refusal:?}"))
+                    }
+                });
+        if let Err(error) = persistence {
+            self.rollback_provisional_tab(&ws_id, &tab_id);
+            let _ = self.revoke_agent_pad(&tab_id);
+            self.emit_state_changed();
+            if let Err(rollback_error) =
+                crate::service::session_persist::write_session_snapshot_with_intent(
+                    &self.app_handle,
+                    &self.mux,
+                    crate::session::store::SaveIntent::AuthorizedReduction,
+                )
+            {
+                return Err(format!(
+                    "desk persistence failed before launch: {error}; provisional Tab cleanup failed: {rollback_error}"
+                ));
+            }
+            return Err(format!("desk persistence failed before launch: {error}"));
+        }
+
         // The tab is already created/activated/focused; roll it back on launch failure so the user isn't left on a blank tab.
         let launch_command = finish_launch(
             transport.launch(
                 self,
                 &TransportLaunchCtx {
+                    preset_args: &params.preset_args,
                     provider_id: provider,
                     tab_id: &tab_id,
                     skip_permissions: permission_bypass,

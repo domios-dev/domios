@@ -1,6 +1,8 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import {
+  type CollisionDetection,
   DndContext,
+  type Modifier,
   type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
@@ -20,11 +22,15 @@ import { CSS } from "@dnd-kit/utilities";
  *  only when active + over share the same group, so an item can never cross
  *  its hierarchy level. dnd-kit owns each group's current prefixed-id order. */
 export interface SortableGroupData {
-  group: "workspace" | "tab" | "child";
+  group: "workspace" | "tab" | "team" | "child";
   groupKey: string;
   /** Prefixed ids pinned to the front of the group (the General workspace /
    *  General tab). A drop that would not keep them leading is rejected. */
   pinnedIds?: string[];
+  /** Expands a reordered visible subset into the full order the backend expects. */
+  fullOrder?: (orderedRawIds: string[]) => string[];
+  /** Expands the group's new order into the full display order of its workspace. */
+  toWorkspaceOrder?: (orderedRawIds: string[]) => { workspaceId: string; orderedTabIds: string[] };
 }
 
 interface SortableEventData extends SortableGroupData {
@@ -35,6 +41,7 @@ export const POINTER_DRAG_ACTIVATION_DISTANCE = 4;
 
 export const WS_PREFIX = "ws:";
 export const TAB_PREFIX = "tab:";
+export const TEAM_PREFIX = "team:";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -60,6 +67,7 @@ export interface ReorderHandlers {
     parentTabId?: string;
     orderedTabIds: string[];
   }) => void;
+  reorderDisplay: (args: { workspaceId: string; orderedTabIds: string[] }) => void;
 }
 
 /** A single draggable/sortable row. Drag listeners ride the wrapper, so the
@@ -128,11 +136,40 @@ export function SidebarDnd({
   );
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={sameGroupCollision}
+      modifiers={LIST_AXIS_MODIFIERS}
+      autoScroll={VERTICAL_AUTO_SCROLL}
+      onDragEnd={onDragEnd}
+    >
       {children}
     </DndContext>
   );
 }
+
+/** Tab rows travel only vertically; the workspace card grid keeps both axes. */
+export const lockListRowsToVerticalAxis: Modifier = ({ active, transform }) => {
+  const group = (active?.data.current as SortableGroupData | undefined)?.group;
+  return group && group !== "workspace" ? { ...transform, x: 0 } : transform;
+};
+
+const LIST_AXIS_MODIFIERS = [lockListRowsToVerticalAxis];
+const VERTICAL_AUTO_SCROLL = { threshold: { x: 0, y: 0.2 } };
+
+function sameGroup(a: SortableGroupData | undefined, b: SortableGroupData | undefined): boolean {
+  return Boolean(a && b && a.group === b.group && a.groupKey === b.groupKey);
+}
+
+/** Only rows of the dragged row's own group can be targets, so nested groups never steal the drop. */
+export const sameGroupCollision: CollisionDetection = (args) => {
+  const activeData = args.active.data.current as SortableGroupData | undefined;
+  return closestCenter({
+    ...args,
+    droppableContainers: args.droppableContainers.filter((container) =>
+      sameGroup(activeData, container.data.current as SortableGroupData | undefined)),
+  });
+};
 
 export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers): void {
   const { active, over } = event;
@@ -152,8 +189,12 @@ export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers
   const pinned = activeData.pinnedIds ?? [];
   if (pinned.some((pinnedId, index) => reordered[index] !== pinnedId)) return;
   const ordered = reordered.map(rawId);
+  if (activeData.toWorkspaceOrder) {
+    handlers.reorderDisplay(activeData.toWorkspaceOrder(ordered));
+    return;
+  }
   if (activeData.group === "workspace") {
-    handlers.reorderWorkspaces(ordered);
+    handlers.reorderWorkspaces(activeData.fullOrder ? activeData.fullOrder(ordered) : ordered);
   } else if (activeData.group === "child") {
     handlers.reorderTabs({ parentTabId: activeData.groupKey, orderedTabIds: ordered });
   } else {

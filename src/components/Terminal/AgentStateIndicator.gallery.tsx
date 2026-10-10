@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { AgentStateIndicator, type AgentState } from "./AgentStateIndicator";
 
 const ROWS: Array<{ label: string; state: AgentState }> = [
@@ -58,7 +59,7 @@ export function AgentStateGallery() {
           >
             {row.label}
           </span>
-          <AgentStateIndicator state={row.state} />
+          <AgentStateIndicator activity={tabActivity({ agent_session_id: "gallery-session", agent_state: row.state })} />
         </div>
       ))}
     </div>

@@ -1,0 +1,97 @@
+:root {
+  --ct-composer-gutter-x: 0.75rem;
+  --ct-composer-gutter-b: var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)));
+  --ct-composer-lane-max: 56rem;
+  --ct-composer-radius: 1.215rem;
+  --ct-composer-editor-max: min(230px, 40dvh);
+  --ct-composer-float-min-width: 30rem;
+  --ct-composer-control-size: var(--ct-control-height);
+  --ct-composer-inner-control-size: var(--ct-control-height-micro);
+  --ct-composer-card-border: 1px;
+}
+@media (pointer: coarse), (max-width: 768px) {
+  :root {
+    --ct-composer-control-size: 2.5rem;
+    --ct-composer-inner-control-size: 2rem;
+  }
+}
+.ct-composer-dock {
+  padding: 0 var(--ct-composer-gutter-x) var(--ct-composer-gutter-b);
+  border-top: 1px solid transparent;
+  overflow: visible;
+  transition: padding var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.ct-composer-lane { max-width: var(--ct-composer-lane-max); }
+.ct-composer-card {
+  border: var(--ct-composer-card-border) solid var(--ct-border);
+  border-radius: var(--ct-composer-radius);
+  background: var(--ct-bg-elev, var(--ct-surface));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+  overflow: visible;
+  transition: border-radius var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    box-shadow var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.ct-composer-card textarea { max-height: var(--ct-composer-editor-max); }
+.ct-composer-control { width: var(--ct-composer-control-size); height: var(--ct-composer-control-size); }
+.ct-composer-inner-control { width: var(--ct-composer-inner-control-size); height: var(--ct-composer-inner-control-size); }
+.ct-composer-row { min-height: calc(var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border)); }
+.ct-composer-inner-actions {
+  align-self: flex-end;
+  margin-block-end: calc((var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border) - var(--ct-composer-inner-control-size)) / 2);
+  padding-inline-end: 0.25rem;
+}
+.ct-composer-dock[data-composer-mode="docked"] {
+  padding: 0 0.5rem calc(0.375rem + var(--ct-safe-bottom, 0px));
+}
+.ct-composer-dock[data-composer-mode="docked"] .ct-composer-card {
+  box-shadow: none;
+}
+.ct-composer-action-shell, .ct-voice-lock-pill, .ct-composer-voice-bubble { overflow: visible; }
+.ct-send-bloom,
+.ct-send-glyph {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.ct-send-bloom {
+  background: color-mix(in srgb, var(--ct-accent) 78%, var(--ct-bg));
+  clip-path: circle(0% at 50% 50%);
+  transition: clip-path var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.ct-send-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--ct-duration-normal) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-smooth) var(--ct-ease-hover-swell);
+}
+.ct-send-glyph--mic { color: var(--ct-fg); }
+.ct-send-glyph--send { color: var(--ct-on-accent); opacity: 0; transform: scale(0.6); }
+[data-send="true"] > .ct-send-bloom { clip-path: circle(72% at 50% 50%); }
+[data-send="true"] > .ct-send-glyph--mic { opacity: 0; transform: scale(0.8); }
+[data-send="true"] > .ct-send-glyph--send { opacity: 1; transform: none; transition-delay: 60ms; }
+@media (prefers-reduced-motion: reduce) {
+  .ct-composer-dock, .ct-composer-card, .ct-send-bloom, .ct-send-glyph, .ct-chat-bottom-bar { transition: none; }
+}
+
+.ct-composer-readonly, .ct-composer-status { padding-inline: var(--ct-composer-gutter-x); }
+.ct-composer-status { padding-top: 6px; }
+
+.ct-chat-shell { container: ct-chat / inline-size; }
+.ct-chat-bottom-bar {
+  position: relative;
+  margin: 0 max(0.5rem, calc((100% - 58rem) / 2)) 0.5rem;
+  padding-block: 0.5rem 0.375rem;
+  border-radius: 1.575rem;
+  background-color: var(--ct-bg);
+  box-shadow: var(--ct-shadow-capsule);
+  transition: margin var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    padding var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.ct-chat-bottom-bar .ct-composer-card { box-shadow: none; }
+@container ct-chat (min-width: 64rem) {
+  .ct-chat-bottom-bar { margin-bottom: 0.75rem; }
+}

@@ -427,7 +427,7 @@ impl SupervisorLock {
                     return Self::acquire();
                 }
                 Err(format!(
-                    "another CodeTerm supervisor is already active: {}",
+                    "another Domios supervisor is already active: {}",
                     path.display()
                 ))
             }
@@ -876,7 +876,7 @@ fn build_linux_unit(supervisor_path: &str, binary_path: &str) -> String {
     let binary_path = systemd_quote(binary_path);
     format!(
         "[Unit]\n\
-         Description=CodeTerm — terminal multiplexer for AI agents\n\
+         Description=Domios — terminal multiplexer for AI agents\n\
          After=graphical-session.target\n\
          \n\
          [Service]\n\

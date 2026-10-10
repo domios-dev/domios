@@ -64,10 +64,10 @@ function PeerTerminalComponent({
       }`}
       style={{ width: 360 }}
     >
-      <div className="flex items-center gap-2 px-3.5 py-2 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] rounded-t-md">
-        <span className="w-3 h-3 rounded-full bg-[#f38ba8]" />
-        <span className="w-3 h-3 rounded-full bg-[#f9e2af]" />
-        <span className="w-3 h-3 rounded-full bg-[#a6e3a1]" />
+      <div className="flex items-center gap-2 px-3.5 py-2 rounded-t-md">
+        <span className="w-3 h-3 rounded-full bg-[var(--ct-window-close)]" />
+        <span className="w-3 h-3 rounded-full bg-[var(--ct-window-minimize)]" />
+        <span className="w-3 h-3 rounded-full bg-[var(--ct-window-maximize)]" />
         <span className="ml-2 text-[14px] text-[var(--ct-fg)] font-medium truncate">
           {name}
         </span>
@@ -104,7 +104,7 @@ function PeerTerminalComponent({
             <span
               key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`}
               data-testid="peer-service-chip"
-              className="bg-[var(--ct-titlebar-bg)] px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1.5"
+              className="bg-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1.5"
               style={{ color: HEALTH_DOT_COLOR[s.health.status] ?? HEALTH_DOT_COLOR.unknown }}
             >
               <span
@@ -151,7 +151,7 @@ function PeerTerminalComponent({
             e.stopPropagation();
             if (webUrl) onOpenWebUi?.(webUrl);
           }}
-          className="ml-auto inline-flex h-6 items-center gap-1 rounded border border-[color-mix(in_srgb,var(--ct-accent)_45%,var(--ct-border))] bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)] px-2.5 text-[10px] font-semibold text-[var(--ct-accent)] transition-colors enabled:cursor-pointer enabled:hover:border-[var(--ct-accent)] enabled:hover:bg-[color-mix(in_srgb,var(--ct-accent)_18%,transparent)] disabled:cursor-default disabled:border-[var(--ct-border)] disabled:bg-[var(--ct-titlebar-bg)] disabled:text-[var(--ct-muted)]"
+          className="ml-auto inline-flex h-6 items-center gap-1 rounded border border-[color-mix(in_srgb,var(--ct-accent)_45%,var(--ct-border))] bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)] px-2.5 text-[10px] font-semibold text-[var(--ct-accent)] transition-colors enabled:cursor-pointer enabled:hover:border-[var(--ct-accent)] enabled:hover:bg-[color-mix(in_srgb,var(--ct-accent)_18%,transparent)] disabled:cursor-default disabled:border-[var(--ct-border)] disabled:bg-[color-mix(in_srgb,var(--ct-fg)_4%,transparent)] disabled:text-[var(--ct-muted)]"
           title={webUrl ? `Open ${name}'s Web UI — ${webUrl}` : webUnavailableReason ?? `${name} Web UI is unavailable`}
         >
           Open

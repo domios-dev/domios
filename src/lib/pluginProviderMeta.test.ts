@@ -2,6 +2,7 @@
 
 import {
   getPluginProviderMeta,
+  pluginDisplayName,
   pluginProviderMetaFromSnapshot,
   setPluginProviderMeta,
 } from "./pluginProviderMeta";
@@ -58,6 +59,16 @@ test("set/get round-trips by id", () => {
 });
 
 let failed = 0;
+test("display name resolves only a real manifest name, never the id echoed back", () => {
+  const record = {
+    lmstudio: { id: "lmstudio", displayName: "LM Studio" },
+    bare: { id: "bare", displayName: "bare" },
+  };
+  assert(pluginDisplayName(record, "lmstudio") === "LM Studio", "named plugin resolves");
+  assert(pluginDisplayName(record, "bare") === undefined, "id-only plugin stays unresolved");
+  assert(pluginDisplayName(record, "missing") === undefined, "unknown plugin stays unresolved");
+});
+
 for (const [name, fn] of tests) {
   try {
     fn();

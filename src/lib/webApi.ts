@@ -1,7 +1,7 @@
 /**
  * Web-mirror runtime: local daemon host/token + mesh relay targeting.
  *
- * In WEB mode (no Tauri) the React app talks to the CodeTerm daemon that
+ * In WEB mode (no Tauri) the React app talks to the Domios daemon that
  * served the browser UI over plain HTTP, authenticated by that daemon's own token.
  * The browser ALWAYS points at this local daemon. To view a paired mesh
  * peer the picker sets a "relay target" (a peer instance_id); requests are
@@ -78,6 +78,14 @@ interface RelayTarget {
 
 let requestContextGeneration = 0;
 const requestControllers = new Set<AbortController>();
+
+export function webRequestContext(): number {
+  return requestContextGeneration;
+}
+
+export function assertWebRequestContext(generation: number): void {
+  if (generation !== requestContextGeneration) throw new DOMException("Peer context changed", "AbortError");
+}
 
 /** Cancel every request bound to the current peer before changing relay target. */
 export function invalidateWebRequestContext(): number {
@@ -302,11 +310,13 @@ export async function webJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  const generation = webRequestContext();
   const res = await webFetch(path, {
     method,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
+  assertWebRequestContext(generation);
   if (!res.ok) {
     if (res.status === 409 && path.endsWith("/prompt/respond")) {
       try {

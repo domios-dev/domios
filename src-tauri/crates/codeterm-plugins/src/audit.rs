@@ -118,6 +118,9 @@ pub(super) fn command_failure_fields(
         },
         PluginAction::Get { id } => ("get-failed".to_string(), Some(id.clone()), None),
         PluginAction::Config { id, .. } => ("config-failed".to_string(), Some(id.clone()), None),
+        PluginAction::Settings { id, .. } => {
+            ("settings-failed".to_string(), Some(id.clone()), None)
+        }
         PluginAction::Pass(parts) => (
             "agent-command-failed".to_string(),
             parts.first().cloned(),

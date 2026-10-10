@@ -17,6 +17,7 @@ fn plan(tasks: Vec<Task>) -> Plan {
 
 fn task(id: &str, status: TaskStatus, worker: Option<&str>) -> Task {
     Task {
+        files: Default::default(),
         id: id.into(),
         name: id.into(),
         kind: "implementation".into(),
@@ -77,7 +78,7 @@ fn nudge(
 ) {
     let _ = maybe_nudge_stalled_team(plan, live_worker_tabs, orchestrator_idle, tracker, |key| {
         deliveries.push(key.clone());
-        Ok(())
+        Ok(true)
     });
 }
 

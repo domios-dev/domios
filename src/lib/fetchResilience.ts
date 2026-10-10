@@ -17,7 +17,7 @@ export function isTransientFetchError(err: unknown): boolean {
 
 export function formatPlanFetchError(err: unknown): string {
   if (isTransientFetchError(err)) {
-    return "Could not reach CodeTerm. Reconnecting…";
+    return "Could not reach Domios. Reconnecting…";
   }
   const message = err instanceof Error ? err.message : String(err);
   if (/^\d{3}\b/.test(message) || message.includes("failed:")) {

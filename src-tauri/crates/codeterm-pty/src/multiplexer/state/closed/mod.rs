@@ -2,8 +2,16 @@
 //! re-materializes tabs with the same backing, marking each
 //! `restored_from_snapshot` so the existing restore machinery takes over.
 
+mod restore_plan;
 mod store;
+mod structure;
+mod structure_mux;
+#[cfg(test)]
+mod structure_tests;
+pub use structure::{ArchivedTab, ClosedStructure, ClosedStructureView, StructureState};
 
+#[cfg(test)]
+mod restore_roundtrip_tests;
 #[cfg(test)]
 mod tests;
 
@@ -13,6 +21,7 @@ use serde::Serialize;
 
 use super::MultiplexerState;
 use crate::multiplexer::types::{ClosedTab, TabBacking, TabCloseReason, TitleLevel};
+use restore_plan::GroupRestorePlan;
 
 pub use store::{
     ClosedGroup, ClosedRow, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
@@ -52,7 +61,7 @@ pub struct PreparedWorkspaceClose {
     records: Vec<ClosedTab>,
 }
 
-/// Exclusive workspace-membership lease held across one tab's external teardown.
+/// Exclusive tab-membership lease held across external teardown.
 pub struct TabCloseReservation {
     pub(super) tab_id: String,
     workspace_id: String,
@@ -156,6 +165,13 @@ impl MultiplexerState {
         workspace_id: &str,
     ) -> Result<PreparedWorkspaceClose, String> {
         self.ensure_workspace_membership_mutable(workspace_id)?;
+        if self
+            .tab_close_reservations
+            .values()
+            .any(|(workspace, _)| workspace == workspace_id)
+        {
+            return Err(format!("Workspace has a tab closing: {workspace_id}"));
+        }
         let ws = self
             .workspaces
             .iter()
@@ -197,15 +213,17 @@ impl MultiplexerState {
         self.release_workspace_close_reservation(prepared);
     }
 
-    /// Reserve the owning workspace before external tab teardown begins.
+    /// Reserve one tab before external teardown begins.
     pub fn reserve_tab_close(&mut self, tab_id: &str) -> Result<TabCloseReservation, String> {
         let workspace_id = self
             .find_workspace_for_tab(tab_id)
             .ok_or_else(|| format!("Tab not found in any workspace: {tab_id}"))?;
-        self.ensure_workspace_membership_mutable(&workspace_id)?;
+        self.ensure_tab_membership_mutable(tab_id)?;
         let reservation_id = new_group_id();
-        self.workspace_close_reservations
-            .insert(workspace_id.clone(), reservation_id.clone());
+        self.tab_close_reservations.insert(
+            tab_id.to_string(),
+            (workspace_id.clone(), reservation_id.clone()),
+        );
         Ok(TabCloseReservation {
             tab_id: tab_id.to_string(),
             workspace_id,
@@ -231,6 +249,9 @@ impl MultiplexerState {
         let workspace_id = self
             .find_workspace_for_tab(tab_id)
             .ok_or_else(|| format!("Tab not found in any workspace: {tab_id}"))?;
+        if self.tab_close_reservations.contains_key(tab_id) {
+            return Err(format!("Tab is closing: {tab_id}"));
+        }
         self.ensure_workspace_membership_mutable(&workspace_id)
     }
 
@@ -251,15 +272,16 @@ impl MultiplexerState {
     }
 
     pub(super) fn tab_close_is_reserved_by(&self, reservation: &TabCloseReservation) -> bool {
-        self.workspace_close_reservations
-            .get(&reservation.workspace_id)
-            == Some(&reservation.reservation_id)
+        self.tab_close_reservations.get(&reservation.tab_id)
+            == Some(&(
+                reservation.workspace_id.clone(),
+                reservation.reservation_id.clone(),
+            ))
     }
 
     pub(super) fn release_tab_close_reservation(&mut self, reservation: &TabCloseReservation) {
         if self.tab_close_is_reserved_by(reservation) {
-            self.workspace_close_reservations
-                .remove(&reservation.workspace_id);
+            self.tab_close_reservations.remove(&reservation.tab_id);
         }
     }
 
@@ -356,6 +378,12 @@ impl MultiplexerState {
             tab.role_profile = record.role_profile.clone();
             tab.worker_id = record.worker_id.clone();
             tab.agent_session_model = record.model.clone();
+            tab.restorable_launch = record.restorable_launch.clone();
+            tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+                exact_session: record.agent_type.is_some(),
+                session_cwd: record.cwd.clone(),
+                ..Default::default()
+            });
             tab.restored_from_snapshot = true;
             tab.chat_view =
                 matches!(record.backing, TabBacking::ChatBackend { .. }) || record.chat_view;
@@ -384,19 +412,16 @@ impl MultiplexerState {
                 idx, count
             ));
         }
-        // Peek → materialize → delete only on success, so a failing create can't drop the entry.
         let (row_id, record) = self
             .closed_store
             .peek_in_workspace(workspace_id, idx)
             .ok_or("No recently closed Tab")?;
-        let res = self.materialize_closed_tab(workspace_id, &record)?;
-        if let Err(e) = self.closed_store.delete_tab_row(row_id) {
-            // History delete failed after materialize: a retry would duplicate. Surface it.
-            log::warn!(
-                "reopen_closed_tab: reopened Tab {} but failed to delete closed entry (row {row_id}): {e}",
-                res
-            );
-        }
+        let mut transaction = self.begin_team_close_transaction();
+        let res = transaction
+            .state_mut()
+            .materialize_closed_tab(workspace_id, &record)?;
+        self.closed_store.delete_tab_row(row_id)?;
+        transaction.commit(self, &[]);
         Ok(res)
     }
 
@@ -418,36 +443,42 @@ impl MultiplexerState {
             .closed_store
             .peek_by_tab_id(tab_id)
             .ok_or_else(|| format!("No orphaned entry for tab_id: {}", tab_id))?;
+        let mut transaction = self.begin_team_close_transaction();
+        let staged = transaction.state_mut();
         let workspace_id =
-            self.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
-        let new_tab_id = self.materialize_closed_tab(&workspace_id, &record)?;
-        if let Err(e) = self.closed_store.delete_tab_row(row_id) {
-            log::warn!(
-                "reopen_orphaned_tab: reopened Tab {new_tab_id} but failed to delete closed entry (row {row_id}): {e}"
-            );
-        }
+            staged.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
+        let new_tab_id = staged.materialize_closed_tab(&workspace_id, &record)?;
+        self.closed_store.delete_tab_row(row_id)?;
+        transaction.commit(self, &[]);
         Ok((workspace_id, new_tab_id))
     }
 
     /// Reopen a whole closed group, recreating its workspace if gone and relinking
     /// `parent_tab_id` across the new ids.
     pub fn reopen_closed_group(&mut self, group_id: &str) -> Result<(String, String), String> {
-        // Materialize every tab first; delete the group only once they all succeed, so a mid-loop failure leaves it for retry.
+        self.reopen_closed_group_using(group_id, Self::materialize_closed_tab)
+    }
+
+    fn reopen_closed_group_using(
+        &mut self,
+        group_id: &str,
+        mut materialize: impl FnMut(&mut Self, &str, &ClosedTab) -> Result<String, String>,
+    ) -> Result<(String, String), String> {
         let (group, tabs) = self
             .closed_store
             .peek_group(group_id)
             .ok_or_else(|| format!("No closed group: {}", group_id))?;
-        if tabs.is_empty() {
-            return Err("Closed group has no Tabs".to_string());
-        }
+        let plan = GroupRestorePlan::new(&tabs)?;
+        let mut transaction = self.begin_team_close_transaction();
+        let staged = transaction.state_mut();
 
         let workspace_id = match group.kind {
-            GroupKind::Workspace => self.restore_target_workspace(
+            GroupKind::Workspace => staged.restore_target_workspace(
                 group.workspace_name.clone(),
                 group.workspace_cwd.clone(),
             ),
             _ => {
-                if self.workspaces.iter().any(|w| w.id == group.workspace_id) {
+                if staged.workspaces.iter().any(|w| w.id == group.workspace_id) {
                     group.workspace_id.clone()
                 } else {
                     // Origin workspace gone: match by path, falling back to the lead tab's cwd.
@@ -455,52 +486,24 @@ impl MultiplexerState {
                         .workspace_cwd
                         .clone()
                         .or_else(|| tabs.iter().find_map(|p| p.cwd.clone()));
-                    self.restore_target_workspace(group.workspace_name.clone(), cwd)
+                    staged.restore_target_workspace(group.workspace_name.clone(), cwd)
                 }
             }
         };
 
-        let mut id_map: HashMap<String, String> = HashMap::new();
-        let mut tabs_by_tab: HashMap<String, String> = HashMap::new();
-        let mut first: Option<String> = None;
-        for record in &tabs {
-            let new_tab_id = self.materialize_closed_tab(&workspace_id, record)?;
-            id_map.insert(record.tab_id.clone(), new_tab_id.clone());
-            tabs_by_tab.insert(record.tab_id.clone(), new_tab_id.clone());
-            if first.is_none() {
-                first = Some(new_tab_id);
-            }
-        }
-
-        // All tabs materialized: safe to drop the group from history.
-        if let Err(e) = self.closed_store.delete_group(group_id) {
-            // Delete failed: a retry would duplicate every tab. Surface it.
-            log::warn!(
-                "reopen_closed_group: reopened group {group_id} but failed to delete it from history: {e}"
-            );
-        }
-
-        // Relink the subtree: old parent ids -> new tab ids.
-        for record in &tabs {
-            let Some(old_parent) = &record.parent_tab_id else {
-                continue;
-            };
-            if let (Some(new_self), Some(new_parent)) =
-                (id_map.get(&record.tab_id), id_map.get(old_parent))
-            {
-                if let Some(tab) = self.tabs.get_mut(new_self) {
-                    tab.parent_tab_id = Some(new_parent.clone());
-                }
-            }
-        }
-
-        // Activate the cascade root (parent_tab_id == None), not whichever leaf the ordering surfaces first.
-        let tab_id = tabs
+        let restored_ids: Vec<_> = plan
+            .tabs
             .iter()
-            .find(|r| r.parent_tab_id.is_none())
-            .and_then(|r| tabs_by_tab.get(&r.tab_id).cloned())
-            .or(first)
-            .ok_or("Closed group has no Tabs")?;
+            .map(|record| materialize(staged, &workspace_id, record))
+            .collect::<Result<_, _>>()?;
+        for (index, parent_index) in plan.parent_indices.iter().enumerate() {
+            if let Some(tab) = staged.tabs.get_mut(&restored_ids[index]) {
+                tab.parent_tab_id = parent_index.map(|parent| restored_ids[parent].clone());
+            }
+        }
+        let tab_id = restored_ids[plan.active_index].clone();
+        self.closed_store.delete_group(group_id)?;
+        transaction.commit(self, &[]);
         Ok((workspace_id, tab_id))
     }
 }

@@ -9,6 +9,7 @@ interface ParsedOptionState {
   value: string;
   highlighted: boolean;
   selected: boolean;
+  line: number;
 }
 
 export function parseClaudeWizardPrompt(text: string): ParsedPrompt | null {
@@ -20,7 +21,7 @@ export function parseClaudeWizardPrompt(text: string): ParsedPrompt | null {
   if (sections.length < 2) return null;
 
   const body = wizardBody(raw, tabLine);
-  const options = parseWizardOptions(body);
+  const options = parseWizardScreenOptions(body);
   if (options.length < 2) return null;
   const question = parseWizardQuestion(body) || "Choose an option";
   const multiSelect = options.some((opt) => opt.selected) || /\[[ xX]\]|☐|☑|☒/.test(body);
@@ -71,7 +72,8 @@ export function wizardBody(text: string, knownTabLine?: string): string {
 }
 
 export function parseWizardQuestion(body: string): string {
-  const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
+  const optionStart = /^(?:\s*[❯>]\s*)?(?:\[[ xX]\]|☐|☑|☒|✔|\d+\.)/gm.exec(body)?.index;
+  const beforeOptions = optionStart === undefined ? body : body.slice(0, optionStart);
   return beforeOptions
     .replace(/^[\s←→☐☑☒✔A-Za-z]*Submit\s*→?/, "")
     .replace(/─+/g, " ")
@@ -80,9 +82,15 @@ export function parseWizardQuestion(body: string): string {
 }
 
 export function parseWizardOptions(body: string): ParsedOptionState[] {
-  const checkbox = parseCheckboxOptions(body);
-  if (checkbox.length >= 2) return checkbox;
+  const checkboxes = parseCheckboxOptions(body);
+  if (checkboxes.length >= 2) return checkboxes;
   return parseNumberedOptions(body);
+}
+
+function parseWizardScreenOptions(body: string): ParsedOptionState[] {
+  const options = [...parseCheckboxOptions(body), ...parseNumberedOptions(body)];
+  options.sort((left, right) => left.line - right.line);
+  return options;
 }
 
 export function parseNumberedOptions(text: string): ParsedOptionState[] {
@@ -97,6 +105,7 @@ export function parseNumberedOptions(text: string): ParsedOptionState[] {
       value: m[1],
       highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
       selected: false,
+      line: text.slice(0, m.index).split("\n").length - 1,
     });
   }
   return options;
@@ -115,6 +124,7 @@ export function parseCheckboxOptions(text: string): ParsedOptionState[] {
       value: String(options.length + 1),
       highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
       selected: mark === "☑" || mark === "☒" || mark === "✔" || /\[[xX]\]/.test(mark),
+      line: text.slice(0, m.index).split("\n").length - 1,
     });
   }
   return options;
@@ -123,23 +133,36 @@ export function parseCheckboxOptions(text: string): ParsedOptionState[] {
 export function cleanOptionLabel(value: string): string {
   return String(value || "")
     .replace(/─+/g, " ")
-    .replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 export function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
-  const raw = String(text || "");
-  if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
-  const options = parseNumberedOptions(raw);
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const allOptions = parseNumberedOptions(lines.join("\n"));
+  const options = lastNumberedOptionCluster(allOptions);
   if (options.length < 2) return null;
-  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.[ ]+/);
-  const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
+  const lastOption = options[options.length - 1];
+  if (lines.slice(lastOption.line + 1).some((line) => /^\s*[❯›]\s*$/.test(line))) return null;
+  const hasActiveFooter = lines.some((line, index) =>
+    index > lastOption.line
+      && index <= lastOption.line + 5
+      && /(?:Esc\s*to\s*(?:cancel|reject|exit)|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend)/i.test(line),
+  );
+  const cursorOnOption = options.some((option) => option.highlighted);
+  if (!hasActiveFooter && !cursorOnOption) return null;
+  const before = lines.slice(0, options[0].line).join("\n");
   const question = findQuestion(before) || "Choose an option";
   return {
     question,
     options: options.map((opt) => [opt.label, opt.value]),
   };
+}
+
+function lastNumberedOptionCluster(options: ParsedOptionState[]): ParsedOptionState[] {
+  let start = options.length - 1;
+  while (start > 0 && options[start].line - options[start - 1].line <= 2) start--;
+  return options.slice(start);
 }
 
 export function parseClaudeLetteredPrompt(text: string): ParsedPrompt | null {
@@ -171,6 +194,7 @@ export function parseClaudeLetteredPrompt(text: string): ParsedPrompt | null {
       value: start.letter,
       highlighted: false,
       selected: false,
+      line: start.index,
     });
   }
 
@@ -283,6 +307,7 @@ export interface ClaudeOnboardingPrompt {
   options: [string, string][];
   frameKey: string;
   step: string;
+  safeChoice: string;
 }
 
 export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt | null {
@@ -322,6 +347,7 @@ export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt |
     options: options.map((option) => [option.label, option.number]),
     frameKey: `onboarding:focus-${current}:target-${target}`,
     step,
+    safeChoice: options[target].number,
   };
 }
 

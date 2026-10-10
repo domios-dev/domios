@@ -25,9 +25,9 @@ test("contributions payload keeps the kind contract", () => {
   assert(payload.kind === "agent_provider", "kind should be agent_provider");
 });
 
-test("agent provider refresh accepts the models-updated event fixture", () => {
-  const fixture = "models-updated";
-  assert(shouldRefreshAgentProviders(fixture), "models-updated should trigger a refresh");
+test("agent provider refresh accepts the catalogue change event fixture", () => {
+  const fixture = "model-catalogue-changed";
+  assert(shouldRefreshAgentProviders(fixture), "catalogue changes should trigger a refresh");
 });
 
 console.log(`useContributions: ${failed === 0 ? "all passed" : `${failed} failed`}`);

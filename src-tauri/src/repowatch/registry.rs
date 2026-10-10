@@ -43,6 +43,7 @@ pub struct RepoWatchRegistry {
     sink: Arc<dyn RepoEventSink>,
     backend: Arc<dyn WatchBackend>,
     inner: Mutex<Inner>,
+    lane_tokens: Mutex<HashMap<String, String>>,
     next_token: AtomicU64,
 }
 
@@ -56,6 +57,7 @@ impl RepoWatchRegistry {
             sink,
             backend,
             inner: Mutex::new(Inner::default()),
+            lane_tokens: Mutex::new(HashMap::new()),
             next_token: AtomicU64::new(1),
         }
     }
@@ -128,6 +130,34 @@ impl RepoWatchRegistry {
             }
         }
         true
+    }
+
+    pub fn retain_lane_watch(
+        &self,
+        lane_path: &str,
+        canonical_path: &Path,
+    ) -> Result<(), RepoWatchError> {
+        let key = lane_watch_key(lane_path);
+        if self.lane_tokens.lock().contains_key(&key) {
+            return Ok(());
+        }
+        let subscription = self.subscribe(canonical_path)?;
+        let mut lane_tokens = self.lane_tokens.lock();
+        match lane_tokens.entry(key) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                drop(lane_tokens);
+                self.release(&subscription.token);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(subscription.token);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn release_lane_watch(&self, lane_path: &str) -> bool {
+        let token = self.lane_tokens.lock().remove(&lane_watch_key(lane_path));
+        token.is_some_and(|token| self.release(&token))
     }
 
     fn build_worktree_watch(
@@ -274,9 +304,42 @@ fn dispatch(
     paths: &[PathBuf],
 ) {
     match batch_is_relevant(identity, half, paths) {
-        Ok(true) => sink.repository_changed(&identity.id),
+        Ok(true) => {
+            sink.repository_changed(&identity.id);
+            if head_ref_changed(identity, half, paths) {
+                sink.repository_head_changed(&identity.id);
+            }
+        }
         Ok(false) => {}
         Err(e) => sink.repository_unavailable(&e.identity, e.reason),
+    }
+}
+
+pub(super) fn head_ref_changed(
+    identity: &RepoIdentity,
+    half: WatchHalf,
+    paths: &[PathBuf],
+) -> bool {
+    match half {
+        WatchHalf::SharedRefs => true,
+        WatchHalf::Worktree => paths.iter().any(|path| {
+            let Ok(relative) = path.strip_prefix(&identity.gitdir) else {
+                return identity.ignore_case
+                    && path
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&identity.gitdir.join("HEAD").to_string_lossy());
+            };
+            relative == Path::new("HEAD")
+        }),
+    }
+}
+
+fn lane_watch_key(path: &str) -> String {
+    let path = path.trim().replace('\\', "/");
+    if cfg!(windows) || cfg!(target_os = "macos") {
+        path.to_lowercase()
+    } else {
+        path
     }
 }
 

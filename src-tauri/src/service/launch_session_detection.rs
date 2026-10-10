@@ -50,6 +50,12 @@ fn mint_launch_marker(tab_id: &str) -> String {
     marker
 }
 
+pub(crate) fn register_resume_launch_marker(tab_id: &str, session_id: &str) {
+    LAUNCH_MARKERS
+        .lock()
+        .insert(tab_id.to_string(), session_id.to_string());
+}
+
 pub(crate) fn clear_launch_marker(tab_id: &str) {
     LAUNCH_MARKERS.lock().remove(tab_id);
 }
@@ -178,7 +184,10 @@ pub(crate) fn marked_provider_launch_command(
     );
     params.args = (!args.is_empty()).then_some(args);
     registry.with_provider(provider_id, |provider| {
-        crate::agent::stub_launch::apply(provider_id, provider.build_launch_command(params))
+        crate::agent::stub_launch::apply(
+            provider_id,
+            crate::service::tool_less_instructions::build(provider, params),
+        )
     })
 }
 
@@ -191,6 +200,7 @@ pub(crate) fn marked_provider_launch_command_for_service(
     canonical_project: Option<&str>,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
+    super::directory_pre_trust::for_tab(service, registry, provider_id, tab_id, cwd);
     super::task_files::capture(service, tab_id, || {
         marked_provider_launch_command(
             registry,
@@ -448,7 +458,14 @@ pub(crate) fn marked_launch_command_for_tab(
     tab_id: &str,
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
+    selection: super::codex_rpc::launch::Selection,
 ) -> Option<String> {
+    if let Some(command) =
+        super::codex_rpc::launch::selection_plan(svc, tab_id, provider_id, cwd, params, selection)
+            .and_then(|plan| super::codex_rpc::launch::prepare_selection(svc, tab_id, plan))
+    {
+        return Some(command);
+    }
     if let Err(error) = svc.ensure_agent_pad(tab_id) {
         log::warn!("[sandbox-agent-pad] tab={tab_id} has no AgentPad before launch: {error}");
     }
@@ -647,24 +664,58 @@ pub(crate) fn registered_launch_marker(tab_id: &str) -> Option<String> {
 }
 
 impl ServiceContext {
-    /// One detection per tab at a time. Detection itself refuses a bound tab,
-    /// and the commit refuses a launch the tab has since rotated.
+    /// One detection per tab at a time. A live current-PTY provider record can
+    /// re-authenticate a restored session after its launch nonce has rotated.
     pub(crate) fn detect_unbound_launch_session(&self, tab_id: &str) {
         if !IN_FLIGHT.lock().insert(tab_id.to_string()) {
             return;
         }
+        let fallback_identity = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| Some((tab.agent_type.clone()?, tab.session_binding_nonce.clone()?)))
+        }
+        .filter(|(provider_id, _)| {
+            self.agent_registry
+                .with_provider(provider_id, |provider| {
+                    !provider.has_hooks() && provider.supports_launch_session_detection()
+                })
+                .unwrap_or(false)
+        });
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {
             let probe_svc = svc.clone();
             let probe_tab = tab_id.clone();
-            let detected =
+            let Ok(detected) =
                 tokio::task::spawn_blocking(move || probe_svc.probe_launch_session(&probe_tab))
                     .await
-                    .ok()
-                    .flatten();
+            else {
+                IN_FLIGHT.lock().remove(&tab_id);
+                return;
+            };
             if let Some(detected) = detected {
                 svc.commit_detected_launch_session(&tab_id, detected).await;
+            } else if let Some((provider_id, nonce)) = fallback_identity {
+                let fallback_svc = svc.clone();
+                let fallback_tab = tab_id.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let still_current = {
+                        let mux = fallback_svc.mux.read();
+                        mux.get_tab(&fallback_tab).is_some_and(|tab| {
+                            tab.agent_type.as_deref() == Some(provider_id.as_str())
+                                && tab.session_binding_nonce.as_deref() == Some(nonce.as_str())
+                        })
+                    };
+                    if still_current {
+                        fallback_svc.detect_agent_session_with_fallback(
+                            &fallback_tab,
+                            &provider_id,
+                            true,
+                        );
+                    }
+                })
+                .await;
             }
             IN_FLIGHT.lock().remove(&tab_id);
         });
@@ -674,7 +725,7 @@ impl ServiceContext {
         let (provider_id, pty_id, binding_nonce, cwd, launched_at_ms) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
-            if tab.agent_session_id.is_some() {
+            if tab.launch_session_authenticated() {
                 return None;
             }
             let launched_at_ms = tab

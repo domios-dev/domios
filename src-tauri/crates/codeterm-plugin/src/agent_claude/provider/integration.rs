@@ -9,8 +9,8 @@
 //! provider doesn't require touching `commands/`.
 
 use super::hook_ownership::{
-    entries_carry_marker, entry_carries_marker, is_codeterm_hook, marker_header_arg,
-    CODETERM_HOOK_MARKER,
+    entries_carry_marker, entry_carries_marker, entry_is_legacy_pane_codeterm_hook,
+    is_codeterm_hook, marker_header_arg, CODETERM_HOOK_MARKER,
 };
 use crate::prompts::CODETERM_RULE;
 use crate::provider::{HookEventBinding, HookIngestionRoute, IntegrationInstallOptions};
@@ -59,6 +59,7 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
         command.contains("CODETERM_TAB_ID")
             && command.contains("CODETERM_API_URL")
             && command.contains("CODETERM_API_TOKEN")
+            && is_current_hook_command(command)
             && !command.contains("CODETERM_API_PORT")
             && !command.contains("CODETERM_PANE_ID")
     })
@@ -70,9 +71,27 @@ fn is_current_session_start_hook(hook_entry: &Json) -> bool {
             && command.contains("CODETERM_TAB_ID")
             && command.contains("CODETERM_API_URL")
             && command.contains("CODETERM_API_TOKEN")
+            && is_current_hook_command(command)
             && !command.contains("CODETERM_API_PORT")
             && !command.contains("CODETERM_PANE_ID")
     })
+}
+
+fn is_current_stop_hook(hook_entry: &Json) -> bool {
+    is_current_codeterm_hook(hook_entry)
+        && entry_has_command(hook_entry, |command| {
+            command.contains("CODETERM_SESSION_BINDING_NONCE")
+                && command.contains("--data-binary \"@-\"")
+        })
+}
+
+fn is_current_hook_command(command: &str) -> bool {
+    let executable = if cfg!(windows) { "curl.exe " } else { "curl " };
+    command.starts_with(executable)
+        && command.contains(" --request POST ")
+        && command.contains(" --data-binary ")
+        && !command.contains("if [")
+        && !command.contains("|| true")
 }
 
 fn entry_has_command(hook_entry: &Json, matches: impl Fn(&str) -> bool) -> bool {
@@ -101,17 +120,35 @@ fn owned_hooks_carry_marker(json: &Json) -> bool {
 }
 
 fn integration_owned(json: &Json) -> bool {
-    hook_event_roster().iter().any(|binding| {
-        json.pointer(&format!("/hooks/{}", binding.event))
-            .and_then(Json::as_array)
-            .is_some_and(|entries| entries.iter().any(entry_carries_marker))
-    })
+    json.pointer("/hooks/PreCompact")
+        .and_then(Json::as_array)
+        .is_some_and(|entries| entries.iter().any(entry_carries_marker))
+        || hook_event_roster().iter().any(|binding| {
+            json.pointer(&format!("/hooks/{}", binding.event))
+                .and_then(Json::as_array)
+                .is_some_and(|entries| {
+                    entries.iter().any(|entry| {
+                        entry_carries_marker(entry) || entry_is_legacy_pane_codeterm_hook(entry)
+                    })
+                })
+        })
+}
+
+fn remove_retired_precompact_commands(entries: &mut Vec<Json>) {
+    entries.retain_mut(|entry| {
+        let Some(commands) = entry.get_mut("hooks").and_then(Json::as_array_mut) else {
+            return true;
+        };
+        let previous = commands.len();
+        commands.retain(|command| !is_codeterm_hook(&serde_json::json!({"hooks":[command]})));
+        commands.len() == previous || !commands.is_empty()
+    });
 }
 
 fn owned_precompact_hook(json: &Json) -> bool {
     json.pointer("/hooks/PreCompact")
         .and_then(Json::as_array)
-        .is_some_and(|entries| entries.iter().any(entry_carries_marker))
+        .is_some_and(|entries| entries.iter().any(is_codeterm_hook))
 }
 
 /// Returns JSON shaped like the legacy `ClaudeHooksStatus` struct so the
@@ -126,7 +163,7 @@ pub fn check_integration() -> Json {
             "notification_hook": false,
             "permission_request_hook": false,
             "stop_hook": false,
-            "precompact_hook": false,
+
             "session_start_hook": false,
             "target": "~/.claude/settings.json",
             "backup_exists": false,
@@ -145,7 +182,7 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
             "notification_hook": false,
             "permission_request_hook": false,
             "stop_hook": false,
-            "precompact_hook": false,
+
             "session_start_hook": false,
             "target": path,
             "backup_exists": backup_path(path).exists(),
@@ -183,7 +220,7 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
     let stop_hook = json
         .pointer("/hooks/Stop")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_stop_hook))
         .unwrap_or(false);
     let precompact_hook = owned_precompact_hook(&json);
     let session_start_hook = json
@@ -199,11 +236,11 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
         "settings_exists": true,
         "hooks_installed": hooks_installed,
         "integration_owned": integration_owned(&json),
-        "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json),
+        "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json) && !precompact_hook,
         "notification_hook": notification_hook,
         "permission_request_hook": permission_request_hook,
         "stop_hook": stop_hook,
-        "precompact_hook": precompact_hook,
+
         "session_start_hook": session_start_hook,
         "target": path,
         "backup_exists": backup_path(path).exists(),
@@ -233,11 +270,6 @@ pub fn hook_event_roster() -> Vec<HookEventBinding> {
             verdict: None,
         },
         HookEventBinding {
-            event: "PreCompact".into(),
-            route: HookIngestionRoute::MemFlush,
-            verdict: None,
-        },
-        HookEventBinding {
             event: "SessionStart".into(),
             route: HookIngestionRoute::SessionStart,
             verdict: None,
@@ -246,14 +278,15 @@ pub fn hook_event_roster() -> Vec<HookEventBinding> {
 }
 
 fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> String {
+    let executable = if cfg!(windows) { "curl.exe" } else { "curl" };
     let payload = if stdin {
-        "--data-binary @-".to_string()
+        "--data-binary \"@-\"".to_string()
     } else {
-        format!("-d '{body}'")
+        format!("--data-binary \"{body}\"")
     };
     let marker = marker_header_arg();
     format!(
-        "if [ -n \"${{CODETERM_API_URL:-}}\" ] && [ -n \"${{CODETERM_API_TOKEN:-}}\" ] && [ -n \"${{CODETERM_TAB_ID:-}}\" ]; then curl -s -o /dev/null -X POST \"$CODETERM_API_URL{path}\" -H 'Content-Type: application/json' -H \"Authorization: Bearer $CODETERM_API_TOKEN\" {marker} {extra_headers} {payload} || true; fi"
+        "{executable} --silent --request POST \"$CODETERM_API_URL{path}\" --header \"Content-Type: application/json\" --header \"Authorization: Bearer $CODETERM_API_TOKEN\" {marker} {extra_headers} {payload}"
     )
 }
 
@@ -264,7 +297,7 @@ fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> Str
 /// only on the vendor's `permission_prompt`). `None` = this provider declares
 /// no settings.json shape for that route and installs nothing.
 fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
-    let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
+    let nonce_h = "--header \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\"";
     // Forward the vendor's stdin payload; an empty body throws away the
     // tool_name / tool_input / permission_suggestions it already sent.
     let permission_command = hook_command(
@@ -287,21 +320,8 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
             "matcher": "",
             "hooks": [{
                 "type": "command",
-                "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false),
+                "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonce_h, true),
                 "timeout": 5000,
-                "_source": CODETERM_HOOK_MARKER
-            }]
-        }),
-        HookIngestionRoute::MemFlush => serde_json::json!({
-            "matcher": "",
-            "hooks": [{
-                "type": "command",
-                "command": hook_command(
-                    "/api/mem/flush",
-                    "{\"tab\":\"'\"$CODETERM_TAB_ID\"'\",\"title\":\"pre-compact\"}",
-                    "",
-                    false),
-                "timeout": 10000,
                 "_source": CODETERM_HOOK_MARKER
             }]
         }),
@@ -355,27 +375,24 @@ pub fn install_integration_at(
         .ok_or("hooks is not an object")?;
 
     let roster = hook_event_roster();
-    for binding in &roster {
-        if hooks
-            .get(binding.event.as_str())
-            .is_some_and(|value| !value.is_array())
-        {
-            return Err(format!("hooks.{} is not an array", binding.event));
+    for event in roster
+        .iter()
+        .map(|binding| binding.event.as_str())
+        .chain(std::iter::once("PreCompact"))
+    {
+        if hooks.get(event).is_some_and(|value| !value.is_array()) {
+            return Err(format!("hooks.{event} is not an array"));
         }
-        if let Some(arr) = hooks
-            .get_mut(binding.event.as_str())
-            .and_then(|v| v.as_array_mut())
-        {
-            arr.retain(|h| !is_codeterm_hook(h));
+        if let Some(arr) = hooks.get_mut(event).and_then(|v| v.as_array_mut()) {
+            if event == "PreCompact" {
+                remove_retired_precompact_commands(arr);
+            } else {
+                arr.retain(|h| !is_codeterm_hook(h));
+            }
         }
     }
 
     for binding in &roster {
-        if matches!(binding.route, HookIngestionRoute::MemFlush)
-            && !options.precompact_memory_export
-        {
-            continue;
-        }
         let Some(entry) = hook_entry(binding) else {
             continue;
         };
@@ -431,20 +448,26 @@ pub fn uninstall_integration_at(path: &std::path::Path) -> Result<(), String> {
         .as_object_mut()
         .ok_or("hooks is not an object")?;
     let roster = hook_event_roster();
-    for binding in &roster {
-        if hooks
-            .get(binding.event.as_str())
-            .is_some_and(|value| !value.is_array())
-        {
-            return Err(format!("hooks.{} is not an array", binding.event));
+    for event in roster
+        .iter()
+        .map(|binding| binding.event.as_str())
+        .chain(std::iter::once("PreCompact"))
+    {
+        if hooks.get(event).is_some_and(|value| !value.is_array()) {
+            return Err(format!("hooks.{event} is not an array"));
         }
     }
-    for binding in &roster {
-        if let Some(arr) = hooks
-            .get_mut(binding.event.as_str())
-            .and_then(|value| value.as_array_mut())
-        {
-            arr.retain(|hook| !is_codeterm_hook(hook));
+    for event in roster
+        .iter()
+        .map(|binding| binding.event.as_str())
+        .chain(std::iter::once("PreCompact"))
+    {
+        if let Some(arr) = hooks.get_mut(event).and_then(|value| value.as_array_mut()) {
+            if event == "PreCompact" {
+                remove_retired_precompact_commands(arr);
+            } else {
+                arr.retain(|hook| !is_codeterm_hook(hook));
+            }
         }
     }
 
@@ -539,10 +562,9 @@ pub fn install_rule() -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn integration_options(precompact_memory_export: bool) -> IntegrationInstallOptions {
+    fn integration_options() -> IntegrationInstallOptions {
         IntegrationInstallOptions {
             consent: true,
-            precompact_memory_export,
             repair: false,
         }
     }
@@ -577,8 +599,11 @@ mod tests {
         let current = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\"",
-                "_source": CODETERM_HOOK_MARKER
+                "command": format!(
+                    "{} --silent --request POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" --header \"Content-Type: application/json\" --header \"Authorization: Bearer $CODETERM_API_TOKEN\" {} --header \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\" --data-binary \"@-\"",
+                    if cfg!(windows) { "curl.exe" } else { "curl" },
+                    marker_header_arg()
+                )
             }]
         });
 
@@ -587,11 +612,39 @@ mod tests {
     }
 
     #[test]
-    fn session_start_nonce_must_be_in_the_current_hook_command() {
+    fn legacy_pane_hook_is_owned_for_startup_reconciliation() {
+        const LEGACY_SESSION_START: &str = r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -d '{}' > /dev/null 2>&1 || true"#;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": "",
+                        "hooks": [{
+                            "type": "command",
+                            "command": LEGACY_SESSION_START
+                        }]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let status = check_integration_at(&path);
+        assert_eq!(status["integration_owned"], true);
+        assert_eq!(status["hooks_installed"], false);
+        assert_eq!(status["hook_contract_current"], false);
+    }
+
+    #[test]
+    fn session_start_hook_currentness_requires_binding_and_portable_command() {
         let stale = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+                "command": "if [ -n \"$CODETERM_API_URL\" ]; then curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\" -H \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\" --data-binary @- || true; fi",
                 "_source": CODETERM_HOOK_MARKER
             }, {
                 "type": "command",
@@ -602,7 +655,10 @@ mod tests {
         let current = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\" -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"",
+                "command": format!(
+                    "{} --silent --request POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" --header \"Authorization: Bearer $CODETERM_API_TOKEN\" --header \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\" --data-binary \"@-\"",
+                    if cfg!(windows) { "curl.exe" } else { "curl" }
+                ),
                 "_source": CODETERM_HOOK_MARKER
             }]
         });
@@ -615,20 +671,119 @@ mod tests {
     fn integration_is_instance_neutral_and_rejects_missing_runtime_identity() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let first = std::fs::read_to_string(&path).unwrap();
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let second = std::fs::read_to_string(&path).unwrap();
 
         assert_eq!(first, second);
         assert!(first.contains("CODETERM_API_URL"));
         assert!(first.contains("CODETERM_API_TOKEN"));
         assert!(first.contains("CODETERM_TAB_ID"));
-        assert!(first.contains("if [ -n"));
+        assert!(!first.contains("if ["));
+        assert!(!first.contains("|| true"));
         assert!(first.contains("X-CodeTerm-Hook: codeterm-hook-v3"));
         assert!(!first.contains("CODETERM_API_PORT"));
         assert!(!first.contains("localhost:768"));
         assert!(!first.contains("> NUL"));
+    }
+
+    #[cfg(windows)]
+    fn parse_generated_hook_command(command: &str) {
+        let mut bash_candidates = Vec::new();
+        for root in [
+            std::env::var_os("ProgramFiles"),
+            std::env::var_os("ProgramFiles(x86)"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let git = std::path::PathBuf::from(root).join("Git");
+            bash_candidates.push(git.join("bin").join("bash.exe"));
+            bash_candidates.push(git.join("usr").join("bin").join("bash.exe"));
+        }
+        bash_candidates.push(std::path::PathBuf::from(r"C:\msys64\usr\bin\bash.exe"));
+        let bash = bash_candidates
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .expect("Git Bash is available through the repository toolchain");
+        let bash_output = std::process::Command::new(bash)
+            .args(["-n", "-c", command])
+            .output()
+            .expect("Git Bash starts for parsing generated hook commands");
+        assert!(
+            bash_output.status.success(),
+            "Bash rejected generated hook command: {}",
+            String::from_utf8_lossy(&bash_output.stderr)
+        );
+
+        let powershell_command = [
+            "CODETERM_API_URL",
+            "CODETERM_API_TOKEN",
+            "CODETERM_TAB_ID",
+            "CODETERM_SESSION_BINDING_NONCE",
+        ]
+        .iter()
+        .fold(command.to_string(), |rewritten, name| {
+            rewritten.replace(&format!("${name}"), &format!("$env:{name}"))
+        });
+        let output = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$tokens = $null; $errors = $null; $null = [System.Management.Automation.Language.Parser]::ParseInput($env:CODETERM_HOOK_COMMAND, [ref]$tokens, [ref]$errors); if ($errors.Count -gt 0) { exit 1 }",
+            ])
+            .env("CODETERM_HOOK_COMMAND", powershell_command)
+            .output()
+            .expect("PowerShell parser is available on Windows");
+        assert!(
+            output.status.success(),
+            "PowerShell rejected generated hook command: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(not(windows))]
+    fn parse_generated_hook_command(command: &str) {
+        let output = std::process::Command::new("bash")
+            .args(["-n", "-c", command])
+            .output()
+            .expect("Bash parser is available on POSIX");
+        assert!(
+            output.status.success(),
+            "Bash rejected generated hook command: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn generated_hook_commands_parse_in_the_host_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path, &integration_options()).unwrap();
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let hooks = installed.get("hooks").and_then(Json::as_object).unwrap();
+
+        for (event, entries) in hooks {
+            let Some(entries) = entries.as_array() else {
+                continue;
+            };
+            for hook in entries
+                .iter()
+                .flat_map(|entry| entry["hooks"].as_array().into_iter().flatten())
+            {
+                let command = hook["command"].as_str().expect("command hook");
+                assert!(is_current_hook_command(command), "stale hook: {command}");
+                if event == "SessionStart" {
+                    assert!(command.contains("/hook/session_start"));
+                    assert!(command.contains("CODETERM_SESSION_BINDING_NONCE"));
+                    assert!(command.contains("--data-binary \"@-\""));
+                }
+                parse_generated_hook_command(command);
+            }
+        }
     }
 
     #[test]
@@ -648,7 +803,6 @@ mod tests {
                 ),
                 ("Notification".to_string(), HookIngestionRoute::Permission),
                 ("Stop".to_string(), HookIngestionRoute::Stop),
-                ("PreCompact".to_string(), HookIngestionRoute::MemFlush),
                 ("SessionStart".to_string(), HookIngestionRoute::SessionStart),
             ]
         );
@@ -660,7 +814,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(true)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let hooks = installed.get("hooks").and_then(|h| h.as_object()).unwrap();
@@ -675,7 +829,7 @@ mod tests {
         }
 
         let without_precompact = dir.path().join("settings-no-precompact.json");
-        install_integration_at(&without_precompact, &integration_options(false)).unwrap();
+        install_integration_at(&without_precompact, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&without_precompact).unwrap()).unwrap();
         let written: BTreeSet<String> = installed
@@ -685,8 +839,7 @@ mod tests {
             .keys()
             .cloned()
             .collect();
-        let mut expected = declared;
-        expected.remove("PreCompact");
+        let expected = declared;
         assert_eq!(written, expected);
     }
 
@@ -698,14 +851,14 @@ mod tests {
         std::fs::write(&path, original).unwrap();
         let denied = IntegrationInstallOptions {
             consent: false,
-            precompact_memory_export: true,
+
             repair: false,
         };
         assert!(install_integration_at(&path, &denied).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         assert!(!backup_path(&path).exists());
 
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         assert_eq!(
             std::fs::read_to_string(backup_path(&path)).unwrap(),
             original
@@ -713,14 +866,14 @@ mod tests {
         let standard: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(standard.pointer("/hooks/PreCompact").is_none());
-        install_integration_at(&path, &integration_options(true)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         assert_eq!(
             std::fs::read_to_string(backup_path(&path)).unwrap(),
             original
         );
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert!(installed.pointer("/hooks/PreCompact").is_some());
+        assert!(installed.pointer("/hooks/PreCompact").is_none());
         restore_integration_at(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
     }
@@ -728,7 +881,7 @@ mod tests {
     fn permission_request_hook_forwards_the_payload_instead_of_an_empty_body() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
@@ -738,7 +891,7 @@ mod tests {
                 .and_then(|c| c.as_str())
                 .unwrap_or_else(|| panic!("{event} hook installed"));
             assert!(
-                command.contains("--data-binary @-"),
+                command.contains("--data-binary \"@-\""),
                 "{event} must forward the stdin payload: {command}"
             );
             assert!(
@@ -760,7 +913,7 @@ mod tests {
     fn permission_request_and_notification_share_a_route_with_distinct_matchers() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
@@ -780,7 +933,7 @@ mod tests {
     fn permission_request_uninstall_removes_the_declared_event() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         uninstall_integration_at(&path).unwrap();
         let cleaned: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
@@ -797,7 +950,7 @@ mod tests {
     fn permission_request_check_integration_requires_the_new_hook() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let entry = installed.pointer("/hooks/PermissionRequest/0").unwrap();

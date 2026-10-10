@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 /** Sidebar-row provider switch: which tabs offer it, what the entry says, and
  *  what changing it costs. Kept beside `tabModelMenu` because the two look alike
  *  in the menu and are not alike at all — one is an in-session command, this one
@@ -34,7 +35,7 @@ export function tabProviderMenuView(
     providers,
     currentProviderId: current,
     blockedReason:
-      status === "Working" ? "Working — switching the provider would end this turn" : null,
+      tabActivity(tab, status).active ? "Working — switching the provider would end this turn" : null,
   };
 }
 

@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use tauri::Manager;
 
 use crate::mem::{workers, SearchQuery};
 use crate::multiplexer::types::TabCloseReason;
@@ -145,8 +146,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     }
 
     fn workspace_tabs_json(&self, workspace_id: &str) -> String {
-        let tabs: Vec<serde_json::Value> = self
-            .list_workspaces()
+        let workspaces = match self.list_workspaces() {
+            Ok(workspaces) => workspaces,
+            Err(error) => return err(error),
+        };
+        let tabs: Vec<serde_json::Value> = workspaces
             .into_iter()
             .find(|w| w.id == workspace_id)
             .map(|w| {
@@ -348,15 +352,115 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     // ── Events ───────────────────────────────────────────────────────────
 
     fn contributions_changed(&self, kind: &str) {
+        if kind == codeterm_plugin::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND {
+            super::plugin_prompt::refresh(&self.agent_command_registry);
+            super::plugin_skills::spawn_sync(self.mem.clone(), self.agent_command_registry.clone());
+        }
         self.events
             .publish(crate::api::events::SystemEvent::ContributionsChanged {
                 kind: kind.to_string(),
             });
     }
 
+    fn event_sources_changed(&self) {
+        self.contributions_changed("graph-nodes");
+        if let Some(handle) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            handle.notify();
+        }
+    }
+
     fn emit_graph_worker_spawned_json(&self, info_json: &str) {
         if let Ok(info) = serde_json::from_str::<workers::GraphWorkerInfo>(info_json) {
             crate::api::events::emit_everywhere(&self.app_handle, "graph-worker-spawned", &info);
+        }
+    }
+
+    fn emit_graph_event_json(&self, plugin_id: &str, event_json: &str) -> String {
+        if event_json.len() > codeterm_plugin::graph_events::MAX_EVENT_BYTES {
+            return serde_json::json!({"admitted":false,"reason":"oversize"}).to_string();
+        }
+        let event: serde_json::Value = match serde_json::from_str(event_json) {
+            Ok(event) => event,
+            Err(error) => return serde_json::json!({ "error": error.to_string() }).to_string(),
+        };
+        let Some(subscription_id) = event.get("subscriptionId").and_then(|value| value.as_str())
+        else {
+            return serde_json::json!({ "error": "subscriptionId is required" }).to_string();
+        };
+        let Some(token) = event.get("token").and_then(|value| value.as_str()) else {
+            return serde_json::json!({ "error": "token is required" }).to_string();
+        };
+        let Some(event_id) = event.get("eventId").and_then(|value| value.as_str()) else {
+            return serde_json::json!({ "error": "eventId is required" }).to_string();
+        };
+        let Some(payload) = event.get("payload") else {
+            return serde_json::json!({ "error": "payload is required" }).to_string();
+        };
+        let payload_bytes = match serde_json::to_vec(payload) {
+            Ok(bytes) => bytes.len(),
+            Err(error) => return serde_json::json!({ "error": error.to_string() }).to_string(),
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+            .unwrap_or_default();
+        let decision =
+            self.graph_event_subscriptions
+                .admit(codeterm_plugin::graph_events::AdmissionRequest {
+                    subscription_id,
+                    token,
+                    plugin_id,
+                    event_id,
+                    payload,
+                    payload_bytes,
+                    now_ms,
+                });
+        match decision {
+            codeterm_plugin::graph_events::AdmissionDecision::Admit => {
+                if let Some(pipeline_id) = self
+                    .graph_event_subscriptions
+                    .pipeline_id_for(subscription_id)
+                {
+                    if let Some(handle) = self
+                        .app_handle
+                        .try_state::<crate::sentinel::scheduler::Handle>()
+                    {
+                        handle.notify_event_subscription_changed(&pipeline_id);
+                    }
+                }
+                serde_json::json!({ "admitted": true }).to_string()
+            }
+            codeterm_plugin::graph_events::AdmissionDecision::Refuse(reason) => {
+                if let Some(pipeline_id) = self
+                    .graph_event_subscriptions
+                    .pipeline_id_for(subscription_id)
+                {
+                    if let Some(handle) = self
+                        .app_handle
+                        .try_state::<crate::sentinel::scheduler::Handle>()
+                    {
+                        handle.notify_event_subscription_changed(&pipeline_id);
+                    }
+                }
+                let reason = match reason {
+                    codeterm_plugin::graph_events::AdmitRefusal::UnknownSubscription => {
+                        "unknown_subscription"
+                    }
+                    codeterm_plugin::graph_events::AdmitRefusal::BadToken => "bad_token",
+                    codeterm_plugin::graph_events::AdmitRefusal::ForeignPlugin => "foreign_plugin",
+                    codeterm_plugin::graph_events::AdmitRefusal::InvalidPayload => {
+                        "invalid_payload"
+                    }
+                    codeterm_plugin::graph_events::AdmitRefusal::Oversize => "oversize",
+                    codeterm_plugin::graph_events::AdmitRefusal::Duplicate => "duplicate",
+                    codeterm_plugin::graph_events::AdmitRefusal::Backpressure => "backpressure",
+                    codeterm_plugin::graph_events::AdmitRefusal::RateLimited => "rate_limited",
+                };
+                serde_json::json!({ "admitted": false, "reason": reason }).to_string()
+            }
         }
     }
 
@@ -374,6 +478,24 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         crate::config::load_config().api.token
     }
 
+    fn model_provider_process_env(
+        &self,
+        plugin_id: &str,
+    ) -> Result<
+        std::collections::HashMap<String, String>,
+        codeterm_plugin::host_traits::ModelProviderEnvUnavailable,
+    > {
+        self.model_provider_launch_env(plugin_id)
+            .map_err(|_| codeterm_plugin::host_traits::ModelProviderEnvUnavailable)
+    }
+
+    fn supporter_token(&self, plugin_id: &str) -> Option<String> {
+        stored_supporter_token(
+            plugin_id,
+            &crate::api::mem_routes::decision::supporter_token_dir(),
+        )
+    }
+
     // ── Secrets ──────────────────────────────────────────────────────────
 
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String> {
@@ -388,6 +510,18 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         secret_bucket(plugin_id).delete(name).is_ok()
     }
 
+    // ── Surfaces ─────────────────────────────────────────────────────────
+
+    fn surface_call_json(
+        &self,
+        plugin_id: &str,
+        caller: &str,
+        verb: &str,
+        args_json: &str,
+    ) -> String {
+        self.surface_agent_call_json(plugin_id, Some(caller), verb, args_json)
+    }
+
     // ── Receiver target ──────────────────────────────────────────────────
 
     fn receiver_target_json(&self, plugin_id: &str) -> String {
@@ -400,6 +534,36 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             return host_json(Err(ReceiverTargetError::ReceiverNotFound));
         }
         host_json(self.clear_receiver_target(plugin_id))
+    }
+}
+
+fn stored_supporter_token(plugin_id: &str, token_dir: &std::path::Path) -> Option<String> {
+    let store = crate::mem::decision::token_store::TokenStore::new(token_dir.to_path_buf());
+    if store.status(plugin_id).ok()?.mode_ok == Some(false) {
+        return None;
+    }
+    store
+        .load(plugin_id)
+        .ok()
+        .flatten()
+        .map(|token| token.expose().to_string())
+}
+
+#[cfg(test)]
+mod supporter_token_tests {
+    use super::*;
+
+    #[test]
+    fn host_reads_only_the_plugin_id_supporter_store_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::mem::decision::token_store::TokenStore::new(dir.path().to_path_buf());
+        store.set("decision-plugin", "stored-fixture").unwrap();
+
+        assert_eq!(
+            stored_supporter_token("decision-plugin", dir.path()).as_deref(),
+            Some("stored-fixture")
+        );
+        assert_eq!(stored_supporter_token("another-plugin", dir.path()), None);
     }
 }
 
@@ -491,6 +655,7 @@ fn enqueue_agent_turn(
         let title = format!("plugin:{intent}");
         let spawn_result = tokio::task::spawn_blocking(move || {
             let spec = SpawnTabSpec {
+                shell: None,
                 visibility: TabVisibility::Hidden,
                 audience: crate::multiplexer::types::TabAudience::Automation,
                 title: Some(title),

@@ -36,7 +36,7 @@ pub(super) fn exec_report(body: &Value) -> ExecReport {
     }
     let exit_code = body.get("exit_code").and_then(Value::as_i64);
     let completion = body.get("completion").and_then(Value::as_str);
-    match (exit_code, completion) {
+    let mut report = match (exit_code, completion) {
         (Some(code), _) => ExecReport {
             stdout,
             stderr: None,
@@ -52,7 +52,14 @@ pub(super) fn exec_report(body: &Value) -> ExecReport {
             stderr: None,
             exit: 0,
         },
+    };
+    if body.get("output_truncated").and_then(Value::as_bool) == Some(true)
+        && report.stderr.is_none()
+    {
+        report.stderr =
+            Some("output exceeded the tab's retained buffer; its beginning is missing".into());
     }
+    report
 }
 
 pub(super) fn finish_exec(json: bool, body: Value) -> ! {
@@ -97,6 +104,19 @@ mod tests {
         assert_eq!(report.exit, 3);
         assert_eq!(report.stdout, "opaque-output");
         assert!(report.stderr.is_none());
+    }
+
+    #[test]
+    fn exec_report_warns_when_the_output_front_was_truncated() {
+        let report = exec_report(&json!({
+            "output": "tail-only",
+            "exit_code": 0,
+            "completion": "command_finished",
+            "output_truncated": true,
+        }));
+        assert_eq!(report.exit, 0);
+        assert_eq!(report.stdout, "tail-only");
+        assert!(report.stderr.is_some());
     }
 
     #[test]

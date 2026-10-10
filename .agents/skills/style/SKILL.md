@@ -1,6 +1,6 @@
 ---
 name: style
-description: "Apply CodeTerm Rust and TypeScript style and architecture guidance."
+description: "Apply Domios Rust and TypeScript style and architecture guidance."
 ---
 
 # Code style: SOLID, DRY, no comments
@@ -63,7 +63,7 @@ Weekly audits (`cargo audit` + `pnpm audit`) flag known vulnerabilities. Assess 
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/web-state.md](references/web-state.md) — state snapshot, event stream, usage and log internals
 - [references/mesh-services.md](references/mesh-services.md) — mesh and service registry internals

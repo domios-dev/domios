@@ -16,6 +16,24 @@ use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[test]
+fn disabled_session_resume_skips_snapshot_and_discovered_session_candidates() {
+    use super::{general_agent_session_plan, GeneralAgentSessionPlan};
+
+    assert_eq!(
+        general_agent_session_plan(false, false, Some("snapshot-session".into())),
+        GeneralAgentSessionPlan::ConfiguredFresh
+    );
+    assert_eq!(
+        general_agent_session_plan(false, false, None),
+        GeneralAgentSessionPlan::ConfiguredFresh
+    );
+    assert_eq!(
+        general_agent_session_plan(true, false, Some("snapshot-session".into())),
+        GeneralAgentSessionPlan::Restore("snapshot-session".into())
+    );
+}
+
 /// Records what actually reached the PTY for one launch payload and mirrors the
 /// transaction's two-phase order: the submit key is written only once ingestion
 /// evidence rises, and a turn only counts once the provider acknowledges.
@@ -433,7 +451,7 @@ fn general_agent_launch_uses_capability_backed_permission_bypass() {
     let permission_bypass =
         crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true)
             .is_some();
-    let command = super::build_general_agent_resume_command(
+    let command = super::super::launch_files::build_resume(
         &registry,
         "claude",
         "session-1",
@@ -665,11 +683,16 @@ fn tab_scoped_retry_claim_is_single_owner() {
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
 fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
+    use crate::service::launch_readiness::{LaunchAttempt, LaunchExitProof};
+    use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot};
+
     let mut mux = MultiplexerState::empty();
     super::super::workspace::ensure_general_workspace(&mut mux, true);
     let general_id = mux
         .resolve_tab_id(super::GENERAL_ALIAS)
         .expect("general Tab");
+    let pty_id = "general-live-exit-pty";
+    mux.link_pty(&general_id, pty_id.into());
     let tab = mux.get_tab_mut(&general_id).expect("general Tab");
     tab.agent_type = Some("codex".into());
     tab.agent_type_locked = true;
@@ -678,6 +701,39 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
     tab.reported_session_binding_nonce = Some("nonce-1".into());
     tab.boot_stage = Some(BootStage::ProviderReady);
     let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("codex").with_launch_binary("codex"),
+    ));
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn the General Agent PTY");
+    let attempt = LaunchAttempt {
+        tab_id: general_id.clone(),
+        pty_id: pty_id.into(),
+        binding_nonce: "nonce-1".into(),
+    };
+    let key = fixture
+        .service
+        .provider_tree_key_for_tab(&general_id, pty_id)
+        .expect("provider capability supplies the process name");
+    let witnesses = &fixture.service.provider_tree_witnesses;
+    witnesses.record_for_test(
+        &key,
+        ProviderProcessTreeSnapshot::Present(
+            [ProcessIdentity {
+                pid: 81_001,
+                start_token: "codex-before-exit".into(),
+            }]
+            .into_iter()
+            .collect(),
+        ),
+    );
+    let tree = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    let proof = LaunchExitProof::from_finished_marker(&attempt, &tree, None, false, None)
+        .expect("a shell finished marker with provider-gone evidence proves exit");
 
     {
         let _claim =
@@ -691,7 +747,7 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
         }
         assert!(!fixture
             .service
-            .note_provider_exit_in_surviving_shell(&general_id));
+            .note_provider_exit_in_surviving_shell(&general_id, &proof));
         let state = fixture.service.mux.read();
         let tab = state.get_tab(&general_id).expect("general Tab");
 
@@ -710,7 +766,7 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
     }
     assert!(fixture
         .service
-        .note_provider_exit_in_surviving_shell(&general_id));
+        .note_provider_exit_in_surviving_shell(&general_id, &proof));
     let state = fixture.service.mux.read();
     let tab = state.get_tab(&general_id).expect("general Tab");
     assert!(tab.agent_type.is_none());

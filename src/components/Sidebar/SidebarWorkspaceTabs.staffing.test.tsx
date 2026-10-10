@@ -103,14 +103,16 @@ test("team menu enables staffing only for a Team with a manager", async () => {
 
 // A Team with nobody who can spawn used to be a dead end: every staffing entry
 // was hidden, so the manager it is told to route through could never arrive.
-test("managerless Team offers only the anchoring role, and rename", async () => {
+test("managerless Team offers only the anchoring role, rename, and close", async () => {
   const requests: unknown[] = [];
+  const closed: string[] = [];
   const tabs = { worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }) };
   const { host, root } = await renderSidebar({
     tabs,
     sortedTabs: [tab("tab-worker", "worker", 0)],
     onAddTeamMember: (...args) => requests.push(args),
     onRenameTeam: () => {},
+    onCloseTeam: (teamId) => closed.push(teamId),
   });
   const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
   assert(trigger, "team menu trigger exists");
@@ -127,6 +129,11 @@ test("managerless Team offers only the anchoring role, and rename", async () => 
     );
   assert(menu?.textContent?.includes("Rename"), "renaming never needed a spawner");
   assert(requests.length === 0, "opening the menu issues no staffing request");
+  const close = Array.from(menu?.querySelectorAll("button") ?? [])
+    .find((button) => button.textContent?.includes("Close Team")) as HTMLButtonElement | undefined;
+  assert(close && !close.disabled, "a human closes a Team without any manager Tab");
+  await act(async () => close.click());
+  assert(closed.join(",") === TEAM.id, "managerless Close Team reports the exact Team id");
   await act(async () => root.unmount());
 });
 

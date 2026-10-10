@@ -77,6 +77,9 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     ...identity, method, suffix, body, select,
   });
   switch (command) {
+    case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });
+    case "read_html_preview_file": return call("POST", "/preview/read", { path: args.path, kind: "page" }, (value) => (value as { data: string }).data);
+    case "check_local_preview_files": return call("POST", "/preview/check", { paths: args.paths });
     case "mux_close_tab": return call("POST", "/close");
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
     case "mux_set_focused_tab": return call("POST", "/focus");
@@ -84,7 +87,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "get_tab_output": return call("GET", "/output", null, (value) => (value as { text?: string; output?: string })?.text ?? (value as { output?: string })?.output ?? "");
     case "get_tab_text": return call("GET", `/text?formatted=${args.formatted === true}`, null, (value) => (value as { text?: string })?.text ?? "");
     case "write_pty_string": return call("POST", "/pty/write", { data: args.data, raw: args.raw !== false });
-    case "interrupt_agent": return call("POST", "/pty/write", { data: "\u001b", raw: true });
+    case "interrupt_agent": return args.tabId ? call("POST", "/stop") : call("POST", "/pty/write", { data: "\u001b", raw: true });
     case "resize_pty": return call("POST", "/pty/resize", { cols: args.cols, rows: args.rows, client_id: args.clientId });
     case "claim_resize_owner": return call("POST", "/pty/claim-resize", {
       pty_id: args.ptyId, client_id: args.clientId, cols: args.cols, rows: args.rows, force: args.force === true,
@@ -130,8 +133,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       { enabled: args.enabled === true },
       (value) => (value as { enabled?: boolean })?.enabled === true,
     );
-    case "restart_agent_tab": return call("POST", "/agent/restart");
-    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model });
+    case "restart_agent_tab": return call("POST", "/agent/restart", { fresh: args.fresh === true });
+    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
     default: return null;
   }
 }

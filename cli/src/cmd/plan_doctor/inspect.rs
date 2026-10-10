@@ -417,28 +417,28 @@ fn inspect_group_regression_gates(path: &Path, plan: &Value, tasks: &[Value]) ->
             .unwrap_or(0);
         if group_stride_ts(plan, key, REGRESSION_MILESTONE_KIND).is_none_or(|ts| ts < last_close) {
             findings.push(Finding {
-                severity: "warning",
+                severity: "info",
                 kind: "group_missing_regression",
                 plan_id: plan_id(plan, path),
                 path: path.display().to_string(),
                 task_id: None,
                 detail: format!(
-                    "group '{key}' is complete but has no full-gate regression run on record since its last close"
+                    "group '{key}' has no optional regression evidence record since its last close"
                 ),
-                fix: "run the full gate once and record it: codeterm plan qa next --group <group> --claim --note \"<scope>\"".into(),
+                fix: "optional focused-evidence record; run the broad regression suite once on the release SHA".into(),
             });
         }
         if group_stride_ts(plan, key, GROUP_CLOSE_MILESTONE_KIND).is_none_or(|ts| ts < last_close) {
             findings.push(Finding {
-                severity: "warning",
+                severity: "info",
                 kind: "group_missing_retrospective",
                 plan_id: plan_id(plan, path),
                 path: path.display().to_string(),
                 task_id: None,
                 detail: format!(
-                    "group '{key}' is complete but has no retrospective on record since its last close, so no further task dispatches"
+                    "group '{key}' is complete without an optional retrospective record since its last close"
                 ),
-                fix: format!("record it: codeterm plan groups close <plan> {key} --note \"<what worked, what failed, what changes next>\""),
+                fix: "optional group recordkeeping; it does not affect dispatch".into(),
             });
         }
     }

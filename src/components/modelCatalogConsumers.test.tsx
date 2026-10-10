@@ -147,7 +147,7 @@ test("New Session pair renders the same descriptor in both roles", async () => {
   const { host, root } = await render(
     <OrchestrationPairForm
       providers={[descriptor]}
-      layout="card"
+      layout="team"
       values={{
         orchestratorProviderId: "provider-x",
         orchestratorModelId: "m-beta",
@@ -367,8 +367,8 @@ test("changing models narrows reasoning efforts and resets an unsupported select
 
   const effortTrigger = host.querySelector('[data-testid="picker-effort"]')!;
   assert(
-    effortTrigger.getAttribute("aria-label") === "Effort: Low",
-    `unsupported max must reset to the selected model's first effort, got ${effortTrigger.getAttribute("aria-label")}`,
+    effortTrigger.getAttribute("data-value") === "low",
+    `unsupported max must reset to the selected model's first effort, got ${effortTrigger.getAttribute("data-value")}`,
   );
   await openDropdown(effortTrigger);
   const offered = dropdownOptionEntries("picker-effort").map((entry) => entry.id);
@@ -536,11 +536,10 @@ test("effort trigger names the control and shows the selected level", async () =
     />,
   );
   const trigger = host.querySelector('[data-testid="effort-select"]')!;
-  assert(trigger.textContent?.includes("Effort"), "the trigger shows the Effort label");
   assert(trigger.textContent?.includes("Medium"), "the trigger shows the selected level");
   assert(
-    trigger.getAttribute("aria-label") === "Effort: Medium",
-    `the trigger names control and value, got "${trigger.getAttribute("aria-label")}"`,
+    trigger.getAttribute("aria-label") === "Agent effort",
+    `the trigger names the role and control, got "${trigger.getAttribute("aria-label")}"`,
   );
   await act(async () => root.unmount());
 });

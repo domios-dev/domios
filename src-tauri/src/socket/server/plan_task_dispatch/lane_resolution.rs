@@ -36,6 +36,18 @@ pub(super) fn checkout_required(reason: impl Into<String>) -> JsonRpcError {
     }
 }
 
+pub(super) fn refuse_missing_explicit_cwd(explicit_cwd: Option<&str>) -> Result<(), JsonRpcError> {
+    let Some(problem) = explicit_cwd
+        .filter(|path| !path.trim().is_empty())
+        .and_then(crate::service::spawn_cwd::cwd_problem)
+    else {
+        return Ok(());
+    };
+    Err(invalid_dispatch(format!(
+        "explicit cwd {problem}; dispatch never falls back to another checkout. No Worker was spawned."
+    )))
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct DispatchLaneResolution {
     pub(super) spawn_cwd: String,
@@ -49,17 +61,22 @@ pub(super) fn resolve_dispatch_lane(
     task_lane: &TaskLaneMetadata,
     protection: LaneProtection,
 ) -> Result<DispatchLaneResolution, JsonRpcError> {
-    let candidates = [
-        (
-            "recorded worktree",
-            task_lane.worktree_path.as_deref(),
-            task_lane.branch.as_deref(),
-            task_lane.base.as_deref(),
-        ),
-        ("explicit cwd", explicit_cwd, None, None),
-        ("target workspace cwd", workspace_cwd, None, None),
-        ("caller cwd", caller_cwd, None, None),
-    ];
+    let recorded = (
+        "recorded worktree",
+        task_lane.worktree_path.as_deref(),
+        task_lane.branch.as_deref(),
+        task_lane.base.as_deref(),
+    );
+    // An explicit cwd is the caller's checkout choice; resolving past it would
+    // silently land the Worker in the workspace or canonical checkout instead.
+    let candidates = match explicit_cwd.filter(|path| !path.trim().is_empty()) {
+        Some(explicit) => vec![recorded, ("explicit cwd", Some(explicit), None, None)],
+        None => vec![
+            recorded,
+            ("target workspace cwd", workspace_cwd, None, None),
+            ("caller cwd", caller_cwd, None, None),
+        ],
+    };
     let mut attempted = Vec::new();
 
     for (label, path, branch, base) in candidates {

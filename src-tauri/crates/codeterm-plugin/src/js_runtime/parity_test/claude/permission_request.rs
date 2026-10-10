@@ -12,10 +12,22 @@ use std::collections::BTreeSet;
 use super::*;
 use crate::provider::{HookIngestionRoute, IntegrationInstallOptions};
 
+#[test]
+fn parity_claude_permission_hook_capability() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let capability = native
+        .permission_hook_capability()
+        .expect("native declaration");
+    assert_eq!(Some(capability), js.permission_hook_capability());
+}
+
 fn consented() -> IntegrationInstallOptions {
     IntegrationInstallOptions {
         consent: true,
-        precompact_memory_export: false,
+
         repair: false,
     }
 }
@@ -110,7 +122,7 @@ fn permission_request_payload_is_forwarded_on_both_runtimes() {
         for settings in [&native_settings, &js_settings] {
             let command = installed_command(settings, event);
             assert!(
-                command.contains("--data-binary @-"),
+                command.contains("--data-binary \"@-\""),
                 "{event} must forward the stdin payload: {command}"
             );
             assert!(

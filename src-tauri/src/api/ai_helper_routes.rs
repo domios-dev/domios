@@ -14,6 +14,7 @@ use crate::service::ai_helper_spawn::AiHelperRequest;
 #[serde(deny_unknown_fields)]
 pub(crate) struct AiHelperSpawnBody {
     title: String,
+    description: String,
     task: String,
 }
 
@@ -25,7 +26,7 @@ pub async fn spawn_ai_helper(
     check_auth(&state, &headers).map_err(|(status, message)| {
         SpawnRejection::new(status, "unauthorized", message.to_string())
     })?;
-    let request = AiHelperRequest::new(body.title, body.task)
+    let request = AiHelperRequest::new(body.title, body.description, body.task)
         .map_err(|message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message))?;
     let launch = state
         .svc
@@ -33,13 +34,22 @@ pub async fn spawn_ai_helper(
         .await
         .map_err(SpawnRejection::from)?;
     if let Some(ready_rx) = launch.ready {
-        verify_spawn_delivery(&state, &launch.tab_id, ready_rx).await?;
+        let state = state.clone();
+        let tab_id = launch.tab_id.clone();
+        tokio::spawn(async move {
+            if let Err(error) = verify_spawn_delivery(&state, &tab_id, ready_rx).await {
+                log::warn!(
+                    "[ai-helper] delivery verification failed for {tab_id}: {}",
+                    error.body
+                );
+            }
+        });
     }
     Ok(Json(serde_json::json!({
         "id": launch.tab_id,
         "tab_id": launch.tab_id,
         "workspace_id": launch.workspace_id,
-        "delivery_state": launch.delivery.as_str(),
+        "delivery_state": "launched",
     })))
 }
 

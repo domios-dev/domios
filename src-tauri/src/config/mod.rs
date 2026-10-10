@@ -5,6 +5,7 @@ mod kpi_default;
 mod load;
 pub mod schema;
 
+use std::collections::{BTreeSet, HashMap};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,9 +32,32 @@ pub(crate) fn sanitize_plugin_settings(config: &mut AppConfig) {
     }
 }
 
+pub(crate) fn changed_provider_settings(before: &AppConfig, after: &AppConfig) -> Vec<String> {
+    let mut changed = BTreeSet::new();
+    changed.extend(changed_settings_keys(&before.plugins, &after.plugins));
+    changed.extend(changed_settings_keys(&before.agents, &after.agents));
+    changed.into_iter().collect()
+}
+
+fn changed_settings_keys<T: serde::Serialize>(
+    before: &HashMap<String, T>,
+    after: &HashMap<String, T>,
+) -> Vec<String> {
+    before
+        .keys()
+        .chain(after.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|id| {
+            serde_json::to_value(before.get(*id)).ok() != serde_json::to_value(after.get(*id)).ok()
+        })
+        .cloned()
+        .collect()
+}
+
 /// Generate the default config TOML with helpful comments.
 fn default_config_toml() -> String {
-    r##"# CodeTerm Configuration
+    r##"# Domios Configuration
 # Location: ~/.codeterm/config.toml
 
 [theme]
@@ -95,6 +119,7 @@ close_tab = "Ctrl+Shift+W"
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
+continue_after_restart = true
 
 [api]
 enabled = true
@@ -116,7 +141,7 @@ enabled = false
 # figures. It stores plan/task/tab ids, counts and timestamps in
 # ~/.codeterm/kpi_ledger.db - never message text, and nothing leaves the machine.
 # Set false to opt out; the Board then shows an explicit not-recording state
-# instead of a figure. Takes effect on the next CodeTerm start.
+# instead of a figure. Takes effect on the next Domios start.
 enabled = true
 "##
     .to_string()
@@ -208,13 +233,20 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
 /// that previously read `cfg.agent.resume_sessions` should call this with
 /// the actual provider id of the tab.
 pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
-    let cfg = load_config();
-    let mut out = cfg.agents.get(provider_id).cloned().unwrap_or_default();
+    provider_config_from(&load_config(), provider_id)
+}
+
+fn provider_config_from(config: &schema::AppConfig, provider_id: &str) -> schema::ProviderConfig {
+    let mut out = config.agents.get(provider_id).cloned().unwrap_or_default();
     // Back-compat: fall through to global [agent] for any field not set in the per-provider section. Lets existing configs keep working without an explicit [agents.<id>] block.
     if out.resume_sessions.is_none() {
-        out.resume_sessions = Some(cfg.agent.resume_sessions);
+        out.resume_sessions = Some(config.agent.resume_sessions);
     }
     out
+}
+
+pub fn resume_sessions_enabled(provider_id: &str) -> bool {
+    provider_config(provider_id).resume_sessions.unwrap_or(true)
 }
 
 /// Whether the usage tracker should probe this provider's `/usage` endpoint.
@@ -333,6 +365,77 @@ fn apply_theme_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_provider_settings_reports_only_changed_plugin_and_agent_entries() {
+        let mut before = AppConfig::default();
+        before
+            .plugins
+            .insert("plugin-a".into(), serde_json::json!({ "model": "one" }));
+        before.plugins.insert(
+            "plugin-stable".into(),
+            serde_json::json!({ "enabled": true }),
+        );
+        before
+            .agents
+            .insert("agent-removed".into(), schema::ProviderConfig::default());
+        let mut after = before.clone();
+        after
+            .plugins
+            .insert("plugin-a".into(), serde_json::json!({ "model": "two" }));
+        after
+            .plugins
+            .insert("plugin-new".into(), serde_json::json!({ "model": "one" }));
+        after.agents.remove("agent-removed");
+
+        assert_eq!(
+            changed_provider_settings(&before, &after),
+            vec![
+                "agent-removed".to_string(),
+                "plugin-a".to_string(),
+                "plugin-new".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn unchanged_provider_settings_do_not_invalidate_catalogues() {
+        let config = AppConfig::default();
+
+        assert!(changed_provider_settings(&config, &config).is_empty());
+    }
+
+    #[test]
+    fn provider_resume_setting_uses_override_then_global_and_defaults_to_enabled() {
+        let mut config = schema::AppConfig::default();
+        config.agent.resume_sessions = true;
+        config.agents.insert(
+            "codex".into(),
+            schema::ProviderConfig {
+                resume_sessions: Some(false),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            provider_config_from(&config, "codex").resume_sessions,
+            Some(false)
+        );
+        assert_eq!(
+            provider_config_from(&config, "claude").resume_sessions,
+            Some(true)
+        );
+
+        config.agent.resume_sessions = false;
+        assert_eq!(
+            provider_config_from(&config, "claude").resume_sessions,
+            Some(false)
+        );
+        assert_eq!(
+            provider_config_from(&schema::AppConfig::default(), "codex").resume_sessions,
+            Some(true)
+        );
+    }
 
     #[test]
     fn concurrent_load_on_tokenless_config_yields_one_stable_token() {
@@ -659,7 +762,7 @@ enabled = true
         let path = tmp.path().join("config.toml");
         std::fs::write(
             &path,
-            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\nintegration_consent_granted = true\nintegration_consent_recorded_at = 123\nprecompact_memory_export = true\n",
+            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\nintegration_consent_granted = true\nintegration_consent_recorded_at = 123\nfixture_extension_flag = true\n",
         )
         .unwrap();
 
@@ -689,7 +792,7 @@ enabled = true
         );
         assert_eq!(
             extra
-                .get("precompact_memory_export")
+                .get("fixture_extension_flag")
                 .and_then(toml::Value::as_bool),
             Some(true)
         );
@@ -724,7 +827,7 @@ enabled = true
         );
         assert_eq!(
             extra
-                .get("precompact_memory_export")
+                .get("fixture_extension_flag")
                 .and_then(toml::Value::as_bool),
             Some(true)
         );
@@ -784,7 +887,7 @@ fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), Stri
             concat!(
                 "Config is held: {}. Review or repair the salvaged config, remove its ",
                 "CodeTerm salvage marker, or restore a known-good config backup. Restart ",
-                "CodeTerm to reload it and release the hold."
+                "Domios to reload it and release the hold."
             ),
             hold.refusal()
         ),
@@ -853,6 +956,7 @@ pub async fn update_config(
     app: AppHandle,
     config: AppConfig,
 ) -> Result<(), String> {
+    let previous_config = state.lock().clone();
     let mut resolved = config;
     sanitize_plugin_settings(&mut resolved);
     bounds::validate_app_config(&resolved)?;
@@ -876,7 +980,19 @@ pub async fn update_config(
     let new_name = resolved.mesh.instance_name.clone();
     let renamed = !new_name.is_empty() && new_name != prev_name;
 
+    let changed_catalogue_settings = changed_provider_settings(&previous_config, &resolved);
     save_config_and_apply(state.inner(), resolved.clone())?;
+
+    if !changed_catalogue_settings.is_empty() {
+        use tauri::Manager;
+        if let Some(service) = app.try_state::<crate::service::ServiceState>() {
+            crate::agent::model_binary_watch::refresh_after_settings_change(
+                &service.agent_registry,
+                &service.chatbackend_registry,
+                changed_catalogue_settings,
+            );
+        }
+    }
 
     if renamed {
         let mesh_arc = mesh_state.inner().clone();

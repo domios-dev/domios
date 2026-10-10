@@ -1,3 +1,5 @@
+import type { Tab, Team } from "./types";
+
 export interface TeamActions {
   onRenameTeam: (teamId: string, name: string, managerTabId: string | null) => Promise<void>;
   onAddTeamMember: (
@@ -26,6 +28,36 @@ export type TeamMemberRole = "orchestrator" | "planner" | "cartographer" | "work
 
 type Invoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;
 
+export interface TeamMemberRequest {
+  teamId: string;
+  role: TeamMemberRole;
+  providerId: string;
+  managerTabId: string | null;
+  model?: string;
+  brief?: string;
+}
+
+export interface TeamMemberAttachment {
+  tab_id: string;
+  team: Team;
+  reused: boolean;
+}
+
+export function selectTeamStaffingManager(tabs: readonly Pick<Tab, "id" | "can_spawn" | "role">[]): string | null {
+  return tabs.find((tab) => tab.can_spawn === true && tab.role === "Manager")?.id ?? null;
+}
+
+export function requestTeamMember(invoke: Invoke, request: TeamMemberRequest): Promise<unknown> {
+  return invoke("mux_add_team_member", {
+    teamId: request.teamId,
+    role: request.role,
+    provider: request.providerId,
+    ...(request.model ? { model: request.model } : {}),
+    ...(request.brief !== undefined ? { brief: request.brief } : {}),
+    callerTabId: request.managerTabId,
+  });
+}
+
 export function buildTeamActions({
   invoke,
 }: {
@@ -36,13 +68,7 @@ export function buildTeamActions({
       await invoke("mux_rename_team", { teamId, name, callerTabId: managerTabId });
     },
     async onAddTeamMember(teamId, role, providerId, managerTabId, model) {
-      await invoke("mux_add_team_member", {
-        teamId,
-        role,
-        provider: providerId,
-        ...(model ? { model } : {}),
-        callerTabId: managerTabId,
-      });
+      await requestTeamMember(invoke, { teamId, role, providerId, managerTabId, model });
     },
     async onCloseTeam(teamId) {
       // The Sidebar confirmation dialog is the human override for busy Workers.

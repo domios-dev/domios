@@ -139,6 +139,12 @@ mod tests {
         let path = dir.join(LEGACY_MASTER_PASSWORD_FILE);
         std::fs::write(&path, PLACEHOLDER).expect("seed legacy file");
         set_readonly(&path, true);
+        // Root (e.g. a Linux container) ignores read-only, so the denial this test needs cannot happen.
+        if std::fs::OpenOptions::new().write(true).open(&path).is_ok() {
+            set_readonly(&path, false);
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
 
         let outcome = erase_legacy_master_password_file(&path);
         assert!(!outcome.is_secure(), "got {outcome:?}");

@@ -15,7 +15,7 @@ pub fn timestamp_slug() -> String {
 
 pub fn header(kind: &str) -> String {
     let mut s = String::new();
-    let _ = writeln!(s, "CodeTerm crash report");
+    let _ = writeln!(s, "Domios crash report");
     let _ = writeln!(s, "=====================");
     let _ = writeln!(s, "Type: {}", kind);
     let _ = writeln!(s, "Timestamp: {}", chrono::Utc::now().to_rfc3339());

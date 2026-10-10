@@ -5,7 +5,9 @@ mod bubble;
 mod call_gate;
 mod chatbackend;
 mod chatpreprocessor;
+mod converter;
 mod decision_model;
+mod event_source;
 mod glance;
 pub mod grants;
 mod host_api;
@@ -13,18 +15,21 @@ mod host_compute;
 mod host_credentials;
 mod host_exec;
 mod host_net;
+mod host_surface;
 pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
+mod model_providers;
 pub mod plugin_config;
 mod provider;
+mod provider_observation;
 pub(crate) mod toolcall_parse;
 mod transcriber;
 mod view;
 mod vm;
 mod webhook;
 
-pub use agent_commands::JsAgentCommandHandler;
+pub use agent_commands::{catalog_from_manifest, JsAgentCommandHandler};
 pub use bin_resolve::{
     forget_resolved_bin, forget_resolved_bins, probe_bin, probe_bin_in, probe_bin_with_environment,
     resolved_bin_path, well_known_bin_dirs, BinProbe, BinResolution, BinSearchEnvironment,
@@ -33,7 +38,9 @@ pub use bin_resolve::{
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;
+pub use converter::JsConverter;
 pub use decision_model::JsDecisionModel;
+pub use event_source::JsEventSource;
 pub use glance::JsGlanceProvider;
 pub use transcriber::JsTranscriber;
 pub use view::JsViewProvider;
@@ -49,10 +56,14 @@ pub(crate) static PROCESS_TEST_LOCK: std::sync::LazyLock<parking_lot::Mutex<()>>
 mod parity_test;
 
 #[cfg(test)]
+mod parity_converter_test;
+
+#[cfg(test)]
 mod fetch_async;
 
 pub use hot_reload::{
-    pending_reload_ids, set_watcher_service, CapabilityRegistries, HotReloadRegistry,
+    pending_reload_ids, plugin_load_errors, set_watcher_service, CapabilityRegistries,
+    HotReloadRegistry, PluginLoadError,
 };
 pub use loader::{default_roots, load_one, scan_roots, LoadOutcome};
 pub use provider::JsProvider;

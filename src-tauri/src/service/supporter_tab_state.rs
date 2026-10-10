@@ -1,24 +1,67 @@
 use std::collections::BTreeMap;
+#[cfg(test)]
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use codeterm_types::config::SupporterTabStateConfig;
-use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
+use super::supporter::{self, Action, ActionRecord, SupporterRuntime, TokenSnapshot, VerdictKind};
+use codeterm_types::config::SupporterConfig;
+use codeterm_types::decision::{
+    DecisionAnswer, DecisionModel, DecisionQuestionsRequest, DecisionResponse,
+};
 use serde_json::Value;
+
+#[cfg(test)]
+static TEST_SUPPORTER_OVERRIDES: std::sync::LazyLock<
+    parking_lot::Mutex<HashMap<usize, (SupporterConfig, Arc<SupporterRuntime>)>>,
+> = std::sync::LazyLock::new(Default::default);
+
+#[cfg(test)]
+pub(crate) struct TestSupporterOverrideGuard(usize);
+
+#[cfg(test)]
+impl Drop for TestSupporterOverrideGuard {
+    fn drop(&mut self) {
+        TEST_SUPPORTER_OVERRIDES.lock().remove(&self.0);
+    }
+}
 
 use super::startup_nudge::StartupNudge;
 use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::api::mem_routes::decision::SupporterRegistry;
 
+mod admission;
+mod candidates;
+pub(crate) mod coordinator;
+pub(crate) use candidates::{allows_prompt as candidate_allows_prompt, CandidateVerdict};
 mod delivery;
+mod identity;
+mod idle_readiness;
+mod observer;
+mod privacy;
+pub(super) mod scheduler;
+pub(crate) mod sentinel_request;
+
+pub(crate) use identity::correlation::project_diagnostics as project_observation_diagnostics;
+#[cfg(test)]
+use observer::{choice_model, observation_answers, observe_guarded};
+pub(crate) use observer::{prepare_observation, spawn_observer};
+pub(crate) fn forget_observations(tab: &str) {
+    admission::forget(tab);
+}
+pub(crate) use privacy::value as redact_decision_diagnostic;
+pub(crate) use privacy::{screen as redact_screen, text as redact_text};
+mod questions;
+pub(crate) mod safe_choice;
+mod safe_response;
+pub(crate) use safe_response::Progress as SafeResponseProgress;
 mod state;
 
 pub(crate) use state::{
-    apply_observed_verdict, claim_observation, confidence_band, note_output, permit_is_current,
-    ConfidenceBand, ObservationEvent, SignalAction, CALL_CAP_PER_EPISODE,
+    apply_observed_verdict, claim_observation, confidence_band, launch_episode_key, note_output,
+    permit_is_current_for_launch, ConfidenceBand, ObservationEvent, SignalAction,
 };
 
 pub(crate) const SCREEN_LINES: usize = 40;
@@ -34,13 +77,21 @@ pub(crate) const LOGIN_OR_AUTH_REQUIRED: &str = "login_or_auth_required";
 pub(crate) const MODEL_UNAVAILABLE_OR_QUOTA: &str = "model_unavailable_or_quota";
 pub(crate) const CRASHED_TO_SHELL: &str = "crashed_to_shell";
 pub(crate) const ERROR_LOOP: &str = "error_loop";
+pub(crate) const OTHER: &str = "other";
 pub(crate) const STILL_STARTING: &str = "still_starting";
+
+#[cfg(test)]
+#[path = "supporter_tab_state/user_delivery_readiness_tests.rs"]
+mod user_delivery_readiness_tests;
 
 const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.json");
 const SPAWN_OK_LINE: &str = "spawn ok";
-const WEAK_HINT_PREFIX: &str = "Tab-state hint";
 
-fn criteria() -> &'static BTreeMap<String, String> {
+pub(crate) fn criteria_version() -> String {
+    supporter::criteria_hash(CRITERIA_JSON.as_bytes())
+}
+
+pub(crate) fn criteria() -> &'static BTreeMap<String, String> {
     static CRITERIA: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     CRITERIA.get_or_init(|| {
         serde_json::from_str(CRITERIA_JSON).expect("embedded tab-state criteria are valid")
@@ -51,9 +102,18 @@ fn criteria() -> &'static BTreeMap<String, String> {
 pub(crate) enum ObservationTrigger {
     SpawnReady,
     SpawnDeadline,
+    StartupEscalation,
+    #[cfg(test)]
+    PromptCandidate,
+    OutputCandidate,
+    ParkedEdge,
+    PromptEstablished,
+    PromptConfirmation,
+    SentinelRequest,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
+    UserDeliveryReadiness,
 }
 
 impl ObservationTrigger {
@@ -61,9 +121,18 @@ impl ObservationTrigger {
         match self {
             Self::SpawnReady => ObservationEvent::SpawnReady,
             Self::SpawnDeadline => ObservationEvent::SpawnDeadline,
+            Self::StartupEscalation => ObservationEvent::StartupEscalation,
+            #[cfg(test)]
+            Self::PromptCandidate => ObservationEvent::PromptCandidate,
+            Self::OutputCandidate
+            | Self::ParkedEdge
+            | Self::PromptEstablished
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => ObservationEvent::PromptCandidate,
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
+            Self::UserDeliveryReadiness => ObservationEvent::PromptCandidate,
         }
     }
 
@@ -71,14 +140,55 @@ impl ObservationTrigger {
         match self {
             Self::SpawnReady => "launch_ready",
             Self::SpawnDeadline => "startup_deadline",
+            Self::StartupEscalation => "startup_escalation",
+            #[cfg(test)]
+            Self::PromptCandidate => "prompt_candidate",
+            Self::OutputCandidate
+            | Self::ParkedEdge
+            | Self::PromptEstablished
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => "prompt_candidate",
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",
+            Self::UserDeliveryReadiness => "user_delivery_readiness",
         }
     }
 
     fn is_spawn(self) -> bool {
         matches!(self, Self::SpawnReady | Self::SpawnDeadline)
+    }
+
+    fn producer(self) -> identity::correlation::Producer {
+        use identity::correlation::Producer;
+        match self {
+            Self::OutputCandidate => Producer::OutputCandidate,
+            Self::ParkedEdge => Producer::ParkedEdge,
+            Self::PromptEstablished => Producer::PromptEstablished,
+            Self::PromptConfirmation => Producer::PromptConfirmation,
+            Self::SentinelRequest => Producer::SentinelRequest,
+            _ => Producer::LifecycleEvent,
+        }
+    }
+
+    fn is_prompt_candidate(self) -> bool {
+        match self {
+            #[cfg(test)]
+            Self::PromptCandidate => true,
+            Self::OutputCandidate
+            | Self::ParkedEdge
+            | Self::PromptEstablished
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => true,
+            _ => false,
+        }
+    }
+
+    fn is_internal_candidate(self) -> bool {
+        matches!(
+            self,
+            Self::PromptEstablished | Self::PromptConfirmation | Self::SentinelRequest
+        )
     }
 
     fn after_startup_deadline(self) -> bool {
@@ -104,19 +214,47 @@ pub(crate) struct TabStateMetadata {
     pub(crate) task_id: Option<String>,
     pub(crate) attempt_id: Option<String>,
     pub(crate) prompt_options: Vec<NumberedPromptOption>,
+    pub(crate) declared_safe_choice: Option<String>,
+    pub(crate) tab_snapshot: Option<crate::multiplexer::types::Tab>,
+    pub(crate) process_tree_key: Option<super::process_tree::ProviderTreeKey>,
+    pub(crate) envelope: Option<observer::EnvelopeContext>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ShadowVerdict {
     pub(crate) label: String,
     pub(crate) confidence: f64,
+    pub(crate) prompt_visible: f64,
+    pub(crate) reported_prompt_visible: f64,
+    pub(crate) input_area: Option<(String, f64)>,
+    pub(crate) safe_choice: Option<(String, f64)>,
     pub(crate) action: SignalAction,
+    pub(crate) classified_frame_hash: u64,
 }
 
 pub(crate) trait ShadowHost: Clone + Send + 'static {
+    fn local_identity(&self, _tab: &str) -> Option<identity::LocalIdentity> {
+        None
+    }
+    fn ledger_snapshot(&self, _tab: &str) -> coordinator::LedgerSnapshot {
+        Default::default()
+    }
+    fn observation_is_current(&self, _tab: &str, _metadata: &TabStateMetadata) -> bool {
+        true
+    }
+    fn connection_is_current(&self, adapter: &str) -> bool {
+        self.supporter_models().get(adapter).is_some_and(|model| {
+            model.token_mode() != codeterm_types::decision::TokenMode::Required
+                || self.token_available(adapter)
+        })
+    }
+
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String>;
     fn supporter_models(&self) -> Arc<SupporterRegistry>;
     fn token_available(&self, adapter_id: &str) -> bool;
+    fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        supporter::runtime()
+    }
     fn metadata(
         &self,
         tab_id: &str,
@@ -134,10 +272,112 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
         confidence: f64,
         action: SignalAction,
     );
+    fn recover(
+        &self,
+        _tab_id: &str,
+        _metadata: &TabStateMetadata,
+        _episode: u64,
+        _observation_id: u64,
+        _trigger: ObservationTrigger,
+        _verdict: &ShadowVerdict,
+        _ticket: Option<&coordinator::ActionTicket>,
+    ) -> bool {
+        false
+    }
+    fn restore_observation(
+        &self,
+        _tab_id: &str,
+    ) -> Option<super::supporter_notify::RestoreObservation> {
+        None
+    }
     fn record(&self, line: &str);
 }
 
 impl ShadowHost for ServiceContext {
+    fn observation_is_current(&self, tab: &str, metadata: &TabStateMetadata) -> bool {
+        let Some(envelope) = metadata.envelope.as_ref() else {
+            return false;
+        };
+        if envelope.policy_hash.as_ref().is_some_and(|expected| {
+            identity::supporter_policy(&self.supporter_decision_config()) != *expected
+        }) {
+            return false;
+        }
+        let Some(local) = envelope.local.as_ref() else {
+            return false;
+        };
+        if !self.observation_identity_is_current(tab, local) {
+            return false;
+        }
+        if envelope.pty_session_generation.is_some_and(|generation| {
+            metadata
+                .tab_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.pty_id.as_deref())
+                .is_none_or(|pty_id| {
+                    !self
+                        .pty
+                        .lock()
+                        .session_generation_matches(pty_id, generation)
+                })
+        }) {
+            return false;
+        }
+        if metadata
+            .tab_snapshot
+            .as_ref()
+            .and_then(|tab| tab.pty_id.as_deref())
+            .is_some_and(|pty| self.pty.lock().get_session(pty).is_none())
+        {
+            return false;
+        }
+        let frame = self
+            .tab_transport(tab)
+            .and_then(|transport| transport.read_screen(false));
+        frame.is_ok_and(|frame| frame_hash(&frame.to_string()) == envelope.frame_hash)
+            && self.observation_identity_is_current(tab, local)
+            && envelope.pty_session_generation.is_none_or(|generation| {
+                metadata
+                    .tab_snapshot
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.pty_id.as_deref())
+                    .is_some_and(|pty_id| {
+                        self.pty
+                            .lock()
+                            .session_generation_matches(pty_id, generation)
+                    })
+            })
+    }
+
+    fn local_identity(&self, tab: &str) -> Option<identity::LocalIdentity> {
+        self.mux
+            .read()
+            .get_tab(tab)
+            .map(identity::LocalIdentity::of_tab)
+    }
+    fn ledger_snapshot(&self, tab: &str) -> coordinator::LedgerSnapshot {
+        coordinator::LedgerSnapshot::capture(self, tab)
+    }
+    fn connection_is_current(&self, adapter: &str) -> bool {
+        let settings = self.supporter_decision_config();
+        let token = supporter::read_token_snapshot(
+            &self.supporter_runtime(),
+            &crate::api::mem_routes::decision::token_store(),
+            adapter,
+        );
+        settings.active_id() == Some(adapter)
+            && supporter::supporter_connected(&settings, &self.supporter_models, &token)
+    }
+    fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        #[cfg(test)]
+        if let Some((_, runtime)) = TEST_SUPPORTER_OVERRIDES
+            .lock()
+            .get(&(Arc::as_ptr(&self.mux) as usize))
+        {
+            return runtime.clone();
+        }
+        supporter::runtime_with_notifications(self)
+    }
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String> {
         self.tab_transport(tab_id)
     }
@@ -147,16 +387,12 @@ impl ShadowHost for ServiceContext {
     }
 
     fn token_available(&self, adapter_id: &str) -> bool {
-        let store = crate::mem::decision::token_store::TokenStore::new(
-            crate::api::mem_routes::decision::supporter_token_dir(),
-        );
-        match store.status(adapter_id) {
-            Ok(status) => status.present && status.mode_ok != Some(false),
-            Err(error) => {
-                log::debug!("[tab-state] token status unavailable: {error}");
-                false
-            }
-        }
+        supporter::read_token_snapshot(
+            &self.supporter_runtime(),
+            &crate::api::mem_routes::decision::token_store(),
+            adapter_id,
+        )
+        .usable
     }
 
     fn metadata(
@@ -191,15 +427,20 @@ impl ShadowHost for ServiceContext {
             .agent_set_at
             .map(|started| now.saturating_duration_since(started).as_secs())
             .unwrap_or_default();
-        let session_key = tab
-            .session_binding_nonce
-            .clone()
-            .or_else(|| tab.pty_id.clone())
-            .or_else(|| tab.agent_session_id.clone())
-            .unwrap_or_else(|| format!("{}:{:?}", tab.id, tab.agent_set_at));
+        let local_identity = identity::LocalIdentity::of_tab(&tab);
+        let session_key = local_identity.launch_key.clone();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         screen.hash(&mut hasher);
-        let changed = state::screen_changed(&tab.id, &session_key, hasher.finish());
+        let changed = {
+            let mux = self.mux.read();
+            if !mux
+                .get_tab(&tab.id)
+                .is_some_and(|current| identity::LocalIdentity::of_tab(current) == local_identity)
+            {
+                return Err("stale observation capture".into());
+            }
+            state::screen_changed(&tab.id, &session_key, hasher.finish())
+        };
         let task_binding = tab.task_binding.as_ref();
         let seconds_since_last_output = tab
             .pty_id
@@ -221,6 +462,19 @@ impl ShadowHost for ServiceContext {
                         now_epoch.saturating_sub(last_output)
                     }
                 }
+            });
+        let declared_safe_choice = tab
+            .pending_prompt
+            .as_ref()
+            .filter(|_| {
+                tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::ManualUpdate)
+            })
+            .and_then(|prompt| {
+                self.agent_registry
+                    .with_provider(provider_id, |provider| {
+                        provider.update_prompt_safe_choice(prompt)
+                    })
+                    .flatten()
             });
         let context = serde_json::json!({
             "provider_capability": {
@@ -246,6 +500,7 @@ impl ShadowHost for ServiceContext {
                 "agent_state": tab.agent_state,
             },
             "pending_prompt_kind": tab.pending_prompt_kind,
+            "startup_deadline_elapsed": trigger.after_startup_deadline() || tab.boot_stage == Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed),
             "screen_changed": changed,
             "observation_event": trigger.label(),
         });
@@ -265,7 +520,16 @@ impl ShadowHost for ServiceContext {
                     .collect()
             })
             .unwrap_or_default();
-        Ok(TabStateMetadata {
+        let process_tree_key = tab
+            .pty_id
+            .as_deref()
+            .and_then(|pty| self.provider_tree_key_for_tab(&tab.id, pty));
+        let tab_snapshot = Some(tab.clone());
+        let mut metadata = TabStateMetadata {
+            envelope: None,
+            declared_safe_choice,
+            tab_snapshot,
+            process_tree_key,
             context,
             session_key,
             title: tab.title,
@@ -275,7 +539,15 @@ impl ShadowHost for ServiceContext {
             task_id: task_binding.and_then(|binding| binding.task_id.clone()),
             attempt_id: task_binding.and_then(|binding| binding.attempt_id.clone()),
             prompt_options,
-        })
+        };
+        if trigger.is_prompt_candidate() {
+            if trigger == ObservationTrigger::SentinelRequest {
+                self.add_sentinel_safe_response_metadata(tab_id, screen, &mut metadata);
+            } else {
+                self.add_safe_response_metadata(tab_id, screen, &mut metadata);
+            }
+        }
+        Ok(metadata)
     }
 
     fn deliver(
@@ -293,17 +565,91 @@ impl ShadowHost for ServiceContext {
         );
     }
 
+    fn recover(
+        &self,
+        tab_id: &str,
+        metadata: &TabStateMetadata,
+        episode: u64,
+        observation_id: u64,
+        trigger: ObservationTrigger,
+        verdict: &ShadowVerdict,
+        ticket: Option<&coordinator::ActionTicket>,
+    ) -> bool {
+        super::general_agent::recovery::recover(
+            self,
+            tab_id,
+            metadata,
+            episode,
+            observation_id,
+            trigger,
+            verdict,
+            ticket,
+        )
+    }
+
+    fn restore_observation(
+        &self,
+        tab_id: &str,
+    ) -> Option<super::supporter_notify::RestoreObservation> {
+        super::supporter_notify::begin_restore_observation(self, tab_id)
+    }
+
     fn record(&self, line: &str) {
         log::info!("{line}");
     }
 }
 
 impl ServiceContext {
+    pub(crate) fn user_delivery_pty_session_generation(&self, tab_id: &str) -> Result<u64, String> {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone())
+            .ok_or_else(|| "user delivery PTY identity unavailable".to_string())?;
+        self.pty
+            .lock()
+            .get_session(&pty_id)
+            .map(|session| session.generation)
+            .ok_or_else(|| "user delivery PTY session generation unavailable".to_string())
+    }
+
+    pub(crate) fn supporter_decision_config(&self) -> SupporterConfig {
+        #[cfg(test)]
+        if let Some((config, _)) = TEST_SUPPORTER_OVERRIDES
+            .lock()
+            .get(&(Arc::as_ptr(&self.mux) as usize))
+        {
+            return config.clone();
+        }
+        crate::config::load_config().supporter
+    }
+
+    #[cfg(test)]
+    pub(crate) fn override_supporter_decision_for_test(
+        &self,
+        config: SupporterConfig,
+        runtime: Arc<SupporterRuntime>,
+    ) -> TestSupporterOverrideGuard {
+        let key = Arc::as_ptr(&self.mux) as usize;
+        TEST_SUPPORTER_OVERRIDES
+            .lock()
+            .insert(key, (config, runtime));
+        TestSupporterOverrideGuard(key)
+    }
+
     pub(crate) fn observe_launch_settlement_tab_state(
         &self,
         tab_id: &str,
         settlement: &crate::service::launch_readiness::LaunchSettlement,
     ) {
+        let ga_tab = { self.mux.read().get_tab(tab_id).cloned() };
+        if let Some(tab) = ga_tab {
+            self.general_agent_watchdog_event(
+                &tab,
+                super::general_agent::WatchdogEvent::LaunchSettlement,
+            );
+        }
         let trigger = match settlement {
             crate::service::launch_readiness::LaunchSettlement::Ready => {
                 ObservationTrigger::SpawnReady
@@ -325,16 +671,94 @@ impl ServiceContext {
         trigger: ObservationTrigger,
         structural_verdict: &str,
     ) {
-        let settings = crate::config::load_config().supporter;
-        drop(spawn_observer(
+        let settings = self.supporter_decision_config();
+        let _ = spawn_observer(
             self,
-            &settings.tab_state,
-            &settings.adapter,
+            &settings,
+            settings.active_id().unwrap_or(""),
             settings.deadline_ms,
             tab_id,
             trigger,
             structural_verdict,
-        ));
+        );
+    }
+
+    pub(crate) fn observe_user_delivery_readiness(
+        &self,
+        tab_id: &str,
+        previous: Option<&UserDeliveryObservation>,
+    ) -> Result<UserDeliveryObservation, String> {
+        let expected_local = previous
+            .and_then(|observation| observation.metadata.envelope.as_ref())
+            .and_then(|envelope| envelope.local.as_ref());
+        observer::observe_user_delivery_readiness(self, tab_id, expected_local)
+    }
+
+    pub(crate) fn user_delivery_observation_is_current(
+        &self,
+        observation: &UserDeliveryObservation,
+    ) -> bool {
+        observation.decided_by == identity::DecisionSource::Adapter
+            && self.connection_is_current(&observation.adapter_id)
+            && self
+                .supporter_models()
+                .get(&observation.adapter_id)
+                .is_some_and(|current| Arc::ptr_eq(&current, &observation.adapter))
+            && self.observation_is_current(&observation.tab_id, &observation.metadata)
+            && observation
+                .metadata
+                .envelope
+                .as_ref()
+                .and_then(|envelope| envelope.pty_session_generation)
+                == Some(observation.pty_session_generation)
+            && self.user_delivery_pty_session_generation(&observation.tab_id)
+                == Ok(observation.pty_session_generation)
+    }
+
+    pub(crate) fn capture_exit_tab_observation(
+        &self,
+        tab_id: &str,
+    ) -> Option<(DecisionQuestionsRequest, TabStateMetadata)> {
+        let config = self.supporter_decision_config();
+        let tokens = supporter::read_token_snapshot(
+            &supporter::runtime_with_notifications(self),
+            &crate::api::mem_routes::decision::token_store(),
+            config.active_id().unwrap_or(""),
+        );
+        if !supporter::supporter_connected(&config, &self.supporter_models, &tokens) {
+            return None;
+        }
+        let adapter = supporter::configured_model(&config, &self.supporter_models)?;
+        let mut prepared = prepare_observation(
+            self,
+            tab_id,
+            ObservationTrigger::TabExit,
+            "provider_process_exit",
+        )
+        .ok()?;
+        prepared.1.envelope.as_mut()?.adapter = Some(adapter);
+        Some(prepared)
+    }
+
+    pub(crate) fn observe_captured_tab_exit(
+        &self,
+        tab_id: &str,
+        captured: Option<(DecisionQuestionsRequest, TabStateMetadata)>,
+    ) {
+        let Some(prepared) = captured else {
+            return;
+        };
+        let config = crate::config::load_config().supporter;
+        observer::enqueue_prepared(
+            self,
+            &config,
+            config.active_id().unwrap_or(""),
+            config.deadline_ms,
+            tab_id,
+            ObservationTrigger::TabExit,
+            "provider_process_exit",
+            prepared,
+        );
     }
 
     pub(crate) fn shadow_tab_state(&self, tab_id: &str, structural: StartupNudge) {
@@ -346,17 +770,22 @@ impl ServiceContext {
     }
 
     pub(crate) fn observe_worker_idle_without_report(&self, tab_id: &str) {
-        let snapshot = {
+        let (general, role, task_binding, parent_tab_id, plan_id) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
             };
-            if tab.role != Some(codeterm_types::agent::AgentRole::Worker)
-                || tab.task_binding.is_none()
-            {
+            if !idle_readiness::idle_observation_ready(
+                tab.launch_session_authenticated(),
+                tab.agent_booting,
+                tab.boot_stage,
+            ) {
                 return;
             }
             (
+                super::general_agent::is_general_agent(tab),
+                tab.role,
+                tab.task_binding.is_some(),
                 tab.parent_tab_id
                     .clone()
                     .or_else(|| tab.spawned_by_tab_id.clone()),
@@ -365,12 +794,18 @@ impl ServiceContext {
                     .and_then(|binding| binding.plan_id.clone()),
             )
         };
-        let parent = snapshot
-            .1
+        if general {
+            self.observe_tab_state(tab_id, ObservationTrigger::WorkerIdle, "general_agent_idle");
+            return;
+        }
+        if role != Some(codeterm_types::agent::AgentRole::Worker) || !task_binding {
+            return;
+        }
+        let parent = plan_id
             .as_deref()
             .and_then(|plan_id| self.plan_store.get(plan_id))
             .and_then(|plan| plan.owner.tab_id)
-            .or(snapshot.0);
+            .or(parent_tab_id);
         let last_turn_output = state::last_output_epoch_seconds(tab_id);
         if parent.as_deref().is_some_and(|parent| {
             self.report_store
@@ -387,222 +822,149 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn spawn_observer<H: ShadowHost>(
-    host: &H,
-    config: &SupporterTabStateConfig,
-    adapter_id: &str,
-    configured_deadline_ms: u64,
-    tab_id: &str,
-    trigger: ObservationTrigger,
-    structural_verdict: &str,
-) -> Option<JoinHandle<Option<ShadowVerdict>>> {
-    if !config.enabled {
-        return None;
-    }
-    let host = host.clone();
-    let tab_id = tab_id.to_owned();
-    let structural_verdict = structural_verdict.to_owned();
-    let options = config.clone();
-    let adapter_id = adapter_id.to_owned();
-    let failed_tab = tab_id.clone();
-    std::thread::Builder::new()
-        .name("tab-state-observer".into())
-        .spawn(move || {
-            observe_guarded(
-                &host,
-                &options,
-                &adapter_id,
-                configured_deadline_ms,
-                &tab_id,
-                trigger,
-                &structural_verdict,
+#[derive(Clone)]
+pub(crate) struct UserDeliveryObservation {
+    pub(crate) tab_id: String,
+    pub(crate) adapter_id: String,
+    adapter: Arc<dyn DecisionModel>,
+    pub(crate) observation_id: u64,
+    pub(super) pty_session_generation: u64,
+    pub(crate) decided_by: identity::DecisionSource,
+    pub(crate) metadata: TabStateMetadata,
+    pub(crate) verdict: ShadowVerdict,
+}
+
+#[derive(Clone)]
+pub(crate) struct UserDeliveryReadiness {
+    observations: [UserDeliveryObservation; 2],
+}
+
+impl UserDeliveryReadiness {
+    pub(crate) fn new(
+        first: UserDeliveryObservation,
+        second: UserDeliveryObservation,
+    ) -> Result<Self, &'static str> {
+        if first.observation_id == second.observation_id {
+            return Err("observations_not_distinct");
+        }
+        let first_local = first
+            .metadata
+            .envelope
+            .as_ref()
+            .and_then(|envelope| envelope.local.as_ref());
+        let second_local = second
+            .metadata
+            .envelope
+            .as_ref()
+            .and_then(|envelope| envelope.local.as_ref());
+        if first.tab_id != second.tab_id
+            || first.adapter_id != second.adapter_id
+            || !Arc::ptr_eq(&first.adapter, &second.adapter)
+            || !user_delivery_pair_has_same_generation(
+                first.observation_id,
+                second.observation_id,
+                first.pty_session_generation,
+                second.pty_session_generation,
+                first_local,
+                second_local,
             )
+        {
+            return Err("observation_generation_changed");
+        }
+        if !first.qualifies() || !second.qualifies() {
+            return Err(first
+                .pending_reason()
+                .or_else(|| second.pending_reason())
+                .unwrap_or("supporter_verdict_not_ready_idle"));
+        }
+        Ok(Self {
+            observations: [first, second],
         })
-        .map_err(|error| {
-            log::debug!("[tab-state] observer thread failed tab={failed_tab}: {error}");
-        })
-        .ok()
+    }
+
+    pub(crate) fn current_observation(&self) -> &UserDeliveryObservation {
+        &self.observations[1]
+    }
 }
 
-fn observe_guarded<H: ShadowHost>(
-    host: &H,
-    config: &SupporterTabStateConfig,
-    adapter_id: &str,
-    configured_deadline_ms: u64,
-    tab_id: &str,
-    trigger: ObservationTrigger,
-    structural_verdict: &str,
-) -> Option<ShadowVerdict> {
-    if !host.token_available(adapter_id) {
-        log::debug!("[tab-state] no usable token; tab={tab_id} observation skipped");
-        return None;
+fn user_delivery_pair_has_same_generation(
+    first_id: u64,
+    second_id: u64,
+    first_pty_session_generation: u64,
+    second_pty_session_generation: u64,
+    first: Option<&identity::LocalIdentity>,
+    second: Option<&identity::LocalIdentity>,
+) -> bool {
+    first_id != second_id
+        && first_pty_session_generation == second_pty_session_generation
+        && first
+            .zip(second)
+            .is_some_and(|(first, second)| first == second)
+}
+
+impl UserDeliveryObservation {
+    pub(crate) fn qualifies(&self) -> bool {
+        user_delivery_verdict_qualifies(
+            self.decided_by,
+            &self.verdict.label,
+            self.verdict.confidence,
+            self.verdict.reported_prompt_visible,
+            self.verdict
+                .input_area
+                .as_ref()
+                .map(|(area, confidence)| (area.as_str(), *confidence)),
+        )
     }
-    let models = host.supporter_models();
-    let Some(model) = choice_model(&models, adapter_id) else {
-        log::debug!("[tab-state] no choice adapter; tab={tab_id} observation skipped");
-        return None;
-    };
-    let deadline =
-        Instant::now() + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
-    let (request, metadata) =
-        match prepare_observation(host, adapter_id, tab_id, trigger, structural_verdict) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
-                return None;
-            }
+
+    pub(crate) fn pending_reason(&self) -> Option<&'static str> {
+        let source_reason = match self.decided_by {
+            identity::DecisionSource::Adapter => None,
+            identity::DecisionSource::NoAdapter => Some("supporter_no_adapter"),
+            identity::DecisionSource::Timeout => Some("supporter_timeout"),
+            identity::DecisionSource::Error(_) => Some("supporter_error"),
+            identity::DecisionSource::Budget => Some("supporter_budget"),
+            identity::DecisionSource::Other => Some("supporter_other"),
+            identity::DecisionSource::LowConfidence => Some("supporter_low_confidence"),
         };
-    let permit = match claim_observation(tab_id, &metadata.session_key, trigger.event()) {
-        Ok(permit) => permit,
-        Err(reason) => {
-            log::debug!("[tab-state] observation skipped tab={tab_id}: {reason:?}");
-            return None;
-        }
-    };
-    observe(
-        host, &model, config, adapter_id, tab_id, trigger, deadline, request, metadata, permit,
-    )
-}
-
-fn observe<H: ShadowHost>(
-    host: &H,
-    model: &Arc<dyn DecisionModel>,
-    config: &SupporterTabStateConfig,
-    adapter_id: &str,
-    tab_id: &str,
-    trigger: ObservationTrigger,
-    deadline: Instant,
-    request: DecisionRequest,
-    metadata: TabStateMetadata,
-    permit: state::ObservationPermit,
-) -> Option<ShadowVerdict> {
-    if !host.token_available(adapter_id) {
-        log::debug!("[tab-state] token expired before choice; observation skipped");
-        return None;
-    }
-    match model
-        .decide(&request, deadline)
-        .map_err(|error| error.to_string())
-        .and_then(chosen_label)
-    {
-        Ok((label, confidence)) => {
-            let mut verdict = ShadowVerdict {
-                label,
-                confidence,
-                action: SignalAction::None,
-            };
-            let spawn_healthy = trigger.is_spawn()
-                && confidence_band(verdict.confidence) == ConfidenceBand::Strong
-                && matches!(verdict.label.as_str(), READY_IDLE | WORKING_NORMALLY);
-            if verdict.label == STILL_STARTING && !trigger.after_startup_deadline() {
-                host.record(&format!(
-                    "[tab-state] suppressed early still_starting tab={tab_id}"
-                ));
-                return Some(verdict);
-            }
-            verdict.action = if spawn_healthy {
-                if !permit_is_current(tab_id, &metadata.session_key, &permit) {
-                    host.record(&format!(
-                        "[tab-state] stale observation discarded tab={tab_id}"
-                    ));
-                    return None;
-                }
-                SignalAction::None
-            } else {
-                let Some(action) = apply_observed_verdict(
-                    tab_id,
-                    &metadata.session_key,
-                    &permit,
-                    &verdict.label,
-                    verdict.confidence,
-                    config.strong_actions,
-                    config.weak_hints,
-                ) else {
-                    host.record(&format!(
-                        "[tab-state] stale observation discarded tab={tab_id}"
-                    ));
-                    return None;
-                };
-                action
-            };
-            if spawn_healthy {
-                host.deliver(
-                    tab_id,
-                    &metadata,
-                    permit.episode,
-                    trigger,
-                    &verdict.label,
-                    verdict.confidence,
-                    SignalAction::SpawnOk,
-                );
-            }
-            if verdict.action != SignalAction::None && !spawn_healthy {
-                host.deliver(
-                    tab_id,
-                    &metadata,
-                    permit.episode,
-                    trigger,
-                    &verdict.label,
-                    verdict.confidence,
-                    verdict.action,
-                );
-            }
-            host.record(&format!(
-                "[tab-state] tab={tab_id} event={} label={} confidence={:.3} episode={} calls_capped={}",
-                trigger.label(),
-                verdict.label,
-                verdict.confidence,
-                permit.episode,
-                CALL_CAP_PER_EPISODE,
-            ));
-            Some(verdict)
-        }
-        Err(error) => {
-            host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
-            None
-        }
+        source_reason
+            .or_else(|| {
+                (self.verdict.label != READY_IDLE).then_some("supporter_verdict_not_ready_idle")
+            })
+            .or_else(|| {
+                (self.verdict.confidence < 0.90).then_some("supporter_confidence_below_threshold")
+            })
+            .or_else(|| {
+                (self.verdict.reported_prompt_visible > 0.10).then_some("supporter_prompt_visible")
+            })
+            .or_else(|| {
+                self.verdict.input_area.as_ref().map_or(
+                    Some("supporter_input_area_unavailable"),
+                    |(area, confidence)| {
+                        if area != "composer" {
+                            Some("supporter_input_area_not_composer")
+                        } else if *confidence < 0.90 {
+                            Some("supporter_input_area_low_confidence")
+                        } else {
+                            None
+                        }
+                    },
+                )
+            })
     }
 }
 
-fn prepare_observation<H: ShadowHost>(
-    host: &H,
-    adapter_id: &str,
-    tab_id: &str,
-    trigger: ObservationTrigger,
-    structural_verdict: &str,
-) -> Result<(DecisionRequest, TabStateMetadata), String> {
-    let screen = {
-        let transport = host.transport(tab_id)?;
-        transport.read_screen(false)?
-    };
-    let text = screen
-        .get("text")
-        .and_then(Value::as_str)
-        .ok_or("screen read returned no text")?;
-    let metadata = host.metadata(tab_id, trigger, structural_verdict, text)?;
-    if !host.token_available(adapter_id) {
-        return Err("decision token is no longer available".into());
-    }
-    let request = DecisionRequest {
-        state: serde_json::json!({
-            "screen": screen_tail(text),
-            "context": metadata.context,
-        }),
-        instructions: INSTRUCTIONS.to_owned(),
-        question: DecisionQuestion::Choice {
-            options: criteria().clone(),
-        },
-    };
-    Ok((request, metadata))
-}
-
-pub(crate) fn choice_model(
-    models: &SupporterRegistry,
-    adapter_id: &str,
-) -> Option<Arc<dyn DecisionModel>> {
-    models
-        .get(adapter_id)
-        .filter(|model| model.primitives().choice)
+fn user_delivery_verdict_qualifies(
+    decided_by: identity::DecisionSource,
+    label: &str,
+    confidence: f64,
+    prompt_visible: f64,
+    input_area: Option<(&str, f64)>,
+) -> bool {
+    decided_by == identity::DecisionSource::Adapter
+        && label == READY_IDLE
+        && confidence >= 0.90
+        && prompt_visible <= 0.10
+        && input_area.is_some_and(|(area, confidence)| area == "composer" && confidence >= 0.90)
 }
 
 pub(crate) fn screen_tail(text: &str) -> String {
@@ -610,23 +972,10 @@ pub(crate) fn screen_tail(text: &str) -> String {
     lines[lines.len().saturating_sub(SCREEN_LINES)..].join("\n")
 }
 
-fn chosen_label(answer: DecisionAnswer) -> Result<(String, f64), String> {
-    let DecisionAnswer::Choice {
-        choice,
-        probabilities,
-        confidence,
-    } = answer
-    else {
-        return Err("decision model answered a non-choice question".into());
-    };
-    if !criteria().contains_key(&choice) {
-        return Err("decision model chose an unknown label".into());
-    }
-    let confidence = confidence
-        .or_else(|| probabilities.get(&choice).copied())
-        .filter(|confidence| confidence.is_finite() && (0.0..=1.0).contains(confidence))
-        .ok_or("decision model gave no usable confidence")?;
-    Ok((choice, confidence))
+pub(crate) fn frame_hash(frame: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    frame.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(test)]

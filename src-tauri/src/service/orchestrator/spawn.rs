@@ -1,8 +1,15 @@
+#[path = "spawn/cwd.rs"]
+mod cwd;
+mod dispatch_rollback;
+use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
+
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
 use super::launch::{launch_agent_in_background_with_task_turn, skip_local_worker_role};
-use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
+use super::prompt_compose::{
+    agent_system_prompt, role_onboarding_task, spawn_launch_task_for_provider,
+};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::general_agent::{
@@ -114,56 +121,6 @@ fn build_or_refuse_orchestrated_launch_command(
     Ok(launch_cmd)
 }
 
-fn revert_task_dispatch_after_launch_failure(
-    service: &ServiceContext,
-    params: &SpawnAgentParams,
-    failure: &str,
-) -> String {
-    let Some(task_ref) = crate::service::spawn_plan_task::worker_spawn_plan_task_ref(params) else {
-        return failure.to_string();
-    };
-    let resolved = match service
-        .plan_store
-        .resolve_task_ref(params.plan_id.as_deref(), task_ref)
-    {
-        Ok(resolved) => resolved,
-        Err(error) => {
-            return format!(
-                "{failure}; task dispatch rollback target could not be resolved: {error}"
-            )
-        }
-    };
-    match service.plan_store.revert_task_dispatch(
-        &resolved.plan_id,
-        &resolved.task_id,
-        crate::service::wall_now_ms(),
-    ) {
-        Ok(()) => {
-            service.emit_plan_changed(&resolved.plan_id);
-            failure.to_string()
-        }
-        Err(error) => format!("{failure}; task dispatch rollback failed: {error}"),
-    }
-}
-
-fn create_pending_delivery_or_rollback_dispatch(
-    service: &ServiceContext,
-    params: &SpawnAgentParams,
-    tab_id: &str,
-    spec: &crate::service::launch_delivery::FallbackDeliverySpec,
-) -> Result<(), String> {
-    let Err(error) = service.create_pending_delivery(tab_id, spec.channel.clone(), &spec.payload)
-    else {
-        return Ok(());
-    };
-    let failure = revert_task_dispatch_after_launch_failure(service, params, &error.to_string());
-    Err(service.rollback_failed_agent_spawn_if_created(
-        tab_id,
-        &failure,
-        params.existing_tab_id.is_none(),
-    ))
-}
-
 fn planner_startup_payload(
     system_prompt_capable: bool,
     manager_prompt: Option<String>,
@@ -200,55 +157,6 @@ fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<St
 }
 
 impl ServiceContext {
-    pub(crate) fn normalize_resolved_agent_cwd(path: &str) -> String {
-        codeterm_paths::strip_verbatim_prefix(path)
-    }
-
-    /// Resolve agent cwd against workspace cwd:
-    /// - If no cwd specified → inherit from workspace
-    /// - If cwd differs from workspace → return warning
-    /// - If nothing is specified → pin the daemon's own cwd, the dir the PTY
-    ///   would inherit anyway. Leaving it `None` desyncs the tab record from
-    ///   where the agent actually runs, so provider session-file resolution
-    ///   (`~/.claude/projects/<encoded-cwd>/<sid>.jsonl`) looks in the wrong
-    ///   dir and the chat pipeline reads empty.
-    pub(crate) fn resolve_agent_cwd(
-        agent_cwd: &Option<String>,
-        workspace_cwd: &Option<String>,
-    ) -> (Option<String>, Option<String>) {
-        let agent_cwd = agent_cwd.as_deref().map(Self::normalize_resolved_agent_cwd);
-        let workspace_cwd = workspace_cwd
-            .as_deref()
-            .map(Self::normalize_resolved_agent_cwd);
-        match (agent_cwd.as_deref(), workspace_cwd.as_deref()) {
-            (None, Some(ws_cwd)) => {
-                log::info!("[spawn] agent cwd inherited from workspace: {}", ws_cwd);
-                (Some(ws_cwd.to_string()), None)
-            }
-            (Some(agent_dir), Some(ws_dir)) if !Self::paths_equal(agent_dir, ws_dir) => {
-                let warning = format!(
-                    "Agent cwd '{}' differs from workspace cwd '{}'. \
-                     The agent will run in '{}', but the workspace is at '{}'.",
-                    agent_dir, ws_dir, agent_dir, ws_dir
-                );
-                log::warn!("[spawn] {}", warning);
-                (Some(agent_dir.to_string()), Some(warning))
-            }
-            (Some(dir), _) => (Some(dir.to_string()), None),
-            (None, None) => (
-                std::env::current_dir()
-                    .ok()
-                    .and_then(|p| p.to_str().map(Self::normalize_resolved_agent_cwd)),
-                None,
-            ),
-        }
-    }
-
-    /// Compare paths ignoring Windows verbatim prefixes, trailing slashes, and case on Windows.
-    pub(crate) fn paths_equal(a: &str, b: &str) -> bool {
-        codeterm_paths::paths_equal(a, b)
-    }
-
     /// Legacy wrapper for callers still on `SpawnAgentParams` (CLI/REST/batch/cron/socket).
     pub fn spawn_agent_sync(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
         self.spawn_agent_sync_with_ready(params, None)
@@ -295,6 +203,7 @@ impl ServiceContext {
             .clone()
             .unwrap_or_else(crate::config::default_agent_provider);
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
+        self.apply_model_preset(&agent, &mut params)?;
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
@@ -399,6 +308,16 @@ impl ServiceContext {
             .clone()
             .unwrap_or_else(|| default_provider.clone());
         self.move_chatbackend_task_to_system_prompt(&agent_cmd, &mut params)?;
+        {
+            let svc = self.clone();
+            let provider = agent_cmd.clone();
+            params = tokio::task::spawn_blocking(move || {
+                svc.apply_model_preset(&provider, &mut params)?;
+                Ok::<_, String>(params)
+            })
+            .await
+            .map_err(|_| "preset resolution worker failed")??;
+        }
         let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
         let tab_created_by_spawn = params.existing_tab_id.is_none();
         if is_shell {
@@ -509,6 +428,16 @@ impl ServiceContext {
             model_resolution.warning.clone(),
         );
         params.cwd = resolved_cwd;
+        {
+            let service = self.clone();
+            let provider = agent_cmd.clone();
+            params = tokio::task::spawn_blocking(move || {
+                crate::service::context_bundle::prepare(&service, &provider, &mut params)?;
+                Ok::<_, String>(params)
+            })
+            .await
+            .map_err(|error| format!("context preparation failed: {error}"))??;
+        }
 
         let default_chat_view = crate::service::spawn::should_default_agent_tab_to_chat(
             crate::service::spawn::TabVisibility::Visible,
@@ -579,6 +508,12 @@ impl ServiceContext {
             }
             result
         };
+        self.set_and_lock_tab_agent_type_from(
+            &tab_id,
+            agent_cmd.to_string(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            params.creator_tab_id.as_deref(),
+        );
         if emit_state_change {
             self.emit_state_changed();
         }
@@ -672,14 +607,6 @@ impl ServiceContext {
             }
         }
 
-        // Pin agent_type before launch so detect_from_output can start session-id polling.
-        // Without this tag, restarts can lose session_id and resume fails silently.
-        self.set_and_lock_tab_agent_type_from(
-            &tab_id,
-            agent_cmd.to_string(),
-            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
-            params.creator_tab_id.as_deref(),
-        );
         let task_identity = params.task_launch_authority.as_ref().map(|authority| {
             crate::service::startup_lease::StartupTaskIdentity {
                 plan_id: authority.plan_id.clone(),
@@ -733,7 +660,11 @@ impl ServiceContext {
         } else {
             None
         };
-        if let Some(ref sid) = params.resume_session_id {
+        if params.fork_session {
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.fork_source_session_id = params.resume_session_id.clone();
+            }
+        } else if let Some(ref sid) = params.resume_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
@@ -767,9 +698,33 @@ impl ServiceContext {
             prepare_standard_starter_prompt(&mut params);
             None
         };
-        apply_startup_handshake(&mut params, startup_supervised);
+        if !self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| provider.is_tool_less())
+            .unwrap_or(false)
+        {
+            apply_startup_handshake(&mut params, startup_supervised);
+        }
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
+        let input_provider = self.agent_registry.provider_arc(&agent_cmd);
+        let spawn_input = {
+            let handshake = (params.starter_prompt
+                == crate::agent::provider::StarterPrompt::StartupHandshake)
+                .then_some(params.starter_prompt);
+            crate::service::launch_delivery::prepare_spawn_input(
+                input_provider.as_deref(),
+                params.role.as_deref(),
+                params.task.as_deref(),
+                params.starter_prompt,
+                handshake,
+                |task| {
+                    self.spawn_task_message(&tab_id, task)
+                        .unwrap_or_else(|| task.to_string())
+                },
+            )
+        };
+        params.starter_prompt = spawn_input.starter_prompt;
         let bg_task = if params.manager_bootstrap.is_some() {
             if system_prompt_capable {
                 Some(agent_system_prompt(params.task.as_deref()))
@@ -777,7 +732,13 @@ impl ServiceContext {
                 params.task.clone()
             }
         } else {
-            spawn_launch_task(&params, system_prompt_capable)
+            let mut launch_params = params.clone();
+            launch_params.task = spawn_input.provider_task.map(str::to_string);
+            spawn_launch_task_for_provider(
+                &self.agent_registry,
+                &launch_params,
+                system_prompt_capable,
+            )
         };
         // Planner gets a short display hint plus its full onboarding as launch input.
         let is_planner = params.role_kind() == Some(builtins::PLANNER);
@@ -812,10 +773,7 @@ impl ServiceContext {
         let bg_task = if is_planner || is_orch_onboarding {
             bg_task
         } else {
-            bg_task.map(|t| match self.spawn_task_prefix(&tab_id) {
-                Some(pfx) => format!("{}{}", pfx, t),
-                None => t,
-            })
+            bg_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task))
         };
         crate::service::restored_launch::capture_tab_launch_parameters(
             &self.mux,
@@ -843,36 +801,16 @@ impl ServiceContext {
             launch_session_id.as_deref(),
         )?;
         self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id)?;
-        let fallback_delivery = self
-            .agent_registry
-            .with_provider(&agent_cmd, |provider| {
-                let external = matches!(
-                    crate::service::launch_delivery::mode_for_descriptor(
-                        &provider.system_prompt_delivery(),
-                    ),
-                    crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                );
-                external
-                    && matches!(
-                        provider.task_delivery(),
-                        crate::agent::provider::TaskDelivery::PtyInput
-                    )
-            })
-            .unwrap_or(true);
-        let fallback_spec = fallback_delivery
-            .then(|| {
-                crate::service::launch_delivery::fallback_delivery_spec(
-                    fallback_bootstrap.as_deref(),
-                    bg_task.as_deref(),
-                    self.agent_registry
-                        .with_provider(&agent_cmd, |provider| {
-                            provider.starter_prompt_text(params.starter_prompt)
-                        })
-                        .flatten()
-                        .as_deref(),
-                )
-            })
-            .flatten();
+        let fallback_spec = spawn_input.fallback_spec(
+            fallback_bootstrap.as_deref(),
+            bg_task.as_deref(),
+            self.agent_registry
+                .with_provider(&agent_cmd, |provider| {
+                    provider.starter_prompt_text(params.starter_prompt)
+                })
+                .flatten()
+                .as_deref(),
+        );
         if let Some(spec) = fallback_spec.as_ref() {
             create_pending_delivery_or_rollback_dispatch(self, &params, &tab_id, spec)?;
         }
@@ -883,7 +821,7 @@ impl ServiceContext {
             fallback_spec.as_ref(),
             bg_task.as_deref(),
             true,
-            None,
+            spawn_input.confirmed_first_turn.as_deref(),
         );
         launch_agent_in_background_with_task_turn(
             self.clone(),
@@ -1068,29 +1006,21 @@ impl ServiceContext {
         }
     }
 
-    /// Origin prefix for a spawned agent's first task, derived from the target tab's recorded spawner (spawned_by/parent) — same canonical attribution as cross-tab sends. None for raw spawns (no spawner).
-    pub(crate) fn spawn_task_prefix(&self, target_tab: &str) -> Option<String> {
-        let mux = self.mux.write();
-        let src = mux.get_tab(target_tab).and_then(|p| {
-            p.spawned_by_tab_id
-                .clone()
-                .or_else(|| p.parent_tab_id.clone())
-        })?;
-        if src.is_empty() {
-            return None;
+    /// Origin frame for a spawned agent's first task, derived from its recorded spawner.
+    pub(crate) fn spawn_task_message(&self, target_tab: &str, body: &str) -> Option<String> {
+        if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
+            crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
-        let label = mux.display_label_for_tab(&src);
-        let model = mux
-            .get_tab(&src)
-            .and_then(|p| p.agent_session_model.clone());
-        crate::service::messenger::delivery_prefix(
-            true,
-            &src,
+        let (text, pending) = self.reply_relays.spawn_task_message(
+            &self.mux.read(),
+            &self.agent_registry,
             target_tab,
-            &label,
-            model.as_deref(),
-            None,
-        )
+            body,
+        )?;
+        if let Some(pending) = pending {
+            self.trace_spawn_reply_relay(target_tab, &pending);
+        }
+        Some(text)
     }
 }
 

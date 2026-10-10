@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Sparkles } from "lucide-react";
+import { RefreshCw, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
 import { Button } from "../shared/Button";
-import { FormRow } from "../shared/FormRow";
-import { AboutLink, InlineLinkButton, SettingsCard, SettingsPill, Toggle } from "./shared";
-import { type SupporterAdapter, useDecisionToken } from "./useDecisionToken";
-
-const DOCS_URL = "https://docs.typesafe.ai";
+import { InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
+import {
+  SupporterSpendLine,
+  SupporterSpendSummary,
+  supporterActivity,
+  supporterIsPriced,
+} from "./SupporterSpendPanel";
+import { SupporterConnectionRow } from "./SupporterConnectionRow";
+import { SupporterConnectPanel } from "./SupporterConnectPanel";
+import { useDecisionToken, type SupporterConnection, type SupporterStatus } from "./useDecisionToken";
 
 interface Props {
   apiBase: string;
@@ -14,181 +19,246 @@ interface Props {
   onOpenGuide: (section: HelpSectionId) => void;
 }
 
-interface ModelCatalog {
-  adapters: SupporterAdapter[];
-}
-
-function stateLabel(state: string | undefined, loading: boolean, failed: boolean): string {
-  if (loading) return "Checking status";
-  if (failed) return "Status unavailable";
-  switch (state) {
-    case "active": return "Active";
-    case "token_only": return "Token set, all features off";
-    case "token_unusable": return "Token file needs attention";
-    case "feature_without_token": return "Feature on, no token";
-    case "adapter_unavailable": return "Adapter unavailable";
-    case "no_token": return "No token";
-    default: return "Status unavailable";
+function readiness(status: SupporterStatus, selected: SupporterConnection) {
+  if (status.state === "budget_reached" || status.budget.reached || status.spend.exhausted) return "Budget exhausted";
+  if (status.state === "credit_exhausted") return "Credit exhausted";
+  if (status.state === "no_token") return "Token required";
+  if (status.state === "token_unusable") return "Token needs repair";
+  if (status.state === "adapter_unavailable") return "Adapter unavailable";
+  if (selected.error?.code === "no_token") return "Token required";
+  if (selected.error?.code === "token_unusable" || selected.error?.code === "authentication_failed") {
+    return "Token needs repair";
   }
-}
-
-function stateTone(state: string | undefined): "green" | "amber" | "accent" | "muted" {
-  if (state === "active") return "green";
-  if (state === "token_only") return "accent";
-  if (state === "no_token") return "muted";
-  if (state === "feature_without_token" || state === "token_unusable" || state === "adapter_unavailable") return "amber";
-  return "muted";
-}
-
-function featureState(value: boolean | undefined): string {
-  return value ? "On" : "Off";
+  if (selected.token_mode === "required" && !selected.token.present) return "Token required";
+  if (selected.token_mode === "required" && selected.token.mode_ok === false) return "Token needs repair";
+  if (selected.token_mode === "required" && selected.token.mode_ok !== true) return "Token status unknown";
+  if (!selected.token_mode) return "Availability unknown";
+  if (status.state === "not_connected" || !status.connected) return "Disconnected";
+  if (status.state === "active") return "Ready";
+  return "Availability unknown";
 }
 
 export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) {
-  const token = useDecisionToken(apiBase, apiHeaders);
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
-  const [catalogFailed, setCatalogFailed] = useState(false);
-  const headersRef = useRef(apiHeaders);
-  headersRef.current = apiHeaders;
-
+  const controls = useDecisionToken(apiBase, apiHeaders);
+  const [connecting, setConnecting] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
+  const [focusAdapter, setFocusAdapter] = useState<string | null>(null);
+  const [focusAdd, setFocusAdd] = useState(false);
+  const [reconciling, setReconciling] = useState<
+    Record<string, { name: string; active: boolean; adapter: string | null; model: string | null }>
+  >({});
+  const host = useRef<HTMLDivElement>(null);
+  const add = useRef<HTMLDivElement>(null);
+  const status = controls.status;
+  const rows = status?.connections ?? [];
+  const selected = status?.adapter
+    ? rows.find((row) => row.adapter === status.adapter && row.active && row.model === status.model) ?? null
+    : null;
+  const orderedRows = selected ? [selected, ...rows.filter((row) => row.adapter !== selected.adapter)] : rows;
+  const available = controls.catalog.filter((adapter) => !rows.some((row) => row.adapter === adapter.id));
+  const nameFor = (row: SupporterConnection) =>
+    row.metadata?.display_name ??
+    controls.catalog.find((adapter) => adapter.id === row.adapter)?.metadata?.display_name ??
+    row.adapter;
+  const selectionLabel = (adapterId: string, modelId: string | null) => {
+    const adapter = controls.catalog.find((entry) => entry.id === adapterId);
+    const name = adapter?.metadata?.display_name ?? adapterId;
+    const model = adapter?.models.find((entry) => entry.id === modelId)?.display_name ?? modelId ?? "Model not reported";
+    return `${name} · ${model}`;
+  };
+  const focusAfterRemoval = (removedAdapter: string, selectedAdapter: string | null) => {
+    const survivor =
+      (selectedAdapter && selectedAdapter !== removedAdapter ? selectedAdapter : null) ??
+      rows.find((row) => row.adapter !== removedAdapter)?.adapter;
+    if (survivor) setFocusAdapter(survivor);
+    else {
+      setConnecting(false);
+      setFocusAdd(true);
+    }
+  };
   useEffect(() => {
-    let current = true;
-    fetch(`${apiBase}/api/supporter/models`, { headers: headersRef.current })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json() as ModelCatalog;
-      })
-      .then((next) => {
-        if (current) {
-          setCatalog(next);
-          setCatalogFailed(false);
-        }
-      })
-      .catch(() => {
-        if (current) setCatalogFailed(true);
-      });
-    return () => { current = false; };
-  }, [apiBase]);
-
-  const status = token.status;
-  const selectedAdapter = status?.adapter ?? "";
-  const selectedModel = status?.model ?? "";
-  const adapters = catalog?.adapters ?? [];
-  const selected = adapters.find((adapter) => adapter.id === selectedAdapter);
-  const modelOptions = selected?.models ?? [];
-  const statusText = stateLabel(status?.state, !status && !token.statusFailed, token.statusFailed);
-  const hasToken = status?.token.present === true;
-
+    if (!focusAdapter) return;
+    const row = Array.from(host.current?.querySelectorAll<HTMLElement>("[data-adapter]") ?? []).find(
+      (row) => row.dataset.adapter === focusAdapter,
+    );
+    if (row) {
+      row.focus();
+      setFocusAdapter(null);
+    }
+  }, [focusAdapter, status]);
+  useEffect(() => {
+    if (focusAdd && !connecting) {
+      add.current?.querySelector("button")?.focus();
+      setFocusAdd(false);
+    }
+  }, [focusAdd, connecting]);
+  useEffect(() => {
+    if (!status || controls.statusFailed || !Object.keys(reconciling).length) return;
+    const confirmedRemoval = Object.entries(reconciling).find(
+      ([adapter]) => !status.connections.some((row) => row.adapter === adapter),
+    );
+    setReconciling({});
+    if (!confirmedRemoval) return;
+    const [removedAdapter, removed] = confirmedRemoval;
+    const selectionUnchanged = status.adapter === removed.adapter && status.model === removed.model;
+    const selection = status.adapter ? selectionLabel(status.adapter, status.model) : null;
+    setAnnouncement(
+      removed.active && !status.adapter
+        ? `${removed.name} removed. The Spinal Cord stopped with no automatic fallback.`
+        : selectionUnchanged
+          ? `${removed.name} removed. The current Spinal Cord is unchanged.`
+          : `${removed.name} removed. Current Spinal Cord: ${selection ?? "none selected"}.`,
+    );
+    focusAfterRemoval(removedAdapter, status.adapter);
+  }, [status, controls.statusFailed, reconciling, rows, selectionLabel, focusAfterRemoval]);
+  const finish = (adapter?: string, active?: boolean) => {
+    setConnecting(false);
+    if (adapter) {
+      setFocusAdapter(adapter);
+      const connection = controls.status?.connections.find((row) => row.adapter === adapter);
+      const name =
+        connection ? nameFor(connection) : controls.catalog.find((entry) => entry.id === adapter)?.metadata?.display_name ?? adapter;
+      setAnnouncement(
+        active
+          ? `${name} is active. Previous connections are saved.`
+          : `${name} saved, not active. Retry activation from its connection menu.`,
+      );
+    } else add.current?.querySelector("button")?.focus();
+  };
+  const disabled = controls.busy || controls.statusFailed;
+  const currentReadiness = !status
+    ? "Availability unknown"
+    : !status.adapter
+      ? "Stopped"
+      : selected
+        ? readiness(status, selected)
+        : "Selection unknown";
+  const overall = controls.statusFailed
+    ? status
+      ? "Status stale"
+      : "Status unavailable"
+    : !status
+      ? "Checking status"
+      : currentReadiness;
   return (
     <SettingsCard
       icon={<Sparkles size={16} />}
-      title="Supporter Agent"
-      headerRight={<SettingsPill tone={stateTone(status?.state)}>{statusText}</SettingsPill>}
-      description="The Supporter Agent helps CodeTerm find useful memory and read an agent tab's state."
+      title="Spinal Cord"
+      headerRight={
+        <div className="flex items-center gap-1.5">
+          <SettingsPill tone={controls.statusFailed ? "amber" : currentReadiness === "Ready" ? "green" : "muted"}>
+            {overall}
+          </SettingsPill>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="!h-7 !w-7 !min-h-7 !p-0"
+            disabled={controls.busy}
+            onClick={() => void controls.refreshStatus()}
+            aria-label="Refresh Spinal Cord status and models"
+            title="Refresh Spinal Cord status and models"
+          >
+            <RefreshCw size={13} aria-hidden="true" />
+          </Button>
+        </div>
+      }
+      description="Helps Domios pick useful memory and read what an agent tab is doing."
     >
-      <div className="flex flex-col gap-2" data-testid="supporter-agent-status" role="status" aria-label="Supporter Agent status">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--ct-muted-fg)]">
-          <span data-testid="supporter-agent-overall-status">{statusText}</span>
-          <span data-testid="supporter-agent-token-state">{hasToken ? "Token set" : status ? "No token" : "Token status unknown"}</span>
-          <span data-testid="supporter-agent-selection">{selectedAdapter || "No adapter"}{selectedModel ? ` · ${selectedModel}` : ""}</span>
-          {status && <span>Deadline {status.deadline_ms} ms</span>}
-        </div>
-        {token.statusFailed && <p data-testid="supporter-agent-status-failed">Supporter Agent status is unavailable.</p>}
-        {token.modeWarning && <p data-testid="supporter-agent-mode-warning">The token file permissions are not owner-only.</p>}
-        {token.adapterMissing && <p data-testid="supporter-agent-adapter-missing">The selected adapter is not registered in this build.</p>}
-        {catalogFailed && <p data-testid="supporter-agent-models-failed">Available models could not be loaded.</p>}
-        {token.error && <p role="alert" data-testid="supporter-agent-error">{token.error}</p>}
-      </div>
-
-      <div className="flex flex-col gap-2" data-testid="supporter-agent-features">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[var(--ct-fg)]">Memory re-rank</span>
-            <SettingsPill tone={status?.features.memory_rerank ? "green" : "muted"}>
-              {featureState(status?.features.memory_rerank)}
-            </SettingsPill>
+      <div ref={host} className="flex flex-col gap-2">
+        <p role="status" aria-live="polite" className="sr-only">
+          {announcement}
+        </p>
+        {controls.statusFailed && (
+          <p role="alert">Status is unavailable. Saved rows may be stale; refresh before making changes.</p>
+        )}
+        {controls.catalogFailed && <p role="alert">The model catalogue is unavailable. Refresh to choose a model.</p>}
+        {status?.adapter && !selected ? (
+          <p role="alert">The selected connection could not be verified. Refresh status before making changes.</p>
+        ) : null}
+        {!selected && status && !status.adapter && (
+          <p className="text-xs text-[var(--ct-muted-fg)]">
+            {controls.statusFailed
+              ? "Last-known selection: none. Refresh status before relying on this state."
+              : "The Spinal Cord is stopped. Deterministic behavior is available."}
+          </p>
+        )}
+        <section aria-label="Spinal Cord connections" className="ct-rows -mx-2">
+          {orderedRows.length ? (
+            orderedRows.map((row) => {
+              const selectedReadiness = selected?.adapter === row.adapter && status ? readiness(status, row) : null;
+              return (
+                <SupporterConnectionRow
+                  key={row.adapter}
+                  row={row}
+                  controls={controls}
+                  stale={controls.statusFailed}
+                  unavailableReason={selectedReadiness && selectedReadiness !== "Ready" ? selectedReadiness : undefined}
+                  removed={(selection) => {
+                    const unchanged = selection?.adapter === status?.adapter && selection?.model === status?.model;
+                    const current = selection?.adapter ? selectionLabel(selection.adapter, selection.model) : null;
+                    setAnnouncement(
+                      row.active && !selection?.adapter
+                        ? `${nameFor(row)} removed. The Spinal Cord stopped with no automatic fallback.`
+                        : unchanged
+                          ? `${nameFor(row)} removed. The current Spinal Cord is unchanged.`
+                          : `${nameFor(row)} removed. Current Spinal Cord: ${current ?? "none selected"}.`,
+                    );
+                    focusAfterRemoval(row.adapter, selection?.adapter ?? null);
+                  }}
+                  unconfirmedRemoval={() =>
+                    setReconciling((old) => ({
+                      ...old,
+                      [row.adapter]: {
+                        name: nameFor(row),
+                        active: row.active,
+                        adapter: status?.adapter ?? null,
+                        model: status?.model ?? null,
+                      },
+                    }))
+                  }
+                >
+                  {selected?.adapter === row.adapter && status && (
+                    <>
+                      <span role="status" aria-label="Spinal Cord activity" title={supporterActivity(status.calls_last_hour, status.calls_last_day).title}>
+                        {supporterActivity(status.calls_last_hour, status.calls_last_day).text}
+                      </span>
+                      {supporterIsPriced(row.pricing) && <SupporterSpendSummary spend={status.spend} />}
+                      {supporterIsPriced(row.pricing) && (status.spend.exhausted || !status.spend.storage_ready) && (
+                        <SupporterSpendLine spend={status.spend} />
+                      )}
+                    </>
+                  )}
+                </SupporterConnectionRow>
+              );
+            })
+          ) : (
+            <p className="py-2 text-xs text-[var(--ct-muted-fg)]">No saved connections.</p>
+          )}
+        </section>
+        {connecting ? (
+          <SupporterConnectPanel adapters={available} busy={disabled} connect={controls.connect} finish={finish} />
+        ) : (
+          <div ref={add}>
+            <InlineLinkButton
+              label="+ Connect another adapter"
+              onClick={() => setConnecting(true)}
+              disabled={disabled || !status || controls.catalogFailed}
+              testId="supporter-agent-connect-link"
+            />
           </div>
-          <Toggle
-            label="Memory re-rank"
-            checked={status?.features.memory_rerank ?? false}
-            onChange={(enabled) => void token.setFeature("memory_rerank", enabled)}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[var(--ct-fg)]">Tab-state</span>
-            <SettingsPill tone={status?.features.tab_state ? "green" : "muted"}>
-              {featureState(status?.features.tab_state)}
-            </SettingsPill>
-          </div>
-          <Toggle
-            label="Tab-state"
-            checked={status?.features.tab_state ?? false}
-            onChange={(enabled) => void token.setFeature("tab_state", enabled)}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="supporter-agent-model-selection">
-        <FormRow label="Adapter" htmlFor="supporter-agent-adapter">
-          <select
-            id="supporter-agent-adapter"
-            aria-label="Supporter Agent adapter"
-            value={selectedAdapter}
-            disabled={!adapters.length || token.busy}
-            onChange={(event) => void token.select(event.target.value)}
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-            data-testid="supporter-agent-adapter-picker"
-          >
-            {adapters.map((adapter) => <option key={adapter.id} value={adapter.id}>{adapter.id}</option>)}
-          </select>
-        </FormRow>
-        <FormRow label="Model" htmlFor="supporter-agent-model">
-          <select
-            id="supporter-agent-model"
-            aria-label="Supporter Agent model"
-            value={selectedModel}
-            disabled={!modelOptions.length || token.busy}
-            onChange={(event) => void token.select(selectedAdapter, event.target.value)}
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-            data-testid="supporter-agent-model-picker"
-          >
-            {modelOptions.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}
-          </select>
-        </FormRow>
-      </div>
-
-      <form onSubmit={token.saveToken} className="flex flex-col gap-2" data-testid="supporter-agent-token-form">
-        <FormRow
-          label={hasToken ? "Replace token" : "API token"}
-          htmlFor="supporter-agent-token-input"
-          hint="Write-only. The token is sent to the local daemon and never shown again."
-        >
-          <input
-            id="supporter-agent-token-input"
-            ref={token.tokenRef}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            defaultValue=""
-            aria-label={hasToken ? "Replace token" : "API token"}
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-            data-testid="supporter-agent-token-input"
-          />
-        </FormRow>
-        <div className="flex items-center gap-2">
-          <Button type="submit" variant="accent" size="sm" disabled={token.busy} data-testid="supporter-agent-token-save">
-            {hasToken ? "Replace token" : "Save token"}
-          </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={!hasToken || token.busy} onClick={() => void token.clearToken()} data-testid="supporter-agent-token-clear">
-            Clear token
-          </Button>
-        </div>
-      </form>
-
-      <div className="flex flex-wrap items-center gap-4" data-testid="supporter-agent-help">
-        <InlineLinkButton label="How it works" onClick={() => onOpenGuide("supporter-agent")} testId="supporter-agent-guide-link" />
-        <AboutLink href={DOCS_URL} label="TypeSafe docs" Icon={ExternalLink} />
+        )}
+        {Object.entries(controls.errors)
+          .filter(([adapter]) => !rows.some((row) => row.adapter === adapter))
+          .map(([adapter, error]) => (
+            <p key={adapter} role="alert">
+              {error.message}
+            </p>
+          ))}
+        <InlineLinkButton
+          label="How it works"
+          onClick={() => onOpenGuide("supporter-agent")}
+          testId="supporter-agent-guide-link"
+        />
       </div>
     </SettingsCard>
   );

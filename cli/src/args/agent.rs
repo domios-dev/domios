@@ -82,7 +82,7 @@ pub struct ReportArgs {
     /// Task id to append this report to (if available)
     #[arg(long, env = "CODETERM_TASK_ID")]
     pub task: Option<String>,
-    /// Task outcome: in_review | blocked | partial | done
+    /// Report outcome: in_review | blocked (proposes a task block) | partial | done
     #[arg(long)]
     pub status: Option<ReportStatusArg>,
     /// Git branch the work landed on
@@ -117,6 +117,19 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Read completed turns from a tool-less agent's exact bound session
+    Turns {
+        #[arg(long, value_name = "TAB")]
+        tab: String,
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u16).range(1..=50))]
+        last: u16,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "UTF-8 user-record lower bound; use next_offset to continue a bounded window"
+        )]
+        after: u64,
+    },
     /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
@@ -191,7 +204,16 @@ pub enum AgentAction {
         /// Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
-        /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
+        /// Relaunch with this installed PTY provider instead of the current provider.
+        #[arg(long, value_name = "PROVIDER")]
+        provider: Option<String>,
+        /// Include bounded, redacted history in a provider-changing fresh launch.
+        #[arg(long, requires = "provider")]
+        handoff_history: bool,
+        /// Start a new session in the same tab. Live agents require --force; an existing exact restored session is never replaced.
+        #[arg(long, conflicts_with_all = ["provider", "handoff_history"])]
+        fresh: bool,
+        /// Skip graceful exit and force-kill; also permits --fresh on a live agent.
         #[arg(long)]
         force: bool,
         /// Wait this long for graceful exit before force-killing (seconds)
@@ -200,6 +222,9 @@ pub enum AgentAction {
     },
     /// Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`.
     Model {
+        /// Explicitly override the background-work restart guard and report the affected work.
+        #[arg(long)]
+        force: bool,
         /// Model id. Run `agent models PROVIDER` to list.
         name: String,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
@@ -209,6 +234,16 @@ pub enum AgentAction {
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
     Providers,
+    /// Open a new tab from a provider-declared session fork; bind only from its own session evidence.
+    Fork {
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
+    /// Inspect or manage a provider's CLI using its manifest commands.
+    Cli {
+        #[command(subcommand)]
+        action: ProviderCliAction,
+    },
     /// List available models for a specific provider.
     Models {
         /// Provider id (e.g. "claude"). Required.
@@ -273,7 +308,7 @@ pub enum AgentAction {
         /// caller. Content remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
-        /// Extra provider args. Put this after all CodeTerm spawn options.
+        /// Extra provider args. Put this after all Domios spawn options.
         #[arg(long, num_args = 1.., allow_hyphen_values = true)]
         args: Option<Vec<String>>,
         /// Target workspace ID. Defaults to the parent tab's workspace, then your
@@ -295,7 +330,7 @@ pub enum AgentAction {
         /// Override the shell system prompt of a chatBackend shell; refused for PTY agents.
         #[arg(long = "system", allow_hyphen_values = true)]
         system_prompt: Option<String>,
-        /// Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents.
+        /// Select a provider-owned preset supported by the target provider.
         #[arg(long)]
         preset: Option<String>,
         /// Watcher charter text.
@@ -357,6 +392,50 @@ pub enum AgentAction {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn agent_fork_and_model_force_parse() {
+        let fork = Cli::try_parse_from(["codeterm", "agent", "fork", "--tab", "fixture"]).unwrap();
+        assert!(
+            matches!(fork.command,crate::Commands::Agent{action:AgentAction::Fork{tab:Some(tab)}} if tab=="fixture")
+        );
+        let switch = Cli::try_parse_from([
+            "codeterm", "agent", "model", "--tab", "fixture", "opus", "--force",
+        ])
+        .unwrap();
+        assert!(matches!(
+            switch.command,
+            crate::Commands::Agent {
+                action: AgentAction::Model { force: true, .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn agent_turns_parses_bounded_window_and_rejects_invalid_limits() {
+        let cli = Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "2", "--after", "101",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            crate::Commands::Agent {
+                action: AgentAction::Turns {
+                    last: 2,
+                    after: 101,
+                    ..
+                }
+            }
+        ));
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
+        ])
+        .is_err());
+    }
+
     use super::*;
     use crate::Cli;
     use clap::{CommandFactory, Parser};
@@ -583,7 +662,12 @@ mod tests {
     #[test]
     fn spawn_watcher_role_maps_to_manager_profile() {
         let cli = Cli::try_parse_from([
-            "codeterm", "agent", "spawn", "lmstudio", "--role", "Watcher",
+            "codeterm",
+            "agent",
+            "spawn",
+            "fixture-backend",
+            "--role",
+            "Watcher",
         ])
         .expect("watcher role parses");
         match cli.command {
@@ -894,4 +978,14 @@ mod tests {
         assert!(help.contains("workers"), "{help}");
         assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
     }
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub enum ProviderCliAction {
+    /// Show installed state, resolved binary, and commands for this OS.
+    Status { provider: String },
+    /// Run the manifest installer in a visible utility tab and report its result.
+    Install { provider: String },
+    /// Run the manifest updater in a visible utility tab and report its result.
+    Update { provider: String },
 }

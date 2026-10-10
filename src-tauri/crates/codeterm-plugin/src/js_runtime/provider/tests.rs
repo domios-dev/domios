@@ -7,6 +7,8 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
 
+mod live_model_command;
+
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
     let mut m: PluginManifest = serde_json::from_str(manifest_json).expect("parse manifest");
     m.source_path = Some(PathBuf::from("/tmp/test-plugin/plugin.json"));
@@ -44,16 +46,16 @@ fn session_ownership_uses_only_provider_declared_records() {
         "module.exports.default = {{ sessionFilePath(cwd, id) {{ return id === 'owned' ? {path_json} : null; }} }};"
     );
     let provider = load(MIN_MANIFEST, &script);
-    assert!(provider.session_exists("/work", "owned"));
-    assert!(!provider.session_exists("/work", "foreign"));
+    assert!(provider.session_exists("/work", "owned") == Some(true));
+    assert!(provider.session_exists("/work", "foreign") != Some(true));
     let undeclared = load(MIN_MANIFEST, "module.exports.default = {};");
-    assert!(!undeclared.session_exists("/work", "owned"));
+    assert!(undeclared.session_exists("/work", "owned") != Some(true));
     let indexed = load(
         MIN_MANIFEST,
         "module.exports.default = { sessionExists(cwd, id) { return id === 'indexed'; }, sessionFilePath() { return null; } };",
     );
-    assert!(indexed.session_exists("/work", "indexed"));
-    assert!(!indexed.session_exists("/work", "foreign"));
+    assert!(indexed.session_exists("/work", "indexed") == Some(true));
+    assert!(indexed.session_exists("/work", "foreign") != Some(true));
 }
 
 #[test]
@@ -111,6 +113,25 @@ fn model_switch_mode_comes_from_the_manifest() {
         p.model_switch(),
         crate::provider::ModelSwitchMode::RestartResume
     );
+}
+
+#[test]
+fn live_model_switch_mode_comes_from_the_manifest() {
+    let json = r#"{
+            "id": "m",
+            "version": "0.1.0",
+            "displayName": "M",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "commands": {
+                "modelSwitch": "live"
+            }
+        }"#;
+    let p = load(json, "module.exports.default = {};");
+    assert_eq!(p.model_switch(), crate::provider::ModelSwitchMode::Live);
 }
 
 #[test]
@@ -492,6 +513,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
             description: Some("from catalog".into()),
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -539,6 +561,7 @@ fn settings_model_options_follow_catalog_changes() {
             description: None,
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,

@@ -4,6 +4,7 @@
 //! `OutputBuffer` (the replay ring); `boot_id` is shared with the events stream
 //! so a daemon restart invalidates both cursors consistently.
 
+use crate::api::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -119,10 +120,14 @@ fn drain_tab_output(
         if chunk.is_empty() {
             break;
         }
-        *offset = total;
+        let read = plan_emit(*offset, &chunk, total, usize::MAX);
+        if read.output.is_empty() {
+            break;
+        }
+        *offset = read.new_offset;
         frames.push(TabOutputFrame {
-            output: String::from_utf8_lossy(&chunk).into_owned(),
-            offset: total,
+            output: String::from_utf8_lossy(&read.output).into_owned(),
+            offset: read.new_offset,
         });
     }
     frames
@@ -191,7 +196,10 @@ pub async fn stream_tab_output(
         Ok(Event::default()
             .data(serde_json::json!({"output": frame.output, "offset": frame.offset}).to_string()))
     });
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    Ok(
+        Sse::new(track(stream, StreamGuard::local(StreamKind::TabOutput)))
+            .keep_alive(KeepAlive::default()),
+    )
 }
 
 fn build_stream_diagnostics(
@@ -236,21 +244,57 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
     } else {
         None
     };
-    let mut take = chunk.len().min(cap);
-    // would corrupt it via `from_utf8_lossy` here and on the next sweep.
-    while take > 0 && take < chunk.len() && (chunk[take] & 0b1100_0000) == 0b1000_0000 {
-        take -= 1;
-    }
+    let mut take = utf8_complete_prefix(chunk, cap);
     if take == 0 {
-        take = chunk.len().min(cap); // guarantee forward progress
+        if chunk.len() < 4 && cap >= chunk.len() {
+            // Only an incomplete character so far: wait for its remaining bytes.
+            return TabRead {
+                truncated_from,
+                output: Vec::new(),
+                new_offset: base,
+                has_more: false,
+            };
+        }
+        take = chunk.len().min(cap); // invalid bytes: guarantee forward progress
     }
     let new_offset = base + take as u64;
     TabRead {
         truncated_from,
         output: chunk[..take].to_vec(),
         new_offset,
-        has_more: new_offset < total,
+        has_more: cap < chunk.len(),
     }
+}
+
+fn utf8_continuation(byte: u8) -> bool {
+    byte & 0b1100_0000 == 0b1000_0000
+}
+
+fn utf8_sequence_len(lead: u8) -> usize {
+    match lead {
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF7 => 4,
+        _ => 1,
+    }
+}
+
+/// Length of `chunk[..limit]` that ends on a UTF-8 character boundary, so a
+/// character split by the cap or by a partial PTY read is never decoded in halves.
+fn utf8_complete_prefix(chunk: &[u8], limit: usize) -> usize {
+    let mut take = limit.min(chunk.len());
+    while take > 0 && take < chunk.len() && utf8_continuation(chunk[take]) {
+        take -= 1;
+    }
+    if let Some(lead) = (take.saturating_sub(4)..take)
+        .rev()
+        .find(|&i| !utf8_continuation(chunk[i]))
+    {
+        if lead + utf8_sequence_len(chunk[lead]) > take {
+            take = lead;
+        }
+    }
+    take
 }
 
 /// Per-tab cursor + whether an `ended` frame was already emitted (emit once).
@@ -542,18 +586,20 @@ pub async fn output_stream(
     let diagnostic_level = configured_level(state.config.lock().diagnostics.terminal_transport);
     let session_id = diagnostic_level.map(|_| uuid::Uuid::new_v4().simple().to_string());
 
+    let mut guard = StreamGuard::local(StreamKind::Output);
+    guard.diagnostics = build_stream_diagnostics(
+        diagnostic_level,
+        session_id,
+        scope,
+        cursor_boot,
+        cursor_offset,
+    );
     let stream = async_stream::stream! {
+        let mut guard = guard;
         let mut activity = svc.output_stream_activity.subscribe();
         let mut dirty_pty_ids = HashSet::new();
         let mut read_all = true;
         let mut sweep_now = true;
-        let mut diagnostics = build_stream_diagnostics(
-            diagnostic_level,
-            session_id,
-            scope,
-            cursor_boot,
-            cursor_offset,
-        );
         let svc0 = svc.clone();
         let (boot_frame, mut tracked, starts) =
             match tokio::task::spawn_blocking({
@@ -562,19 +608,19 @@ pub async fn output_stream(
             }).await {
                 Ok(v) => v,
                 Err(_) => {
-                    if let Some(diagnostics) = diagnostics.as_mut() {
+                    if let Some(diagnostics) = guard.diagnostics.as_mut() {
                         diagnostics.finish("seed_error");
                     }
                     return;
                 },
             };
         for start in starts {
-            if let Some(diagnostics) = diagnostics.as_mut() {
+            if let Some(diagnostics) = guard.diagnostics.as_mut() {
                 diagnostics.attach_tab(start);
             }
         }
         if let Some(bf) = boot_frame {
-            if let Some(diagnostics) = diagnostics.as_mut() {
+            if let Some(diagnostics) = guard.diagnostics.as_mut() {
                 diagnostics.observe_value(&bf);
             }
             yield Ok(data_frame(bf));
@@ -582,7 +628,7 @@ pub async fn output_stream(
         loop {
             if !read_all && !sweep_now && dirty_pty_ids.is_empty() {
                 let Some(wake) = wait_for_activity(&mut activity, None).await else {
-                    if let Some(diagnostics) = diagnostics.as_mut() {
+                    if let Some(diagnostics) = guard.diagnostics.as_mut() {
                         diagnostics.finish("activity_closed");
                     }
                     return;
@@ -610,7 +656,7 @@ pub async fn output_stream(
             let (frames, starts, more_pty_ids, owned) = match result {
                 Ok(v) => v,
                 Err(_) => {
-                    if let Some(diagnostics) = diagnostics.as_mut() {
+                    if let Some(diagnostics) = guard.diagnostics.as_mut() {
                         diagnostics.finish("sweep_error");
                     }
                     return;
@@ -619,12 +665,12 @@ pub async fn output_stream(
             dirty_pty_ids.extend(more_pty_ids);
             tracked = owned;
             for start in starts {
-                if let Some(diagnostics) = diagnostics.as_mut() {
+                if let Some(diagnostics) = guard.diagnostics.as_mut() {
                     diagnostics.attach_tab(start);
                 }
             }
             for f in frames {
-                if let Some(diagnostics) = diagnostics.as_mut() {
+                if let Some(diagnostics) = guard.diagnostics.as_mut() {
                     diagnostics.observe_value(&f);
                 }
                 yield Ok(data_frame(f));

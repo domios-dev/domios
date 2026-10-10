@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod area_tests;
 mod calibration;
 mod graph;
 pub(crate) mod item;
@@ -17,6 +19,10 @@ use crate::cmd::supporter_render;
 use crate::{MemAction, MemSkillAction};
 
 pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
+    if matches!(&action, MemAction::PurgePrecompact { .. }) {
+        crate::cmd::print::handle_cli_result(json_mode, socket::purge_precompact(client, &action));
+        return;
+    }
     let human_search = !json_mode && matches!(&action, MemAction::Search { .. });
     if let Some(result) = socket::try_dispatch(client, &action) {
         if human_search {
@@ -292,6 +298,12 @@ fn render_mem_skill_list(value: &serde_json::Value) -> String {
 fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) {
     if let Ok(ref val) = result {
         if !json_mode {
+            if let Some(text) = render_area_merge(val) {
+                print!("{text}");
+                return;
+            }
+        }
+        if !json_mode {
             if let (Some(outcome), Some(id)) = (
                 val.get("outcome").and_then(|v| v.as_str()),
                 val.get("id").and_then(|v| v.as_str()),
@@ -320,3 +332,19 @@ fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) 
 
 #[cfg(test)]
 mod tests;
+
+fn render_area_merge(value: &serde_json::Value) -> Option<String> {
+    let from = value.get("from")?.as_str()?;
+    let into = value.get("into")?.as_str()?;
+    let counts = value.get("counts")?.as_object()?;
+    let mode = if value.get("dry_run")?.as_bool()? {
+        "Dry run"
+    } else {
+        "Merged"
+    };
+    let mut text = format!("{mode}: {from:?} -> {into:?}\n");
+    for (kind, count) in counts {
+        text.push_str(&format!("  {kind}: {count}\n"));
+    }
+    Some(text)
+}

@@ -1,6 +1,6 @@
 # evals/plugins — plugin lifecycle (install · update · work)
 
-Validates that CodeTerm's channel plugins **load, register their capability, run, and
+Validates that Domios's channel plugins **load, register their capability, run, and
 survive version updates** — the question "do my plugins still work after I publish a new
 version?" Covers the two shipped capability plugins: `transcriber` and `bitwarden`.
 

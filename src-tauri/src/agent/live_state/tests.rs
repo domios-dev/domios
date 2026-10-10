@@ -140,15 +140,11 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
         .get_tab(&launching_tab_id)
         .cloned()
         .expect("failed restored tab remains present");
-    assert_eq!(failed.agent_type, None);
-    assert_eq!(failed.agent_session_id, None);
+    assert_eq!(failed.agent_type.as_deref(), Some("resume-fixture"));
+    assert_eq!(failed.agent_session_id.as_deref(), Some("saved-session"));
     assert_eq!(
-        failed
-            .prior_session_binding_nonces
-            .last()
-            .and_then(|entry| entry.session_id.as_deref()),
-        Some("saved-session"),
-        "failed identity is retired to session lineage even while another pane keeps the wave pending"
+        failed.boot_stage,
+        Some(crate::service::boot_stage::BootStage::SpawnFailed)
     );
 
     crate::crash::restore_report::settle(
@@ -199,17 +195,15 @@ fn restored_tab_not_cleared_before_relaunch_outcome() {
         tab.restored_from_snapshot = false;
         tab.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
     }
-    assert!(fixture
+    assert!(!fixture
         .service
         .reconcile_tab_restored_without_agent(&tab_id));
     let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
-    assert!(tab.agent_type.is_none());
-    assert!(tab.agent_session_id.is_none());
+    assert_eq!(tab.agent_type.as_deref(), Some("restore-fixture"));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
     assert_eq!(
-        tab.prior_session_binding_nonces
-            .last()
-            .and_then(|entry| entry.session_id.as_deref()),
-        Some("saved-session")
+        tab.boot_stage,
+        Some(crate::service::boot_stage::BootStage::SpawnFailed)
     );
 }
 

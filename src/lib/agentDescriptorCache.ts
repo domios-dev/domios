@@ -4,19 +4,50 @@ import type { ProviderDescriptor } from "./types";
 let cache: Record<string, ProviderDescriptor> = {};
 // (useAgentDescriptors) doesn't see a fresh array every render.
 let ordered: ProviderDescriptor[] = [];
+let refreshing = false;
+let catalogueVersions: Record<string, number> = {};
 const subscribers = new Set<() => void>();
 
-export function setAgentDescriptors(list: ProviderDescriptor[]): void {
+export function setAgentDescriptors(list: ProviderDescriptor[], loading = false): void {
+  refreshing = loading;
   const next: Record<string, ProviderDescriptor> = {};
-  for (const p of list) next[p.id] = p;
+  const nextOrdered: ProviderDescriptor[] = [];
+  const nextVersions = { ...catalogueVersions };
+  for (const provider of list) {
+    const incomingVersion = provider.catalogue_version ?? 0;
+    const currentVersion = nextVersions[provider.id] ?? 0;
+    if (incomingVersion < currentVersion) {
+      const current = cache[provider.id];
+      if (current) {
+        next[provider.id] = current;
+        nextOrdered.push(current);
+      }
+      continue;
+    }
+    next[provider.id] = provider;
+    nextOrdered.push(provider);
+    nextVersions[provider.id] = incomingVersion;
+  }
   cache = next;
-  ordered = list.slice();
+  ordered = nextOrdered;
+  catalogueVersions = nextVersions;
   for (const fn of subscribers) fn();
+}
+
+export function acceptModelCatalogueChange(change: { provider: string; version: number }): boolean {
+  const current = catalogueVersions[change.provider] ?? 0;
+  if (change.version <= current) return false;
+  catalogueVersions = { ...catalogueVersions, [change.provider]: change.version };
+  return true;
 }
 
 export function getAgentDescriptor(id: string | null | undefined): ProviderDescriptor | undefined {
   if (!id) return undefined;
   return cache[id];
+}
+
+export function agentDescriptorsRefreshing(): boolean {
+  return refreshing;
 }
 
 export function listAgentDescriptors(): ProviderDescriptor[] {

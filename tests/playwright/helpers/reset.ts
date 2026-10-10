@@ -18,7 +18,7 @@ import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ApiClient, devDataDirName } from "./api-client";
-import { currentDevInstance } from "./dev-instance";
+import { currentDevInstance, isDisposableQaInstance, type DevInstance } from "./dev-instance";
 import { killDevConsole } from "./dev-console";
 
 export function devDataDir(): string {
@@ -32,7 +32,14 @@ function assertDevPath(p: string): void {
   }
 }
 
-export async function apiReset(api: ApiClient): Promise<void> {
+export function assertApiResetAllowed(instance: DevInstance): void {
+  if (!isDisposableQaInstance(instance)) {
+    throw new Error(`apiReset refuses non-disposable data directory ${instance.dataDirName}`);
+  }
+}
+
+export async function apiReset(api: ApiClient, instance = currentDevInstance()): Promise<void> {
+  assertApiResetAllowed(instance);
   for (const ws of await api.workspaces()) {
     if (!ws.protected) {
       await api.closeWorkspace(ws.id).catch(() => {});
@@ -81,7 +88,11 @@ const WIPEABLE = [
 ];
 
 export function wipeDevState(): void {
-  killDevConsole(currentDevInstance());
+  const instance = currentDevInstance();
+  if (!isDisposableQaInstance(instance)) {
+    throw new Error(`wipeDevState refuses non-disposable data directory ${instance.dataDirName}`);
+  }
+  killDevConsole(instance);
   for (const entry of WIPEABLE) {
     const target = path.join(devDataDir(), entry);
     assertDevPath(target);

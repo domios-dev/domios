@@ -1,6 +1,6 @@
 /**
  * Web Access URL selection — the single source of truth for "what URL does a
- * browser/phone use to reach this CodeTerm". Shared by Settings → Network and
+ * browser/phone use to reach this Domios". Shared by Settings → Network and
  * the Mesh "Web UI" QR modal so they can never disagree.
  *
  * Priority (best first):
@@ -16,7 +16,7 @@
  * webLinkWithToken() when building a one-tap link or QR.
  */
 
-import { spawnAiHelper, type AiHelperSpawned } from "./aiHelperSpawn";
+import { spawnAiHelper, withAiHelperContext, type AiHelperSpawned } from "./aiHelperSpawn";
 import type { DaemonApiConfig } from "./webApi";
 
 export interface WebAccessNetworkInfo {
@@ -82,7 +82,7 @@ function assertTokenSafeEntryUrl(value: string): void {
     || url.search
     || url.hash
   ) {
-    throw new Error("Refusing to attach a CodeTerm token to an untrusted Web UI origin");
+    throw new Error("Refusing to attach a Domios token to an untrusted Web UI origin");
   }
 }
 
@@ -190,8 +190,8 @@ export function serveSetupTask(status: ServeStatus | null, apiPort: number): str
   const installed = status?.installed ? "yes" : "no";
   const platform = status?.platform || "unknown";
   return [
-    "Set up Tailscale Serve so I can open this CodeTerm over HTTPS from my phone.",
-    `Context: tailscale installed = ${installed}, platform = ${platform}, CodeTerm API port = ${apiPort}.`,
+    "Set up Tailscale Serve so I can open this Domios over HTTPS from my phone.",
+    `Context: tailscale installed = ${installed}, platform = ${platform}, Domios API port = ${apiPort}.`,
     "If Tailscale isn't installed, install it and run `tailscale up` so I'm logged into my tailnet.",
     `Then expose this daemon: \`tailscale serve --bg --https=443 http://127.0.0.1:${apiPort}\` (on macOS provision the cert first with \`tailscale cert <my-magicdns-name>\`).`,
     "Finally verify the HTTPS URL actually responds, then reply with the clean link I can scan.",
@@ -203,17 +203,17 @@ export function startWebAccessSetupHelper(
   apiPort: number,
   api: DaemonApiConfig,
 ): Promise<AiHelperSpawned> {
-  return spawnAiHelper({ title: "Set up Web Access", task: serveSetupTask(status, apiPort) }, api);
+  return spawnAiHelper({ title: "WebAccess", description: "Set up Web Access", task: withAiHelperContext(serveSetupTask(status, apiPort)) }, api);
 }
 
-/** Sibling CodeTerm API port (prod 7685 ↔ dev 7686). Mirrors the backend. */
+/** Sibling Domios API port (prod 7685 ↔ dev 7686). Mirrors the backend. */
 function siblingCodetermPort(port: number): number | null {
   if (port === 7685) return 7686;
   if (port === 7686) return 7685;
   return null;
 }
 
-/** A public HTTPS port that collides with our own or the sibling CodeTerm's API
+/** A public HTTPS port that collides with our own or the sibling Domios's API
  * port would proxy into the wrong daemon — refuse it. Mirrors the backend. */
 function wouldClobberCodetermPort(apiPort: number, httpsPort: number): boolean {
   return httpsPort === apiPort || siblingCodetermPort(apiPort) === httpsPort;

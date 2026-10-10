@@ -1,0 +1,33 @@
+.header-scroll-marker { position: absolute; top: 48px; left: 0; width: 1px; height: 1px; pointer-events: none; }
+.site-header-shell { position: sticky; top: 0; z-index: 20; height: 96px; pointer-events: none; }
+.site-header-shell .site-header { pointer-events: auto; transition: height var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), border-radius var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), background var(--ct-duration-liquid-hover); }
+.site-header-shell .header-actions { gap: 12px; }
+.site-header-shell .header-social { width: 44px; height: 44px; padding: 0; border-radius: 50%; }
+.header-social img { display: block; object-fit: contain; }
+.site-header-shell .header-actions > .button { min-width: 44px; min-height: 44px; justify-content: center; }
+.site-header-shell[data-compact="true"] .site-header { height: 60px; margin-top: 6px; width: calc(100% - 24px); padding-inline: 18px; border: 1px solid var(--ct-border); border-radius: 22px; background: color-mix(in srgb, var(--ct-bg) 94%, transparent); backdrop-filter: blur(16px); box-shadow: 0 8px 24px #00000018; }
+.site-header-shell[data-compact="true"] .header-brand-name, .site-header-shell[data-compact="true"] .header-action-label { display: none; }
+.site-header-shell[data-compact="true"] .header-actions > .button { width: 44px; height: 44px; padding: 0; border-radius: 50%; }
+.site-header-shell[data-compact="true"] .header-download { background: var(--ct-accent); border-color: var(--ct-accent); color: var(--ct-on-accent); }
+.site-header-shell[data-compact="true"] .theme-control > svg { display: none; }
+.site-header-shell[data-compact="true"] .brand-mark { width: 30px; height: 30px; }
+@media (max-width: 800px) {
+  .site-header-shell { height: 78px; }
+  .site-header-shell .header-actions { gap: 8px; }
+  .site-header-shell .header-action-label { display: none; }
+  .site-header-shell .header-actions > .button { width: 44px; height: 44px; padding: 0; border-radius: 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-header-shell .site-header { transition: none; }
+}
+@media (max-width: 1000px) {
+  .site-header-shell .site-header > nav { display: none; }
+}
+@media (max-width: 650px) {
+  .site-header-shell .site-header { gap: 8px; padding-inline: 16px; }
+  .site-header-shell .header-brand-name { display: none; }
+  .site-header-shell .header-actions { gap: 5px; }
+  .site-header-shell .brand-mark { width: 30px; height: 30px; }
+  .site-header-shell .brand { flex-shrink: 0; }
+  .site-header-shell[data-compact="true"] .site-header { padding-inline: 12px; }
+}

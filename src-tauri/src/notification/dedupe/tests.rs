@@ -168,3 +168,23 @@ fn notify_dedupe_suppression_is_keyed_on_identity_and_never_on_elapsed_time() {
         );
     }
 }
+
+#[test]
+fn notify_dedupe_prompt_choices_keep_identical_concurrent_questions_distinct() {
+    let provenance = tab_provenance("same-tab");
+    let base = identity(&provenance, "same-title", Some("same-body"));
+    let first = base
+        .clone()
+        .with_prompt_choices(vec!["request-a:allow".into()]);
+    let second = base
+        .clone()
+        .with_prompt_choices(vec!["request-b:allow".into()]);
+    let mut ledger = DeliveryLedger::default();
+    ledger.bind(first.clone(), "notice-a".into());
+    assert_eq!(ledger.existing(&first), Some("notice-a".into()));
+    assert_eq!(ledger.existing(&second), None);
+    assert_eq!(ledger.existing(&base), None);
+    ledger.bind(second.clone(), "notice-b".into());
+    ledger.release("notice-a");
+    assert_eq!(ledger.existing(&second), Some("notice-b".into()));
+}

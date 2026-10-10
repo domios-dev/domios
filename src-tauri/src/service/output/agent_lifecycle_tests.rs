@@ -59,6 +59,53 @@ fn planner_probe(tab: &crate::multiplexer::types::Tab) -> TabProbe {
     }
 }
 
+#[test]
+fn output_records_the_work_mark_when_the_classifier_previous_is_stale() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("session-a".into());
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+    let stale_previous = TimelineState::Working;
+    let new_state: crate::agent::offline_state_classifier::AgentLiveState = TabVerdict {
+        state: TimelineState::Working,
+        subtype: None,
+    }
+    .into();
+    assert_eq!(stale_previous, new_state.state);
+
+    let (state_changed, mark_changed) = super::store_agent_state_and_record_turn_resume_edge(
+        tab,
+        new_state.clone(),
+        Some("start-a"),
+        false,
+    );
+
+    assert!(state_changed);
+    assert!(mark_changed);
+    assert_eq!(
+        tab.turn_resume
+            .as_ref()
+            .map(|mark| mark.session_id.as_str()),
+        Some("session-a")
+    );
+    assert_eq!(
+        super::store_agent_state_and_record_turn_resume_edge(
+            tab,
+            new_state,
+            Some("start-a"),
+            false,
+        ),
+        (false, false)
+    );
+}
+
 fn seed_live_planner() -> (
     MultiplexerState,
     String,
@@ -363,6 +410,20 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
     let tab = mux.get_tab(&tab_id).unwrap();
     assert!(tab.agent_type.is_none());
     assert_eq!(tab.boot_stage, Some(BootStage::ShellReady));
+    assert!(tab.agent_session_id.is_none());
+    assert_eq!(
+        tab.prior_session_binding_nonces
+            .last()
+            .and_then(|binding| binding.session_id.as_deref()),
+        Some("session-tab-owned")
+    );
+    drop(mux);
+
+    let snapshot = harness.service.mux.read().to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    let restored_tab = restored.get_tab(&tab_id).expect("restored exited tab");
+    assert!(restored_tab.agent_type.is_none());
+    assert!(restored_tab.agent_session_id.is_none());
 }
 
 #[test]
@@ -392,16 +453,4 @@ fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
     let restored_snapshot = serde_json::from_str(&serialized).unwrap();
     let restored = restore_live_planner_fixture(&restored_snapshot, &tab_id);
     assert_live_planner_identity(restored.service.mux.read().get_tab(&tab_id).unwrap());
-
-    assert!(harness
-        .service
-        .clear_tab_agent_identity_for_lifecycle_exit_during(&tab_id, cause, None));
-    assert!(harness
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .unwrap()
-        .agent_session_id
-        .is_none());
 }

@@ -5,6 +5,7 @@ import { installSource, launchProviderInstaller } from "../../lib/providerInstal
 import { ProviderCard } from "./ProviderCard";
 import { preselectProviderId, providerAvailability } from "./preselectProvider";
 import { useProviderAvailability } from "./useProviderAvailability";
+import { listen } from "../../lib/bridge";
 import { Button } from "../shared/Button";
 
 interface AgentProviderPickerProps {
@@ -41,48 +42,16 @@ export function AgentProviderPicker({
   );
   const needsInstall = selected ? providerAvailability(selected) === "unavailable" : false;
 
-  // `tab-focused` is the wrong signal here — the backend only emits it for
-  // CLI/REST and on close — so visibility of this view drives the re-probe.
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(true);
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
-
   useEffect(() => {
-    const onFocus = () => void silentRef.current();
-    window.addEventListener("focus", onFocus);
-    const root = rootRef.current;
-    let observer: IntersectionObserver | null = null;
-    if (root) {
-      observer = new IntersectionObserver(
-        ([entry]) => {
-          setVisible((was) => {
-            if (entry.isIntersecting && !was) void silentRef.current();
-            return entry.isIntersecting;
-          });
-        },
-        { threshold: 0 },
-      );
-      observer.observe(root);
-    }
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      observer?.disconnect();
-    };
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    const refresh = () => { if (active) void silentRef.current(); };
+    window.addEventListener("focus", refresh);
+    void listen("provider-cli-completed", refresh).then((stop) => { if (active) unlisten = stop; else stop(); }).catch(() => {});
+    return () => { active = false; unlisten?.(); window.removeEventListener("focus", refresh); };
   }, []);
-
-  const anyMissing = useMemo(
-    () => observed.some((p) => providerAvailability(p) === "unavailable"),
-    [observed],
-  );
-
-  // Watch only while this screen is on show and something is still missing;
-  // once every CLI is present there is nothing left to watch for.
-  useEffect(() => {
-    if (!visible || !anyMissing) return;
-    const id = setInterval(() => void silentRef.current(), 5000);
-    return () => clearInterval(id);
-  }, [visible, anyMissing]);
 
   const onInstall = async (providerId: string) => {
     setInstallBusy(true);
@@ -98,7 +67,6 @@ export function AgentProviderPicker({
 
   return (
     <div
-      ref={rootRef}
       role="region"
       aria-labelledby={headlineId}
       data-testid="agent-provider-picker"

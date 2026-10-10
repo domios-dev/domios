@@ -1,0 +1,9 @@
+{
+  "state": { "fixture": "shared" },
+  "model": "jev-latest",
+  "questions": {
+    "label": { "type": "choice", "instructions": "opaque-label-instructions", "criteria": { "yes": "opaque-yes", "no": "opaque-no" } },
+    "prompt_visible": { "type": "noul", "instructions": "opaque-prompt-instructions" },
+    "relevance": { "type": "score", "instructions": "opaque-score-instructions", "criteria": ["opaque-low", "opaque-high"] }
+  }
+}

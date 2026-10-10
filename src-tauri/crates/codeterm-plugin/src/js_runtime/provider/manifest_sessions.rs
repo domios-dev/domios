@@ -128,8 +128,23 @@ impl JsProvider {
 
     fn manifest_session_store(&self) -> Option<(PathBuf, String)> {
         let cfg = self.manifest.sessions.as_ref()?;
-        let root = PluginManifest::expand_home(&cfg.root_dir)?;
+        let root = self.manifest_read_session_root()?;
         Some((root, format!(".{}", cfg.file_extension)))
+    }
+
+    fn manifest_read_session_root(&self) -> Option<PathBuf> {
+        let cfg = self.manifest.sessions.as_ref()?;
+        let overridden = match &cfg.root_environment {
+            Some(environment) => {
+                if !self.vm.can_read_environment(&environment.variable) {
+                    return None;
+                }
+                environment.resolve(std::env::var_os(&environment.variable))
+            }
+            None => None,
+        };
+        let root = overridden.or_else(|| PluginManifest::expand_home(&cfg.root_dir))?;
+        self.vm.can_read_path(&root).then_some(root)
     }
 
     fn manifest_session_metadata(&self, stem: &str, file_path: &Path) -> SessionMetadata {
@@ -200,7 +215,7 @@ fn collect_session_files(root: &Path, directory_depth: usize, files: &mut Vec<Pa
 impl JsProvider {
     pub(super) fn sessions_dir(&self, cwd: &str) -> Option<PathBuf> {
         let cfg = self.manifest.sessions.as_ref()?;
-        let root = PluginManifest::expand_home(&cfg.root_dir)?;
+        let root = self.manifest_read_session_root()?;
         let leaf = match cfg.cwd_encoding {
             super::super::CwdEncoding::DashEncoded => {
                 encode_cwd_dashed(&codeterm_paths::canonical_cwd(cwd))
@@ -208,6 +223,29 @@ impl JsProvider {
             super::super::CwdEncoding::None => cwd.to_string(),
         };
         Some(root.join(leaf))
+    }
+
+    pub(super) fn owned_session_model_identity_path(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<PathBuf> {
+        if !self.has_js("sessionModelIdentityPath") {
+            return self
+                .native()
+                .and_then(|provider| provider.session_model_identity_path(cwd, session_id));
+        }
+        let path = self.try_call::<Option<String>>(
+            "sessionModelIdentityPath",
+            &[json!(cwd), json!(session_id)],
+        )??;
+        self.permitted_session_path(PathBuf::from(path))
+    }
+
+    pub(super) fn permitted_session_path(&self, path: PathBuf) -> Option<PathBuf> {
+        let root = self.manifest_read_session_root()?.canonicalize().ok()?;
+        let path = path.canonicalize().ok()?;
+        (path.starts_with(root) && self.vm.can_read_path(&path) && path.is_file()).then_some(path)
     }
 
     pub(super) fn owned_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {

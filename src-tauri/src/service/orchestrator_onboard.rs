@@ -136,6 +136,12 @@ impl ServiceContext {
             tab.pending_greeting = Some(body.clone());
         }
         self.emit_state_changed();
+        if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        ) {
+            log::warn!("[session-persist] orchestrator onboarding submission failed: {error}");
+        }
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
         // reminder — the onboarding should read as CodeTerm introducing the role.
         let envelope = MessageEnvelope::from_codeterm();
@@ -247,6 +253,13 @@ mod tests {
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
+            purpose: Default::default(),
+            icon: None,
+            shell_profile: None,
+            utility_created_at: 0,
+            utility_command_pending: false,
+            close_restore: None,
+            shell_command_state: Default::default(),
             pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,
@@ -260,11 +273,17 @@ mod tests {
             agent_booting: false,
             agent_session_id: None,
             agent_session_name: None,
+            context: None,
+            provider_signals: Default::default(),
+            fork_source_session_id: None,
             agent_session_model: None,
             agent_session_model_identity: None,
             pending_model_switch_observation: None,
+            pending_model_selection: None,
             agent_planned_model: None,
             agent_requested_model: None,
+            structured_control_active: false,
+            structured_runtime_mode: None,
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
@@ -279,6 +298,7 @@ mod tests {
             lifecycle_operation_id: None,
             task_binding: None,
             roleless_tracked: false,
+            managed: None,
             role: None,
             role_profile: None,
             team_id: None,
@@ -296,6 +316,7 @@ mod tests {
             pending_prompt: None,
             pending_prompt_kind: None,
             agent_state: None,
+            turn_resume: None,
             auto_approve: false,
             permission_auto_confirm: false,
             permission_auto_confirmations: Vec::new(),

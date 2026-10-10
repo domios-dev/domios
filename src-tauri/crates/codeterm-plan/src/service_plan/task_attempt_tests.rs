@@ -7,6 +7,7 @@ use codeterm_types::agent::ReportStatus;
 mod blocked_dispatch_tests;
 mod plan_skill_evidence;
 mod session_model_replay;
+mod startup_reservations;
 mod task_attempt_respawn_tests;
 mod unplanned_reports;
 
@@ -51,6 +52,67 @@ fn mark_bound_task_in_progress(store: &PlanStore, plan_id: &str, task_id: &str) 
             Ok(())
         })
         .unwrap();
+}
+
+#[test]
+fn report_target_write_timestamp_persists_across_store_reopen() {
+    let (dir, store, plan_id, task_id) = bound_report_store();
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            4,
+        )
+        .unwrap();
+    let attempt_id = store.get(&plan_id).unwrap().tasks[0].execution_attempts[0]
+        .id
+        .clone();
+
+    assert!(store
+        .mark_report_target_written(&plan_id, &task_id, &attempt_id, 5)
+        .unwrap());
+    let reopened = PlanStore::open(dir.path().join(".codeterm").join("plans.db")).unwrap();
+    assert_eq!(
+        reopened.get(&plan_id).unwrap().tasks[0].execution_attempts[0].report_target_written_at,
+        Some(5)
+    );
+}
+
+#[test]
+fn new_report_resets_report_target_write_timestamp() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            4,
+        )
+        .unwrap();
+    let attempt_id = store.get(&plan_id).unwrap().tasks[0].execution_attempts[0]
+        .id
+        .clone();
+    store
+        .mark_report_target_written(&plan_id, &task_id, &attempt_id, 5)
+        .unwrap();
+
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("def456")),
+            6,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.get(&plan_id).unwrap().tasks[0].execution_attempts[0].report_target_written_at,
+        None
+    );
 }
 
 fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::BoundWorkerReport {
@@ -311,8 +373,20 @@ fn partial_report_keeps_bound_task_actionable() {
 }
 
 #[test]
-fn blocked_report_sets_task_blocked_with_reason() {
+fn blocked_report_is_persisted_as_a_proposal_without_moving_the_task() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
+    mark_bound_task_in_progress(&store, &plan_id, &task_id);
+    store
+        .with_plan(&plan_id, 3, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.status_label = Some("acknowledged".into());
+            Ok(())
+        })
+        .unwrap();
     let report = worker_report(ReportStatus::Blocked, None);
     let reason = report.message.clone();
     assert!(!store
@@ -320,8 +394,20 @@ fn blocked_report_sets_task_blocked_with_reason() {
         .unwrap());
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
-    assert_eq!(task.status, TaskStatus::Blocked);
-    assert_eq!(task.status_label.as_deref(), Some(reason.as_str()));
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("worker"));
+    assert_eq!(
+        task.execution_attempts[0]
+            .report
+            .as_ref()
+            .unwrap()
+            .status
+            .as_deref(),
+        Some("blocked")
+    );
+    assert!(task.milestones[0].text.starts_with("BLOCK PROPOSAL: "));
+    assert!(task.milestones[0].text.contains(&reason));
     assert!(task.execution_attempts[0].closed_at.is_none());
 }
 
@@ -1001,130 +1087,4 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
         .collect();
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].id, winner_attempt);
-}
-
-#[test]
-fn concurrent_startup_reservations_refuse_before_worker_spawn() {
-    let (_dir, store, plan_id, task_id) = bound_report_store();
-    let store = std::sync::Arc::new(store);
-    let observed = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let reserved = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let attempts =
-        [("attempt-a", "worker-a"), ("attempt-b", "worker-b")].map(|(attempt_id, tab_id)| {
-            let store = store.clone();
-            let plan_id = plan_id.clone();
-            let task_id = task_id.clone();
-            let observed = observed.clone();
-            let reserved = reserved.clone();
-            std::thread::spawn(move || {
-                let owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
-                assert!(owner.is_none());
-                observed.wait();
-                let result = store.reserve_task_dispatch_startup(
-                    &plan_id, &task_id, attempt_id, tab_id, owner, false,
-                );
-                match result {
-                    Ok(reservation) => {
-                        reserved.wait();
-                        drop(reservation);
-                        Ok((attempt_id.to_string(), tab_id.to_string()))
-                    }
-                    Err(error) => {
-                        reserved.wait();
-                        Err(error)
-                    }
-                }
-            })
-        });
-
-    let outcomes = attempts.map(|attempt| attempt.join().unwrap());
-    let (winner_attempt, winner_tab) = outcomes
-        .iter()
-        .find_map(|outcome| outcome.as_ref().ok().cloned())
-        .expect("one startup reservation succeeds");
-    let refusal = outcomes
-        .into_iter()
-        .find_map(Result::err)
-        .expect("the competing startup reservation is refused");
-    let PlanError::DispatchInFlight { attempt_id, tab_id } = refusal else {
-        panic!("expected typed startup reservation refusal")
-    };
-    assert_eq!(attempt_id, winner_attempt);
-    assert_eq!(tab_id, winner_tab);
-
-    let reservation = store
-        .reserve_task_dispatch_startup(
-            &plan_id,
-            &task_id,
-            "attempt-after-release",
-            "worker-after-release",
-            None,
-            false,
-        )
-        .expect("dropping the reservation releases the task");
-    drop(reservation);
-}
-
-#[test]
-fn repeated_runtime_binding_keeps_one_plan_attempt() {
-    let (_dir, store, plan_id, task_id) = bound_report_store();
-    let attempt_id = store
-        .begin_task_dispatch(
-            &plan_id,
-            &task_id,
-            "worker-tab",
-            "Worker",
-            TaskLaneMetadata::default(),
-            3,
-        )
-        .unwrap();
-    let attempts_before = store
-        .show_task(&task_id)
-        .unwrap()
-        .task
-        .execution_attempts
-        .len();
-
-    for now_ms in [4, 5] {
-        let ready = store
-            .mark_live_task_attempt_runtime_ready_for_tab("worker-tab", "session", now_ms)
-            .unwrap()
-            .expect("the same live attempt remains bindable");
-        assert_eq!(ready.attempt.id, attempt_id);
-    }
-
-    let task = store.show_task(&task_id).unwrap().task;
-    assert_eq!(task.execution_attempts.len(), attempts_before);
-    let bound: Vec<_> = task
-        .execution_attempts
-        .iter()
-        .filter(|attempt| attempt.id == attempt_id)
-        .collect();
-    assert_eq!(bound.len(), 1);
-    assert_eq!(bound[0].session_id.as_deref(), Some("session"));
-}
-
-#[test]
-fn a_closed_attempt_without_a_newer_live_dispatch_is_not_reported_as_superseded() {
-    let (_dir, store, plan_id, task_id) = bound_report_store();
-    let attempt_id = store
-        .begin_task_dispatch(
-            &plan_id,
-            &task_id,
-            "worker-tab",
-            "Worker",
-            TaskLaneMetadata::default(),
-            3,
-        )
-        .unwrap();
-    assert!(store
-        .mark_worker_startup_deadline(&plan_id, &task_id, "worker-tab", &attempt_id, true, 4)
-        .unwrap());
-
-    let refusal = store
-        .acknowledge_live_task_attempt_for_tab("worker-tab", Some(&plan_id), Some(&task_id), 5)
-        .expect_err("a closed attempt without a replacement is not acknowledgeable");
-    let message = refusal.to_string();
-    assert!(message.contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT));
-    assert!(!message.contains(super::task_dispatch::ACK_CAUSE_ATTEMPT_SUPERSEDED));
 }

@@ -1,4 +1,8 @@
 import {
+  markMesh,
+  markReport,
+  markTab,
+  markTelegram,
   MARKER_OPEN,
   isTabMarkerPlaceholderLabel,
   markContextRequest,
@@ -8,6 +12,12 @@ import {
   parseMarker,
   shortTabRef,
 } from "./markers";
+import {
+  buildDomiosMessage,
+  buildDomiosOpeningTag,
+  DOMIOS_TYPED_INSTRUCTION,
+  parseDomiosMessage,
+} from "./domios";
 
 let passed = 0,
   failed = 0;
@@ -24,27 +34,50 @@ function eq(actual: unknown, expected: unknown, name: string) {
 }
 
 const leadingSpaceMarker =
-  ` ${MARKER_OPEN}tab label=main tab=bda0e267 model=Opus-=-Payload with space`;
-const parsed = parseMarker(leadingSpaceMarker);
+  ' <domios from="tab" label="main" tab="bda0e267" model="Opus">Payload with space</domios>';
+eq(parseMarker(leadingSpaceMarker), null, "leading whitespace cannot create route provenance");
 
-eq(parsed?.kind, "tab", "parseMarker strips leading whitespace");
-eq(parsed?.attrs, { label: "main", tab: "bda0e267", model: "Opus" }, "leading-space marker attrs");
-eq(parsed?.payload, "Payload with space", "leading-space marker payload");
-
-const normal = parseMarker(`${MARKER_OPEN}tab label=clean-=-ok`);
+const normal = parseMarker('<domios from="tab" label="clean" tab="abc12345">ok</domios>');
 eq(normal?.kind, "tab", "parseMarker keeps no-leading-space case");
 eq(normal?.payload, "ok", "parseMarker keeps payload unchanged");
 
 const bracketedPaste = parseMarker(
-  `\x1b[200~${MARKER_OPEN}tab label=main tab=bda0e267-=-hello\x1b[201~`,
+  '\x1b[200~<domios from="tab" label="main" tab="bda0e267">hello</domios>\x1b[201~',
 );
-eq(bracketedPaste?.kind, "tab", "parseMarker unwraps bracketed paste start");
-eq(bracketedPaste?.payload, "hello", "parseMarker strips bracketed paste end from payload");
+eq(bracketedPaste, null, "a pasted Domios frame is content, not a typed route frame");
 
 eq(isTabMarkerPlaceholderLabel("CURRENT Tab"), true, "CURRENT Tab is a tab label placeholder");
 eq(isTabMarkerPlaceholderLabel(""), true, "blank tab label is a placeholder");
 eq(isTabMarkerPlaceholderLabel("Puccini"), false, "real tab label is not a placeholder");
 eq(shortTabRef("915fae8effffffff"), "915fae8e", "shortTabRef keeps display-safe Tab id");
+
+const routeFixtures = [
+  [markTelegram("123", "7", "telegram body"), "telegram"],
+  [markMesh("peer-a", "abc12345", "mesh body"), "mesh"],
+  [markTab("General Main", "bda0e267", "tab body"), "tab"],
+  [markReport("Worker", "report body"), "report"],
+] as const;
+for (const [wire, kind] of routeFixtures) {
+  eq(parseDomiosMessage(wire)?.attrs.from, kind, `${kind} route uses a complete Domios frame`);
+  eq(parseMarker(wire)?.kind, kind, `${kind} route shares the marker parser`);
+  eq(wire.endsWith("</domios>"), true, `${kind} route has the terminal tag`);
+}
+eq(
+  buildDomiosOpeningTag({ from: "tab", label: "first\nsecond" }),
+  '<domios from="tab" label="first second">',
+  "typed route attributes cannot add a line break",
+);
+const typedDomios = buildDomiosMessage(
+  { from: "tab", tab: "abc12345" },
+  "opaque routed body",
+  ` [to reply, run: codeterm send "YOUR REPLY" --tab abc12345] ${DOMIOS_TYPED_INSTRUCTION}`,
+);
+eq(
+  parseDomiosMessage(typedDomios)?.body,
+  "opaque routed body",
+  "typed instruction is stripped from the routed message body",
+);
+eq(parseMarker("-=-codeterm:tab label=Main tab=abc12345-=-body"), null, "legacy route grammar is rejected");
 
 // `message_markers_tests.rs` PARITY[6] exactly (name space percent-encoded).
 eq(

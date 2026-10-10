@@ -58,6 +58,43 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
 }
 
 #[test]
+fn heartbeat_keeps_pending_group_records_advisory_without_reflection_block() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    for (index, name) in ["one", "two"].into_iter().enumerate() {
+        let task_id = store
+            .add_task(
+                &plan_id,
+                NewTask {
+                    name: name.into(),
+                    kind: "implement".into(),
+                    group: Some("phase-1".into()),
+                    ..Default::default()
+                },
+                20 + index as u64,
+            )
+            .unwrap();
+        store.start_task_for_test(&plan_id, &task_id, 30 + index as u64);
+        store
+            .close_task(
+                &plan_id,
+                &task_id,
+                None,
+                AgentRef::from_tab("orch-a"),
+                40 + index as u64,
+            )
+            .unwrap();
+    }
+
+    let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
+
+    assert!(shown.reinjection.contains("phase-1"));
+    assert!(shown.reinjection.contains("dispatch allowed"));
+    assert!(!shown
+        .reinjection
+        .contains(super::prompts_plan::REFLECTION_HEARTBEAT_TITLE));
+}
+
+#[test]
 fn heartbeat_lists_plan_skill_with_persisted_purpose() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let created = super::plan_skills::create_plan_skill(
@@ -788,4 +825,44 @@ fn outstanding_work_is_one_shared_derivation_across_next_status_and_heartbeat() 
         )
         .unwrap();
     assert_outstanding(&store, &plan_id, 1);
+}
+
+#[test]
+fn heartbeat_gate_selected_learnings_render_at_most_three_and_fallback_preserves_baseline() {
+    let (_dir, store, plan_id) = store_with_plan("owner");
+    let fragments: Vec<_> = (0..5)
+        .map(|index| format!("opaque learning token {index}"))
+        .collect();
+    let ids: Vec<_> = fragments
+        .iter()
+        .enumerate()
+        .map(|(index, fragment)| {
+            store
+                .add_heartbeat_learning(
+                    Some(&plan_id),
+                    None,
+                    None,
+                    fragment,
+                    None,
+                    20 + index as u64,
+                )
+                .unwrap()
+                .learning
+                .id
+        })
+        .collect();
+    let payload = "opaque delivered payload";
+    let digests = vec!["opaque digest".into()];
+    let selected =
+        store.prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, Some(&ids));
+    for (index, fragment) in fragments.iter().enumerate() {
+        assert_eq!(selected.contains(fragment), index < 3);
+    }
+    assert!(selected.contains(payload));
+    let baseline = store.prepend_heartbeat_for_plan_with_digests(&plan_id, payload, &digests);
+    assert_eq!(
+        store.prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, None),
+        baseline
+    );
+    assert_eq!(store.get(&plan_id).unwrap().heartbeat.learnings.len(), 5);
 }

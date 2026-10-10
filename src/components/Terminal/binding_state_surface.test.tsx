@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { Component, act, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { readFileSync } from "node:fs";
@@ -241,7 +242,7 @@ const tests: Test[] = [
       const [open, setOpen] = useState(false);
       return (
         <>
-          <AgentStateIndicator state={{ state: "quiet" }} onRebind={() => setOpen(true)} />
+          <AgentStateIndicator activity={tabActivity({ agent_state: { state: "quiet" } })} onRebind={() => setOpen(true)} />
           {open && (
             <SessionBindingRecoveryForm
               tabId="tab-a"

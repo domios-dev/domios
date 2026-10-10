@@ -1,6 +1,6 @@
 ---
 name: cli-contributor
-description: "Change CodeTerm CLI commands and audit generated contracts and consumers."
+description: "Change Domios CLI commands and audit generated contracts and consumers."
 ---
 
 # Changing the CLI
@@ -10,7 +10,9 @@ The clap tree in `cli/src/args/*.rs` is the single source of truth.
 When you add/rename/remove a command or flag:
 
 1. Edit the clap definition in `cli/src/args/`.
-2. In canonical, regenerate `generated/cli/cli-manifest.json`, the auto-block of
+2. The CLI reference preamble is authored in `cli/src/cmd/manifest/preamble.md`;
+   the renderer owns the prefix and command block and preserves the suffix.
+   In canonical, regenerate `generated/cli/cli-manifest.json`, the auto-block of
    `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` with
    `cli-manifest --write` run by the CLI built from this checkout (`./build.sh cli`
    does both, and also installs into the active dev data directory; see
@@ -110,6 +112,6 @@ reintroduce a separate hand-rolled arg parser.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/desktop-ipc.md](references/desktop-ipc.md) — desktop Tauri IPC commands

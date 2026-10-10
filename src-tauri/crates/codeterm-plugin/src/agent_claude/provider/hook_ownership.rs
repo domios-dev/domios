@@ -28,6 +28,11 @@ const CURRENT_ROUTES: [&str; 4] = [
     "$CODETERM_API_URL/api/mem/flush",
 ];
 
+const LEGACY_V2_COMMANDS: [&str; 2] = [
+    r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -d '{}' > /dev/null 2>&1 || true"#,
+    r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true"#,
+];
+
 pub fn command_carries_marker(command: &str) -> bool {
     command.contains(CODETERM_HOOK_MARKER_HEADER)
 }
@@ -49,9 +54,20 @@ fn command_is_current_unmarked(command: &str) -> bool {
 /// Migration compatibility only: the pane-era v2 command, whose `_source` a
 /// later settings rewrite may already have removed.
 fn command_is_legacy_v2(command: &str) -> bool {
-    command.contains("$CODETERM_PANE_ID")
-        && (command.contains("/api/panes/$CODETERM_PANE_ID/hook/")
-            || command.contains("/api/mem/flush"))
+    LEGACY_V2_COMMANDS.contains(&command)
+}
+
+pub fn entry_is_legacy_pane_codeterm_hook(entry: &Json) -> bool {
+    entry
+        .get("hooks")
+        .and_then(Json::as_array)
+        .is_some_and(|hooks| {
+            hooks.iter().any(|hook| {
+                hook.get("command")
+                    .and_then(Json::as_str)
+                    .is_some_and(command_is_legacy_v2)
+            })
+        })
 }
 
 fn hook_is_codeterm(hook: &Json) -> bool {

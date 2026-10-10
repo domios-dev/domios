@@ -27,6 +27,19 @@ assert("weekly sunday", describeSchedule("0 10 * * 0"), "Every Sun at 10:00");
 assert("passthrough complex", describeSchedule("0 9 1 * *"), "0 9 1 * *");
 assert("passthrough invalid", describeSchedule("not a cron"), "not a cron");
 
+// Unsupported or restricted expressions must round-trip the exact original text.
+assert("restricted dom passthrough", describeSchedule("* * 1 * *"), "* * 1 * *");
+assert("restricted dow with all-star time", describeSchedule("* * * * 1"), "* * * * 1");
+assert("weekday range passthrough", describeSchedule("0 9 * * 1-5"), "0 9 * * 1-5");
+assert("weekday list passthrough", describeSchedule("0 9 * * 1,3"), "0 9 * * 1,3");
+assert("stepped minute in daily passthrough", describeSchedule("*/15 9 * * *"), "*/15 9 * * *");
+assert("wildcard minute in daily passthrough", describeSchedule("* 9 * * *"), "* 9 * * *");
+assert("zero step passthrough", describeSchedule("*/0 * * * *"), "*/0 * * * *");
+assert("non-numeric step passthrough", describeSchedule("*/x * * * *"), "*/x * * * *");
+assert("minute out of range passthrough", describeSchedule("60 9 * * *"), "60 9 * * *");
+assert("hour out of range passthrough", describeSchedule("0 24 * * *"), "0 24 * * *");
+assert("whitespace passthrough retains raw", describeSchedule("  0 9 * * 1-5  "), "  0 9 * * 1-5  ");
+
 // ── timeAgo ───────────────────────────────────────────────────────
 
 console.log("\ntimeAgo:");

@@ -74,7 +74,7 @@ pub(crate) fn screen_allows_adopt(
         return Ok(());
     }
     let has_tui = screen_has_agent_tui(screen) || any_provider_tui;
-    if has_tui && !screen_has_bare_shell_prompt(screen) {
+    if has_tui && (!screen_has_bare_shell_prompt(screen) || any_provider_tui) {
         return Ok(());
     }
     Err(TabAdoptError::new(
@@ -252,6 +252,7 @@ impl ServiceContext {
             apply_boot_stage(tab, BootStage::AgentReady, None);
         }
         let (previous, current) = identity_states(outcome)?;
+        crate::agent::state_reactor::classify_adopted_launch_screen(self, tab_id, &pty_id);
         let status = if previous.provider == current.provider {
             RepairFieldStatus::Kept
         } else {
@@ -310,6 +311,13 @@ mod tests {
     #[test]
     fn agent_tui_screen_is_accepted_without_force() {
         assert!(screen_allows_adopt(tui_screen(), false, false).is_ok());
+    }
+
+    #[test]
+    fn provider_tui_is_accepted_when_its_cursor_looks_like_a_shell_prompt() {
+        let screen = "assistant output\n⏵⏵ bypass permissions on (shift+tab to cycle)\n❯ ";
+        assert!(screen_has_bare_shell_prompt(screen));
+        assert!(screen_allows_adopt(screen, false, true).is_ok());
     }
 
     #[test]
@@ -384,6 +392,77 @@ mod tests {
             fixture.service.tab_has_agent(&target_id),
             TabInputTransport::Pty,
         ));
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn adopted_tab_classifies_and_surfaces_its_current_provider_prompt() {
+        use codeterm_plugin::tab_state::{
+            Surface, TabState, TabStateAction, TabStateClassification,
+        };
+        use codeterm_types::pty::{PendingPrompt, PromptOption};
+
+        let (mut mux, tab_id) = MultiplexerState::new();
+        live_shell_tab(&mut mux, &tab_id);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let prompt = PendingPrompt {
+            question: "Which test runner?".into(),
+            options: vec![
+                PromptOption {
+                    label: "Unit".into(),
+                    value: "1".into(),
+                },
+                PromptOption {
+                    label: "Integration".into(),
+                    value: "2".into(),
+                },
+            ],
+            sections: None,
+            multi_select: Some(false),
+            submit_available: Some(false),
+            selected_values: None,
+        };
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::new("mock-pty")
+                .with_tab_state(TabStateClassification {
+                    state: TabState::ClarifyingQuestion,
+                    confidence: 1.0,
+                    data: None,
+                    action: Some(TabStateAction {
+                        surface: Some(Surface {
+                            kind: "clarifying_question".into(),
+                            payload: serde_json::json!({ "questions": ["Which test runner?"] }),
+                        }),
+                        ..Default::default()
+                    }),
+                })
+                .with_parsed_prompt(prompt.clone()),
+        ));
+        let screen =
+            "Which test runner?\n❯ 1. Unit\n  2. Integration\nEnter to confirm · Esc to cancel";
+        fixture
+            .service
+            .screen_state
+            .lock()
+            .process("pty-live", screen.as_bytes());
+
+        fixture
+            .service
+            .adopt_live_pty_as_agent(
+                &tab_id,
+                &AuthenticatedPlanCaller::default(),
+                "mock-pty",
+                true,
+            )
+            .unwrap();
+
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.pending_prompt.as_ref(), Some(&prompt));
+        assert_eq!(
+            tab.pending_prompt_kind,
+            Some(codeterm_types::pty::PromptKind::Provider)
+        );
     }
 
     #[test]

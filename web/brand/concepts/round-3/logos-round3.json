@@ -1,0 +1,44 @@
+[
+  {
+    "id": "03a",
+    "name": "Welcome",
+    "desc": "A wider entry and a five-pixel chamber at 16 px. The cut keeps its 45-degree invitation while admitting more light.",
+    "d": "M8 8H32C46 8 56 18 56 32S46 56 32 56H28L44 40V24H24V40L8 56Z",
+    "rule": "evenodd"
+  },
+  {
+    "id": "03b",
+    "name": "Softneck",
+    "desc": "The diagonal cut relaxes into a curved liquid neck. The doorway feels pulled open while the outer silhouette stays familiar.",
+    "d": "M8 8H32C46 8 56 18 56 32S46 56 32 56H24C28 48 40 48 40 36V24H24V36C24 46 12 46 8 56Z",
+    "rule": "evenodd"
+  },
+  {
+    "id": "03c",
+    "name": "Peek",
+    "desc": "A broad resident peeks from the left doorjamb into an enlarged room. It is fused to the mark, with no separate eye or tiny floating detail.",
+    "d": "M8 8H32C46 8 56 18 56 32S46 56 32 56H28L44 40V20H20V28C32 28 32 40 20 40L8 56Z",
+    "rule": "evenodd"
+  },
+  {
+    "id": "03d",
+    "name": "Roundhouse",
+    "desc": "A fuller bowl, rounded shoulder and softened inner corners make the same open doorway feel less formal and more approachable.",
+    "d": "M16 8H32C48 8 58 18 58 32S48 56 32 56H24L40 40V28Q40 24 36 24H28Q24 24 24 28V40L8 56V16Q8 8 16 8Z",
+    "rule": "evenodd"
+  },
+  {
+    "id": "03e",
+    "name": "Swing",
+    "desc": "A broad sloping inner plane suggests a door swung outward. The open door is built into the silhouette, rather than added as a thin leaf.",
+    "d": "M8 8H32C46 8 56 18 56 32S46 56 32 56H28L44 40V28L24 20V40L8 56Z",
+    "rule": "evenodd"
+  },
+  {
+    "id": "03f",
+    "name": "Bold",
+    "desc": "The outer mass grows to a 56-unit footprint while the room keeps its four-pixel width at 16 px. More ink gives the favicon a stronger presence.",
+    "d": "M4 4H32C48 4 60 16 60 32S48 60 32 60H20L40 40V24H24V40L4 60Z",
+    "rule": "evenodd"
+  }
+]

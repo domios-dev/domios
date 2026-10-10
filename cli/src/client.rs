@@ -99,7 +99,7 @@ fn select_transport<T>(
         Err(socket_error) => http()
             .map(TransportChoice::Http)
             .map_err(|error| {
-                format!("CodeTerm socket attempt failed: {socket_error}; loopback HTTP attempt failed: {error}")
+                format!("Domios socket attempt failed: {socket_error}; loopback HTTP attempt failed: {error}")
             }),
     }
 }
@@ -238,6 +238,11 @@ impl SocketClient {
     }
 
     pub fn connect_local() -> Result<(Self, ResolvedSocket), String> {
+        let _ = resolve_socket_selection(
+            std::env::var("CODETERM_SOCKET_PATH").ok().as_deref(),
+            std::env::var("CODETERM_INSTANCE").ok().as_deref(),
+            std::env::var("CODETERM_API_PORT").ok().as_deref(),
+        )?;
         let discovered = discover_socket_resolution();
         let fallback_socket = ResolvedSocket {
             path: discovered
@@ -257,7 +262,7 @@ impl SocketClient {
             TransportChoice::Http(config) => Self::connect_http(config)
                 .map(|client| (client, fallback_socket))
                 .map_err(|http_error| {
-                    format!("CodeTerm socket attempt failed: {socket_error}; loopback HTTP attempt failed: {http_error}")
+                    format!("Domios socket attempt failed: {socket_error}; loopback HTTP attempt failed: {http_error}")
                 }),
         }
     }
@@ -503,9 +508,9 @@ fn render_protocol_mismatch(method: &str, cli_version: &str, daemon_version: &st
         _ => "CLI and daemon versions differ",
     };
     format!(
-        "CodeTerm CLI/daemon protocol mismatch: {direction} \
+        "Domios CLI/daemon protocol mismatch: {direction} \
          (CLI {cli_version}, daemon {daemon_version}); method '{method}' is unavailable. \
-         Restart or update CodeTerm so the running daemon and installed CLI versions match."
+         Restart or update Domios so the running daemon and installed CLI versions match."
     )
 }
 
@@ -533,7 +538,8 @@ impl RpcClient for SocketClient {
 ///
 /// 1. Check `CODETERM_SOCKET_PATH` env var, but VERIFY the named pipe / socket
 ///    is actually live before trusting it. This is the explicit escape hatch.
-/// 2. Derive named dev sockets from `CODETERM_INSTANCE` / `CODETERM_API_PORT`.
+/// 2. Derive named dev sockets from `CODETERM_INSTANCE`, or default DEV from
+///    `CODETERM_API_PORT=7686`. Custom ports need an instance or explicit socket.
 /// 3. On Windows, scan `\\.\pipe\` for pipes matching `codeterm-*`.
 /// 4. On Unix, scan `/tmp/` for `codeterm-*.sock`.
 ///
@@ -543,29 +549,27 @@ impl RpcClient for SocketClient {
 ///    that blindly trusts the env var ends up with `Failed to connect to
 ///    'codeterm-{old-pid}.sock'` on every invocation.
 pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
-    let deterministic = deterministic_socket_resolution();
-    if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
-        if !path.is_empty() {
-            let normalized = normalize_socket_path(&path);
-            if deterministic
-                .as_ref()
-                .is_none_or(|resolved| resolved.path == normalized)
-                && socket_is_live(&normalized)
-            {
-                return Ok(ResolvedSocket {
-                    path: normalized,
-                    source: ResolutionSource::CodeTermSocketPath,
-                });
-            }
-        }
-    }
+    let explicit_socket = std::env::var("CODETERM_SOCKET_PATH").ok();
+    let instance = std::env::var("CODETERM_INSTANCE").ok();
+    let api_port = std::env::var("CODETERM_API_PORT").ok();
+    let selected = resolve_socket_selection(
+        explicit_socket.as_deref(),
+        instance.as_deref(),
+        api_port.as_deref(),
+    )?;
 
-    if let Some(resolved) = deterministic {
+    if let Some(resolved) = selected {
         if socket_is_live(&resolved.path) {
             return Ok(resolved);
         }
+        if resolved.source == ResolutionSource::CodeTermSocketPath {
+            return Err(format!(
+                "Domios socket '{}' from CODETERM_SOCKET_PATH is not live; refusing to derive another socket.",
+                resolved.path
+            ));
+        }
         return Err(format!(
-            "CodeTerm socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
+            "Domios socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
             resolved.path
         ));
     }
@@ -628,12 +632,13 @@ fn normalize_socket_path(path: &str) -> String {
 /// a dev daemon. Auto-discovery should then prefer a dev socket over any
 /// inherited prod socket.
 fn prefers_dev_socket() -> bool {
-    std::env::var("CODETERM_API_PORT")
-        .map(|v| {
-            let port = v.trim();
-            !port.is_empty() && port != "7685"
-        })
-        .unwrap_or(false)
+    prefers_dev_socket_for(std::env::var("CODETERM_API_PORT").ok().as_deref())
+}
+
+fn prefers_dev_socket_for(api_port: Option<&str>) -> bool {
+    api_port
+        .map(str::trim)
+        .is_some_and(|port| !port.is_empty() && port != "7685")
 }
 
 #[cfg(test)]
@@ -641,14 +646,25 @@ fn deterministic_socket_name() -> Option<String> {
     deterministic_socket_resolution().map(|resolved| resolved.path)
 }
 
+#[cfg(test)]
 fn deterministic_socket_resolution() -> Option<ResolvedSocket> {
-    if let Some(prefix) = instance_socket_prefix() {
+    deterministic_socket_resolution_for(
+        std::env::var("CODETERM_INSTANCE").ok().as_deref(),
+        std::env::var("CODETERM_API_PORT").ok().as_deref(),
+    )
+}
+
+fn deterministic_socket_resolution_for(
+    instance: Option<&str>,
+    api_port: Option<&str>,
+) -> Option<ResolvedSocket> {
+    if let Some(prefix) = instance_socket_prefix_for(instance) {
         return Some(ResolvedSocket {
             path: format!("{prefix}.sock"),
             source: ResolutionSource::CodeTermInstance,
         });
     }
-    if prefers_dev_socket() {
+    if api_port.map(str::trim) == Some("7686") {
         return Some(ResolvedSocket {
             path: "codeterm-dev.sock".to_string(),
             source: ResolutionSource::CodeTermApiPort,
@@ -680,10 +696,15 @@ fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
 /// The named dev instance socket prefix, e.g. `codeterm-dev-exp`, or None.
 /// Sanitized to `[a-z0-9-]+` to mirror the daemon's path derivation.
 fn instance_socket_prefix() -> Option<String> {
-    match std::env::var("CODETERM_INSTANCE") {
-        Ok(s) if !s.trim().is_empty() => {
-            let slug: String = s
-                .trim()
+    instance_socket_prefix_for(std::env::var("CODETERM_INSTANCE").ok().as_deref())
+}
+
+fn instance_socket_prefix_for(instance: Option<&str>) -> Option<String> {
+    instance
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let slug: String = value
                 .to_lowercase()
                 .chars()
                 .map(|c| {
@@ -694,10 +715,125 @@ fn instance_socket_prefix() -> Option<String> {
                     }
                 })
                 .collect();
-            Some(format!("codeterm-dev-{}", slug))
+            format!("codeterm-dev-{slug}")
+        })
+}
+
+fn resolve_socket_selection(
+    explicit_socket: Option<&str>,
+    instance: Option<&str>,
+    api_port: Option<&str>,
+) -> Result<Option<ResolvedSocket>, String> {
+    let instance = instance.map(str::trim).filter(|value| !value.is_empty());
+    let api_port = api_port.map(str::trim).filter(|value| !value.is_empty());
+    let explicit_socket = explicit_socket
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+
+    if let Some(api_port) = api_port {
+        if api_port != "7685"
+            && api_port != "7686"
+            && instance.is_none()
+            && explicit_socket.is_none()
+        {
+            return Err(format!(
+                "CODETERM_API_PORT='{api_port}' needs CODETERM_INSTANCE or an explicit CODETERM_SOCKET_PATH; refusing to guess the development socket."
+            ));
         }
-        _ => None,
     }
+
+    if let (Some(instance), Some(port @ ("7685" | "7686"))) = (instance, api_port) {
+        return Err(format!(
+            "Conflicting CodeTerm target selectors: CODETERM_INSTANCE='{instance}' selects a named development instance, but CODETERM_API_PORT='{port}' selects a default instance."
+        ));
+    }
+
+    if let Some(path) = explicit_socket {
+        let normalized = normalize_socket_path(path);
+        if let Some(api_port) = api_port {
+            if api_port != "7685"
+                && api_port != "7686"
+                && instance.is_none()
+                && socket_dev_class(&normalized).is_none()
+            {
+                return Err(format!(
+                    "CODETERM_API_PORT='{api_port}' needs CODETERM_INSTANCE or a named development socket; refusing to pair it with an unknown socket."
+                ));
+            }
+        }
+        if let Some(api_port) = api_port {
+            if let Some(socket_is_dev) = socket_dev_class(&normalized) {
+                let port_is_dev = api_port != "7685";
+                if socket_is_dev != port_is_dev {
+                    return Err(format!(
+                        "Conflicting CodeTerm target selectors: CODETERM_SOCKET_PATH='{normalized}' and CODETERM_API_PORT='{api_port}' select different instances."
+                    ));
+                }
+            }
+            if (normalized == "codeterm-dev.sock" || normalized == "codeterm-dev")
+                && api_port != "7685"
+                && api_port != "7686"
+            {
+                return Err(format!(
+                    "Conflicting CodeTerm target selectors: CODETERM_SOCKET_PATH='{normalized}' selects default DEV, but CODETERM_API_PORT='{api_port}' selects a named instance."
+                ));
+            }
+            if instance_socket_name_from_path(&normalized).is_some() && api_port == "7686" {
+                return Err(format!(
+                    "Conflicting CodeTerm target selectors: CODETERM_SOCKET_PATH='{normalized}' selects a named instance, but CODETERM_API_PORT=7686 selects default DEV."
+                ));
+            }
+        }
+        let socket_instance = instance_socket_name_from_path(&normalized);
+        if normalized.starts_with("codeterm-dev-") && socket_instance.is_none() {
+            return Err(format!(
+                "CODETERM_SOCKET_PATH='{normalized}' is not a valid named development socket."
+            ));
+        }
+        if let Some(instance) = instance {
+            let expected = instance_socket_prefix_for(Some(instance)).unwrap();
+            if normalized != expected && normalized != format!("{expected}.sock") {
+                return Err(format!(
+                    "Conflicting CodeTerm target selectors: CODETERM_SOCKET_PATH='{normalized}' does not match CODETERM_INSTANCE='{instance}'."
+                ));
+            }
+        } else if let Some(socket_instance) = socket_instance {
+            let port_selects_default = matches!(api_port, Some("7685" | "7686"));
+            if port_selects_default {
+                return Err(format!(
+                    "Conflicting CodeTerm target selectors: CODETERM_SOCKET_PATH='{normalized}' selects named instance '{socket_instance}', but CODETERM_API_PORT selects a default instance."
+                ));
+            }
+        }
+        return Ok(Some(ResolvedSocket {
+            path: normalized,
+            source: ResolutionSource::CodeTermSocketPath,
+        }));
+    }
+
+    Ok(deterministic_socket_resolution_for(instance, api_port))
+}
+
+fn socket_dev_class(name: &str) -> Option<bool> {
+    if is_dev_socket(name) {
+        Some(true)
+    } else if name.starts_with("codeterm-") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn instance_socket_name_from_path(path: &str) -> Option<String> {
+    let name = path.rsplit(['/', '\\']).next()?;
+    let normalized = normalize_socket_path(name);
+    let without_suffix = normalized.strip_suffix(".sock").unwrap_or(&normalized);
+    let instance = without_suffix.strip_prefix("codeterm-dev-")?;
+    (!instance.is_empty()
+        && instance.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        }))
+    .then(|| instance.to_owned())
 }
 
 /// Pick the best socket name from a candidate list given the current preference.
@@ -747,7 +883,7 @@ fn discover_windows_pipe() -> Result<String, String> {
             if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
                 return Ok(name);
             }
-            Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
+            Err("No Domios socket found. Is Domios running?".to_string())
         }
         Err(_) => {
             // Fallback to alternate pipe discovery when read_dir on `\\.\pipe` fails.
@@ -789,8 +925,7 @@ fn resolve_scanned_socket(
         return Ok(name);
     }
 
-    probe_running_daemon()
-        .ok_or_else(|| "No CodeTerm socket found. Is CodeTerm running?".to_string())
+    probe_running_daemon().ok_or_else(|| "No Domios socket found. Is Domios running?".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -836,14 +971,14 @@ fn connect_failure_message(socket_path: &str, denied: bool, caller_tab: Option<&
     let restart = |tab: &str| format!("from another tab run `codeterm agent restart --tab {tab}`");
     match (denied, caller_tab) {
         (true, Some(tab)) => format!(
-            "{base}: access denied. This agent is likely confined by its provider sandbox, launched without CodeTerm's permission bypass; {}",
+            "{base}: access denied. This agent is likely confined by its provider sandbox, launched without Domios's permission bypass; {}",
             restart(tab)
         ),
         (true, None) => {
             format!("{base}: access denied; this process is likely confined by a sandbox")
         }
         (false, Some(tab)) => format!(
-            "{base}. If CodeTerm is running, this agent may be confined by its provider sandbox; {}",
+            "{base}. If Domios is running, this agent may be confined by its provider sandbox; {}",
             restart(tab)
         ),
         (false, None) => base,

@@ -4,6 +4,173 @@
 use super::super::*;
 use super::*;
 
+#[test]
+fn completed_numbered_answer_events_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let captured = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/completed-numbered-answer-dev67.txt");
+    for (screen, permission) in [
+        (captured, false),
+        (
+            "❯ 1. opaque-a\n  2. opaque-b\nEsc to cancel\n─────\n❯\n─────",
+            false,
+        ),
+        (
+            "opaque-question?\n❯ 1. opaque-a\n  2. opaque-b\nEsc to cancel",
+            true,
+        ),
+    ] {
+        let has_permission = |events: Vec<crate::detector::AgentEvent>| {
+            events.contains(&crate::detector::AgentEvent::PermissionRequest)
+        };
+        assert_eq!(has_permission(native.detect_events(screen)), permission);
+        assert_eq!(has_permission(js.detect_events(screen)), permission);
+        assert_eq!(
+            native.parse_prompt(screen).is_some(),
+            js.parse_prompt(screen).is_some()
+        );
+    }
+}
+
+#[test]
+fn completion_record_source_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    // Holds the env lock so sibling tests cannot swap CLAUDE_CONFIG_DIR mid-test.
+    let _env = codeterm_util::test_env::EnvGuard::lock();
+    let (native, js) = pair();
+    let project = tempfile::tempdir().unwrap();
+    let cwd = project.path().to_string_lossy().to_string();
+    let session = format!("completion-parity-{}", uuid::Uuid::new_v4());
+    let path = native.session_jsonl_path(&cwd, &session).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{}").unwrap();
+    for source in ["session_jsonl", "session_file"] {
+        let declaration: crate::provider::ModelSwitchTurnCompletion = serde_json::from_value(
+            serde_json::json!({"source":source,"eventPointer":"/event","eventValue":"complete","sessionPointer":"/session","startEventValue":"start","turnPointer":"/turn","activeTurnPointer":"/active"}),
+        ).unwrap();
+        assert_eq!(
+            declaration
+                .record_path(&native, &cwd, &session)
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            declaration
+                .record_path(&js, &cwd, &session)
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+        );
+    }
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn session_effort_confirmed_command_and_later_turn_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    // Holds the env lock so sibling tests cannot swap CLAUDE_CONFIG_DIR mid-test.
+    let _env = codeterm_util::test_env::EnvGuard::lock();
+    let (native, js) = pair();
+    let project = tempfile::tempdir().unwrap();
+    let cwd = project.path().to_string_lossy().to_string();
+    let session = format!("effort-parity-{}", uuid::Uuid::new_v4());
+    let path = native.session_jsonl_path(&cwd, &session).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let prior = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"low"}}});
+    let command = serde_json::json!({"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"}});
+    let mut records = vec![prior, command];
+    for expected in ["medium", "high"] {
+        std::fs::write(
+            &path,
+            records
+                .iter()
+                .map(serde_json::Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            native
+                .detect_session_reasoning_effort(&cwd, &session)
+                .as_deref(),
+            Some(expected)
+        );
+        assert_eq!(
+            js.detect_session_reasoning_effort(&cwd, &session)
+                .as_deref(),
+            Some(expected)
+        );
+        records
+            .push(serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"high"}}}));
+    }
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir(path.parent().unwrap()).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_effort_symlinked_cwd_reads_only_owned_transcript_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config");
+    let evidence = temp.path().join("evidence");
+    let _env = EnvGuard::new(&[
+        ("CLAUDE_CONFIG_DIR", config.to_str().unwrap()),
+        (
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            evidence.to_str().unwrap(),
+        ),
+    ]);
+    let project = temp.path().join("project");
+    let alias = temp.path().join("alias");
+    std::fs::create_dir_all(&project).unwrap();
+    std::os::unix::fs::symlink(&project, &alias).unwrap();
+    let cwd = alias.to_str().unwrap();
+    let (native, js) = pair();
+    let path = native.session_jsonl_path(cwd, "owned").unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let prior = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"low"}}});
+    let command = serde_json::json!({"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (this session only): details</local-command-stdout>"}});
+    std::fs::write(&path, format!("{prior}\n{command}")).unwrap();
+    std::fs::write(
+        path.with_file_name("sibling.jsonl"),
+        r#"{"type":"assistant","effort":"max"}"#,
+    )
+    .unwrap();
+    for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+        assert_eq!(
+            provider
+                .detect_session_reasoning_effort(cwd, "owned")
+                .as_deref(),
+            Some("medium")
+        );
+        assert_eq!(
+            provider.detect_session_reasoning_effort(cwd, "missing"),
+            None
+        );
+    }
+    let later = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"high"}}});
+    std::fs::write(&path, format!("{prior}\n{command}\n{later}")).unwrap();
+    assert_eq!(
+        native
+            .detect_session_reasoning_effort(cwd, "owned")
+            .as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        js.detect_session_reasoning_effort(cwd, "owned").as_deref(),
+        Some("high")
+    );
+}
+
 /// AS3 (Case B): the real claude plugin.js classifies a rate-limit menu as
 /// `RateLimited` through the QuickJS runtime, and its wire output round-trips
 /// into the native `TabStateClassification` types — confirm-wait keys + a
@@ -170,6 +337,38 @@ fn parse_session_delta_handles_polymorphic_content() {
 }
 
 #[test]
+fn parse_session_delta_preserves_a_12k_user_turn() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let expected = format!("paste-start:{}:paste-end", "x".repeat(12 * 1024));
+    let jsonl = format!(
+        "{}\n",
+        serde_json::json!({
+            "type": "user",
+            "message": { "role": "user", "content": expected.clone() }
+        })
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), &jsonl).unwrap();
+
+    let delta = load_js("claude").parse_session_delta(tmp.path(), 0);
+    assert_eq!(delta.new_offset, jsonl.len() as u64);
+    let user = delta
+        .messages
+        .iter()
+        .find(|message| message.role == "user")
+        .expect("long Claude user record is parsed");
+    assert_eq!(
+        user.blocks[0]
+            .data
+            .get("text")
+            .and_then(|text| text.as_str()),
+        Some(expected.as_str())
+    );
+}
+
+#[test]
 fn model_switch_transcript_boundary_matches_native_and_js() {
     if require_plugins().is_none() {
         return;
@@ -245,6 +444,45 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
         js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
         Some(native_model)
     );
+}
+
+#[test]
+fn local_model_stdout_overrides_old_turn_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = codeterm_paths::canonical_cwd(&temp.path().to_string_lossy());
+    let evidence = temp.path().join("evidence");
+    let data = temp.path().join("data");
+    let _env = EnvGuard::new(&[
+        ("CODETERM_DATA_DIR", data.to_str().unwrap()),
+        ("CLAUDE_CONFIG_DIR", temp.path().to_str().unwrap()),
+        (
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            evidence.to_str().unwrap(),
+        ),
+    ]);
+    let session = uuid::Uuid::new_v4().to_string();
+    let native = ClaudeProvider::new();
+    let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
+    let path = js.session_file_path(&cwd, &session).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(crate::session_evidence::record(
+        &session,
+        path.to_str().unwrap()
+    ));
+    for (kind, content, expected) in [
+        ("user", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "sonnet"),
+        ("assistant", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "opus"),
+        ("user", "Set model to `Sonnet 5.5` for this session only", "opus"),
+    ] {
+        let old = serde_json::json!({"type":"assistant","message":{"model":"claude-opus-5-5"}});
+        let stdout = serde_json::json!({"type":kind,"message":{"content":content}});
+        std::fs::write(&path, format!("{old}\n{stdout}\n")).unwrap();
+        assert_eq!(native.detect_session_model(&cwd, &session).as_deref(), Some(expected));
+        assert_eq!(js.detect_session_model(&cwd, &session).as_deref(), Some(expected));
+    }
 }
 
 #[test]
@@ -411,8 +649,8 @@ fn rich_flatten_parity_block_derivable_kinds() {
         think[0].content
     );
     assert!(
-        think[0].content.ends_with("...") && think[0].content.len() <= 205,
-        "thinking must be truncated with ellipsis: len={}",
+        !think[0].content.ends_with("...") && think[0].content.len() > 205,
+        "collapsed thinking keeps its full text: len={}",
         think[0].content.len()
     );
 

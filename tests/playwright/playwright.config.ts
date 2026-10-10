@@ -7,6 +7,15 @@ const postMortemArtifacts = {
   screenshot: "only-on-failure" as const,
 };
 
+const liveSwitchSelected = process.env.PW_SWITCH_PROJECT_SELECTED === "1" || process.argv.some((arg, index, args) =>
+  arg === "--project=live-model-switch" || (arg === "--project" && args[index + 1] === "live-model-switch"));
+if (liveSwitchSelected) process.env.PW_SWITCH_PROJECT_SELECTED = "1";
+if (liveSwitchSelected && !process.env.PW_SWITCH_ARTIFACT_TAG) process.env.PW_SWITCH_ARTIFACT_TAG = String(Date.now());
+if (liveSwitchSelected && (process.env.PW_TARGET !== "dev" || !/^[0-9a-f]{40}$/.test(process.env.PW_SWITCH_DEV_SHA ?? ""))) {
+  throw new Error("live-model-switch requires PW_TARGET=dev and a full PW_SWITCH_DEV_SHA; it never owns DEV lifecycle");
+}
+if (liveSwitchSelected && !/^[a-z0-9-]+$/.test(process.env.PW_SWITCH_ARTIFACT_TAG!)) throw new Error("Unsafe switch artifact tag");
+
 /**
  * Serial uses the isolated `playwright` dev instance by default. CT_E2E_WORKERS=N
  * opts into one named isolated dev instance per Playwright parallel worker slot.
@@ -17,7 +26,7 @@ export default defineConfig({
   fullyParallel: false,
   timeout: 90_000,
   expect: { timeout: 10_000 },
-  outputDir: "./artifacts/test-results",
+  outputDir: liveSwitchSelected ? `./artifacts/model-switch-${process.env.PW_SWITCH_ARTIFACT_TAG}` : "./artifacts/test-results",
   reporter: [
     ["list"],
     ["html", { outputFolder: "./artifacts/html-report", open: "never" }],
@@ -62,10 +71,18 @@ export default defineConfig({
     {
       name: "live",
       grep: /@live/,
-      grepInvert: /@quarantine/,
+      grepInvert: /@quarantine|@model-switch/,
       retries: 0,
       timeout: 420_000,
     },
+    ...(liveSwitchSelected ? [{
+      name: "live-model-switch",
+      testMatch: "**/live-model-switch.spec.ts",
+      grep: /@model-switch/,
+      retries: 0,
+      timeout: 3_600_000,
+      use: { trace: "on" as const, actionTimeout: 15_000 },
+    }] : []),
     {
       name: "restart",
       grep: /@restart/,

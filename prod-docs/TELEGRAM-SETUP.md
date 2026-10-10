@@ -1,6 +1,8 @@
 # Setting up a Telegram bot from scratch
 
-When the user hands you a fresh Telegram bot token to wire up:
+This bot bridge speaks as the CodeTerm bot. To message a contact as the owner from their own Telegram account, use the telegram-client plugin (`codeterm plugin telegram-client chats <name>`, then `codeterm plugin telegram-client send <chat-id> <text>`).
+
+The user creates the bot with @BotFather, which issues its token. When the user hands you a fresh Telegram bot token to wire up:
 
 1. **Stash the token** (mode 600, gitignored path):
    ```bash
@@ -20,7 +22,7 @@ When the user hands you a fresh Telegram bot token to wire up:
    codeterm bridge restart
    ```
 
-4. **Smoke-check the token** without involving CodeTerm:
+4. **Smoke-check the token** without involving Domios:
    ```bash
    curl https://api.telegram.org/bot<TOKEN>/getMe
    ```
@@ -89,13 +91,16 @@ Use `--raw-text` only when the recipient must receive the literal characters
 backslash and `n` instead of a line break. Tabs are unchanged; actual tabs pass
 through as supplied by the shell.
 
-## Photos
+## Media and delivery
 
 ```bash
-codeterm bridge send --to USER_ID --type photo --file /path/to/image.jpg
+codeterm bridge send --to USER_ID --type photo --file /path/to/image.jpg --caption "Check this"
+codeterm bridge send --to USER_ID --type document --file /path/to/report.pdf --filename "Q1-report.pdf"
 ```
 
-CodeTerm has no screenshot CLI. If the user asks for a screen capture, ask them to paste an image or provide a file path.
+`--type` is `text` (default), `photo`, `document`, `voice`, `animation`, `video` or `sticker`. Positional text becomes the caption when `--caption` is absent; stickers take no caption. Any tab may `bridge send`, not only the General Agent. Long text is split into HTML-aware chunks on UTF-8 character boundaries, and a failed poller restarts after 5 seconds.
+
+Domios has no screenshot CLI. If the user asks for a screen capture, ask them to paste an image or provide a file path.
 
 ## Per-tab topic threads
 
@@ -104,7 +109,7 @@ With topics enabled for the bot in BotFather, each tab talks to the owner in its
 - The first notification or `bridge send` from a tab creates one topic named exactly after the tab title. Only while another live tab shares that title does it get a short `#xxxx` suffix from the tab id. Later sends reuse the binding, stored in `~/.codeterm/bridge/telegram-threads.json` (ids and topic names only).
 - Every tab post and its main-chat pointer start with the sender header `title · role · workspace · machine`, where role is `orchestrator`, `worker`, `planner` or `general`. The pointer links into the topic only where Telegram has a topic link; `--choice` buttons ride the topic post.
 - The main chat (no thread, or the general topic) stays the General Agent conversation, and the General Agent's own sends stay there with its header.
-- A message in a bound topic reaches that tab with `thread=<id>` in its Telegram marker. A reply to a tab's message reaches that tab even without topics. Everything else reaches the General Agent; `origin=closed_thread|closed_tab|unbound_thread` says when it came from a retired or unknown thread.
+- A message in a bound topic reaches that tab with `thread=<id>` in its Telegram `<domios>` tag. A reply to a tab's message reaches that tab even without topics. Everything else reaches the General Agent; `origin=closed_thread|closed_tab|unbound_thread` says when it came from a retired or unknown thread.
 - With topics off, sends fall back to the main chat with the header and the owner is told once to enable topics in BotFather. Creation is not retried per message; a bridge restart probes again.
 - Closing a tab deletes its topic (history loss is intended) and removes the binding, so a later tab with the same title gets a fresh topic. If deletion fails, the topic gets a closing note and a `[closed]` name, and later messages there reach the General Agent.
 
@@ -125,4 +130,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 10 -->
+<!-- revision: 14 -->

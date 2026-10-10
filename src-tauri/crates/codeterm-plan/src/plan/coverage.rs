@@ -250,6 +250,7 @@ mod tests {
 
     fn task(sections: &[&str], status: TaskStatus) -> Task {
         Task {
+            files: Default::default(),
             id: "t".into(),
             name: "n".into(),
             kind: "implement".into(),

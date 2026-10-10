@@ -115,6 +115,7 @@ pub(super) fn dispatch_split(
             "model": string("model", parent.task.model.as_deref()),
             "why": string("model_rationale", parent.task.model_rationale.as_deref()),
             "intent": string("intent", parent.task.intent.as_deref()),
+            "tags": child.get("tags"),
             "caller_tab_id": p.and_then(|v| v.get("caller_tab_id")),
             "session_id": p.and_then(|v| v.get("session_id")),
             "session_binding_nonce": p.and_then(|v| v.get("session_binding_nonce")),
@@ -149,6 +150,7 @@ pub(super) fn dispatch_split(
             }
         }
         new_children.push(NewTask {
+            files: super::task_files_field(Some(child))?.unwrap_or_default(),
             name: get_string_param(&Some(child.clone()), "name")?,
             kind: child
                 .get("type")
@@ -195,6 +197,7 @@ pub(super) fn dispatch_split(
                 .get("intent")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            tags: tags_field(Some(child)),
             ..Default::default()
         });
     }

@@ -1,0 +1,33 @@
+{
+  "id": "fixture-plugin",
+  "version": "1.0.0",
+  "minCodeterm": "1.0.0",
+  "hostApi": 2,
+  "displayName": "Blueprint Event Fixture",
+  "description": "Emits one bounded fixture event when a pipeline subscribes.",
+  "entry": "plugin.js",
+  "capabilities": {
+    "graphNodes": {
+      "eventSources": [
+        {
+          "kind": "fixture.message",
+          "title": "Fixture message",
+          "params": {
+            "type": "object",
+            "properties": {
+              "channel": { "type": "string", "enum": ["fixture"] }
+            },
+            "required": ["channel"]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "message": { "type": "string", "maxLength": 128 }
+            },
+            "required": ["message"]
+          }
+        }
+      ]
+    }
+  }
+}

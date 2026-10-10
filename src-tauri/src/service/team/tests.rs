@@ -913,7 +913,9 @@ fn manual_team_worker_has_system_identity_and_no_starter_turn() {
         crate::agent::provider::StarterPrompt::NoStarter
     );
     assert_eq!(
-        system_context.matches("You are a CodeTerm Worker.").count(),
+        system_context
+            .matches(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+            .count(),
         1
     );
     assert!(!system_context.contains("## Assignment"));
@@ -948,7 +950,9 @@ fn new_explicit_task_worker_gets_exactly_one_assigned_starter() {
     );
     assert_eq!(system_context.matches(brief).count(), 1);
     assert_eq!(
-        system_context.matches("You are a CodeTerm Worker.").count(),
+        system_context
+            .matches(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+            .count(),
         1
     );
 }
@@ -1173,3 +1177,5 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
 
 mod close_busy;
 mod close_lifecycle;
+mod storage_cutover_team_teardown;
+mod team_teardown_off_runtime;

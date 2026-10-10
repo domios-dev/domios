@@ -1,8 +1,8 @@
 //! Prompt-fragment tests. Split out of `prompts.rs` to keep the source file
 //! inside the repository size gate; the module contract is unchanged.
 
-mod idle_coordination;
 mod notify_rules;
+mod plan_task_flags;
 mod prompt_diet;
 mod task_sequencing;
 
@@ -14,9 +14,10 @@ const CLI_MANIFEST: &str = include_str!("../../../generated/cli/cli-manifest.jso
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
-fn cli_teaching_fragments() -> [(&'static str, &'static str); 10] {
+fn cli_teaching_fragments() -> [(&'static str, &'static str); 13] {
     [
         ("general_agent.md", GENERAL_AGENT_TEMPLATE),
+        ("mem_management.md", MEM_MANAGEMENT),
         ("codeterm_rule.md", CODETERM_RULE),
         ("codeterm_cli.md", CODETERM_CLI),
         ("interactive_child_pty.md", INTERACTIVE_CHILD_PTY_OPERATION),
@@ -25,7 +26,9 @@ fn cli_teaching_fragments() -> [(&'static str, &'static str); 10] {
         ("worker_suffix.md", WORKER_SUFFIX),
         ("team_creation_contract.md", TEAM_CREATION_CONTRACT),
         ("task_sequencing_contract.md", TASK_SEQUENCING_CONTRACT),
+        ("plan_task_flags.md", PLAN_TASK_FLAGS),
         ("agent_codeterm_primer.md", AGENT_CODETERM_PRIMER),
+        ("utility_tab_guidance.md", UTILITY_TAB_GUIDANCE),
     ]
 }
 
@@ -478,23 +481,10 @@ fn selected_instruction_references_name_whole_documents() {
                 .and_then(|rest| rest.split_whitespace().next())
                 .unwrap_or_default();
             assert!(
-                [
-                    "ORCHESTRATION",
-                    "ORCHESTRATION-TASKS",
-                    "ORCHESTRATION-OPERATIONS",
-                    "PLANNER",
-                    "PLAN-EDITING",
-                    "LANES",
-                    "BOUNCE",
-                    "TEST-AUTHORING",
-                    "ROUTING",
-                    "MESH",
-                    "MEMORY",
-                    "SECRETS",
-                    "API-CLI",
-                    "API-PLAN",
-                ]
-                .contains(&document),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../prod-docs")
+                    .join(format!("{document}.md"))
+                    .is_file(),
                 "instruction reference names an unknown document: {command}"
             );
             assert_eq!(command, format!("codeterm docs {document}"));
@@ -589,6 +579,7 @@ fn prompt_placeholders_are_fully_substituted() {
             "{planning_compaction_contract}",
             "{team_creation_contract}",
             "{task_sequencing_contract}",
+            "{plan_task_flags}",
             "{test_author_guidance}",
             "{task_contract_line}",
             "{task_routing_line}",
@@ -690,24 +681,7 @@ fn planner_suffix_embeds_the_canonical_manual() {
 }
 
 #[test]
-fn milestone_gate_constants_wire_into_orchestration_ladder() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION-OPERATIONS.md");
-
-    // Suggestion fills both placeholders and names the record command.
-    let msg = milestone_gate_suggestion("phase-1", "Phase 1");
-    assert!(msg.contains("group Phase 1 complete"));
-    assert!(msg.contains("codeterm plan qa next --group phase-1"));
-    assert!(!msg.contains("{label}") && !msg.contains("{key}"));
-
-    // The doc must quote the shared constant verbatim — asserted by constant,
-    // not by quoted prose, so rewording the ladder updates one place.
-    assert!(ORCHESTRATION_DOC.contains(MILESTONE_GATE_LADDER));
-    assert_eq!(REGRESSION_MILESTONE_KIND, "regression");
-    assert!(!MILESTONE_GATE_HEARTBEAT_TITLE.trim().is_empty());
-}
-
-#[test]
-fn reflection_block_fills_counts_and_routes_to_existing_primitives() {
+fn reflection_block_fills_the_supplied_window() {
     use crate::service::plan::reflection::ReflectionWindow;
     let filled = reflection_block(
         "group Wave 1 closed",
@@ -722,7 +696,6 @@ fn reflection_block_fills_counts_and_routes_to_existing_primitives() {
     assert!(filled.contains("bounces: 1"));
     assert!(filled.contains("gate leaks: 2"));
     assert!(!filled.contains("{trigger}") && !filled.contains("{closed}"));
-    assert!(!REFLECTION_HEARTBEAT_TITLE.trim().is_empty());
 }
 
 /// Was named for GA routing while asserting template phrases; the mechanism
@@ -736,27 +709,45 @@ fn general_agent_template_receives_the_cli_reference() {
     assert!(!general.contains("{codeterm_cli}"));
 }
 
+/// Plan nudges are delivered from `prompts_plan` at runtime, outside the
+/// fragment sweep; a pointer to a renamed command strands its recipient.
 #[test]
-fn reflection_block_runs_velocity_and_cost_sweep() {
-    assert!(REFLECTION_BLOCK.contains("VELOCITY AND COST sweep"));
-    assert!(REFLECTION_BLOCK.contains("no longer earn their priority"));
-    assert!(REFLECTION_BLOCK.contains("cheaper model"));
+fn plan_nudges_teach_only_commands_the_manifest_has() {
+    let root: serde_json::Value =
+        serde_json::from_str(CLI_MANIFEST).expect("cli-manifest.json must parse");
+
+    let mut problems: Vec<String> = Vec::new();
+    for (name, fragment) in [
+        ("REFLECTION_BLOCK", REFLECTION_BLOCK),
+        ("PLAN_RETROSPECTIVE_NUDGE", PLAN_RETROSPECTIVE_NUDGE),
+        ("PLAN_SKILLS_WORKER_LINE", PLAN_SKILLS_WORKER_LINE),
+    ] {
+        let spans = command_spans(fragment);
+        assert!(!spans.is_empty(), "{name} points at no runnable command");
+        for span in spans {
+            let before = problems.len();
+            check_span(&root, span, &mut problems);
+            check_span_flags(&root, span, &mut problems);
+            for problem in problems.iter_mut().skip(before) {
+                *problem = format!("{name}: {problem}");
+            }
+        }
+    }
+
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 #[test]
-fn retrospective_nudge_graduates_skills_and_scripts_via_reviewed_lane() {
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains("codeterm mem skill"));
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains(".agents/skills/"));
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains("scripts/"));
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains("reviewed lane"));
+fn retrospective_nudge_reaches_the_wrapup_with_its_plan_substituted() {
+    let message = crate::service::plan::complete_wrapup::complete_wrapup_message("pl_probe");
+
+    assert!(message.contains(&PLAN_RETROSPECTIVE_NUDGE.replace("<plan>", "pl_probe")));
+    assert!(!message.contains("<plan>"));
 }
 
 #[test]
-fn plan_skills_worker_and_registry_lines_are_pointers() {
-    assert!(PLAN_SKILLS_WORKER_LINE.contains("codeterm plan skill list"));
-    assert!(PLAN_SKILLS_WORKER_LINE.contains("codeterm plan skill new"));
+fn plan_skills_registry_line_keeps_its_count_slot() {
     assert!(PLAN_SKILLS_REGISTRY_LINE.contains("{n}"));
-    assert!(PLAN_SKILLS_REGISTRY_LINE.contains("codeterm plan skill show <slug> | new | edit."));
 }
 
 #[test]
@@ -779,8 +770,11 @@ fn every_prompt_md_has_a_loader() {
         "cron_skill_missing.md",
         "codeterm_rule.md",
         "bridge_mem.md",
+        "mem_management.md",
         "general_agent.md",
         "agent_codeterm_primer.md",
+        "utility_tab_guidance.md",
+        "plugin_discovery_rule.md",
         "agent_pad_rule.md",
         "worker_codeterm_context.md",
         "rich_rendering_guidance.md",
@@ -793,7 +787,9 @@ fn every_prompt_md_has_a_loader() {
         "mem_rerank.md",
         "dreaming_rem.md",
         "task_sequencing_contract.md",
+        "plan_task_flags.md",
         "cartographer_suffix.md",
+        "tool_less.md",
     ]
     .into_iter()
     .collect();

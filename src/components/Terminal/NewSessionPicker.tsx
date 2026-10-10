@@ -1,25 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IS_WEB } from "../../lib/webApi";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useModelPresets } from "../../hooks/useModelPresets";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { setAgentSettings } from "../../lib/clientSettings";
 import {
   defaultNewSessionChoice,
   readPersistedNewSessionChoice,
+  reconcilePresetSelection,
   resolveEffort,
+  resolvePersistedChoice,
   writePersistedNewSessionChoice,
   type NewSessionChoice,
   type NewSessionMode,
 } from "../../lib/newSessionChoice";
-import { buildDestinationPreview, MODE_HELP_TEXT, WORKSPACE_HELP_TEXT } from "../../lib/newSessionPickerContent";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
-import { AgentIcon } from "../AgentIcon";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
-import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
-import { FloatingTooltip } from "../shared/FloatingTooltip";
-import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
+import { ModeCards } from "./NewSessionPickerParts";
+import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -40,8 +39,9 @@ export function NewSessionPicker({
   onClose: () => void;
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification } = useMultiplexer();
   const state = useMuxState();
+  const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -51,25 +51,25 @@ export function NewSessionPicker({
   const [busy, setBusy] = useState(false);
   const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
   const disabledProviderIds = useMemo(
     () => new Set(visibleProviders.filter((p) => installMap[p.id] === false).map((p) => p.id)),
     [visibleProviders, installMap],
   );
 
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
-  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
-  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
-  const [newWorkspaceName, setNewWorkspaceName] = useState("");
-  const workspaces = state.workspaces;
   const selectedWorkspace = useMemo(
-    () => workspaces.find((w) => w.id === selectedWorkspaceId),
-    [workspaces, selectedWorkspaceId],
+    () => state.workspaces.find((w) => w.id === workspaceId),
+    [state.workspaces, workspaceId],
   );
 
   const hasRestoredRef = useRef(false);
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;
+    if (hasRestoredRef.current) {
+      setChoice((current) => resolvePersistedChoice(visibleProviders, current));
+      return;
+    }
     const restored = readPersistedNewSessionChoice(visibleProviders);
     if (initialProviderId && visibleProviders.some((provider) => provider.id === initialProviderId)) {
       const provider = visibleProviders.find((candidate) => candidate.id === initialProviderId);
@@ -91,6 +91,10 @@ export function NewSessionPicker({
   }, [choice]);
 
   useEffect(() => {
+    if (!presetsLoading && !presetsError) setChoice((current) => reconcilePresetSelection(current, presets));
+  }, [presets, presetsLoading, presetsError]);
+
+  useEffect(() => {
     let cancelled = false;
     const probe = () => {
       void probeProviderInstallMap(visibleProviders).then((map) => {
@@ -108,13 +112,13 @@ export function NewSessionPicker({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy || folderPickerOpen) return;
+      if (event.key !== "Escape" || busy) return;
       event.preventDefault();
       onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, folderPickerOpen, onClose]);
+  }, [busy, onClose]);
 
   useEffect(() => {
     const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -151,31 +155,6 @@ export function NewSessionPicker({
     })();
   }, [addNotification, selectTabByTab, state.active_workspace_id, workspaceId]);
 
-  const handleStartCreateWorkspace = useCallback(() => {
-    if (IS_WEB) {
-      setNewWorkspaceName("");
-      setCreatingWorkspace(true);
-      return;
-    }
-    setFolderPickerOpen(true);
-  }, []);
-  const handleSelectWorkspaceFolder = useCallback((folder: string) => {
-    setFolderPickerOpen(false);
-    void (async () => {
-      const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-      const info = await createWorkspace(basename, folder, { activate: false });
-      if (info?.id) setSelectedWorkspaceId(info.id);
-    })();
-  }, [createWorkspace]);
-  const handleCancelCreateWorkspace = useCallback(() => setCreatingWorkspace(false), []);
-  const handleConfirmCreateWorkspace = useCallback(async () => {
-    const name = newWorkspaceName.trim();
-    if (!name) return;
-    const info = await createWorkspace(name, undefined, { activate: false });
-    setCreatingWorkspace(false);
-    if (info?.id) setSelectedWorkspaceId(info.id);
-  }, [newWorkspaceName, createWorkspace]);
-
   const finishSpawn = useCallback(async (
     runner: () => Promise<{ workspaceId: string; tabId: string } | null>,
   ) => {
@@ -205,23 +184,25 @@ export function NewSessionPicker({
     providerId: string,
     modelId: string | undefined,
     effortId?: string,
+    preset?: string,
   ) => {
     if (disabledProviderIds.has(providerId)) return;
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
     await finishSpawn(() =>
       spawnAgentTab(
-        selectedWorkspaceId,
+        workspaceId,
         providerId,
         targetCwd ?? undefined,
         modelId,
         effortId,
+        preset,
       ),
     );
-  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
+  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
-    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId);
+    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
   }, [choice, runProviderSpawn]);
 
   const runPairSpawn = useCallback(() => {
@@ -232,7 +213,7 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    const wsId = selectedWorkspaceId;
+    const wsId = workspaceId;
     onClose();
     void createOrchestrationPair({
       orchestratorAgent: choice.orchestratorProviderId,
@@ -255,7 +236,7 @@ export function NewSessionPicker({
           sticky: true,
         });
       });
-  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, selectedWorkspaceId]);
+  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, workspaceId]);
 
   const handleStart = useCallback(() => {
     const start = async () => {
@@ -327,25 +308,6 @@ export function NewSessionPicker({
       && !disabledProviderIds.has(choice.orchestratorProviderId)
       && !disabledProviderIds.has(choice.plannerProviderId);
 
-  const previewText = useMemo(() => {
-    const destinationName = selectedWorkspace?.name ?? "…";
-    if (choice.mode === "pair") {
-      return buildDestinationPreview({ mode: "pair", workspaceName: destinationName });
-    }
-    const provider = visibleProviders.find((p) => p.id === choice.providerId);
-    const model = provider?.available_models?.find((m) => m.id === choice.modelId);
-    return buildDestinationPreview({
-      mode: "single",
-      workspaceName: destinationName,
-      singleProviderLabel: provider?.display_name,
-      singleModelLabel: model?.display_name,
-    });
-  }, [choice, selectedWorkspace, visibleProviders]);
-
-  const singleProviderId = choice.mode === "single" ? choice.providerId : (visibleProviders[0]?.id ?? "");
-  const orchestratorProviderId = choice.mode === "pair" ? choice.orchestratorProviderId : singleProviderId;
-  const plannerProviderId = choice.mode === "pair" ? choice.plannerProviderId : singleProviderId;
-
   return createPortal(
     <div
       data-testid="new-session-picker"
@@ -369,9 +331,6 @@ export function NewSessionPicker({
         />
         <div className="relative mb-4 pr-8">
           <h2 id="new-session-picker-title" className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</h2>
-          <div className="mt-1 text-[12px] text-[var(--ct-muted-fg)]">
-            Choose a single agent or an Orchestrator + Planner pair. Your last choice is remembered.
-          </div>
         </div>
         <button
           type="button"
@@ -384,127 +343,96 @@ export function NewSessionPicker({
           <X aria-hidden size={14} />
         </button>
 
-        <div className="relative mb-1.5 flex items-center gap-1.5">
-          <span id="new-session-picker-mode-label" className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
-          <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
-            <span className="picker-help-glyph-mark">?</span>
-          </FloatingTooltip>
+        <div className="relative mb-4" role="group" aria-label="Session mode">
+          <ModeCards mode={choice.mode} onSelect={handleModeSelect} />
         </div>
 
-        <div className="relative mb-4" role="group" aria-labelledby="new-session-picker-mode-label">
-          <ModeCards
-            mode={choice.mode}
-            singleProviderId={singleProviderId}
-            orchestratorProviderId={orchestratorProviderId}
-            plannerProviderId={plannerProviderId}
-            onSelect={handleModeSelect}
-          />
-        </div>
-
-        <div className="relative mb-4">
-          <WorkspaceRow
-            workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
-            selectedWorkspaceId={selectedWorkspaceId}
-            onSelectWorkspace={setSelectedWorkspaceId}
-            creatingWorkspace={creatingWorkspace}
-            newWorkspaceName={newWorkspaceName}
-            onNewWorkspaceNameChange={setNewWorkspaceName}
-            onStartCreateWorkspace={handleStartCreateWorkspace}
-            onConfirmCreateWorkspace={() => void handleConfirmCreateWorkspace()}
-            onCancelCreateWorkspace={handleCancelCreateWorkspace}
-            helpText={WORKSPACE_HELP_TEXT}
-          />
-        </div>
-
-        <div className="relative">
-          {choice.mode === "single" ? (
-            <OrchestrationRoleRow
-              label="Agent"
-              providers={visibleProviders}
-              providerId={choice.providerId}
-              modelId={choice.modelId ?? ""}
-              effortId={choice.effortId}
-              disabledProviderIds={disabledProviderIds}
-              onProviderChange={(providerId) => {
-                const provider = visibleProviders.find((p) => p.id === providerId);
-                setChoice({
-                  mode: "single",
-                  providerId,
-                  modelId: provider?.default_model,
-                  effortId: resolveEffort(provider, provider?.default_model),
-                });
-              }}
-              onModelChange={(modelId) => setChoice({
-                ...choice,
-                modelId,
-                effortId: resolveEffort(
-                  visibleProviders.find((provider) => provider.id === choice.providerId),
-                  modelId,
-                  choice.effortId,
-                ),
-              })}
-              onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
-              effortTestId="picker-effort-single"
-              onInstallProvider={handleInstallProvider}
-            />
-          ) : (
-            <OrchestrationPairForm
-              providers={visibleProviders}
-              values={{
-                orchestratorProviderId: choice.orchestratorProviderId,
-                orchestratorModelId: choice.orchestratorModelId ?? "",
-                orchestratorEffortId: choice.orchestratorEffortId,
-                plannerProviderId: choice.plannerProviderId,
-                plannerModelId: choice.plannerModelId ?? "",
-                plannerEffortId: choice.plannerEffortId,
-              }}
-              disabledProviderIds={disabledProviderIds}
-              onChange={(values) => setChoice({
-                mode: "pair",
-                orchestratorProviderId: values.orchestratorProviderId,
-                orchestratorModelId: values.orchestratorModelId || undefined,
-                orchestratorEffortId: values.orchestratorEffortId,
-                plannerProviderId: values.plannerProviderId,
-                plannerModelId: values.plannerModelId || undefined,
-                plannerEffortId: values.plannerEffortId,
-              })}
-              layout="card"
-              pairAffordanceTestId="pair-affordance"
-              roleTestIds={{
-                orchestratorProvider: "picker-provider-orchestrator",
-                orchestratorModel: "picker-model-orchestrator",
-                orchestratorEffort: "picker-effort-orchestrator",
-                plannerProvider: "picker-provider-planner",
-                plannerModel: "picker-model-planner",
-                plannerEffort: "picker-effort-planner",
-              }}
-              onInstallProvider={handleInstallProvider}
-            />
-          )}
-        </div>
-
-        <div
-          className="relative mt-4 flex items-center gap-2 rounded-md border px-2.5 py-2 text-[11px] text-[var(--ct-muted-fg)]"
-          style={{
-            borderColor: "color-mix(in srgb, var(--ct-border) 70%, transparent)",
-            background: "color-mix(in srgb, var(--ct-bg) 60%, transparent)",
-          }}
-          data-testid="picker-preview"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="flex shrink-0 items-center gap-1" aria-hidden>
-            {choice.mode === "pair" ? (
-              <>
-                <AgentIcon providerId={orchestratorProviderId} className="text-[13px]" />
-                <span className="opacity-50 text-[10px]">⟷</span>
-                <AgentIcon providerId={plannerProviderId} className="text-[13px]" />
-              </>
-            ) : (
-              <AgentIcon providerId={singleProviderId} className="text-[13px]" />
-            )}
-          </span>
-          <span className="min-w-0 truncate">{previewText}</span>
+        <div ref={modeFrameRef} className="picker-mode-frame relative">
+          <div ref={modeContentRef}>
+            <div key={choice.mode} className="picker-mode-panel">
+              {choice.mode === "single" && presets.some((preset) => preset.provider === choice.providerId) && <label>
+                Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
+                  const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
+                  setChoice({ ...choice, preset: preset?.name, modelId: preset?.model ?? choice.modelId,
+                    effortId: resolveEffort(visibleProviders.find((provider) => provider.id === choice.providerId), preset?.model ?? choice.modelId, choice.effortId) });
+                }}>
+                  <option value="">No preset</option>
+                  {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
+                </select>
+              </label>}
+              {presetsError && <p role="alert">Presets unavailable</p>}
+              {choice.mode === "single" ? (
+                <OrchestrationRoleRow
+                  label="Agent"
+                  providers={visibleProviders}
+                  providerId={choice.providerId}
+                  modelId={choice.modelId ?? ""}
+                  effortId={choice.effortId}
+                  disabledProviderIds={disabledProviderIds}
+                  onProviderChange={(providerId) => {
+                    const provider = visibleProviders.find((p) => p.id === providerId);
+                    setChoice({
+                      mode: "single",
+                      providerId,
+                      modelId: provider?.default_model,
+                      effortId: resolveEffort(provider, provider?.default_model),
+                    });
+                  }}
+                  onModelChange={(modelId) => setChoice({
+                    ...choice,
+                    preset: undefined,
+                    modelId,
+                    effortId: resolveEffort(
+                      visibleProviders.find((provider) => provider.id === choice.providerId),
+                      modelId,
+                      choice.effortId,
+                    ),
+                  })}
+                  onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
+                  effortTestId="picker-effort-single"
+                  onInstallProvider={handleInstallProvider}
+                />
+              ) : (
+                <>
+                  <p data-testid="picker-team-hint" className="mb-2.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
+                    Tell the Orchestrator what you need. It plans and brings in the agents.
+                  </p>
+                  <OrchestrationPairForm
+                    providers={visibleProviders}
+                    values={{
+                      orchestratorProviderId: choice.orchestratorProviderId,
+                      orchestratorModelId: choice.orchestratorModelId ?? "",
+                      orchestratorEffortId: choice.orchestratorEffortId,
+                      plannerProviderId: choice.plannerProviderId,
+                      plannerModelId: choice.plannerModelId ?? "",
+                      plannerEffortId: choice.plannerEffortId,
+                    }}
+                    disabledProviderIds={disabledProviderIds}
+                    onChange={(values) => setChoice({
+                      mode: "pair",
+                      orchestratorProviderId: values.orchestratorProviderId,
+                      orchestratorModelId: values.orchestratorModelId || undefined,
+                      orchestratorEffortId: values.orchestratorEffortId,
+                      plannerProviderId: values.plannerProviderId,
+                      plannerModelId: values.plannerModelId || undefined,
+                      plannerEffortId: values.plannerEffortId,
+                    })}
+                    layout="team"
+                    pairAffordanceTestId="pair-affordance"
+                    roleTestIds={{
+                      orchestratorProvider: "picker-provider-orchestrator",
+                      orchestratorModel: "picker-model-orchestrator",
+                      orchestratorEffort: "picker-effort-orchestrator",
+                      plannerProvider: "picker-provider-planner",
+                      plannerModel: "picker-model-planner",
+                      plannerEffort: "picker-effort-planner",
+                    }}
+                    onInstallProvider={handleInstallProvider}
+                  />
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
         {agentConfig?.full_access === undefined && (
@@ -537,16 +465,6 @@ export function NewSessionPicker({
         </div>
       </div>
 
-      {folderPickerOpen && (
-        <div className="fixed inset-0 z-[1020]">
-          <RemoteFolderPicker
-            title="Choose workspace folder"
-            initialPath={selectedWorkspace?.cwd ?? workspaceCwd}
-            onCancel={() => setFolderPickerOpen(false)}
-            onSelect={handleSelectWorkspaceFolder}
-          />
-        </div>
-      )}
     </div>,
     document.body,
   );

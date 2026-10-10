@@ -45,8 +45,8 @@ impl AgentProvider for RosterProvider {
         None
     }
 
-    fn session_exists(&self, _: &str, _: &str) -> bool {
-        true
+    fn session_exists(&self, _: &str, _: &str) -> Option<bool> {
+        Some(true)
     }
 
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
@@ -260,7 +260,6 @@ fn default_hook_event_roster_registration_matches_today() {
             ("PermissionRequest", HookIngestionRoute::Permission),
             ("Notification", HookIngestionRoute::Permission),
             ("Stop", HookIngestionRoute::Stop),
-            ("PreCompact", HookIngestionRoute::MemFlush),
             ("SessionStart", HookIngestionRoute::SessionStart),
         ],
         "claude registers its current events"
@@ -338,8 +337,11 @@ fn codex_stop_bundled_roster_declares_session_start_and_stop_and_registration_fo
         [
             ("SessionStart", HookIngestionRoute::SessionStart),
             ("Stop", HookIngestionRoute::Stop),
+            ("turn/started", HookIngestionRoute::SessionState),
+            ("turn/completed", HookIngestionRoute::SessionState),
+            ("serverRequest/pending", HookIngestionRoute::SessionState),
         ],
-        "the declared roster is SessionStart + Stop, in declaration order"
+        "registration preserves declaration order"
     );
 
     let registry = AgentRegistry::new();

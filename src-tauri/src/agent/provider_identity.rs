@@ -80,17 +80,6 @@ pub(crate) fn apply_provider_identity(
     }
 }
 
-pub(crate) fn clear_unproven_provider_identity(tab: &mut Tab) -> Option<String> {
-    let previous = tab.agent_type.take();
-    tab.agent_type_locked = false;
-    tab.agent_set_at = None;
-    tab.exit_suspected_at = None;
-    // Provider and model are one identity: a surviving model would label an
-    // agent that is not there.
-    crate::service::session_model::clear_runtime_model_evidence(tab);
-    previous
-}
-
 pub(crate) fn provider_for_claimed_session(
     registry: &crate::agent::registry::AgentRegistry,
     cwd: &str,
@@ -99,12 +88,44 @@ pub(crate) fn provider_for_claimed_session(
     let mut owners = registry.provider_ids().into_iter().filter(|provider_id| {
         registry
             .with_provider(provider_id, |provider| {
-                provider.session_exists(cwd, session_id)
+                provider.session_exists(cwd, session_id) == Some(true)
             })
             .unwrap_or(false)
     });
     let owner = owners.next()?;
     owners.next().is_none().then_some(owner)
+}
+
+pub(crate) fn provider_for_restored_session(
+    journal: &crate::session::lifecycle::JournalLoad,
+    tab_id: &str,
+    evidence: &ProviderIdentityEvidence,
+) -> Option<String> {
+    use crate::session::lifecycle::checkpoint_history;
+
+    if !journal.tail.is_intact() {
+        return None;
+    }
+    let session_id = evidence.session_id.as_deref()?;
+    let binding_nonce = match (
+        evidence.configured_nonce.as_deref(),
+        evidence.reported_nonce.as_deref(),
+    ) {
+        (None, None) => None,
+        (Some(configured), Some(reported)) if configured == reported => Some(configured),
+        _ => return None,
+    };
+    let mut providers = checkpoint_history(journal, tab_id)
+        .into_iter()
+        .filter(|checkpoint| checkpoint.authority.session_id == session_id)
+        .filter(|checkpoint| {
+            binding_nonce.is_none_or(|nonce| checkpoint.authority.binding_nonce == nonce)
+        })
+        .map(|checkpoint| checkpoint.authority.provider);
+    let provider = providers.next()?;
+    providers
+        .all(|candidate| candidate == provider)
+        .then_some(provider)
 }
 
 #[cfg(test)]
@@ -262,48 +283,121 @@ mod tests {
         );
     }
 
-    #[test]
-    fn restore_without_unique_session_evidence_clears_the_provider_guess() {
-        let mut tab = tab_with_claimed_session("claude");
+    fn journal_checkpoint(
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        nonce: &str,
+    ) -> crate::session::lifecycle::JournalRecord {
+        use crate::session::lifecycle::{
+            CommittedAuthority, JournalRecord, LifecycleCheckpoint, LifecycleEpoch, LifecycleKey,
+        };
 
-        let previous = clear_unproven_provider_identity(&mut tab);
-
-        assert_eq!(previous.as_deref(), Some("claude"));
-        assert!(tab.agent_type.is_none());
-        assert_eq!(tab.agent_session_id.as_deref(), Some("owned-session"));
-        assert!(!tab.agent_type_locked);
+        JournalRecord::Checkpoint {
+            checkpoint: LifecycleCheckpoint {
+                key: LifecycleKey::new(tab_id, LifecycleEpoch(1), "launch"),
+                committed_through: 4,
+                authority: CommittedAuthority {
+                    provider: provider.into(),
+                    session_id: session_id.into(),
+                    binding_nonce: nonce.into(),
+                    role: Some("Manager".into()),
+                    role_profile: Some("orchestrator".into()),
+                    team_id: Some("team-pair".into()),
+                    parent_tab_id: None,
+                    can_spawn: true,
+                    depth: 1,
+                },
+                agent_type_write: None,
+                prior_checkpoints: Vec::new(),
+                sealed_at: "2026-10-06T00:00:00Z".into(),
+            },
+        }
     }
-}
 
-#[cfg(test)]
-mod unproven_identity_tests {
-    use super::*;
-    use crate::multiplexer::state::MultiplexerState;
-
-    /// Restore reaches this path for a claimed session with no unique provider
-    /// record (TAB-LIFECYCLE.md restore contract, item 3). Both halves of the
-    /// identity go, or the tab keeps a model label with no agent behind it.
     #[test]
-    fn clearing_an_unproven_provider_takes_the_model_with_it() {
-        let (mut mux, tab_id) = MultiplexerState::new();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some("claude".into());
-        tab.agent_type_locked = true;
-        tab.agent_session_model = Some("opus".into());
-        tab.agent_set_at = Some(std::time::Instant::now());
+    fn restored_provider_comes_from_the_tab_session_and_binding_checkpoint() {
+        let mut tab = tab_with_claimed_session("stale-provider");
+        tab.agent_session_id = Some("session-a".into());
+        tab.session_binding_nonce = Some("nonce-a".into());
+        tab.reported_session_binding_nonce = Some("nonce-a".into());
+        let evidence = ProviderIdentityEvidence::capture(&tab);
+        let journal = crate::session::lifecycle::JournalLoad {
+            records: vec![journal_checkpoint("tab-a", "codex", "session-a", "nonce-a")],
+            tail: crate::session::lifecycle::TailStatus::Intact,
+            duplicate_seqs: 0,
+        };
 
         assert_eq!(
-            clear_unproven_provider_identity(tab),
-            Some("claude".to_string())
+            provider_for_restored_session(&journal, "tab-a", &evidence).as_deref(),
+            Some("codex")
         );
 
-        assert!(tab.agent_type.is_none());
-        assert!(
-            tab.agent_session_model.is_none(),
-            "a model must never outlive the provider it belongs to"
+        let mut legacy_tab = tab_with_claimed_session("stale-provider");
+        legacy_tab.agent_session_id = Some("session-a".into());
+        legacy_tab.session_binding_nonce = None;
+        legacy_tab.reported_session_binding_nonce = None;
+        let legacy_evidence = ProviderIdentityEvidence::capture(&legacy_tab);
+        assert_eq!(
+            provider_for_restored_session(&journal, "tab-a", &legacy_evidence).as_deref(),
+            Some("codex")
         );
-        assert!(tab.model_identity_mismatch.is_none());
-        assert!(!tab.agent_type_locked);
-        assert!(tab.agent_set_at.is_none());
+    }
+
+    #[test]
+    fn restored_provider_rejects_other_tabs_sessions_nonces_and_ambiguous_history() {
+        let mut tab = tab_with_claimed_session("stale-provider");
+        tab.agent_session_id = Some("session-a".into());
+        tab.session_binding_nonce = Some("nonce-a".into());
+        tab.reported_session_binding_nonce = Some("nonce-a".into());
+        let evidence = ProviderIdentityEvidence::capture(&tab);
+        let make_journal = |records| crate::session::lifecycle::JournalLoad {
+            records,
+            tail: crate::session::lifecycle::TailStatus::Intact,
+            duplicate_seqs: 0,
+        };
+
+        let other_tab = make_journal(vec![journal_checkpoint(
+            "tab-b",
+            "codex",
+            "session-a",
+            "nonce-a",
+        )]);
+        let other_session = make_journal(vec![journal_checkpoint(
+            "tab-a",
+            "codex",
+            "session-b",
+            "nonce-a",
+        )]);
+        let other_nonce = make_journal(vec![journal_checkpoint(
+            "tab-a",
+            "codex",
+            "session-a",
+            "nonce-b",
+        )]);
+        let ambiguous = make_journal(vec![
+            journal_checkpoint("tab-a", "codex", "session-a", "nonce-a"),
+            journal_checkpoint("tab-a", "claude", "session-a", "nonce-a"),
+        ]);
+
+        for journal in [other_tab, other_session, other_nonce, ambiguous] {
+            assert_eq!(
+                provider_for_restored_session(&journal, "tab-a", &evidence),
+                None
+            );
+        }
+
+        let refused = crate::session::lifecycle::JournalLoad {
+            records: vec![journal_checkpoint("tab-a", "codex", "session-a", "nonce-a")],
+            tail: crate::session::lifecycle::TailStatus::Refused {
+                line: 2,
+                reason: "invalid record".into(),
+            },
+            duplicate_seqs: 0,
+        };
+        assert_eq!(
+            provider_for_restored_session(&refused, "tab-a", &evidence),
+            None
+        );
     }
 }

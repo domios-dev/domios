@@ -19,6 +19,7 @@ pub fn live_state_for(verdict: ProviderStateVerdict) -> AgentLiveState {
         state: match verdict {
             ProviderStateVerdict::Working => TimelineState::Working,
             ProviderStateVerdict::Idle => TimelineState::Idle,
+            ProviderStateVerdict::Waiting => TimelineState::Question,
         },
         subtype: None,
     }
@@ -27,11 +28,20 @@ pub fn live_state_for(verdict: ProviderStateVerdict) -> AgentLiveState {
 
 /// Commit a verdict onto the tab. Returns true only when the tab's state
 /// actually moved, so a repeated report changes nothing and emits nothing.
-pub fn apply(mux: &MuxState, tab_id: &str, verdict: ProviderStateVerdict) -> bool {
+pub fn apply(
+    mux: &MuxState,
+    tab_id: &str,
+    session_id: &str,
+    verdict: ProviderStateVerdict,
+) -> bool {
     let next = live_state_for(verdict);
     let mut mux = mux.write();
     match mux.get_tab_mut(tab_id) {
-        Some(tab) if tab.agent_type.is_some() && tab.agent_state.as_ref() != Some(&next) => {
+        Some(tab)
+            if tab.agent_type.is_some()
+                && tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.agent_state.as_ref() != Some(&next) =>
+        {
             tab.agent_state = Some(next);
             true
         }
@@ -44,24 +54,29 @@ pub fn apply(mux: &MuxState, tab_id: &str, verdict: ProviderStateVerdict) -> boo
 pub fn observe_declared_event(
     svc: &ServiceContext,
     tab_id: &str,
+    session_id: &str,
     event: &str,
 ) -> Option<ProviderStateVerdict> {
     let event = event.trim();
-    if event.is_empty() {
+    if event.is_empty() || session_id.is_empty() {
         return None;
     }
-    let provider_id = svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .and_then(|tab| tab.agent_type.clone())?;
+    let (provider_id, bound_session_id) = {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        (tab.agent_type.clone()?, tab.agent_session_id.clone()?)
+    };
+    if bound_session_id != session_id {
+        return None;
+    }
     let roster = svc
         .agent_registry
         .with_provider(&provider_id, |provider| provider.hook_event_roster())
         .unwrap_or_default();
     let verdict = declared_state_verdict(&roster, event)?;
-    apply(&svc.mux, tab_id, verdict).then(|| {
+    apply(&svc.mux, tab_id, session_id, verdict).then(|| {
         svc.emit_state_changed();
+        svc.record_turn_resume_edge(tab_id);
         verdict
     })
 }

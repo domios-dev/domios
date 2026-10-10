@@ -51,9 +51,10 @@ const PROVIDER_OWNERSHIP_FILE: &str = ".codeterm-owner";
 
 /// Placeholder → the one semantic source that fills it. Shared fragments also
 /// reach coordinating prompts, so the skill file carries no second copy.
-fn codeterm_skill_render_map() -> [(&'static str, &'static str); 3] {
+fn codeterm_skill_render_map() -> [(&'static str, &'static str); 4] {
     [
         ("{codeterm_cli}", crate::prompts::CODETERM_CLI),
+        ("{codeterm_version}", env!("CARGO_PKG_VERSION")),
         (
             "{interactive_child_pty_operation}",
             crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim(),
@@ -493,8 +494,19 @@ mod skill_block_tests {
 mod skills_seed_tests {
     use super::*;
 
+    #[test]
+    fn rendered_codeterm_skill_omits_the_plan_task_flag_fragment() {
+        const SKILL_SOURCE: &str = include_str!("../../../skills/codeterm/SKILL.md");
+        let rendered = render_bundled_skill(std::ffi::OsStr::new(CODETERM_SKILL_ID), SKILL_SOURCE);
+        let fragment = crate::prompts::PLAN_TASK_FLAGS.trim();
+        assert!(!fragment.is_empty(), "an empty fragment proves nothing");
+        assert_eq!(rendered.matches(crate::prompts::CODETERM_CLI).count(), 1);
+        assert!(!rendered.contains(fragment));
+    }
+
     const BUNDLED_SKILL: &str = concat!(
         "# CodeTerm\n\n",
+        "<!-- codeterm-version: {codeterm_version} -->\n",
         "{codeterm_cli}\n\n",
         "{interactive_child_pty_operation}\n\n",
         "---\n\n",
@@ -542,6 +554,10 @@ mod skills_seed_tests {
                 .count(),
             1
         );
+        assert!(rendered.contains(&format!(
+            "<!-- codeterm-version: {} -->",
+            env!("CARGO_PKG_VERSION")
+        )));
         for (slot, _) in codeterm_skill_render_map() {
             assert!(
                 !rendered.contains(slot),

@@ -1,6 +1,6 @@
 # Secret store
 
-CodeTerm exposes local secret storage through Settings → Secrets, `codeterm mem secret`, and `/api/secrets/*`. The active backend is configured in `config.toml` and can be changed without restarting.
+Domios exposes local secret storage through Settings → Secrets, `codeterm mem secret`, and `/api/secrets/*`. The active backend is configured in `config.toml` and can be changed without restarting.
 
 | Backend | Use | Storage |
 |---|---|---|
@@ -88,7 +88,7 @@ secret-backend plugin.
    with its own error discriminant.
 3. **The backend owns the credential.** Only the backend persists a master password, in its own
    host-provided bucket (`codeterm.plugin.<id>`, the same location `host.secretSet` writes).
-   CodeTerm writes no separate credential file. Startup removes the retired
+   Domios writes no separate credential file. Startup removes the retired
    `~/.codeterm/secrets/bitwarden-master.env`; when it warns that the erase could not be proven,
    rotate that master password.
 4. **Persisting requires explicit consent, carried on the wire.** `POST /api/secrets/unlock` takes
@@ -141,8 +141,8 @@ Item ids look like `local-0000002a`. They are never reused, so they stay unique 
 
 `codeterm mem secret delete` asks for confirmation on a terminal. Without a terminal on stdin it exits non-zero immediately and asks for `--yes`; it never waits for input.
 
-Bitwarden owns vault encryption. CodeTerm passes the master password and session through stdin or environment variables, never argv. A secret-backend plugin's persisted session and any remembered credential live in its own bucket, service `codeterm.plugin.<plugin-id>`, in the same plaintext local file.
+Bitwarden owns vault encryption. Domios passes the master password and session through stdin or environment variables, never argv. A secret-backend plugin's persisted session and any remembered credential live in its own bucket, service `codeterm.plugin.<plugin-id>`, in the same plaintext local file.
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

@@ -18,6 +18,7 @@ impl MultiplexerState {
         if let Some(ref old_pty_id) = displaced {
             self.pty_to_tab.remove(old_pty_id);
         }
+        tab.shell_command_state = Default::default();
         tab.pty_id = Some(pty_id.clone());
         self.pty_to_tab.insert(pty_id, tab_id.to_string());
         displaced

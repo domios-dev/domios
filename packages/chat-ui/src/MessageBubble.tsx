@@ -1,13 +1,11 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useDeferredValue } from "react";
 import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
-  ChatAttachment as ImageAttachment,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, shortTabRef, toolCommand } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
 import {
-  Download, Image,
   Send,            // generic chat (telegram / service)
   Network,         // mesh
   ChevronsRight,   // slash-command chip
@@ -16,12 +14,19 @@ import {
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
+import { toolCommandShape } from "./codeterm/commandShape";
+import { AttachmentStrip } from "./AttachmentStrip";
+import { InlineAttachmentText } from "./AttachmentCapsule";
+import { ReplyQuote } from "./ReplyQuote";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
+import { AutomationCard } from "./codeterm/AutomationCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
-import { messageTimestamp } from "./codeterm/relativeTime";
+import { CompactMessageContent } from "./codeterm/CompactMessageContent";
+import { ChatNoticeCard } from "./ChatNoticeCard";
+import { MessageTime } from "./MessageTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
@@ -45,6 +50,10 @@ import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
+import { parseDsTasksMessage } from "./codeterm/dsTasksBlock";
+import { ChatBlockMessageProvider } from "./blocks/ChatBlockHost";
+import { TasksBlock } from "./blocks/TasksBlock";
+import { tasksBlockSource, tasksSpecFromBlock } from "./blocks/tasksBlockModel";
 import { normalizedTimelineMarker, TimelineMarkerRow } from "./timelineMarkers";
 import {
   hasMeaningfulToolResult,
@@ -54,6 +63,9 @@ import {
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  streaming?: boolean;
+  showTimestamp?: boolean;
+  userFooter?: React.ReactNode;
   item?: TimelineItem;
   isLatestFailedToolCall?: boolean;
   /** Route an interactive widget's answer back to the agent (existing send path). */
@@ -82,9 +94,14 @@ interface MessageBubbleProps {
   /** `shell_command` decoration — surface the command's terminal output. */
   onJumpToShellCommand?: (message: ChatMessage) => void;
   onStopReminder?: (id: string) => void;
+  /** Opens the Jobs view for a cron or blueprint delivery card. */
+  onOpenJobs?: () => void;
+  /** Scroll to a quoted message; a user bubble's reply block calls it with the quoted id. */
+  onJumpToMessage?: (messageId: string) => void;
 }
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
+const BLOCK_GAP = "\n\n";
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
 function hasVisibleEdit(item: TimelineItem | undefined): boolean {
@@ -125,34 +142,36 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, streaming = false, showTimestamp = false, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+  const renderingStream = useDeferredValue(streaming);
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
-  const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
+  const isCommandGroup = item?.kind === "tool" && !item.event.stream
+    && (item.event.kind === "command" || item.event.kind === "codeterm")
+    && toolCommandShape(item.event)?.kind === "group";
+  const shouldAutoExpand = isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
   const persistKey = expansionKey(message, item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
     return persisted ?? shouldAutoExpand;
   });
-  const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
+      if (renderingStream) return <div className="whitespace-pre-wrap">{message.content}</div>;
       return (
         <>
-          <RichMarkdown text={message.content} fontScale={fontScale} />
+          <ChatBlockMessageProvider messageId={message.id}>
+            <RichMarkdown text={message.content} fontScale={fontScale} />
+          </ChatBlockMessageProvider>
           <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         </>
       );
     }
     return null;
-  }, [message.type, message.content, fontScale, onOpenPlan, resolvePlanRef]);
-
-  const handleImageClick = useCallback((att: ImageAttachment) => {
-    setViewingImage(att);
-  }, []);
+  }, [message.id, message.type, message.content, renderingStream, fontScale, onOpenPlan, resolvePlanRef]);
 
   useEffect(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
@@ -205,79 +224,35 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
     const effectiveOrigin = origin ?? structuredInbound?.origin;
     const inboundKind = structuredInbound?.kind;
 
-    if (effectiveOrigin?.kind === "system_prompt") {
+    if (effectiveOrigin?.kind === "system_prompt" || effectiveOrigin?.kind === "system") {
+      const prompt = effectiveOrigin.kind === "system_prompt";
       return (
-        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
-          <div
-            data-testid="chat-system-prompt-card"
-            className="max-w-full min-w-0 rounded-md border"
-            style={{
-              background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, var(--ct-green, #3fb950) 8%)",
-              borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 32%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setExpandedPersistent(!expanded)}
-              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
-              style={{ color: "var(--ct-fg)" }}
-            >
-              <Info size={14} strokeWidth={2} style={{ color: "var(--ct-green, #3fb950)" }} />
-              <span className="min-w-0 flex-1">
-                <span className="block text-xs font-medium">System prompt</span>
-                <span className="block truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
-                  This is the shell system prompt.
-                </span>
-              </span>
-              <ChevronIcon expanded={expanded} className="opacity-60" />
-            </button>
-            {expanded && (
-              <div
-                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
-                style={{ borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 22%, transparent)" }}
-              >
-                <RichMarkdown text={message.content} fontScale={fontScale} />
-              </div>
-            )}
-          </div>
-        </div>
+        <ChatNoticeCard
+          testId={prompt ? "chat-system-prompt-card" : "chat-system-event"}
+          role={prompt ? undefined : "status"}
+          tone={prompt ? "var(--ct-green)" : undefined}
+          icon={<Info size={14} strokeWidth={2} aria-hidden="true" />}
+          title={prompt ? "System prompt" : systemOriginLabel(effectiveOrigin.context)}
+          subtitle={prompt ? "This is the shell system prompt." : undefined}
+          expanded={expanded}
+          onToggle={() => setExpandedPersistent(!expanded)}
+          bodyClassName={`${userText} ${TEXT_WRAP_CLASS}`}
+        >
+          <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+        </ChatNoticeCard>
       );
     }
 
-    if (effectiveOrigin?.kind === "system") {
-      const title = effectiveOrigin.context ? `System · ${effectiveOrigin.context}` : "System";
+    if (effectiveOrigin?.kind === "automation") {
+      const tabSender = effectiveOrigin.source === "utility" || effectiveOrigin.report;
       return (
-        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role="status">
-          <div
-            data-testid="chat-system-event"
-            className="max-w-full min-w-0 rounded-md border"
-            style={{
-              background: "color-mix(in srgb, var(--ct-surface, #161b22) 94%, var(--ct-accent, #58a6ff) 6%)",
-              borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            <button
-              type="button"
-              aria-expanded={expanded}
-              onClick={() => setExpandedPersistent(!expanded)}
-              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
-            >
-              <Info size={14} aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium">{title}</span>
-              <ChevronIcon expanded={expanded} className="opacity-60" />
-            </button>
-            {expanded && (
-              <div
-                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
-                style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)" }}
-              >
-                <RichMarkdown text={message.content} fontScale={fontScale} />
-              </div>
-            )}
-          </div>
-        </div>
+        <AutomationCard
+          origin={effectiveOrigin}
+          onOpen={tabSender ? onOriginClick : onOpenJobs}
+          openLabel={tabSender ? "Open tab" : "Open job"}
+        >
+          <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+        </AutomationCard>
       );
     }
 
@@ -355,14 +330,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           type="button"
           onClick={onOriginClick}
           disabled={!onOriginClick}
-          className="flex items-center gap-1.5 text-xs mb-1 uppercase tracking-wider opacity-80"
+          className="mb-1 flex items-center gap-1.5 text-[11.5px] font-medium"
           style={{
-            color: "var(--ct-accent, #58a6ff)",
+            color: "color-mix(in srgb, var(--ct-accent) 72%, var(--ct-muted-fg))",
             cursor: onOriginClick ? "pointer" : "default",
             background: "transparent",
             border: "none",
             padding: 0,
-            textTransform: "uppercase",
           }}
           title={onOriginClick ? "Click to focus source Tab" : undefined}
         >
@@ -372,104 +346,62 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     })() : null;
 
+    const dsTasks = effectiveOrigin ? null : parseDsTasksMessage(message.content);
+    const tasksSpec = dsTasks ? tasksSpecFromBlock(dsTasks.block) : null;
+    const userContent = dsTasks ? [dsTasks.before, dsTasks.after].filter(Boolean).join(BLOCK_GAP) : message.content;
+    const userAttachments = userMessageAttachments(userContent, attachments);
+    const visibleUserContent = userAttachments.text;
     const formattedUserContent = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
-        ) : hasPlanRefs(message.content) ? (
-          <LinkedText text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+        ) : userAttachments.inline ? (
+          <InlineAttachmentText segments={userAttachments.inline} />
+        ) : hasPlanRefs(visibleUserContent) ? (
+          <LinkedText text={visibleUserContent} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
-          renderUserContent(message.content)
+          visibleUserContent ? renderUserContent(visibleUserContent) : null
         );
 
+    const reply = userAttachments.reply;
+    const quotedId = reply?.reply;
     const userBubbleInner = (
       <>
+        {reply && (
+          <ReplyQuote
+            label={reply.label ?? "Quote"}
+            excerpt={reply.excerpt ?? ""}
+            onOpen={onJumpToMessage && quotedId ? () => onJumpToMessage(quotedId) : undefined}
+          />
+        )}
+        {(userAttachments.images.length > 0 || userAttachments.files.length > 0) && (
+          <AttachmentStrip images={userAttachments.images} files={userAttachments.files} captioned={visibleUserContent.trim().length > 0 || userAttachments.inline !== null} />
+        )}
         {formattedUserContent}
-        {attachments && attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
-            {attachments.map((att) => (
-              <button
-                key={att.id}
-                data-testid="chat-image-attachment-button"
-                onClick={() => handleImageClick(att)}
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
-                  color: "var(--ct-muted-fg)",
-                }}
-                title={att.data ? "Click to preview" : "Image (not loaded)"}
-              >
-                <Image size={12} strokeWidth={2} />
-                {att.mimeType.replace("image/", "").toUpperCase()}
-              </button>
-            ))}
-          </div>
-        )}
-        {viewingImage && viewingImage.data && (
-          <div
-            data-testid="chat-image-preview"
-            className="mt-2 pt-2"
-            style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-          >
-            <img
-              src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-              alt="Attached image"
-              className="max-w-full max-h-[300px] object-contain rounded-lg"
-            />
-            <div className="flex items-center gap-2 mt-1.5">
-              <a
-                href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                download={`image.${viewingImage.mimeType.replace("image/", "")}`}
-                className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-              >
-                <Download size={11} strokeWidth={2} />
-                Save
-              </a>
-              <button
-                onClick={() => setViewingImage(null)}
-                className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                style={{ color: "var(--ct-muted-fg)" }}
-              >
-                Hide
-              </button>
-            </div>
-          </div>
-        )}
+        {userFooter}
       </>
     );
 
-    const timestampFooter = (() => {
-      const ts = messageTimestamp(message.timestamp);
-      if (!ts) return null;
-      return (
-        <div
-          className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
-          style={{ color: "var(--ct-muted-fg)" }}
-          title={ts.full}
-        >
-          {ts.short}
-        </div>
-      );
-    })();
+    const showUserTime = showTimestamp && !effectiveOrigin && !message.inboundKind;
+    const showUserBubble = Boolean(userFooter) || !dsTasks || visibleUserContent.trim().length > 0 || Boolean(attachments?.length) || reply !== null;
 
     return (
-      <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
-        <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
-          {originHeader}
-          <div
-            className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
-            style={{
-              background: effectiveOrigin
-                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
-                : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
-              borderColor: effectiveOrigin
-                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)"
-                : "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            {userBubbleInner}
+      <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
+        <div className="ct-chat-message-column w-full max-w-4xl min-w-0 mx-auto">
+          <div className={`group flex w-full min-w-0 ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
+            <div className="relative min-w-0 max-w-[75%] sm:max-w-[75%]">
+              {showUserTime && <MessageTime timestamp={message.timestamp} side="right" />}
+              {originHeader}
+              {showUserBubble && <div
+                className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 px-4 py-2 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
+              >
+                {userBubbleInner}
+              </div>}
+            </div>
           </div>
-          {timestampFooter}
+          {tasksSpec && (
+            <div className="flex w-full min-w-0 justify-end">
+              <TasksBlock spec={tasksSpec} source={tasksBlockSource(tasksSpec)} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -478,12 +410,15 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   if (message.type === "assistant") {
     const assistantText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
     return (
-      <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
-        <div
-          className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
-          style={{ color: "var(--ct-fg)" }}
-        >
-          {renderedContent}
+      <div className="ct-chat-message-row ct-chat-message-row--agent mb-3 w-full min-w-0">
+        <div className="ct-chat-message-column relative w-full max-w-4xl min-w-0 mx-auto">
+          {showTimestamp && <MessageTime timestamp={message.timestamp} side="left" />}
+          <div
+            className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
+            style={{ color: "var(--ct-fg)" }}
+          >
+            {renderedContent}
+          </div>
         </div>
       </div>
     );

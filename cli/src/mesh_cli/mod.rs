@@ -48,10 +48,13 @@ pub enum MeshAction {
         /// Target peer name or instance ID
         target: String,
     },
-    /// Initiate pairing with a discovered peer
+    /// Initiate owner-approved pairing with a discovered peer or explicit address
     Connect {
-        /// Instance ID or name of the discovered peer
+        /// Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
         instance_id: String,
+        /// Read the peer identity directly at this IP:port before pairing
+        #[arg(long)]
+        addr: Option<std::net::SocketAddr>,
     },
     /// Accept an incoming pairing request
     Approve {
@@ -82,7 +85,7 @@ pub enum MeshAction {
     StopBroadcast,
     /// Re-detect local addresses (Tailscale + LAN) and announce them to all
     /// paired peers. Use after a network swap so peers update their cache
-    /// without restarting CodeTerm.
+    /// without restarting Domios.
     Refresh,
     /// Push our current address list to paired peers without re-detecting
     /// locally. Use --to to limit to one peer.
@@ -271,6 +274,47 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             _ => None,
         };
         tab_list::print(rendering, &tabs, requested_workspace, answer.peer.as_ref());
+        return;
+    }
+
+    if let Commands::Paste {
+        action: super::PasteAction::Get { .. },
+    } = &cli.command
+    {
+        let (method, path, _) = api_map::cli_command_to_api(&cli.command);
+        let answer = relay::mesh_relay_invoke_with_peer(target, &method, &path, None, cli.json);
+        let data = if cli.json {
+            relay::with_answering_peer(answer.data, answer.peer.as_ref())
+        } else {
+            relay::announce_answering_peer(target, answer.peer.as_ref());
+            answer.data
+        };
+        print!("{}", crate::cmd::paste::render_paste(&data, cli.json));
+        return;
+    }
+
+    if let Commands::Agent {
+        action: action @ (super::AgentAction::Providers | super::AgentAction::Models { .. }),
+    } = &cli.command
+    {
+        let answer = relay::mesh_relay_invoke_with_peer(
+            target,
+            "GET",
+            "/api/agents/providers",
+            None,
+            cli.json,
+        );
+        if !cli.json {
+            relay::announce_answering_peer(target, answer.peer.as_ref());
+        }
+        let output = match action {
+            super::AgentAction::Models { provider } => {
+                crate::cmd::agent::render_agent_models(&answer.data, provider, cli.json)
+            }
+            _ => crate::cmd::agent::render_agent_providers(&answer.data, cli.json),
+        }
+        .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(cli.json, &error));
+        print!("{output}");
         return;
     }
 

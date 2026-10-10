@@ -219,6 +219,7 @@ impl MultiplexerState {
 
         self.ensure_workspace_membership_mutable(from_workspace_id)?;
         self.ensure_workspace_membership_mutable(to_workspace_id)?;
+        self.ensure_tab_membership_mutable(tab_id)?;
 
         let from_idx = self
             .workspaces

@@ -105,13 +105,13 @@ fn essence_map_contract_accepts_valid_document_anchor_sets() {
     let fixture = fixture_root();
     let (map, decisions, summary) = valid_map(fixture.path());
 
-    assert_eq!(summary.nodes, 61);
+    assert_eq!(summary.nodes, 64);
     assert_eq!(summary.vectors, 7);
-    assert_eq!(summary.capabilities, 39);
+    assert_eq!(summary.capabilities, 42);
     assert_eq!(summary.core, 13);
     assert_eq!(summary.clients, 2);
-    assert_eq!(summary.runs_on, 77);
-    assert_eq!(summary.feeds, 56);
+    assert_eq!(summary.runs_on, 94);
+    assert_eq!(summary.feeds, 71);
     assert_eq!(summary.part_of, 12);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
@@ -275,8 +275,8 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let decisions = root.join("essences/decisions.jsonl");
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
-    assert_eq!(summary.nodes, 61);
-    assert_eq!(summary.edges, 147);
+    assert_eq!(summary.nodes, 64);
+    assert_eq!(summary.edges, 179);
 }
 
 #[test]
@@ -310,7 +310,7 @@ fn essence_truth_model_preserves_capability_statuses_and_shipped_core_nodes() {
         nodes["capability:essence-anchored-code-map"]
             .status
             .as_deref(),
-        Some("planned")
+        Some("in rollout: source-map generation, validation, Cartographer and workspace map canvas; code-to-essence mapping planned")
     );
     assert_eq!(
         nodes["capability:agent-providers"].status.as_deref(),

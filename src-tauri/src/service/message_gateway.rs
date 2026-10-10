@@ -2,8 +2,7 @@
 //!
 //! PHASE 1 is a PARITY WRAPPER: it classifies, dedups, and forwards to the
 //! existing delivery paths (`Messenger::deliver`, `send_text`,
-//! `send_text_batch`, the ordered key-write path) with zero behavior change.
-//! No caller is migrated yet — the wrapper only adds a typed seam + idempotency.
+//! `send_text_batch`, the ordered key-write path).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -17,8 +16,8 @@ use super::pty_io::{
 /// Default bound for the idempotency cache (entries, no persistence).
 pub const IDEMPOTENCY_CAPACITY: usize = 512;
 
-/// Delivery semantics owned by the gateway. PHASE 1 carries the class as
-/// metadata only — it does not yet alter routing (parity is preserved).
+/// Delivery semantics owned by the gateway. Only `SystemNotice` alters routing:
+/// it is refused, nothing written, when its target has no live agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryClass {
     /// A human-authored turn: the user's own prompt entering a tab.
@@ -102,6 +101,14 @@ pub enum DeliveryError {
     DeliveredUnverified { detail: String },
     /// Any other failure from the underlying path, kept opaque for adapters.
     Transport { detail: String },
+    /// A system notice was refused because the target has no live agent; nothing was written.
+    AgentUnavailable { target: String },
+}
+
+impl DeliveryError {
+    pub fn is_agent_unavailable(&self) -> bool {
+        matches!(self, Self::AgentUnavailable { .. })
+    }
 }
 
 impl std::fmt::Display for DeliveryError {
@@ -110,6 +117,10 @@ impl std::fmt::Display for DeliveryError {
             Self::TabNotFound { target } => write!(f, "Tab not found: {target}"),
             Self::DeliveredUnverified { detail } => write!(f, "delivered unverified: {detail}"),
             Self::Transport { detail } => write!(f, "transport error: {detail}"),
+            Self::AgentUnavailable { target } => write!(
+                f,
+                "tab_busy_refused: system notice withheld from Tab {target}: it has no live agent (nothing written)"
+            ),
         }
     }
 }
@@ -137,6 +148,21 @@ pub trait DeliverySeam {
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String>;
     fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
+    fn accepts_system_notice(&self, _target: &str) -> bool {
+        true
+    }
+}
+
+/// A notice written into a bare shell is executed as commands, so only an agent may receive one.
+pub(crate) fn system_notice_target_refusal(
+    has_identity: bool,
+    booting: bool,
+    chat_backend: bool,
+) -> Option<&'static str> {
+    if has_identity || booting || chat_backend {
+        return None;
+    }
+    Some("tab has no agent identity, launch, or chat backend")
 }
 
 /// Build the ordered PTY actions from gateway strokes, mirroring the HTTP route:
@@ -206,6 +232,31 @@ impl DeliverySeam for super::ServiceContext {
             await_action_deadline,
         )
     }
+
+    fn accepts_system_notice(&self, target: &str) -> bool {
+        let refusal = {
+            let mux = self.mux.read();
+            let resolved = mux.resolve_tab_id(target);
+            let Some(tab) = resolved.as_deref().and_then(|id| mux.get_tab(id)) else {
+                return true;
+            };
+            system_notice_target_refusal(
+                tab.agent_type.is_some(),
+                tab.agent_booting,
+                matches!(
+                    tab.backing,
+                    crate::multiplexer::types::TabBacking::ChatBackend { .. }
+                ),
+            )
+        };
+        match refusal {
+            None => true,
+            Some(reason) => {
+                log::warn!("[gateway] system notice refused target={target}: {reason}");
+                false
+            }
+        }
+    }
 }
 
 impl super::ServiceContext {
@@ -255,12 +306,10 @@ impl super::ServiceContext {
         {
             self.gateway.require_worker_report(target);
         }
-        Ok((
-            receipt.delivery.unwrap_or(Delivery::Pty {
-                text: body.to_string(),
-            }),
-            receipt.pad_file,
-        ))
+        let delivery = receipt
+            .delivery
+            .ok_or_else(|| "message gateway returned no delivery outcome".to_string())?;
+        Ok((delivery, receipt.pad_file))
     }
 }
 
@@ -390,7 +439,12 @@ impl MessageGateway {
         let outcome = self.dispatch(seam, &msg);
 
         if let Some(key) = dedup_key {
-            self.idempotency.lock().put(key, outcome.clone());
+            if !outcome
+                .as_ref()
+                .is_err_and(DeliveryError::is_agent_unavailable)
+            {
+                self.idempotency.lock().put(key, outcome.clone());
+            }
         }
         outcome
     }
@@ -400,6 +454,11 @@ impl MessageGateway {
         seam: &S,
         msg: &OutboundMessage,
     ) -> Result<DeliveryReceipt, DeliveryError> {
+        if msg.class == DeliveryClass::SystemNotice && !seam.accepts_system_notice(&msg.target) {
+            return Err(DeliveryError::AgentUnavailable {
+                target: msg.target.clone(),
+            });
+        }
         let key = msg.idempotency_key.clone();
         match &msg.body {
             MessageBody::Text { body } => match &msg.envelope {

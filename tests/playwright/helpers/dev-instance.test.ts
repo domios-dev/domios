@@ -11,12 +11,16 @@ import {
   devInstanceForSlot,
   devInstanceTeardownPorts,
   devStartArgs,
+  isAdoptTarget,
+  isDisposableQaInstance,
+  isDevTarget,
   normalizeStubAgentCmd,
   playwrightCargoTargetDir,
   teardownInstances,
   type DevInstance,
   type InstanceLifecycle,
 } from "./dev-instance";
+import { devDataDirName, readDevToken } from "./api-client";
 
 function hasRelativeReplay(cmd: string): boolean {
   const raw = /(?:^|\s)('[^']*replay\.mjs'|"[^"]*replay\.mjs"|[^\s'"][^\s]*replay\.mjs|replay\.mjs)(?:\s|$)/.exec(cmd)?.[1];
@@ -27,12 +31,22 @@ function hasRelativeReplay(cmd: string): boolean {
 }
 
 const ENV_KEYS = [
+  "PW_TARGET",
   "CT_E2E_WORKERS",
   "CT_E2E_PORT",
   "CT_E2E_PORT_BASE",
   "CT_E2E_INSTANCE",
   "CT_E2E_DATADIR",
   "TEST_PARALLEL_INDEX",
+  "CODETERM_INSTANCE",
+  "CODETERM_API_URL",
+  "CODETERM_API_PORT",
+  "CODETERM_DATA_DIR",
+  "CODETERM_VITE_PORT",
+  "CODETERM_API_TOKEN",
+  "CODETERM_DEV_DATA_DIR",
+  "CODETERM_SOCKET_PATH",
+  "CODETERM_CDP_PORT",
 ] as const;
 
 type EnvValues = Partial<Record<(typeof ENV_KEYS)[number], string>>;
@@ -90,6 +104,78 @@ test("an explicit serial instance receives isolated UI ports", () => {
     assert.notEqual(instance.cdpPort, 9223);
   });
 });
+
+test("explicit DEV target remains pinned to the default DEV listeners", () => {
+  withEnv({ PW_TARGET: "dev" }, () => {
+    const instance = devInstanceForSlot(0);
+    assert.equal(isDevTarget(), true);
+    assert.equal(isAdoptTarget(), true);
+    assert.equal(instance.apiPort, 7686);
+    assert.equal(instance.cdpPort, 9223);
+    assert.equal(instance.dataDirName, ".codeterm-dev");
+  });
+});
+
+test("named target consumes the bench lib's resolved connection and token", () => {
+  withEnv(
+    {
+      PW_TARGET: "named",
+      CODETERM_INSTANCE: "pwserial",
+      CODETERM_API_PORT: "7790",
+      CODETERM_VITE_PORT: String(1420 + slugOffsetForTest("pwserial")),
+      CODETERM_API_TOKEN: "qa-token",
+      CODETERM_DEV_DATA_DIR: "/qa/.codeterm-dev-pwserial",
+      CODETERM_SOCKET_PATH: "codeterm-dev-pwserial.sock",
+    },
+    () => {
+      const instance = devInstanceForSlot(0);
+      assert.equal(isAdoptTarget(), true);
+      assert.equal(instance.name, "pwserial");
+      assert.equal(instance.apiPort, 7790);
+      assert.equal(instance.vitePort, 1420 + slugOffsetForTest("pwserial"));
+      assert.equal(instance.dataDirName, ".codeterm-dev-pwserial");
+      assert.equal(instance.cdpPort, 9223 + slugOffsetForTest("pwserial"));
+      assert.equal(devDataDirName(instance), ".codeterm-dev-pwserial");
+      assert.equal(readDevToken(instance), "qa-token");
+      assert.equal(isDisposableQaInstance(instance), true);
+    },
+  );
+});
+
+test("named target refuses incomplete identity and the default DEV port", () => {
+  withEnv({ PW_TARGET: "named", CODETERM_INSTANCE: "coreqa" }, () => {
+    assert.throws(() => devInstanceForSlot(0), /CODETERM_API_TOKEN from the bench lib resolution/);
+  });
+  withEnv(
+    {
+      PW_TARGET: "named",
+      CODETERM_INSTANCE: "coreqa",
+      CODETERM_API_PORT: "7686",
+      CODETERM_VITE_PORT: String(1420 + slugOffsetForTest("coreqa")),
+      CODETERM_API_TOKEN: "qa-token",
+      CODETERM_DEV_DATA_DIR: "/qa/.codeterm-dev-coreqa",
+      CODETERM_SOCKET_PATH: "codeterm-dev-coreqa.sock",
+    },
+    () => assert.throws(() => devInstanceForSlot(0), /unsafe Playwright instance port 7686/),
+  );
+  withEnv(
+    {
+      PW_TARGET: "named",
+      CODETERM_INSTANCE: "pwserial",
+      CODETERM_API_PORT: "7790",
+      CODETERM_VITE_PORT: "1420",
+      CODETERM_API_TOKEN: "qa-token",
+      CODETERM_DEV_DATA_DIR: "/qa/.codeterm-dev-pwserial",
+      CODETERM_SOCKET_PATH: "codeterm-dev-pwserial.sock",
+      CODETERM_CDP_PORT: String(9223 + slugOffsetForTest("pwserial")),
+    },
+    () => assert.throws(() => devInstanceForSlot(0), /resolved Vite port 1420 does not match instance pwserial/),
+  );
+});
+
+function slugOffsetForTest(slug: string): number {
+  return (Buffer.from(slug).reduce((sum, byte) => sum + byte, 0) % 200) + 1;
+}
 
 test("two worker slots have disjoint named instances", () => {
   withEnv({ CT_E2E_WORKERS: "2" }, () => {

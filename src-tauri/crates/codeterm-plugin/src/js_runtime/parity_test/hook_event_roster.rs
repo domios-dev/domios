@@ -135,7 +135,7 @@ fn hook_event_roster_fail_closed_on_unknown_route() {
             0,
             &IntegrationInstallOptions {
                 consent: true,
-                precompact_memory_export: false,
+
                 repair: false,
             },
         )
@@ -173,8 +173,11 @@ fn default_hook_event_roster_matches_bundled_manifests() {
         vec![
             roster_binding("SessionStart", HookIngestionRoute::SessionStart),
             roster_binding("Stop", HookIngestionRoute::Stop),
+            state_binding("turn/started", ProviderStateVerdict::Working),
+            state_binding("turn/completed", ProviderStateVerdict::Idle),
+            state_binding("serverRequest/pending", ProviderStateVerdict::Waiting),
         ],
-        "codex: declared roster is SessionStart + Stop"
+        "codex: hooks and RPC state events share the declared roster"
     );
     // opencode declares session state as manifest data, keeping SessionStart.
     let opencode = load_js("opencode").hook_event_roster();
@@ -216,8 +219,24 @@ fn default_hook_event_roster_matches_bundled_manifests() {
             ("PermissionRequest", HookIngestionRoute::Permission),
             ("Notification", HookIngestionRoute::Permission),
             ("Stop", HookIngestionRoute::Stop),
-            ("PreCompact", HookIngestionRoute::MemFlush),
             ("SessionStart", HookIngestionRoute::SessionStart),
         ]
+    );
+}
+
+#[test]
+fn parity_rpc_waiting_verdict_matches_native_data() {
+    let js = load_roster_js(
+        "rpc-roster-parity",
+        r#"[{"event":"serverRequest/pending","route":"session_state","verdict":"waiting"}]"#,
+    );
+    let expected = vec![state_binding(
+        "serverRequest/pending",
+        ProviderStateVerdict::Waiting,
+    )];
+    assert_eq!(js.hook_event_roster(), expected);
+    assert_eq!(
+        declared_state_verdict(&js.hook_event_roster(), "serverRequest/pending"),
+        Some(ProviderStateVerdict::Waiting)
     );
 }

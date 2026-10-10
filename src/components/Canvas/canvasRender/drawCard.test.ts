@@ -15,7 +15,7 @@ function ok(label: string, cond: unknown) {
 
 const palette: CanvasPalette = {
   bg: "#000", cardBg: "#111", cardBgElev: "#1d2230", border: "#333", borderStrong: "#88f",
-  fg: "#eee", fgMuted: "#999", chipBg: "#222", accent: "#7c83f8",
+  fg: "#eee", fgMuted: "#999", chipBg: "#222", accent: "#7c83f8", onAccent: "#fff", live: "#0cf",
 };
 
 // returns a px-proportional measureText so wrap/ellipsize + the fit loop behave.

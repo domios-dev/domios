@@ -1,14 +1,12 @@
 // /v1/models list mapped onto the aliases accepted by the installed CLI.
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
+import {modelWithCapabilities} from "./modelCapabilities";
 
 interface AnthropicModelsResponse { data?: AnthropicModel[] }
 interface AnthropicModel { id?: string; display_name?: string; displayName?: string }
 
 const FAMILIES = ["opus", "sonnet", "haiku", "fable"];
-const MINIMUM_CLI_BY_MODEL: Record<string, number[]> = {
-  fable: [2, 1, 258],
-};
 
 /** What the `claude --version` probe came back with. */
 export type CliProbe =
@@ -39,13 +37,14 @@ export function discoverAnthropicModels(): ModelInfo[] | null {
   const live = fetchLiveModels(key);
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
-  return mapped.length ? applyInstalledCapabilities(mapped, installed) : null;
+  return mapped.length ? applyInstalledCapabilities(mapped, installed, true) : null;
 }
 
 export function manifestModels(): ModelInfo[] {
   const m = manifest();
   if (!Array.isArray(m && m.models)) return [];
-  return m!.models!.map((model) => ({
+  return m!.models!.map((model) => modelWithCapabilities({
+    ...model,
     id: model.id,
     displayName: model.displayName,
     ...(model.description ? { description: model.description } : {}),
@@ -85,22 +84,23 @@ function fetchLiveModels(key: string): AnthropicModel[] | null {
 function probeInstalledCli(): CliProbe {
   let raw: string;
   try {
-    raw = host.exec(JSON.stringify({ bin: "claude", args: ["--version"], timeoutMs: 3000 }));
+    raw = host.providerVersionJson();
   } catch (_) {
     return { kind: "unreachable" };
   }
-  const result = safeJson(raw) as { code?: number; stdout?: string } | null;
-  if (!result || result.code !== 0) return { kind: "unreachable" };
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
+  const result = safeJson(raw) as { status?: string; version?: string } | null;
+  if (!result || result.status !== "detected") return { kind: "unreachable" };
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(result.version || ""));
   if (!match) return { kind: "unreachable" };
   return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
 
-function applyInstalledCapabilities(models: ModelInfo[], probe: CliProbe): ModelInfo[] {
+function applyInstalledCapabilities(models: ModelInfo[], probe: CliProbe, liveDiscovery = false): ModelInfo[] {
   return models.map((model) => {
-    const minimum = MINIMUM_CLI_BY_MODEL[model.id];
+    const declaredMinimum = manifest()?.cliCompatibility?.modelMinimumCli?.[model.id];
+    const minimum = declaredMinimum?.split(".").map(Number);
     if (!minimum) return { ...model };
-    const verdict = decideAvailability(probe, minimum, model.available);
+    const verdict = decideAvailability(probe, minimum, liveDiscovery ? model.available : undefined);
     // An unknown verdict publishes no boolean at all: a boolean here is what
     // the cache would freeze and the picker would grey out.
     if (verdict === "unknown") {
@@ -127,8 +127,11 @@ function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelIn
     const family = familyOf(alias);
     const match = family ? bestLiveMatch(live, family) : null;
     const mapped: ModelInfo = {
+      ...alias,
       id: alias.id,
-      displayName: match && !alias.id.endsWith("[1m]")
+      displayName: match && alias.primary && liveDisplay(match)
+        ? liveDisplay(match)
+        : match && !alias.id.endsWith("[1m]")
         ? withVersion(alias.displayName, versionOf(match))
         : alias.displayName,
     };

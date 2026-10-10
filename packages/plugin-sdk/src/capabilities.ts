@@ -1,7 +1,28 @@
+export type PreTrustOutcome =
+  | { status: "already_trusted" | "granted" }
+  | { status: "skipped" | "failed"; reason: string };
+
 // Plugin-facing capability contracts. Each capability is one Rust trait the host
 // adapts to a `plugin.js` export; shapes mirror how the host consumes them.
 
 // ── Shared context ──
+
+import type { ModelProviderConfig } from "./modelProviders";
+import type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
+import type { ChatMsg } from "./gen/ChatMsg";
+
+/** Manifest spawn.turnEvidenceNormalization; applies symmetrically to exact user-turn matching. */
+export interface TurnEvidenceNormalization {
+  unwrapPastedContentWrapper?: boolean;
+  collapseHorizontalWhitespace?: boolean;
+  dropSupplementaryCharacters?: boolean;
+  dropLineBreaks?: boolean;
+}
+
+/** Manifest spawn contract; absent means the provider does not restore chat on resume. */
+export interface ResumeHistoryCapability {
+  restoresConversationHistoryOnResume?: boolean;
+}
 
 export interface TabContext {
   cwd?: string | null;
@@ -45,7 +66,13 @@ export interface NodeStyle {
 
 export type ViewNode =
   | { kind: "text"; text: string; style?: NodeStyle }
-  | { kind: "stat"; label: string; value: string; unit?: string; style?: NodeStyle }
+  | {
+      kind: "stat";
+      label: string;
+      value: string;
+      unit?: string;
+      style?: NodeStyle;
+    }
   | { kind: "keyVal"; key: string; value: string; style?: NodeStyle }
   | { kind: "badge"; label: string; tone?: Tone }
   | { kind: "row"; children: ViewNode[]; style?: NodeStyle }
@@ -63,10 +90,21 @@ export interface GlanceView {
 
 export type ViewCall = (method: string, args: unknown) => unknown;
 
+export interface StructuredControl {
+  protocol: "codex-app-server";
+  minVersion: string;
+}
+
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 
+export interface ContextAttach { editable: boolean; readOnly: boolean; }
+export interface ContextFiles { edit: string[]; read: string[]; }
+
 export interface LaunchParams {
+  contextFiles?: ContextFiles;
+  /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
+  toolLessInstructionsPath?: string;
   skipPermissions?: boolean;
   args?: string[];
   agentName?: string;
@@ -91,6 +129,8 @@ export interface LaunchParams {
 export interface LaunchArtifactSweepRequest {
   instanceId: string;
   liveTabIds: string[];
+  /** Host holds each registered instance's exclusive lifetime lock throughout this call. */
+  goneInstanceIds?: string[];
   confirm: boolean;
   includeLegacy: boolean;
 }
@@ -116,6 +156,28 @@ export interface LaunchSessionEvidence {
   processes: LaunchProcess[];
 }
 
+/** Provider-authoritative top-level completion, including automatic continuations. */
+export type ReplyRelayEvidence = ReplyRelayTurn | {
+  userTurnId: string;
+  userRecordStart: number;
+  userText: string;
+  complete: false;
+  outcome: "error" | "cancelled" | "reflection_limit";
+} | {
+  unavailable: true;
+  reason: string;
+};
+
+export interface ReplyRelayTurn {
+  userTurnId: string;
+  /** UTF-8 byte start of the original user record; IDs remain stable in the own-session history. */
+  userRecordStart: number;
+  userText: string;
+  assistantTurnId: string;
+  answer: string;
+  complete: true;
+}
+
 export interface LaunchSessionDetection {
   sessionId: string;
   source: "pid_registry" | "launch_marker";
@@ -123,6 +185,9 @@ export interface LaunchSessionDetection {
 
 /** Full launch context for a resumed session, not just its id. */
 export interface ResumeParams {
+  cwd?: string | null;
+  contextFiles?: ContextFiles | null;
+  toolLessInstructionsPath?: string | null;
   sessionId: string;
   skipPermissions?: boolean;
   agentName?: string | null;
@@ -197,10 +262,24 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
-  starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined;
+  authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
+  tracksBackgroundWork?(): boolean;
+  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];
+  reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
+  modelCatalogueSeed?(): ModelInfo[];
+  parseAuthStatus?(record: unknown): ProviderAuthStatus | null;
+  parseSessionObservations?(record: unknown): ProviderSessionObservations | null;
+  parseContextUsage?(record: unknown): {used_tokens: number; window_tokens: number; cost_usd: number | null; source: string} | null;
+  permissionHookCapability?(): {
+    protocol: string;
+    options: Array<{ label: string; value: string }>;
+  } | null;
+  starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
   screenHasTui?(screen: string): boolean;
+  /** Allow bounded submit-key recovery without an authenticated provider session. */
+  supportsUnboundSubmitRecovery?(): boolean;
   isOutputNoise?(text: string): boolean;
   hasEventMarkers?(chunk: string): boolean;
   detectEvents?(text: string): string[];
@@ -210,18 +289,22 @@ export interface AgentProvider {
   /** Persist provider-owned folder trust after this tab's trust dialog closes. */
   folderTrustAnswered?(tabId: string, instanceId: string): boolean;
   sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
-  buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
+  buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string | null;
   /** Implement only when a resumed session drops the launch-time system prompt. */
-  buildResumeCommandWithContext?(params: ResumeParams): string;
+  buildResumeCommandWithContext?(params: ResumeParams): string | null;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
   directoryTrustPromptResponse?(screen: string): string[] | null;
+  /** Best-effort persistence for an exact folder already authorized by the host. */
+  preTrustDirectory?(path: string): PreTrustOutcome;
   /** Whether the provider's own config already trusts this exact folder. */
   isDirectoryTrusted?(path: string): boolean;
   /** Effective launch-folder trust, including the provider's trust-root precedence. */
   directoryTrustState?(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown";
   /** One next base64 key plus its stable choice/focus identity, or null. */
   launchOnboardingResponse?(screen: string): { frameKey: string; step: string } | null;
+  /** Exact option value for that same narrow, provider-declared onboarding response. */
+  launchOnboardingSafeChoice?(screen: string): string | null;
   /** Parse only the active directory-trust dialog for tab status/respond. */
   parseDirectoryTrustPrompt?(screen: string): ParsedPrompt | null;
   /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */
@@ -232,6 +315,8 @@ export interface AgentProvider {
   ): { optionIndex: number; rule: string; steps: string[] } | null;
   /** Safe response role for a prompt only after core accepted its classifier. */
   classifiedPromptAutoResponse?(state: TabState, screen: string): "skip" | null;
+  updatePromptSafeChoice?(prompt: ParsedPrompt): string | null;
+  updatePromptAvailability?(screen: string): { currentVersion: string; latestVersion: string } | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
@@ -239,14 +324,17 @@ export interface AgentProvider {
   sessionUsageSources?(sessionFilePath: string, sessionId: string): string[];
   /** Every usage log this provider owns for the session; `sessionId` scopes a log shared by many sessions. */
   usageSources?(cwd: string, sessionId: string): { path: string; sessionId?: string }[];
-  sessionExists?(cwd: string, sessionId: string): boolean;
+  sessionExists?(cwd: string, sessionId: string): boolean | null;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
   parseSessionDelta?(chunk: string, context?: SessionDeltaContext): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
+  /** Requires manifest capabilities.replyRelay. Read after a captured UTF-8 append boundary; null without authoritative completion. */
+  readReplyRelayTurn?(cwd: string, sessionId: string, afterOffset: number): ReplyRelayEvidence | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
+  sessionModelIdentityPath?(cwd: string, sessionId: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   sessionModelTranscriptBoundary?(cwd: string, sessionId: string): SessionModelTranscriptBoundary | null;
   detectSessionModelAfterBoundary?(
@@ -258,7 +346,10 @@ export interface AgentProvider {
   enumerateSessions?(): unknown[];
   /** The one record owning exactly this id, or null; never scans session history. */
   findSession?(sessionId: string): unknown | null;
-  describeSession?(filePath: string, head?: string): {
+  describeSession?(
+    filePath: string,
+    head?: string,
+  ): {
     projectPath?: string;
     title?: string;
     summary?: string;
@@ -276,13 +367,11 @@ export interface AgentProvider {
     sessionId: string,
     query: { maxBytes: number; hintTerms: string[] },
   ): { messages: unknown[]; truncated?: boolean } | null;
+  structuredToolFileDiffs?(part: unknown): FileDiff[] | null;
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;
-  installIntegration?(
-    apiPort: number,
-    options: { consent: boolean; precompact_memory_export?: boolean },
-  ): unknown;
+  installIntegration?(apiPort: number, options: { consent: boolean }): unknown;
   uninstallIntegration?(): unknown;
   restoreIntegration?(): unknown;
   ensureIntegrationOnStartup?(apiPort: number): unknown;
@@ -312,7 +401,11 @@ export interface SecretCreds {
 }
 
 // core SecretStore trait: `{ ok }` / `{ ok: <payload> }` / `{ error: <kind> }`.
-export type SecretError = { kind: string; message?: string; candidates?: string[] };
+export type SecretError = {
+  kind: string;
+  message?: string;
+  candidates?: string[];
+};
 export type SecretEnvelope<T = unknown> = { ok: T } | { error: SecretError };
 
 // secretStatus is the one method that returns a bare StoreStatus, not an envelope.
@@ -371,6 +464,82 @@ export interface Transcriber {
   transcribeStatus?(): unknown;
 }
 
+// ─── converter + graphNodes (declared conversions and event sources) ───
+
+export type MediaKind = "text" | "audio" | "video" | "image";
+
+export interface GraphNodeConversion {
+  from: MediaKind;
+  to: MediaKind;
+}
+
+/** One declared conversion of an input file. */
+export interface ConvertRequest {
+  inputPath: string;
+  from: MediaKind;
+  to: MediaKind;
+  outputDir: string;
+  language?: string | null;
+  deadlineMs: number;
+}
+
+/** `{text}` | `{path}` (inside outputDir) | `{error}`. */
+export interface ConvertResult {
+  text?: string;
+  path?: string;
+  error?: string;
+}
+
+/** Mirrors the core Converter trait; the host chains declared edges into plans. */
+export interface Converter {
+  convert(request: ConvertRequest): ConvertResult;
+}
+
+// NodeSchema subset: an object of scalar or one-level scalar-array properties.
+// No $ref, combinators, patternProperties or nested objects.
+export type NodeScalarType = "string" | "integer" | "number" | "boolean";
+
+export interface NodeScalarSchema {
+  type: NodeScalarType;
+  description?: string;
+  /** Strings only. */
+  enum?: string[];
+  /** Strings only; at most 65536. */
+  maxLength?: number;
+}
+
+export interface NodeArraySchema {
+  type: "array";
+  items: NodeScalarSchema;
+  /** At most 256. */
+  maxItems: number;
+  description?: string;
+}
+
+export type NodePropertySchema = NodeScalarSchema | NodeArraySchema;
+
+export interface NodeSchema {
+  type: "object";
+  properties: Record<string, NodePropertySchema>;
+  required?: string[];
+}
+
+/** A declared event source for graph nodes. */
+export interface EventSourceDeclaration {
+  /** Namespaced kind (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, <= 64 bytes). */
+  kind: string;
+  /** 1-128 bytes. */
+  title: string;
+  params?: NodeSchema;
+  payload?: NodeSchema;
+}
+
+/** Manifest `capabilities.graphNodes`. */
+export interface GraphNodesManifestCapability {
+  converters?: GraphNodeConversion[];
+  eventSources?: EventSourceDeclaration[];
+}
+
 export type DecisionQuestion =
   | { type: "choice"; options: Record<string, string> }
   | { type: "noul"; criteria?: { true: string; false: string } | null }
@@ -380,6 +549,34 @@ export interface DecisionRequest {
   state: unknown;
   instructions: string;
   question: DecisionQuestion;
+}
+
+export interface NamedDecisionQuestion {
+  instructions: string;
+  question: DecisionQuestion;
+}
+
+export interface DecisionQuestionsRequest {
+  state: unknown;
+  questions: Record<string, NamedDecisionQuestion>;
+}
+
+export type DecisionAnswers = Record<string, DecisionAnswer>;
+
+export interface DecisionUsage {
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface DecisionPricing {
+  display_name: string;
+  input_usd_per_million: number;
+  output_usd_per_million: number;
+}
+
+export interface DecisionResponse {
+  answers: DecisionAnswers;
+  usage: DecisionUsage | null;
 }
 
 export interface DecisionPrimitives {
@@ -409,10 +606,28 @@ export type DecisionAnswer =
     };
 
 export interface DecisionModelCapability {
-  decide(request: DecisionRequest): DecisionAnswer;
+  /** Declares that choice confidence is calibrated for single-decision authorization. */
+  supportsCalibratedChoiceConfidence?(): boolean;
+  /** Declares that decideQuestions sends at most one physical request. */
+  supportsQuestionBatch?(): boolean;
+  modelId?(): string | null;
+  selectModel?(id: string): boolean;
+  metadata?(): { display_name?: string; help_url?: string; server_address?: string; settings_url?: string };
+  pricing?(): DecisionPricing | null;
+  decide(request: DecisionRequest, remainingMs?: number): DecisionAnswer | DecisionFailure;
+  /** Named questions over shared state; omitted methods use sequential decide calls. */
+  decideQuestions?(request: DecisionQuestionsRequest, remainingMs?: number): DecisionResponse | DecisionFailure;
   models(): DecisionModelInfo[];
   primitives(): DecisionPrimitives;
 }
+
+export interface DecisionFailure {
+  error: "unavailable" | "timeout" | "invalid_response" | "transport";
+}
+
+/** Manifest token policy for `capabilities.decisionModel`. Bare true is optional. */
+export type DecisionModelTokenMode = "required" | "optional" | "none";
+export type DecisionModelManifestCapability = boolean | { tokenMode: DecisionModelTokenMode };
 
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
 
@@ -478,7 +693,11 @@ export interface ToolRichResult {
 }
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
-export interface NormalizedChatMessage {
+export interface NormalizedChatMessage
+  extends Omit<
+    Partial<ChatMsg>,
+    "pluginIconSvg" | "inboundKind" | "toolKind" | "toolEdits" | "fileDiffs" | "toolRichResult"
+  > {
   id: string;
   type: string;
   content: string;
@@ -488,7 +707,7 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble" | "plugin";
+  inboundKind?: "tab" | "report" | "reminder" | "system" | "mesh" | "telegram" | "pebble" | "plugin";
   fromPlugin?: string;
   pluginIconSvg?: string | null;
   timelineMarker?: ChatTimelineMarker;
@@ -504,6 +723,7 @@ export interface NormalizedChatMessage {
 }
 
 export interface ModelInfo {
+  primary?: boolean;
   id: string;
   // camelCase here; the host maps it to Rust ModelInfo.display_name.
   displayName: string;
@@ -531,8 +751,7 @@ export interface ReasoningEffortInfo {
   description?: string;
 }
 
-export interface Model extends ModelInfo {
-}
+export interface Model extends ModelInfo {}
 
 /** Provider-owned grouping of its models, e.g. the upstream company a routed
  *  model belongs to. `id` matches a model-id prefix; `label` is rendered. */
@@ -639,7 +858,11 @@ export interface ChatBackend {
   poll(
     sessionId: string,
     cursor?: string | null,
-  ): { messages: NormalizedChatMessage[]; cursor: string | null; done?: boolean };
+  ): {
+    messages: NormalizedChatMessage[];
+    cursor: string | null;
+    done?: boolean;
+  };
   closeSession(sessionId: string): void;
   listModels?(): Model[];
   listPresets?(): PresetInfo[];
@@ -710,6 +933,27 @@ export interface TabMenuContribution {
   icon?: string;
 }
 
+// ── surfaces (plugin.json `capabilities.surfaces`; core owns the tab frame) ──
+
+// `view` renders the plugin's `ui/index.html` and requires `capabilities.view`.
+export type SurfaceRenderer = "view" | "stream";
+export type SurfaceRestore = "relaunch" | "placeholder" | "none";
+
+export interface SurfaceContribution {
+  // 1-32 lowercase letters, digits or '-', unique within the plugin.
+  id: string;
+  // One word, no whitespace: the tab title.
+  title: string;
+  renderer: SurfaceRenderer;
+  // Opened under an owner agent; the UI labels it "{owner}'s {title}".
+  agentBound?: boolean;
+  restore?: SurfaceRestore;
+  // Required for `stream`: the core surface runtime that renders it (e.g. "browser").
+  runtime?: string;
+  // Toolbar spec passed through untouched to the frontend; `stream` only.
+  chrome?: Record<string, unknown>;
+}
+
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {
@@ -719,7 +963,7 @@ export interface AgentCommandCtx {
 }
 
 export interface AgentCommandHandler {
-  onAgentCommand(ctx: AgentCommandCtx): { result: string } | { error: string };
+  onAgentCommand(ctx: AgentCommandCtx): { result: string; catalogueChanged?: boolean } | { error: string };
 }
 
 // ── The default-export shape: every capability method optional ──
@@ -728,11 +972,13 @@ export interface PluginModule
   extends Partial<AgentProvider>,
     Partial<SecretBackend>,
     Partial<Transcriber>,
+    Partial<Converter>,
     Partial<DecisionModelCapability>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
     Partial<WebhookReceiver>,
-    Partial<AgentCommandHandler> {
+    Partial<AgentCommandHandler>,
+    Partial<ModelProviderConfig> {
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;

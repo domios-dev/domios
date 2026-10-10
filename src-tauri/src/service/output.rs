@@ -20,21 +20,27 @@ mod launch_exit;
 mod launch_onboarding;
 #[path = "output/manual_update.rs"]
 mod manual_update;
+mod model_candidates;
+mod permission_event;
+mod structured;
+pub(crate) use manual_update::observation_revision as manual_update_observation_revision;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
 #[path = "output/shell_markers.rs"]
 mod shell_markers;
+#[path = "output/trust_launch_detection.rs"]
+mod trust_launch_detection;
+#[cfg(test)]
+pub(super) use manual_update::parse_manual_update_prompt;
+pub(super) use manual_update::{
+    claim_manual_update_occurrence, clear_manual_update_occurrence, manual_update_prompt_candidate,
+    parse_manual_update_prompt_with_response, release_model_update_step,
+    resolve_classified_manual_update_prompt, resolve_classified_manual_update_prompt_fallback,
+};
 #[cfg(test)]
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
-mod prompt_rendering;
-#[cfg(test)]
-pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
-pub(super) use manual_update::{
-    clear_manual_update_occurrence, manual_update_prompt_candidate,
-    parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
-};
 
 #[cfg(test)]
 fn parse_directory_trust_prompt(
@@ -54,15 +60,31 @@ fn parse_directory_trust_prompt(
 static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
-/// Per-tab throttle for hookless, file-backed session-id detection.
-/// Structured sessions require authoritative provider binding.
-static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
-    LazyLock::new(|| StdMutex::new(HashMap::new()));
-
 static AGENT_STOP_SUPPRESS_UNTIL: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
+
+fn store_agent_state_and_record_turn_resume_edge(
+    tab: &mut crate::multiplexer::types::Tab,
+    new_state: crate::agent::offline_state_classifier::AgentLiveState,
+    start_epoch: Option<&str>,
+    shutting_down: bool,
+) -> (bool, bool) {
+    if tab.agent_state.as_ref() == Some(&new_state) {
+        return (false, false);
+    }
+    tab.agent_state = Some(new_state);
+    let mark_changed = start_epoch.is_some_and(|start_epoch| {
+        crate::service::turn_resume::record_turn_resume_edge_if_active(
+            tab,
+            start_epoch,
+            shutting_down,
+            true,
+        )
+    });
+    (true, mark_changed)
+}
 
 impl ServiceContext {
     pub(crate) fn arm_agent_stop_suppression(&self, pty_id: &str) {
@@ -70,11 +92,21 @@ impl ServiceContext {
             pty_id.to_string(),
             Instant::now() + Duration::from_millis(AGENT_STOP_SUPPRESS_MS),
         );
+        crate::agent::live_state::schedule(self, pty_id);
     }
 
     pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
         self.arm_agent_stop_suppression(pty_id);
         self.force_agent_idle_for_pty(pty_id);
+    }
+
+    pub(crate) fn agent_stop_suppression_deadline(pty_id: &str) -> Option<Instant> {
+        AGENT_STOP_SUPPRESS_UNTIL
+            .lock()
+            .unwrap()
+            .get(pty_id)
+            .copied()
+            .filter(|deadline| *deadline > Instant::now())
     }
 
     pub(crate) fn is_agent_stop_suppressed_for_tab(&self, tab_id: &str) -> bool {
@@ -159,7 +191,17 @@ impl ServiceContext {
             )
         };
 
+        if let Some(tab_id) = tab_id.as_deref() {
+            super::structured_prompt::wake_for_tab(tab_id);
+        }
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
+        if tab_id
+            .as_deref()
+            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
+        {
+            let status = self.agent_tracker.lock().get_status(pty_id);
+            return (status, status);
+        }
 
         // An unresolvable provider has UNKNOWN chrome, so refuse to hash
         // rather than measure the volatile band against a fictional zero.
@@ -231,7 +273,15 @@ impl ServiceContext {
                 .get_screen_text(pty_id)
                 .unwrap_or_default()
         });
-        if matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
+        if let (Some(tab_id), Some(agent_type), Some(screen)) = (
+            tab_id.as_deref(),
+            agent_type.as_deref(),
+            changed_screen.as_deref(),
+        ) {
+            self.observe_trust_prompt_screen(Some(tab_id), Some(agent_type), Some(screen));
+        }
+        let model_owned = tab_id.is_some() && agent_type.is_some() && self.scrape_model_connected();
+        if !model_owned && matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
             if let (Some(tab_id), Some(agent_type), Some(_)) = (
                 tab_id.as_deref(),
                 agent_type.as_deref(),
@@ -241,16 +291,22 @@ impl ServiceContext {
             }
         }
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
-            let trust_candidate = trust_candidate::candidate_for_output(
-                self,
-                pid,
-                at,
-                changed_screen.as_deref(),
-                directory_trust_eligible,
-                shared_directory_trust_eligible,
-                is_auto_approve,
-                directory_trust_skip,
-            );
+            let command_owned = self.model_command_owns_prompt(pid);
+            let trust_candidate = if model_owned {
+                self.maybe_detect_agent_session(pid, at);
+                false
+            } else {
+                trust_candidate::candidate_for_output(
+                    self,
+                    pid,
+                    at,
+                    changed_screen.as_deref(),
+                    directory_trust_eligible,
+                    shared_directory_trust_eligible,
+                    is_auto_approve,
+                    directory_trust_skip,
+                )
+            };
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
@@ -305,8 +361,24 @@ impl ServiceContext {
                 } else {
                     None
                 };
+                if model_owned && !command_owned && structured.is_none() && screen_changed {
+                    if let Some(screen) = changed_screen
+                        .as_deref()
+                        .filter(|screen| has_active_prompt || self.is_scrape_candidate(at, screen))
+                    {
+                        self.observe_output_scrape_candidate(
+                            codeterm_plugin::tab_state::TabStateSnapshot {
+                                tab_id: pid.to_string(),
+                                agent_type: at.to_string(),
+                                session_id: agent_session_id.clone(),
+                                cwd: tab_cwd.clone(),
+                                screen_text: screen.to_string(),
+                            },
+                        );
+                    }
+                }
                 let manual_update_candidate = structured.is_none() && update_candidate;
-                if manual_update_candidate && screen_changed {
+                if manual_update_candidate && screen_changed && !model_owned {
                     let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
                         tab_id: pid.to_string(),
                         agent_type: at.to_string(),
@@ -323,30 +395,33 @@ impl ServiceContext {
                 } else {
                     codeterm_types::pty::PromptKind::Provider
                 };
-                let (provider_prompt, directory_trust_prompt, prompt_kind) =
-                    if structured.is_none() && !manual_update_candidate {
-                        clean_text
-                            .as_deref()
-                            .and_then(|screen| {
-                                crate::agent::prompt::parse_prompt_safely(|| {
-                                    self.agent_registry.parse_interactive_prompt(at, screen)
-                                })
-                                .filter(|(prompt, kind)| {
-                                    *kind == codeterm_types::pty::PromptKind::DirectoryTrust
-                                        || !crate::agent::state_reactor::prompt_is_composer_text(
-                                            screen, prompt,
-                                        )
-                                })
+                let (provider_prompt, directory_trust_prompt, prompt_kind) = if structured.is_none()
+                    && !manual_update_candidate
+                    && !model_owned
+                    && !command_owned
+                {
+                    clean_text
+                        .as_deref()
+                        .and_then(|screen| {
+                            crate::agent::prompt::parse_prompt_safely(|| {
+                                self.agent_registry.parse_interactive_prompt(at, screen)
                             })
-                            .map(|(prompt, kind)| {
-                                let is_directory_trust =
-                                    kind == codeterm_types::pty::PromptKind::DirectoryTrust;
-                                (Some(prompt), is_directory_trust, kind)
+                            .filter(|(prompt, kind)| {
+                                *kind == codeterm_types::pty::PromptKind::DirectoryTrust
+                                    || !crate::agent::state_reactor::prompt_is_composer_text(
+                                        screen, prompt,
+                                    )
                             })
-                            .unwrap_or((None, false, default_prompt_kind))
-                    } else {
-                        (None, false, default_prompt_kind)
-                    };
+                        })
+                        .map(|(prompt, kind)| {
+                            let is_directory_trust =
+                                kind == codeterm_types::pty::PromptKind::DirectoryTrust;
+                            (Some(prompt), is_directory_trust, kind)
+                        })
+                        .unwrap_or((None, false, default_prompt_kind))
+                } else {
+                    (None, false, default_prompt_kind)
+                };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     if let Some(prompt) = structured {
                         crate::agent::native_prompt::resolve_pending_prompt(
@@ -364,7 +439,10 @@ impl ServiceContext {
                 if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
                 }
-                let decision = if manual_update_candidate {
+                let decision = if command_owned
+                    || manual_update_candidate
+                    || (model_owned && parsed.is_none())
+                {
                     PromptDecision::None
                 } else {
                     self.prompt_detector.lock().evaluate_pty_output_parsed(
@@ -391,7 +469,12 @@ impl ServiceContext {
                         let events = self.agent_registry.detect_events(at, clean);
                         for event in &events {
                             if matches!(event, AgentEvent::PermissionRequest) {
-                                self.agent_tracker.lock().set_waiting(pty_id);
+                                if permission_event::has_current_prompt(
+                                    prompt_signal,
+                                    command_owned,
+                                ) {
+                                    self.agent_tracker.lock().set_waiting(pty_id);
+                                }
                             } else {
                                 self.handle_agent_event(pty_id, pid, at, event, prev_status);
                             }
@@ -402,6 +485,14 @@ impl ServiceContext {
         }
 
         let current_status = self.agent_tracker.lock().get_status(pty_id);
+        if prev_status != TabStatus::Working && current_status == TabStatus::Working {
+            if let Some(tab_id) = tab_id
+                .as_deref()
+                .filter(|tab| !self.model_command_owns_prompt(tab))
+            {
+                self.staged_model_turn_started(tab_id);
+            }
+        }
         if agent_type.is_some() {
             self.run_watcher
                 .observe_output_status(pty_id, current_status);
@@ -451,13 +542,14 @@ impl ServiceContext {
         crate::service::structured_prompt::pending_for_tab(tab_id)
     }
 
-    /// Recompute and store the tab's live 3-state classification, then emit if
-    /// it changed. Output-driven (here) and timer-driven (the live-state poller)
-    /// both call this. Reuses the per-tab `ScreenState` parser (no second vt100)
-    /// and the already-surfaced `pending_prompt` for the picker question, so the
-    /// live path never re-parses the picker. Locks in CLAUDE.md order, each
-    /// scoped and dropped before the next; nothing held across the emit.
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
+        let tab = self.mux.read().tab_id_for_pty(pty_id);
+        if tab
+            .as_deref()
+            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
+        {
+            return;
+        }
         use crate::agent::offline_state_classifier::{
             classify_state, extract_completion_summary, extract_question_message,
             extract_status_line, AgentLiveState, TabVerdict, TimelineState,
@@ -465,7 +557,7 @@ impl ServiceContext {
         use crate::agent::signal_extractor::Motion;
 
         // mux (1): the tab's identity + agent gate + picker question + previous.
-        let (tab_id, agent_type, prompt_question, previous) = {
+        let (tab_id, agent_type, session_id, cwd, prompt_question, previous) = {
             let mux = self.mux.read();
             let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
                 return;
@@ -485,12 +577,27 @@ impl ServiceContext {
                     state: TimelineState::Idle,
                     subtype: None,
                 });
-            (tab_id, agent_type, prompt_question, previous)
+            (
+                tab_id,
+                agent_type,
+                tab.agent_session_id.clone(),
+                tab.cwd.clone(),
+                prompt_question,
+                previous,
+            )
         };
+        crate::agent::live_state::schedule(self, pty_id);
         if Self::is_agent_stop_suppressed(pty_id) {
             self.force_agent_idle_for_tab(&tab_id);
             return;
         }
+
+        let Some(composer_position) = self
+            .agent_registry
+            .with_provider(&agent_type, |provider| provider.composer_cursor_position())
+        else {
+            return;
+        };
 
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
@@ -504,11 +611,27 @@ impl ServiceContext {
                 .map(|input| input.cursor_hidden)
                 .unwrap_or(false);
             let cursor_state = screen_state.cursor_input_state(pty_id);
-            let composer_ready = cursor_state
-                .map(|(_alt, vis, row, rows)| {
-                    crate::agent::offline_state_classifier::composer_cursor_ready(vis, row, rows)
-                })
-                .unwrap_or(false);
+            let composer_ready = if composer_position
+                == crate::agent::provider::ComposerCursorPosition::PromptLine
+            {
+                screen_state
+                    .composer_input_state(pty_id)
+                    .is_some_and(|input| {
+                        crate::agent::offline_state_classifier::prompt_line_cursor_ready(
+                            input.cursor_visible,
+                            input.cursor_row,
+                            input.last_nonblank_row,
+                        )
+                    })
+            } else {
+                cursor_state
+                    .map(|(_alt, vis, row, rows)| {
+                        crate::agent::offline_state_classifier::composer_cursor_ready(
+                            vis, row, rows,
+                        )
+                    })
+                    .unwrap_or(false)
+            };
             let cursor_row = cursor_state.map(|(_alt, _vis, row, _rows)| row as usize);
             Some((lines, tail, cursor_hidden, composer_ready, cursor_row))
         }) else {
@@ -549,17 +672,19 @@ impl ServiceContext {
             &agent_type,
             |builder| {
                 classify_state(
-                    &builder.build(ClassifyParts {
-                        picker_question: prompt_question.as_deref(),
-                        screen_lines: &lines,
-                        tail: &tail,
-                        byte_idle_ms,
-                        semantic_idle_ms,
-                        motion: Motion::Still,
-                        cursor_hidden,
-                        composer_ready,
-                        status_elapsed,
-                    }),
+                    &builder
+                        .with_composer_position(composer_position)
+                        .build(ClassifyParts {
+                            picker_question: prompt_question.as_deref(),
+                            screen_lines: &lines,
+                            tail: &tail,
+                            byte_idle_ms,
+                            semantic_idle_ms,
+                            motion: Motion::Still,
+                            cursor_hidden,
+                            composer_ready,
+                            status_elapsed,
+                        }),
                     previous,
                 )
             },
@@ -570,6 +695,28 @@ impl ServiceContext {
                 return;
             }
         };
+        let verdict = crate::agent::state_reactor::display_verdict_for_composer(
+            composer_position,
+            verdict,
+            || {
+                let snapshot = crate::agent::tab_state::TabStateSnapshot {
+                    tab_id: tab_id.clone(),
+                    agent_type: agent_type.clone(),
+                    session_id,
+                    cwd,
+                    screen_text: tail,
+                };
+                self.agent_registry
+                    .with_provider(&agent_type, |provider| {
+                        crate::service::provider_signals::classify_for(
+                            self,
+                            &snapshot,
+                            provider.classify_tab_state(&snapshot),
+                        )
+                    })
+                    .flatten()
+            },
+        );
         let became_idle =
             previous.state != TimelineState::Idle && verdict.state == TimelineState::Idle;
         let mut new_state: AgentLiveState = verdict.into();
@@ -596,20 +743,26 @@ impl ServiceContext {
         }
 
         // mux (1): store if changed.
-        let changed = {
+        let (changed, resume_mark_changed) = {
             let mut mux = self.mux.write();
             match mux.get_tab_mut(&tab_id) {
-                Some(tab) if tab.agent_state.as_ref() != Some(&new_state) => {
-                    tab.agent_state = Some(new_state);
-                    true
-                }
-                _ => false,
+                Some(tab) => store_agent_state_and_record_turn_resume_edge(
+                    tab,
+                    new_state,
+                    crate::crash::lifecycle::current_start_epoch(),
+                    crate::crash::shutdown::is_shutting_down(),
+                ),
+                None => (false, false),
             }
         };
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
+            if resume_mark_changed {
+                self.schedule_session_persist_debounced();
+            }
             if became_idle {
+                self.apply_staged_model_switch_on_idle(&tab_id);
                 // The turn boundary, not a status value: the pass itself runs on the
                 // ledger thread, never here.
                 self.on_agent_turn_settled(&tab_id);
@@ -621,143 +774,8 @@ impl ServiceContext {
         }
     }
 
-    /// Heuristic detection is limited to hookless, file-backed providers. A
-    /// hooked provider that missed its launch deadline reads its own launch record.
-    fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
-        let (cwd, set_at_elapsed, current_session, deadline_elapsed) = {
-            let mux = self.mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return;
-            };
-            let cwd = tab.cwd.clone().unwrap_or_default();
-            let elapsed = tab.agent_set_at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
-            let sid = tab.agent_session_id.clone();
-            let deadline_elapsed = tab.boot_stage
-                == Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed)
-                || tab.agent_set_at.is_some_and(|set_at| {
-                    set_at.elapsed() >= crate::service::worker_ack::STARTUP_BINDING_DEADLINE
-                });
-            (cwd, elapsed, sid, deadline_elapsed)
-        };
-        if !should_detect_unbound_session(current_session.as_deref()) {
-            return;
-        }
-        let (heuristic, hooked) = self
-            .agent_registry
-            .with_provider(agent_type, |p| {
-                let inj = matches!(
-                    p.session_id_injection(),
-                    crate::agent::provider::SessionIdInjection::None
-                );
-                (
-                    should_heuristically_detect_session(
-                        inj,
-                        p.has_hooks(),
-                        p.uses_structured_chat(),
-                    ),
-                    p.has_hooks(),
-                )
-            })
-            .unwrap_or((false, false));
-        let launch_detection = !heuristic && hooked && deadline_elapsed;
-        if !heuristic && !launch_detection {
-            return;
-        }
-        if !launch_detection && cwd.is_empty() {
-            return;
-        }
-        // Throttle: at most once per second per tab.
-        {
-            let mut cd = SESSION_DETECT_COOLDOWN.lock().unwrap();
-            let now = Instant::now();
-            if let Some(last) = cd.get(tab_id) {
-                if now.duration_since(*last) < std::time::Duration::from_secs(1) {
-                    return;
-                }
-            }
-            cd.insert(tab_id.to_string(), now);
-        }
-        if launch_detection {
-            self.detect_unbound_launch_session(tab_id);
-            return;
-        }
-
-        let exclude = self.mux.read().other_session_ids(tab_id);
-        let max_age = std::time::Duration::from_secs(set_at_elapsed + 30);
-        let found = self
-            .agent_registry
-            .with_provider(agent_type, |p| {
-                p.detect_session_id(&cwd, &exclude, Some(max_age))
-            })
-            .flatten();
-        if let Some(sid) = found {
-            log::info!(
-                "[output] post-launch detected {} session {} for Tab {}",
-                agent_type,
-                sid,
-                tab_id
-            );
-            self.set_agent_session_id(tab_id, Some(sid));
-            self.emit_state_changed();
-        }
-    }
-
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
         self.apply_prompt_decision_with_screen(decision, None, false, false);
-    }
-
-    fn classify_manual_update_prompt_off_runtime(
-        &self,
-        pty_id: String,
-        snapshot: codeterm_plugin::tab_state::TabStateSnapshot,
-    ) {
-        let svc = self.clone();
-        std::thread::spawn(move || {
-            let classified = svc
-                .agent_registry
-                .with_provider(&snapshot.agent_type, |provider| {
-                    parse_manual_update_prompt_with_response(provider, &snapshot)
-                })
-                .flatten();
-            let Some((prompt, skip_value)) = classified else {
-                return;
-            };
-            let screen = svc.screen_state.lock().get_screen_text(&pty_id);
-            if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
-                return;
-            }
-            resolve_classified_manual_update_prompt(&svc, &snapshot, prompt, skip_value);
-        });
-    }
-
-    /// Set (or clear) a tab's pending prompt from a PUSH structured handle
-    /// (opencode SSE). No-op when unchanged. Bypasses the auto-approve PTY
-    /// send-back in `apply_prompt_decision` — structured prompts are answered
-    /// over HTTP, never by typing into the PTY.
-    pub(crate) fn push_structured_prompt(
-        &self,
-        tab_id: &str,
-        prompt: Option<crate::multiplexer::types::PendingPrompt>,
-    ) {
-        {
-            let mut mux = self.mux.write();
-            let Some(tab) = mux.get_tab_mut(tab_id) else {
-                return;
-            };
-            if tab.pending_prompt == prompt {
-                return;
-            }
-            tab.pending_prompt = prompt.clone();
-            tab.pending_prompt_kind = prompt
-                .as_ref()
-                .map(|_| codeterm_types::pty::PromptKind::Structured);
-        }
-        crate::api::events::emit_everywhere(
-            &self.app_handle,
-            "prompt-state-changed",
-            serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
-        );
-        self.emit_state_changed();
     }
 
     pub(crate) fn apply_prompt_decision_with_screen(
@@ -804,6 +822,14 @@ impl ServiceContext {
         require_user_confirmation: bool,
         route_owner_prompt: bool,
     ) {
+        if let PromptDecision::NewPrompt { tab_id, .. }
+        | PromptDecision::PromptUpdated { tab_id, .. } = decision
+        {
+            if self.model_command_owns_prompt(tab_id) {
+                self.prompt_detector.lock().mark_responded(tab_id);
+                return;
+            }
+        }
         if self.defer_launch_onboarding_prompt(
             decision,
             screen_text,
@@ -856,7 +882,7 @@ impl ServiceContext {
                 } else {
                     self.respond_to_directory_trust(tab_id, screen_text)
                 };
-                if trust.owns_prompt() {
+                if trust.owns_prompt() && trust != super::directory_trust::TrustDecision::Held {
                     return;
                 }
                 if auto_approve && !directory_trust_prompt && !require_user_confirmation {
@@ -944,9 +970,6 @@ impl ServiceContext {
                         .try_permission_auto_confirm(tab_id, screen_text)
                         .owns_prompt()
                 {
-                    return;
-                }
-                if self.is_second_prompt_rendering(tab_id, prompt, prompt_kind) {
                     return;
                 }
                 let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
@@ -1061,18 +1084,6 @@ impl ServiceContext {
     }
 }
 
-fn should_detect_unbound_session(current_session: Option<&str>) -> bool {
-    current_session.is_none()
-}
-
-fn should_heuristically_detect_session(
-    has_no_injection: bool,
-    has_hooks: bool,
-    uses_structured_chat: bool,
-) -> bool {
-    has_no_injection && !has_hooks && !uses_structured_chat
-}
-
 pub(super) struct LegacyAutoApproveResponse {
     kind: &'static str,
     bytes: Vec<u8>,
@@ -1160,7 +1171,13 @@ mod exit_detection_tests;
 mod agent_lifecycle_tests;
 
 #[cfg(test)]
+#[path = "output/launch_session_detection_tests.rs"]
+mod launch_session_detection_tests;
+#[cfg(test)]
 #[path = "output/manual_update_prompt_tests.rs"]
 mod manual_update_prompt_tests;
 #[path = "output/trust_candidate.rs"]
 mod trust_candidate;
+
+#[cfg(test)]
+pub(super) use prompt_steps::record_prompt_step_dispatch_for_test;

@@ -135,7 +135,26 @@ fn detected_prompt_stays_respondable_without_notification() {
             .and_then(|tab| tab.pending_prompt.as_ref()),
         Some(&prompt)
     );
-    assert!(fixture.service.notif.lock().list(false).is_empty());
+    let pending_notice_id = {
+        let notifications = fixture.service.notif.lock();
+        let open = notifications
+            .list(false)
+            .into_iter()
+            .filter(|notification| !notification.resolved)
+            .collect::<Vec<_>>();
+        assert_eq!(open.len(), 1, "one notice represents this pending prompt");
+        let notice = open[0];
+        assert_eq!(notice.tab_id.as_deref(), Some(tab_id.as_str()));
+        assert_eq!(
+            notice.condition,
+            Some(crate::notification::dedupe::TabCondition::PendingPrompt)
+        );
+        assert_eq!(
+            notice.level,
+            Some(crate::notification::push::NotifyLevel::ActionNeeded)
+        );
+        notice.id.clone()
+    };
 
     let identity = codeterm_types::pty::PromptIdentity::new(kind, &prompt);
     let actions = prompt
@@ -189,7 +208,13 @@ fn detected_prompt_stays_respondable_without_notification() {
     let answer = existing.answer.as_ref().expect("answer slot");
     assert_eq!(answer.answered_via.as_deref(), Some("tab_respond"));
     assert!(answer.delivered);
-    assert_eq!(notifications.list(false).len(), 1);
+    assert_eq!(notifications.list(false).len(), 2);
+    let pending_notice = notifications
+        .notification(&pending_notice_id)
+        .expect("the prompt condition notice remains auditable");
+    assert!(pending_notice.resolved);
+    assert!(pending_notice.read);
+    assert!(pending_notice.actions.is_none());
     drop(notifications);
     let _ = fixture.service.pty.lock().kill(&pty_id);
 }
@@ -210,6 +235,7 @@ fn tab_respond_answers_trust_prompt_in_pair_tabs() {
         tab.role_profile = Some("planner".into());
         tab.team_id = Some("team-pair".into());
         tab.parent_tab_id = Some("orchestrator-tab".into());
+        tab.audience = crate::multiplexer::types::TabAudience::Automation;
     }
     let (prompt, kind) = fixture
         .service
@@ -259,6 +285,27 @@ fn respond_prompt_rejects_invalid_options_before_pty_access() {
         .lock()
         .active_prompt(&tab_id)
         .is_some());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn respond_prompt_rejects_multi_select_options_before_pty_access() {
+    let (fixture, tab_id) = fixture_with_pending_prompt();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .as_mut()
+        .unwrap()
+        .multi_select = Some(true);
+
+    assert_eq!(
+        fixture.service.respond_prompt(&tab_id, "1"),
+        Ok(RespondPromptOutcome::InvalidOption)
+    );
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]

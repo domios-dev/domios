@@ -53,7 +53,7 @@ export interface TranscriptResult {
   outcome: TranscriptOutcome;
 }
 
-/** Hard bound on retained source rows; whole oldest windows go first. */
+/** Unranged rows are capped; ranged sources evict whole oldest windows. */
 export const TRANSCRIPT_RETENTION_LIMIT = 440;
 
 export function createTranscriptState(): TranscriptState {
@@ -146,12 +146,16 @@ export function transcriptRowCount(state: TranscriptState): number {
   return state.segments.reduce((total, segment) => total + segment.rows.length, 0);
 }
 
-/** Whole windows only: slicing rows out of a segment would leave its range
- *  describing rows it no longer holds, stranding them below the paging cursor. */
+/** Ranged segments stay whole so the paging cursor cannot skip evicted rows. */
 function withRetentionBound(state: TranscriptState, limit: number): TranscriptState {
-  let kept = orderedSegments(state.segments);
-  let total = transcriptRowCount(state);
   let evicted = 0;
+  let kept = orderedSegments(state.segments).map((segment) => {
+    if (segment.range != null || segment.rows.length <= limit) return segment;
+    const overflow = segment.rows.length - limit;
+    evicted += overflow;
+    return { ...segment, rows: segment.rows.slice(overflow) };
+  });
+  let total = kept.reduce((count, segment) => count + segment.rows.length, 0);
   while (kept.length > 1 && total > limit) {
     const oldest = kept[0];
     if (total - oldest.rows.length < limit) break;

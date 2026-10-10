@@ -13,6 +13,31 @@ mod compaction_replay;
 mod journal_repair;
 mod permission_auto_confirm;
 
+#[test]
+fn failed_resume_target_survives_compaction_without_granting_binding_authority() {
+    use super::reduce::sealed_checkpoints;
+    let (journal, _dir) = new_journal();
+    let operation = key("owned-tab", 1, "failed-resume");
+    for transition in [
+        LifecycleTransition::EpochOpened,
+        LifecycleTransition::ResumeTargetRecorded {
+            session_id: "owned-session".into(),
+        },
+        LifecycleTransition::RolledBack {
+            reason: "opaque-failure".into(),
+        },
+    ] {
+        journal.append(operation.clone(), transition).unwrap();
+    }
+    journal.compact().unwrap();
+    let load = journal.load();
+    assert!(sealed_checkpoints(&load.records).is_empty());
+    assert!(load.records.iter().any(|record| matches!(record,
+        JournalRecord::Transition { entry }
+            if matches!(&entry.transition, LifecycleTransition::ResumeTargetRecorded { session_id } if session_id == "owned-session")
+    )));
+}
+
 fn new_journal() -> (TabLifecycleJournal, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
@@ -77,6 +102,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         session_binding_nonce: Some("nonce-1".into()),
         reported_session_binding_nonce: Some("nonce-1".into()),
         agent_state: None,
+        turn_resume: None,
         boot_stage: None,
         reasoning_effort: Default::default(),
         restorable_launch: Default::default(),
@@ -84,6 +110,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         prior_session_bindings: vec![],
         task_binding: None,
         roleless_tracked: false,
+        managed: None,
         lifecycle_epoch: epoch,
         lifecycle_operation_id: operation.map(str::to_string),
     }
@@ -91,6 +118,11 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
 
 fn leaf(tab_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: tab_id.into(),
         cwd: Some("D:/Developer/codeterm".into()),
         title: Some("claude — orchestrator".into()),
@@ -122,6 +154,7 @@ fn leaf(tab_id: &str) -> SplitNodeSnapshot {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }
@@ -924,6 +957,46 @@ fn a_close_reason_survives_the_journal_round_trip() {
             reason: TabCloseReason::Watchdog.label().to_string(),
         },
         "the journal must name the seam that closed the tab"
+    );
+}
+
+#[test]
+fn remote_ownership_release_is_a_diagnostic_and_survives_compaction() {
+    use super::reduce::{compact_records, sealed_checkpoints};
+
+    let (journal, _dir) = new_journal();
+    let launch = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &launch, "session-a");
+    journal
+        .append(
+            launch.clone(),
+            LifecycleTransition::RemoteOwnershipReleased {
+                peer_id: "peer-eight".into(),
+                peer_name: "eight".into(),
+                caller_tab_id: Some("orchestrator".into()),
+            },
+        )
+        .unwrap();
+
+    let loaded = journal.load();
+    let release = loaded.records.iter().find_map(|record| match record {
+        JournalRecord::Transition { entry } => match &entry.transition {
+            LifecycleTransition::RemoteOwnershipReleased { .. } => Some(entry.transition.clone()),
+            _ => None,
+        },
+        JournalRecord::Checkpoint { .. } => None,
+    });
+    assert_eq!(
+        release,
+        Some(LifecycleTransition::RemoteOwnershipReleased {
+            peer_id: "peer-eight".into(),
+            peer_name: "eight".into(),
+            caller_tab_id: Some("orchestrator".into()),
+        })
+    );
+    assert_eq!(
+        sealed_checkpoints(&loaded.records),
+        sealed_checkpoints(&compact_records(&loaded.records))
     );
 }
 

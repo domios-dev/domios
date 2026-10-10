@@ -39,7 +39,7 @@ pub enum WorkspaceAction {
         /// Working directory — agents spawned with --workspace inherit this as their CWD
         #[arg(long)]
         cwd: Option<String>,
-        /// Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust
+        /// Create a new empty directory under the Domios data dir as the cwd; agents started exactly there get directory trust
         #[arg(long, conflicts_with = "cwd")]
         provision: bool,
     },
@@ -109,6 +109,21 @@ pub enum TabAction {
     /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
     /// AI tab use `codeterm agent spawn`.
     New {
+        /// Shell profile id (discover with --list-shells).
+        #[arg(long, conflicts_with_all = ["chat_backend", "list_shells"])]
+        shell: Option<String>,
+        /// List available shell profiles without creating a tab.
+        #[arg(long, conflicts_with_all = ["chat_backend", "cmd", "shell"])]
+        list_shells: bool,
+        /// Utility shell purpose shown in the sidebar.
+        #[arg(long, default_value = "shell", value_parser = ["build", "dev", "qa", "deploy", "logs", "db", "shell"], conflicts_with = "chat_backend")]
+        purpose: String,
+        /// Activity summary shown below the tab title.
+        #[arg(long)]
+        description: Option<String>,
+        /// Lucide icon name (for example bug or flask-conical).
+        #[arg(long, conflicts_with = "chat_backend")]
+        icon: Option<String>,
         /// Target workspace id. Defaults to the calling tab's own workspace, then
         /// the focused workspace for a caller with no tab identity.
         #[arg(long)]
@@ -183,6 +198,12 @@ pub enum TabAction {
         /// is notified with the recovery command.
         #[arg(long)]
         force: bool,
+    },
+    /// Release stored remote mesh control ownership from a local tab.
+    ReleaseOwnership {
+        /// Local tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback).
+        #[arg(long = "tab", value_name = "ID")]
+        tab: Option<String>,
     },
     /// Rename a tab (default: current tab)
     Rename {
@@ -513,7 +534,7 @@ pub enum KeepAwakeAction {
         #[arg(long)]
         gnome_policy: bool,
         /// Print system-level sudo mask commands in the status response.
-        /// CodeTerm never runs these commands silently.
+        /// Domios never runs these commands silently.
         #[arg(long)]
         system_block: bool,
     },
@@ -554,6 +575,9 @@ pub enum BridgeAction {
     /// Start or restart messaging bridge (Telegram, etc.)
     Restart,
     /// Send a message to Telegram or other service
+    ///
+    /// The bridge speaks as the CodeTerm bot; to message a contact as the owner, use
+    /// the telegram-client plugin (`codeterm plugin telegram-client chats` / `send`).
     Send {
         /// Message text (also used as caption for media types)
         #[arg(allow_hyphen_values = true)]
@@ -613,10 +637,10 @@ pub enum BridgeAction {
         /// Service to migrate (currently only "telegram").
         #[arg(long, default_value = "telegram")]
         service: String,
-        /// Send a one-shot "now serving from <host>" message to the sentinel chat.
+        /// Send a one-shot "now serving from <host>" message to the Blueprint chat.
         #[arg(long)]
         announce: bool,
-        /// Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user.
+        /// Blueprint chat id for --announce. Defaults to the target's first allow-listed bridge user.
         #[arg(long)]
         announce_chat_id: Option<i64>,
         /// Skip auto-rollback if target claim fails (leave source disabled).

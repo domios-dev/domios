@@ -54,6 +54,7 @@ export type TabMenuAction =
   | { type: "replaceOrchestrator"; view: OrchestratorRecoveryMenuView; providerId: string }
   | { type: "reconnect" }
   | { type: "restart" }
+  | { type: "fork" }
   | { type: "copySessionId"; sessionId: string }
   | { type: "setAutoConfirm"; enabled: boolean }
   | { type: "runPlugin"; entry: PluginTabMenuEntry }
@@ -357,6 +358,9 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
     if (submenu) entries.push(submenu);
   }
   entries.push(...sessionItems(input, session), ...autoConfirmEntries(input));
+  if (session.sessionId && input.descriptor?.supports_session_fork === true && !tab.remote_peer_id) {
+    entries.push({kind:"item",id:"fork",label:"Fork session",icon:"restart",action:{type:"fork"}});
+  }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);
   if (input.canClose && !tab.protected) {

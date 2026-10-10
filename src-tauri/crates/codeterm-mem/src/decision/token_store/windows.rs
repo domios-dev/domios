@@ -12,6 +12,7 @@ use windows_sys::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, ACCESS_MODE, EXPLICIT_ACCESS_W,
     GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
 };
+use windows_sys::Win32::Security::SUB_CONTAINERS_AND_OBJECTS_INHERIT;
 use windows_sys::Win32::Security::{
     EqualSid, GetAce, GetSecurityDescriptorControl, GetTokenInformation, TokenUser,
     ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
@@ -21,9 +22,21 @@ use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
 use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+// Object and container inheritance keep the directory owner-only for later files.
+const OWNER_INHERITANCE_FLAGS: u8 = 0x1 | 0x2;
+
 pub(super) fn restrict(path: &Path) -> io::Result<()> {
     let user = CurrentUser::open()?;
     let entry = access_entry(&user, GRANT_ACCESS);
+    write_acl(path, &entry, null())
+}
+
+// The directory also holds the journal and spend ledger; without an inheritable
+// owner ACE every later file gets an empty DACL and becomes unreadable.
+pub(super) fn restrict_dir(path: &Path) -> io::Result<()> {
+    let user = CurrentUser::open()?;
+    let mut entry = access_entry(&user, GRANT_ACCESS);
+    entry.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
     write_acl(path, &entry, null())
 }
 
@@ -54,7 +67,7 @@ pub(super) fn mode_ok(path: &Path) -> io::Result<bool> {
         }
         let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
         if u32::from(allowed.Header.AceType) != ACCESS_ALLOWED_ACE_TYPE
-            || allowed.Header.AceFlags != 0
+            || allowed.Header.AceFlags & !OWNER_INHERITANCE_FLAGS != 0
             || allowed.Mask != FILE_ALL_ACCESS
             || unsafe {
                 EqualSid(

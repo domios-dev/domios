@@ -2,6 +2,7 @@ pub mod apply;
 pub mod channel;
 pub mod checker;
 pub(crate) mod conpty_cleanup;
+mod debian_verify;
 pub mod failure_report;
 pub mod manifest;
 pub mod orchestrate;

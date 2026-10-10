@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import test from "node:test";
+import { test } from "vitest";
 
 import { __setInvokeForTest } from "../../lib/bridge";
-import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { isProvenAdmissionRefusal, sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
-function acceptedStatus(): ChatSendStatus {
+function heldStatus(): ChatSendStatus {
   return {
     send_id: "send-1",
     tab_id: "tab-1",
-    state: "accepted",
+    state: "held",
     error: null,
     ledger_id: "ledger-1",
     sequence: 1,
@@ -18,9 +17,9 @@ function acceptedStatus(): ChatSendStatus {
   };
 }
 
-test("accepted send enters the backend ledger once", async () => {
+test("held send enters the backend ledger once", async () => {
   const calls: Array<{ command: string; args: unknown }> = [];
-  const accepted = acceptedStatus();
+  const accepted = heldStatus();
   __setInvokeForTest(async <T>(command: string, args?: unknown) => {
     calls.push({ command, args });
     return accepted as T;
@@ -56,8 +55,9 @@ test("request rejection is logged and rethrown without a UI status channel", asy
   assert.match(String(warnings[0]?.[0]), /\[chat-send\]/);
 });
 
-test("frontend delivery module has no status listener, Retry, or notification path", () => {
-  const source = readFileSync(new URL("./chatSendStatus.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /\blisten\b/);
-  assert.doesNotMatch(source, /Retry|addNotification|chat-send-status/);
+test("only proven pre-admission refusal allows Retry", () => {
+  assert.equal(isProvenAdmissionRefusal(new Error("user send capacity: 32 unsettled admissions")), true);
+  assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: durability could not be qualified")), false);
+  assert.equal(isProvenAdmissionRefusal(new TypeError("Failed to fetch")), false);
+  assert.equal(isProvenAdmissionRefusal(new Error("connection reset")), false);
 });

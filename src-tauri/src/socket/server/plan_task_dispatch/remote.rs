@@ -82,7 +82,10 @@ pub(super) fn dispatch(
             "canonical checkout is not on the task's requested destination branch",
         ));
     }
-    let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
+    let repository_identity =
+        crate::service::worker_lane::legacy_repository_identity(&canonical_cwd)
+            .map_err(|error| invalid_dispatch(&error))?;
+    let repository_identities = crate::service::worker_lane::repository_identities(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
     let authorized_gates = dispatch_authorized_gates(p)?;
     let requested_model = owned_str(p, "model").or_else(|| detail.task.model.clone());
@@ -95,16 +98,8 @@ pub(super) fn dispatch(
     .map_err(super::super::model_errors::invalid_model_rpc_error)?;
     super::preflight::preflight_review_capacity(&plan, &detail.task)
         .map_err(super::super::plan::plan_rpc_err)?;
-    match super::regression_dispatch_decision(&plan, &detail.task) {
-        super::RegressionDispatchDecision::Clear
-        | super::RegressionDispatchDecision::Exempt { .. } => {}
-        super::RegressionDispatchDecision::Blocked {
-            blocking,
-            retrospectives,
-        } => {
-            return Err(super::regression_blocked_error(blocking, retrospectives));
-        }
-    }
+    let regression_warning =
+        super::regression_dispatch_warning(super::regression_dispatch_decision(&plan));
     if p.and_then(|value| value.get("placement"))
         .and_then(Value::as_str)
         .is_some_and(|placement| placement == "canonical_writer")
@@ -173,6 +168,7 @@ pub(super) fn dispatch(
         .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let request = json!({
         "repository_identity": repository_identity,
+        "repository_identities": repository_identities,
         "base_commit": base,
         "plan_id": plan_id,
         "task_id": task_id,
@@ -277,7 +273,7 @@ pub(super) fn dispatch(
         &origin_tab_id,
     );
     super::emit_plan_changed(app, &plan_id);
-    Ok(json!({
+    let mut result = json!({
         "accepted": false,
         "spawned": true,
         "state": "awaiting_worker_ack",
@@ -291,7 +287,11 @@ pub(super) fn dispatch(
         "worktree_path": worktree_path,
         "base": lane_base,
         "readiness": {"ready": false, "awaiting_event": "worker_ack"}
-    }))
+    });
+    if let Some(warning) = regression_warning {
+        result["warnings"] = json!([warning]);
+    }
+    Ok(result)
 }
 
 pub(crate) fn merge_lane(
@@ -390,7 +390,10 @@ pub(crate) fn merge_lane(
         crate::service::LaneProtection::Enforced,
     )
     .map_err(|error| invalid_dispatch(&error))?;
-    let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
+    let repository_identity =
+        crate::service::worker_lane::legacy_repository_identity(&canonical_cwd)
+            .map_err(|error| invalid_dispatch(&error))?;
+    let repository_identities = crate::service::worker_lane::repository_identities(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
     let (peer_paired, peer_client) = {
         let mesh_state = app.state::<crate::MeshStateHandle>();
@@ -427,6 +430,7 @@ pub(crate) fn merge_lane(
     };
     let request = json!({
         "repository_identity": repository_identity,
+        "repository_identities": repository_identities,
         "branch": branch,
         "base_commit": base,
         "plan_id": plan_id,

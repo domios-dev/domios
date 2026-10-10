@@ -491,42 +491,6 @@ pub async fn mem_promote(
 }
 
 #[derive(Deserialize)]
-pub struct FlushBody {
-    pub tab: String,
-    #[serde(default)]
-    pub title: Option<String>,
-}
-
-pub async fn mem_flush(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(b): Json<FlushBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let pty_id = {
-        let mux = state.svc.mux.write();
-        mux.resolve_tab_id(&b.tab)
-            .ok_or((StatusCode::NOT_FOUND, format!("Tab not found: {}", b.tab)))?
-    };
-    let pty_id_for_buffer = state
-        .svc
-        .resolve_pty_id(&pty_id)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    let body = {
-        let buf = state.svc.output_buf.lock();
-        buf.get_full_text(&pty_id_for_buffer).unwrap_or_default()
-    };
-    let id = learnings::flush_tab(
-        &state.svc.mem,
-        &b.tab,
-        b.title.as_deref().unwrap_or(""),
-        body,
-    )
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({ "id": id })))
-}
-
-#[derive(Deserialize)]
 pub struct CheckDuplicateBody {
     pub body: String,
     #[serde(default)]

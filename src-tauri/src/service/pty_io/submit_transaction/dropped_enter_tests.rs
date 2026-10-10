@@ -251,6 +251,74 @@ fn recovery_burst_stops_on_trust_dialog_after_shell_started_tui() {
 }
 
 #[test]
+fn shell_submit_has_no_recovery_enter_schedule() {
+    let io = GuardTransport::new();
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(
+        &io,
+        "claude --model haiku",
+        true,
+        b"\r",
+        VerifySubmitStrategy::None,
+        opts(),
+        |initial_key| {
+            guard_checks += 1;
+            if initial_key {
+                Ok(())
+            } else {
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: "shell-pty".into(),
+                })
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(guard_checks, 2);
+    assert_eq!(
+        &*io.writes.borrow(),
+        &["paste:claude --model haiku", "enter"]
+    );
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(result.submit_anomaly);
+}
+
+#[test]
+fn readiness_deadline_fallback_rechecks_the_provider_guard() {
+    let io = ParkedDraft::dropping(usize::MAX);
+    let mut guard_checks = 0;
+    let error = run_with_submit_key(
+        &io,
+        "payload",
+        true,
+        b"\r",
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::ZERO,
+            retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
+        },
+        short_opts(),
+        |_initial_key| {
+            guard_checks += 1;
+            if guard_checks == 1 {
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: "same-pty".into(),
+                })
+            } else {
+                Err(InjectionError::AgentTuiPresent {
+                    pty_id: "same-pty".into(),
+                })
+            }
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(guard_checks, 2);
+    assert_eq!(io.payload_writes.get(), 1);
+    assert_eq!(io.submit_key_writes.get(), 0);
+    assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
+}
+
+#[test]
 fn plain_shell_send_succeeds_when_recovery_proof_is_absent() {
     let io = GuardTransport::new();
     let mut guard_checks = 0;
@@ -374,6 +442,207 @@ fn recovery_keys_require_same_pty_proof() {
     let delivery = crate::service::delivery_error::DeliveryError::from_injection("same-pty", error);
     assert_eq!(delivery.code(), "submit_unconfirmed");
     assert!(delivery.bytes_written());
+}
+
+fn assert_prompt_fixture_stops_recovery(
+    label: &str,
+    screen: &str,
+    prompt: codeterm_types::pty::PendingPrompt,
+) {
+    use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
+
+    let provider = crate::agent::test_provider::MockProvider::new("fixture")
+        .with_tab_state(TabStateClassification {
+            state: TabState::ClarifyingQuestion,
+            confidence: 1.0,
+            data: None,
+            action: None,
+        })
+        .with_parsed_prompt(prompt);
+    let snapshot = TabStateSnapshot {
+        tab_id: "fixture-tab".into(),
+        agent_type: "fixture".into(),
+        session_id: Some("fixture-session".into()),
+        cwd: Some("/fixture".into()),
+        screen_text: screen.into(),
+    };
+    let io = GuardTransport::new();
+    let result = run_with_submit_key(
+        &io,
+        "payload",
+        true,
+        b"\r",
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::ZERO,
+            retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
+        },
+        opts(),
+        |initial_key| {
+            if initial_key {
+                Ok(())
+            } else {
+                recovery_dialog_guard(&provider, &snapshot, false, "same-pty")
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        &*io.writes.borrow(),
+        &["paste:payload", "enter"],
+        "{label} prompt must cancel every remaining recovery key"
+    );
+    assert_eq!(result.bytes_written, 7);
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(result.submit_anomaly);
+}
+
+#[test]
+fn provider_prompt_fixtures_cancel_recovery_after_the_initial_submit() {
+    use codeterm_plugin::provider::AgentProvider;
+
+    let claude = codeterm_plugin::agent_claude::provider::ClaudeProvider::new();
+    let trust = include_str!("../../../../../plugins/provider-claude/tests/fixtures/folder-trust/trust-continue-without-permissions.txt");
+    let permission = include_str!(
+        "../../../../../plugins/provider-claude/tests/fixtures/folder-trust/tool-permission.txt"
+    );
+    assert_prompt_fixture_stops_recovery(
+        "Claude trust",
+        trust,
+        claude
+            .parse_prompt(trust)
+            .expect("Claude trust fixture parses"),
+    );
+    assert_prompt_fixture_stops_recovery(
+        "Claude permission",
+        permission,
+        claude
+            .parse_prompt(permission)
+            .expect("Claude permission fixture parses"),
+    );
+
+    let model_picker =
+        include_str!("../../../../../plugins/provider-codex/tests/fixtures/model-picker.txt");
+    let (question, options) = codeterm_plugin::detector::parse_permission_prompt(model_picker)
+        .expect("Codex model picker fixture parses");
+    assert_prompt_fixture_stops_recovery(
+        "Codex /model picker",
+        model_picker,
+        codeterm_plugin::prompt::build_prompt(question, options),
+    );
+}
+
+#[test]
+fn plain_unconfirmed_composer_keeps_its_bounded_key_schedule() {
+    use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
+
+    let provider = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
+        TabStateClassification {
+            state: TabState::Working,
+            confidence: 0.0,
+            data: None,
+            action: None,
+        },
+    );
+    let snapshot = TabStateSnapshot {
+        tab_id: "fixture-tab".into(),
+        agent_type: "fixture".into(),
+        session_id: Some("fixture-session".into()),
+        cwd: Some("/fixture".into()),
+        screen_text: "composer".into(),
+    };
+    let io = GuardTransport::new();
+    let result = run_with_submit_key(
+        &io,
+        "payload",
+        true,
+        b"\r",
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::ZERO,
+            retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
+        },
+        opts(),
+        |initial_key| {
+            if initial_key {
+                Ok(())
+            } else {
+                recovery_dialog_guard(&provider, &snapshot, false, "same-pty")
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(result.submit_key_writes, MAX_SUBMIT_KEY_WRITES);
+    assert_eq!(
+        io.writes
+            .borrow()
+            .iter()
+            .filter(|write| write.as_str() == "enter")
+            .count(),
+        MAX_SUBMIT_KEY_WRITES
+    );
+    assert_eq!(
+        io.writes
+            .borrow()
+            .iter()
+            .filter(|write| write.starts_with("paste:"))
+            .count(),
+        1
+    );
+    assert!(result.submit_anomaly);
+}
+
+#[test]
+fn unbound_recovery_requires_a_provider_capability() {
+    use codeterm_plugin::provider::AgentProvider;
+
+    let provider = crate::agent::test_provider::MockProvider::new("fixture");
+    assert!(!provider.supports_unbound_submit_recovery());
+    assert!(!recovery_session_authorized(false, false));
+    assert!(recovery_session_authorized(false, true));
+    assert!(recovery_session_authorized(true, false));
+}
+
+#[test]
+fn recovery_stops_on_provider_modal_without_using_screen_turn_state() {
+    use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
+
+    let snapshot = TabStateSnapshot {
+        tab_id: "fixture-tab".into(),
+        agent_type: "fixture".into(),
+        session_id: Some("fixture-session".into()),
+        cwd: Some("/fixture".into()),
+        screen_text: "screen".into(),
+    };
+    let working = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
+        TabStateClassification {
+            state: TabState::Working,
+            confidence: 0.0,
+            data: None,
+            action: None,
+        },
+    );
+    assert!(matches!(
+        recovery_dialog_guard(&working, &snapshot, false, "same-pty"),
+        Ok(())
+    ));
+
+    let prompt = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
+        TabStateClassification {
+            state: TabState::ClarifyingQuestion,
+            confidence: 1.0,
+            data: None,
+            action: None,
+        },
+    );
+    assert!(matches!(
+        recovery_dialog_guard(&prompt, &snapshot, false, "same-pty"),
+        Err(InjectionError::AgentTuiPresent { .. })
+    ));
+    assert!(matches!(
+        recovery_dialog_guard(&prompt, &snapshot, true, "same-pty"),
+        Ok(())
+    ));
 }
 
 #[test]

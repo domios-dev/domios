@@ -32,11 +32,24 @@ struct LoadFingerprint {
     config_mtime: SystemTime,
 }
 
+/// The last failed load attempt for a plugin, surfaced to Settings > Plugins.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PluginLoadError {
+    pub id: String,
+    pub path: PathBuf,
+    pub message: String,
+    pub at_ms: u64,
+    pub kept_previous: bool,
+}
+
 #[derive(Clone)]
 pub struct CapabilityRegistries {
     pub decision_model:
         Arc<crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>>,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
+    pub converter: Arc<crate::converter::ConverterRegistry>,
+    pub graph_nodes: Arc<crate::graph_nodes::GraphNodeRegistry>,
+    pub event_source: Arc<crate::event_source::EventSourceRegistry>,
     pub glance: crate::glance::GlanceRegistryHandle,
     pub bubble: crate::bubble::BubbleRegistryHandle,
     pub view: crate::view_host::ViewRegistryHandle,
@@ -45,11 +58,21 @@ pub struct CapabilityRegistries {
     pub agent_command: crate::agent_commands::AgentCommandRegistryHandle,
     pub webhook_receiver: crate::webhook::WebhookRegistryHandle,
     pub tab_menu: crate::tab_menu::TabMenuRegistryHandle,
+    pub surfaces: crate::surfaces::SurfaceRegistryHandle,
     pub secret: Option<Arc<dyn SecretBackendRegistrar>>,
 }
 
 impl CapabilityRegistries {
     pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
+        self.register_plugin_with_core(manifest, vm, false);
+    }
+
+    pub fn register_plugin_with_core(
+        &self,
+        manifest: &PluginManifest,
+        vm: &Arc<super::PluginVm>,
+        core: bool,
+    ) {
         let id = &manifest.id;
         let caps = &manifest.capabilities;
         // Models must be removed when a manifest drops `chatBackend`, because they belong to that capability.
@@ -59,15 +82,48 @@ impl CapabilityRegistries {
             self.deregister_plugin(id);
         }
         if caps.transcriber {
-            self.transcribe.register(
+            let transcriber = Arc::new(super::JsTranscriber::new(vm.clone(), id.clone()));
+            self.transcribe.register(id.clone(), transcriber.clone());
+            if caps.graph_nodes.converters.is_empty() {
+                // A transcriber is the audio -> text edge unless the plugin
+                // declares its own converters, which win.
+                self.converter.register(
+                    id.clone(),
+                    Arc::new(crate::converter::TranscriberConverter::new(transcriber)),
+                );
+            }
+        }
+        if !caps.graph_nodes.converters.is_empty() {
+            self.converter.register(
                 id.clone(),
-                Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
+                Arc::new(super::JsConverter::new(
+                    vm.clone(),
+                    caps.graph_nodes.converters.clone(),
+                )),
             );
         }
-        if caps.decision_model {
+        if !caps.graph_nodes.event_sources.is_empty() && vm.graph_events_allowed() {
+            if let Err(error) = self.event_source.register(
+                id.clone(),
+                Arc::new(super::JsEventSource::new(
+                    vm.clone(),
+                    caps.graph_nodes.event_sources.clone(),
+                )),
+            ) {
+                log::error!("[plugin] event source registration refused: {error}");
+            }
+            if let Err(error) = self.graph_nodes.register(id.clone(), &caps.graph_nodes) {
+                log::error!("[plugin] graph node catalog registration refused: {error}");
+            }
+        }
+        if caps.decision_model.enabled {
             self.decision_model.register(
                 id.clone(),
-                Arc::new(super::JsDecisionModel::new(vm.clone(), id.clone())),
+                Arc::new(super::JsDecisionModel::new(
+                    vm.clone(),
+                    id.clone(),
+                    caps.decision_model.token_mode,
+                )),
             );
         }
         if caps.secret_backend.enabled() {
@@ -131,14 +187,17 @@ impl CapabilityRegistries {
             self.tab_menu
                 .register(id.clone(), Arc::new(caps.tab_menu.clone()));
         }
+        let renderable = renderable_surfaces(caps);
+        if !renderable.is_empty() {
+            self.surfaces.register(id.clone(), Arc::new(renderable));
+        }
         if vm.agent_commands_allowed() {
             self.agent_command.register(
                 id.clone(),
-                Arc::new(super::JsAgentCommandHandler::new(
-                    vm.clone(),
-                    id.clone(),
-                    true,
-                )),
+                Arc::new(
+                    super::JsAgentCommandHandler::new(vm.clone(), id.clone(), true)
+                        .with_catalog(super::catalog_from_manifest(manifest, core)),
+                ),
             );
         }
         if caps.transcriber || caps.chat_preprocessor.enabled() {
@@ -162,6 +221,9 @@ impl CapabilityRegistries {
     fn deregister_common(&self, id: &str) {
         self.decision_model.unregister(id);
         self.transcribe.unregister(id);
+        self.converter.unregister(id);
+        self.graph_nodes.unregister(id);
+        self.event_source.unregister(id);
         if let Some(reg) = &self.secret {
             reg.unregister_secret_backend(id);
         }
@@ -172,7 +234,17 @@ impl CapabilityRegistries {
         self.agent_command.unregister(id);
         self.webhook_receiver.unregister(id);
         self.tab_menu.unregister(id);
+        self.surfaces.unregister(id);
     }
+}
+
+/// A view surface needs the plugin's view; a stream surface renders from a core runtime instead.
+fn renderable_surfaces(caps: &super::manifest::Capabilities) -> Vec<crate::surfaces::SurfaceDecl> {
+    caps.surfaces
+        .iter()
+        .filter(|surface| caps.view || surface.stream_runtime().is_some())
+        .cloned()
+        .collect()
 }
 
 pub struct HotReloadRegistry {
@@ -184,7 +256,10 @@ pub struct HotReloadRegistry {
     activated_startup: Mutex<HashSet<String>>,
     pending_reload: Mutex<HashSet<String>>,
     failed: Mutex<HashMap<PathBuf, LoadFingerprint>>,
+    load_errors: Mutex<HashMap<String, PluginLoadError>>,
     service: Mutex<Option<std::sync::Weak<dyn PluginHostCtx>>>,
+    reconciliation: Mutex<()>,
+    settings_changed: Mutex<Vec<String>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
@@ -197,11 +272,22 @@ pub struct HotReloadRegistry {
 
 static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
 
+pub fn refresh_installed_plugins(ids: &[String]) -> Result<(), String> {
+    WATCHER
+        .get()
+        .ok_or("Plugin watcher is not ready")?
+        .refresh_installed(ids)
+}
+
 pub fn pending_reload_ids() -> Vec<String> {
     WATCHER
         .get()
         .map(|w| w.pending_reload_ids())
         .unwrap_or_default()
+}
+
+pub fn plugin_load_errors() -> Vec<PluginLoadError> {
+    WATCHER.get().map(|w| w.load_errors()).unwrap_or_default()
 }
 
 pub fn set_watcher_service(svc: std::sync::Weak<dyn PluginHostCtx>) {
@@ -211,6 +297,17 @@ pub fn set_watcher_service(svc: std::sync::Weak<dyn PluginHostCtx>) {
 }
 
 impl HotReloadRegistry {
+    fn notify_event_sources_changed(&self) {
+        if let Some(service) = self
+            .service
+            .lock()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            service.event_sources_changed();
+        }
+    }
+
     pub fn new(
         roots: Vec<PathBuf>,
         registrar: Arc<dyn PluginProviderRegistrar>,
@@ -225,7 +322,10 @@ impl HotReloadRegistry {
             activated_startup: Mutex::new(HashSet::new()),
             pending_reload: Mutex::new(HashSet::new()),
             failed: Mutex::new(HashMap::new()),
+            load_errors: Mutex::new(HashMap::new()),
             service: Mutex::new(None),
+            reconciliation: Mutex::new(()),
+            settings_changed: Mutex::new(Vec::new()),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -278,7 +378,7 @@ impl HotReloadRegistry {
                         manifest_path: manifest_path.clone(),
                         manifest_mtime: mtime_or_epoch(manifest_path),
                         entry_mtime: mtime_or_epoch(&entry_path),
-                        config_mtime: config_mtime_for(manifest_path),
+                        config_mtime: config_mtime_for(manifest_path, &manifest.id),
                     },
                 );
                 activated.insert(manifest.id);
@@ -318,7 +418,61 @@ impl HotReloadRegistry {
         true
     }
 
-    fn record_failure(&self, path: &std::path::Path, fingerprint: LoadFingerprint) {
+    pub fn load_errors(&self) -> Vec<PluginLoadError> {
+        self.load_errors.lock().values().cloned().collect()
+    }
+
+    fn tracked_id_at(&self, path: &std::path::Path) -> Option<String> {
+        self.state
+            .lock()
+            .iter()
+            .find(|(_, tracked)| tracked.manifest_path == path)
+            .map(|(id, _)| id.clone())
+    }
+
+    /// Registered plugins whose manifest is still on disk but whose last load attempt
+    /// failed; they keep their previous registration until a load succeeds.
+    fn held_registrations(&self) -> HashMap<String, PathBuf> {
+        let failed = self.failed.lock();
+        self.state
+            .lock()
+            .iter()
+            .filter(|(_, t)| failed.contains_key(&t.manifest_path) && t.manifest_path.exists())
+            .map(|(id, t)| (id.clone(), t.manifest_path.clone()))
+            .collect()
+    }
+
+    fn record_failure(
+        &self,
+        path: &std::path::Path,
+        fingerprint: LoadFingerprint,
+        stage: &str,
+        error: String,
+    ) {
+        let registered = self.tracked_id_at(path);
+        match &registered {
+            Some(id) => log::warn!(
+                "[plugin-watcher] {} {stage}: {error} — keeping previous registration of {id}",
+                path.display()
+            ),
+            None => log::warn!("[plugin-watcher] {} {stage}: {error}", path.display()),
+        }
+        let kept_previous = registered.is_some();
+        let id = registered.unwrap_or_else(|| error_id_for(path));
+        let at_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        self.load_errors.lock().insert(
+            id.clone(),
+            PluginLoadError {
+                id,
+                path: path.to_path_buf(),
+                message: format!("{stage}: {error}"),
+                at_ms,
+                kept_previous,
+            },
+        );
         self.failed.lock().insert(path.to_path_buf(), fingerprint);
         #[cfg(test)]
         self.failed_attempt_count
@@ -347,6 +501,13 @@ impl HotReloadRegistry {
         }
     }
 
+    fn emit_agent_commands_changed(&self) {
+        let svc = self.service.lock().clone().and_then(|w| w.upgrade());
+        if let Some(svc) = svc {
+            svc.contributions_changed(crate::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND);
+        }
+    }
+
     fn emit_agent_provider_changed(&self) {
         #[cfg(test)]
         self.contribution_event_count
@@ -370,16 +531,79 @@ impl HotReloadRegistry {
     }
 
     pub fn tick(&self) {
+        {
+            let _reconciliation = self.reconciliation.lock();
+            self.tick_inner();
+        }
+        self.flush_settings_changed();
+    }
+
+    pub fn refresh_installed(&self, ids: &[String]) -> Result<(), String> {
+        let result = {
+            let _reconciliation = self.reconciliation.lock();
+            self.refresh_installed_reconciled(ids)
+        };
+        self.flush_settings_changed();
+        result
+    }
+
+    /// Settings are already live in the VM; refresh what the host derived from them,
+    /// outside the reconciliation lock because the host side takes its own locks.
+    fn flush_settings_changed(&self) {
+        let ids = std::mem::take(&mut *self.settings_changed.lock());
+        for id in ids {
+            self.registrar.provider_settings_changed(&id);
+            self.caps.chatbackend.refresh_after_input_change(&id);
+        }
+    }
+
+    fn refresh_installed_reconciled(&self, ids: &[String]) -> Result<(), String> {
+        for id in ids {
+            self.state.lock().remove(id);
+        }
+        for (id, paths) in self.discover_candidates() {
+            if ids.contains(&id) {
+                for path in paths {
+                    self.failed.lock().remove(&path);
+                }
+            }
+        }
+        self.tick_inner();
+        for id in ids {
+            if self.pending_reload.lock().contains(id) {
+                return Err(format!(
+                    "Plugin {id} was installed on disk but requires a daemon reload to activate"
+                ));
+            }
+        }
+        let state = self.state.lock();
+        for id in ids {
+            if !state.contains_key(id) {
+                return Err(format!("Plugin {id} was installed on disk but failed live registration; inspect plugin diagnostics"));
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_inner(&self) {
         let mut seen: Vec<String> = Vec::new();
         let candidates = self.discover_candidates();
-        for paths in candidates.values() {
-            for manifest_path in paths.iter().rev() {
+        let held = self.held_registrations();
+        for (id, paths) in &candidates {
+            // A held plugin retries only its own file, so a lower-priority duplicate cannot replace it.
+            let pinned = held.get(id);
+            for manifest_path in paths
+                .iter()
+                .rev()
+                .filter(|path| pinned.is_none_or(|pin| pin == *path))
+            {
                 if let Some(id) = self.reconcile_one(manifest_path) {
                     seen.push(id);
                     break;
                 }
             }
         }
+        seen.extend(self.held_registrations().into_keys());
         let removed: Vec<String> = {
             let mut state = self.state.lock();
             let removed: Vec<String> = state
@@ -394,14 +618,18 @@ impl HotReloadRegistry {
         };
         let mut provider_changed = false;
         let mut tab_menu_changed = false;
+        let mut agent_commands_changed = false;
+        let event_sources_changed = !removed.is_empty();
         for id in removed {
             self.vms.lock().remove(&id);
             provider_changed |= self.registrar.unregister_provider(&id);
             provider_changed |= self.caps.chatbackend.contains(&id);
             tab_menu_changed |= self.caps.tab_menu.contains(&id);
+            agent_commands_changed |= self.caps.agent_command.contains(&id);
             self.caps.deregister_plugin(&id);
             self.pending_reload.lock().remove(&id);
             self.activated_startup.lock().remove(&id);
+            self.load_errors.lock().remove(&id);
             log::info!("[plugin-watcher] unregistered {id} (folder removed)");
         }
         if provider_changed {
@@ -410,7 +638,16 @@ impl HotReloadRegistry {
         if tab_menu_changed {
             self.emit_tab_menu_changed();
         }
+        if agent_commands_changed {
+            self.emit_agent_commands_changed();
+        }
+        if event_sources_changed {
+            self.notify_event_sources_changed();
+        }
         self.failed.lock().retain(|path, _| path.exists());
+        self.load_errors
+            .lock()
+            .retain(|_, error| error.path.exists());
     }
 
     fn discover_candidates(&self) -> BTreeMap<String, Vec<PathBuf>> {
@@ -440,11 +677,15 @@ impl HotReloadRegistry {
                         let fingerprint = LoadFingerprint {
                             manifest_mtime: mtime_or_epoch(&manifest_path),
                             entry_mtime: SystemTime::UNIX_EPOCH,
-                            config_mtime: config_mtime_for(&manifest_path),
+                            config_mtime: SystemTime::UNIX_EPOCH,
                         };
                         if !self.already_failed(&manifest_path, &fingerprint) {
-                            log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
-                            self.record_failure(&manifest_path, fingerprint);
+                            self.record_failure(
+                                &manifest_path,
+                                fingerprint,
+                                "parse",
+                                e.to_string(),
+                            );
                         }
                         continue;
                     }
@@ -466,11 +707,10 @@ impl HotReloadRegistry {
                 let fingerprint = LoadFingerprint {
                     manifest_mtime,
                     entry_mtime: SystemTime::UNIX_EPOCH,
-                    config_mtime: config_mtime_for(manifest_path),
+                    config_mtime: SystemTime::UNIX_EPOCH,
                 };
                 if !self.already_failed(manifest_path, &fingerprint) {
-                    log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
-                    self.record_failure(manifest_path, fingerprint);
+                    self.record_failure(manifest_path, fingerprint, "parse", e.to_string());
                 }
                 return None;
             }
@@ -480,7 +720,7 @@ impl HotReloadRegistry {
             return None;
         }
         let entry_mtime = mtime_or_epoch(&entry_path);
-        let config_mtime = config_mtime_for(manifest_path);
+        let config_mtime = config_mtime_for(manifest_path, &manifest.id);
 
         let fingerprint = LoadFingerprint {
             manifest_mtime,
@@ -512,6 +752,7 @@ impl HotReloadRegistry {
                     if let Some(tracked) = self.state.lock().get_mut(&manifest.id) {
                         tracked.config_mtime = config_mtime;
                     }
+                    self.settings_changed.lock().push(manifest.id.clone());
                     log::info!(
                         "[plugin-watcher] {} config-only change — re-stamped settings into live VM (no rebuild, sessions preserved)",
                         manifest.id
@@ -538,11 +779,10 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
-                let was_spawnable_chatbackend = self
-                    .caps
-                    .chatbackend
-                    .get(&id)
-                    .is_some_and(|backend| backend.spawnable());
+                self.load_errors
+                    .lock()
+                    .retain(|key, error| key != &id && error.path != manifest_path);
+                let had_chatbackend = self.caps.chatbackend.contains(&id);
                 self.register_vm(&id, provider.vm());
                 let activated_at_startup = self.activated_startup.lock().contains(&id);
                 if provider.manifest().requires_reload && !activated_at_startup {
@@ -562,14 +802,22 @@ impl HotReloadRegistry {
                     return Some(id);
                 }
                 self.bind_service(provider.vm());
-                if let Some(api_port) = runtime_api_port() {
+                if let Some(api_port) = runtime_api_port()
+                    .filter(|_| crate::global_writes::machine_global_write_allowed())
+                {
                     provider.ensure_integration_on_startup(api_port);
                 }
                 let had_tab_menu = self.caps.tab_menu.contains(&id);
+                let had_agent_commands = self.caps.agent_command.contains(&id);
+                let core = super::loader::is_core_plugin(provider.manifest(), provider.trust());
                 self.caps
-                    .register_plugin(provider.manifest(), provider.vm());
+                    .register_plugin_with_core(provider.manifest(), provider.vm(), core);
+                self.notify_event_sources_changed();
                 if had_tab_menu || self.caps.tab_menu.contains(&id) {
                     self.emit_tab_menu_changed();
+                }
+                if had_agent_commands || self.caps.agent_command.contains(&id) {
+                    self.emit_agent_commands_changed();
                 }
                 if provider.manifest().capabilities.view {
                     self.emit_plugin_view_reloaded(&id);
@@ -581,9 +829,7 @@ impl HotReloadRegistry {
                     self.registrar.provider_reloaded(&id);
                     self.emit_agent_provider_changed();
                 } else {
-                    if was_spawnable_chatbackend
-                        || provider.manifest().capabilities.chat_backend_spawnable()
-                    {
+                    if had_chatbackend || provider.manifest().capabilities.chat_backend.enabled() {
                         self.emit_agent_provider_changed();
                     }
                     log::info!(
@@ -606,10 +852,6 @@ impl HotReloadRegistry {
                 Some(id)
             }
             Err(e) => {
-                log::warn!(
-                    "[plugin-watcher] {} load failed: {e}",
-                    manifest_path.display()
-                );
                 self.record_failure(
                     manifest_path,
                     LoadFingerprint {
@@ -617,6 +859,8 @@ impl HotReloadRegistry {
                         entry_mtime,
                         config_mtime,
                     },
+                    "load failed",
+                    e.to_string(),
                 );
                 None
             }
@@ -650,10 +894,30 @@ impl HotReloadRegistry {
     }
 }
 
+#[cfg(test)]
+mod install_refresh_tests;
+#[cfg(test)]
+mod settings_change_tests;
+
 fn runtime_api_port() -> Option<u16> {
     std::env::var("CODETERM_API_PORT")
         .ok()
         .and_then(|value| value.parse().ok())
+}
+
+/// An unparsable manifest has no trusted id; the raw `id` field, then the folder name, keys its error.
+fn error_id_for(manifest_path: &std::path::Path) -> String {
+    std::fs::read_to_string(manifest_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get("id")?.as_str().map(String::from))
+        .or_else(|| {
+            manifest_path
+                .parent()
+                .and_then(|dir| dir.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| manifest_path.display().to_string())
 }
 
 fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {
@@ -662,10 +926,10 @@ fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-fn config_mtime_for(manifest_path: &std::path::Path) -> SystemTime {
+fn config_mtime_for(manifest_path: &std::path::Path, plugin_id: &str) -> SystemTime {
     manifest_path
         .parent()
-        .map(|dir| mtime_or_epoch(&super::plugin_config::config_yaml_path(dir)))
+        .map(|dir| mtime_or_epoch(&super::plugin_config::config_yaml_path(dir, plugin_id)))
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
@@ -697,5 +961,13 @@ fn warn_stage_conflicts(
     }
 }
 
+#[cfg(test)]
+mod agent_verb_tests;
+#[cfg(test)]
+mod converter_tests;
+#[cfg(test)]
+mod keep_on_failure_tests;
+#[cfg(test)]
+mod surface_tests;
 #[cfg(test)]
 mod tests;

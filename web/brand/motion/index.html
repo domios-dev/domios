@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Domios — Threshold in motion</title>
+  <style>
+    :root {
+      --ct-duration-liquid-hover: 380ms;
+      --ct-duration-liquid-press: 280ms;
+      --ct-duration-liquid-segmented: 420ms;
+      --ct-ease-hover-swell: cubic-bezier(.3, 1.6, .4, 1);
+      --ct-ease-liquid-settle: cubic-bezier(.16, 1, .3, 1);
+      --ct-ease-liquid-breathe: cubic-bezier(.42, 0, .58, 1);
+      --bg: #0d1117; --surface: #141b24; --fg: #f0f6fc; --muted: #828a92;
+      --accent: #58a6ff; --border: #283442; color-scheme: dark;
+      font-family: "Segoe UI", sans-serif;
+    }
+    :root[data-theme="light"] {
+      --bg: #f6f8fa; --surface: #fff; --fg: #1f2328; --muted: #57606a;
+      --accent: #0969da; --border: #d4dbe3; color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); }
+    button { font: inherit; cursor: pointer; color: inherit; }
+    button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
+    button:disabled { cursor: default; opacity: .55; }
+    main { width: min(1120px, 100%); margin: auto; padding: 48px 32px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+    .eyebrow { color: var(--accent); font: 12px Consolas, monospace; letter-spacing: 1.5px; }
+    h1 { margin: 22px 0 12px; font-size: clamp(32px, 5vw, 52px); letter-spacing: -2px; line-height: 1.05; }
+    .intro { max-width: 630px; color: var(--muted); font-size: 17px; line-height: 1.6; }
+    .layout { display: grid; grid-template-columns: 1.15fr 1fr; gap: 32px; margin-top: 32px; }
+    .stage { min-height: 440px; display: grid; place-items: center; width: 100%; border: 1px solid var(--border); border-radius: 28px; background: var(--surface); touch-action: manipulation; }
+    .stage svg { width: min(340px, 82%); height: auto; overflow: visible; color: var(--accent); }
+    .stage small { font-size: 12px; color: var(--muted); margin-top: -20px; }
+    .ct-liquid-controls { display: grid; gap: 10px; }
+    .ct-liquid-button { border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; background: var(--surface); text-align: left; transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell), border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle); }
+    .ct-liquid-button:hover:not(:disabled) { transform: translateY(-2px) scale(1.015); border-color: var(--accent); }
+    .ct-liquid-button:active:not(:disabled) { transform: scale(.965, .95); transition-duration: var(--ct-duration-liquid-press); }
+    .ct-liquid-button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+    .ct-liquid-button strong { display: block; font-size: 16px; }
+    .ct-liquid-button small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .actions { display: flex; gap: 10px; margin-top: 18px; }
+    .actions button { flex: 1; text-align: center; }
+    #status { min-height: 42px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    footer { border-top: 1px solid var(--border); margin-top: 36px; padding-top: 22px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+    .resting { display: flex; gap: 22px; align-items: center; margin-top: 18px; }
+    .resting img { width: 16px; height: 16px; }
+    .resting svg { color: var(--accent); }
+    #capture { display: none; }
+    body[data-capture] main { display: none; }
+    body[data-capture] #capture { display: grid; grid-template-columns: repeat(2, 640px); width: 1280px; }
+    .film-frame { width: 640px; height: 480px; background: var(--bg); position: relative; overflow: hidden; }
+    .film-frame .film-label { position: absolute; left: 32px; top: 26px; font: 12px Consolas, monospace; color: var(--accent); letter-spacing: 1px; }
+    .film-frame svg { position: absolute; left: 176px; top: 78px; width: 288px; height: 288px; color: var(--accent); overflow: visible; }
+    .film-frame .film-title { position: absolute; left: 32px; top: 382px; font-size: 25px; font-weight: 650; letter-spacing: -.6px; }
+    .film-frame .film-note { position: absolute; left: 32px; top: 424px; font-size: 13px; color: var(--muted); }
+    .film-frame .film-brand { position: absolute; right: 32px; top: 390px; font-size: 24px; font-weight: 700; }
+    @media (max-width: 760px) { main { padding: 28px 20px; } .layout { grid-template-columns: 1fr; } .stage { min-height: 360px; } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .ct-liquid-button:hover:not(:disabled), .ct-liquid-button:active:not(:disabled) { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header><span class="eyebrow">DOMIOS / THRESHOLD / MOTION STUDIES</span><button id="theme" class="ct-liquid-button" aria-pressed="false">Light theme</button></header>
+    <h1>A door with a little give.</h1>
+    <p class="intro">The original 03, brought to life through surface tension, arrival, breathing and touch. Every motion settles back into the same mark.</p>
+    <div class="layout">
+      <button class="stage" id="stage" aria-label="Press and release the Domios mark">
+        <svg id="art" viewBox="-4 -4 72 72" role="img" aria-labelledby="mark-title"><title id="mark-title">Domios Threshold</title><g id="body"><path id="mark" fill="currentColor" fill-rule="evenodd" d="M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"/></g><ellipse id="drop" fill="currentColor" visibility="hidden"/></svg>
+        <small>Press and hold, then release.</small>
+      </button>
+      <section aria-label="Motion studies">
+        <div class="ct-liquid-controls" role="group" aria-label="Choose a motion">
+          <button class="ct-liquid-button" data-study="open" aria-pressed="true"><strong>01 / Surface tension</strong><small>A narrow seam opens, stretches, and settles into the doorway.</small></button>
+          <button class="ct-liquid-button" data-study="arrival" aria-pressed="false"><strong>02 / Come on in</strong><small>A droplet enters the cut. The bowl takes its weight and absorbs it.</small></button>
+          <button class="ct-liquid-button" data-study="breathe" aria-pressed="false"><strong>03 / At home</strong><small>A quiet breathing cycle. Play starts it; pause returns to rest.</small></button>
+          <button class="ct-liquid-button" data-study="press" aria-pressed="false"><strong>04 / A little give</strong><small>Quick compression, a small overshoot, then a damped spring release.</small></button>
+        </div>
+        <div class="actions"><button id="play" class="ct-liquid-button">Replay</button><button id="pause" class="ct-liquid-button">Pause at rest</button></div>
+        <p id="status" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+    <footer>All studies use the site's Liquid easing tokens. The spring has mass 1, stiffness 420 and damping 22. With reduced motion enabled, the mark and controls remain static. Breathing pauses when the page is hidden.<div class="resting" aria-label="Static mark at favicon sizes"><svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><path fill="currentColor" d="M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"/></svg><svg viewBox="0 0 64 64" width="32" height="32" aria-hidden="true"><path fill="currentColor" d="M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"/></svg><svg viewBox="0 0 64 64" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"/></svg><span>64 / 32 / 16 px at rest</span></div></footer>
+  </main>
+  <div id="capture" aria-hidden="true"></div>
+  <script>
+    const ORIGINAL = 'M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z';
+    const STUDIES = {
+      open: { title: 'Surface tension', note: 'Open / overshoot / settle', duration: 1.6 },
+      arrival: { title: 'Come on in', note: 'Enter / absorb / ripple / settle', duration: 2.2 },
+      breathe: { title: 'At home', note: 'A quiet, optional breathing cycle', duration: 4 },
+      press: { title: 'A little give', note: 'Compress / release / spring / settle', duration: 1.5 },
+    };
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+    const mark = document.querySelector('#mark');
+    const body = document.querySelector('#body');
+    const drop = document.querySelector('#drop');
+    const stage = document.querySelector('#stage');
+    const status = document.querySelector('#status');
+    const playButton = document.querySelector('#play');
+    const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
+    const number = value => Number(value.toFixed(5));
+
+    function easing(token) {
+      const values = getComputedStyle(document.documentElement).getPropertyValue(token).match(/-?\d*\.?\d+/g).map(Number);
+      const [x1, y1, x2, y2] = values;
+      const bezier = (t, a, b) => 3 * (1 - t) ** 2 * t * a + 3 * (1 - t) * t * t * b + t ** 3;
+      return progress => {
+        let low = 0, high = 1;
+        for (let i = 0; i < 22; i++) {
+          const mid = (low + high) / 2;
+          if (bezier(mid, x1, x2) < clamp(progress)) low = mid;
+          else high = mid;
+        }
+        return bezier((low + high) / 2, y1, y2);
+      };
+    }
+
+    const settle = easing('--ct-ease-liquid-settle');
+    const breatheEase = easing('--ct-ease-liquid-breathe');
+    function spring(seconds) {
+      const decay = 11, frequency = Math.sqrt(420 - decay * decay);
+      return 1 - Math.exp(-decay * seconds) * (Math.cos(frequency * seconds) + decay / frequency * Math.sin(frequency * seconds));
+    }
+
+    function threshold(open = 1, softness = 0, ripple = 0) {
+      if (open === 1 && softness === 0 && ripple === 0) return ORIGINAL;
+      const tip = 8 + 16 * open, right = 24 + 16 * open, top = 40 - 16 * open;
+      return `M8 8H32C46 8 ${56 + ripple} ${18 - ripple} ${56 + ripple} 32C${56 + ripple} ${46 + ripple} 46 56 32 56H${tip}C${tip + (right - tip) / 3 - softness} ${50.666 - softness} ${tip + (right - tip) * 2 / 3 + softness} 45.333 ${right} 40V${top}H24V40C${18.666 + softness} 45.333 ${13.333 + softness} ${50.666 - softness} 8 56Z`;
+    }
+
+    function at(kind, time) {
+      const state = { d: ORIGINAL, sx: 1, sy: 1, y: 0, rotate: 0, drop: null };
+      if (reduced.matches) return state;
+      const t = Math.max(0, time);
+      if (kind === 'open' && t < 1.6) {
+        const opening = .12 + .88 * spring(t);
+        const tension = Math.exp(-5 * t) * Math.sin(11 * t);
+        state.d = threshold(opening, 5 * tension);
+        state.sx = 1 + .055 * tension;
+        state.sy = 1 - .045 * tension;
+      } else if (kind === 'arrival' && t < 2.2) {
+        const progress = breatheEase(t / .92);
+        const inverse = 1 - progress;
+        const x = inverse ** 3 * 4 + 3 * inverse ** 2 * progress * 20 + 3 * inverse * progress ** 2 * 30 + progress ** 3 * 42;
+        const y = inverse ** 3 * 68 + 3 * inverse ** 2 * progress * 52 + 3 * inverse * progress ** 2 * 42 + progress ** 3 * 32;
+        const size = 4.2 * settle(t / .12) * (1 - settle((t - .85) / .16));
+        if (size > .001) state.drop = { x, y, rx: size * (1 + .28 * Math.sin(progress * Math.PI)), ry: size * (1 - .18 * Math.sin(progress * Math.PI)) };
+        const impactTime = t - .72;
+        const impact = impactTime > 0 ? Math.exp(-6 * impactTime) * Math.sin(20 * impactTime) : 0;
+        state.d = threshold(1, 2 * impact, 4.5 * impact);
+        state.sx = 1 + .045 * impact;
+        state.sy = 1 - .035 * impact;
+      } else if (kind === 'breathe') {
+        const progress = (t % 4) / 4;
+        const breath = progress < .5 ? breatheEase(progress * 2) : 1 - breatheEase((progress - .5) * 2);
+        state.d = threshold(1 + .025 * breath, .45 * breath, .35 * breath);
+        state.sx = 1 + .018 * breath;
+        state.sy = 1 + .035 * breath;
+        state.y = -.3 * breath;
+      } else if (kind === 'press' && t < 1.5) {
+        const compression = t < .28 ? settle(t / .16) : 1 - spring(t - .28);
+        state.sx = 1 + .10 * compression;
+        state.sy = 1 - .12 * compression;
+        state.y = 2.4 * compression;
+        state.d = threshold(1 - .06 * compression, 2 * compression);
+      }
+      return state;
+    }
+
+    function transform(state) {
+      return `translate(32 ${40 + number(state.y)}) rotate(${number(state.rotate)}) scale(${number(state.sx)} ${number(state.sy)}) translate(-32 -40)`;
+    }
+
+    function draw(state) {
+      mark.setAttribute('d', state.d);
+      body.setAttribute('transform', transform(state));
+      drop.setAttribute('visibility', state.drop ? 'visible' : 'hidden');
+      if (state.drop) {
+        for (const [key, value] of Object.entries(state.drop)) drop.setAttribute(key === 'x' ? 'cx' : key === 'y' ? 'cy' : key, number(value));
+      }
+    }
+
+    let selected = 'open', frame = 0, running = false, held = false, start = 0, offset = 0;
+    function pause(message = 'Paused at the original mark.') {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      running = false;
+      held = false;
+      draw(at('rest', 0));
+      status.textContent = reduced.matches ? 'Reduced motion is enabled. The mark remains static.' : message;
+    }
+
+    function select(kind) {
+      if (!Object.hasOwn(STUDIES, kind)) throw new Error('Unknown motion study');
+      selected = kind;
+      document.querySelectorAll('[data-study]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.study === kind)));
+      playButton.textContent = kind === 'breathe' ? 'Start breathing' : 'Replay';
+    }
+
+    function tick(timestamp) {
+      if (!running || reduced.matches || document.hidden) return pause();
+      if (start === null) start = timestamp;
+      let seconds = (timestamp - start) / 1000 + offset;
+      if (held) seconds = Math.min(seconds, .18);
+      draw(at(selected, seconds));
+      if (!held && selected !== 'breathe' && seconds >= STUDIES[selected].duration) return pause('Settled into the original 03.');
+      frame = requestAnimationFrame(tick);
+    }
+
+    function play(kind = selected, startAt = 0, hold = false) {
+      pause();
+      select(kind);
+      if (reduced.matches || document.hidden) return;
+      running = true;
+      held = hold;
+      offset = startAt;
+      start = null;
+      status.textContent = hold ? 'Holding. Release to settle.' : kind === 'breathe' ? 'Breathing. Pause at any time.' : `${STUDIES[kind].title} is playing.`;
+      frame = requestAnimationFrame(tick);
+    }
+
+    document.querySelectorAll('[data-study]').forEach(button => button.addEventListener('click', () => play(button.dataset.study)));
+    playButton.addEventListener('click', () => play());
+    document.querySelector('#pause').addEventListener('click', () => pause());
+    document.querySelector('#theme').addEventListener('click', event => {
+      const light = document.documentElement.dataset.theme !== 'light';
+      document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      event.currentTarget.setAttribute('aria-pressed', String(light));
+      event.currentTarget.textContent = light ? 'Dark theme' : 'Light theme';
+    });
+    stage.addEventListener('pointerenter', () => { if (selected === 'open' && !running) play('open'); });
+    stage.addEventListener('focus', () => { if (selected === 'open' && !running) play('open'); });
+    stage.addEventListener('pointerdown', event => {
+      if (event.button !== 0) return;
+      stage.setPointerCapture(event.pointerId);
+      play('press', 0, true);
+    });
+    stage.addEventListener('pointerup', () => { if (held) play('press', .28); });
+    stage.addEventListener('pointercancel', () => pause());
+    stage.addEventListener('lostpointercapture', () => { if (held) pause(); });
+    stage.addEventListener('keydown', event => {
+      if (event.code === 'Space' || event.code === 'Enter') {
+        event.preventDefault();
+        if (!event.repeat) play('press', 0, true);
+      }
+    });
+    stage.addEventListener('keyup', event => {
+      if (event.code === 'Space' || event.code === 'Enter') {
+        event.preventDefault();
+        if (held) play('press', .28);
+      }
+    });
+    stage.addEventListener('click', event => { if (event.detail === 0 && !held) play('press'); });
+    stage.addEventListener('blur', () => { if (held) pause(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+    reduced.addEventListener('change', () => {
+      pause();
+      playButton.disabled = reduced.matches;
+    });
+
+    function svg(state) {
+      const droplet = state.drop ? `<ellipse fill="currentColor" cx="${state.drop.x}" cy="${state.drop.y}" rx="${state.drop.rx}" ry="${state.drop.ry}"/>` : '';
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 72 72" aria-hidden="true"><g transform="${transform(state)}"><path fill="currentColor" fill-rule="evenodd" d="${state.d}"/></g>${droplet}</svg>`;
+    }
+
+    window.logoMotion = {
+      studies: STUDIES,
+      seek(kind, seconds) { pause(); select(kind); draw(at(kind, seconds)); },
+      inspect() { return { selected, running, held, reduced: reduced.matches, hidden: document.hidden, focus: document.activeElement.id, status: status.textContent, path: mark.getAttribute('d'), transform: body.getAttribute('transform'), drop: drop.getAttribute('visibility'), controls: [...document.querySelectorAll('[data-study]')].map(button => ({ name: button.textContent.trim(), selected: button.getAttribute('aria-pressed') })) }; },
+      captureFrames(kind, times) {
+        pause();
+        select(kind);
+        document.body.dataset.capture = '';
+        document.querySelector('#capture').innerHTML = times.map(time => `<div class="film-frame"><div class="film-label">DOMIOS / THRESHOLD / ${kind.toUpperCase()}</div>${svg(at(kind, time))}<div class="film-title">${STUDIES[kind].title}</div><div class="film-note">${STUDIES[kind].note}</div><div class="film-brand">domios</div></div>`).join('');
+        return new Promise(resolve => requestAnimationFrame(() => resolve({ width: 1280, height: Math.ceil(times.length / 2) * 480 })));
+      },
+      endCapture() { delete document.body.dataset.capture; document.querySelector('#capture').replaceChildren(); pause(); },
+    };
+    playButton.disabled = reduced.matches;
+    play('open');
+  </script>
+</body>
+</html>

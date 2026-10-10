@@ -4,19 +4,15 @@
 //! Rust code uses `include_str!()` so changes require recompilation.
 
 pub use crate::service::plan::prompts_plan::{
-    milestone_gate_suggestion, orch_defer_structure_line, reflection_block, worker_suffix,
-    HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE, MILESTONE_GATE_HEARTBEAT_TITLE,
-    MILESTONE_GATE_SUGGESTION, PEER_ORCH_DEFER_STRUCTURE_LINE, PEER_PLANNER_CHARTER_LINE,
-    PEER_WAIVER_HINT, PLAN_ARCHIVE_SUGGESTION, PLAN_RETROSPECTIVE_NUDGE, PLAN_SKILLS_PRINCIPLES,
-    PLAN_SKILLS_REGISTRY_LINE, PLAN_SKILLS_WORKER_LINE, QA_PIPELINE_DISCIPLINE, REFLECTION_BLOCK,
-    REFLECTION_HEARTBEAT_TITLE, REGRESSION_MILESTONE_KIND, TESTING_DISCIPLINE,
-    WORKER_COMPETITIVE_CONTEXT_TITLE, WORKER_COMPETITIVE_ISOLATION_RULES,
-    WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE, WORKER_SUFFIX,
+    orch_defer_structure_line, reflection_block, worker_suffix,
+    HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE, PEER_ORCH_DEFER_STRUCTURE_LINE,
+    PEER_PLANNER_CHARTER_LINE, PEER_WAIVER_HINT, PLAN_ARCHIVE_SUGGESTION, PLAN_RETROSPECTIVE_NUDGE,
+    PLAN_SKILLS_PRINCIPLES, PLAN_SKILLS_REGISTRY_LINE, PLAN_SKILLS_WORKER_LINE,
+    QA_PIPELINE_DISCIPLINE, REFLECTION_BLOCK, REFLECTION_HEARTBEAT_TITLE,
+    REGRESSION_MILESTONE_KIND, TESTING_DISCIPLINE, WORKER_COMPETITIVE_CONTEXT_TITLE,
+    WORKER_COMPETITIVE_ISOLATION_RULES, WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE,
+    WORKER_SUFFIX,
 };
-
-/// The three-tier testing ladder. Single source shared by next-actions/heartbeat prose
-/// and asserted verbatim in the ORCHESTRATION doc so the wording never drifts.
-pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.";
 
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
@@ -101,7 +97,7 @@ pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- worker_ack_startup_failed/i
 
 /// Stable Orchestrator delivery token for the optional Cartographer Manager.
 pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
-    "Cartographer: optional Manager for project-specific normative essences, including from zero; no spawn, approval or release authority, no continuous cadence.";
+    "Cartographer: optional Manager for project-specific normative essences, including from zero; spawn it when essence work is needed and close it when that work is done; no spawn, approval or release authority, no continuous cadence.";
 
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
@@ -110,6 +106,9 @@ pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning
 /// Team-bound creation contract shared by the two roles that can ask for a new
 /// agent, shell, or schedule. One source so neither can drift into a loose one.
 pub const TEAM_CREATION_CONTRACT: &str = include_str!("../prompts/team_creation_contract.md");
+
+/// Plan and task flag corrections, delivered once to each surface that writes plan state.
+pub const PLAN_TASK_FLAGS: &str = include_str!("../prompts/plan_task_flags.md");
 
 /// How the Orchestrator sequences work: actionability, group retrospectives, and rare plan pause.
 pub const TASK_SEQUENCING_CONTRACT: &str = include_str!("../prompts/task_sequencing_contract.md");
@@ -141,6 +140,8 @@ pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
 /// Mem bridge rule payload installed per provider via `install_bridge_rule`.
 pub const BRIDGE_MEM: &str = include_str!("../prompts/bridge_mem.md");
 
+pub const MEM_MANAGEMENT: &str = include_str!("../prompts/mem_management.md");
+
 /// General Agent CLAUDE.md template (uses format!() placeholders).
 pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.md");
 
@@ -155,7 +156,16 @@ pub const INTERACTIVE_CHILD_PTY_OPERATION: &str =
 pub const INTERACTIVE_CHILD_PTY_CAPABILITY_ID: &str = "interactive_child_pty";
 
 /// Compact CodeTerm control contract prepended to non-General agent launches.
-pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
+pub const AGENT_CODETERM_PRIMER: &str = concat!(
+    include_str!("../prompts/agent_codeterm_primer.md"),
+    "\n",
+    include_str!("../prompts/plugin_discovery_rule.md"),
+);
+
+pub const UTILITY_TAB_GUIDANCE: &str = include_str!("../prompts/utility_tab_guidance.md");
+
+/// Capability-based pointer from an external-service action to installed plugin verbs.
+pub const PLUGIN_DISCOVERY_RULE: &str = include_str!("../prompts/plugin_discovery_rule.md");
 
 /// The load-bearing half of the notify restriction: rare, and only for the two
 /// cases the primer names. Pinned here so a rewrite that softens the escalation
@@ -306,10 +316,12 @@ pub fn orchestrator_suffix() -> String {
             "{cartographer_contract_notice}",
             ORCH_CARTOGRAPHER_CONTRACT_NOTICE,
         )
-        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim())
+        .replace("{plan_task_flags}", PLAN_TASK_FLAGS.trim());
     format!(
-        "{}\n\n## Canonical Orchestrator manual\n\n{}",
+        "{}\n\n{}\n\n## Canonical Orchestrator manual\n\n{}",
         role_prompt.trim(),
+        MEM_MANAGEMENT.trim(),
         ORCHESTRATION_DOC.trim()
     )
 }
@@ -366,10 +378,12 @@ pub fn planner_suffix() -> String {
             "{planning_compaction_contract}",
             PLANNING_COMPACTION_CONTRACT.trim(),
         )
-        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim())
+        .replace("{plan_task_flags}", PLAN_TASK_FLAGS.trim());
     format!(
-        "{}\n\n## Canonical Planner manual\n\n{}",
+        "{}\n\n{}\n\n## Canonical Planner manual\n\n{}",
         role_prompt.trim(),
+        MEM_MANAGEMENT.trim(),
         PLANNER_DOC.trim()
     )
 }
@@ -382,8 +396,11 @@ pub fn cartographer_suffix() -> String {
 
 /// Upper bound for a composed role prompt. Not a style preference: every byte
 /// here is spent on every launch of that role, so growth needs a decision.
-/// Re-measured at the General Agent's 32_895 LF bytes for v1.11.11.
-pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 32_900;
+/// Re-measured at the General Agent's 33_257 LF bytes for v1.12.4: the post-setup
+/// Supporter note and the `@ds-guide` directive were owner decisions.
+pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 34_100;
 
 #[cfg(test)]
 mod tests;
+
+pub const TOOL_LESS: &str = include_str!("../prompts/tool_less.md");

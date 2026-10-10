@@ -207,4 +207,11 @@ describe("tab menu model", () => {
   });
 });
 
+it("offers a session fork only for a declaring provider and a bound local tab", () => {
+  const forkDescriptor={...CURRENT,supports_session_fork:true};
+  const forkInput=input("header",{descriptor:forkDescriptor,tab:tab({agent_session_id:"fixture"})});
+  expect(buildTabMenu(forkInput).some(entry=>entry.id==="fork")).toBe(true);
+  expect(buildTabMenu({...forkInput,descriptor:CURRENT}).some(entry=>entry.id==="fork")).toBe(false);
+  expect(buildTabMenu({...forkInput,tab:tab({agent_session_id:null})}).some(entry=>entry.id==="fork")).toBe(false);
+});
 finish();

@@ -85,9 +85,9 @@ Run **serially** on each builder; do not fan out per-worker compiles:
 
 ## Prod-tab safety
 
-When launched from a prod CodeTerm orchestrator tab (`CODETERM_API_PORT=7685`), the runner
+When launched from a prod Domios orchestrator tab (`CODETERM_API_PORT=7685`), the runner
 sanitizes inherited env before each gate: pins API port to **7686**, resets socket to dev,
 clears tab identity. Explicit non-prod ports are kept. Opt out with `QA_GATE_ENV_LOCKED=1`;
 named dev instance via `QA_GATE_INSTANCE=<name>`; custom socket via `QA_GATE_SOCKET_PATH`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

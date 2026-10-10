@@ -3,12 +3,14 @@ import type { TeamCloseResource } from "./teamCloseResources";
 export function WorkspaceCloseConfirmDialog({
   workspaceName,
   agentTitles,
+  blueprints = [],
   teams,
   onConfirm,
   onCancel,
 }: {
   workspaceName: string;
   agentTitles: string[];
+  blueprints?: readonly string[];
   teams: readonly TeamCloseResource[];
   onConfirm: () => void;
   onCancel: () => void;
@@ -42,6 +44,8 @@ export function WorkspaceCloseConfirmDialog({
               <ul className="pl-3">
                 {team.crons.map((cron, index) => <li key={`${cron}-${index}`}>{cron}</li>)}
               </ul>
+              <div className="pt-1 text-[var(--ct-muted-fg)]">Running Blueprints ({team.blueprints.length})</div>
+              <ul className="pl-3">{team.blueprints.map((blueprint) => <li key={blueprint}>{blueprint}</li>)}</ul>
               <div className="pt-1 text-[var(--ct-muted-fg)]">Lanes ({team.lanes.length})</div>
               <ul className="pl-3">
                 {team.lanes.map((lane) => <li key={lane}>{lane}</li>)}
@@ -52,6 +56,8 @@ export function WorkspaceCloseConfirmDialog({
           <ul className="px-3 py-1 text-[var(--ct-fg)]">
             {agentTitles.map((title, index) => <li key={`${title}-${index}`}>{title}</li>)}
           </ul>
+          <div className="pt-1">Running tab-owned Blueprints ({blueprints.length})</div>
+          <ul className="px-3 py-1 text-[var(--ct-fg)]">{blueprints.map((blueprint) => <li key={blueprint}>{blueprint}</li>)}</ul>
         </div>
         <div className="flex justify-end gap-2 border-t border-[var(--ct-border)] px-4 py-3">
           <button

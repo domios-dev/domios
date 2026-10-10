@@ -8,6 +8,11 @@ import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerAction
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 
+const headerStore = () => createMuxStateStore((): ExtendedState => ({
+  workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [],
+  tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+} as unknown as ExtendedState));
+
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
 
@@ -77,6 +82,7 @@ function muxActions(
     renameWorkspace: noop,
     moveTab: noop,
     reorderTabs: noop,
+    reorderDisplay: noop,
     reorderWorkspaces: noop,
     createTab: noopAsync,
     closeTab: noop,
@@ -584,13 +590,15 @@ test("Tab header reconnect control requests a hook-owned reattach", async () => 
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <TabTopBar
-        tabId="header-tab"
-        cwd={null}
-        showSwitch={false}
-        tabMenu={headerTabMenu({ id: "header-tab", pty_id: null, tab_type: "Terminal", title: "Header", cwd: null, agent_type: "claude" })}
-        isActive={true}
-      />,
+      <MuxStateStoreContext.Provider value={headerStore()}>
+        <TabTopBar
+          tabId="header-tab"
+          cwd={null}
+          showSwitch={false}
+          tabMenu={headerTabMenu({ id: "header-tab", pty_id: null, tab_type: "Terminal", title: "Header", cwd: null, agent_type: "claude" })}
+          isActive={true}
+        />
+      </MuxStateStoreContext.Provider>,
     );
   });
   const trigger = host.querySelector('[data-testid="tab-actions-trigger"]') as HTMLButtonElement | null;
@@ -635,12 +643,14 @@ test("Tab actions restart the agent session and copy its ID", async () => {
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <TabTopBar
-        tabId="agent-tab"
-        cwd={null}
-        showSwitch={false}
-        tabMenu={headerTabMenu({ id: "agent-tab", pty_id: "pty-agent", tab_type: "Terminal", title: "Agent", cwd: null, agent_type: "claude", agent_session_id: "session-123" })}
-      />,
+      <MuxStateStoreContext.Provider value={headerStore()}>
+        <TabTopBar
+          tabId="agent-tab"
+          cwd={null}
+          showSwitch={false}
+          tabMenu={headerTabMenu({ id: "agent-tab", pty_id: "pty-agent", tab_type: "Terminal", title: "Agent", cwd: null, agent_type: "claude", agent_session_id: "session-123" })}
+        />
+      </MuxStateStoreContext.Provider>,
     );
   });
 
@@ -672,11 +682,13 @@ test("Tab header does not repeat the mobile top safe area", async () => {
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <TabTopBar
-        tabId="mobile-header-tab"
-        cwd={null}
-        showSwitch={false}
-      />,
+      <MuxStateStoreContext.Provider value={headerStore()}>
+        <TabTopBar
+          tabId="mobile-header-tab"
+          cwd={null}
+          showSwitch={false}
+        />
+      </MuxStateStoreContext.Provider>,
     );
   });
   const header = host.querySelector('[data-testid="tab-top-bar"]') as HTMLDivElement | null;

@@ -79,9 +79,8 @@ pub(super) fn is_plan_owner_authority_method(method: &str) -> bool {
 }
 
 /// Verbs a bound Planner may drive on a task it does not own, because they carry
-/// nothing but structure. Closed on purpose and deliberately NOT the recovery or
-/// plan-owner lists: status, assignment, dispatch and approval are absent, so a
-/// verb added to those lists inherits no Planner authority from this one.
+/// structure or an explicit labeled block decision. Dispatch and approval stay
+/// outside this grant.
 pub(super) const PLANNER_STRUCTURE_METHODS: &[&str] = &["plan.task.update"];
 
 /// A bound Planner editing task structure. Its authority over structure is
@@ -118,6 +117,7 @@ pub(super) enum TaskAuthorityRefusal {
     CallerBindingStale,
     OwnerGoneVerbNotRecoverable,
     CallerNotTaskOwner,
+    BlockAuthorityRequired,
 }
 
 impl TaskAuthorityRefusal {
@@ -127,6 +127,7 @@ impl TaskAuthorityRefusal {
             Self::CallerBindingStale => "task_mutation_binding_stale",
             Self::OwnerGoneVerbNotRecoverable => "task_owner_gone_verb_not_recoverable",
             Self::CallerNotTaskOwner => "caller_is_not_task_owner_or_plan_owner",
+            Self::BlockAuthorityRequired => "task_block_authority_required",
         }
     }
 
@@ -141,6 +142,9 @@ impl TaskAuthorityRefusal {
             }
             Self::CallerNotTaskOwner => {
                 "the caller is neither this task's live owner session nor the live Plan owner"
+            }
+            Self::BlockAuthorityRequired => {
+                "only the live Plan owner or Planner may explicitly block a task"
             }
         }
     }
@@ -192,8 +196,25 @@ fn recovery_outcome(method: &str, params: &Option<Value>) -> Option<crate::plan:
     {
         "pending" => Some(crate::plan::TaskStatus::Pending),
         "cancelled" => Some(crate::plan::TaskStatus::Cancelled),
+        "blocked" => Some(crate::plan::TaskStatus::Blocked),
         _ => None,
     }
+}
+
+fn explicit_block_label<'a>(method: &str, params: &'a Option<Value>) -> Option<&'a str> {
+    (method == "plan.task.update"
+        && params
+            .as_ref()
+            .and_then(|value| value.get("status"))
+            .and_then(Value::as_str)
+            == Some("blocked"))
+    .then(|| {
+        params
+            .as_ref()
+            .and_then(|value| value.get("status_label"))
+            .and_then(Value::as_str)
+    })
+    .flatten()
 }
 
 /// The owner counts as LIVE only when its recorded tab still exists AND that
@@ -365,6 +386,60 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         .plan_store
         .show_task(&task_id)
         .ok_or_else(|| rpc_error(PlanError::TaskNotFound.to_string()))?;
+    let blocked_update = method == "plan.task.update"
+        && params
+            .as_ref()
+            .and_then(|value| value.get("status"))
+            .and_then(Value::as_str)
+            == Some("blocked");
+    if blocked_update {
+        let has_block_reason = params
+            .as_ref()
+            .and_then(|value| value.get("status_label"))
+            .and_then(Value::as_str)
+            .is_some_and(|label| !label.trim().is_empty());
+        if !has_block_reason {
+            return Err(JsonRpcError {
+                code: -32602,
+                message: PlanError::BlockedRequiresLabel.to_string(),
+                data: Some(serde_json::json!({ "type": "blocked_requires_label" })),
+            });
+        }
+        let caller = plan_caller(params);
+        let owner = caller_is_live_plan_owner(svc, &detail.plan_id, params);
+        let planner = matches!(
+            svc.classify_planning_caller(&detail.plan_id, &caller),
+            Ok(crate::plan::PlanningAuthor::Planner { .. })
+        ) && crate::service::planner_forbidden_task_field(
+            params.as_ref().unwrap_or(&Value::Null),
+        )
+        .is_none();
+        if !owner && !planner {
+            return Err(authority_refusal(
+                TaskAuthorityRefusal::BlockAuthorityRequired,
+            ));
+        }
+        if planner
+            && !owner_session_is_live(
+                svc,
+                detail.task.interruption.owner_tab_id.as_deref(),
+                detail.task.interruption.owner_session_id.as_deref(),
+            )
+            && detail.task.interruption.owner_epoch > 0
+        {
+            svc.plan_store
+                .retire_stale_task_owner_with_label(
+                    &detail.plan_id,
+                    &task_id,
+                    Some(crate::plan::TaskStatus::Blocked),
+                    explicit_block_label(method, params),
+                    |_| false,
+                    epoch_ms(),
+                )
+                .map_err(|error| rpc_error(error.to_string()))?;
+            return Ok(());
+        }
+    }
     if plan_orchestrator_close_override(method, params, svc, &detail.plan_id) {
         return Ok(());
     }
@@ -390,10 +465,11 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         // Retire-and-recover is ONE transition: the verb cannot proceed until the
         // stale attempt is fenced, so a later dispatch_ready is already dead.
         svc.plan_store
-            .retire_stale_task_owner(
+            .retire_stale_task_owner_with_label(
                 &detail.plan_id,
                 &task_id,
                 recovery_outcome(method, params),
+                explicit_block_label(method, params),
                 |_| false,
                 epoch_ms(),
             )

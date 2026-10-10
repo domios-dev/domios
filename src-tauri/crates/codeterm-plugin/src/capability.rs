@@ -8,21 +8,36 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-/// A thread-safe `id -> Arc<dyn Capability>` map; the lock is held only for the map op, never across the entry's use.
+type RegistrationHook<T> = Arc<dyn Fn(&str, &Arc<T>) + Send + Sync>;
+
+/// A thread-safe capability map; locks are dropped before implementations are called.
 pub struct CapabilityRegistry<T: ?Sized> {
     entries: RwLock<HashMap<String, Arc<T>>>,
+    prepare: Option<RegistrationHook<T>>,
 }
 
 impl<T: ?Sized> CapabilityRegistry<T> {
     pub fn new() -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
+            prepare: None,
+        }
+    }
+
+    pub fn with_registration_hook(prepare: impl Fn(&str, &Arc<T>) + Send + Sync + 'static) -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            prepare: Some(Arc::new(prepare)),
         }
     }
 
     /// Insert or replace the implementation for `id`.
     pub fn register(&self, id: impl Into<String>, imp: Arc<T>) {
-        self.entries.write().insert(id.into(), imp);
+        let id = id.into();
+        if let Some(prepare) = &self.prepare {
+            prepare(&id, &imp);
+        }
+        self.entries.write().insert(id, imp);
     }
 
     /// Remove the implementation for `id`, if present.
@@ -97,5 +112,28 @@ mod tests {
         r.register("g", Arc::new(B));
         assert_eq!(r.get("g").unwrap().hi(), "b");
         assert_eq!(r.active().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod registration_tests {
+    use super::*;
+    #[test]
+    fn capability_registration_prepares_initial_and_reloaded_implementations() {
+        let events = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let seen = events.clone();
+        let registry = CapabilityRegistry::<String>::with_registration_hook(move |id, value| {
+            seen.lock().push((id.to_owned(), value.as_str().to_owned()))
+        });
+        registry.register("fixture", Arc::new("first".into()));
+        registry.register("fixture", Arc::new("second".into()));
+        assert_eq!(
+            *events.lock(),
+            vec![
+                ("fixture".into(), "first".into()),
+                ("fixture".into(), "second".into())
+            ]
+        );
+        assert_eq!(registry.get("fixture").unwrap().as_str(), "second");
     }
 }

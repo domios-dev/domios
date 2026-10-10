@@ -67,7 +67,7 @@ async function main() {
     const found = labels(host);
     const section = host.querySelector('[data-testid="team-unit"]');
     assert(section?.getAttribute("aria-label") === teamName, `team region is named "${teamName}"`);
-    for (const suffix of ["managers", "workers", "utility shells", "scheduled jobs"]) {
+    for (const suffix of ["managers", "workers", "utility shells", "jobs"]) {
       assert(found.includes(`${teamName} ${suffix}`), `${suffix} group carries the team name`);
     }
     await act(async () => root.unmount());
@@ -91,7 +91,7 @@ async function main() {
         "Release train managers",
         "Release train workers",
         "Release train utility shells",
-        "Release train scheduled jobs",
+        "Release train jobs",
       ].join("|"),
       `member groups follow visual order, so focus does too: ${groups.join("|")}`,
     );

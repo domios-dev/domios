@@ -51,7 +51,7 @@ pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::err
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let show = MenuItemBuilder::with_id("show", "Show CodeTerm").build(app)?;
+    let show = MenuItemBuilder::with_id("show", "Show Domios").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
     let menu = MenuBuilder::new(app)
         .item(&show)
@@ -78,7 +78,7 @@ pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::err
     };
 
     let _tray = TrayIconBuilder::new()
-        .tooltip("CodeTerm")
+        .tooltip("Domios")
         .icon(tray_icon)
         .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu)

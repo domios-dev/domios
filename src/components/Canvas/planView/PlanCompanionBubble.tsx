@@ -1,3 +1,4 @@
+import { useTabActivity } from "../../../lib/useTabActivity";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ExternalLink, MessageCircle, X } from "lucide-react";
 import type { Tab } from "../../../lib/types";
@@ -27,19 +28,6 @@ const KIND_LABEL: Record<CompanionKind, string> = {
   planner: "Planner",
   orchestrator: "Orchestrator",
 };
-
-function statusText(tab: Tab | undefined): string {
-  switch (tab?.agent_state?.state) {
-    case "working":
-      return "Working";
-    case "question":
-      return "Needs input";
-    case "idle":
-      return "Idle";
-    default:
-      return "Live";
-  }
-}
 
 export function PlanCompanionBubble({
   plans,
@@ -76,13 +64,15 @@ export function PlanCompanionBubble({
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, handleKey]);
 
+  const activity = useTabActivity(resolution?.tabId, resolution ? tabs[resolution.tabId] : null);
+
   if (!resolution) return null;
 
   const tab = tabs[resolution.tabId];
   const color = presenceColor(resolution.tabId);
   const kindLabel = KIND_LABEL[resolution.kind];
   const name = tab?.title?.trim() || kindLabel;
-  const working = tab?.agent_state?.state === "working";
+  const working = activity.active;
   const chatBackend = tab?.backing?.kind === "chat_backend";
   const ownerTabId = activePlan?.owner.tab_id ?? null;
   const plannerTabId = activePlan ? resolvePlannerTabIdFromPlan(activePlan) : null;
@@ -119,10 +109,7 @@ export function PlanCompanionBubble({
             borderColor: "var(--ct-border)",
           }}
         >
-          <header
-            className="flex shrink-0 items-center gap-2 border-b px-3 py-2"
-            style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
-          >
+          <header className="ct-jobs-header rounded-t-[inherit] flex shrink-0 items-center gap-2 px-3 py-2">
             <AgentCircle
               agent={{ id: resolution.tabId, label: name, role: kindLabel, color }}
               size={20}
@@ -133,7 +120,7 @@ export function PlanCompanionBubble({
                 {name}
               </div>
               <div className="truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
-                {kindLabel} · {statusText(tab)}
+                {kindLabel} · {activity.label || "Idle"}
               </div>
             </div>
             {onOpenTab && (

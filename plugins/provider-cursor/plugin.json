@@ -117,5 +117,9 @@
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [],
+    "breaking": []
+  }
 }

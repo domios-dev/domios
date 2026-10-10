@@ -13,10 +13,14 @@ use crate::service::startup_lease::{
 
 use super::ServiceContext;
 
+#[path = "worker_ack/launch_binding.rs"]
+mod launch_binding;
 #[path = "worker_ack/plan_deadline.rs"]
 mod plan_deadline;
 #[path = "worker_ack/registry.rs"]
 mod registry;
+#[path = "worker_ack/remote_deadline.rs"]
+mod remote_deadline;
 #[cfg(test)]
 use plan_deadline::worker_ack_reminder_message;
 pub(crate) use registry::WorkerAckIdentity;
@@ -279,7 +283,11 @@ impl WorkerAckRegistry {
             return AgentStartupArm::AlreadyAcknowledged;
         }
         if task_acknowledged {
-            acknowledged.insert(authority.child_tab_id.clone(), authority);
+            let tab_id = authority.child_tab_id.clone();
+            acknowledged.insert(tab_id, authority.clone());
+            drop(acknowledged);
+            drop(startup_waiters);
+            self.clear_startup_supervisor(&authority);
             return AgentStartupArm::AlreadyAcknowledged;
         }
         acknowledged.remove(&authority.child_tab_id);
