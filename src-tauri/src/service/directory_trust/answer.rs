@@ -12,9 +12,14 @@ struct Frame {
     prompt: Option<(String, DirectoryTrustPromptResponse)>,
 }
 
+enum WriteOutcome {
+    Written(u64),
+    Changed(Frame),
+}
+
 trait AnswerIo {
     fn read(&mut self) -> Result<Frame, String>;
-    fn write(&mut self, occurrence: &str, step: &[u8]) -> Result<u64, String>;
+    fn write(&mut self, occurrence: &str, step: &[u8]) -> Result<WriteOutcome, String>;
     fn wait_after(&mut self, generation: u64, deadline: Instant) -> bool;
     fn now(&self) -> Instant {
         Instant::now()
@@ -37,56 +42,121 @@ fn write_before_deadline(
     occurrence: &str,
     step: &[u8],
     deadline: Instant,
-) -> Result<u64, String> {
+) -> Result<WriteOutcome, String> {
     if io.now() >= deadline {
         return Err("folder trust answer deadline expired before write".into());
     }
     io.write(occurrence, step)
 }
 
+fn write_navigation(
+    io: &mut impl AnswerIo,
+    occurrence: &str,
+    step: &[u8],
+    deadline: Instant,
+) -> Result<u64, String> {
+    match write_before_deadline(io, occurrence, step, deadline)? {
+        WriteOutcome::Written(generation) => Ok(generation),
+        WriteOutcome::Changed(_) => Err("folder trust stale navigation withheld".into()),
+    }
+}
+
+fn confirm_focus(
+    io: &mut impl AnswerIo,
+    occurrence: &str,
+    mut frame: Frame,
+    focus_deadline: Instant,
+    deadline: Instant,
+    navigation_retry_used: &mut bool,
+) -> Result<Frame, String> {
+    let mut step = next_step(&frame, occurrence)?;
+    if step == b"\r" {
+        return Ok(frame);
+    }
+    let mut generation = write_navigation(io, occurrence, &step, deadline)?;
+    loop {
+        let focus_limit = if *navigation_retry_used {
+            deadline
+        } else {
+            focus_deadline
+        };
+        let changed = io.wait_after(generation, focus_limit);
+        frame = io.read()?;
+        step = next_step(&frame, occurrence)?;
+        if step == b"\r" && frame.generation != generation {
+            return Ok(frame);
+        }
+        generation = frame.generation;
+        if !changed {
+            if *navigation_retry_used {
+                return Err("folder trust affirmative focus was not confirmed".into());
+            }
+            if step == b"\r" {
+                return Err("folder trust focus had no later frame".into());
+            }
+            generation = write_navigation(io, occurrence, &step, deadline)?;
+            *navigation_retry_used = true;
+        }
+    }
+}
+
+fn consume_reset(reset_used: &mut bool) -> Result<(), String> {
+    if *reset_used {
+        return Err("folder trust reset budget exhausted".into());
+    }
+    *reset_used = true;
+    Ok(())
+}
+
 fn answer(io: &mut impl AnswerIo, occurrence: &str, started: Instant) -> Result<(), String> {
     let deadline = started + ANSWER_DEADLINE;
-    let focus_deadline = started + ANSWER_DEADLINE / 2;
+    let mut navigation_retry_used = false;
+    let mut reset_used = false;
     let mut frame = io.read()?;
-    let mut step = next_step(&frame, occurrence)?;
-    if step != b"\r" {
-        let mut generation = write_before_deadline(io, occurrence, &step, deadline)?;
-        let mut retried = false;
+    loop {
+        let focus_deadline = if reset_used {
+            deadline
+        } else {
+            started + ANSWER_DEADLINE / 2
+        };
+        frame = confirm_focus(
+            io,
+            occurrence,
+            frame,
+            focus_deadline,
+            deadline,
+            &mut navigation_retry_used,
+        )?;
+        let mut generation = match write_before_deadline(io, occurrence, b"\r", deadline)? {
+            WriteOutcome::Written(generation) => generation,
+            WriteOutcome::Changed(changed) => {
+                if changed.generation == frame.generation
+                    || next_step(&changed, occurrence)? == b"\r"
+                {
+                    return Err("folder trust stale submit withheld".into());
+                }
+                consume_reset(&mut reset_used)?;
+                frame = changed;
+                continue;
+            }
+        };
         loop {
-            let focus_limit = if retried { deadline } else { focus_deadline };
-            let changed = io.wait_after(generation, focus_limit);
+            if !io.wait_after(generation, deadline) {
+                return Err("folder trust acceptance was not confirmed".into());
+            }
             frame = io.read()?;
-            step = next_step(&frame, occurrence)?;
-            if step == b"\r" && frame.generation != generation {
+            if frame.generation == generation {
+                return Err("folder trust acceptance had no later frame".into());
+            }
+            if frame.prompt.is_none() {
+                return Ok(());
+            }
+            if next_step(&frame, occurrence)? != b"\r" {
+                consume_reset(&mut reset_used)?;
                 break;
             }
             generation = frame.generation;
-            if !changed {
-                if retried {
-                    return Err("folder trust affirmative focus was not confirmed".into());
-                }
-                if step == b"\r" {
-                    return Err("folder trust focus had no later frame".into());
-                }
-                generation = write_before_deadline(io, occurrence, &step, deadline)?;
-                retried = true;
-            }
         }
-    }
-    let mut generation = write_before_deadline(io, occurrence, b"\r", deadline)?;
-    loop {
-        if !io.wait_after(generation, deadline) {
-            return Err("folder trust acceptance was not confirmed".into());
-        }
-        frame = io.read()?;
-        if frame.generation == generation {
-            return Err("folder trust acceptance had no later frame".into());
-        }
-        if frame.prompt.is_none() {
-            return Ok(());
-        }
-        next_step(&frame, occurrence)?;
-        generation = frame.generation;
     }
 }
 
@@ -138,13 +208,13 @@ impl AnswerIo for BoundAnswerIo {
         Ok(Frame { generation, prompt })
     }
 
-    fn write(&mut self, occurrence: &str, step: &[u8]) -> Result<u64, String> {
+    fn write(&mut self, occurrence: &str, step: &[u8]) -> Result<WriteOutcome, String> {
         let frame = self.read()?;
         if next_step(&frame, occurrence)? != step {
-            return Err("folder trust stale key withheld".into());
+            return Ok(WriteOutcome::Changed(frame));
         }
         self.service.pty.lock().write(&self.pty, step)?;
-        Ok(frame.generation)
+        Ok(WriteOutcome::Written(frame.generation))
     }
 
     fn wait_after(&mut self, generation: u64, deadline: Instant) -> bool {
