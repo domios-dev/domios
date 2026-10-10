@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
-import { managedByLabel, namedManagerRole, remoteIdentity, remoteTeamIdentity } from "./remoteOwnership";
+import { meshBadgeLabel, managedByLabel, namedManagerRole, remoteIdentity, remoteTeamIdentity } from "./remoteOwnership";
 
 function targetOwned(overrides: Partial<Tab> = {}): Tab {
   return {
@@ -18,6 +18,12 @@ function targetOwned(overrides: Partial<Tab> = {}): Tab {
 }
 
 describe("canonical remote ownership presentation", () => {
+  it("badges only physically remote tabs regardless of controller ownership", () => {
+    expect(meshBadgeLabel(targetOwned())).toBe(null);
+    expect(meshBadgeLabel(targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "remote-token" }))).toBe("on @remote-token");
+    expect(meshBadgeLabel(targetOwned({ remote_peer_id: "peer-123", ownership: undefined }))).toBe("on @peer-123");
+  });
+
   it("managed-by names the controller, never the peer", () => {
     expect(managedByLabel(targetOwned())).toEqual("managed by Puccini");
   });

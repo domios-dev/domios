@@ -40,6 +40,7 @@ import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { ComposerApprovalDock } from "./ComposerApprovalDock";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -804,6 +805,7 @@ export function TabSessionChat({
             <button
               type="button"
               data-testid="chat-load-older"
+              aria-label="Show older messages"
               onClick={() => {
                 prepareForHistoryPrepend();
                 void loadOlder();
@@ -819,7 +821,7 @@ export function TabSessionChat({
               {hiddenMessageCount > 0
                 ? `Show older (${hiddenMessageCount})`
                 : backfillLoading
-                  ? "Loading older…"
+                  ? <TabLoadingIndicator label="Loading older messages" compact deferred={false} />
                   : "Show older"}
             </button>
           </div>
@@ -918,11 +920,13 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      {chatChannelLoading && <span role="status" className="ct-composer-lane mx-auto block text-xs text-[var(--ct-muted-fg)]">Loading chat…</span>}
+      {chatChannelLoading && setupView.kind === "none" && <TabLoadingIndicator label={`${provider?.displayName ?? tabProvider} loading chat`} />}
       <div ref={setContextSlot} className="ct-ctx-slot" />
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
+          tab={tab}
           activity={agentActivity}
+          showActivity={setupView.kind === "none" && !chatChannelLoading}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}

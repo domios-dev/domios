@@ -24,7 +24,7 @@ import { agentModelForBadge } from "../../lib/agentLabel";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { managedByLabel, remoteIdentity } from "./remoteOwnership";
+import { managedByLabel, remoteIdentity, meshBadgeLabel } from "./remoteOwnership";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
@@ -33,11 +33,10 @@ import {
   type ActiveWorkSnapshot,
 } from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
-import { StatusDot } from "./StatusDot";
+import { TabAttentionMark } from "./TabAttentionMark";
 import {
-  declaredAttentionLabel,
-  type DeclaredAttentionLevel,
-} from "./declaredAttention";
+  tabAttention, type TabAttention,
+} from "./tabAttention";
 
 interface TabItemProps {
   tab: Tab;
@@ -49,7 +48,7 @@ interface TabItemProps {
   workspaceId: string;
   hasAgent?: boolean;
   status?: TabStatus | null;
-  declaredAttention?: DeclaredAttentionLevel | null;
+  attention?: TabAttention | null;
   onRename?: (title: string) => void;
   orchestrators?: Tab[];
   isAppearing?: boolean;
@@ -160,6 +159,7 @@ function GroupCollapseChevron({
 }
 
 function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?: string }) {
+  if (!activity.active) return null;
   return (
     <span
       data-testid="tab-working-activity"
@@ -264,7 +264,7 @@ function TabItemInner({
   workspaceId: _workspaceId,
   hasAgent,
   status,
-  declaredAttention,
+  attention,
   onRename: _onRename,
   tab,
   orchestrators,
@@ -342,8 +342,7 @@ function TabItemInner({
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
-  const meshIdentity = remoteIdentity(tab);
-  const meshLabel = managedByLabel(tab) ?? (meshIdentity ? `on ${meshIdentity.peer}` : null);
+  const meshLabel = meshBadgeLabel(tab);
   const localSubtitle = tab.remote_peer_id ? null : roleShield;
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
@@ -471,7 +470,7 @@ function TabItemInner({
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
-        <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon leading-none">
+        <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon relative leading-none">
           {provider ? (
             <ProviderGlyph
               iconSvg={provider.iconSvg}
@@ -491,6 +490,7 @@ function TabItemInner({
           ) : (
             utilityShell ? <ShellPurposeIcon purpose={tab.purpose} icon={tab.icon} running={shellRunning} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           )}
+          <TabAttentionMark title={accessibleTitle} attention={attention ?? tabAttention(tab, status, [], isActive)} active={isActive} />
         </span>
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span
@@ -532,22 +532,6 @@ function TabItemInner({
               <ShieldCheck size={12} aria-hidden />
             </span>
           )}
-          {/* Prompt/status indicator dot */}
-          {tabState.kind === "waiting-on-user" && (
-            <span
-              role="img"
-              aria-label={tab.boot_stage === "awaiting_owner_prompt" ? `${accessibleTitle} is waiting for you` : `${accessibleTitle} needs a response`}
-              className="shrink-0 w-2 h-2 rounded-full"
-              style={{ background: "var(--ct-yellow)" }}
-              title={tabState.label}
-            />
-          )}
-          {declaredAttention && (
-            <StatusDot
-              status="Waiting"
-              label={declaredAttentionLabel(declaredAttention)}
-            />
-          )}
           {reportCount > 0 && (
             <span className="inline-flex shrink-0 items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
               {reportCount}
@@ -567,6 +551,7 @@ function TabItemInner({
             {startedBy && <StartedByLine origin={startedBy} />}
             <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
             <RemoteIdentityLine tab={tab} />
+            {!tab.remote_peer_id && managedByLabel(tab) && <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{managedByLabel(tab)}</span>}
           </span>
         )}
       </div>
@@ -612,7 +597,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (
     prev.isActive !== next.isActive ||
     prev.status !== next.status ||
-    prev.declaredAttention !== next.declaredAttention ||
+    prev.attention !== next.attention ||
     prev.canClose !== next.canClose ||
     prev.hasAgent !== next.hasAgent ||
     prev.isAppearing !== next.isAppearing ||

@@ -57,7 +57,7 @@ test("a lone PTY provider is not worth a picker", () => {
 });
 
 test("a working turn blocks the switch and says why", () => {
-  const view = tabProviderMenuView(tab(), CATALOG, "Working");
+  const view = tabProviderMenuView(tab({ agent_session_id: "bound-session", agent_state: { state: "working" } }), CATALOG, "Working");
   assert.ok(view, "expected a switch surface");
   assert.ok(view.blockedReason, "a restart mid-turn must be refused");
   assert.match(view.blockedReason, /turn/i);

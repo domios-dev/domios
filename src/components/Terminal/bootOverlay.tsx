@@ -1,7 +1,8 @@
+import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
-import { BusyState } from "../shared/BusyState";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 
 export type TabBootOverlayView =
   | { kind: "none" }
@@ -40,7 +41,7 @@ export function tabBootOverlayView(
   }
   const activity = tabActivity(tab);
   return activity.launching
-    ? { kind: "starting", label: activity.label, activity }
+    ? { kind: "starting", label: tab ? tabStartingLabel(tab) : activity.label, activity }
     : { kind: "none" };
 }
 
@@ -147,16 +148,9 @@ export function TabBootOverlay({
           {actionError && <div role="alert" className="mt-1 text-xs">{actionError}</div>}
         </div>
       ) : (
-        view.kind === "starting" && (
+        (view.kind === "starting" || !shellReady && overlayVisible) && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-            <BusyState
-              activity={view.activity}
-              labelKey="tabBoot"
-              label={view.label}
-              phase="work"
-              data-testid="tab-boot-busy"
-              style={{ color: "var(--ct-muted-fg, #8b949e)", fontSize: 12 }}
-            />
+            <TabLoadingIndicator label={view.kind === "starting" ? view.label : "Terminal starting"} />
           </div>
         )
       )}

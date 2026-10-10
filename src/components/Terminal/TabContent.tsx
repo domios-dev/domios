@@ -1,3 +1,4 @@
+import { ConnectedTabAttentionBanner } from "./TabAttentionBanner";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect } from "react";
 import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
@@ -78,7 +79,10 @@ export function TabContent({
   if (surface) {
     return (
       <TabWrapper tabId={tab.id}>
-        <SurfaceTabHost tab={tab} backing={surface} api={api} isVisible={isVisible} />
+        <div className="flex h-full flex-col">
+          <ConnectedTabAttentionBanner key={tab.id} tab={tab} active={isVisible && isFocused} chatCapable={false} />
+          <div className="min-h-0 flex-1"><SurfaceTabHost tab={tab} backing={surface} api={api} isVisible={isVisible} /></div>
+        </div>
       </TabWrapper>
     );
   }
@@ -120,6 +124,7 @@ export function TabContent({
   return (
     <TabWrapper tabId={tab.id}>
       <div className="flex h-full w-full flex-col">
+        <ConnectedTabAttentionBanner key={tab.id} tab={tab} active={isVisible && isFocused} chatCapable={isChatBackend || showSwitch} />
         <TabTopBar
           tabId={tab.id}
           shellTab={tab}

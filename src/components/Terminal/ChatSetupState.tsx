@@ -1,28 +1,11 @@
+import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { tabActivity } from "../../lib/tabActivity";
 import { useCallback } from "react";
-import { ProviderGlyph } from "../ProviderGlyph";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { DeferredLoader } from "../shared/DeferredLoader";
-import type { BootStage, Tab } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import type { ChatBodyView } from "./chatBodyVisibility";
 import type { ChatUnavailableReason } from "./chatSessionAuthority";
-
-const STAGE_PROGRESS: Record<BootStage, number> = {
-  pty_starting: 8,
-  pty_spawned: 20,
-  reader_ready: 32,
-  shell_ready: 36,
-  preparing_role_instructions: 52,
-  agent_launching: 68,
-  launch_written: 76,
-  provider_ready: 92,
-  delivering_instructions: 84,
-  agent_ready: 100,
-  awaiting_owner_prompt: 76,
-  pty_reattached: 100,
-  launch_deadline_elapsed: 92,
-  launch_binding_unconfirmed: 92,
-  spawn_failed: 0,
-};
 
 export function chatSetupView(
   tab: Tab | null | undefined,
@@ -48,33 +31,6 @@ interface ChatSetupStateProps {
   providerIconColor?: string | null;
   providerIconHint?: string | null;
   onEscape?: () => void;
-}
-
-interface LaunchGlyphProps {
-  providerName: string;
-  iconSvg?: string | null;
-  iconColor?: string | null;
-  iconHint?: string | null;
-}
-
-function LaunchGlyph({ providerName, iconSvg, iconColor, iconHint }: LaunchGlyphProps) {
-  return (
-    <span
-      className="chat-launch-glyph"
-      data-testid="chat-launch-glyph"
-      role="img"
-      aria-label={providerName}
-      style={{ color: iconColor ?? "var(--ct-accent, #58a6ff)" }}
-    >
-      <ProviderGlyph
-        iconSvg={iconSvg}
-        iconColor={iconColor}
-        iconHint={iconSvg ? iconHint : "◆"}
-        title={providerName}
-        className={iconSvg ? "text-[56px]" : "text-[18px]"}
-      />
-    </span>
-  );
 }
 
 export function ChatSetupState({
@@ -111,15 +67,9 @@ export function ChatSetupState({
   }
   if (view.kind !== "starting") return null;
 
-  const progress = tab?.boot_stage ? STAGE_PROGRESS[tab.boot_stage] : STAGE_PROGRESS.pty_starting;
   return (
     <DeferredLoader state="present" className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
-      <div className="flex w-full max-w-sm flex-col items-center text-center">
-        <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
-          <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />
-          <span className="chat-launch-ticks" data-testid="chat-launch-ticks" aria-hidden>{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</span>
-        </div>
-      </div>
+      <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : `${providerName} starting`} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} deferred={false} />
     </DeferredLoader>
   );
 }

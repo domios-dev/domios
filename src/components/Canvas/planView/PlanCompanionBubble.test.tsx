@@ -71,7 +71,7 @@ function renderChatStub({ tabId }: { tabId: string; chatBackend: boolean }) {
 }
 
 const LIVE_TABS: Record<string, Tab> = {
-  "planner-1": tab({ id: "planner-1", title: "Planner", agent_state: { state: "working" } }),
+  "planner-1": tab({ id: "planner-1", title: "Planner", agent_session_id: "planner-session", agent_state: { state: "working" } }),
   "orch-1": tab({ id: "orch-1", title: "Orchestrator", agent_state: { state: "idle" } }),
 };
 
