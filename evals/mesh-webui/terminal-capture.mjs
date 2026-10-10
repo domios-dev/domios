@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
@@ -67,12 +67,12 @@ export async function armTerminalEvents(page, tabId) {
   }, { tabId, id: randomUUID() });
 }
 
-export async function waitTerminalEvent(page, id, { type, after = 0, deadlineMs = 30000 }) {
+export async function waitTerminalEvent(page, id, { type, types = [type], after = 0, deadlineMs = 30000 }) {
   if (!(deadlineMs > 0 && deadlineMs <= 120000)) throw new Error('Invalid bounded failure deadline');
-  return page.evaluate(async ({ id, type, after, deadlineMs }) => {
+  return page.evaluate(async ({ id, types, after, deadlineMs }) => {
     const probe = window.__b3TerminalProbes?.get(id);
     if (!probe) throw new Error('Unknown terminal probe');
-    const matches = e => e.type === type && e.revision > after;
+    const matches = e => types.includes(e.type) && e.revision > after;
     const existing = probe.events.find(matches);
     if (existing) return existing;
     return new Promise((resolve, reject) => {
@@ -82,29 +82,91 @@ export async function waitTerminalEvent(page, id, { type, after = 0, deadlineMs 
         signal.removeEventListener('abort', expired);
       };
       const waiter = event => { if (matches(event)) { cleanup(); resolve(event); } };
-      const expired = () => { cleanup(); reject(new Error(`FAIL deadline waiting for ${type} on ${probe.tabId}`)); };
+      const expired = () => { cleanup(); reject(new Error(`FAIL deadline waiting for ${types.join("/")} on ${probe.tabId}`)); };
       probe.waiters.add(waiter);
       signal.addEventListener('abort', expired, { once: true });
     });
-  }, { id, type, after, deadlineMs });
+  }, { id, types, after, deadlineMs });
+}
+
+function readProbeRevision(id) {
+  const revision = window.__b3TerminalProbes?.get(id)?.revision;
+  if (!Number.isInteger(revision)) throw new Error('Unknown terminal probe revision');
+  return revision;
+}
+
+function readProbeEvents(id) {
+  const events = window.__b3TerminalProbes?.get(id)?.events;
+  if (!events) throw new Error('Unknown terminal probe events');
+  return events;
 }
 
 export async function captureTerminal(page, { tabId, probeId, directory, provenance }) {
   const out = resolve(directory);
   await mkdir(out, { recursive: false });
-  const before = await page.evaluate(readTerminalState, { tabId });
-  const revision = await page.evaluate(id => window.__b3TerminalProbes?.get(id)?.revision ?? null, probeId);
-  await page.screenshot({ path: resolve(out, 'screen.png'), timeout: 30000 });
-  const after = await page.evaluate(readTerminalState, { tabId });
-  const events = await page.evaluate(id => window.__b3TerminalProbes?.get(id)?.events ?? null, probeId);
-  const unchanged = JSON.stringify(before) === JSON.stringify(after);
-  await writeFile(resolve(out, 'state.json'), JSON.stringify({ provenance, before, after, unchanged, revision, events }, null, 2), { flag: 'wx' });
-  await writeFile(resolve(out, 'viewport.txt'), after.lines
-    .filter(line => line.y >= after.viewportY && line.y < after.viewportY + after.rows)
+  const expiresAt = Date.now() + 30000;
+  const remaining = () => {
+    const value = expiresAt - Date.now();
+    if (value <= 0) throw new Error('FAIL unstable surface: capture deadline exhausted');
+    return value;
+  };
+  const attempts = [];
+  let stable = false;
+  let failure = 'FAIL unstable surface: three capture attempts exhausted';
+  for (let number = 1; number <= 3; number++) {
+    remaining();
+    const startRevision = await page.evaluate(readProbeRevision, probeId);
+    const before = await page.evaluate(readTerminalState, { tabId });
+    const middleRevision = await page.evaluate(readProbeRevision, probeId);
+    const candidate = await page.evaluate(readTerminalState, { tabId });
+    const screenshotRevision = await page.evaluate(readProbeRevision, probeId);
+    const ready = startRevision === middleRevision && middleRevision === screenshotRevision
+      && JSON.stringify(before) === JSON.stringify(candidate);
+    const screenshot = ready ? `screen-attempt-${number}.png` : null;
+    if (screenshot) await page.screenshot({ path: resolve(out, screenshot), timeout: remaining() });
+    const after = screenshot ? await page.evaluate(readTerminalState, { tabId }) : candidate;
+    const endRevision = await page.evaluate(readProbeRevision, probeId);
+    const unchanged = ready && screenshotRevision === endRevision
+      && JSON.stringify(candidate) === JSON.stringify(after);
+    const events = await page.evaluate(readProbeEvents, probeId);
+    const attempt = { number, before, candidate, after, startRevision, middleRevision,
+      screenshotRevision, endRevision, screenshot, unchanged, events };
+    attempts.push(attempt);
+    await writeFile(resolve(out, `attempt-${number}.json`), JSON.stringify(attempt, null, 2), { flag: 'wx' });
+    if (before.truncated || candidate.truncated || after.truncated) {
+      failure = 'FAIL incomplete capture: truncated terminal state';
+      break;
+    }
+    if (unchanged) {
+      stable = true;
+      await copyFile(resolve(out, screenshot), resolve(out, 'screen.png'));
+      break;
+    }
+    if (number < 3) {
+      try {
+        attempt.resumeEvent = await waitTerminalEvent(page, probeId, {
+          types: ['write-parsed', 'render'], after: endRevision, deadlineMs: remaining(),
+        });
+      } catch (error) {
+        attempt.waitError = error.message;
+        failure = `FAIL unstable surface: ${error.message}`;
+      }
+      await writeFile(resolve(out, `attempt-${number}-wait.json`), JSON.stringify({
+        resumeEvent: attempt.resumeEvent ?? null, waitError: attempt.waitError ?? null,
+      }, null, 2), { flag: 'wx' });
+      if (attempt.waitError) break;
+    }
+  }
+  const last = attempts.at(-1);
+  await writeFile(resolve(out, 'state.json'), JSON.stringify({ provenance,
+    before: last.before, after: last.after, unchanged: stable, revision: last.endRevision,
+    events: last.events, attempts, failure: stable ? null : failure }, null, 2), { flag: 'wx' });
+  await writeFile(resolve(out, 'viewport.txt'), last.after.lines
+    .filter(line => line.y >= last.after.viewportY && line.y < last.after.viewportY + last.after.rows)
     .map(line => line.text).join('\n'), { flag: 'wx' });
-  await writeFile(resolve(out, 'events.jsonl'), (events ?? []).map(event => JSON.stringify(event)).join('\n') + '\n', { flag: 'wx' });
-  if (!unchanged || before.truncated || !events) throw new Error('FAIL incomplete or changing capture; original evidence retained');
-  return { directory: out, tabId, revision, state: after };
+  await writeFile(resolve(out, 'events.jsonl'), last.events.map(event => JSON.stringify(event)).join('\n') + '\n', { flag: 'wx' });
+  if (!stable) throw new Error(failure);
+  return { directory: out, tabId, revision: last.endRevision, state: last.after };
 }
 
 export async function releaseTerminalEvents(page, id) {
