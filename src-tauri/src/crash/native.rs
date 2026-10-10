@@ -35,21 +35,35 @@ pub fn install() -> Option<CrashHandler> {
 }
 
 fn on_crash(ctx: &crash_handler::CrashContext) {
+    let exception = describe_ctx(ctx);
     let ts = report::timestamp_slug();
     let dir = report::crashes_dir();
     let dmp_path = dir.join(format!("crash-{}-native.dmp", ts));
     let txt_path = dir.join(format!("crash-{}-native.txt", ts));
 
-    // Composed once per outcome and rendered twice: before the dump write, so a
-    // handler that dies inside it still leaves a record, and again afterwards.
-    let exception = describe_ctx(ctx);
+    let header = report::header("native");
     let log_tail = report::log_tail(200);
+    record_native_dump(&exception, &header, &log_tail, &dmp_path, &txt_path, || {
+        write_minidump(ctx, &dmp_path)
+    });
+
+    crash_handler::write_stderr("\n[crash] native crash written, see ~/.codeterm/crashes/\n");
+}
+
+fn record_native_dump(
+    exception: &str,
+    header: &str,
+    log_tail: &str,
+    dmp_path: &std::path::Path,
+    txt_path: &std::path::Path,
+    write: impl FnOnce() -> bool,
+) -> DumpOutcome {
     let compose = |outcome: &DumpOutcome| {
-        let mut s = report::header("native");
+        let mut s = header.to_string();
         let _ = writeln!(s);
         let _ = writeln!(s, "Signal/Exception: {}", exception);
         let _ = writeln!(s);
-        let _ = writeln!(s, "{}", outcome.render(&dmp_path));
+        let _ = writeln!(s, "{}", outcome.render(dmp_path));
         let _ = writeln!(s);
         let _ = writeln!(s, "Recent log tail (last 200 lines):");
         let _ = writeln!(s, "---");
@@ -57,11 +71,7 @@ fn on_crash(ctx: &crash_handler::CrashContext) {
         s
     };
 
-    dump_record::record_guarded_dump(&dmp_path, &txt_path, compose, || {
-        write_minidump(ctx, &dmp_path)
-    });
-
-    crash_handler::write_stderr("\n[crash] native crash written, see ~/.codeterm/crashes/\n");
+    dump_record::record_guarded_dump(dmp_path, txt_path, compose, write)
 }
 
 #[cfg(target_os = "macos")]
@@ -124,7 +134,17 @@ fn describe_ctx(ctx: &crash_handler::CrashContext) -> String {
 
 #[cfg(target_os = "windows")]
 fn describe_ctx(ctx: &crash_handler::CrashContext) -> String {
-    format!("exception_code=0x{:x}", ctx.exception_code)
+    let address = windows_context::exception_address(ctx);
+    let module = address.and_then(windows_context::module_at);
+    let address = address.map_or_else(|| "unknown".into(), |a| format!("0x{a:x}"));
+    let module = module.map_or_else(
+        || "unknown module_offset=unknown".into(),
+        |(name, offset)| format!("{name} module_offset=0x{offset:x}"),
+    );
+    format!(
+        "exception_code=0x{:x} exception_address={} thread_id={} module={}",
+        ctx.exception_code, address, ctx.thread_id, module
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -134,3 +154,9 @@ fn describe_ctx(ctx: &crash_handler::CrashContext) -> String {
         ctx.siginfo.ssi_signo, ctx.siginfo.ssi_code
     )
 }
+
+#[cfg(target_os = "windows")]
+mod windows_context;
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests;
