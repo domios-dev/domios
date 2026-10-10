@@ -94,6 +94,16 @@ fn planned_commands<'a>(
     plan
 }
 
+fn model_command_required(
+    source: crate::agent::provider::ModelSwitchConfirmationSource,
+    observed_matches: bool,
+    recorded_matches: bool,
+) -> bool {
+    !observed_matches
+        || (source == crate::agent::provider::ModelSwitchConfirmationSource::SessionIdentity
+            && !recorded_matches)
+}
+
 fn planning_model(
     source: crate::agent::provider::ModelSwitchConfirmationSource,
     recorded: Option<String>,
@@ -327,28 +337,34 @@ impl ServiceContext {
                 })
                 .and(tab.agent_session_model.clone())
         });
-        let previous_model = planning_model(commands.confirmation_source, recorded_model, || {
-            target.cwd.as_deref().and_then(|cwd| {
-                self.agent_registry
-                    .with_provider(&target.provider, |provider| {
-                        provider.detect_session_model(cwd, &target.session_id)
-                    })
-                    .flatten()
-            })
-        });
+        let previous_model =
+            planning_model(commands.confirmation_source, recorded_model.clone(), || {
+                target.cwd.as_deref().and_then(|cwd| {
+                    self.agent_registry
+                        .with_provider(&target.provider, |provider| {
+                            provider.detect_session_model(cwd, &target.session_id)
+                        })
+                        .flatten()
+                })
+            });
         if !target.current(self) {
             return Err(ModelSwitchError::LiveCommandFailed(
                 "the session changed while reading its current model".into(),
             ));
         }
-        let model_changed = !previous_model.as_deref().is_some_and(|previous| {
+        let matches_requested = |previous: &str| {
             crate::service::session_model::session_model_matches(
                 &self.agent_registry,
                 &snap.provider,
                 model,
                 previous,
             )
-        });
+        };
+        let model_changed = model_command_required(
+            commands.confirmation_source,
+            previous_model.as_deref().is_some_and(matches_requested),
+            recorded_model.as_deref().is_some_and(matches_requested),
+        );
         let current_effort = planning_model(
             commands.confirmation_source,
             self.mux
