@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ "${1:-}" = --help ]; then
-  echo 'Usage: bash evals/restart-endurance/run.sh --out DIR --notice-hook FILE'
+  echo 'Usage: bash evals/restart-endurance/run.sh --out DIR --notice-hook FILE [--model PROVIDER=MODEL]'
   echo 'Offline: bash evals/restart-endurance/run.sh --dry-run --out DIR --from-results FILE --log-dir DIR'
   echo 'Canonical QA only. Real LLM turns; three DEV 7686 restarts. See README.md.'
   exit 0
@@ -20,17 +20,21 @@ if is_windows; then ENDURE_BASH="$(cygpath -w "$ENDURE_BASH")"; fi
 export ENDURE_BASH
 if [ "${1:-}" = --dc ]; then
   shift
-  dc "$@"
-  exit
+  # A lazy tab has no session yet; the lib's optional grep may return 1.
+  if dc "$@"; then exit 0; else exit "$?"; fi
 fi
 OUT= NOTICE_HOOK=
+MODELS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --out) OUT="${2:?missing output directory}"; shift 2 ;;
     --notice-hook) NOTICE_HOOK="${2:?missing notice hook}"; shift 2 ;;
+    --model) MODELS+=("${2:?missing provider=model override}"); shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+ENDURE_MODEL_OVERRIDES="$(node -e 'const models = {}; for (const value of process.argv.slice(1)) { const split = value.indexOf("="); if (split < 1 || split === value.length - 1) throw new Error("Expected provider=model"); models[value.slice(0, split)] = value.slice(split + 1); } process.stdout.write(JSON.stringify(models));' "${MODELS[@]}")"
+export ENDURE_MODEL_OVERRIDES
 [ -n "$OUT" ] && [ -f "$NOTICE_HOOK" ] || {
   echo 'Both --out DIR and --notice-hook FILE are required; see --help.' >&2
   exit 2

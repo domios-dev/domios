@@ -8,12 +8,17 @@ restart target. No application source or global configuration is changed.
 ```bash
 bash evals/restart-endurance/run.sh \
   --out target-check/evals/endure-trial-1 \
+  --model opencode=deepseek/deepseek-flash \
   --notice-hook /absolute/path/to/restart-notice.sh
 ```
 
 Windows: invoke the same command through Git Bash from PowerShell. Node.js,
 Python 3, Git Bash/bash, and the active DEV CLI are required. `ENDURE_BASH` is
 resolved to the actual invoking Bash executable on Windows.
+
+Repeat `--model provider=model` to pin fixture models from the provider's
+catalogue. Both fresh and used fixtures receive the same override; omitted
+providers keep their configured default. The manifest records the overrides.
 
 ## Preconditions and coordination
 
@@ -25,9 +30,11 @@ checks health identity and build SHA before fixture creation and each round.
 The runner uses `./build.sh dev-prebuilt --wait --wait-build` for the three
 rounds. That owning command validates the saved app/CLI/frontend provenance
 before its DEV-only kill and starts the same binary with a bounded health wait.
-It runs no Cargo rebuild. Missing/stale provenance stops the trial; the eval
-does not silently rebuild or retry. Approve this exact canonical QA command
-when dispatching the live verification.
+It runs no Cargo rebuild when provenance matches. A stale-provenance refusal
+before DEV is stopped uses the incremental `dev --wait --wait-build` fallback;
+other launcher failures stop the trial. Authorize both lifecycle commands for
+the default runner. A caller-mandated launcher instead uses the observer's
+`setup`, `before`, `round`, and `finish` phases with the same output directory.
 
 `--notice-hook` is a required, caller-owned Bash file **outside `evals/`**. It
 runs in the QA shell's original parent connection, before every restart, with
@@ -71,11 +78,17 @@ is bounded at 30 seconds by the runner and must not ask an interactive question.
    and no pending prompt authorize the first probe. After sending, the eval
    requires a bound session before starting transcript streaming and accepting
    the exact answer. It saves that session and requires it unchanged before
-   every subsequent probe. Phase and send-response fields distinguish a probe
+   every subsequent probe. A fresh empty session may receive a new ID on
+   restore; continuity starts with its first persisted probe turn. Phase and
+   send-response fields distinguish a probe
    that never reached send from a sent turn awaiting binding or an answer.
 4. Announces and performs three provenance-checked DEV restarts. After each,
-   probes all created fixtures concurrently with the corresponding round
-   marker. Waits use an SSE subscription established before sending, a single
+   focuses each fixture in its workspace to materialize lazy PTYs, waits for every
+   fixture's launch readiness, then probes fixtures serially with the round
+   marker. A final authoritative snapshot can reconcile a missed readiness
+   event; the original stream gap remains in the result. Unresolved readiness
+   failures receive neither another wait nor a probe.
+   Waits use an SSE subscription established before sending, a single
    120-second failure deadline per observation, and event-triggered snapshot
    reads. There are no fixed-delay warmups or probe retries. Sends read their
    authored prompt from the target tab's private pad and use the user send API,
