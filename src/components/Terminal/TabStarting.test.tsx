@@ -17,10 +17,12 @@ function parsed(element: React.ReactNode) {
   host.innerHTML = renderToStaticMarkup(element);
   return host;
 }
-function assertLoading(host: ReturnType<typeof parsed>) {
+function assertLoading(host: ReturnType<typeof parsed>, label?: string, role = "status") {
   const mark = host.querySelector('[data-testid="tab-loading-mark"]');
   assert.ok(mark);
-  assert.ok(mark.getAttribute("role") && mark.getAttribute("aria-label"));
+  assert.equal(mark.getAttribute("role"), role);
+  assert.ok(mark.getAttribute("aria-label"));
+  if (label) assert.equal(mark.getAttribute("aria-label"), label);
   assert.equal(host.querySelector('[data-activity-state]'), null);
 }
 for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as const) {
@@ -28,15 +30,13 @@ for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as co
   const attention = tabAttention(starting, "Working", []);
   const mark = tabStatusMark(tab.title, attention)!;
   const row = parsed(<TabItem tab={starting} status="Working" hasAgent index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="ws" />);
-  assertLoading(row);
-  assert.equal(row.querySelector('[role="img"]')?.getAttribute("aria-label"), mark.label);
+  assertLoading(row, mark.label, "img");
   assert.equal(row.querySelector('[data-testid="tab-working-activity"]'), null);
   const rail = parsed(<SidebarCompactRail groups={[{ workspaceId: "ws", label: "group-token", tabs: [starting], activeTabId: null }]} tabStatuses={{ [tab.id]: "Working" }} attentionByTab={{ [tab.id]: attention }} onActivate={() => {}} />);
-  assertLoading(rail);
-  assert.equal(rail.querySelector('[role="img"]')?.getAttribute("aria-label"), mark.label);
-  assertLoading(parsed(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="provider-token" />));
-  assertLoading(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />));
-  assertLoading(parsed(<AgentStateIndicator activity={tabActivity(starting, "Working")} />));
+  assertLoading(rail, mark.label, "img");
+  assertLoading(parsed(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="provider-token" />), mark.label);
+  assertLoading(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), mark.label);
+  assertLoading(parsed(<AgentStateIndicator tab={starting} activity={tabActivity(starting, "Working")} />), mark.label);
 }
 assertLoading(parsed(<TabBootOverlay view={{ kind: "none" }} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />));
 const working: Tab = { ...tab, boot_stage: "agent_ready", agent_session_id: "bound-token" };

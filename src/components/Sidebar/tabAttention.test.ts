@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Notification, Tab } from "../../lib/types";
-import { attentionActions, tabAttention, tabAttentionByTab, tabStatusMark } from "./tabAttention";
+import { attentionActions, tabAttention, tabAttentionByTab, tabStatusMark, tabStartingLabel } from "./tabAttention";
 
 const tab: Tab = { id: "agent", title: "Agent", pty_id: null, tab_type: "Terminal", cwd: null };
 function notice(id: string, level: Notification["level"], overrides: Partial<Notification> = {}): Notification {
@@ -55,6 +55,8 @@ describe("tab attention model", () => {
     expect(tabStatusMark(tab.title, model, true)?.kind).toBe("starting");
     const connecting = tabAttention({ ...starting, boot_stage: "launch_binding_unconfirmed" }, "Working", []);
     expect(connecting.starting).toBe("connecting");
+    expect(tabStartingLabel(starting)).toBe(tabStatusMark(starting.title, model)?.label);
+    expect(tabStartingLabel({ ...starting, boot_stage: "launch_binding_unconfirmed" })).toBe(tabStatusMark(starting.title, connecting)?.label);
     for (const level of ["action_needed", "failure"] as const) {
       const mark = tabStatusMark(tab.title, tabAttention(starting, "Working", [notice(level, level)]));
       expect(mark?.kind).toBe("attention");

@@ -1,3 +1,4 @@
+import { tabStartingLabel } from "../Sidebar/tabAttention";
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
@@ -17,6 +18,7 @@ function compactStatusMessage(text: string): string {
 
 export function AgentStateIndicator({
   activity,
+  tab,
   providerName,
   model,
   reasoningEffort,
@@ -29,6 +31,7 @@ export function AgentStateIndicator({
   showActivity = true,
 }: {
   activity: TabActivity;
+  tab?: Tab | null;
   providerName?: string | null;
   model?: string | null;
   reasoningEffort?: Tab["reasoning_effort_identity"] | null;
@@ -50,7 +53,7 @@ export function AgentStateIndicator({
     : null;
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
-  const dots = !showActivity ? null : activity.kind === "starting" ? <TabLoadingIndicator label={text || "Agent starting"} compact /> : activity.active ? (
+  const dots = !showActivity ? null : activity.kind === "starting" ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact /> : activity.active ? (
     <ActivityDots
       data-testid="agent-activity-dots"
       size="small"

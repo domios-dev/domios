@@ -7,7 +7,7 @@ import { act } from "react";
 import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { ApiConfig } from "../../lib/types";
+import type { ApiConfig, Tab } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { canvasFocusStore } from "./canvasFocusStore";
 import { PlanButton } from "./PlanButton";
@@ -71,19 +71,20 @@ async function installBridgeMocks() {
   });
 }
 
-async function renderButton(tabId: string): Promise<{ host: HTMLDivElement; root: Root }> {
+async function renderButton(tabId: string, tab?: Tab): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  const tabs = tab ? { [tabId]: tab } : {};
   const state: ExtendedState = {
-    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    workspaces: [], tabs, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
   };
   const store = createMuxStateStore(() => state);
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={store}><PlansProvider api={API}>
-        <PlanButton tabId={tabId} tabs={{}} />
+        <PlanButton tabId={tabId} tabs={tabs} />
       </PlansProvider></MuxStateStoreContext.Provider>,
     );
   });
@@ -129,6 +130,19 @@ test("PlanButton shows a muted activity cue for a changed plan without changing 
   assert(button.querySelector('[role="status"]')?.textContent === "Plan updated", "status text carries the update meaning");
   await act(async () => button.click());
   assert(!canvasFocusStore.anyPulsing([FIXTURE_PLAN.id]), "opening the plan still clears its changed state");
+  canvasFocusStore.close();
+  await act(async () => root.unmount());
+});
+
+test("a changed plan on a starting tab retains its update status without work dots", async () => {
+  const tab: Tab = { id: "orch-1", title: "title-token", tab_type: "Terminal", pty_id: null, cwd: null, agent_type: "provider-token", boot_stage: "agent_launching", agent_state: { state: "working" } };
+  const { host, root } = await renderButton(tab.id, tab);
+  assert(planChangedListener, "plan change listener installed");
+  await act(async () => planChangedListener?.({ payload: { plan_id: FIXTURE_PLAN.id } }));
+  assert(host.querySelector('[role="status"]'), "changed plan remains announced");
+  assert(!host.querySelector('[data-testid="plan-button-activity"]'), "startup does not show work dots");
+  await act(async () => (host.querySelector('[data-testid="plan-button"]') as HTMLButtonElement).click());
+  assert(!canvasFocusStore.anyPulsing([FIXTURE_PLAN.id]), "opening clears the changed plan");
   canvasFocusStore.close();
   await act(async () => root.unmount());
 });

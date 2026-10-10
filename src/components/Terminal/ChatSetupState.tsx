@@ -1,3 +1,4 @@
+import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { tabActivity } from "../../lib/tabActivity";
 import { useCallback } from "react";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
@@ -33,7 +34,7 @@ interface ChatSetupStateProps {
 }
 
 export function ChatSetupState({
-  tab: _tab,
+  tab,
   view,
   providerName,
   providerIconSvg,
@@ -68,7 +69,7 @@ export function ChatSetupState({
 
   return (
     <DeferredLoader state="present" className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
-      <TabLoadingIndicator label={`${providerName} starting`} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} deferred={false} />
+      <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : `${providerName} starting`} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} deferred={false} />
     </DeferredLoader>
   );
 }

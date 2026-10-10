@@ -1,3 +1,4 @@
+import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
@@ -40,7 +41,7 @@ export function tabBootOverlayView(
   }
   const activity = tabActivity(tab);
   return activity.launching
-    ? { kind: "starting", label: activity.label, activity }
+    ? { kind: "starting", label: tab ? tabStartingLabel(tab) : activity.label, activity }
     : { kind: "none" };
 }
 
