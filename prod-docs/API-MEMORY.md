@@ -26,9 +26,10 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 | PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partially update an item. Pin changes are audited. A nonblank `changed_by` overrides the actor header after sanitization. |
 | DELETE | `/api/mem/items/{id}` | — | Delete an item. |
 | GET | `/api/mem/items/{id}/history` | — | Read item history. |
-| POST | `/api/mem/items/{id}/restore` | `{version?, changed_by?}` | Restore from history. When the latest kind change archived the item (calibration archive or merge), the prior kind comes back, the body of `version` too when given, and the item's merge relation is invalidated: `{restored, kind, body_restored, invalidated_relations}`. Otherwise the body of `version` (or the latest body change) is restored: `{restored, body_len}`. |
+| POST | `/api/mem/items/{id}/restore` | `{version?, changed_by?}` | Restore from history. An area-merge row restores only its source area (`{restored, area}`); omit `version` for the latest change, or select the merge history id. When the latest kind change archived the item (calibration archive or merge), the prior kind comes back, the body of `version` too when given, and the item's merge relation is invalidated: `{restored, kind, body_restored, invalidated_relations}`. Otherwise the body of `version` (or the latest body change) is restored: `{restored, body_len}`. |
 | POST | `/api/mem/merge` | `{keeper, lesser, body?, conflict?, changed_by?, worker_id?}` | Reversible merge in one transaction: optional new keeper `body`, the lesser archived with a `merge` history row, and a `merged_into` lesser → keeper relation (`supersedes` keeper → lesser with `conflict`), tagged `reason: "mem-merge"`. Never deletes. Pinned, `skill`, `rule`, `preference` and archived items are refused as the lesser (409). A dreaming worker (resolved from `X-CodeTerm-Worker-Id` or `worker_id`) is audited as `dreamer-rem:merge` and capped at `memory.dream_hygiene.merge_cap` merges per UTC day (429 past it). |
 | GET | `/api/mem/pinned` | `?limit=N` | List wake-up-pinned items by importance, evidence count, and update time. Default limit is 100; maximum is 500. |
+| POST | `/api/mem/area/merge` | `{from, into, dry_run?, worker_id?}` | Audited area move across scopes; returns `{from, into, dry_run, counts:{kind:count}, item_ids}`. Preview writes nothing. Reserved, equal, empty and missing areas are refused. A new destination is allowed. Dreaming workers have a host-enforced cap of 3 per worker run and a summary diary entry per merge. |
 | GET | `/api/mem/taxonomy` | — | Read memory taxonomy. |
 | GET | `/api/mem/tail` | — | Tail recent memory events. |
 | DELETE | `/api/mem/forget/{area}` | — | Forget all memory in an area. |
@@ -117,4 +118,4 @@ Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Ser
 
 Connection failures use JSON `{error: {code, message}}`; codes include unavailable, authentication_failed, unknown_adapter, invalid_model and invalid_request. Token values are never returned.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

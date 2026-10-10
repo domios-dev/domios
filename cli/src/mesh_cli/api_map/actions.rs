@@ -255,6 +255,11 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             if let Some(v) = changed_by { payload["changed_by"] = json!(v.trim()); }
             ("POST".into(), "/api/mem/merge".into(), Some(payload.to_string()))
         }
+        MemAction::Area { action: crate::args::mem::MemAreaAction::Merge { from, into, dry_run } } => (
+            "POST".into(), "/api/mem/area/merge".into(),
+            Some(json!({ "from": from, "into": into, "dry_run": dry_run,
+                "worker_id": std::env::var("CODETERM_WORKER_ID").ok() }).to_string()),
+        ),
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {
                 Some(w) => format!("/api/mem/taxonomy?workspace={}", enc(w)),

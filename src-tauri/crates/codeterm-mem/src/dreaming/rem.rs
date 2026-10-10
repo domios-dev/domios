@@ -11,6 +11,9 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     let conn = mem.conn();
     let conn = conn.lock();
     let mut lines = Vec::new();
+    if let Some(candidates) = super::area_candidates::render_candidates(&conn)? {
+        lines.push(candidates);
+    }
 
     // 1. Unclassified items (no area)
     let mut stmt = conn

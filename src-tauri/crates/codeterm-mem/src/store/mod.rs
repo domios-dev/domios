@@ -7,6 +7,7 @@ use super::MemStats;
 
 pub(super) const INLINE_BODY_LIMIT: usize = 2048;
 
+pub mod area_merge;
 mod blob;
 mod crud;
 mod pinned;
@@ -190,6 +191,15 @@ pub fn get_item_history(conn: &Connection, item_id: &str) -> Result<Vec<HistoryE
                     .as_deref()
                     .and_then(|reason| reason.strip_prefix("fields="))
                     .map(|fields| fields.split(',').map(str::to_string).collect())
+                    .or_else(|| {
+                        r.get::<_, Option<String>>(13)
+                            .ok()
+                            .flatten()
+                            .filter(|r| {
+                                r.starts_with("area_merge=") || r.starts_with("area_update=")
+                            })
+                            .map(|_| vec!["area".into()])
+                    })
                     .unwrap_or_default(),
                 reason: r.get(13)?,
             })

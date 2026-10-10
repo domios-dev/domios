@@ -17,7 +17,8 @@ pub(crate) enum MemTransport {
 pub(crate) fn classify(action: &MemAction) -> MemTransport {
     use MemTransport::*;
     match action {
-        MemAction::Search { .. }
+        MemAction::Area { .. }
+        | MemAction::Search { .. }
         | MemAction::Get { .. }
         | MemAction::Delete { .. }
         | MemAction::PurgePrecompact { .. }

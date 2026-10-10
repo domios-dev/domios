@@ -768,6 +768,19 @@ pub fn update(
     patch: &MemUpdate,
     blobs_dir: &Path,
 ) -> Result<bool, String> {
+    if patch.area.is_some()
+        && patch.title.is_none()
+        && patch.summary.is_none()
+        && patch.tags.is_none()
+        && patch.body.is_none()
+        && patch.importance.is_none()
+        && patch.bump_recurrence.is_none()
+        && patch.pinned.is_none()
+    {
+        if let Some(area) = patch.area.as_deref() {
+            return super::area_merge::update_area(conn, id, area);
+        }
+    }
     let existing = get(conn, id, blobs_dir)?;
     let Some(prev) = existing else {
         return Ok(false);

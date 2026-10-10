@@ -144,6 +144,7 @@ Use the bounded graph commands and their dry runs; do not issue raw SQL.
 The Dreamer never hard-deletes duplicates or stale items; both end as `kind = 'archived'` through the calibration archive, with a history row that keeps the prior kind.
 
 - `mem merge --keeper K --lesser L [--body B | --body-file F] [--conflict]` updates the keeper body, archives the lesser (history `merge`) and links `L merged_into K` (or `K supersedes L` with `--conflict`) in one transaction. Pinned, skill, rule and preference items are refused as the lesser. Dreamer merges are capped by `memory.dream_hygiene.merge_cap` (default 10 per UTC day), enforced server-side.
+- `mem area merge <from> --into <to> [--dry-run]` moves all source items across scopes, changing only their area. Preview returns counts per kind without writing. Empty, missing, equal and underscore-prefixed areas are refused; a new destination renames an area. Each item records one `update` with `area_merge` undo data in its history reason. `mem restore <id>` undoes its latest area merge; `--version <history-row>` selects an older merge without changing its body. Use `mem taxonomy` to list areas and counts. REM receives up to 20 conservative name pairs with counts and three sample titles each; it leaves uncertain pairs alone. The host caps area merges at 3 per dream worker run and saves a summary diary entry for each.
 - `mem restore L` on an archived or merged item restores the prior kind (plus the `--version` body) and invalidates the merge relation.
 - `mem calibration stale [--dry-run] [--limit N]` archives items older than 365 days with no direct touch (access, update, history row), no relation created or invalidated, and no touched active neighbour in that year. Pinned, skill, rule, preference, archived and importance >= 4 are excluded. The nightly run applies it only when `memory.dream_hygiene.stale_archive` is on (default off), capped by `stale_archive_cap` (default 20); the dry run lists ids and reasons and changes nothing.
 - The diary log records `MERGED:` and `ARCHIVED:` lines with ids and reasons, and the worker report repeats them.
@@ -178,4 +179,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->
