@@ -5,6 +5,7 @@ import { FIXTURE_PLAN } from "../Canvas/cards/fixtures.testdata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityFeed } from "./ActivityFeed";
 import type { SupporterActivity } from "./activity";
+import { reflexOutcome } from "./reflexFeed";
 import { API, harness } from "./testSupport";
 
 vi.mock("../../lib/webApi", async (importOriginal) => ({
@@ -44,8 +45,8 @@ describe("Spinal Cord activity", () => {
     const rows = host.querySelectorAll("ol > li");
     expect(rows).toHaveLength(2);
     expect(rows[0].getAttribute("data-kind")).toBe("heartbeat");
-    expect(rows[0].textContent).toContain("Action: wake");
-    expect(rows[1].textContent).toContain("Action: suppress");
+    expect(rows[0].getAttribute("data-tone")).toBe("acted");
+    expect(rows[1].getAttribute("data-tone")).toBe("quiet");
   });
   it("feed_filters_by_team", async () => {
     const host = await setup.render(<ActivityFeed api={API} teamId="team_aabbccdd" />);
@@ -78,17 +79,10 @@ describe("Spinal Cord activity", () => {
     for (const row of rows) {
       expect(row.getAttribute("data-kind")).toBe("sentinel");
       expect(row.getAttribute("data-confidence")).toBe("strong");
-      expect(row.textContent).toContain("sentinel · redacted · strong confidence");
+      expect(row.getAttribute("aria-label")).toBeTruthy();
     }
-    expect(rows[0].textContent).toContain("Action: decision");
-    expect(rows[0].textContent).toContain("Reason: transition");
-    expect(rows[1].textContent).toContain("Action: notify only");
-    expect(rows[1].textContent).toContain("Reason: model answer");
-    expect(rows[2].textContent).toContain("Reason: budget exhausted");
-    expect(rows[2].textContent).toContain("Budget: reached");
     expect(rows[2].getAttribute("data-fallback")).toBe("true");
     expect(host.innerHTML).not.toContain("private-bucket");
-    expect(host.textContent).not.toContain("route failed");
   });
   it("feed_redacts_screen_and_token_content", async () => {
     const screen = "private shell output\nrequest body";
@@ -99,13 +93,13 @@ describe("Spinal Cord activity", () => {
     expect(host.querySelectorAll("ol > li")).toHaveLength(1);
     expect(host.innerHTML).not.toContain(screen);
     expect(host.innerHTML).not.toContain(token);
-    expect(host.querySelector("li")?.getAttribute("data-confidence")).toBe("redacted");
-    expect(host.querySelector("li")?.getAttribute("data-kind")).toBe("redacted");
+    expect(host.querySelector("li")?.getAttribute("data-confidence")).toBe("unknown");
+    expect(host.querySelector("li")?.getAttribute("data-kind")).toBe("unknown");
   });
   it("feed_refreshes_on_journal_event", async () => {
     const host = await setup.render(<ActivityFeed api={API} teamId="team_aabbccdd" />);
     expect(host.querySelectorAll("ol > li")).toHaveLength(1);
-    entries.push(entry("team_aabbccdd", 1700000002));
+    entries.push({ ...entry("team_aabbccdd", 1700000002), label: "ready_idle" });
     await setup.emit();
     expect(host.querySelectorAll("ol > li")).toHaveLength(2);
     expect(paths).toHaveLength(2);
@@ -145,59 +139,38 @@ describe("Spinal Cord activity", () => {
     expect(new URL(paths[0], "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");
   });
 
-  it("rows_show_a_one_line_summary_and_expand_to_details", async () => {
-    entries = [{ ...entry("team_aabbccdd"), kind: "rerank", label: "ranked", action: "rerank", reason: "all_candidates_scored" }];
-    const host = await setup.render(<ActivityFeed api={API} />);
-    const row = host.querySelector("ol > li")!;
-    expect(row.querySelector("summary")?.textContent).toContain("Memory re-rank: ranked");
-    const details = row.querySelector("details")!;
-    expect(details.open).toBe(false);
-    expect(details.textContent).toContain("Reason: all candidates scored");
+  it("grouped_rows_render_once_with_count_and_full_accessible_outcome", async () => {
+    const supplied = { ...entry("team_aabbccdd"), tab_title: "supplied-subject", label: "ready_idle" };
+    entries = [supplied, { ...supplied, time: supplied.time + 1 }];
+    const host = await setup.render(<ActivityFeed api={API} embedded />);
+    const rows = host.querySelectorAll("ol > li");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("×2");
+    const phrase = reflexOutcome(supplied).phrase;
+    expect(rows[0].getAttribute("title")).toBe(phrase);
+    expect(rows[0].getAttribute("aria-label")).toContain(phrase);
+    expect(rows[0].getAttribute("aria-label")).toContain("×2");
+    expect(rows[0].querySelector("time")?.dateTime).toBe(new Date((supplied.time + 1) * 1000).toISOString());
+    expect(rows[0].querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(rows[0].querySelector("details")).toBeNull();
   });
 
-  it("summary_shows_question_to_answer", async () => {
+  it("question_prose_does_not_supply_the_outcome_or_subject", async () => {
     const question = "supplied question";
     const answer = "supplied answer";
     entries = [{ ...entry("team_aabbccdd"), asked: [{ name: "fixture", question, answer }] }];
     const host = await setup.render(<ActivityFeed api={API} />);
-    const row = host.querySelector("ol > li")!;
-    expect(row.querySelector("summary")?.textContent).toContain(`${question} → ${answer}`);
-    expect(row.querySelector("details")?.open).toBe(false);
-    expect(row.querySelector("summary")?.textContent).not.toContain("launch ready");
+    expect(host.innerHTML).not.toContain(question);
+    expect(host.innerHTML).not.toContain(answer);
+    expect(host.querySelector("li")?.title).toBe(reflexOutcome(entries[0]).phrase);
   });
 
-  it("row_expands_to_each_question", async () => {
-    const asked = [
-      { name: "label", question: "fixture state question", answer: "fixture state answer" },
-      { name: "prompt_visible", question: "fixture visibility question", answer: "fixture visibility answer" },
-      { name: "safe_choice", question: "fixture safety question", answer: "fixture safety answer" },
-    ];
-    entries = [{ ...entry("team_aabbccdd"), asked }];
+  it("fallback_is_accessible_and_keeps_the_full_outcome", async () => {
+    entries = [{ ...entry("team_aabbccdd"), fallback: true, reason: "budget" }];
     const host = await setup.render(<ActivityFeed api={API} />);
-    expect(host.querySelectorAll("ol > li")).toHaveLength(1);
-    const details = host.querySelector("details")!;
-    expect(details.open).toBe(false);
-    details.open = true;
-    details.dispatchEvent(new Event("toggle"));
-    expect(details.open).toBe(true);
-    const pairs = details.querySelector('dl[aria-label="Questions and answers"]')!;
-    expect(Array.from(pairs.querySelectorAll("dt"), (node) => node.textContent)).toEqual(asked.map((pair) => pair.question));
-    expect(Array.from(pairs.querySelectorAll("dd"), (node) => node.textContent)).toEqual(asked.map((pair) => pair.answer));
-    expect(host.querySelector("summary")?.textContent).toContain(asked[0].answer);
-    expect(host.querySelector("summary")?.textContent).not.toContain(asked[1].question);
+    const row = host.querySelector("li")!;
+    expect(row.getAttribute("data-tone")).toBe("fallback");
+    expect(row.getAttribute("aria-label")).toContain(row.title);
+    expect(row.getAttribute("aria-label")).toContain(reflexOutcome(entries[0]).tone);
   });
-
-  it("details_keep_confidence_budget_fallback", async () => {
-    entries = [{ ...entry("team_aabbccdd"), confidence_band: "weak", budget_reached: true, fallback: true,
-      reason: "budget", asked: [{ name: "fixture", question: "supplied question", answer: "supplied answer" }],
-    }];
-    const host = await setup.render(<ActivityFeed api={API} />);
-    const details = host.querySelector("details")!;
-    expect(details.textContent).toContain("weak confidence");
-    expect(details.textContent).toContain("Budget: reached");
-    expect(details.textContent).toContain("deterministic fallback");
-    expect(details.textContent).toContain("Action: notify only");
-    expect(details.textContent).toContain("Reason: budget");
-  });
-
 });
