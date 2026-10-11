@@ -62,6 +62,12 @@ it("records document-start failures without placing credentials or exception con
     fetch: (_url: string, init: RequestInit) => { calls.push(init); return Promise.resolve(); } });
   handlers.error({ error: { name: "ReferenceError", message: bootstrap.token }, filename: "http://127.0.0.1/assets/index.js?token=" + bootstrap.token, lineno: 7, colno: 9 });
   expect(JSON.parse(String(calls[1].body))).toMatchObject({ stage: "script-error", errorName: "ReferenceError", source: "index.js", line: 7, column: 9 });
+  handlers.unhandledrejection({ reason: "notification.is_permission_granted not allowed on window main " + bootstrap.token });
+  expect(JSON.parse(String(calls[2].body))).toMatchObject({ stage: "promise-error", reason: "native-capability-denied" });
+  handlers.unhandledrejection({ reason: bootstrap.token });
+  expect(JSON.parse(String(calls[3].body))).toMatchObject({ reason: "rejected-string" });
+  handlers.unhandledrejection({ reason: { name: "TypeError", message: bootstrap.token } });
+  expect(JSON.parse(String(calls[4].body))).toMatchObject({ errorName: "TypeError", reason: "rejected-value" });
   for (const call of calls) expect(String(call.body)).not.toContain(bootstrap.token);
 });
 
