@@ -1,3 +1,6 @@
+import { beforeEach as beforeDaemonCase } from "vitest";
+import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
+beforeDaemonCase(() => configureDaemonFixture());
 import { Blob as BrowserBlob, File as BrowserFile, FormData as BrowserFormData } from "happy-dom";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";

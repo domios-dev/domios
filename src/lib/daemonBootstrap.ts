@@ -36,7 +36,10 @@ const peers = new Map<string, TransportClient>();
 const listeners = new Set<(client: TransportClient) => void>();
 
 function gateway(available: boolean): void {
-  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("codeterm-gateway-state", { detail: { available } }));
+  if (typeof window !== "undefined") {
+    const EventConstructor = window.CustomEvent ?? CustomEvent;
+    window.dispatchEvent(new EventConstructor("codeterm-gateway-state", { detail: { available } }));
+  }
 }
 
 export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredentials): TransportClient {
@@ -59,11 +62,13 @@ export function initializeDaemonTransport(): TransportClient | undefined {
     delete window.__CODETERM_DAEMON__;
     return configureDaemonTransport(injected);
   }
-  const restored = typeof sessionStorage === "undefined" ? undefined : readReloadCredentials(sessionStorage);
+  const restored = window.sessionStorage ? readReloadCredentials(window.sessionStorage) : typeof sessionStorage === "undefined" ? undefined : readReloadCredentials(sessionStorage);
   if (restored) return configureDaemonTransport(restored);
   if ("__TAURI_INTERNALS__" in window) return undefined;
-  return configureDaemonTransport({ origin: window.location.origin ?? `${window.location.protocol}//${window.location.host}`,
-    token: () => localStorage.getItem(DAEMON_TOKEN_PREFIX + (window.location.origin ?? `${window.location.protocol}//${window.location.host}`)) });
+  return configureDaemonTransport({
+    origin: window.location.origin ?? `${window.location.protocol}//${window.location.host}`,
+    token: () => (window.localStorage ?? localStorage).getItem(DAEMON_TOKEN_PREFIX + (window.location.origin ?? `${window.location.protocol}//${window.location.host}`))
+  });
 }
 
 export function baseDaemonTransport(): TransportClient {

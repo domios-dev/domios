@@ -1,3 +1,4 @@
+import { DaemonFrontendBootstrap } from "./components/DaemonFrontendBootstrap";
 import { ensureDaemonRuntime } from "./lib/daemonRuntime";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
@@ -57,7 +58,7 @@ if (isGalleryRoute) {
         <MissionControlPrototype />
       ) : (
         <WebGate>
-          <App />
+          <DaemonFrontendBootstrap><App /></DaemonFrontendBootstrap>
         </WebGate>
       )}
     </FrontendCrashBoundary>,

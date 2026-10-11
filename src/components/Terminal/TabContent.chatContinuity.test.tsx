@@ -21,6 +21,7 @@ function assert(condition: unknown, label: string): asserts condition {
 
 function setupDom(): Window {
   const hookWindow = new Window({ url: "http://localhost/" });
+  Object.assign(hookWindow, { __CODETERM_DAEMON__: { origin: hookWindow.location.origin, token: "fixture-token" } });
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
     configurable: true,
     value: true,
