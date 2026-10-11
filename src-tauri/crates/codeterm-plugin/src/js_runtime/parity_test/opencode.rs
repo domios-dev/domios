@@ -541,6 +541,7 @@ fn sqlite_assistant_api_error_is_session_scoped_and_visible() {
         .unwrap();
     assert_eq!(error.content, "Model exo-free has been deprecated");
     assert_eq!(delta.observations.len(), 1);
+    assert_eq!(delta.observations[0].role, "assistant");
     assert_eq!(
         delta.observations[0].provider_session_id.as_deref(),
         Some(SES_ID)
