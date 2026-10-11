@@ -33,10 +33,7 @@ updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "Cargo.toml"));
 updateTomlPackageVersion(path.join(repoRoot, "cli", "Cargo.toml"));
 
 for (const packageDir of workspacePackages) {
-  updateJson(path.join(repoRoot, packageDir, "package.json"), (json) => {
-    json.version = version;
-    return json;
-  });
+  updateJsonVersion(path.join(repoRoot, packageDir, "package.json"));
 }
 
 if (check) {
@@ -71,7 +68,7 @@ function updateJsonVersion(file) {
       /("version"\s*:\s*")[^"]+(")/,
       (_match, prefix, suffix) => `${prefix}${version}${suffix}`,
     );
-    if (next === text && !text.includes(`"version": "${version}"`)) {
+    if (next === text && JSON.parse(text).version !== version) {
       throw new Error(`Could not find version field in ${path.relative(repoRoot, file)}`);
     }
     return next;
