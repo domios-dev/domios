@@ -12,6 +12,7 @@ import {
   Settings2,
   Wrench,
 } from "lucide-react";
+import { useAnchoredFloatingPosition } from "../shared/useAnchoredFloatingPosition";
 import { BusyState } from "../shared/BusyState";
 import type { ServeReconcileSnapshot } from "../../lib/webAccess";
 import { deriveWebUiView, type WebUiTone } from "./meshWebUi";
@@ -111,13 +112,7 @@ export function MeshWebUiControl({
     : busy === "disable" ? "Disabling…"
     : null;
 
-  const pos = (() => {
-    if (!open || !triggerRef.current) return null;
-    const rect = triggerRef.current.getBoundingClientRect();
-    return menuAlign === "left"
-      ? { top: rect.bottom + 4, left: Math.max(4, rect.left) }
-      : { top: rect.bottom + 4, right: Math.max(4, window.innerWidth - rect.right) };
-  })();
+  const pos = useAnchoredFloatingPosition(open, triggerRef, menuRef, 248, menuAlign);
 
   const btnH = touchUi ? "h-8" : "h-6";
   const chipColor = TONE_COLOR[view.tone];
@@ -161,9 +156,10 @@ export function MeshWebUiControl({
           ref={menuRef}
           data-testid="mesh-web-ui-menu"
           role="menu"
-          className="ct-portal-menu ct-menu fixed w-[248px]"
+          className="ct-portal-menu ct-menu fixed w-[248px] max-w-[calc(100vw-0.5rem)]"
           style={{
             ...pos,
+            overflowY: "auto",
             ...({ "--ct-menu-origin": menuAlign === "left" ? "top left" : "top right" } as CSSProperties),
           }}
         >
