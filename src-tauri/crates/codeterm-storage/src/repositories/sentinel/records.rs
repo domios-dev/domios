@@ -124,6 +124,7 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
+    pub model_classification: bool,
     pub session: bool,
     pub name: Option<String>,
     pub source: StageSource,

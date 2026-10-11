@@ -93,6 +93,7 @@ fn runtime() -> StageRuntime {
 
 fn definition(source: StageSource) -> StageDefinition {
     StageDefinition {
+        model_classification: false,
         session: false,
         name: Some("source-round-trip".into()),
         source,

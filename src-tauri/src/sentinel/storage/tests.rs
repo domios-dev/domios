@@ -809,3 +809,34 @@ fn probe_progress_survives_storage_finish_and_reload() {
     drop(store);
     close(storage);
 }
+
+#[test]
+fn explicit_model_classification_survives_storage_create_and_reload() {
+    let root = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    let mut params = params(false, json!({"done":[]}));
+    params.model_classification = true;
+    params.matches.clear();
+    let job = store.lock().prepare(params, owner(None), true).unwrap();
+    let created = commit(&store, |store| store.stage_insert(job)).unwrap();
+    assert!(
+        stored(&storage, &created.id)
+            .record
+            .definition
+            .definition
+            .model_classification
+    );
+    let reloaded = typed(&storage, &clock);
+    assert!(
+        reloaded
+            .lock()
+            .get(&created.id)
+            .unwrap()
+            .model_classification
+    );
+    drop(reloaded);
+    drop(store);
+    close(storage);
+}

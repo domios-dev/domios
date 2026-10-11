@@ -286,6 +286,7 @@ fn create_params() -> super::store::Create {
         every: "10s".into(),
         routes: BTreeMap::new(),
         matches: BTreeMap::new(),
+        model_classification: true,
         rearm_on_change: Default::default(),
         until: None,
         timeout: None,

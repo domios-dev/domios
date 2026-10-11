@@ -343,9 +343,9 @@ pub(super) fn insert_version(
         "INSERT INTO blueprint_definitions (blueprint_id, version, provenance, name, source_kind, \
          source_spec, pipeline_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
          escalation_timeout_ms, max_transitions, max_actions, replaced_version, author_tab_id, \
-         cause_transition_id, authored_at, created_revision, terminal_spec, session) \
+         cause_transition_id, authored_at, created_revision, terminal_spec, session, model_classification) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-         ?18, ?19, ?20, ?21, ?22, ?23)",
+         ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
         params![
             id,
             sql_version,
@@ -369,7 +369,8 @@ pub(super) fn insert_version(
             authored_at,
             created,
             definition.terminal().map(serde_json::to_string).transpose().map_err(|_| StorageError::invalid("terminal", "cannot be encoded"))?,
-            definition.session
+            definition.session,
+            definition.model_classification
         ],
     )?;
     for (ordinal, bucket) in (0_i64..).zip(&definition.buckets) {
@@ -543,6 +544,7 @@ pub(super) fn head_handler(
 }
 
 struct Header {
+    model_classification: bool,
     terminal_spec: Option<String>,
     session: bool,
     provenance: String,
@@ -577,7 +579,7 @@ pub(super) fn load_version(
             "SELECT provenance, name, source_kind, source_spec, pipeline_spec, probe, observe_kind, \
              observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
              max_transitions, max_actions, replaced_version, author_tab_id, \
-             cause_transition_id, authored_at, created_revision, terminal_spec, session \
+             cause_transition_id, authored_at, created_revision, terminal_spec, session, model_classification \
              FROM blueprint_definitions WHERE blueprint_id = ?1 AND version = ?2",
         )
         .and_then(|mut statement| {
@@ -605,6 +607,7 @@ pub(super) fn load_version(
                         created_revision: row.get(18)?,
                         terminal_spec: row.get(19)?,
                         session: row.get(20)?,
+                        model_classification: row.get(21)?,
                     })
                 })
                 .optional()
@@ -638,6 +641,7 @@ pub(super) fn load_version(
             header.authored_at,
         )?,
         definition: StageDefinition {
+            model_classification: header.model_classification,
             session: header.session,
             name: header.name,
             source: source_from(

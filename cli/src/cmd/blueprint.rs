@@ -75,7 +75,7 @@ fn render(job: &Value) {
 
 fn watch_summary(job: &Value) -> String {
     format!(
-        "{} [{}] bucket={} ×{} every={}ms last_probe_at={}{}",
+        "{} [{}] bucket={} ×{} classification={} every={}ms last_probe_at={}{}",
         job["id"].as_str().unwrap_or("?"),
         if job
             .pointer("/machine/stopped")
@@ -99,6 +99,16 @@ fn watch_summary(job: &Value) -> String {
             .or_else(|| job.pointer("/machine/last_bucket").and_then(Value::as_str))
             .unwrap_or("unclassified"),
         job["runs_since_transition"].as_u64().unwrap_or(0),
+        if job["matches"]
+            .as_object()
+            .is_some_and(|patterns| !patterns.is_empty())
+        {
+            "pattern"
+        } else if job["model_classification"].as_bool().unwrap_or(false) {
+            "model"
+        } else {
+            "unmatched"
+        },
         job["interval_ms"],
         job["last_probe_at"],
         job["last_reason"]
@@ -484,6 +494,7 @@ fn request(
             until,
             timeout,
             matches,
+            model_classification,
             dry_run,
         } => {
             if spec.is_some() || recipe.is_some() {
@@ -491,6 +502,7 @@ fn request(
                     || terminal_pattern.is_some()
                     || output_settled.is_some()
                     || session
+                    || model_classification
                     || probe.is_some()
                     || observe.is_some()
                     || input.is_some()
@@ -579,6 +591,7 @@ fn request(
             params["create"] = json!({ "name": name.ok_or("--name is required")?, "probe": probe, "observe": observe, "input": input, "question": question.ok_or("--question is required")?, "buckets": buckets.ok_or("--buckets is required")?, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             params["create"]["terminal"] = json!(terminal);
             params["create"]["session"] = json!(session);
+            params["create"]["model_classification"] = json!(model_classification);
             if dry_run {
                 "blueprint.validate.create"
             } else {

@@ -364,6 +364,7 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         })
         .collect();
     Ok(StageDefinition {
+        model_classification: job.model_classification,
         session: job.session,
         name: job.name.clone(),
         source,
@@ -436,6 +437,7 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         }
         .into(),
         definition: DefinitionSnapshot {
+            model_classification: definition.model_classification,
             terminal,
             session: definition.session,
             name: definition.name,
@@ -623,6 +625,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
         interval_ms: definition.interval_ms,
         routes,
         matches,
+        model_classification: definition.model_classification,
         rearm_on_change,
         until: definition.until,
         expires_at: runtime.expires_at,

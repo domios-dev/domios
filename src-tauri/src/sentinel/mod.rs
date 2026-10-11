@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub(crate) mod amend;
+mod classification_policy;
 pub(crate) mod classify;
 pub(crate) mod command;
 pub(crate) mod delete;
