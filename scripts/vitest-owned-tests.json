@@ -128,5 +128,7 @@
   "src/lib/bridge.phoneShell.test.ts",
   "src/components/Settings/AgentsTab.loading.test.tsx",
   "src/components/shared/viewportSurfaces.test.ts",
-  "src/components/shared/RemoteFolderPicker.portal.test.tsx"
+  "src/components/shared/RemoteFolderPicker.portal.test.tsx",
+  "src/components/MemoryPanel/memoryDetailModel.test.ts",
+  "src/components/MemoryPanel/MemoryPanel.detail.test.tsx"
 ]
