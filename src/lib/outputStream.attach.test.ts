@@ -10,7 +10,7 @@ function pending<T>() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
-  it("reconnects idle output on EOF and resumes after the event stream proves recovery", async () => {
+  it("waits after idle output EOF and resumes only after the event stream proves recovery", async () => {
     vi.resetModules();
     const output = await import("./outputStream");
     const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("./terminalViewerEvents");
@@ -27,6 +27,9 @@ describe("aggregate terminal attachment", () => {
       await connected.promise;
       connected = pending<void>();
       ends({ reason: "eof" });
+      await Promise.resolve();
+      expect(subscriptions).toBe(1);
+      window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
       await connected.promise;
       expect(subscriptions).toBe(2);
       ends({ reason: "http", status: 503 });
@@ -38,6 +41,36 @@ describe("aggregate terminal attachment", () => {
       receive("message", { tab_id: "idle", pty_id: "idle", boot: "next", offset: 1, output: "A", data: [65] });
       expect(bytes).toEqual([65]);
     } finally { detach(); output.resetOutputStream(); }
+  });
+  it("shares one live aggregate connection across staggered mounts, remounts and resync signals", async () => {
+    vi.resetModules();
+    localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("./terminalViewerEvents");
+    let receive!: (name: string, frame: unknown) => void;
+    const subscribe = vi.fn((_path, handler, _options) => { receive = handler; return () => {}; });
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe } as unknown as import("./transportClient").TransportClient);
+    const written = Array.from({ length: 20 }, () => vi.fn());
+    const stops: (() => void)[] = [];
+    for (let index = 0; index < 20; index++) {
+      stops.push(output.subscribeTabOutput(`tab-${index}`, {
+        onOutput: written[index], onTruncated() {}, onEnded() {},
+      }));
+      await Promise.resolve();
+      window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+    }
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    receive("message", { tab_id: "tab-4", pty_id: "tab-4", boot: "boot", output: "exact", offset: 5 });
+    expect(written[4]).toHaveBeenCalledExactlyOnceWith("exact");
+    expect(written.filter(callback => callback.mock.calls.length)).toHaveLength(1);
+    stops.forEach(stop => stop());
+    const replayed = vi.fn();
+    const stop = output.subscribeTabOutput("tab-4", { onOutput: replayed, onTruncated() {}, onEnded() {} });
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(replayed).toHaveBeenCalledExactlyOnceWith("exact");
+    stop();
+    output.resetOutputStream();
   });
   it("replays a new terminal and resumes a retained terminal without duplicate bytes or PTY mutations", async () => {
     vi.resetModules();
@@ -84,23 +117,16 @@ describe("aggregate terminal attachment", () => {
       await written.promise;
       expect(bytes[0]).toEqual([0x1b, 0xff, 0xe2, 0x82, 0xac]);
       detach();
-      expect(requests[0].signal.aborted).toBe(true);
-      connection = pending();
+      expect(requests[0].signal.aborted).toBe(false);
       detach = output.subscribeTabOutput("tab", sink(0), desktop, "pty");
-      controller = await connection.promise;
-      expect(JSON.parse(atob(requests[1].url.searchParams.get("since")!)).tabs).toEqual({ tab: 5 });
+      expect(requests).toHaveLength(1);
       written = pending<void>();
       send(controller, [0x1b, 0xff, 0xe2, 0x82, 0xac], 5);
       send(controller, [6], 6);
       await written.promise;
       expect(bytes[0]).toEqual([0x1b, 0xff, 0xe2, 0x82, 0xac, 6]);
-      connection = pending();
       detachBrowser = output.subscribeTabOutput("tab", sink(1), browser, "pty");
-      controller = await connection.promise;
-      expect(JSON.parse(atob(requests[2].url.searchParams.get("since")!)).tabs).toEqual({ tab: 0 });
-      written = pending<void>();
-      send(controller, [0x1b, 0xff, 0xe2, 0x82, 0xac, 6], 6);
-      await written.promise;
+      expect(requests).toHaveLength(1);
       expect(bytes).toEqual([
         [0x1b, 0xff, 0xe2, 0x82, 0xac, 6], [0x1b, 0xff, 0xe2, 0x82, 0xac, 6],
       ]);
