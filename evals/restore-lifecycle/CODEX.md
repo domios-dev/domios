@@ -90,3 +90,13 @@ Codex restores on the release build.
 The same run continues with [OpenCode phases 8–11](OPENCODE.md), including
 provider-default and cheap models, visible first replies and lazy-session
 restore. Idle tabs owe zero continues; only interrupted Working tabs owe one.
+
+Fresh Worker briefs explicitly authorize every later bench work task, including
+counting to N. A declined work task fails the fixture prerequisite; it does not
+prove a restore defect. Working observations retain the send receipt, status
+transitions, total event count and last 1000 received events.
+
+`RL_PHASES` selects rerun groups and always requires setup phases 1 and 2.
+Select 3 and 4 together, and 8 through 11 together. The default runs all phases.
+`RL_BROWSER_CHECKS=0` defers Codex browser checks while preserving backend
+receipts; deferred visible checks remain FAIL and never become a full PASS.

@@ -3,6 +3,7 @@
 Every wait re-evaluates its condition on each daemon event and gives up at a
 failure deadline; elapsed time never counts as success.
 """
+import collections
 import json
 import os
 import pathlib
@@ -210,12 +211,18 @@ def cmd_send_long_turn(deadline, tab_id, prompt, observation_path=None):
     api("POST", f"/api/tabs/{tab_id}/chat-raw/start", {"subscriptionId": f"restore-lifecycle-working-{tab_id}"})
     receipt = api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
     frames = []
+    events = collections.deque(maxlen=1000)
+    event_count = 0
 
     def record():
         if observation_path:
-            pathlib.Path(observation_path).write_text(json.dumps({'send_receipt': receipt, 'states': frames}, indent=2))
+            pathlib.Path(observation_path).write_text(json.dumps({'send_receipt': receipt, 'states': frames, 'event_count': event_count, 'last_events': list(events)}, indent=2).replace(os.environ.get('CODETERM_API_TOKEN', 'no-token'), '[redacted]'))
 
     def working(_event):
+        nonlocal event_count
+        if _event is not None:
+            event_count += 1
+            events.append({'at': time.time(), 'event': _event})
         state = status(tab_id) or {}
         if not frames or frames[-1]['status'] != state.get('status'):
             frames.append({'at': time.time(), 'status': state.get('status'), 'session': state.get('agent_session_id')})

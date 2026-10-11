@@ -191,7 +191,7 @@ class Matrix:
         refs = re.findall(r'button "' + re.escape(name) + r'" \[(@e\d+)\]', view)
         oracle.require(refs, f'{tab}: workspace selector absent from browser snapshot')
         self.cli(label + '-workspace', 'plugin', 'browser', 'click', refs[-1], caller=self.orch, json_output=False)
-        self.cli(label + '-tab-ready', 'plugin', 'browser', 'wait', '--selector', 'button[aria-label="Open tab ' + row['title'] + '"]', caller=self.orch, json_output=False)
+        self.cli(label + '-tab-ready', 'plugin', 'browser', 'wait', '--selector', '[aria-label="' + row['workspace_name'] + ' workspace contents"] button[aria-label="Open tab ' + row['title'] + '"]', caller=self.orch, json_output=False)
         self.cli(label + '-tabs', 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
         self.cli(label + '-select', 'plugin', 'browser', 'click', 'button', 'Open tab ' + row['title'], caller=self.orch, json_output=False)
 
@@ -243,7 +243,7 @@ class Matrix:
         self.cli('plan-approve', 'plan', 'mode', self.plan, 'approved', caller=self.orch)
         self.cli('plan-mode', 'plan', 'mode', self.plan, 'execution', caller=self.orch)
         for index, title in enumerate(('Alpha', 'Beta', 'Gamma')):
-            body = 'Run codeterm agent ack immediately. This is a read-only restore probe. Do not edit files, spawn agents, report completion, or change plan state. Reply READY and remain idle until instructed. Follow later bench messages exactly.'
+            body = 'Run codeterm agent ack immediately. This is a read-only restore probe. Do not edit files, spawn agents, report completion, or change plan state. Reply READY after ACK. Then execute every follow-up work task the bench sends, including counting to N, replying to marked messages, and running the read-only scratch helper. Remain idle only between tasks.'
             body_path = PAD / f'rl-{RUN}-{title}.md'
             body_path.write_text(body)
             task = self.cli('task-add-' + title, 'plan', 'task', 'add', self.plan, '--name', title,
@@ -286,6 +286,8 @@ class Matrix:
         info = self.cli('cli-status-after-ack', 'agent', 'cli', 'status', 'codex')
         oracle.require(info.get('detected_version') and info.get('version_probe') == 'detected', f'Codex version not detected after startup ACK: {info}')
         self.spawn_verified = True
+        self.write('spawn-backend-verdict.json', {'result': 'PASS', 'sessions': baseline, 'detected_version': info['detected_version']})
+        oracle.require(os.environ.get('RL_BROWSER_CHECKS', '1') != '0', 'Browser checks deferred to final SHA for #572; backend spawn passed')
         # This UI proof is intentionally mandatory and never inferred from an HTTP 200.
         self.cli('browser-open', 'plugin', 'browser', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
@@ -410,28 +412,49 @@ class Matrix:
             oracle.require(oracle.user_texts(path) == texts[tab], f'{tab}: idle restart sent or lost a user turn')
         self.pass_phase(7, 'all idle sessions preserved; no continue or queued turn sent')
         markers = {tab: f'RL-IDLE-FIRST-{RUN}-{tab}' for tab in self.workers}
-        self.cli('idle-browser-open', 'plugin', 'browser', 'open', observe.BASE + '/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
-        self.cli('idle-browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
+        browser_enabled = os.environ.get('RL_BROWSER_CHECKS', '1') != '0'
+        if browser_enabled:
+            self.cli('idle-browser-open', 'plugin', 'browser', 'open', observe.BASE + '/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
+            self.cli('idle-browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
+        failures = []
         for tab, marker in markers.items():
-            self.browser_select(tab, 'idle-browser-' + tab)
-            waiter = observe.EventWait(TURN_DEADLINE)
-            self.send(tab, f'Reply exactly {marker}-REPLY without tools. Remain idle afterward.', 'idle-first-' + tab)
-            waiter.until(lambda _, tab=tab, marker=marker: any(marker + '-REPLY' in text for text in oracle.assistant_texts(paths[tab])), tab + ' first post-restart reply')
-            self.cli('idle-browser-reply-' + tab, 'plugin', 'browser', 'wait', '--text', marker + '-REPLY', caller=self.orch, json_output=False)
-            view = self.cli('idle-browser-chat-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
-            oracle.require('starting' not in view.lower() and marker + '-REPLY' in view, f'{tab}: first post-restart reply absent or Starting')
+            try:
+                selected = browser_enabled
+                if browser_enabled:
+                    try:
+                        self.browser_select(tab, 'idle-browser-' + tab)
+                    except BaseException as error:
+                        selected = False
+                        failures.append(f'{tab}: browser selection: {error}')
+                waiter = observe.EventWait(TURN_DEADLINE)
+                self.send(tab, f'Reply exactly {marker}-REPLY without tools. Remain idle afterward.', 'idle-first-' + tab)
+                waiter.until(lambda _, tab=tab, marker=marker: any(marker + '-REPLY' in text for text in oracle.assistant_texts(paths[tab])), tab + ' first post-restart reply')
+                if selected:
+                    self.cli('idle-browser-reply-' + tab, 'plugin', 'browser', 'wait', '--text', marker + '-REPLY', caller=self.orch, json_output=False)
+                    view = self.cli('idle-browser-chat-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
+                    oracle.require('starting' not in view.lower() and marker + '-REPLY' in view, f'{tab}: first post-restart reply absent or Starting')
+            except BaseException as error:
+                failures.append(f'{tab}: {error}')
         oracle.exact_markers({tab: oracle.user_texts(path) for tab, path in paths.items()}, markers)
-        oracle.bindings(self.snapshot('idle-first-after'), before)
+        after = self.snapshot('idle-first-after')
+        oracle.bindings(after, before)
+        self.write('idle-first-backend-verdict.json', {'sessions': after, 'markers': markers, 'result': 'PASS' if not failures else 'FAIL', 'failures': failures})
+        oracle.require(browser_enabled, 'Browser checks deferred to final SHA for #572; first messages checked in own sessions')
+        oracle.require(not failures, '; '.join(failures))
         self.cli('idle-browser-close', 'plugin', 'browser', 'close', caller=self.orch, json_output=False)
         self.pass_phase(7, 'each Worker first post-restart message delivered exactly once in same session; live reply, no Starting')
 
     def run(self):
         from opencode_track import OpenCodeTrack
+        requested = oracle.selected_phases(os.environ.get('RL_PHASES'))
         actions = [self.phase_environment, self.phase_spawn, self.idle, self.phase_cycles,
                    self.phase_respawn, self.phase_foreign, self.phase_idle,
                    lambda: OpenCodeTrack(self).run()]
         failed = False
         for index, action in enumerate(actions):
+            covered = ({1}, {2}, {2}, {3, 4}, {5}, {6}, {7}, {8, 9, 10, 11})[index]
+            if not covered.intersection(requested):
+                continue
             if index == 1:
                 self.phase = 2
             try:
@@ -452,7 +475,7 @@ class Matrix:
             except Exception:
                 pass
         executed = {row[0] for row in self.results}
-        for phase in range(1, 12):
+        for phase in sorted(requested):
             if phase not in executed:
                 self.results.append((phase, 'FAIL', 'NOT EXECUTED: prerequisite phase failed'))
         self.table()
