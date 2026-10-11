@@ -191,7 +191,9 @@ pub fn run() {
         .manage(states.rest_api.clone());
     command_registration::register_commands(builder)
         .setup(move |app| {
-            if let Some(window) = app.get_webview_window("main") {
+            {
+                let api_config = states.config.lock().api.clone();
+                let window = startup::frontend_shell::create_window(app, &api_config)?;
                 startup::setup_window_styling(&window);
                 #[cfg(windows)]
                 native_resize::install(&window)?;
@@ -848,6 +850,7 @@ pub fn run() {
             startup::install_bundled_cli(app);
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
+            startup::frontend_shell::start(app_handle.clone(), states.rest_api.clone());
             service_state.schedule_restored_agent_delivery_reconciliation();
             commands::ensure_integrations_for_all(
                 &service_state.agent_registry,

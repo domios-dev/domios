@@ -162,6 +162,7 @@
   "packages/chat-ui/src/highlightBudget.test.ts",
   "packages/chat-ui/src/ChatHighlightBudget.test.tsx",
   "src/lib/daemonBootstrap.test.ts",
+  "src/lib/frontendShellBootstrap.test.ts",
   "src/lib/daemonRuntime.test.ts",
   "src/lib/teamActions.test.ts",
   "src/lib/orchestratorOnboard.nonce.test.ts",

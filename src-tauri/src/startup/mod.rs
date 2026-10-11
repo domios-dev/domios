@@ -10,6 +10,7 @@ mod cli_shim;
 mod conpty_host;
 pub(crate) mod frontend_bundles;
 mod frontend_ready;
+pub(crate) mod frontend_shell;
 mod logging;
 pub(crate) mod model_catalogue;
 mod plan_restore;
