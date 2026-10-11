@@ -229,7 +229,7 @@ Provisioning creates an isolated git worktree and launches the agent there; it i
 
 ## Codex structured control
 
-Codex structured control is enabled by default in 1.12.4. The provider declares the `codex-app-server` capability with minimum version `0.160.0`; `[agents.codex] structured_control_enabled = false` explicitly selects the plain PTY lane. Each structured tab owns its app-server, port and authentication token. The server owns session binding, thread identity and busy/idle state; provider hooks are telemetry only for those tabs. PTY fallback tabs retain ordinary hook behavior. Unsupported versions, failed readiness, unknown extra terminal arguments and Windows `.cmd`/`.bat` wrappers automatically select the plain PTY fallback. Launch diagnostics record the reason. No token value appears in launch arguments or diagnostics.
+Codex structured control is enabled by default in 1.12.4. The provider declares the `codex-app-server` capability with minimum version `0.159.0`; `[agents.codex] structured_control_enabled = false` explicitly selects the plain PTY lane. Each structured tab owns its app-server, port and authentication token. The server owns session binding, thread identity and busy/idle state; provider hooks are telemetry only for those tabs. PTY fallback tabs retain ordinary hook behavior. Unsupported versions, failed readiness, unknown extra terminal arguments and Windows `.cmd`/`.bat` wrappers automatically select the plain PTY fallback. Launch diagnostics record the reason. No token value appears in launch arguments or diagnostics.
 
 ## Related documents
 
@@ -237,4 +237,4 @@ Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `cod
 
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names.
 Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above.
-<!-- revision: 103 -->
+<!-- revision: 104 -->

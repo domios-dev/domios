@@ -1,0 +1,61 @@
+name: plugin-release
+
+on:
+  push:
+    tags:
+      - 'plugin-*-v*'
+
+concurrency:
+  group: plugin-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: validate and publish plugin
+    runs-on: [self-hosted, linux-build]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+      - name: Require a verified master commit
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+      - name: Validate release metadata
+        id: plugin
+        env:
+          PLUGIN_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/release-plugin.mjs check "$PLUGIN_TAG" > plugin-release.json
+          node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("plugin-release.json")); fs.appendFileSync(process.env.GITHUB_OUTPUT, `id=${p.id}\npath=${p.path}\n`);'
+      - run: pnpm install --frozen-lockfile
+      - name: Plugin checks
+        env:
+          PLUGIN_ID: ${{ steps.plugin.outputs.id }}
+        run: |
+          node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+          node scripts/check-plugin.mjs "$PLUGIN_ID"
+      - name: Archive plugin
+        env:
+          PLUGIN_PATH: ${{ steps.plugin.outputs.path }}
+          PLUGIN_TAG: ${{ github.ref_name }}
+        run: |
+          git archive --format=tar.gz --output="$PLUGIN_TAG.tar.gz" "$GITHUB_SHA:plugins/$PLUGIN_PATH"
+          shasum -a 256 "$PLUGIN_TAG.tar.gz" > "$PLUGIN_TAG.tar.gz.sha256"
+      - name: Publish plugin release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$PLUGIN_TAG" "$PLUGIN_TAG.tar.gz" "$PLUGIN_TAG.tar.gz.sha256" \
+            --verify-tag --latest=false --title "$PLUGIN_TAG" \
+            --notes-file plugin-release.json
