@@ -484,8 +484,12 @@ function discoverOpencodeModels() {
   }));
   const result = safeJson(raw);
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const lines2 = result.stdout.split("\n");
-  const variants = parseModelVariants(result.stdout);
+  return parseOpencodeModels(result.stdout);
+}
+function parseOpencodeModels(stdout) {
+  if (stdout.length > 1048576) return null;
+  const lines2 = stdout.split("\n");
+  const variants = parseModelVariants(stdout);
   const models2 = [];
   for (let i = 0; i < lines2.length; i++) {
     const id = lines2[i].trim();
@@ -991,10 +995,8 @@ function scanMessagesForModel(db, sql, params) {
     const raw = rows[i].data;
     if (!raw) continue;
     try {
-      const v = JSON.parse(raw);
-      if (v && v.role === "assistant" && typeof v.modelID === "string" && v.modelID) {
-        return v.modelID;
-      }
+      const model = sessionModelIdentity(JSON.parse(raw));
+      if (model) return model;
     } catch (_) {
     }
   }
@@ -1011,10 +1013,8 @@ function scanMessagesForQualifiedModel(db, sessionId) {
       const raw = rows[i].data;
       if (!raw) continue;
       try {
-        const value = JSON.parse(raw);
-        if (value.role === "assistant" && typeof value.providerID === "string" && value.providerID && typeof value.modelID === "string" && value.modelID) {
-          return `${value.providerID}/${value.modelID}`;
-        }
+        const model = sessionModelIdentity(JSON.parse(raw));
+        if (model) return model;
       } catch (_) {
       }
     }
@@ -1034,6 +1034,16 @@ function scanSessionDirectory(db, sessionId) {
   } catch (_) {
     return null;
   }
+}
+function sessionModelIdentity(value) {
+  if (!value || typeof value !== "object") return null;
+  const message = value;
+  if (message.role !== "assistant" || typeof message.modelID !== "string") return null;
+  const provider = typeof message.providerID === "string" ? message.providerID.trim() : "";
+  const model = message.modelID.trim();
+  if (!model) return null;
+  if (isModelId(model)) return model;
+  return provider && isModelId(`${provider}/${model}`) ? `${provider}/${model}` : null;
 }
 
 // plugins/provider-opencode/src/opencodePresets.ts
@@ -1451,7 +1461,6 @@ var plugin = {
     }
     return events;
   },
-  // off hot reads. `null` when the CLI cannot answer: the host keeps its seed.
   discoverModels() {
     return discoverOpencodeModels();
   },

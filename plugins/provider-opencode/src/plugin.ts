@@ -180,7 +180,6 @@ const plugin: PluginModule = {
     return events;
   },
 
-  // off hot reads. `null` when the CLI cannot answer: the host keeps its seed.
   discoverModels(): ModelInfo[] | null {
     return discoverOpencodeModels();
   },

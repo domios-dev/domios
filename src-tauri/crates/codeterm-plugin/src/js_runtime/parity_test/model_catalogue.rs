@@ -1,10 +1,10 @@
 use super::super::{PluginManifest, PluginVm};
 use super::*;
 
-struct FreeFormNativeStub;
+struct RequiredLiveNativeStub;
 
 #[async_trait::async_trait]
-impl AgentProvider for FreeFormNativeStub {
+impl AgentProvider for RequiredLiveNativeStub {
     fn id(&self) -> &str {
         "opencode"
     }
@@ -60,7 +60,7 @@ impl AgentProvider for FreeFormNativeStub {
                 "~/.config/opencode/opencode.json".into(),
                 "~/.config/opencode/opencode.jsonc".into(),
             ],
-            ..Default::default()
+            ..crate::provider::ModelCatalogueCapability::authoritative_live()
         }
     }
 }
@@ -75,11 +75,11 @@ fn model_catalogue_authority_native_js_parity() {
         native_claude.model_catalogue_capability(),
         js_claude.model_catalogue_capability()
     );
-    let native_free_form = FreeFormNativeStub;
-    let js_free_form = load_js("opencode");
+    let native_required_live = RequiredLiveNativeStub;
+    let js_required_live = load_js("opencode");
     assert_eq!(
-        native_free_form.model_catalogue_capability(),
-        js_free_form.model_catalogue_capability()
+        native_required_live.model_catalogue_capability(),
+        js_required_live.model_catalogue_capability()
     );
 
     let manifest_json = r#"{
