@@ -22,7 +22,9 @@ pub(crate) fn supported() -> bool {
     cfg!(any(windows, target_os = "macos"))
 }
 
-pub(crate) use codeterm_plugin::local_recording::{LocalInputSubscription, SubscriptionTeardown};
+pub(crate) use codeterm_plugin::local_recording::{
+    LocalInputSetupError, LocalInputSubscription, SubscriptionTeardown,
+};
 
 pub(crate) trait LocalInputAdapter: Send + Sync {
     fn subscribe(
@@ -31,7 +33,7 @@ pub(crate) trait LocalInputAdapter: Send + Sync {
         selected: &SelectedDevices,
         generation: u64,
         callback: std::sync::Arc<dyn Fn(SelectedInputEvent) + Send + Sync>,
-    ) -> Result<Box<dyn LocalInputSubscription>, String>;
+    ) -> Result<Box<dyn LocalInputSubscription>, LocalInputSetupError>;
 }
 
 pub(crate) struct UnsupportedInput;
@@ -43,12 +45,15 @@ impl LocalInputAdapter for UnsupportedInput {
         _: &SelectedDevices,
         _: u64,
         _: std::sync::Arc<dyn Fn(SelectedInputEvent) + Send + Sync>,
-    ) -> Result<Box<dyn LocalInputSubscription>, String> {
-        Err("local_recording_unsupported".into())
+    ) -> Result<Box<dyn LocalInputSubscription>, LocalInputSetupError> {
+        Err(LocalInputSetupError {
+            reason: "local_recording_unsupported".into(),
+            teardown: None,
+        })
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 #[path = "platform/macos.rs"]
 pub(crate) mod macos;
 #[cfg(windows)]

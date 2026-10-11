@@ -1,6 +1,8 @@
-use super::tests::{set_mtime, test_caps, write, TestRegistrar};
+use super::tests::{TestRegistrar, set_mtime, test_caps, write};
 use super::*;
-use crate::local_recording::{LocalRecordingTrigger, SelectedDevices};
+use crate::local_recording::{
+    LocalInputSubscription, LocalRecordingTrigger, SelectedDevices, SubscriptionTeardown,
+};
 use std::sync::atomic::Ordering;
 
 fn manifest(id: &str) -> String {
@@ -11,6 +13,16 @@ fn manifest(id: &str) -> String {
             "tabMenu": [{ "id": "receive", "label": "Receive here", "action": "receiverTarget" }] },
         "permissions": { "local_recording": true }
     }).to_string()
+}
+
+struct ReadySubscription;
+
+impl LocalInputSubscription for ReadySubscription {
+    fn request_stop(&mut self) -> SubscriptionTeardown {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(Ok(())).unwrap();
+        SubscriptionTeardown::new(receiver)
+    }
 }
 
 #[test]
@@ -61,9 +73,14 @@ fn lark_recording_contract_native_js_declaration_and_reload_grant_parity() {
         .select_devices("trigger", devices.clone())
         .unwrap();
     caps.local_recording.set_enabled("trigger", true).unwrap();
-    let generation = caps.local_recording.selected_devices("trigger").unwrap().1;
+    let setup = caps
+        .local_recording
+        .begin_subscription_setup("trigger")
+        .unwrap();
+    let generation = setup.generation;
     caps.local_recording
-        .set_available("trigger", generation, true);
+        .complete_subscription_setup(&setup, Box::new(ReadySubscription))
+        .unwrap();
     let active = caps
         .local_recording
         .begin("trigger", &devices, generation)
@@ -76,9 +93,7 @@ fn lark_recording_contract_native_js_declaration_and_reload_grant_parity() {
     watcher.tick();
     assert!(!active.load(Ordering::Acquire));
     assert!(!caps.local_recording.status("trigger").unwrap().granted);
-    assert!(!caps
-        .local_recording
-        .set_available("trigger", generation, true));
+    assert!(!caps.local_recording.mark_unavailable("trigger", generation));
     caps.deregister_plugin("trigger");
     assert!(!caps.local_recording.contains("trigger"));
 }
