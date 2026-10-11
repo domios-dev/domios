@@ -43,7 +43,10 @@ jobs:
         run: |
           test "$(git rev-parse "$FRONTEND_TAG^{commit}")" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
-      - run: pnpm install --frozen-lockfile
+      - name: Frozen dependencies and build.sh dependency freshness marker
+        run: |
+          pnpm install --frozen-lockfile
+          touch node_modules/.package-lock.json
       - name: Focused producer tests
         run: node --test scripts/frontend-release/*.test.mjs
       - name: Build frontend only (TypeScript and Vite)
