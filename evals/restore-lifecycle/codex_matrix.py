@@ -270,6 +270,7 @@ class Matrix:
                 self.wait(lambda path=path: any('READY ACK' in text for text in oracle.assistant_texts(path)), tab + ' own pair fixture ACK')
         info = self.cli('cli-status-after-ack', 'agent', 'cli', 'status', 'codex')
         oracle.require(info.get('detected_version') and info.get('version_probe') == 'detected', f'Codex version not detected after startup ACK: {info}')
+        self.spawn_verified = True
         # This UI proof is intentionally mandatory and never inferred from an HTTP 200.
         self.cli('browser-open', 'plugin', 'browser', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
@@ -413,36 +414,38 @@ class Matrix:
         self.pass_phase(7, 'each Worker first post-restart message delivered exactly once in same session; live reply, no Starting')
 
     def run(self):
-        try:
-            self.phase_environment()
-            self.phase = 2
-            self.phase_spawn()
-            self.idle()
-            self.phase_cycles()
-            self.phase_respawn()
-            self.phase_foreign()
-            self.phase_idle()
-            from opencode_track import OpenCodeTrack
-            OpenCodeTrack(self).run()
-        except BaseException as error:
-            self.write('failure.txt', str(error))
-            if self.log_path.exists():
-                self.log_since(self.log_offset, 'failure')
-            self.results.append((self.phase, 'FAIL', str(error)))
-            executed = {row[0] for row in self.results}
-            for phase in range(1, 12):
-                if phase not in executed:
-                    self.results.append((phase, 'FAIL', 'NOT EXECUTED: prerequisite phase failed'))
+        from opencode_track import OpenCodeTrack
+        actions = [self.phase_environment, self.phase_spawn, self.idle, self.phase_cycles,
+                   self.phase_respawn, self.phase_foreign, self.phase_idle,
+                   lambda: OpenCodeTrack(self).run()]
+        failed = False
+        for index, action in enumerate(actions):
+            if index == 1:
+                self.phase = 2
+            try:
+                action()
+            except BaseException as error:
+                failed = True
+                self.write(f'failure-phase-{self.phase}.txt', str(error))
+                if self.log_path.exists():
+                    self.log_since(self.log_offset, f'failure-phase-{self.phase}')
+                self.results.append((self.phase, 'FAIL', str(error)))
+                print(f'FAIL mode={MODE} phase={self.phase} {error} evidence={OUT}', flush=True)
+                if index == 0 or (index == 1 and not getattr(self, 'spawn_verified', False)):
+                    break
             self.table()
-            print(f'FAIL mode={MODE} phase={self.phase} {error} evidence={OUT}', flush=True)
-            raise
-        finally:
-            # Preserve failed agent fixtures but close every browser utility we opened.
-            if self.orch:
-                try:
-                    self.cli('browser-cleanup', 'plugin', 'browser', 'close', caller=self.orch, json_output=False)
-                except Exception:
-                    pass
+        if self.orch:
+            try:
+                self.cli('browser-cleanup', 'plugin', 'browser', 'close', caller=self.orch, json_output=False)
+            except Exception:
+                pass
+        executed = {row[0] for row in self.results}
+        for phase in range(1, 12):
+            if phase not in executed:
+                self.results.append((phase, 'FAIL', 'NOT EXECUTED: prerequisite phase failed'))
+        self.table()
+        if failed:
+            raise SystemExit(1)
         if self.team:
             self.cli('team-cleanup', 'team', 'close', self.team)
         if self.workspace:
