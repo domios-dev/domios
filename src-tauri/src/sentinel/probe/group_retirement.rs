@@ -198,7 +198,7 @@ fn verify_exit_event(fd: i32, pid: u32) -> Result<(), String> {
     };
     let result = unsafe { libc::kevent(fd, std::ptr::null(), 0, &mut event, 1, &timeout) };
     if result == 1
-        && event.ident == pid as _
+        && event.ident == pid as libc::uintptr_t
         && event.filter == libc::EVFILT_PROC
         && event.fflags & libc::NOTE_EXIT != 0
         && event.flags & libc::EV_ERROR == 0
