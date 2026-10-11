@@ -9,15 +9,19 @@ export interface FreshGeneralSessionRequest {
   cwd: string;
   role: "general_agent";
   intent: SessionLaunchIntent;
+  model?: string;
+  reasoningEffort?: string;
+  preset?: string;
 }
 
 export function freshGeneralSessionRequest(
   workspaceId: string,
   providerId: string,
   cwd: string | undefined,
+  selection: Pick<FreshGeneralSessionRequest, "model" | "reasoningEffort" | "preset"> = {},
 ): FreshGeneralSessionRequest {
   if (!cwd || !providerId) throw new Error("General session configuration is unavailable");
-  return { workspaceId, providerId, cwd, role: "general_agent", intent: "fresh_general" };
+  return { ...selection, workspaceId, providerId, cwd, role: "general_agent", intent: "fresh_general" };
 }
 
 export function spawnFreshGeneralSession(
@@ -25,8 +29,9 @@ export function spawnFreshGeneralSession(
   providerId: string,
   cwd: string | undefined,
   request: typeof invoke = invoke,
+  selection: Pick<FreshGeneralSessionRequest, "model" | "reasoningEffort" | "preset"> = {},
 ): Promise<AtomicSpawn> {
   return request<AtomicSpawn>("spawn_general_agent_session", {
-    params: freshGeneralSessionRequest(workspaceId, providerId, cwd),
+    params: freshGeneralSessionRequest(workspaceId, providerId, cwd, selection),
   });
 }

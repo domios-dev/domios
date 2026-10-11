@@ -12,6 +12,9 @@ pub struct FreshGeneralSessionRequest {
     pub cwd: String,
     pub role: String,
     pub intent: String,
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub preset: Option<String>,
 }
 
 fn validate_request(
@@ -33,7 +36,7 @@ fn validate_request(
     {
         return Err("Fresh General sessions belong to the General workspace".into());
     }
-    if request.provider_id != config.agent_provider
+    if request.provider_id.trim().is_empty()
         || crate::paths::canonical_cwd(&request.cwd)
             != crate::paths::canonical_cwd(&super::general_dir().to_string_lossy())
     {
@@ -71,21 +74,44 @@ impl ServiceContext {
         request: FreshGeneralSessionRequest,
     ) -> Result<AtomicSpawn, String> {
         let general = config.lock().general_agent.clone();
+        let mut selection = super::session_contract::FreshLaunchSelection {
+            model: request.model.clone(),
+            reasoning_effort: request.reasoning_effort.clone(),
+            ..Default::default()
+        };
         validate_request(&self.mux.read(), &general, &request)?;
-        self.require_agent_provider_ready(&general.agent_provider)?;
+        self.require_agent_provider_ready(&request.provider_id)?;
         let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
             &self.agent_registry,
-            &general.agent_provider,
+            &request.provider_id,
         )?
         .is_some();
         let chat_view = super::default_chat_view_for_provider(
             &config.lock(),
             &self.agent_registry,
-            &general.agent_provider,
+            &request.provider_id,
         );
+        if let Some(name) = request.preset.as_deref() {
+            let adapter = self
+                .agent_registry
+                .with_provider(&request.provider_id, |provider| {
+                    provider.model_provider_config()
+                })
+                .flatten()
+                .ok_or("provider does not support model presets")?;
+            let (model, args) = super::super::model_providers::presets::resolve(
+                &*adapter,
+                name,
+                selection.model.as_deref(),
+                &[],
+            )
+            .map_err(|error| error.to_string())?;
+            selection.model = Some(model);
+            selection.preset_args = args;
+        }
         super::ensure_directories();
         super::state::mark_independent_sessions()?;
-        super::instructions::generate_instructions(&general.agent_provider, Some(&self.mem));
+        super::instructions::generate_instructions(&request.provider_id, Some(&self.mem));
         let tab_id = {
             let mut mux = self.mux.write();
             validate_request(&mux, &general, &request)?;
@@ -114,8 +140,9 @@ impl ServiceContext {
                 &service,
                 &config,
                 launch_tab_id,
-                &general.agent_provider,
+                &request.provider_id,
                 permission_bypass,
+                selection,
             );
         });
         self.emit_state_changed();

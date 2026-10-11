@@ -76,11 +76,12 @@ afterEach(async () => {
   host.remove();
 });
 
-async function renderPicker(props: { onClose?: () => void; fullAccess?: boolean } = {}) {
+async function renderPicker(props: { onClose?: () => void; fullAccess?: boolean; section?: "general" | "workspace" } = {}) {
   await act(async () => {
     root!.render(
       <NewSessionPicker
         workspaceId={workspace.id}
+        section={props.section}
         workspaceCwd={workspace.cwd}
         agentConfig={props.fullAccess === undefined ? undefined : { full_access: props.fullAccess } as AppConfig["agent"]}
         onClose={props.onClose ?? (() => undefined)}
@@ -136,6 +137,15 @@ describe("NewSessionPicker modal", () => {
     expect(buttonNamed("Planner effort")?.textContent?.trim()).toBe("High");
     expect(dialog().textContent).not.toContain("MODEL");
     expect(dialog().textContent).not.toContain("EFFORT");
+  });
+
+  it("restores a remembered Team as an agent when opened in General", async () => {
+    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "pair", orchestratorProviderId: "opencode", plannerProviderId: "opencode" }));
+    await renderPicker({ fullAccess: false, section: "general" });
+    expect(buttonNamed("Team")).toBeNull();
+    expect(buttonNamed("Orchestrator provider")).toBeNull();
+    expect(buttonNamed("Planner provider")).toBeNull();
+    expect(buttonNamed("Agent provider")).not.toBeNull();
   });
 
   it("switches modes and starts a team in the opening workspace with both role settings", async () => {
