@@ -8,17 +8,20 @@ use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use url::Url;
 
 mod model;
-use model::{boot_failure_action, BootFailureAction, BootObservation};
+use model::{boot_failure_action, development_frontend, BootFailureAction, BootObservation};
 
 #[derive(Default)]
 struct ShellSupervisor {
     navigation: Arc<AtomicU64>,
+    development_frontend: Option<Url>,
 }
 
 #[derive(Clone, Serialize)]
 struct ShellBootstrap {
     origin: String,
     token: String,
+    #[serde(rename = "frontendOrigin", skip_serializing_if = "Option::is_none")]
+    frontend_origin: Option<String>,
 }
 
 fn loopback_origin(address: SocketAddr) -> Result<String, String> {
@@ -58,6 +61,7 @@ fn bootstrap(config: &crate::config::schema::ApiConfig) -> Result<ShellBootstrap
     Ok(ShellBootstrap {
         origin: loopback_origin(crate::config::canonical_api_bind_addr(config)?)?,
         token,
+        frontend_origin: None,
     })
 }
 
@@ -106,13 +110,23 @@ pub(crate) fn create_window(
     app: &tauri::App,
     config: &crate::config::schema::ApiConfig,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
-    app.manage(ShellSupervisor::default());
-    let bootstrap = bootstrap(config)
+    let development_frontend =
+        development_frontend(cfg!(debug_assertions), app.config().build.dev_url.as_ref())?;
+    app.manage(ShellSupervisor {
+        development_frontend: development_frontend.clone(),
+        ..Default::default()
+    });
+    let mut bootstrap = bootstrap(config)
         .map_err(|error| {
             log::error!("[frontend-shell] {error}");
             error
         })
         .ok();
+    if let Some(bootstrap) = bootstrap.as_mut() {
+        bootstrap.frontend_origin = development_frontend
+            .as_ref()
+            .map(|url| url.origin().ascii_serialization());
+    }
     let unavailable = unavailable_url()?;
     let fallback = fallback_url()?;
     let mut window_config = app
@@ -123,10 +137,17 @@ pub(crate) fn create_window(
         .cloned()
         .ok_or("Main window configuration is missing")?;
     window_config.url = WebviewUrl::CustomProtocol(unavailable.clone());
-    let origin = bootstrap.as_ref().map(|bootstrap| bootstrap.origin.clone());
+    let origin = bootstrap.as_ref().map(|bootstrap| {
+        bootstrap
+            .frontend_origin
+            .clone()
+            .unwrap_or_else(|| bootstrap.origin.clone())
+    });
     let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
     if let Some(bootstrap) = bootstrap {
-        app.add_capability(daemon_capability(&bootstrap.origin)?)?;
+        app.add_capability(daemon_capability(
+            origin.as_deref().ok_or("Frontend origin is missing")?,
+        )?)?;
         builder = builder.initialization_script(bootstrap_script(&bootstrap)?);
     }
     Ok(builder
@@ -213,6 +234,9 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
 }
 
 async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, String> {
+    if let Some(url) = &app.state::<ShellSupervisor>().development_frontend {
+        return Ok(url.clone());
+    }
     let bundles = app
         .try_state::<Arc<crate::frontend_bundle::FrontendBundles>>()
         .map(|bundles| bundles.inner().clone());
