@@ -1,8 +1,11 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::Duration;
 
 const REGISTRATION: &str = "codeterm-instance-lifetime-v1";
+const PREDECESSOR_EXIT_DEADLINE: Duration = Duration::from_secs(30);
 
 pub(crate) struct InstanceLifetime {
     _lock: File,
@@ -41,10 +44,14 @@ fn real_directory(path: &Path) -> bool {
 }
 
 pub(crate) fn acquire() -> io::Result<InstanceLifetime> {
-    acquire_at(&registry_dir()?, crate::paths::codeterm_instance_id())
+    acquire_at(
+        &registry_dir()?,
+        crate::paths::codeterm_instance_id(),
+        PREDECESSOR_EXIT_DEADLINE,
+    )
 }
 
-fn acquire_at(root: &Path, id: &str) -> io::Result<InstanceLifetime> {
+fn acquire_at(root: &Path, id: &str, deadline: Duration) -> io::Result<InstanceLifetime> {
     if !canonical_instance_id(id) {
         return Err(io::Error::other("Invalid instance identity"));
     }
@@ -67,11 +74,32 @@ fn acquire_at(root: &Path, id: &str) -> io::Result<InstanceLifetime> {
         .read(true)
         .write(true)
         .open(path)?;
-    lock.try_lock().map_err(io::Error::other)?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => {
+            log::warn!("[startup] instance lifetime lock held; waiting for its holder to exit");
+            lock = wait_for_release(lock, deadline)?;
+        }
+        Err(error) => return Err(io::Error::other(error)),
+    }
     lock.set_len(0)?;
     lock.write_all(registration(id).as_bytes())?;
     lock.sync_all()?;
     Ok(InstanceLifetime { _lock: lock })
+}
+
+// App restart spawns its successor before the predecessor exits, and the OS releases
+// that lock only at process exit; a peer's gone-sweep also holds it briefly.
+fn wait_for_release(lock: File, deadline: Duration) -> io::Result<File> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("instance-lifetime-wait".into())
+        .spawn(move || {
+            let _ = sender.send(lock.lock().map(|()| lock));
+        })?;
+    receiver
+        .recv_timeout(deadline)
+        .map_err(|_| io::Error::other("instance lifetime lock still held at the deadline"))?
 }
 
 pub(crate) fn lock_gone_instances() -> Vec<GoneInstance> {
