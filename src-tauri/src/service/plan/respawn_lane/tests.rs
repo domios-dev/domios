@@ -122,6 +122,8 @@ fn non_repository_respawn_in_non_git_directory_persists_acknowledged_replacement
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("non-git");
     std::fs::create_dir(&project).unwrap();
+    // macOS tempdirs live under the /var -> /private/var symlink; respawn records the canonical cwd.
+    let project = project.canonicalize().unwrap();
     let project = project.to_str().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let (plan_id, task, draft) = respawn_fixture(
