@@ -106,6 +106,7 @@ mod provider_handoff;
 mod pty_frame_timing;
 mod pty_output_pipeline;
 pub(crate) use plan_reconcile::tab_has_live_agent;
+pub(crate) mod local_recording;
 pub mod managed_tabs;
 pub mod plugin_host;
 pub mod plugin_prompt;
@@ -392,6 +393,8 @@ pub struct ServiceContext {
     /// Registry of synchronous webhook receivers declared by JS plugins.
     /// Inbound API routes resolve the receiver here by manifest plugin id.
     pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
+    pub local_recording_registry: codeterm_plugin::local_recording::LocalRecordingRegistryHandle,
+    pub(crate) local_recordings: Arc<local_recording::RecordingLeases>,
     /// Manifest-declared tab menu items, keyed by plugin id.
     pub tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle,
     /// Surface declarations of enabled view plugins, keyed by plugin id.
@@ -400,6 +403,7 @@ pub struct ServiceContext {
     pub(crate) surface_activity: Arc<surface::SurfaceActivityGate>,
     /// Sole owner of the webhook-receiver → tab bindings.
     pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
+    pub(crate) local_recording_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).
