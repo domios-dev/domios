@@ -211,4 +211,17 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
   assertEqual(s.pointerId, PID, "first pointerId preserved");
 }
 
+{
+  const started = apply([
+    { type: "POINTER_DOWN", pointerId: PID, ...BASE },
+    { type: "START_OK" },
+  ]);
+  const duplicateStart = voiceReducer(started, { type: "START_OK" });
+  assertEqual(duplicateStart.phase, "hold", "duplicate START_OK does not restart a manual capture");
+  const released = voiceReducer(started, { type: "POINTER_UP", pointerId: PID });
+  const duplicateRelease = voiceReducer(released, { type: "POINTER_UP", pointerId: PID });
+  assertEqual(duplicateRelease.phase, "hold", "duplicate manual release keeps one finish transition");
+  assert(duplicateRelease.busy, "duplicate release cannot clear the pending finish");
+}
+
 console.log("voiceFsm: all tests passed");

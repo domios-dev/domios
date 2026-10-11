@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Surface/PointAndAsk.test.tsx
 
 import "./surfaceDomGlobals.testdata";
-import { resetWarmStreamForTest } from "../Terminal/voice/useVoiceRecorder";
+import { resetCaptureOwnershipForTest } from "../Terminal/voice/larkCaptureModel";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { PointAndAsk, SNIP_IMAGE_LABEL, type AskSubject } from "./PointAndAsk";
@@ -144,4 +144,4 @@ suite.test("an area without its image keeps only the context line", async () => 
 });
 
 // The composer mic keeps a 30s warm-stream timer that would hold the process open.
-void suite.run().then(resetWarmStreamForTest);
+void suite.run().then(resetCaptureOwnershipForTest);
