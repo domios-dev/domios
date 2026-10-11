@@ -35,9 +35,13 @@ Every claim below is transcribed from the Rust source of truth:
 
 `spawn.paste.supportsBracketedPaste` defaults to true. Set it to false for
 plain input that cannot interpret bracketed paste; the refusal overrides live
-terminal mode, multiline TUI framing and typed prefixes. Plain frames normalize
-newlines to carriage returns, so a provider must preprocess multiline messages
-into its own input format. A paste-only declaration may omit the typed follow-up
+terminal mode, multiline TUI framing and typed prefixes. Declare
+`spawn.paste.multiline: "tagged_block"` for plain readers supporting
+`{tag` and `tag}` lines. Core wraps the entire input frame with a collision-free
+tag at the shared PTY submit seam, including typed envelopes. Chat, CLI, reports
+and launch input all use this declaration; do not duplicate transport wrapping
+in a chat preprocessor. Plain frames otherwise normalize newlines to carriage
+returns. A paste-only declaration may omit the typed follow-up
 fields; it adds no sandbox host function.
 
 `authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
