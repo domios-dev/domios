@@ -27,9 +27,9 @@ test("held queues and exact evidence delivers the same bubble", () => {
   assert.equal(delivered.id, queued.id);
 });
 
-test("uncertain writes stay sending and stale responses cannot downgrade evidence", () => {
+test("uncertain writes show uncertainty and stale responses cannot downgrade evidence", () => {
   const uncertain = applyDeliveryStatus(send(), status("submit_unconfirmed", 3));
-  assert.equal(deliveryState(uncertain), "sending");
+  assert.equal(deliveryState(uncertain), "uncertain");
   assert.equal(applyDeliveryStatus(uncertain, status("held", 1)), uncertain);
   const delivered = applyDeliveryStatus(uncertain, status("delivered", 4));
   assert.equal(applyDeliveryStatus(delivered, status("failed", 5)), delivered);

@@ -17,6 +17,7 @@ const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivi
   ["provider question", { ...agent, agent_state: { state: "question" } }, null, "waiting-on-user", false, false],
   ["booting", { ...agent, agent_booting: true }, "Working", "starting", false, false],
   ["launch written", { ...agent, boot_stage: "launch_written" }, null, "starting", false, false],
+  ["lazy composer ready before session creation", { ...agent, agent_session_id: null, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
   ["ready stage stays idle", { ...agent, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
   ["reattached stage stays idle", { ...agent, boot_stage: "pty_reattached" }, null, "idle", false, false],
   ["owner prompt", { ...agent, boot_stage: "awaiting_owner_prompt" }, "Working", "waiting-on-user", false, false],

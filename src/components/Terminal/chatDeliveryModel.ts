@@ -4,7 +4,7 @@ import type { ChatSendStatus } from "./chatSendStatus";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
 
-export type DeliveryState = "sending" | "queued" | "delivered" | "failed";
+export type DeliveryState = "sending" | "queued" | "uncertain" | "delivered" | "failed";
 export interface DeliveryDraft {
   text: string;
   attachments: string[];
@@ -17,6 +17,7 @@ export type DeliverySend = ChatSend & { status?: ChatSendStatus; requestFailed?:
 export function deliveryState(send: DeliverySend): DeliveryState {
   if (send.echo || send.status?.state === "delivered") return "delivered";
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
+  if (send.status?.state === "submit_unconfirmed") return "uncertain";
   return send.status?.state === "held" ? "queued" : "sending";
 }
 

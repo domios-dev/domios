@@ -855,7 +855,7 @@ export function TabSessionChat({
                 message={msg}
                 streaming={msg.id === streamingId}
                 userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
-                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />
+                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
                 showTimestamp={msg.type === "user" || agentTimeMessageIds.has(msg.id)}
                 item={item.kind === "tool" ? item : undefined}

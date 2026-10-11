@@ -4,6 +4,8 @@ use std::sync::{Arc, Weak};
 mod live_evidence;
 mod rpc_evidence;
 mod service_context;
+mod system_send;
+pub use system_send::SystemSend;
 mod turn_matching;
 mod turn_reconciliation;
 use live_evidence::{ConsumedTurnWatermark, LiveEvidenceProgress};
@@ -50,6 +52,8 @@ pub struct ChatSendStatus {
     pub correlation_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_send: Option<SystemSend>,
 }
 
 /// Capability-based append-window boundary captured at send start.
@@ -199,6 +203,7 @@ impl ChatSendLedger {
             retained_from: sequence,
             correlation_id: None,
             pending_reason: None,
+            system_send: None,
         };
         let payload = normalize_turn_evidence_with(payload, anchor.turn_normalization);
         let position = state.order.iter().position(|id| {
@@ -260,6 +265,7 @@ impl ChatSendLedger {
             retained_from: record.ledger_sequence,
             correlation_id: record.client_token.clone(),
             pending_reason: None,
+            system_send: None,
         };
         state
             .owned
@@ -606,6 +612,7 @@ impl ChatSendLedger {
             retained_from: sequence,
             correlation_id: None,
             pending_reason: None,
+            system_send: None,
         };
         state
             .latest_by_tab

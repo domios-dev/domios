@@ -91,6 +91,12 @@ export function addChatSend(tabId: string, send: ChatSend): void {
 }
 
 export function observeDeliveryStatus(status: ChatSendStatus): void {
+  if (status.system_send && status.correlationId) {
+    addChatSend(status.tab_id, {
+      id: status.send_id, correlationId: status.correlationId,
+      content: status.system_send.content, sentAtMs: status.system_send.sent_at_ms,
+    });
+  }
   const current = readChatSends(status.tab_id);
   const next = current.map((send) => applyDeliveryStatus(send, status));
   if (next.some((send, index) => send !== current[index])) publish(status.tab_id, next);
@@ -112,7 +118,7 @@ export function reconcileDeliveryStatuses(tabId: string, statuses: readonly Chat
 export function beginChatSendRetry(tabId: string, id: string): DeliverySend | undefined {
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
-  if (!send || deliveryState(send) !== "failed") return;
+  if (!send || send.status?.system_send || deliveryState(send) !== "failed") return;
   const next = { ...send, requestFailed: false, status: undefined,
     correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
