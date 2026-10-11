@@ -27,9 +27,10 @@ fn early_send_nonce_survives_initial_launch_registration() {
             expected_session_id: None,
             expected_binding_nonce: None,
         };
+        let claim = fixture.service.pty_ownership.acquire(&tab_id);
         fixture
             .service
-            .pin_agent_delivery_binding(&tab_id, &mut payload)
+            .pin_agent_delivery_binding(&claim, &mut payload)
             .unwrap();
         assert!(payload.expected_pty_id.is_none());
         fixture
