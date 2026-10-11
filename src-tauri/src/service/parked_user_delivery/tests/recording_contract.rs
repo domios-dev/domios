@@ -46,10 +46,13 @@ fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
         .selected_devices("trigger")
         .unwrap()
         .1;
-    assert!(fixture
-        .service
-        .local_recording_registry
-        .set_available("trigger", generation, true));
+    assert_eq!(
+        crate::service::local_recording::arm_registry_fixture(
+            &fixture.service.local_recording_registry,
+            "trigger"
+        ),
+        generation
+    );
     let target = fixture.service.freeze_recording_target(tab).unwrap();
     let lease = fixture
         .service
@@ -115,10 +118,12 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
         )
         .unwrap();
     at_guard_rx.recv_timeout(TEST_DEADLINE).unwrap();
-    assert!(fixture
-        .service
-        .local_recordings
-        .has_write_ticket(&accepted.status.send_id));
+    assert!(
+        fixture
+            .service
+            .local_recordings
+            .has_write_ticket(&accepted.status.send_id)
+    );
     match invalidation {
         Invalidation::Cancel => fixture.service.local_recordings.cancel(&capture.lease_id),
         Invalidation::Revoke => fixture.service.local_recording_registry.revoke("trigger"),
@@ -126,10 +131,12 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
             .service
             .local_recording_registry
             .unregister("trigger"),
-        Invalidation::DeviceLoss => assert!(fixture
-            .service
-            .local_recording_registry
-            .set_available("trigger", generation, false)),
+        Invalidation::DeviceLoss => assert!(
+            fixture
+                .service
+                .local_recording_registry
+                .mark_unavailable("trigger", generation)
+        ),
         Invalidation::Deadline => fixture
             .service
             .local_recordings
@@ -142,17 +149,21 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
     continue_tx.send(()).unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(writes.load(Ordering::SeqCst), 0);
-    assert!(!fixture
-        .service
-        .local_recordings
-        .has_write_ticket(&accepted.status.send_id));
-    assert!(fixture
-        .service
-        .pending_delivery_payloads
-        .user_sends
-        .queued(&tab)
-        .unwrap()
-        .is_empty());
+    assert!(
+        !fixture
+            .service
+            .local_recordings
+            .has_write_ticket(&accepted.status.send_id)
+    );
+    assert!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .queued(&tab)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -240,17 +251,21 @@ fn lark_recording_contract_registered_ticket_survives_admission_and_valid_write_
         )
         .unwrap();
     at_guard_rx.recv_timeout(TEST_DEADLINE).unwrap();
-    assert!(fixture
-        .service
-        .local_recordings
-        .has_write_ticket(&accepted.status.send_id));
+    assert!(
+        fixture
+            .service
+            .local_recordings
+            .has_write_ticket(&accepted.status.send_id)
+    );
     continue_tx.send(()).unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(writes.load(Ordering::SeqCst), 1);
-    assert!(!fixture
-        .service
-        .local_recordings
-        .has_write_ticket(&accepted.status.send_id));
+    assert!(
+        !fixture
+            .service
+            .local_recordings
+            .has_write_ticket(&accepted.status.send_id)
+    );
 }
 
 #[test]
@@ -290,17 +305,21 @@ fn lark_recording_contract_possible_handoff_remains_uncertain_and_never_replays(
             .state,
         ChatSendState::Unknown
     );
-    assert!(fixture
-        .service
-        .pending_delivery_payloads
-        .user_sends
-        .queued(&tab)
-        .unwrap()
-        .is_empty());
-    assert!(!fixture
-        .service
-        .local_recordings
-        .has_write_ticket(&accepted.status.send_id));
+    assert!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .queued(&tab)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !fixture
+            .service
+            .local_recordings
+            .has_write_ticket(&accepted.status.send_id)
+    );
     fixture.service.drain_user_owner(&tab).unwrap();
     assert_eq!(writes.load(Ordering::SeqCst), 1);
 }

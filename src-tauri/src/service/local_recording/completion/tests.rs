@@ -2,8 +2,8 @@ use super::*;
 use crate::service::local_recording::chat::ChatIdentity;
 use crate::service::local_recording::leases::{CapturePhase, FrozenTarget};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 fn capture() -> Capture {
@@ -90,7 +90,7 @@ async fn lark_recording_contract_failure_empty_cancel_and_target_change_transcri
 #[tokio::test]
 async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_handoff() {
     use crate::service::chat_send_transaction::{
-        run_chat_send, ChatSendLedger, ChatSendState, SendLiveBinding,
+        ChatSendLedger, ChatSendState, SendLiveBinding, run_chat_send,
     };
     use crate::service::local_recording::chat::CapturedChat;
     use crate::service::local_recording::leases::RecordingLeases;
@@ -116,7 +116,10 @@ async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_hand
     registry.select_devices("trigger", devices.clone()).unwrap();
     registry.set_enabled("trigger", true).unwrap();
     let generation = registry.selected_devices("trigger").unwrap().1;
-    registry.set_available("trigger", generation, true);
+    assert_eq!(
+        crate::service::local_recording::arm_registry_fixture(&registry, "trigger"),
+        generation
+    );
     let leases = RecordingLeases::default();
     let lease = leases
         .start("trigger", &devices, generation, capture().target, &registry)

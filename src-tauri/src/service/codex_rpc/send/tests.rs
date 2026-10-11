@@ -68,11 +68,12 @@ fn active_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
         .selected_devices("trigger")
         .unwrap()
         .1;
-    assert!(
-        fixture
-            .service
-            .local_recording_registry
-            .set_available("trigger", generation, true)
+    assert_eq!(
+        crate::service::local_recording::arm_registry_fixture(
+            &fixture.service.local_recording_registry,
+            "trigger"
+        ),
+        generation
     );
     let target = fixture.service.freeze_recording_target(tab).unwrap();
     let lease = fixture
@@ -238,7 +239,7 @@ fn invalidate_capture_rpc(
             fixture
                 .service
                 .local_recording_registry
-                .set_available("trigger", generation, false)
+                .mark_unavailable("trigger", generation)
         ),
         CaptureRpcInvalidation::Deadline => fixture
             .service
