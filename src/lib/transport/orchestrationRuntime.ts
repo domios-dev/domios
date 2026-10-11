@@ -39,3 +39,7 @@ export function listenOrchestration<T>(event: string, handler: (event: { payload
   subscriptions.add(stop);
   return Promise.resolve(stop);
 }
+
+export function bindOrchestrationTransport(client: TransportClient): void {
+  configureOrchestrationTransport(client);
+}

@@ -3,7 +3,7 @@ import type { PlanIndexEntry } from "../../components/Canvas/plansApi";
 import type { AutomationGraph, AutomationIdentity } from "../../components/Automation/types";
 import type { NodeFile } from "../../components/Automation/nodeFilesModel";
 import type { CronJob } from "../types";
-import type { TeamMemberAttachment, TeamCloseInventory } from "../teamActions";
+import { teamCallerClaim, type TeamMemberAttachment, type TeamCloseInventory } from "../teamActions";
 
 import type { TransportClient } from "../transportClient";
 
@@ -43,7 +43,8 @@ function scopeQuery(scope: GraphScope): string {
   return new URLSearchParams({ workspace_id: scope.workspaceId, team_id: scope.teamId ?? "" }).toString();
 }
 function claimBody(claim: CallerClaim = {}) {
-  return { caller_tab_id: claim.callerTabId ?? undefined, session_binding_nonce: claim.sessionBindingNonce };
+  const exact = teamCallerClaim(claim.callerTabId ?? null, claim.sessionBindingNonce);
+  return { caller_tab_id: exact.callerTabId, session_binding_nonce: exact.sessionBindingNonce };
 }
 function scopeBody(scope: GraphScope) {
   scopeQuery(scope);
@@ -87,8 +88,8 @@ export function createOrchestrationTransport(client: OrchestrationClient) {
     mux_rename_team: (args: CallerClaim & { teamId: string; name: string }) => client.json<unknown>("POST", `${teamPath(args.teamId)}/rename`, { name: args.name, ...claimBody(args) }),
     mux_close_team: (args: CallerClaim & { teamId: string; forceBusy?: boolean }) => client.json<{ inventory: TeamCloseInventory }>("POST", `${teamPath(args.teamId)}/close`, { force: true, confirm: args.teamId, force_busy: args.forceBusy === true, ...claimBody(args) }),
     mux_add_team_member: (args: CallerClaim & { teamId: string; provider: string; role: string; model?: string; brief?: string; task?: string; title?: string }) => client.json<TeamMemberAttachment>("POST", `${teamPath(args.teamId)}/members`, { provider: args.provider, role: args.role, model: args.model, task: args.brief ?? args.task, title: args.title, ...claimBody(args) }),
-    mux_make_orchestrator: ({ tabId }: { tabId: string }) => client.json<unknown>("POST", `${tabPath(tabId)}/make-orchestrator`),
-    mux_make_planner: ({ tabId, planId }: { tabId: string; planId: string }) => client.json<unknown>("POST", `${tabPath(tabId)}/make-planner`, { plan_id: planId }),
-    mux_create_orchestration_pair: ({ params }: { params: Record<string, unknown> }) => client.json<unknown>("POST", "/api/orchestration/new", params),
+    mux_make_orchestrator: (args: CallerClaim & { tabId: string }) => client.json<unknown>("POST", `${tabPath(args.tabId)}/make-orchestrator`, claimBody(args)),
+    mux_make_planner: (args: CallerClaim & { tabId: string; planId: string }) => client.json<unknown>("POST", `${tabPath(args.tabId)}/make-planner`, { plan_id: args.planId, ...claimBody(args) }),
+    mux_create_orchestration_pair: (args: CallerClaim & { params: Record<string, unknown> }) => client.json<unknown>("POST", "/api/orchestration/new", { ...args.params, ...claimBody(args) }),
   };
 }

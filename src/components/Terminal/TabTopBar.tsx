@@ -194,7 +194,7 @@ export function TabTopBar({
       return;
     }
     setReconnectError(null);
-    performTabMenuAction(tabId, action, { rename: () => setRenaming(true), close: tabMenu?.onClose })
+    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, rename: () => setRenaming(true), close: tabMenu?.onClose })
       .catch((error) => setReconnectError(errorMessage(error)));
   };
 
