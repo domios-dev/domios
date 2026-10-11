@@ -155,6 +155,16 @@ async function cleanup({ host, root }: Mounted) {
   host.remove();
 }
 
+test("the menu shows its model's name and keeps session copy wired", async () => {
+  const mounted = await mountOpen(headerInput());
+  assert(byTestId("tab-menu-head")?.textContent?.includes(TAB.title), "model title rendered");
+  const copy = byTestId("tab-menu-copy-session-id");
+  assert(copy?.getAttribute("aria-label"), "copy has an accessible name");
+  await act(async () => copy!.click());
+  assert(mounted.actions.length === 1 && mounted.actions[0].type === "copySessionId", "session copy dispatched once");
+  await cleanup(mounted);
+});
+
 test("the auto-confirm checkbox reports its state, requests the flip and keeps the menu open", async () => {
   const mounted = await mountOpen(headerInput({ pluginTabMenu: { items: [], receiverTargets: {} } }));
   const item = byTestId("tab-permission-auto-confirm");
