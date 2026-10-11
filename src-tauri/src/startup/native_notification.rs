@@ -1,4 +1,6 @@
-use tauri::{plugin::Plugin, AppHandle, PageLoadPayload, RunEvent, Runtime, Webview, Window};
+use tauri::{
+    plugin::Plugin, webview::PageLoadPayload, AppHandle, RunEvent, Runtime, Webview, Window,
+};
 
 pub(crate) struct NativeNotificationPlugin<R: Runtime>(tauri::plugin::TauriPlugin<R>);
 
