@@ -42,6 +42,7 @@ enum DiagnosticStage {
     ReadyFailed,
     ScriptError,
     PromiseError,
+    RequestFailed,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,6 +74,7 @@ enum BootFailureReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BootDiagnostic {
     stage: DiagnosticStage,
+    request: Option<RequestFailure>,
     error_name: Option<DiagnosticError>,
     reason: Option<BootFailureReason>,
     http_status: Option<u16>,
@@ -82,6 +84,27 @@ struct BootDiagnostic {
     native: bool,
     injected: bool,
     mounted: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RequestFailure {
+    method: String,
+    path: String,
+    page_origin: String,
+    target_origin: String,
+    kind: RequestFailureKind,
+    status: Option<u16>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum RequestFailureKind {
+    Network,
+    NetworkOrCors,
+    Opaque,
+    Http,
+    Aborted,
 }
 
 async fn diagnostic(
@@ -95,6 +118,13 @@ async fn diagnostic(
             StatusCode::CONFLICT,
             "Frontend diagnostics require a debug build".into(),
         ));
+    }
+    if let Some(request) = &body.request {
+        log::debug!(
+            "[frontend-request] method={:?} path={:?} page_origin={:?} target_origin={:?} kind={:?} status={:?}",
+            request.method, request.path.split(['?', '#']).next().unwrap_or(""),
+            request.page_origin, request.target_origin, request.kind, request.status,
+        );
     }
     let source = body.source.as_deref().filter(|source| {
         source.len() <= 100

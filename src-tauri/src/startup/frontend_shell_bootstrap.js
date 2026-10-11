@@ -14,7 +14,7 @@
       void fetch(bootstrap.origin + "/api/frontend/diagnostic", {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + bootstrap.token },
         body: JSON.stringify({ stage, errorName, reason, httpStatus, source: /^[a-zA-Z0-9_.-]{1,100}$/.test(source) ? source : undefined,
-          line: failure?.lineno, column: failure?.colno,
+          request: failure?.request, line: failure?.lineno, column: failure?.colno,
           native: "__TAURI_INTERNALS__" in window, injected: !!window.__CODETERM_DAEMON__, mounted: document.documentElement?.dataset.codetermMounted === "true" }),
       }).catch(() => {});
     };
