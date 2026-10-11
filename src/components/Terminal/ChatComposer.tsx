@@ -16,6 +16,7 @@ import { ComposerContextMeter } from "./ComposerContextMeter";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { classifyComposerDevice, composerEnterIntent } from "./composerKeyboard";
 import {
   createDelayedMessage,
   deleteDelayedMessage,
@@ -133,16 +134,6 @@ function SlashPicker({
 
 const SUGGESTION_MENU_STYLE = { zIndex: 10, "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties;
 
-export function composerEnterIntent(
-  key: string,
-  shiftKey: boolean,
-  isComposing: boolean,
-): "submit" | "newline" | "none" {
-  if (isComposing) return "none";
-  if (key !== "Enter") return "none";
-  return shiftKey ? "newline" : "submit";
-}
-
 function recordComposerRender(tabId: string): void {
   if (typeof window === "undefined") return;
   const perf = window.__composerPerf;
@@ -238,6 +229,10 @@ function ChatComposerImpl({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
+  const composerDevice = classifyComposerDevice({
+    userAgent: navigator.userAgent, platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints, touchOptimizedUi: touchMode,
+  });
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -597,6 +592,16 @@ function ChatComposerImpl({
               onKeyDown={(e) => {
                 recordComposerIgnoredKey(e.key);
                 if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
+                const enterIntent = composerEnterIntent(composerDevice, {
+                  code: e.code || e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey,
+                  metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing,
+                });
+                if ((e.code || e.key) === "Enter" || e.code === "NumpadEnter") {
+                  if (enterIntent !== "submit") {
+                    if (enterIntent === "newline") setPickerOpen(false);
+                    return;
+                  }
+                }
                 if (capsules.handleKeyDown(e)) return;
                 if (mentionPicker.handleKey(e)) return;
                 const shortcutContext = { composerFocus: isActive, composing: compositionGate.active,
@@ -611,10 +616,6 @@ function ChatComposerImpl({
                   setInput(capsules.fromPortable(recall.stash(capsules.toPortable(input))));
                   return;
                 }
-                if (touchMode && e.key === "Enter" && !e.shiftKey) {
-                  setPickerOpen(false);
-                  return;
-                }
                 if (pickerOpen) {
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
@@ -626,9 +627,9 @@ function ChatComposerImpl({
                     setPickerHighlight((h) => Math.max(h - 1, 0));
                     return;
                   }
-                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                  if (e.key === "Tab" || enterIntent === "submit") {
                     e.preventDefault();
-                    if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
+                    if (enterIntent === "submit" && cliFallbackCommandPayload(input)) {
                       void send();
                       return;
                     }
@@ -648,7 +649,7 @@ function ChatComposerImpl({
                   reply.clear();
                   return;
                 }
-                if (composerEnterIntent(e.key, e.shiftKey, e.nativeEvent.isComposing) === "submit") {
+                if (enterIntent === "submit") {
                   e.preventDefault();
                   void send();
                 }
@@ -677,7 +678,7 @@ function ChatComposerImpl({
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."
                 : "Message"}
-              enterKeyHint={touchMode ? "enter" : "send"}
+              enterKeyHint={composerDevice === "phone" ? "enter" : "send"}
               style={{
                 color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",
                 lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
