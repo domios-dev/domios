@@ -61,7 +61,7 @@ mod signing_tests {
         let bundles = FrontendBundles::open(
             root.path(),
             API_VERSION,
-            FRONTEND_PUBLIC_KEY.map(str::to_owned),
+            None,
             DISCOVERY_URL.into(),
             false,
             Arc::new(|_, _| {}),
