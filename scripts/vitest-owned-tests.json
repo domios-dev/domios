@@ -114,5 +114,7 @@
   "src/components/Surface/surfaceIcon.test.ts",
   "src/components/CrashReportToast.test.tsx",
   "src/lib/generalSession.adapter.test.ts",
-  "src/components/Terminal/ComposerActions.uploads.test.tsx"
+  "src/components/Terminal/ComposerActions.uploads.test.tsx",
+  "src/components/Notifications/attentionSurfaceModel.test.ts",
+  "src/components/Terminal/TabAttentionBanner.test.tsx"
 ]
