@@ -1,6 +1,6 @@
 # Independent frontend release
 
-`frontend-release-contract.json` owns frontend version 1.0.0 and API range 2..2 independently of app versions. Increment its version before a new `frontend-vX.Y.Z` release. Contract version 1 uses exactly six manifest fields, sorted compact UTF-8 JSON without a newline. SHA256 covers the archive. Detached default prehashed minisign (`ED`, Ed25519 over BLAKE2b-512) covers the entire manifest. Format reference: https://jedisct1.github.io/minisign/.
+`frontend-release-contract.json` owns the frontend version (1.14.2, aligned with the app for its first release; it may move ahead independently) and API range 2..2. Increment its version before a new `frontend-vX.Y.Z` release. Contract version 1 uses exactly six manifest fields, sorted compact UTF-8 JSON without a newline. SHA256 covers the archive. Detached default prehashed minisign (`ED`, Ed25519 over BLAKE2b-512) covers the entire manifest. Format reference: https://jedisct1.github.io/minisign/.
 
 Archive entries are UTF-8 byte sorted regular files, USTAR, mode 0644, uid/gid/mtime zero, no owner names, gzip level 9 without wall-clock metadata. Symlinks and nonregular files are refused. Entries have no wrapping dist directory. Paths longer than 100 UTF-8 bytes are refused explicitly.
 
