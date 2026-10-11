@@ -205,14 +205,23 @@ def cmd_send_marker(deadline, tab_id, marker, prompt):
     print(f"marker {tab_id} {marker}")
 
 
-def cmd_send_long_turn(deadline, tab_id, prompt):
+def cmd_send_long_turn(deadline, tab_id, prompt, observation_path=None):
     wait = EventWait(deadline)
-    api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
+    receipt = api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
+    frames = []
+
+    def record():
+        if observation_path:
+            pathlib.Path(observation_path).write_text(json.dumps({'send_receipt': receipt, 'states': frames}, indent=2))
 
     def working(_event):
-        return (status(tab_id) or {}).get("status", "").lower() == "working"
+        state = status(tab_id) or {}
+        if not frames or frames[-1]['status'] != state.get('status'):
+            frames.append({'at': time.time(), 'status': state.get('status'), 'session': state.get('agent_session_id')})
+            record()
+        return state.get("status", "").lower() == "working"
 
-    wait.until(working, f"tab {tab_id} to report Working")
+    wait.until(working, f"tab {tab_id} to report Working", on_deadline=record)
     print(f"working {tab_id}")
 
 
