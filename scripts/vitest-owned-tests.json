@@ -143,5 +143,9 @@
   "src/components/Sidebar/TeamUnit.agents.test.tsx",
   "src/components/Settings/UpdateSection.test.tsx",
   "plugins/provider-shared/updateCheck.test.ts",
-  "src/components/Automation/probeProgress.test.ts"
+  "src/components/Automation/probeProgress.test.ts",
+  "src/lib/frontendUpdate/model.test.ts",
+  "src/lib/frontendUpdate/checkpoint.test.ts",
+  "src/lib/frontendUpdate/client.test.ts",
+  "src/lib/frontendUpdate/observer.test.ts"
 ]
