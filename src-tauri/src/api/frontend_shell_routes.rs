@@ -56,7 +56,7 @@ enum DiagnosticError {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum UpdateFailureReason {
+enum BootFailureReason {
     InvalidClient,
     CheckpointUnavailable,
     StatusUnavailable,
@@ -64,6 +64,9 @@ enum UpdateFailureReason {
     StorageUnavailable,
     BootContextInvalid,
     Unexpected,
+    NativeCapabilityDenied,
+    RejectedString,
+    RejectedValue,
 }
 
 #[derive(Deserialize)]
@@ -71,7 +74,7 @@ enum UpdateFailureReason {
 struct BootDiagnostic {
     stage: DiagnosticStage,
     error_name: Option<DiagnosticError>,
-    reason: Option<UpdateFailureReason>,
+    reason: Option<BootFailureReason>,
     http_status: Option<u16>,
     source: Option<String>,
     line: Option<u32>,
