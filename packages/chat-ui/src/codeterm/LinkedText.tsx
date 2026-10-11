@@ -92,11 +92,11 @@ export function LinkedText({ text, onOpenPlan, className, resolvePlanRef }: Prop
               e.preventDefault();
               void navigator.clipboard.writeText(fullRef);
             }}
-            className="inline-flex items-center gap-1 rounded px-1 py-0.5 align-baseline font-mono text-[0.92em] transition-colors hover:brightness-110"
+            className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 align-baseline font-mono text-[0.92em] transition-colors hover:brightness-110"
             style={{ color: disabled ? "var(--ct-muted-fg, #8b949e)" : "var(--ct-accent, #6ea8fe)" }}
           >
             <RefIcon kind={seg.targetKind} />
-            <span className="truncate max-w-[18rem] sm:max-w-[24rem]">{label}</span>
+            <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{label}</span>
             {status && <span className="text-[0.82em] opacity-70">({status})</span>}
           </button>
         );
