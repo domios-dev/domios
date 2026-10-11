@@ -185,6 +185,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `defaultReasoningEffort` | string? | Default effort id. |
 | `spawn` | object | Spawn semantics — table below. Defaults apply when the whole block is absent. |
 | `sessions` | object? | Session-file layout — table below. |
+| `directoryTrustRecord` | `{format: "toml_folders", path: string}`? | Host-owned folder pre-trust: sets `folders.<canonical launch cwd>.trusted` and `decided_at` in TOML. The absolute/expanded file must sit directly in the declared sessions root's parent. No filesystem access is granted to plugin JS; require the first host version supporting this declaration. |
 | `commands` | object | Command/key templates — table below. |
 | `integration` | object? | Hook integration declaration — table below. |
 | `rule` | object? | One field, `path`: where the codeterm-rule markdown file lives (e.g. `~/.claude/CLAUDE.md` sibling). Drives the manifest fallback of `installBridgeRule` / `uninstallBridgeRule`. |
