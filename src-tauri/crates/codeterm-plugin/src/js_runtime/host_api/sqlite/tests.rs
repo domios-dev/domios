@@ -10,7 +10,9 @@ fn provider_compat_sqlite_gate_covers_raw_and_convenience_host_calls() {
         (Some("2.0.0"), true, false),
         (Some("2.0.0-beta.1"), true, false),
         (None, true, false),
-        (Some("0.9.0"), true, false),
+        (Some("0.9.0"), true, true),
+        (Some("1.20.0"), true, true),
+        (Some("bad"), true, false),
         (Some("2.0.0"), false, true),
     ] {
         let json = serde_json::json!({

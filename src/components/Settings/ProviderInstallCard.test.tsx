@@ -8,6 +8,7 @@ const fixture = vi.hoisted(() => ({
   complete: null as null | ((event: { payload: { provider: string; summary: string } }) => void),
 }));
 vi.mock("../../lib/bridge", () => ({ invoke: fixture.invoke, listen: fixture.listen }));
+import { providerCompatibilityHint } from "../../lib/providerCli";
 import { ProviderCliControls } from "./ProviderInstallCard";
 
 const missing: ProviderCliStatus = { required: true, installed: false, binary: "tool", resolved_path: null, availability: "unavailable", searched: [], installer: "opaque --install", updater: null };
@@ -36,6 +37,12 @@ describe("provider CLI controls", () => {
     status = { ...missing, installer_prerequisites: [{ binary: "runner", installed: false, hint: "opaque setup guidance" }] };
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
     expect([...host.querySelectorAll('[role="status"]')].some(element => element.textContent?.includes("opaque setup guidance"))).toBe(true);
+  });
+  it("renders unverified compatibility in a quiet accessible Settings status", async () => {
+    status = { ...missing, installed: true, detected_version: "1.20.0", compatibility: { verdict: "unknown", reasons: ["version_not_declared"] } };
+    await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
+    expect(host.querySelector('[role="status"][aria-label="CLI compatibility"]')?.textContent).toBe(providerCompatibilityHint(status));
+    expect(host.querySelector('[role="alert"]')).toBeNull();
   });
   it("shows a missing CLI's install command once in a code block beside the Install action", async () => {
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
