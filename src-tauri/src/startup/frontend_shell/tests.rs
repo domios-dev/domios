@@ -106,3 +106,25 @@ fn frontend_shell_contract_navigation_diagnostics_omit_query_secrets_and_recover
     );
     assert!(!navigation_identity(&unavailable_url().unwrap()).contains("html"));
 }
+
+#[test]
+fn frontend_shell_contract_limits_native_permissions_to_the_exact_frontend_origin() {
+    for origin in ["http://127.0.0.1:7690", "http://127.0.0.1:1463"] {
+        let capability: serde_json::Value =
+            serde_json::from_str(&daemon_capability(origin).unwrap()).unwrap();
+        assert_eq!(capability["local"], false);
+        assert_eq!(capability["windows"], serde_json::json!(["main"]));
+        assert_eq!(
+            capability["remote"]["urls"],
+            serde_json::json!([format!("{origin}/*")])
+        );
+        let permissions = capability["permissions"].as_array().unwrap();
+        assert!(permissions.iter().all(|permission| {
+            let permission = permission.as_str().unwrap();
+            !permission.ends_with(":default")
+                && !permission.starts_with("shell:")
+                && !permission.starts_with("notification:")
+                && !permission.starts_with("updater:")
+        }));
+    }
+}

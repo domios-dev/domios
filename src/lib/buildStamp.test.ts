@@ -38,7 +38,7 @@ function setStamps(hash: string | undefined, version: string | undefined) {
   else mutableGlobal.__APP_VERSION__ = version;
 }
 
-function stubHealth(body: { build?: string; version?: string }) {
+function stubHealth(body: { build?: string; version?: string; apiVersion?: number }) {
   mutableGlobal.fetch = async () => ({ ok: true, json: async () => body });
 }
 
@@ -94,25 +94,25 @@ async function main() {
   console.log("\nbuildMismatchGuard: consumes the accessor:");
   __resetForTest();
   setStamps(undefined, undefined);
-  stubHealth({ build: "0000000", version: "1.9.4" });
+  stubHealth({ build: "0000000", version: "1.9.4", apiVersion: 2 });
   assert(
-    "an uninjected frontend stays silent instead of warning against every daemon",
+    "a compatible daemon accepts an uninjected frontend identity",
     (await checkBuildMismatch("http://fixture")) === null,
   );
 
   __resetForTest();
   setStamps("9f3ac21", undefined);
-  stubHealth({ build: "0000000" });
+  stubHealth({ build: "0000000", apiVersion: 1 });
   const mismatch = await checkBuildMismatch("http://fixture");
-  assert("a disagreeing daemon raises the banner", mismatch !== null);
+  assert("an incompatible API raises the banner", mismatch !== null);
   assert("the banner carries the injected stamp", mismatch?.frontendHash === "9f3ac21");
-  assert("the banner attributes the mismatch to the build", mismatch?.reason === "build");
+  assert("the banner attributes the mismatch to the API", mismatch?.reason === "api");
 
   __resetForTest();
   setStamps("9f3ac21", undefined);
-  stubHealth({ build: "9f3ac21" });
+  stubHealth({ build: "independent-daemon", apiVersion: 2 });
   assert(
-    "an agreeing daemon raises nothing",
+    "an independent compatible daemon raises nothing",
     (await checkBuildMismatch("http://fixture")) === null,
   );
 

@@ -1,3 +1,4 @@
+import { frontendApiCompatible } from "../frontendApiContract";
 import { streamRecoveryAction } from "../streamRecoveryModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import type { TransportClient } from "../transportClient";
@@ -38,6 +39,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
   const restored = await api.checkpoint();
   if (restored) options.signals.hydrate(restored.payload);
   const status = await client.localJson<FrontendStatus>("GET", "/api/frontend/status");
+  if (!frontendApiCompatible(status.apiVersion)) throw new Error("Daemon API is incompatible with this frontend");
   const controller = createSwapController(initialSwapState(status.apiVersion, options.signals.checkpoint(), options.signals.safety(), restored?.revision ?? 0), api, ticket => {
     const token = client.currentToken();
     if (!token) { options.onError(new Error("Frontend reload requires daemon credentials")); return; }
