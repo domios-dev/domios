@@ -146,3 +146,12 @@ Deterministic fixtures: `launch_session_detection::tests::sqlite_resume_binds_on
 `agent_delivery_outbox::tests::restored_send_before_auth_flushes_once_without_another_ready_edge`,
 and `src/components/Terminal/opencodeLaunchDelivery.test.tsx`. A sibling row or
 newest session for the same cwd never proves the claimed session.
+
+For the working-restart leg, capture each restored PTY's `session-bound`,
+`first-composer`, `AgentReady`, and paste events. A lazy-session provider must
+reach its first composer before AgentReady releases any owed continue, even
+when its exact saved session already authenticated through a hook. Verify one
+fresh continue user turn and its reply in each own session, or one quiet uncertain
+bubble if submission remains unconfirmed. No probe or payload replay may stand
+in for that first continue. The pure ordering fixture is
+`launch_input_gate::tests::restored_continue::restored_owed_continue_waits_for_first_composer_then_claims_once`.
