@@ -50,7 +50,6 @@ fn log_recovery_refusal(transport: &PtySubmitTransport<'_>, reason: &'static str
 pub(super) fn submit_key_guard(
     transport: &PtySubmitTransport<'_>,
     allow_initial_key: bool,
-    turn_was_started: bool,
     draft: &str,
 ) -> Result<(), InjectionError> {
     let svc = transport.svc;
@@ -83,8 +82,7 @@ pub(super) fn submit_key_guard(
         });
     }
     if allow_initial_key && agent_id.is_none() {
-        transport.dialog_guard()?;
-        return Ok(());
+        return transport.dialog_guard();
     }
     let (screen, input) = {
         let screen_state = svc.screen_state.lock();
@@ -116,20 +114,35 @@ pub(super) fn submit_key_guard(
         && !draft.trim().is_empty()
         && transport.draft_evidence_count(draft) > 0;
     let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
-        if !allow_initial_key {
-            let authority = recovery_key_authority(RecoveryKeyInputs {
-                session_bound,
-                provider_capability: provider.supports_unbound_submit_recovery(),
-                session_starts_on_first_user_turn: provider.session_starts_on_first_user_turn(),
-                launch_owns_pty: launch_nonce,
-                draft_present,
-            });
-            if let Err(reason) = authority {
-                log_recovery_refusal(transport, reason);
-                return Err(InjectionError::AgentInputUnavailable {
+        if allow_initial_key {
+            let modal_visible = provider.delivery_modal_visible(&snapshot);
+            let allowed = submit_key_readiness(modal_visible);
+            log::debug!(
+                "[submit-audit] first-key guard pty={} modal_visible={} allowed={}",
+                pty_id,
+                modal_visible,
+                allowed
+            );
+            return if allowed {
+                Ok(())
+            } else {
+                Err(InjectionError::AgentTuiPresent {
                     pty_id: pty_id.to_string(),
-                });
-            }
+                })
+            };
+        }
+        let authority = recovery_key_authority(RecoveryKeyInputs {
+            session_bound,
+            provider_capability: provider.supports_unbound_submit_recovery(),
+            session_starts_on_first_user_turn: provider.session_starts_on_first_user_turn(),
+            launch_owns_pty: launch_nonce,
+            draft_present,
+        });
+        if let Err(reason) = authority {
+            log_recovery_refusal(transport, reason);
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
         }
         let provider_tui = provider.screen_has_tui(&screen);
         let (cursor_ready, alternate_screen) = input
@@ -144,58 +157,13 @@ pub(super) fn submit_key_guard(
             })
             .unwrap_or((false, false));
         let composer_ready = cursor_ready && (provider_tui || alternate_screen);
-        let recovery_state = if allow_initial_key {
-            Ok(())
-        } else {
-            recovery_dialog_guard(provider, &snapshot, composer_ready, pty_id)
-        };
-        Ok((
-            provider_tui,
-            cursor_ready,
-            alternate_screen,
-            composer_ready,
-            recovery_state,
-        ))
+        recovery_dialog_guard(provider, &snapshot, composer_ready, pty_id)
     });
-    let Some(readiness) = readiness else {
-        log::info!(
-            "[submit-audit] key-guard pty={} provider_available=false session_bound={} turn_started_at_claim={} allowed=false",
-            pty_id,
-            session_bound,
-            turn_was_started
-        );
-        return Err(InjectionError::AgentInputUnavailable {
-            pty_id: pty_id.to_string(),
-        });
-    };
-    let (provider_tui, cursor_ready, alternate_screen, composer_ready, recovery_state) = readiness?;
-    if !allow_initial_key {
-        recovery_state?;
-        return Ok(());
-    }
-    let turn_started_now = transport.turn_started();
-    let allowed = submit_key_readiness(turn_was_started, turn_started_now, composer_ready);
-    if allow_initial_key || !allowed {
-        log::info!(
-            "[submit-audit] key-guard pty={} session_bound={} turn_started_at_claim={} turn_started_now={} provider_available=true provider_tui={} cursor_ready={} alternate_screen={} composer_ready={} allowed={}",
-            pty_id,
-            session_bound,
-            turn_was_started,
-            turn_started_now,
-            provider_tui,
-            cursor_ready,
-            alternate_screen,
-            composer_ready,
-            allowed
-        );
-    }
-    if allowed {
-        Ok(())
-    } else {
+    readiness.unwrap_or_else(|| {
         Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         })
-    }
+    })
 }
 
 pub(super) fn recovery_dialog_guard(

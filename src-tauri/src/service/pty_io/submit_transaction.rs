@@ -695,12 +695,8 @@ fn composer_draft_evidence(svc: &ServiceContext, pty_id: &str, text: &str) -> us
     screen_echo_evidence_count(&composer_region_text(&lines, cursor_row), text)
 }
 
-fn submit_key_readiness(
-    turn_was_started_at_claim: bool,
-    turn_started_now: bool,
-    composer_ready: bool,
-) -> bool {
-    composer_ready || !turn_was_started_at_claim || !turn_started_now
+fn submit_key_readiness(delivery_modal_visible: bool) -> bool {
+    !delivery_modal_visible
 }
 
 fn exact_session_turn_source_available(require_exact_session_turn: bool, has_anchor: bool) -> bool {
@@ -748,7 +744,7 @@ fn pty_owner_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), InjectionEr
             provider.delivery_modal_visible(&snapshot)
         })
         .unwrap_or(false);
-    if modal_visible {
+    if !submit_key_readiness(modal_visible) {
         Err(InjectionError::AgentTuiPresent {
             pty_id: pty_id.to_string(),
         })
@@ -1069,8 +1065,8 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         deferred_ready_seen: Cell::new(false),
         recovery_refusal: Cell::new(None),
     };
-    let mut key_guard = |allow_initial_key: bool, turn_was_started: bool| {
-        recovery_guard::submit_key_guard(&transport, allow_initial_key, turn_was_started, text)
+    let mut key_guard = |allow_initial_key: bool, _turn_was_started: bool| {
+        recovery_guard::submit_key_guard(&transport, allow_initial_key, text)
     };
     let run = if type_suffix_after_paste {
         runner::run_with_submit_key_and_follow_up(
