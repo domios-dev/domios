@@ -71,6 +71,9 @@ export interface AutomationNode {
   conversation?: import("../../lib/blueprintRun").ConversationCounts;
   source?: { type: string; kind?: string; display_name?: string; ref_type?: string; convert_to?: string | null; pattern?: string | null; idle_ms?: number | null };
   detail?: {
+    runs_since_transition?: number;
+    last_probe_at?: number | null;
+    probe_state?: string | null;
     observe_target?: { kind: string; id: string } | null;
     definition?: {
       unavailable?: string;

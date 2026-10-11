@@ -195,7 +195,7 @@ codeterm blueprint create --name agents-all-finished-watch --probe "<ONE_VERDICT
 ```
 
 ```bash
-codeterm blueprint create --name voice-note-to-text --input audio --input-file '<PATH_TO_VOICE_NOTE>' --convert-to text --question what-does-the-voice-note-say --buckets done --handlers-file handlers.json --timeout 1h --dry-run
+codeterm blueprint create --name voice-note-to-text --input audio --input-file '<PATH_TO_VOICE_NOTE>' --convert-to text --question what-does-the-voice-note-say --buckets done --handlers-file handlers.json --timeout 1h --dry-run --model-classification
 ```
 <!-- /blueprint-recipe -->
 
@@ -205,7 +205,7 @@ For quiet PR waiting, declare only terminal outcomes; classify still-running CI 
 escalation handler when it needs attention. With an existing same-Team cron and agent:
 
 ```bash
-codeterm blueprint create --name ci-result-review-watch --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
+codeterm blueprint create --name ci-result-review-watch --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h --model-classification
 ```
 
 
@@ -236,4 +236,4 @@ codeterm blueprint stop <INPUT_GRAPH_ID>
 codeterm blueprint stop <OUTPUT_GRAPH_ID>
 ```
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
