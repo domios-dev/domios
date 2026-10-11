@@ -122,3 +122,41 @@ it("preserves base and peer clients for stable configuration and binds once", as
   expect(bound).toHaveBeenCalledTimes(2);
   stop();
 });
+
+it("shares real page events across transport users and moves them to replacement credentials", async () => {
+  vi.stubGlobal("window", { location: { origin: "tauri://localhost" }, __TAURI_INTERNALS__: {} });
+  const signals: AbortSignal[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+    signals.push(init!.signal!);
+    return new Response(new ReadableStream());
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { configureDaemonTransport } = await import("./daemonBootstrap");
+  const configuration = { origin: "http://127.0.0.1:7690", token: "first" };
+  const first = configureDaemonTransport(configuration);
+  const stops = Array.from({ length: 20 }, () => first.subscribe("/api/events/stream", () => {}));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  const next = configureDaemonTransport({ ...configuration, token: "second" });
+  const stopNext = next.subscribe("/api/events/stream", () => {});
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(signals[0].aborted).toBe(true);
+  expect(new Headers(fetch.mock.calls[1][1]?.headers).get("Authorization")).toBe("Bearer second");
+  stops.forEach(stop => stop());
+  expect(signals[1].aborted).toBe(false);
+  stopNext();
+  expect(signals[1].aborted).toBe(true);
+});
+
+it("shares peer events between the peer facade and explicit remote tab subscriptions", async () => {
+  vi.stubGlobal("window", { location: { origin: "tauri://localhost" }, __TAURI_INTERNALS__: {} });
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(new ReadableStream()));
+  vi.stubGlobal("fetch", fetch);
+  const { configureDaemonTransport, daemonTransportForPeer } = await import("./daemonBootstrap");
+  const base = configureDaemonTransport({ origin: "http://127.0.0.1:7690", token: "token" });
+  const peer = daemonTransportForPeer("peer");
+  const first = peer.subscribe("/api/events/stream?since=b%3A1", () => {});
+  const second = base.subscribe("/api/mesh/relay-stream?peer=peer&path=%2Fapi%2Fevents%2Fstream", () => {});
+  expect(fetch).toHaveBeenCalledTimes(1);
+  first();
+  second();
+});
