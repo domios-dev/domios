@@ -1,3 +1,4 @@
+import { checkOpencodeUpdate } from "./update";
 import { modelProviderExports } from "./modelProviders";
 import { modelSwitch } from "./modelSwitch";
 import { decisionModel } from "./decisionModel";
@@ -95,6 +96,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,
   ...decisionModel,
   ...modelProviderExports,

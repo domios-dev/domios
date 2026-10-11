@@ -33,6 +33,12 @@ const button = (name: string) => host.querySelector<HTMLButtonElement>(`button[a
 const statusCalls = () => fixture.invoke.mock.calls.filter(([command]) => command === "provider_cli_status").length;
 
 describe("provider CLI controls", () => {
+  it("loads a persisted automatic update result in Settings", async () => {
+    status = { ...missing, installed: true, update_summary: "opaque persisted result" };
+    await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
+    expect([...host.querySelectorAll('[role="status"]')].some(element => element.textContent === "opaque persisted result")).toBe(true);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
   it("renders the model's missing prerequisite guidance in a status", async () => {
     status = { ...missing, installer_prerequisites: [{ binary: "runner", installed: false, hint: "opaque setup guidance" }] };
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));

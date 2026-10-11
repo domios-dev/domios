@@ -75,18 +75,12 @@ fn provider_update_command_real_nonzero_retains_tail_and_never_restarts() {
     assert!(!failure.reason.contains(&"x".repeat(32769)));
     let mut state = super::super::state::Coordinator::default();
     state.begin("fixture", "1", "2");
-    state.finish("fixture:2", Err(failure.reason), &["idle".into()]);
-    assert!(!state.claim_restart(
-        "fixture:2",
-        "idle",
-        super::super::state::TabReadiness {
-            idle: true,
-            active_turn: false,
-            active_attempt: false
-        }
-    ));
-    assert!(state.claim_notice("fixture:2"));
-    assert!(!state.claim_notice("fixture:2"));
+    let reason = failure.reason;
+    state.finish("fixture:2", Err(reason.clone()));
+    assert_eq!(
+        state.runs["fixture:2"].outcome,
+        super::super::state::RunOutcome::Failed(reason)
+    );
 }
 
 #[test]
@@ -112,14 +106,12 @@ fn provider_update_command_termination_error_blocks_further_runs() {
     assert!(!failure.child_stopped);
     let mut state = super::super::state::Coordinator::default();
     state.begin("fixture", "1", "2");
-    state.finish("fixture:2", Err(failure.reason), &["idle".into()]);
+    state.finish("fixture:2", Err(failure.reason));
     state.block_unstopped("fixture:2");
     assert_eq!(
         state.begin("fixture", "1", "3"),
         super::super::state::Admission::ProviderBusy
     );
-    assert!(state.claim_notice("fixture:2"));
-    assert!(!state.claim_notice("fixture:2"));
 }
 
 struct FaultyRead {

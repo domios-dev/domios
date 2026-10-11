@@ -140,5 +140,7 @@
   "src/lib/newSessionUnavailableChoice.test.ts",
   "src/components/Terminal/opencodeLaunchDelivery.test.tsx",
   "src/components/Sidebar/workspaceTeamModel.test.ts",
-  "src/components/Sidebar/TeamUnit.agents.test.tsx"
+  "src/components/Sidebar/TeamUnit.agents.test.tsx",
+  "src/components/Settings/UpdateSection.test.tsx",
+  "plugins/provider-shared/updateCheck.test.ts"
 ]
