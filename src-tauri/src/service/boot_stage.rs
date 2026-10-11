@@ -109,6 +109,18 @@ pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
 }
 
+pub(crate) fn reconcile_validated_rebind_failure(tab: &mut Tab) -> bool {
+    if tab.boot_stage != Some(BootStage::SpawnFailed)
+        || tab.pty_id.is_none()
+        || tab.agent_session_id.is_none()
+    {
+        return false;
+    }
+    apply_boot_stage(tab, BootStage::PtyReattached, None);
+    tab.agent_booting = false;
+    true
+}
+
 pub(crate) fn session_allows_user_readiness(tab: &Tab) -> bool {
     tab.agent_session_id.is_none() || tab.launch_session_authenticated()
 }
@@ -335,6 +347,16 @@ impl ServiceContext {
             return;
         }
         self.finish_boot_stage_transition(tab_id, stage, reason);
+    }
+
+    pub(crate) fn reconcile_validated_rebind_boot(&self, tab_id: &str, session_id: &str) {
+        let stage = BootStage::PtyReattached;
+        if self.record_boot_stage_transition(tab_id, stage, None, |tab| {
+            tab.agent_session_id.as_deref() == Some(session_id)
+                && reconcile_validated_rebind_failure(tab)
+        }) {
+            self.finish_boot_stage_transition(tab_id, stage, None);
+        }
     }
 
     fn record_boot_stage_transition(
