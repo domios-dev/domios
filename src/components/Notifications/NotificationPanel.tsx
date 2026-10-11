@@ -44,7 +44,7 @@ export function NotificationPanel({
     },
     [onJumpToTab, onMarkRead],
   );
-  const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
+  const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 shrink-0 whitespace-nowrap px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
   const rowClass = "ct-row group flex items-start gap-2 px-2 py-2.5";
   // The card cannot widen past the panel it lives in, so reading room is the
   // panel's to give: it grows while anything is open and returns when nothing is.
@@ -63,11 +63,11 @@ export function NotificationPanel({
         maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))",
       }}
     >
-      <div className="flex min-h-9 shrink-0 items-center justify-between px-2.5 py-1">
+      <div className="flex min-h-9 shrink-0 flex-wrap items-center justify-between gap-x-2 px-2.5 py-1">
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--ct-fg)]">
           <Bell size={13} /> Notifications
         </span>
-        <div className="flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={onMarkAllRead}

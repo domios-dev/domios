@@ -126,5 +126,7 @@
   "src/components/Sidebar/GeneralWorkspaceTabs.test.tsx",
   "src/lib/newSessionSection.test.ts",
   "src/lib/bridge.phoneShell.test.ts",
-  "src/components/Settings/AgentsTab.loading.test.tsx"
+  "src/components/Settings/AgentsTab.loading.test.tsx",
+  "src/components/shared/viewportSurfaces.test.ts",
+  "src/components/shared/RemoteFolderPicker.portal.test.tsx"
 ]
