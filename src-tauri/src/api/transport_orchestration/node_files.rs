@@ -10,9 +10,21 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NodeFilesBody {
+    #[serde(deserialize_with = "node_identity")]
     identity: Identity,
     bucket: Option<String>,
     handler: Option<String>,
+}
+
+fn node_identity<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Identity, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if !["kind", "id", "workspace_id", "team_id", "owner_tab_id"]
+        .into_iter()
+        .all(|field| value.get(field).is_some())
+    {
+        return Err(serde::de::Error::custom("Full Blueprint identity required"));
+    }
+    serde_json::from_value(value).map_err(serde::de::Error::custom)
 }
 
 pub(super) fn validate_request(

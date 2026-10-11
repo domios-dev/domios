@@ -88,3 +88,29 @@ describe("orchestration transport", () => {
     expect(calls[11].body).toMatchObject({ task: "opaque" });
   });
 });
+
+it("ends old requests and ignores old SSE after a client replacement", async () => {
+  const { configureOrchestrationTransport, orchestrationTransport, listenOrchestration } = await import("./orchestrationRuntime");
+  const { orchestrationTestClient } = await import("./orchestration.testdata");
+  let oldEvent!: (name: string, data: unknown) => void;
+  let oldSignal: AbortSignal | undefined;
+  let closed = 0;
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, _path: string, _body?: unknown, opts?: { signal?: AbortSignal }) => {
+    oldSignal = opts?.signal;
+    return [] as T;
+  }, (_stream, onEvent) => {
+    oldEvent = onEvent;
+    return () => { closed++; };
+  }));
+  await orchestrationTransport().cron_list();
+  const seen: unknown[] = [];
+  const stop = await listenOrchestration("cron-run-finished", ({ payload }) => seen.push(payload));
+  oldEvent("other", "ignored");
+  oldEvent("cron-run-finished", "first");
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  oldEvent("cron-run-finished", "late");
+  stop();
+  expect(oldSignal?.aborted).toBe(true);
+  expect(closed).toBe(1);
+  expect(seen).toEqual(["first"]);
+});

@@ -5,9 +5,9 @@ import type { NodeFile } from "../../components/Automation/nodeFilesModel";
 import type { CronJob } from "../types";
 import type { TeamMemberAttachment, TeamCloseInventory } from "../teamActions";
 
-export interface OrchestrationClient {
-  json<T>(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; callerTabId?: string }): Promise<T>;
-}
+import type { TransportClient } from "../transportClient";
+
+export type OrchestrationClient = Pick<TransportClient, "json">;
 
 export interface CallerClaim {
   callerTabId?: string | null;
@@ -86,7 +86,7 @@ export function createOrchestrationTransport(client: OrchestrationClient) {
     cron_update: ({ id, params }: { id: string; params: Record<string, unknown> }) => client.json<CronJob>("PATCH", cronPath(id), params),
     mux_rename_team: (args: CallerClaim & { teamId: string; name: string }) => client.json<unknown>("POST", `${teamPath(args.teamId)}/rename`, { name: args.name, ...claimBody(args) }),
     mux_close_team: (args: CallerClaim & { teamId: string; forceBusy?: boolean }) => client.json<{ inventory: TeamCloseInventory }>("POST", `${teamPath(args.teamId)}/close`, { force: true, confirm: args.teamId, force_busy: args.forceBusy === true, ...claimBody(args) }),
-    mux_add_team_member: (args: CallerClaim & { teamId: string; provider: string; role: string; model?: string; brief?: string }) => client.json<TeamMemberAttachment>("POST", `${teamPath(args.teamId)}/members`, { provider: args.provider, role: args.role, model: args.model, task: args.brief, ...claimBody(args) }),
+    mux_add_team_member: (args: CallerClaim & { teamId: string; provider: string; role: string; model?: string; brief?: string; task?: string; title?: string }) => client.json<TeamMemberAttachment>("POST", `${teamPath(args.teamId)}/members`, { provider: args.provider, role: args.role, model: args.model, task: args.brief ?? args.task, title: args.title, ...claimBody(args) }),
     mux_make_orchestrator: ({ tabId }: { tabId: string }) => client.json<unknown>("POST", `${tabPath(tabId)}/make-orchestrator`),
     mux_make_planner: ({ tabId, planId }: { tabId: string; planId: string }) => client.json<unknown>("POST", `${tabPath(tabId)}/make-planner`, { plan_id: planId }),
     mux_create_orchestration_pair: ({ params }: { params: Record<string, unknown> }) => client.json<unknown>("POST", "/api/orchestration/new", params),

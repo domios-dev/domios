@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { Clock3 } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
 import { invoke, listen } from "../../lib/bridge";
+import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import type { CronJob } from "../../lib/types";
 import { CronDrawerSection } from "../MeshPanel/CronDrawerSection";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
@@ -36,7 +37,7 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
   const refresh = async () => {
     try {
       const [nextJob, inventory] = await Promise.all([
-        invoke<CronJob>("cron_get", { id: cronId }),
+        orchestrationTransport().cron_get({ id: cronId }),
         invoke<MeshInventoryView>("mesh_inventory_list"),
       ]);
       setJob(nextJob);
