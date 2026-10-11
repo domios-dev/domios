@@ -305,7 +305,7 @@ impl ServiceContext {
     /// own resume command and commits its launch record once the old PTY is gone.
     fn restart_live_agent(
         &self,
-        snap: TabRestartSnapshot,
+        mut snap: TabRestartSnapshot,
         force: bool,
         grace_secs: u64,
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
@@ -325,6 +325,20 @@ impl ServiceContext {
         }
 
         let restart_claim = self.claim_restart(&snap.tab_id, false)?;
+        if mode == RestartMode::Fresh {
+            self.require_fresh_restart_allowed(&snap, force)?;
+        }
+        let pty_claim = self.pty_ownership.acquire(&snap.tab_id);
+        {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
+                AgentRestartError::NotFound(format!("Tab {} not found", snap.tab_id))
+            })?;
+            snap.pty_id = tab.pty_id.clone().unwrap_or_default();
+            if mode == RestartMode::Fresh {
+                snap.session_id = tab.agent_session_id.clone();
+            }
+        }
         if mode == RestartMode::Fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
@@ -403,6 +417,7 @@ impl ServiceContext {
             self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
                 .map_err(AgentRestartError::Internal)?;
         }
+        crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
@@ -474,6 +489,7 @@ impl ServiceContext {
                 None
             },
         );
+        drop(pty_claim);
         drop(restart_claim);
 
         let ready = self.finish_observed_restart(
