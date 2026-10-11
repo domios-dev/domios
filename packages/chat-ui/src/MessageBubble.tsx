@@ -26,7 +26,8 @@ import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportC
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
 import { ChatNoticeCard } from "./ChatNoticeCard";
-import { MessageTime } from "./MessageTime";
+import { MessageTimeFrame } from "./MessageTimeFrame";
+import { messageRowTime } from "./messageRowTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
@@ -142,7 +143,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, streaming = false, showTimestamp = false, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming = false, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
   const renderingStream = useDeferredValue(streaming);
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
@@ -380,7 +381,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, stream
       </>
     );
 
-    const showUserTime = showTimestamp && !effectiveOrigin && !message.inboundKind;
     const showUserBubble = Boolean(userFooter) || !dsTasks || visibleUserContent.trim().length > 0 || Boolean(attachments?.length) || reply !== null;
 
     return (
@@ -388,7 +388,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, stream
         <div className="ct-chat-message-column w-full max-w-4xl min-w-0 mx-auto">
           <div className={`group flex w-full min-w-0 ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
             <div className="relative min-w-0 w-full max-w-full sm:w-auto sm:max-w-[75%]">
-              {showUserTime && <MessageTime timestamp={message.timestamp} side="right" />}
               {originHeader}
               {showUserBubble && <div
                 className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 px-4 py-2 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
@@ -412,7 +411,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, stream
     return (
       <div className="ct-chat-message-row ct-chat-message-row--agent mb-3 w-full min-w-0">
         <div className="ct-chat-message-column relative w-full max-w-4xl min-w-0 mx-auto">
-          {showTimestamp && <MessageTime timestamp={message.timestamp} side="left" />}
           <div
             className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
             style={{ color: "var(--ct-fg)" }}
@@ -662,4 +660,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, stream
   }
 
   return null;
+});
+
+export const MessageBubble = React.memo(function MessageBubble(props: MessageBubbleProps) {
+  const time = messageRowTime(props.message, props.item, props.origin);
+  const content = <MessageBubbleContent {...props} />;
+  if (props.showTimestamp === false || !time || !isRenderableMessage(props.message)) return content;
+  return <MessageTimeFrame timestamp={String(time.timestamp)} side={time.side}>{content}</MessageTimeFrame>;
 });
