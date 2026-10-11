@@ -2,6 +2,7 @@ pub mod activity;
 pub mod agent_claude;
 pub mod agent_commands;
 pub mod agent_prompt_lines;
+pub mod agent_task;
 pub mod agent_verbs;
 pub mod audit;
 pub mod bubble;

@@ -281,7 +281,32 @@ fn run_pipeline(
         ) else {
             return Ok(RunCompletion::held(JournalReason::UncertainClaim));
         };
+        let agent_body = if matches!(&step.kind, StepKind::Agent { .. }) {
+            Some(
+                super::agent_stage::persist_result(run_id, index, &result.next_text)
+                    .map_err(|_| JournalReason::Other("agent_result_write_failed".into()))?,
+            )
+        } else {
+            None
+        };
         if lease.cancelled.load(Ordering::SeqCst) {
+            if matches!(&step.kind, StepKind::Agent { .. }) {
+                required_journal(write_journal(
+                    handle,
+                    &lease.job,
+                    BlueprintJournalWrite::Finish {
+                        run_id: run_id.into(),
+                        marker: JournalMarker::Step(index as u16),
+                        state: JournalState::Failed,
+                        outcome: "failed".into(),
+                        ended_at_ms: now(handle),
+                        result_summary: "agent task cancelled".into(),
+                        body_ref: agent_body,
+                        reason: Some("agent_cancelled".into()),
+                    },
+                ))?;
+                return Ok(RunCompletion::new(JournalState::Failed, "agent_cancelled"));
+            }
             if matches!(&step.kind, StepKind::Convert { .. }) {
                 let reason = result.reason.as_deref().unwrap_or("conversion_cancelled");
                 let _ = write_journal(
@@ -332,7 +357,7 @@ fn run_pipeline(
             outcome: result.stored_outcome.clone().into(),
             ended_at_ms: ended,
             result_summary: StepJournalEntry::bound_summary(&result.summary),
-            body_ref: None,
+            body_ref: agent_body,
             reason: result.reason.clone(),
         };
         required_journal(write_journal(handle, &lease.job, finish))?;
@@ -627,6 +652,74 @@ fn run_step(
                     }
                 }
                 Err(failure) => command_failure(failure, previous),
+            }
+        }
+        StepKind::Agent {
+            provider,
+            profile,
+            task,
+            deadline_ms,
+            max_tokens,
+            max_turns,
+        } => {
+            let remaining = lease
+                .job
+                .expires_at
+                .map(|at| at.saturating_sub(now(handle)));
+            let deadline =
+                super::agent_stage::effective_deadline(*deadline_ms, remaining, Instant::now());
+            let request = codeterm_plugin::agent_task::AgentTaskRequest {
+                input: codeterm_plugin::agent_task::AgentTaskInput {
+                    run_id: uuid::Uuid::new_v4().simple().to_string(),
+                    tab_id: lease.job.creator_tab_id.clone(),
+                    workspace_id: lease.job.workspace_id.clone(),
+                    profile: profile.clone(),
+                    task: task.clone(),
+                    input: previous.into(),
+                    timeout_ms: deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .max(1) as u64,
+                    max_tokens: *max_tokens,
+                    max_turns: *max_turns,
+                },
+                deadline,
+                cancellation: lease.cancelled.conversion_token(),
+            };
+            let result = svc
+                .chatbackend_registry
+                .get(provider)
+                .ok_or_else(|| "agent provider unavailable".to_string())
+                .and_then(|provider| super::agent_stage::run(provider, request));
+            let result =
+                result.unwrap_or_else(|error| codeterm_plugin::agent_task::AgentTaskResult {
+                    status: codeterm_plugin::agent_task::AgentTaskStatus::Failed,
+                    output: serde_json::Value::Null,
+                    error: Some(error),
+                });
+            let (done, _) = super::agent_stage::result_fields(&result);
+            StepResult {
+                outcome: if done {
+                    StepOutcome::Done
+                } else {
+                    StepOutcome::Failed
+                },
+                stored_outcome: if done { "done" } else { "failed" }.into(),
+                state: if done {
+                    JournalState::Done
+                } else {
+                    JournalState::Failed
+                },
+                summary: if done {
+                    "agent task completed"
+                } else {
+                    "agent task failed or aborted"
+                }
+                .into(),
+                reason: result.error.clone().map(Into::into),
+                next_text: serde_json::to_string(&result).unwrap_or_default(),
+                decision: None,
+                uncertain: false,
             }
         }
         StepKind::Ask { question, buckets } => {

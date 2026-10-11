@@ -10,6 +10,9 @@ exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
 [dependencies]
+minisign-verify = "0.2"
+flate2 = "1"
+tar = "0.4"
 tempfile = "3"
 tauri = { version = "2", features = ["tray-icon", "test"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run

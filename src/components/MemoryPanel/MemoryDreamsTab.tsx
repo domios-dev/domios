@@ -1,3 +1,4 @@
+import { daemonFetch } from "../../lib/webApi";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { formatDuration, formatUntil } from "../../lib/timeLabels";
 import { listen } from "../../lib/bridge";
@@ -9,7 +10,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
-import { baseUrl, authHeaders } from "./memoryApi";
+import { authHeaders } from "./memoryApi";
 import { BusySpinner } from "../shared/BusyState";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
@@ -49,8 +50,8 @@ function MemoryDreamsTabImpl({ api }: Props) {
       if (!dreamCron) return;
       const endpoint = enable ? "enable" : "disable";
       try {
-        const res = await fetch(
-          `${baseUrl(api)}/api/crons/${encodeURIComponent(dreamCron.id)}/${endpoint}`,
+        const res = await daemonFetch(api,
+          `/api/crons/${encodeURIComponent(dreamCron.id)}/${endpoint}`,
           { method: "POST", headers: authHeaders(api) },
         );
         if (res.ok && mountedRef.current) {
@@ -65,13 +66,13 @@ function MemoryDreamsTabImpl({ api }: Props) {
 
   const fetchCronData = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl(api)}/api/crons`, { headers: authHeaders(api) });
+      const res = await daemonFetch(api, `/api/crons`, { headers: authHeaders(api) });
       if (res.ok && mountedRef.current) {
         const jobs = (await res.json()) as CronJob[];
         const dream = jobs.find((j) => j.name === "mem-dreaming-auto") ?? null;
         setDreamCron(dream);
       }
-      const wRes = await fetch(`${baseUrl(api)}/api/mem/workers`, { headers: authHeaders(api) });
+      const wRes = await daemonFetch(api, `/api/mem/workers`, { headers: authHeaders(api) });
       if (wRes.ok && mountedRef.current) {
         const workers = (await wRes.json()) as GraphWorkerInfo[];
         const dreamRuns = workers
@@ -89,7 +90,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
       if (showLoading) setDiaryLoading(true);
       try {
         const params = new URLSearchParams({ limit: "30" });
-        const res = await fetch(`${baseUrl(api)}/api/mem/dream/diary?${params}`, {
+        const res = await daemonFetch(api, `/api/mem/dream/diary?${params}`, {
           headers: authHeaders(api),
         });
         if (!res.ok || !mountedRef.current) return;
@@ -163,7 +164,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
     setRunning(true);
     setRunError(null);
     try {
-      const res = await fetch(`${baseUrl(api)}/api/mem/dream`, {
+      const res = await daemonFetch(api, `/api/mem/dream`, {
         method: "POST",
         headers: { ...authHeaders(api), "Content-Type": "application/json" },
         body: JSON.stringify({ phase: "all" }),

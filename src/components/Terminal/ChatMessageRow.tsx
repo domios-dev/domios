@@ -29,8 +29,9 @@ function Gutter({ side, children }: { side: DotSide; children?: ReactNode }) {
 }
 
 /** One chat row: the bubble, a quiet actions dot in its gutter that follows the pointer, and its place in a block selection. */
-export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, selected, joinNext, selecting, cursor, handlers, children }: {
+export const ChatMessageRow = memo(function ChatMessageRow({ msg, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, children }: {
   msg: { id: string; type: string; sourceMessageId?: string };
+  sourceOrdinal?: number;
   ariaLabel: string;
   selected: boolean;
   joinNext: boolean;
@@ -90,6 +91,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
       data-message-role={msg.type}
       data-message-id={msg.id}
       data-source-message-id={msg.sourceMessageId ?? msg.id}
+      data-source-message-ordinal={sourceOrdinal}
       data-selected={selected || undefined}
       data-join-next={(selected && joinNext) || undefined}
       data-selecting={selecting || undefined}

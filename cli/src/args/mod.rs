@@ -16,6 +16,7 @@ pub mod pad;
 pub mod persona;
 pub mod plan;
 pub mod plugin;
+pub mod rest_api;
 pub mod service;
 pub mod sessions;
 pub mod spec;

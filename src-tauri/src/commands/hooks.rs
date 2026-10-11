@@ -193,15 +193,22 @@ pub fn uninstall_provider_integration(
     svc: State<'_, ServiceState>,
     provider_id: String,
 ) -> Result<(), String> {
-    svc.agent_registry
-        .with_provider(&provider_id, |provider| {
+    uninstall_provider_integration_core(&svc.agent_registry, &provider_id)
+}
+
+pub fn uninstall_provider_integration_core(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) -> Result<(), String> {
+    registry
+        .with_provider(provider_id, |provider| {
             let status = provider.check_integration();
             if has_unowned_plugin_file(provider.integration_kind(), &status) {
                 return Err("Domios will not remove an unmarked provider plugin file".into());
             }
             provider.uninstall_integration()
         })
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
 }
 
 #[tauri::command]

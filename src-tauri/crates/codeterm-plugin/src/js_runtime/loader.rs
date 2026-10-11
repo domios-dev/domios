@@ -144,7 +144,9 @@ fn compute_sandbox(
 
     let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
 
-    let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin(bundle_dir) {
+    let base = if manifest.permissions.project_files.is_empty()
+        && (dev || matches!(trust, ProviderTrust::System) || !is_user_dropin(bundle_dir))
+    {
         PluginSandbox::unrestricted()
     } else {
         let _ = std::fs::create_dir_all(plugin_temp_dir(&manifest.id));
@@ -162,9 +164,31 @@ fn compute_sandbox(
 
     let mut perms = manifest.permissions.clone();
     crate::js_runtime::grants::apply_persisted(&mut perms, bundle_dir);
+    let roots = serde_json::from_str::<serde_json::Value>(&settings_json)
+        .ok()
+        .and_then(|settings| {
+            codeterm_util::project_roots::configured(&settings, &manifest.permissions.project_files)
+                .ok()
+        })
+        .unwrap_or_default();
+    let grants = crate::js_runtime::grants::load_grants(bundle_dir);
+    let approved = if grants.permissions.get("project_write") == Some(&true) {
+        grants
+            .project_write_roots
+            .iter()
+            .filter_map(|root| codeterm_util::project_roots::canonical_root(root).ok())
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // onto every path, including unrestricted/dev.
     base.with_identity_and_perms(&manifest.id, &perms)
+        .with_project_roots(
+            roots,
+            approved,
+            crate::js_runtime::grants::grants_path(bundle_dir),
+        )
         .with_token_mode(manifest.capabilities.decision_model.token_mode)
         .with_settings(settings_json)
 }

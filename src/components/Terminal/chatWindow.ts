@@ -1,7 +1,7 @@
+import { chatRevealIndex } from "./chatAnchorModel";
 import type { TimelineItem } from "@codeterm/chat-core";
 
-/** The UI renders at most 220 rows; the retained source bound lives with the
- * transcript reducer, which evicts the oldest rows under byte-range authority. */
+/** Logical history projection; the mounted viewport is bounded independently. */
 export const CHAT_WINDOW_SIZE = 220;
 export const CHAT_WINDOW_STEP = 160;
 
@@ -10,10 +10,8 @@ export function timelineItemKey(item: TimelineItem): string {
 }
 
 export function chatMessageAnchor(items: readonly TimelineItem[], sourceMessageId: string): string | null {
-  const item = items.find((candidate) => {
-    const message = candidate.kind === "message" ? candidate.message : candidate.event.message;
-    return (message.sourceMessageId ?? message.id) === sourceMessageId;
-  });
+  const index = chatRevealIndex(items.map((candidate) => candidate.kind === "message" ? candidate.message : candidate.event.message), sourceMessageId);
+  const item = items[index];
   return item ? timelineItemKey(item) : null;
 }
 

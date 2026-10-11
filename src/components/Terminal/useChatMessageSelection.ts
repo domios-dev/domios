@@ -84,12 +84,14 @@ interface Press {
   dragging: boolean;
 }
 
-export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, streamingMessageId }: {
+export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, streamingMessageId, prepareMessage, contentVersion }: {
   tabId: string;
   rows: readonly SelectableRow[];
   agent: string;
   surfaceRef: RefObject<HTMLElement | null>;
   streamingMessageId?: string | null;
+  prepareMessage?: (id: string) => boolean;
+  contentVersion?: unknown;
 }) {
   const [state, dispatch] = useReducer(reduceMessageSelection, EMPTY_SELECTION);
   const renderingStreamId = useDeferredValue(streamingMessageId);
@@ -193,11 +195,15 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
 
   useLayoutEffect(() => {
     if (!focusCursor.current || !state.cursor) return;
-    focusCursor.current = false;
     const element = surfaceRef.current?.querySelector<HTMLElement>(`[data-message-part-id="${CSS.escape(state.cursor)}"], [data-message-id="${CSS.escape(state.cursor)}"]`);
+    if (!element) {
+      const messageId = [...live.current.index.byMessage].find(([, parts]) => parts.some((part) => part.id === state.cursor))?.[0];
+      if (prepareMessage?.(messageId ?? state.cursor)) return;
+    }
+    focusCursor.current = false;
     element?.focus({ preventScroll: true });
     element?.scrollIntoView?.({ block: "nearest" });
-  }, [state.cursor, state.selected, surfaceRef]);
+  }, [state.cursor, state.selected, surfaceRef, prepareMessage, contentVersion]);
 
   const active = selectionActive(state);
   useEffect(() => {

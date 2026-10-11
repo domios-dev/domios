@@ -27,8 +27,7 @@ interface ForkSite {
 }
 
 const INVENTORY: ForkSite[] = [
-  { file: "src/components/Terminal/useAttachments.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "browser clipboard supplies bytes while desktop supplies OS file paths" },
-  { file: "src/lib/configureLocalPreviews.ts", anchor: 'configureLocalArtifactOpener(IS_WEB ? null : (path) => invoke("reveal_file", { path }));', ordinal: 1, cls: "capability-gate", note: "OS file reveal is unavailable in the browser mirror" },
+  { file: "src/components/Terminal/useAttachments.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "browser reads client clipboard bytes while native shell extracts OS paths" },
   { file: "src/components/Terminal/tabPanel/ChangeDetail.tsx", anchor: '<IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />', ordinal: 1, cls: "capability-gate", note: "browser mirror cannot open a file in the host OS" },
   { file: "src/components/Terminal/tabPanel/ChangeDetail.tsx", anchor: '<IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("reveal_file")} />', ordinal: 1, cls: "capability-gate", note: "browser mirror cannot reveal a file in the host OS" },
   { file: "src/App.tsx", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
@@ -71,7 +70,6 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/webApi.ts", anchor: "if (IS_WEB) return apiHost();", ordinal: 1, cls: "transport-shim", note: "THE seam: daemonHttpBase() — canonical daemon origin per access mode" },
   { file: "src/lib/webApi.ts", anchor: "return (IS_WEB ? currentToken() : api?.token) ?? \"\";", ordinal: 1, cls: "transport-shim", note: "THE seam: daemonAuthToken() — canonical auth token per access mode" },
   { file: "src/lib/webApi.ts", anchor: "if (IS_WEB) return webFetch(path, init);", ordinal: 1, cls: "transport-shim", note: "daemon REST fetch routes selected web peers through the authenticated relay and native callers directly" },
-  { file: "src/components/Canvas/usePlanPeerContext.ts", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "transport-shim", note: "web peer reset cancels and clears plan queries before the selected machine rebinds" },
   { file: "src/lib/lifecycle.ts", anchor: "if (!IS_WEB) return () => {};", ordinal: 1, cls: "capability-gate", note: "visibility/pageshow/online wake resync is web-only (native webview inert)" },
   { file: "src/store/multiplexer/index.tsx", anchor: "return IS_WEB && loadCachedStateSync() !== null;", ordinal: 1, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (!IS_WEB) return empty;", ordinal: 1, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
@@ -79,9 +77,6 @@ const INVENTORY: ForkSite[] = [
   { file: "src/store/multiplexer/index.tsx", anchor: "const hydratedAtBoot = IS_WEB && stateRef.current.generation === HYDRATED_GENERATION;", ordinal: 1, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
   { file: "src/store/multiplexer/index.tsx", anchor: "} else if (IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (IS_WEB && !wasReconciled) window.dispatchEvent(new Event(\"codeterm-cache-reconciled\"));", ordinal: 1, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
-  { file: "src/components/Canvas/plansApi.ts", anchor: "if (!IS_WEB) return invokePlanRead(\"get_plan_full\", { planId }, signal);", ordinal: 1, cls: "transport-shim", note: "single plan read: desktop goes straight to PlanStore over IPC, web keeps REST" },
-  { file: "src/components/Canvas/plansApi.ts", anchor: "if (!IS_WEB) return invokePlanRead(\"list_plan_index\", undefined, signal);", ordinal: 1, cls: "transport-shim", note: "plan index read: desktop goes straight to PlanStore over IPC, web keeps REST" },
-  { file: "src/components/Canvas/plansApi.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "batched full-plan read: desktop goes straight to PlanStore over IPC, web keeps REST" },
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
