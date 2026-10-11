@@ -41,5 +41,10 @@ try {
 }
 
 const ownedTests = tests(path.join(plugin.directory, "tests"));
-for (const file of ownedTests) node("node_modules/tsx/dist/cli.mjs", file);
-console.log(`${plugin.id} ${plugin.version}: metadata, bundle, types and ${ownedTests.length} test files passed`);
+const vitestFiles = JSON.parse(fs.readFileSync(path.join(root, "scripts/vitest-owned-tests.json"), "utf8"))
+  .filter((file) => file.startsWith(`plugins/${plugin.path}/`));
+const vitestPaths = new Set(vitestFiles.map((file) => path.resolve(root, file)));
+const standaloneTests = ownedTests.filter((file) => !vitestPaths.has(file));
+for (const file of standaloneTests) node("node_modules/tsx/dist/cli.mjs", file);
+if (vitestFiles.length) node("node_modules/vitest/vitest.mjs", "run", ...vitestFiles);
+console.log(`${plugin.id} ${plugin.version}: metadata, bundle, types and ${standaloneTests.length + vitestFiles.length} test files passed`);
