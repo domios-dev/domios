@@ -126,7 +126,7 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             super::narrative::MAX_NAME_CHARS
         ));
     }
-    entry["tab_id"] = value["tab"].as_str().map_or(Value::Null, |tab| json!(tab));
+    entry["tab_id"] = json!(tab_identifier(&value["tab"]));
     entry["decision_point"] = json!(allowed(
         &value["decision_point"],
         &[
@@ -194,6 +194,12 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         entry["asked"] = json!(asked);
     }
     Some(entry)
+}
+
+fn tab_identifier(value: &Value) -> Option<&str> {
+    value
+        .as_str()
+        .filter(|id| id.len() == 8 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
 fn identifier(value: &Value) -> Option<&str> {

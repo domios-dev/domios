@@ -73,9 +73,13 @@ fn supporter_feed_api_redacts_untrusted_journal_fields() {
     let record = json!({ "time": 1700000000, "team_id": "team_aabbccdd", "tab": secret, "kind": "tab_state",
         "label": screen, "confidence": 0.9, "action": secret, "reason": screen, "screen": screen,
         "token": secret, "body": screen, "distribution": { "choice": secret }, "budget": { "reached": false, "screen": screen } });
+    let mut verdict = record.clone();
+    verdict["kind"] = json!("rerank");
+    verdict["action"] = json!("verdict");
+    verdict["question_count"] = json!(10);
     std::fs::write(
         dir.path().join("journal.jsonl"),
-        format!("{record}\nmalformed\n"),
+        format!("{record}\n{verdict}\nmalformed\n"),
     )
     .unwrap();
     let runtime = SupporterRuntime::new(dir.path().into());
@@ -94,7 +98,12 @@ fn supporter_feed_api_redacts_untrusted_journal_fields() {
     assert_eq!(value["entries"][0]["action"], "notify_only");
     assert_eq!(value["entries"][0]["reason"], "redacted");
     assert!(value["entries"][0].get("distribution").is_none());
-    assert!(value["entries"][0].get("tab").is_none());
+    assert_eq!(value["entries"].as_array().unwrap().len(), 2);
+    for entry in value["entries"].as_array().unwrap() {
+        assert!(entry.get("distribution").is_none());
+        assert!(entry.get("tab").is_none());
+        assert_eq!(entry["tab_id"], Value::Null);
+    }
 }
 
 #[test]

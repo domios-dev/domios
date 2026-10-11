@@ -64,6 +64,8 @@ fn three_candidates_preserve_first_stage_and_make_no_model_call() {
     let mut config = enabled_cfg();
     config.memory_rerank.sources.recall = 3;
     config.memory_rerank.candidates = 3;
+    let baseline = baseline_oracle(&backend, &params(3));
+    let before = access_counts(&backend);
     let output = resolve_search(
         &backend,
         &registry_with(StubMode::Fail(DecisionError::Unavailable(
@@ -78,10 +80,41 @@ fn three_candidates_preserve_first_stage_and_make_no_model_call() {
     .unwrap();
     assert_eq!(output["supporter"]["status"], "skipped");
     assert_eq!(output["supporter"]["reason"], "small_pool");
-    assert_eq!(
-        titles(&output),
-        titles(&baseline_oracle(&backend, &params(3)))
-    );
+    let after = access_counts(&backend);
+    let returned = returned_mem_ids(&output);
+    assert_eq!(normalized(without_envelope(output)), normalized(baseline));
+    for id in &backend.ids {
+        assert_eq!(after[id] - before[id], i64::from(returned.contains(id)));
+    }
     assert_eq!(backend.runtime.status(0)["calls_last_hour"], 0);
     assert!(backend.runtime.feed(100, None).unwrap().is_empty());
+}
+
+#[test]
+fn small_project_pool_preserves_user_limit_baseline_and_access_counts() {
+    let backend = seeded();
+    let mut config = enabled_cfg();
+    config.memory_rerank.sources.recall = 3;
+    config.memory_rerank.candidates = 3;
+    let mut request = params(2);
+    request.project = Some("/seeded/project".into());
+    request.supporter = Some(true);
+    let baseline = baseline_oracle(&backend, &request);
+    let before = access_counts(&backend);
+    let output = resolve_search(
+        &backend,
+        &registry_with(StubMode::Fail(DecisionError::Http(500))),
+        &config,
+        request,
+    )
+    .unwrap();
+    let after = access_counts(&backend);
+    assert_eq!(output["supporter"]["reason"], "small_pool");
+    let returned = returned_mem_ids(&output);
+    assert!(!returned.is_empty());
+    assert_eq!(normalized(without_envelope(output)), normalized(baseline));
+    for id in &backend.ids {
+        assert_eq!(after[id] - before[id], i64::from(returned.contains(id)));
+    }
+    assert_eq!(backend.runtime.status(0)["calls_last_hour"], 0);
 }
