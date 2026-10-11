@@ -1,5 +1,40 @@
 use super::*;
 
+#[test]
+fn frontend_shell_contract_release_ignores_development_url() {
+    for target in ["http://127.0.0.1:1421", "https://foreign.example"] {
+        assert_eq!(
+            development_frontend(false, Some(&Url::parse(target).unwrap())).unwrap(),
+            None
+        );
+    }
+}
+
+#[test]
+fn frontend_shell_contract_debug_selects_configured_loopback_development_url() {
+    assert_eq!(development_frontend(true, None).unwrap(), None);
+    for target in [
+        "http://127.0.0.1:1421/",
+        "http://localhost:1422/",
+        "http://[::1]:1423/",
+    ] {
+        let url = Url::parse(target).unwrap();
+        assert_eq!(development_frontend(true, Some(&url)).unwrap(), Some(url));
+    }
+}
+
+#[test]
+fn frontend_shell_contract_refuses_untrusted_development_url() {
+    for target in [
+        "https://foreign.example",
+        "http://192.168.1.2:1420",
+        "http://user@127.0.0.1:1420",
+        "file:///index.html",
+    ] {
+        assert!(development_frontend(true, Some(&Url::parse(target).unwrap())).is_err());
+    }
+}
+
 fn boot() -> BootObservation {
     BootObservation {
         navigation: 3,

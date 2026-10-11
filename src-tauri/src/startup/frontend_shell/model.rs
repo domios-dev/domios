@@ -1,4 +1,31 @@
 use super::{RestApiPhase, RestApiStatus};
+use url::{Host, Url};
+
+pub(super) fn development_frontend(
+    debug: bool,
+    dev_url: Option<&Url>,
+) -> Result<Option<Url>, String> {
+    if !debug {
+        return Ok(None);
+    }
+    let Some(url) = dev_url else {
+        return Ok(None);
+    };
+    let loopback = match url.host() {
+        Some(Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(Host::Domain(host)) => host == "localhost",
+        None => false,
+    };
+    if !loopback
+        || !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("Development frontend must use a loopback HTTP origin".into());
+    }
+    Ok(Some(url.clone()))
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct BootObservation {
