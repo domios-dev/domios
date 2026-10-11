@@ -12,7 +12,6 @@
 //! provider requires zero changes here.
 
 use serde_json::Value as Json;
-use tauri::State;
 
 use crate::service::ServiceState;
 
@@ -22,60 +21,6 @@ fn runtime_api_port() -> Result<u16, String> {
     value
         .parse()
         .map_err(|_| format!("CODETERM_API_PORT is invalid: {value}"))
-}
-
-#[tauri::command]
-pub fn check_provider_integration(
-    svc: State<'_, ServiceState>,
-    provider_id: String,
-) -> Result<Json, String> {
-    let live_session_ids = svc
-        .mux
-        .read()
-        .all_tabs()
-        .filter(|tab| tab.agent_type.as_deref() == Some(provider_id.as_str()))
-        .filter_map(|tab| tab.agent_session_id.clone())
-        .collect::<Vec<_>>();
-    svc.agent_registry
-        .with_provider(&provider_id, |provider| {
-            crate::service::integration_silence::integration_status_with_binding_fallback(
-                provider.check_integration(),
-                &provider_id,
-                provider.has_hooks(),
-                &live_session_ids,
-            )
-        })
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))
-}
-
-#[tauri::command]
-pub async fn install_provider_integration(
-    svc: State<'_, ServiceState>,
-    config: State<'_, crate::config::ConfigState>,
-    provider_id: String,
-    api_port: Option<u16>,
-    consent: bool,
-) -> Result<(), String> {
-    let registry = svc.agent_registry.clone();
-    let config = config.inner().clone();
-    run_install_off_runtime(move || {
-        install_provider_integration_body(&registry, &config, provider_id, api_port, consent)
-    })
-    .await
-}
-
-/// Provider install/grant forks provider CLI subprocesses (worst case 2x20s);
-/// on the Tauri async runtime that starves all IPC and freezes every tab.
-async fn run_install_off_runtime<T: Send + 'static>(
-    body: impl FnOnce() -> T + Send + 'static,
-) -> T {
-    match tokio::task::spawn_blocking(body).await {
-        Ok(result) => result,
-        Err(join_error) => match join_error.try_into_panic() {
-            Ok(panic) => std::panic::resume_unwind(panic),
-            Err(join_error) => unreachable!("install offload task is never aborted: {join_error}"),
-        },
-    }
 }
 
 fn install_provider_integration_body(
@@ -188,14 +133,6 @@ fn install_and_record_integration(
     Ok(())
 }
 
-#[tauri::command]
-pub fn uninstall_provider_integration(
-    svc: State<'_, ServiceState>,
-    provider_id: String,
-) -> Result<(), String> {
-    uninstall_provider_integration_core(&svc.agent_registry, &provider_id)
-}
-
 pub fn uninstall_provider_integration_core(
     registry: &crate::agent::registry::AgentRegistry,
     provider_id: &str,
@@ -209,14 +146,6 @@ pub fn uninstall_provider_integration_core(
             provider.uninstall_integration()
         })
         .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
-}
-
-#[tauri::command]
-pub fn restore_provider_integration(
-    svc: State<'_, ServiceState>,
-    provider_id: String,
-) -> Result<(), String> {
-    restore_provider_integration_core(&svc.agent_registry, &provider_id)
 }
 
 pub fn restore_provider_integration_core(
@@ -235,26 +164,6 @@ fn restore_integration_for_provider(
         return Err("plugin-file integrations have no backup to restore".into());
     }
     provider.restore_integration()
-}
-
-#[tauri::command]
-pub fn check_provider_rule(
-    svc: State<'_, ServiceState>,
-    provider_id: String,
-) -> Result<Json, String> {
-    svc.agent_registry
-        .with_provider(&provider_id, |p| p.check_rule_status())
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))
-}
-
-#[tauri::command]
-pub fn install_provider_rule(
-    svc: State<'_, ServiceState>,
-    provider_id: String,
-) -> Result<(), String> {
-    svc.agent_registry
-        .with_provider(&provider_id, |p| p.install_rule())
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
 }
 
 /// Repairs unhealthy integrations with recorded consent or an owned install.

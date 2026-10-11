@@ -652,6 +652,7 @@ impl NotificationStore {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn update_summary(
         &mut self,
         id: &str,
@@ -686,6 +687,7 @@ impl NotificationStore {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn set_condition(&mut self, id: &str, condition: TabCondition) {
         if let Some(notification) = self.notifications.iter_mut().find(|n| n.id == id) {
             notification.condition = Some(condition);

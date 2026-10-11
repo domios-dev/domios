@@ -191,6 +191,7 @@ impl Deadlines {
         self.remaining_operation_at(Instant::now())
     }
 
+    #[cfg(windows)]
     pub(super) fn remaining_hard(&self) -> Duration {
         self.remaining_hard_at(Instant::now())
     }
@@ -199,6 +200,7 @@ impl Deadlines {
         self.operation.saturating_duration_since(now)
     }
 
+    #[cfg(any(windows, test))]
     pub(super) fn remaining_hard_at(&self, now: Instant) -> Duration {
         self.hard.saturating_duration_since(now)
     }
