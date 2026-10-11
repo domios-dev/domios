@@ -112,5 +112,6 @@
   "src/components/Surface/surfaceIcon.test.ts",
   "src/components/CrashReportToast.test.tsx",
   "src/lib/generalSession.adapter.test.ts",
-  "src/components/Terminal/ComposerActions.uploads.test.tsx"
+  "src/components/Terminal/ComposerActions.uploads.test.tsx",
+  "src/components/Terminal/ChatComposer.uploads.test.tsx"
 ]

@@ -133,3 +133,46 @@ fn source_text_still_requires_its_own_tab_reference() {
     assert_eq!(read(&owned).unwrap().data, "const owned = 1;");
     assert_eq!(read(&other).unwrap_err(), "Preview path is not referenced");
 }
+
+#[test]
+fn uploaded_artifacts_preview_before_send_without_exposing_private_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let private = root.join(".codeterm-dev");
+    let uploads = private.join("uploads");
+    std::fs::create_dir_all(&uploads).unwrap();
+    let image = uploads.join("uploaded.png");
+    std::fs::write(&image, b"image").unwrap();
+    let token = private.join("token.txt");
+    std::fs::write(&token, b"private").unwrap();
+    let policy = PreviewPolicy::new(Default::default(), &[private])
+        .unwrap()
+        .with_uploads(&uploads, &[])
+        .unwrap();
+    assert!(policy.authorize(&image, None).is_ok());
+    assert!(read_local_preview_file_guarded(
+        image.to_str().unwrap(),
+        "image",
+        |path, canonical| policy.authorize(path, canonical)
+    )
+    .is_ok());
+    assert!(policy
+        .authorize(&image, Some(&image.canonicalize().unwrap()))
+        .is_ok());
+    assert!(policy
+        .authorize(&token, Some(&token.canonicalize().unwrap()))
+        .is_err());
+    assert!(policy
+        .authorize(&image, Some(&token.canonicalize().unwrap()))
+        .is_err());
+    assert!(policy
+        .authorize(&uploads.join("nested/image.png"), Some(&image))
+        .is_err());
+    let restricted = PreviewPolicy::new(Default::default(), &[])
+        .unwrap()
+        .with_uploads(&uploads, &[uploads.clone()])
+        .unwrap();
+    assert!(restricted
+        .authorize(&image, Some(&image.canonicalize().unwrap()))
+        .is_err());
+}
