@@ -19,7 +19,7 @@ pub(crate) use launch::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service, launch_agent_in_background,
     launch_agent_in_background_with_env, mark_tab_agent_launch_started, record_provider_session,
-    record_reader_termination, ProviderSessionBinding,
+    record_reader_termination, supersede_tab_launch, ProviderSessionBinding,
 };
 #[cfg(test)]
 pub(crate) use prompt_compose::role_launch_task;
