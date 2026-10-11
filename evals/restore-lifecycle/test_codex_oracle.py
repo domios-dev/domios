@@ -87,12 +87,12 @@ class EvidenceTests(unittest.TestCase):
             oracle.restart_logs('[turn-resume] tab=a outcome=delivered', ['a'], idle=True)
 
     def test_daemon_environment_requires_actual_minimal_path(self):
-        env = 'PATH=' + oracle.GUI_PATH + ' CODETERM_INSTANCE=mobileqa CODETERM_API_PORT=7690'
+        env = 'PATH=' + oracle.GUI_PATH + ' CODETERM_INSTANCE=restartqa CODETERM_API_PORT=7692'
         oracle.daemon_environment(env, 'gui')
         with self.assertRaisesRegex(AssertionError, 'daemon PATH'):
             oracle.daemon_environment(env.replace(oracle.GUI_PATH, '/opt/homebrew/bin:' + oracle.GUI_PATH), 'gui')
-        with self.assertRaisesRegex(AssertionError, '7690'):
-            oracle.daemon_environment(env.replace('7690', '7686'), 'gui')
+        with self.assertRaisesRegex(AssertionError, '7692'):
+            oracle.daemon_environment(env.replace('7692', '7686'), 'gui')
 
     def test_closed_attempt_cannot_pass_respawn(self):
         attempt = dict(id='new', executor_tab_id='b', acknowledged_at=1)
@@ -107,7 +107,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_observer_uses_dev_run_url_and_refuses_prod(self):
         root = pathlib.Path(__file__).parent
-        env = {**os.environ, 'PYTHONPATH': str(root), 'CODETERM_API_URL': 'http://127.0.0.1:7690'}
+        env = {**os.environ, 'PYTHONPATH': str(root), 'CODETERM_API_URL': 'http://127.0.0.1:7692'}
         result = subprocess.run(['python3', '-c', 'import observe; print(observe.BASE)'], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), env['CODETERM_API_URL'])

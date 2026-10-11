@@ -1,7 +1,7 @@
 # OpenCode spawn and lazy-session restore
 
 The `run-codex.sh` entry point also runs this serialized track in both GUI PATH
-and normal modes, after the Codex phases. It uses the same mobileqa instance,
+and normal modes, after the Codex phases. It uses the same restartqa instance,
 approved SHA, scratch workspace and lifecycle operation. Wait for the explicit
 Orchestrator handoff “restart bench is yours” with the final SHA before running.
 

@@ -110,14 +110,14 @@ class Matrix:
         self.write('health.json', health)
         sha = health.get('build', '')
         oracle.require(sha and os.environ['RL_EXPECTED_SHA'].startswith(sha), f"health {sha} differs from approved SHA")
-        oracle.require(health.get('instance', {}).get('name') == 'mobileqa', f"wrong health instance: {health}")
+        oracle.require(health.get('instance', {}).get('name') == 'restartqa', f"wrong health instance: {health}")
 
     def restart(self, label, queued=None):
         observe.api('POST', '/api/session/save')
         since = time.time()
         before_size = self.log_path.stat().st_size
         env = dict(os.environ)
-        env['CODETERM_INSTANCE'], env['CODETERM_API_PORT'] = 'mobileqa', '7690'
+        env['CODETERM_INSTANCE'], env['CODETERM_API_PORT'] = 'restartqa', '7692'
         if MODE == 'gui':
             env['RL_GUI_MODE'] = '1'
             env['NODE_OPTIONS'] = '--require=' + str(ROOT / 'evals/restore-lifecycle/gui-env.cjs')
@@ -149,9 +149,9 @@ class Matrix:
         return before_size
 
     def environment(self, label):
-        result = subprocess.run(['lsof', '-t', '-iTCP:7690', '-sTCP:LISTEN'], capture_output=True, text=True, check=True)
+        result = subprocess.run(['lsof', '-t', '-iTCP:7692', '-sTCP:LISTEN'], capture_output=True, text=True, check=True)
         pids = result.stdout.split()
-        oracle.require(len(pids) == 1, f'expected one mobileqa daemon, got {pids}')
+        oracle.require(len(pids) == 1, f'expected one restartqa daemon, got {pids}')
         result = subprocess.run(['ps', 'eww', '-p', pids[0], '-o', 'command='], capture_output=True, text=True, check=True)
         # Store only relevant environment entries, never tokens from ps output.
         entries = [part for part in shlex.split(result.stdout) if part.startswith(('PATH=', 'HOME=', 'USER=', 'CODETERM_INSTANCE=', 'CODETERM_API_PORT='))]
@@ -260,7 +260,7 @@ class Matrix:
             oracle.require(texts, f'{tab}: own-session transcript has no user turn')
             self.wait(lambda path=path: any('startup_acknowledged' in text or 'ACKNOWLEDGED' in text for text in oracle.tool_outputs(path)), tab + ' own startup ACK result')
         # This UI proof is intentionally mandatory and never inferred from an HTTP 200.
-        self.cli('browser-open', 'plugin', 'browser', 'open', 'http://127.0.0.1:7690/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
+        self.cli('browser-open', 'plugin', 'browser', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, row in baseline.items():
             self.cli('focus-' + tab, 'tab', 'focus', tab, json_output=False)

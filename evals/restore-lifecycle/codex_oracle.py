@@ -83,8 +83,8 @@ def daemon_environment(raw, mode):
     require(len(paths) == 1, "daemon environment has no unique PATH")
     if mode == "gui":
         require(paths[0] == GUI_PATH, f"daemon PATH={paths[0]!r}, expected {GUI_PATH!r}")
-    require(re.search(r"(?:^|\s)CODETERM_INSTANCE=mobileqa(?:\s|$)", raw), "daemon instance is not mobileqa")
-    require(re.search(r"(?:^|\s)CODETERM_API_PORT=7690(?:\s|$)", raw), "daemon port is not 7690")
+    require(re.search(r"(?:^|\s)CODETERM_INSTANCE=restartqa(?:\s|$)", raw), "daemon instance is not restartqa")
+    require(re.search(r"(?:^|\s)CODETERM_API_PORT=7692(?:\s|$)", raw), "daemon port is not 7692")
 
 
 def current_attempt(detail, tab):

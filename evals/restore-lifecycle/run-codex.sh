@@ -2,15 +2,15 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-[ "${CODETERM_INSTANCE:-}" = mobileqa ] && [ "${CODETERM_API_PORT:-}" = 7690 ] || {
-  echo 'FAIL preflight: requires CODETERM_INSTANCE=mobileqa CODETERM_API_PORT=7690'; exit 7;
+[ "${CODETERM_INSTANCE:-}" = restartqa ] && [ "${CODETERM_API_PORT:-}" = 7692 ] || {
+  echo 'FAIL preflight: requires CODETERM_INSTANCE=restartqa CODETERM_API_PORT=7692'; exit 7;
 }
 : "${RL_EXPECTED_SHA:?Orchestrator must supply the merged release SHA}"
 : "${RL_PREBUILT_CWD:?Orchestrator must supply the canonical prebuilt checkout}"
 : "${RL_PAD_DIR:?Set to the calling agent pad directory before selecting DEV}"
 source "$REPO_ROOT/evals/_lib/lib.sh"
-dev_get /api/health > "$RL_PAD_DIR/mobileqa-health.json"
-python3 - "$RL_PAD_DIR/mobileqa-health.json" "$RL_EXPECTED_SHA" <<'PY'
+dev_get /api/health > "$RL_PAD_DIR/restartqa-health.json"
+python3 - "$RL_PAD_DIR/restartqa-health.json" "$RL_EXPECTED_SHA" <<'PY'
 import json,sys
 health=json.load(open(sys.argv[1])); actual=health.get('build','')
 if not actual or not sys.argv[2].startswith(actual):

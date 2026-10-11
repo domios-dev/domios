@@ -151,7 +151,7 @@ class OpenCodeTrack:
         before = {tab: host.inspect(tab) for tab in self.tabs}
         oracle.bindings(before, provider='opencode')
         host.write('opencode-spawn.json', before)
-        self.browser('open', 'open', 'http://127.0.0.1:7690/#token=' + os.environ['CODETERM_API_TOKEN'])
+        self.browser('open', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'])
         self.browser_open = True
         self.browser('ready', 'wait', '--selector', '[data-testid=sidebar]')
         for tab, row in before.items():
