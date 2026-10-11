@@ -175,6 +175,13 @@ class OpenCodeTrack:
         failures = []
         for tab, marker in markers.items():
             try:
+                selected = True
+                try:
+                    self.select(tab)
+                except BaseException as error:
+                    selected = False
+                    failures.append(f'{tab}: browser selection: {error}')
+                    self.finding(tab, 'browser_selection_failure', str(error), 'opencode-browser-' + tab + '-before.stdout')
                 waiter = observe.EventWait(int(os.environ.get('RL_TURN_DEADLINE', '240')))
                 observe.api('POST', f'/api/tabs/{tab}/chat-raw/start', {'subscriptionId': 'restore-lifecycle-first-' + tab})
                 self.host.send(tab, f'Reply exactly {marker}-REPLY. Do not use tools.', 'opencode-' + label + '-' + tab)
@@ -183,8 +190,8 @@ class OpenCodeTrack:
                     rows = self.chat(tab, f'opencode-{label}-live-{self.serial}-{tab}')
                     return any(marker + '-REPLY' in text for text in evidence.texts(rows, 'assistant'))
                 waiter.until(replied, tab + ' own first reply')
-                self.select(tab)
-                self.visible(tab, marker + '-REPLY', label + '-' + tab)
+                if selected:
+                    self.visible(tab, marker + '-REPLY', label + '-' + tab)
             except BaseException as error:
                 failures.append(f'{tab}: {error}')
                 self.finding(tab, 'first_turn_failure', str(error), 'opencode-' + label + '-' + tab + '.json')
