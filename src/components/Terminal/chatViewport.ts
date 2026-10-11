@@ -1,3 +1,4 @@
+import { editFrontendScroll } from "../../lib/frontendUpdate/appState";
 import type { ChatContentAnchor } from "./chatAnchorModel";
 
 const VIEWPORT_TOLERANCE_PX = 0.5;
@@ -78,6 +79,7 @@ export function getPersistedChatScrollState(key: string): ChatScrollState | null
 }
 
 export function setPersistedChatScrollState(key: string, state: ChatScrollState): void {
+  editFrontendScroll(key, "chat", JSON.stringify(state));
   persistedChatScrollStates.delete(key);
   persistedChatScrollStates.set(key, state);
   while (persistedChatScrollStates.size > MAX_PERSISTED_CHAT_SCROLL_STATES) {

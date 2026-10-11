@@ -22,6 +22,7 @@ pub mod delayed_send_routes;
 #[cfg(debug_assertions)]
 pub mod dev_cast_routes;
 pub(crate) mod essence_map_routes;
+pub mod frontend_bundle_routes;
 pub mod fs_routes;
 mod general_session_routes;
 pub mod health_routes;
