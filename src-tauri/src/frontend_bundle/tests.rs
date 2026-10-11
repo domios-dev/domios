@@ -51,6 +51,9 @@ fn frontend_bundle_integrity_accepts_producer_prehashed_minisign_fixture() {
     assert_eq!(fixture().release_id, "frontend-v1.0.0");
     let root = tempfile::tempdir().unwrap();
     let store = Store::open(root.path()).unwrap();
+    assert!(store
+        .install(&verified(), SIGNATURE, b"changed after verification")
+        .is_err());
     store.install(&verified(), SIGNATURE, ARCHIVE).unwrap();
     assert!(store
         .asset(&fixture().release_id, "index.html")
