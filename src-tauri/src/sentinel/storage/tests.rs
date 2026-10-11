@@ -138,6 +138,7 @@ fn due(store: &Mutex<Store>) -> Vec<Lease> {
 
 fn output(text: &str) -> probe::Output {
     probe::Output {
+        success: true,
         bytes: text.as_bytes().to_vec(),
         text: text.into(),
         ..Default::default()
@@ -780,5 +781,31 @@ fn sentinel_escalate_typed_outcomes_persist_hold_resolve_and_expiry() {
     assert_eq!(restored.machine.last_bucket.as_deref(), Some("other"));
     assert_eq!(restored.last_reason.as_deref(), Some("escalation_expired"));
     drop(reopened);
+    close(storage);
+}
+
+#[test]
+fn probe_progress_survives_storage_finish_and_reload() {
+    let root = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    let mut job = create(&store, None, false, json!({"done":[]}));
+    job.progress.record(1000, Some("waiting"), true);
+    job.progress.record(61000, None, false);
+    assert!(super::commit(&store, |store| store.stage_finish(&job)).unwrap());
+    let record = stored(&storage, &job.id).record;
+    assert_eq!(record.runtime.runs_since_transition, 1);
+    assert_eq!(record.runtime.last_probe_at, Some(61000));
+    assert_eq!(record.runtime.probe_state.as_deref(), Some("waiting"));
+    let reloaded = typed(&storage, &clock);
+    let restored = reloaded.lock().get(&job.id).unwrap().clone();
+    assert_eq!(restored.progress.runs_since_transition, 1);
+    assert_eq!(
+        serde_json::to_value(&restored).unwrap()["last_probe_at"],
+        61000
+    );
+    drop(reloaded);
+    drop(store);
     close(storage);
 }

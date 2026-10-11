@@ -32,6 +32,9 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE sentinel_definitions ADD COLUMN terminal_spec TEXT CHECK (terminal_spec IS NULL OR length(terminal_spec) <= 8192);
      ALTER TABLE sentinel_definitions ADD COLUMN session INTEGER NOT NULL DEFAULT 0 CHECK (session IN (0, 1));",
     blueprint::SCHEMA,
+    "ALTER TABLE blueprint_runtime ADD COLUMN runs_since_transition INTEGER NOT NULL DEFAULT 0 CHECK (runs_since_transition >= 0);
+     ALTER TABLE blueprint_runtime ADD COLUMN last_probe_at INTEGER CHECK (last_probe_at IS NULL OR last_probe_at >= 0);
+     ALTER TABLE blueprint_runtime ADD COLUMN probe_state TEXT;",
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

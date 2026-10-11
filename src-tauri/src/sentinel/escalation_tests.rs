@@ -207,6 +207,7 @@ fn sentinel_escalate_resolve_clears_hash_and_re_evaluates_once() {
         &store,
         &lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -361,6 +362,7 @@ fn sentinel_escalate_cause_cooldown_refuses_and_journals_until_five_minutes() {
         &store,
         &limited_lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -417,6 +419,7 @@ fn sentinel_escalate_cause_cooldown_refuses_and_journals_until_five_minutes() {
         &store,
         &allowed_lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()

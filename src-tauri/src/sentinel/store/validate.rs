@@ -396,6 +396,7 @@ impl Store {
                 ..Machine::default()
             },
             last_reason: None,
+            progress: super::super::progress::Progress::default(),
             revision: 0,
             agent_authored: false,
             name: params.name,

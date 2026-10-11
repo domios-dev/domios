@@ -891,3 +891,16 @@ fn render_log_preserves_step_names_and_signed_indices() {
     ]);
     assert_eq!(log_text(&rows), "100 -1 $run done outcome=done result=- reason=-\n101 -1 $result done outcome=handler_result result=- reason=-\n102 0 emit done outcome=done result=- reason=-");
 }
+
+#[test]
+fn blueprint_watch_summary_reports_progress_and_failed_probe_state() {
+    let job = serde_json::json!({
+        "id":"watch", "machine":{"stopped":false,"paused":false,"last_bucket":"waiting"},
+        "probe_state":"error", "runs_since_transition":3, "last_probe_at":61000,
+        "interval_ms":60000, "last_reason":"probe_timeout"
+    });
+    assert_eq!(
+        super::watch_summary(&job),
+        "watch [watching] bucket=error ×3 every=60000ms last_probe_at=61000 reason=probe_timeout"
+    );
+}

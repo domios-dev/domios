@@ -185,6 +185,9 @@ pub struct RunRecord {
 /// definition version and from the Storage commit revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageRuntime {
+    pub runs_since_transition: u64,
+    pub last_probe_at: Option<u64>,
+    pub probe_state: Option<String>,
     pub causal_run_json: Option<String>,
     pub generation: u64,
     pub next_run: u64,
@@ -317,6 +320,9 @@ pub struct BatchFence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeOutcome {
+    pub runs_since_transition: u64,
+    pub last_probe_at: Option<u64>,
+    pub probe_state: Option<String>,
     pub last_hash: Option<String>,
     pub last_bucket: Option<String>,
     pub stopped: bool,
@@ -720,6 +726,11 @@ impl DefinitionUpdate {
 
 impl StageRuntime {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        integer("probe count", self.runs_since_transition)?;
+        if let Some(at) = self.last_probe_at {
+            integer("last probe", at)?;
+        }
+        optional_text("probe state", &self.probe_state)?;
         optional_text("causal run", &self.causal_run_json)?;
         integer("runtime generation", self.generation)?;
         integer("runtime next run", self.next_run)?;
@@ -750,6 +761,7 @@ impl StageRuntime {
             + optional_len(&self.last_hash)
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
+            + optional_len(&self.probe_state)
             + optional_len(&self.held)
             + self
                 .run
@@ -819,6 +831,11 @@ impl HandlerResultRecord {
 
 impl RuntimeOutcome {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        integer("probe count", self.runs_since_transition)?;
+        if let Some(at) = self.last_probe_at {
+            integer("last probe", at)?;
+        }
+        optional_text("probe state", &self.probe_state)?;
         optional_text("runtime hash", &self.last_hash)?;
         optional_text("runtime bucket", &self.last_bucket)?;
         optional_text("runtime reason", &self.last_reason)?;
@@ -837,6 +854,7 @@ impl RuntimeOutcome {
             + optional_len(&self.last_hash)
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
+            + optional_len(&self.probe_state)
             + optional_len(&self.held)
     }
 }

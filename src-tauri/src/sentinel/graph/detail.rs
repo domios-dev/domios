@@ -117,6 +117,7 @@ pub(super) fn project(
             Some(crate::sentinel::source::TabBinding::CronRun(_))
         ) && job.run.is_none());
     json!({"version":1,"scope":{"workspace_id":job.workspace_id,"team_id":job.team_id,"node_id":job.id},
+        "runs_since_transition":job.progress.runs_since_transition,"last_probe_at":job.progress.last_probe_at,"probe_state":job.progress.probe_state,
         "origin":if job.agent_authored {"agent"} else {"unknown"},
         "creator":if job.creator_tab_id.is_empty() {Value::Null} else {json!({"tab_id":job.creator_tab_id,"name":creator_name})},
         "team":job.team_id.as_ref().map(|id| json!({"id":id,"name":team_name})),

@@ -35,7 +35,7 @@ Every declared bucket routes on its first accepted reading. `--route bucket=stop
 
 For Team watches, a bucket routes only when it changes. Watch each member with its own `--observe tab:<id>` graph, or use `--rearm-on-change <bucket>` when a relevant source change should start a fresh episode.
 
-The creator's live tab supplies its cwd, workspace, and Team. Commands are executed as the daemon user in that cwd, with no interactive stdin, through `/bin/sh -c` on Unix and Windows PowerShell on Windows, where `curl` is an alias (use `curl.exe`) and `>` writes UTF-16. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status is part of the hashed result. A probe timeout or spawn failure records a skip.
+The creator's live tab supplies its cwd, workspace, and Team. Commands are executed as the daemon user in that cwd, with no interactive stdin, through `/bin/sh -c` on Unix and Windows PowerShell on Windows, where `curl` is an alias (use `curl.exe`) and `>` writes UTF-16. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status is part of the hashed result. A confirmed probe timeout, spawn failure or nonzero command exit records an `error` run and keeps watching. Unconfirmed child or process-boundary cleanup stops the watch to prevent overlapping probes.
 
 Use `--observe` to watch an agent tab or a cron run instead of running a shell probe:
 
@@ -57,7 +57,7 @@ A connected Supporter adapter with Choice capability classifies output that matc
 codeterm blueprint create --name ci-result-watch --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
 ```
 
-Patterns see the formatted result: exit status, stdout, then stderr. Match the status line with a multiline pattern such as `(?m)^success$` when the probe prints `success`. Create without either a connected Choice adapter or a pattern is refused.
+Patterns see the formatted result: exit status, stdout, then stderr. Matching uses multiline anchors, normalizes CRLF to LF and removes trailing whitespace on each line. Match the status line with a multiline pattern such as `(?m)^success$` when the probe prints `success`. Create without either a connected Choice adapter or a pattern is refused.
 
 Routes run once when a new accepted bucket differs from the previous accepted bucket, including the first accepted result. Model confidence must be at least 0.80. `other` and low confidence can use the reserved `other` handlers; adapter failure and exhausted budgets never escalate. Unknown or weak observations do not reset the last accepted bucket. Returning to a previously accepted bucket after another accepted bucket is a new transition.
 
@@ -161,7 +161,7 @@ codeterm blueprint delete --stopped
 
 `delete` removes a whole Blueprint with every stage and its history; naming a stage deletes the Blueprint it belongs to. Only the creator tab or the Team owner may delete, and only inside the caller's Team and workspace. A running Blueprint is refused unless `--stop` is passed. `--stopped` deletes every stopped Blueprint the caller may delete and prints the removed ids; deletion cannot be undone.
 
-These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
+These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. `runs_since_transition` counts completed repeats after the current state began (zero on a transition); `last_probe_at` is the last completed probe time in Unix milliseconds. Jobs and the human output show the current probe state with `×N`, including `error` and unmatched `other`. The declared cadence remains fixed; missed ticks are skipped rather than replayed. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
 
 Legacy single-route definitions or corrupt stores make Blueprints unavailable; other subsystems still start. Original bytes remain, and reads and mutations return a load/format error. Preserve the definitions and recreate them through current authoring: no automatic migration, reset or discard. Demonstrate with fresh isolated dev data.
 
@@ -186,4 +186,4 @@ codeterm blueprint create --recipe echo --set message=ready
 codeterm blueprint log BLUEPRINT_ID
 ```
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

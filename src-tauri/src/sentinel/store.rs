@@ -83,6 +83,8 @@ pub struct Sentinel {
     pub next_run: u64,
     pub machine: Machine,
     pub last_reason: Option<String>,
+    #[serde(default, flatten)]
+    pub progress: super::progress::Progress,
     #[serde(default)]
     pub revision: u64,
     #[serde(default)]
@@ -999,6 +1001,7 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
     current.machine.stopped = job.machine.stopped;
     current.machine.held = job.machine.held.clone();
     current.last_reason = job.last_reason.clone();
+    current.progress = job.progress.clone();
     current.run_transitions = job.run_transitions;
     current.transitions.extend(transition);
 }
