@@ -167,5 +167,6 @@
   "src/lib/orchestratorOnboard.nonce.test.ts",
   "src/lib/frontendUpdate/runtime.test.ts",
   "src/lib/frontendUpdate/useFrontendApp.test.tsx",
-  "src/components/DaemonFrontendBootstrap.test.tsx"
+  "src/components/DaemonFrontendBootstrap.test.tsx",
+  "src/components/Extensions/ChatModelBubble.test.tsx"
 ]

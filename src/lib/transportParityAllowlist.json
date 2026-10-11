@@ -36,7 +36,6 @@
   "src/components/Extensions/PluginView.tsx:invoke:plugin_view_call",
   "src/components/Extensions/SecretBackendDetail.tsx:invoke:get_config",
   "src/components/Extensions/SecretBackendDetail.tsx:invoke:update_config",
-  "src/components/Extensions/chatModelBubbleApi.ts:invoke:chatbackend_describe_model_switch",
   "src/components/Extensions/chatModelBubbleApi.ts:invoke:chatbackend_session_info",
   "src/components/Extensions/chatModelBubbleApi.ts:invoke:chatbackend_switch_model",
   "src/components/Extensions/chatPreprocessorPresetApi.ts:invoke:get_config",
