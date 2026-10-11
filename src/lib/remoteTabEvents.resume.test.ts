@@ -1,8 +1,11 @@
+import { configureRemoteTabTransport } from "./remoteTabTransport";
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
   remoteTabEventSubscriptionSnapshot, resumeRemoteTabEvents, subscribeRemoteTabEvent,
 } from "./remoteTabEvents";
 import { onRemoteTransportState } from "./remoteTabTransportState";
+
+configureRemoteTabTransport({ enabled: true, host: "127.0.0.1", port: 7685, token: "fixture", cors: false });
 
 describe("remote chat event subscription ownership", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -142,4 +145,7 @@ describe("remote chat event subscription ownership", () => {
   });
 });
 
+let completed = false;
+it("completes all event barriers", () => { completed = true; });
+process.once("beforeExit", () => { if (!completed) process.exitCode = 1; });
 finish();

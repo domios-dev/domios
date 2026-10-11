@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { invoke, IS_WEB, listen } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
+import { nativeBridge } from "../../lib/nativeBridge";
 import { resizeOwnerChangedEvent, type ResizeOwner } from "../../lib/resizeOwner";
 import { tabResizeChanged } from "./tabResize";
 
@@ -36,7 +37,7 @@ interface TerminalSize {
   rows: number;
 }
 
-const nativeResizeCommit = !IS_WEB
+const nativeResizeCommit = Boolean(nativeBridge.resizeEvents)
   && typeof navigator !== "undefined"
   && navigator.platform.startsWith("Win");
 
@@ -217,14 +218,10 @@ export function useTerminalResize({
     let unlistenStart: (() => void) | null = null;
     let unlistenCommit: (() => void) | null = null;
     let commitFrame: number | null = null;
-    let disposed = false;
-    void listen("terminal-window-resize-start", () => {
+    unlistenStart = nativeBridge.resizeEvents?.onStart(() => {
       nativeResizeActiveRef.current = true;
-    }).then((cleanup) => {
-      if (disposed) cleanup();
-      else unlistenStart = cleanup;
-    });
-    void listen("terminal-window-resize-commit", () => {
+    }) ?? null;
+    unlistenCommit = nativeBridge.resizeEvents?.onCommit(() => {
       nativeResizeActiveRef.current = false;
       if (commitFrame !== null) cancelAnimationFrame(commitFrame);
       commitFrame = requestAnimationFrame(() => {
@@ -232,12 +229,8 @@ export function useTerminalResize({
         fitMeasuredContainer();
         commitResize();
       });
-    }).then((cleanup) => {
-      if (disposed) cleanup();
-      else unlistenCommit = cleanup;
-    });
+    }) ?? null;
     return () => {
-      disposed = true;
       if (commitFrame !== null) cancelAnimationFrame(commitFrame);
       unlistenStart?.();
       unlistenCommit?.();

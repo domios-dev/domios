@@ -1,24 +1,4 @@
-/**
- * Multiplexed web PTY output (D1 §5): ONE SSE connection carries every tab's
- * output as tab-tagged frames (`GET /api/output/stream?since=<b64url cursor>`),
- * so the browser holds O(1) connections regardless of tab count — replacing
- * the per-tab 25s long-poll.
- *
- * Cursor = `{boot, tabs: {tabId: byteOffset}}`. The server resumes listed
- * tabs at their offset and full-replays unlisted ones, so after the first
- * connect we track offsets for EVERY tab frame we see (sink or not) to keep
- * reconnects exact. A `boot_changed` frame (daemon restart, or first cold
- * connect with an unknown boot) clears offsets and reconnects — the fresh
- * cursor then full-replays the new ring.
- *
- * Frames: `{tab_id, output, offset}` (lossy-UTF8 text; offset = resume point),
- * `{tab_id, truncated: true, from}` (ring evicted while behind),
- * `{tab_id, ended: true}` (genuine PTY death), `{boot_changed: true, boot}`.
- *
- * Fallback: the per-tab long-poll path stays behind `outputStreamEnabled()`
- * (localStorage `codeterm-web-output-stream` = "off").
- */
-import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
+import { apiHost, currentToken, relayTarget } from "./webApi";
 import { onResync } from "./resync";
 import {
   onRemoteTransportCredentials,
@@ -28,13 +8,31 @@ import {
 import { remoteTabStreamPath, tabOutputRoute } from "./remoteTabRoute";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 import {
-  createRemoteChannelRecovery, createSilenceDeadline, REMOTE_SILENCE_TIMEOUT_MS, streamResponseFailureReason,
+  createRemoteChannelRecovery, createSilenceDeadline, streamResponseFailureReason,
   type RemoteChannelRecovery, type StreamEndReason,
 } from "./remoteChannelRecovery";
+import { createTransportClient, type TransportClient } from "./transportClient";
+import { TerminalOutputReplay } from "./outputReplay";
 import { DEV_BUILD } from "./devBuild";
+
+function selectedRelayTarget() {
+  return typeof window === "undefined" || !window.location || typeof localStorage === "undefined" ? null : relayTarget();
+}
+
+let outputClient: TransportClient | undefined;
+export function bindOutputStreamTransport(client: TransportClient): void {
+  outputClient = client;
+  resetOutputStream();
+  for (const [tabId, record] of remoteRecords) {
+    record.controller?.abort();
+    openRemoteOutputConnection(tabId, record);
+  }
+}
 
 export interface TabOutputSink {
   onOutput(text: string): void;
+  onReady?(): void;
+  onBytes?(bytes: Uint8Array): void;
   onTruncated(from: number): void;
   onEnded(): void;
   onStreamError?(error: Error): void;
@@ -43,6 +41,8 @@ export interface TabOutputSink {
 interface OutputFrame {
   tab_id?: string;
   output?: string;
+  data?: number[];
+  pty_id?: string;
   offset?: number;
   truncated?: boolean;
   from?: number;
@@ -52,8 +52,8 @@ interface OutputFrame {
 }
 
 const BOOT_KEY = "codeterm-web-output-boot";
-const RECONNECT_DEBOUNCE_MS = 50;
-const WATCHDOG_INTERVAL_MS = 5_000;
+const replay = new TerminalOutputReplay();
+const sinkIdentities = new WeakMap<TabOutputSink, { terminal: object; ptyId: string }>();
 
 declare global {
   interface Window {
@@ -68,16 +68,15 @@ declare global {
 
 const sinks = new Map<string, Set<TabOutputSink>>();
 const offsets = new Map<string, number>();
+const rings = new Map<string, { boot: string; ptyId?: string }>();
 /** Tabs whose full history was already streamed into a live xterm this page
  *  lifetime — a re-mount must NOT re-request a multi-MB replay. */
 const replayed = new Set<string>();
 
 let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
-let watchdogTimer: ReturnType<typeof setInterval> | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectQueued = false;
 let started = false;
-let lastFrameAt = 0;
 let forceImmediateRetry = false;
 
 export function replayOffsetsAfterBootChange(tabIds: Iterable<string>): Map<string, number> {
@@ -101,21 +100,12 @@ function saveBoot(b: string): void {
   }
 }
 
-/** Manual killswitch back to the per-tab long-poll transport. */
-export function outputStreamEnabled(): boolean {
-  try {
-    return localStorage.getItem("codeterm-web-output-stream") !== "off";
-  } catch {
-    return true;
-  }
-}
+export function outputStreamEnabled(): boolean { return true; }
 
-export function webOutputStreamActive(): boolean {
-  return webOutputTransportActive(IS_WEB, IS_WEB ? relayTarget()?.id ?? null : null, outputStreamEnabled());
-}
+export function webOutputStreamActive(): boolean { return true; }
 
-export function webOutputTransportActive(isWeb: boolean, relayPeerId: string | null, enabled: boolean): boolean {
-  return isWeb && (relayPeerId !== null || enabled);
+export function webOutputTransportActive(_isWeb: boolean, _relayPeerId: string | null, _enabled: boolean): boolean {
+  return true;
 }
 
 function sinceCursor(): string {
@@ -130,7 +120,7 @@ function sinceCursor(): string {
 
 function outputStreamUrl(): string {
   const cursor = sinceCursor();
-  const url = `${apiHost()}/api/output/stream?since=${cursor}`;
+  const url = `${outputClient?.origin() ?? apiHost()}/api/output/stream?since=${cursor}`;
   if (DEV_BUILD) console.debug("[output-stream] local aggregate stream", { url });
   return url;
 }
@@ -146,20 +136,26 @@ function handleFrame(msg: OutputFrame): void {
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
     offsets.clear();
+    rings.clear();
     for (const [tabId, offset] of replayOffsetsAfterBootChange(sinks.keys())) {
       offsets.set(tabId, offset);
     }
     forceReconnect();
     return;
   }
+  if (msg.boot) saveBoot(msg.boot);
   const tab = msg.tab_id;
   if (!tab) return;
   const set = sinks.get(tab);
   if (typeof msg.offset === "number" && typeof msg.output === "string") {
-    offsets.set(tab, msg.offset);
+    const ring = { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id };
+    const previous = rings.get(tab);
+    const sameRing = previous?.boot === ring.boot && previous.ptyId === ring.ptyId;
+    offsets.set(tab, sameRing ? Math.max(offsets.get(tab) ?? 0, msg.offset) : msg.offset);
+    rings.set(tab, ring);
     if (set) {
       perf && (perf.batches += 1);
-      for (const s of set) s.onOutput(msg.output);
+      for (const sink of set) deliverOutput(tab, sink, msg);
     }
     return;
   }
@@ -172,81 +168,64 @@ function handleFrame(msg: OutputFrame): void {
   }
 }
 
+function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): void {
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: frame.pty_id ?? tabId };
+  const bytes = frame.data ? new Uint8Array(frame.data) : new TextEncoder().encode(frame.output ?? "");
+  replay.deliver(identity.terminal, tabId, {
+    boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
+    offset: frame.offset ?? bytes.length, bytes,
+  }, (payload) => {
+    if (sink.onBytes) sink.onBytes(payload);
+    else sink.onOutput(new TextDecoder().decode(payload));
+  });
+}
+
 function forceReconnect(): void {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
+  if (reconnectQueued) return;
+  reconnectQueued = true;
+  queueMicrotask(() => {
+    reconnectQueued = false;
     forceImmediateRetry = true;
-    streamAbort?.abort();
-  }, RECONNECT_DEBOUNCE_MS);
+    if (streamAbort) streamAbort.abort();
+    else if (started) void runStream();
+  });
 }
 
 async function runStream(): Promise<void> {
-  if (IS_WEB && relayTarget()) return;
-  let backoffMs = 1_000;
+  if (selectedRelayTarget()) return;
   for (;;) {
     const abort = new AbortController();
     streamAbort = abort;
-    lastFrameAt = Date.now();
-    try {
-      const token = currentToken();
-      const res = await fetch(outputStreamUrl(), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal: abort.signal,
-      });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      backoffMs = 1_000;
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          lastFrameAt = Date.now(); // keep-alive comments count as liveness too
-          const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
-          if (!dataLine) continue;
-          try {
-            handleFrame(JSON.parse(dataLine.slice(5).trim()) as OutputFrame);
-          } catch {
-            /* malformed frame — skip */
+    let progressed = false;
+    const client = outputClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
+    await new Promise<void>((resolve) => {
+      client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
+        if (abort.signal.aborted || streamAbort !== abort) return;
+        handleFrame(data as OutputFrame);
+        progressed = true;
+      }, {
+        signal: abort.signal, raw: true,
+        onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
+        onEnd(end) {
+          if (end.reason === "error" || end.reason === "http") {
+            const error = end.error instanceof Error ? end.error : new Error(String(end.error));
+            for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
           }
-        }
-      }
-    } catch (cause: unknown) {
-      if (!abort.signal.aborted) {
-        const error = cause instanceof Error ? cause : new Error(String(cause));
-        console.warn("[output-stream] local stream failed", error);
-        for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
-      }
-    }
-    if (abort.signal.aborted && streamAbort !== abort) return; // superseded
-    if (forceImmediateRetry) {
-      forceImmediateRetry = false;
-      backoffMs = 1_000;
-      continue;
-    }
-    const delay = backoffMs / 2 + Math.random() * (backoffMs / 2);
-    await new Promise((r) => setTimeout(r, delay));
-    backoffMs = Math.min(backoffMs * 2, 15_000);
+          resolve();
+        },
+      });
+    });
+    if (abort.signal.aborted && streamAbort !== abort) return;
+    if (forceImmediateRetry) { forceImmediateRetry = false; continue; }
+    streamAbort = null;
+    if (!progressed) return;
   }
 }
 
 function ensureStarted(): void {
-  if (started || (IS_WEB && relayTarget())) return;
+  if (started || selectedRelayTarget()) return;
   started = true;
-  // Small delay so simultaneous terminal mounts batch into one initial cursor.
-  setTimeout(() => void runStream(), RECONNECT_DEBOUNCE_MS);
-  watchdogTimer ??= setInterval(() => {
-    if (Date.now() - lastFrameAt > REMOTE_SILENCE_TIMEOUT_MS) {
-      forceImmediateRetry = true;
-      streamAbort?.abort();
-    }
-  }, WATCHDOG_INTERVAL_MS);
+  queueMicrotask(() => { if (started) void runStream(); });
 }
 
 /**
@@ -254,8 +233,9 @@ function ensureStarted(): void {
  * tab this page-lifetime requests a full history replay (offset 0); re-mounts
  * resume from the tracked offset (xterm is keep-alive, scrollback persists).
  */
-export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => void {
-  const route = tabOutputRoute(tabId, IS_WEB ? relayTarget()?.id ?? null : null);
+export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal: object = sink, ptyId: string = tabId): () => void {
+  sinkIdentities.set(sink, { terminal, ptyId });
+  const route = tabOutputRoute(tabId, selectedRelayTarget()?.id ?? null);
   if (route) return subscribeRemoteTabOutput(`mesh:${route.peerId}/${route.tabId}`, route.peerId, sink);
   let set = sinks.get(tabId);
   if (!set) {
@@ -263,14 +243,21 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => vo
     sinks.set(tabId, set);
   }
   set.add(sink);
-  if (!replayed.has(tabId)) {
+  const resume = replay.offset(terminal, tabId, boot ?? "", ptyId);
+  if (!replayed.has(tabId) || resume < (offsets.get(tabId) ?? 0)) {
     replayed.add(tabId);
-    offsets.set(tabId, 0);
+    offsets.set(tabId, resume);
     if (started) forceReconnect();
   }
   ensureStarted();
   return () => {
     set!.delete(sink);
+    if (set!.size === 0) sinks.delete(tabId);
+    if (sinks.size === 0) {
+      started = false;
+      streamAbort?.abort();
+      streamAbort = null;
+    }
   };
 }
 
@@ -281,6 +268,14 @@ function subscribeRemoteTabOutput(
 ): () => void {
   let set = remoteSinks.get(ordinaryTabId);
   if (!set) { set = new Set(); remoteSinks.set(ordinaryTabId, set); }
+  const existing = remoteRecords.get(ordinaryTabId);
+  const cursor = existing?.recovery.currentCursor();
+  const identity = sinkIdentities.get(sink);
+  if (existing && cursor && identity && replay.offset(identity.terminal, ordinaryTabId, cursor.boot ?? "", identity.ptyId) < cursor.offset) {
+    existing.recovery.dispose();
+    existing.controller?.abort();
+    remoteRecords.delete(ordinaryTabId);
+  }
   set.add(sink);
   startRemoteTabOutput(ordinaryTabId, peerId);
   return () => {
@@ -297,6 +292,7 @@ function subscribeRemoteTabOutput(
 
 interface RemoteOutputCursor {
   boot?: string;
+  ptyId?: string;
   offset: number;
 }
 
@@ -314,7 +310,7 @@ const remoteRecords = new Map<string, RemoteOutputRecord>();
 // progress; anything else is a frame the server replayed and we already delivered.
 function remoteOutputAdvanced(prev: RemoteOutputCursor | null, next: RemoteOutputCursor): boolean {
   if (!prev) return true;
-  if (next.boot !== prev.boot) return true;
+  if (next.boot !== prev.boot || next.ptyId !== prev.ptyId) return true;
   return next.offset > prev.offset;
 }
 
@@ -364,49 +360,26 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   const path = remoteTabStreamPath({ peerId: record.peerId, tabId: remoteTabId }, since);
   if (DEV_BUILD) console.debug("[output-stream] remote tab stream", { ordinaryTabId, path, generation });
   const transport = remoteTabTransportHttp();
-  let reason: StreamEndReason = "error";
-  void fetch(`${transport.base}${path}`, {
-    headers: transport.token ? { Authorization: `Bearer ${transport.token}` } : {},
-    signal: abort.signal,
-  }).then(async (response) => {
-    if (!response.ok) {
-      reason = streamResponseFailureReason(response.status);
-      throw new Error(`Output stream refused: HTTP ${response.status}`);
-    }
-    if (!response.body) throw new Error("Output stream has no body");
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (!abort.signal.aborted && record.recovery.isCurrent(generation)) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      deadline.arm();
-      buffer += decoder.decode(chunk.value, { stream: true });
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const frame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const data = frame.split("\n").find((line) => line.startsWith("data:"));
-        if (data) {
-          handleRemoteOutputFrame(
-            ordinaryTabId, record, generation, remoteTabId,
-            JSON.parse(data.slice(5).trim()) as OutputFrame,
-          );
-        }
-        boundary = buffer.indexOf("\n\n");
-      }
-    }
-    reason = "eof";
-  }).catch((cause: unknown) => {
+  const client = outputClient ?? createTransportClient({ origin: transport.base, token: () => remoteTabTransportHttp().token });
+  client.subscribe(path, (_name, data) => {
     if (abort.signal.aborted || !record.recovery.isCurrent(generation)) return;
-    const error = cause instanceof Error ? cause : new Error(String(cause));
-    console.warn("[output-stream] remote stream failed", { ordinaryTabId, generation, error });
-    for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onStreamError?.(error);
-  })
-    .finally(() => {
+    handleRemoteOutputFrame(ordinaryTabId, record, generation, remoteTabId, data as OutputFrame);
+  }, {
+    signal: abort.signal, raw: true, onActivity() {
+      deadline.arm();
+      if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onReady?.();
+    },
+    onEnd(end) {
       deadline.clear();
+      const reason: StreamEndReason = end.reason === "http"
+        ? streamResponseFailureReason(end.status ?? 500) : end.reason === "eof" ? "eof" : "error";
+      if (!abort.signal.aborted && record.recovery.isCurrent(generation) && end.error) {
+        const error = end.error instanceof Error ? end.error : new Error(String(end.error));
+        for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onStreamError?.(error);
+      }
       finalizeRemoteOutputConnection(ordinaryTabId, record, generation, abort, reason);
-    });
+    },
+  });
 }
 
 function handleRemoteOutputFrame(
@@ -421,16 +394,17 @@ function handleRemoteOutputFrame(
     const prev = record.recovery.currentCursor();
     const next: RemoteOutputCursor = {
       boot: message.boot ?? prev?.boot,
+      ptyId: message.pty_id ?? prev?.ptyId,
       offset: typeof message.offset === "number" ? message.offset : prev?.offset ?? 0,
     };
     if (!record.recovery.noteProgress(generation, next)) return; // duplicate replay or stale generation dropped.
-    for (const target of remoteSinks.get(ordinaryTabId) ?? []) target.onOutput(message.output);
+    for (const target of remoteSinks.get(ordinaryTabId) ?? []) deliverOutput(ordinaryTabId, target, { ...message, boot: next.boot });
     return;
   }
   if (message.boot) {
     const previous = record.recovery.currentCursor();
     const offset = previous?.boot === message.boot ? previous.offset : 0;
-    record.recovery.noteProgress(generation, { boot: message.boot, offset });
+    record.recovery.noteProgress(generation, { boot: message.boot, offset, ptyId: previous?.boot === message.boot ? previous.ptyId : undefined });
     return;
   }
   if (!record.recovery.isCurrent(generation)) return; // stale generation never delivers control frames.
@@ -493,26 +467,19 @@ export function waitForRemoteOutputGenerationSettlement(ordinaryTabId: string, g
  *  the fresh `?since` cursor replays exactly what was missed. */
 export function pokeOutputStream(): void {
   if (!started) return;
-  forceImmediateRetry = true;
-  streamAbort?.abort();
+  forceReconnect();
 }
 
 onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */
 export function resetOutputStream(): void {
-  if (watchdogTimer) {
-    clearInterval(watchdogTimer);
-    watchdogTimer = null;
-  }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+  reconnectQueued = false;
   started = false;
   streamAbort?.abort();
   streamAbort = null;
   offsets.clear();
+  rings.clear();
   replayed.clear();
   if (sinks.size > 0) ensureStarted();
 }

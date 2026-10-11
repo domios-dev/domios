@@ -161,7 +161,7 @@ async function fixture(local = false) {
   async function done() {
     await act(async () => root.unmount());
     events.__resetWebEventsForTest();
-    for (const stream of allStreams) stream.controller.close();
+    for (const stream of allStreams) { try { stream.controller.close(); } catch { /* already canceled */ } }
     holdLocalBody = false; bodyRelease?.();
     for (const request of allRequests) request.release();
     api.invalidateWebRequestContext();
@@ -320,8 +320,8 @@ async function main() {
     const bStream = await f.streams.next("B events");
     const newStream = await f.streams.next("new A events");
     const alien = { ...f.initialB, mesh: { ...f.initialB.mesh, instance_name: "alien" } };
-    oldStream.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ event_type: "config-changed", data: alien })}\n\n`));
-    bStream.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ event_type: "config-changed", data: alien })}\n\n`));
+    assert.throws(() => oldStream.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ event_type: "config-changed", data: alien })}\n\n`)));
+    assert.throws(() => bStream.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ event_type: "config-changed", data: alien })}\n\n`)));
     await f.deliver(newStream, { ...f.initialA, api: { ...f.initialA.api, token: null } });
     assert.equal(f.current().config.mesh.instance_name, "eight");
     await f.saveToggle(); await f.persist();

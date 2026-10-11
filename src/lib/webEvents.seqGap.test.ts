@@ -71,6 +71,8 @@ const settle = (): Promise<void> =>
 void (async () => {
   console.log("webEvents seq-gap detection");
   const env = installEnv();
+  const api = await import("./webApi");
+  api.setTokenFor(api.apiHost(), "fixture-token");
   const webEvents = await import("./webEvents");
 
   let resyncRounds = 0;
