@@ -245,7 +245,34 @@ async function mount(cacheKey: string): Promise<{ root: Root; host: HTMLElement 
   return { root, host };
 }
 
+async function pendingDetachedArrival(): Promise<void> {
+  const cacheKey = "pending-detached-arrival:session";
+  clearTranscriptWindows();
+  seedTranscript(cacheKey);
+  clearPersistedChatScrollState(cacheKey);
+  const mounted = await mount(cacheKey);
+  assert(latestView, "pending arrival harness exists");
+  const scroll = latestView.scroll;
+  let top = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+  Object.defineProperty(scroll, "scrollTop", { configurable: true, get: () => top,
+    set: (value: number) => { top = Math.max(0, Math.min(value, scroll.scrollHeight - scroll.clientHeight)); } });
+  await act(async () => latestView!.handleScroll());
+  scroll.scrollTop -= 300;
+  await act(async () => latestView!.append([{ ...message(1000), type: "user" }, { ...message(1001), type: "assistant" }], 1000));
+  assert(latestView.timeline.length - latestView.range.end === 2,
+    "a delayed arrival and its reply remain newer when the reader scroll event is pending");
+  const state = readTranscriptWindow(cacheKey);
+  assert(chatWindowProjection(latestView.timeline, state.anchorKey).newerCount === 2,
+    "the new-messages affordance counts both arrivals from the pre-commit reading boundary");
+  await act(async () => mounted.root.unmount());
+  mounted.host.remove();
+  latestView = null;
+  clearTranscriptWindows();
+  clearPersistedChatScrollState(cacheKey);
+}
+
 async function main(): Promise<void> {
+  await pendingDetachedArrival();
   const cacheKey = "history-window:session";
   clearTranscriptWindows();
   seedTranscript(cacheKey);
