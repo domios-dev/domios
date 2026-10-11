@@ -1,3 +1,4 @@
+import { parseCompositeTabId } from "../remoteTabTransport";
 import type { ShellCommandSnapshot } from "@codeterm/chat-core";
 import type { ChatStartResult, ChatBackfillResult } from "../../components/Terminal/chatSessionAuthority";
 import type { ChatSendStatus } from "../../components/Terminal/chatSendStatus";
@@ -138,14 +139,14 @@ export function createTabsTransport(client: TabsTransportClient) {
         mesh_remote_tab_action: async (a: Args) => {
             const peer = s(a, "peerId", "peer_id");
             const ordinary = s(a, "ordinaryTabId", "ordinary_tab_id");
-            const prefix = `mesh:${peer}/`;
-            if (!peer || !ordinary.startsWith(prefix) || !ordinary.slice(prefix.length) || ordinary.slice(prefix.length).includes("/")) {
-                return Promise.reject(new Error("Remote tab owner mismatch"));
+            const identity = parseCompositeTabId(ordinary);
+            if (!identity || identity.peerId !== peer) {
+                throw new Error("Remote tab owner mismatch");
             }
             if (["/focus", "/agent/restart", "/close"].includes(s(a, "suffix"))) {
                 remotePtyIds.invalidate(ordinary);
             }
-            const remoteTab = ordinary.slice(prefix.length);
+            const remoteTab = identity.remoteTabId;
             const suffix = s(a, "suffix");
             const resolvePtyId = async () => {
                 const inspected = await clientFor(a).json<{

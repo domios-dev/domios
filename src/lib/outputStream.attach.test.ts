@@ -14,13 +14,15 @@ describe("aggregate terminal attachment", () => {
     vi.resetModules();
     sessionStorage.setItem("codeterm-web-output-boot", "boot");
     localStorage.clear();
+    let token = "test-token";
+    let nonce = "exact-nonce";
     const requests: Array<{ url: URL; signal: AbortSignal }> = [];
     let connection = pending<ReadableStreamDefaultController<Uint8Array>>();
     vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
       const signal = init.signal as AbortSignal;
       requests.push({ url: new URL(input), signal });
-      expect(new Headers(init.headers).get("Authorization")).toBe("Bearer test-token");
-      expect(new Headers(init.headers).get("X-CodeTerm-Session-Binding-Nonce")).toBe("exact-nonce");
+      expect(new Headers(init.headers).get("Authorization")).toBe(`Bearer ${token}`);
+      expect(new Headers(init.headers).get("X-CodeTerm-Session-Binding-Nonce")).toBe(nonce);
       return new Response(new ReadableStream<Uint8Array>({
         start(controller) {
           signal.addEventListener("abort", () => controller.error(new DOMException("Detached", "AbortError")), { once: true });
@@ -72,6 +74,21 @@ describe("aggregate terminal attachment", () => {
       await written.promise;
       expect(bytes).toEqual([
         [0x1b, 0xff, 0xe2, 0x82, 0xac, 6], [0x1b, 0xff, 0xe2, 0x82, 0xac, 6],
+      ]);
+      connection = pending();
+      token = "next-token";
+      nonce = "next-binding";
+      output.bindOutputStreamTransport(createTransportClient({
+        origin: "http://replacement.test", token, headers: { "X-CodeTerm-Session-Binding-Nonce": nonce },
+      }));
+      controller = await connection.promise;
+      expect(requests.slice(0, -1).every(({ signal }) => signal.aborted)).toBe(true);
+      expect(requests[requests.length - 1]?.url.origin).toBe("http://replacement.test");
+      written = pending<void>();
+      send(controller, [7], 7);
+      await written.promise;
+      expect(bytes).toEqual([
+        [0x1b, 0xff, 0xe2, 0x82, 0xac, 6, 7], [0x1b, 0xff, 0xe2, 0x82, 0xac, 6, 7],
       ]);
       expect(requests.every(({ url }) => url.pathname === "/api/output/stream")).toBe(true);
     } finally {

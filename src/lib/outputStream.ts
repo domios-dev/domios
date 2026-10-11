@@ -23,6 +23,10 @@ let outputClient: TransportClient | undefined;
 export function bindOutputStreamTransport(client: TransportClient): void {
   outputClient = client;
   resetOutputStream();
+  for (const [tabId, record] of remoteRecords) {
+    record.controller?.abort();
+    openRemoteOutputConnection(tabId, record);
+  }
 }
 
 export interface TabOutputSink {
