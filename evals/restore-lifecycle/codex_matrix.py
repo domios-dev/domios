@@ -88,7 +88,7 @@ class Matrix:
 
     def queue_send(self, tab, marker, label):
         path = PAD / f'rl-{RUN}-{label}.md'
-        path.write_text(f'Record this marker once: {marker}. Continue the original work.')
+        path.write_text(f'Record this marker once: {marker}.')
         receipt = observe.api('POST', f'/api/tabs/{tab}/chat-send', {'text': path.read_text(), 'correlationId': marker})
         self.write(label + '.json', receipt)
         oracle.require(receipt.get('state') == 'held', f'{tab}: queue admission was not held: {receipt}')
@@ -311,8 +311,10 @@ class Matrix:
 
     def phase_cycles(self):
         self.phase = 3
-        for cycle in range(1, 4):
-            label = f'cycle-{cycle}'
+        for cycle in range(1, 5):
+            queued = cycle == 4
+            self.phase = 4 if queued else 3
+            label = 'queued-restore' if queued else f'cycle-{cycle}'
             paths = {tab: self.session_file(tab) for tab in self.tabs}
             before = self.snapshot(label + '-before')
             before_texts = {tab: oracle.user_texts(path) for tab, path in paths.items()}
@@ -324,13 +326,13 @@ class Matrix:
             working = {tab: observe.status(tab) or {} for tab in self.workers[:2]}
             self.write(label + '-working.json', working)
             oracle.require(all(row.get('status', '').lower() == 'working' for row in working.values()), 'both Workers must be Working at restart')
-            markers = {tab: f'RL-QUEUE-{RUN}-{cycle}-{tab}' for tab in self.workers[:2]}
-            self.phase = 4
-            offset = self.restart(label, markers)
-            self.phase = 3
+            markers = {tab: f'RL-QUEUE-{RUN}-{cycle}-{tab}' for tab in self.workers[:2]} if queued else {}
+            offset = self.restart(label, markers or None)
             self.wait(lambda: all(any(oracle.CONTINUE in text for text in oracle.user_texts(paths[t])[baseline[t]:]) for t in self.workers[:2]), label + ' owed continue in own transcripts')
-            self.wait(lambda: all(any(marker in text for text in oracle.user_texts(paths[t])) for t, marker in markers.items()), label + ' queued marker delivery')
-            self.wait(lambda: all(oracle.resumed_numeric_output(paths[t], baseline[t]) for t in self.workers[:2]), label + ' unprompted resumed output')
+            if queued:
+                self.wait(lambda: all(any(marker in text for text in oracle.user_texts(paths[t])) for t, marker in markers.items()), label + ' queued marker delivery')
+            else:
+                self.wait(lambda: all(oracle.resumed_numeric_output(paths[t], baseline[t]) for t in self.workers[:2]), label + ' unprompted resumed output')
             after = self.snapshot(label + '-after')
             oracle.bindings(after, before)
             log = self.log_since(offset, label)
@@ -345,8 +347,10 @@ class Matrix:
             self.write(label + '-transcript-evidence.json', {tab: {'session': before[tab]['agent_session_id'], 'path': str(paths[tab]), 'baseline_users': baseline[tab], 'users_after': len(transcripts[tab]), 'continues_added': sum(oracle.CONTINUE in text for text in transcripts[tab][baseline[tab]:]), 'markers': {owner: sum(marker in text for text in transcripts[tab]) for owner, marker in markers.items()}, 'resumed_numeric_output': oracle.resumed_numeric_output(paths[tab], baseline[tab])} for tab in self.tabs})
             reconcile = self.cli(label + '-reconcile', 'plan', 'reconcile', self.plan, caller=self.orch)
             oracle.require('in_progress_tab_gone' not in json.dumps(reconcile.get('drift', [])), f'{label}: {reconcile}')
-            self.pass_phase(3, f'{label}: same sessions, one continue each, original work resumed, reconcile clean')
-            self.pass_phase(4, f'{label}: each queued marker exactly once, no cross-delivery')
+            if queued:
+                self.pass_phase(4, f'{label}: each queued marker exactly once, no cross-delivery, same sessions and one continue each')
+            else:
+                self.pass_phase(3, f'{label}: same sessions, one continue each, original work resumed, reconcile clean')
             self.idle()
 
     def idle(self):

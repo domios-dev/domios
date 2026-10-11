@@ -66,3 +66,8 @@ def repeated_text(rows):
 
 def spawn_cases(default, cheap, default_only=False):
     return [('Delta', default, True)] + ([] if default_only else [('Epsilon', cheap, True)]) + [('Zeta', default, False)]
+
+
+def startup_prompt(worker, marker):
+    acknowledgement = 'Run codeterm agent ack immediately. ' if worker else 'Run codeterm agent startup-ack immediately. '
+    return ('Read-only probe. Do not edit files, spawn agents, report completion, or change plan state. ' + acknowledgement + f'Reply {marker} and remain idle until instructed. Follow later bench messages exactly.')

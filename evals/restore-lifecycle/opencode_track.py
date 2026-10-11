@@ -83,9 +83,7 @@ class OpenCodeTrack:
         offset = host.log_path.stat().st_size
         for title, model, worker in evidence.spawn_cases(default, cheap, default_only):
             startup = 'RL-OPENCODE-START-' + title
-            prompt = ('Read-only probe. Do not edit files, spawn agents, report completion, or change plan state. '
-                      ('Run codeterm agent ack immediately. ' if worker else 'Run codeterm agent startup-ack immediately. ') +
-                      f'Reply {startup} and remain idle until instructed. Follow later bench messages exactly.')
+            prompt = evidence.startup_prompt(worker, startup)
             path = host.write('opencode-start-' + title + '.md', prompt)
             # CLI task-file bodies must live in the caller's AgentPad.
             from codex_matrix import PAD, RUN

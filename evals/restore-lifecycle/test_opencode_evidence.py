@@ -12,6 +12,14 @@ class OpenCodeEvidenceTests(unittest.TestCase):
         self.assertEqual(len(cases), 2)
         self.assertIn(('Epsilon', 'cheap', True), evidence.spawn_cases('default', 'cheap'))
 
+    def test_startup_prompt_composes_both_launch_roles_with_opaque_marker(self):
+        marker = 'opaque-round-trip-token'
+        for worker in (True, False):
+            with self.subTest(worker=worker):
+                prompt = evidence.startup_prompt(worker, marker)
+                self.assertIsInstance(prompt, str)
+                self.assertEqual(prompt.count(marker), 1)
+
     def row(self, key, kind, content):
         return dict(id=key, type=kind, content=content)
 
