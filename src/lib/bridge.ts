@@ -203,20 +203,20 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
 }
 
 export function checkProviderIntegration(providerId: string): Promise<ProviderIntegrationHealth> {
-  return invoke<ProviderIntegrationHealth>("check_provider_integration", { providerId });
+  return invoke<ProviderIntegrationHealth>("check_provider_integration", { provider_id: providerId });
 }
 
 export function installProviderIntegration(
   providerId: string,
 ): Promise<void> {
   return invoke<void>("install_provider_integration", {
-    providerId,
+    provider_id: providerId,
     consent: true,
   });
 }
 
 export function uninstallProviderIntegration(providerId: string): Promise<void> {
-  return invoke<void>("uninstall_provider_integration", { providerId });
+  return invoke<void>("uninstall_provider_integration", { provider_id: providerId });
 }
 
 function isCommandNotFoundError(err: unknown): boolean {

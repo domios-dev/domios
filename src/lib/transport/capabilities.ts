@@ -17,11 +17,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     answer_notification: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/answer`, { label: s(a, "label") }),
     restore_provider_integration: (a) =>
-      webJson("POST", `/api/setup/hooks/restore?provider=${enc(s(a, "providerId"))}`),
+      webJson("POST", `/api/setup/hooks/restore?provider=${enc(s(a, "provider_id"))}`),
     check_provider_rule: (a) =>
-      webJson("GET", `/api/setup/rules?provider=${enc(s(a, "providerId"))}`),
+      webJson("GET", `/api/setup/rules?provider=${enc(s(a, "provider_id"))}`),
     install_provider_rule: (a) =>
-      webJson("POST", `/api/setup/rules/install?provider=${enc(s(a, "providerId"))}`),
+      webJson("POST", `/api/setup/rules/install?provider=${enc(s(a, "provider_id"))}`),
     chatbackend_session_info: (a) =>
       webJson("POST", "/api/plugins/chatbackend/session-info", {
         pluginId: s(a, "pluginId"),
@@ -35,7 +35,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       }),
     check_local_preview_files: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/check`, { paths: a.paths }),
     check_provider_integration: (a) =>
-      webJson("GET", `/api/setup/hooks?provider=${enc(s(a, "providerId"))}`),
+      webJson("GET", `/api/setup/hooks?provider=${enc(s(a, "provider_id"))}`),
     clear_notifications: (a) =>
       a.id
         ? webJson("DELETE", `/api/notifications/${enc(s(a, "id"))}`)
@@ -273,9 +273,9 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       }),
     install_provider_integration: (a) => {
       if (a.consent !== true) return Promise.reject(new Error("Integration repair requires consent"));
-      return webJson("POST", `/api/setup/hooks/install?provider=${enc(s(a, "providerId"))}`, { consent: true, provider: s(a, "providerId") });
+      return webJson("POST", `/api/setup/hooks/install?provider=${enc(s(a, "provider_id"))}`, { consent: true, provider: s(a, "provider_id") });
     },
-    uninstall_provider_integration: (a) => webJson("POST", `/api/setup/hooks/uninstall?provider=${enc(s(a, "providerId"))}`, { provider: s(a, "providerId") }),
+    uninstall_provider_integration: (a) => webJson("POST", `/api/setup/hooks/uninstall?provider=${enc(s(a, "provider_id"))}`, { provider: s(a, "provider_id") }),
     provider_model_usage: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/model-usage`),
     get_default_cwd: () => webJson("GET", "/api/system/default-cwd"),
     get_shell_diagnostics: () => webJson("GET", "/api/system/shell-diagnostics"),
