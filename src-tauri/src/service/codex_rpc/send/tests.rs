@@ -1,19 +1,13 @@
 use super::super::protocol::RpcError;
 use super::*;
+use crate::service::{
+    local_recording::leases::{Capture, FrozenTarget},
+    parked_user_delivery::tests::{mark_ready, queue_fixture},
+    pending_delivery_payloads::user_sends::UserSendAuthority,
+    test_fixture::ServiceFixture,
+};
+use codeterm_plugin::local_recording::{LocalRecordingTrigger, SelectedDevices};
 use std::collections::VecDeque;
-
-fn capture_authority() -> UserSendAuthority {
-    UserSendAuthority {
-        tab_id: "tab-a".into(),
-        pty_id: Some("pty-a".into()),
-        binding_nonce: "nonce-a".into(),
-        pty_session_generation: Some(7),
-        provider_id: "provider-a".into(),
-        session_id: Some("thread-a".into()),
-        observed_session_id: Some("thread-a".into()),
-        prelaunch: false,
-    }
-}
 
 async fn drive(
     origin: Origin,
@@ -42,6 +36,233 @@ async fn drive(
     (result, calls)
 }
 
+fn active_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
+    fixture.service.local_recording_registry.register(
+        "trigger",
+        LocalRecordingTrigger {
+            vendor_id: 1,
+            product_id: 2,
+            usage_page: 3,
+            usage: 4,
+        },
+        true,
+    );
+    let devices = SelectedDevices {
+        input_id: "input".into(),
+        collection_id: "collection".into(),
+        microphone_id: "microphone".into(),
+    };
+    fixture
+        .service
+        .local_recording_registry
+        .select_devices("trigger", devices.clone())
+        .unwrap();
+    fixture
+        .service
+        .local_recording_registry
+        .set_enabled("trigger", true)
+        .unwrap();
+    let generation = fixture
+        .service
+        .local_recording_registry
+        .selected_devices("trigger")
+        .unwrap()
+        .1;
+    assert!(
+        fixture
+            .service
+            .local_recording_registry
+            .set_available("trigger", generation, true)
+    );
+    let target = fixture.service.freeze_recording_target(tab).unwrap();
+    let lease = fixture
+        .service
+        .local_recordings
+        .start(
+            "trigger",
+            &devices,
+            generation,
+            target,
+            &fixture.service.local_recording_registry,
+        )
+        .unwrap();
+    fixture
+        .service
+        .local_recordings
+        .stopped(&lease.lease)
+        .unwrap();
+    let capture = fixture
+        .service
+        .local_recordings
+        .transcribing(&lease.lease)
+        .unwrap();
+    (capture, generation)
+}
+
+fn admitted_capture_rpc_fixture() -> (
+    ServiceFixture,
+    String,
+    Capture,
+    u64,
+    UserSendAuthority,
+    String,
+) {
+    let (fixture, tab) = queue_fixture(true, None);
+    mark_ready(&fixture, &tab);
+    let (capture, generation) = active_capture(&fixture, &tab);
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert_eq!(capture.target, FrozenTarget::Pty(authority.clone()));
+    let reservation = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .reserve_with_replay_only(
+            authority.clone(),
+            Some("capture-client".into()),
+            false,
+            || fixture.service.chat_send_ledger.reserve_identity(),
+        )
+        .unwrap();
+    let send_id = reservation.send_id.clone();
+    fixture
+        .service
+        .local_recordings
+        .register_write_ticket(&send_id, &capture.lease_id, capture.clone())
+        .unwrap();
+    let record = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .admit_with_follow_up(
+            &reservation,
+            "voice marker",
+            "voice marker",
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+    let status = fixture.service.chat_send_ledger.admit_user(&record);
+    assert_eq!(status.correlation_id.as_deref(), Some("capture-client"));
+    drop(reservation);
+    assert!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .claim(&record, authority.session_id.as_deref())
+            .unwrap()
+    );
+    let evidence = fixture.service.chat_send_anchor(&tab);
+    assert!(
+        fixture
+            .service
+            .chat_send_ledger
+            .begin_user_handoff(&record, "voice marker", evidence)
+    );
+    assert!(
+        fixture
+            .service
+            .local_recordings
+            .write_ticket_matches_authority(&send_id, &authority)
+    );
+    (fixture, tab, capture, generation, authority, send_id)
+}
+
+async fn submit_capture_rpc<B>(
+    fixture: &ServiceFixture,
+    authority: &UserSendAuthority,
+    send_id: &str,
+    active: Option<&str>,
+    before_validation: B,
+    replies: Vec<Result<Value, ClientError>>,
+) -> (GuardedSubmit, Vec<(&'static str, Value)>)
+where
+    B: FnMut(&'static str, &Value),
+{
+    let mut replies = VecDeque::from(replies);
+    let mut calls = Vec::new();
+    let thread = authority.session_id.as_deref().unwrap();
+    let outcome = submit_owned_rpc(
+        &fixture.service,
+        Origin::User,
+        active,
+        start_params(thread, send_id, "voice marker", None, json!({})),
+        send_id,
+        Some(authority),
+        thread,
+        &authority.binding_nonce,
+        false,
+        before_validation,
+        |method, params| {
+            calls.push((method, params));
+            std::future::ready(replies.pop_front().expect("unexpected RPC handoff"))
+        },
+    )
+    .await;
+    (outcome, calls)
+}
+
+#[derive(Clone, Copy)]
+enum CaptureRpcInvalidation {
+    Cancel,
+    Revoke,
+    Unload,
+    DeviceLoss,
+    Deadline,
+    Retire,
+    ReboundSession,
+    ReboundNonce,
+}
+
+fn invalidate_capture_rpc(
+    fixture: &ServiceFixture,
+    tab: &str,
+    capture: &Capture,
+    generation: u64,
+    send_id: &str,
+    invalidation: CaptureRpcInvalidation,
+) {
+    match invalidation {
+        CaptureRpcInvalidation::Cancel => {
+            fixture.service.local_recordings.cancel(&capture.lease_id)
+        }
+        CaptureRpcInvalidation::Revoke => {
+            fixture.service.local_recording_registry.revoke("trigger")
+        }
+        CaptureRpcInvalidation::Unload => fixture
+            .service
+            .local_recording_registry
+            .unregister("trigger"),
+        CaptureRpcInvalidation::DeviceLoss => assert!(
+            fixture
+                .service
+                .local_recording_registry
+                .set_available("trigger", generation, false)
+        ),
+        CaptureRpcInvalidation::Deadline => fixture
+            .service
+            .local_recordings
+            .expire_write_ticket(send_id),
+        CaptureRpcInvalidation::Retire => fixture
+            .service
+            .local_recordings
+            .retire_write_ticket(send_id),
+        CaptureRpcInvalidation::ReboundSession => {
+            fixture
+                .service
+                .mux
+                .write()
+                .get_tab_mut(tab)
+                .unwrap()
+                .agent_session_id = Some("replacement-session".into());
+        }
+        CaptureRpcInvalidation::ReboundNonce => {
+            fixture.service.rotate_session_binding_nonce(tab);
+        }
+    }
+}
+
 #[tokio::test]
 async fn codex_rpc_send_idle_user_starts_exactly_once() {
     let (result, calls) = drive(
@@ -61,136 +282,118 @@ async fn codex_rpc_send_idle_user_starts_exactly_once() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
 async fn lark_recording_contract_rpc_capture_ticket_denies_stale_identity_before_request() {
-    #[derive(Clone, Copy)]
-    enum State {
-        Cancelled,
-        Revoked,
-        Unloaded,
-        DeviceLost,
-        Expired,
-        ReboundSession,
-        ReboundNonce,
-    }
-
-    let expected = capture_authority();
     for state in [
-        State::Cancelled,
-        State::Revoked,
-        State::Unloaded,
-        State::DeviceLost,
-        State::Expired,
-        State::ReboundSession,
-        State::ReboundNonce,
+        CaptureRpcInvalidation::Cancel,
+        CaptureRpcInvalidation::Revoke,
+        CaptureRpcInvalidation::Unload,
+        CaptureRpcInvalidation::DeviceLoss,
+        CaptureRpcInvalidation::Deadline,
+        CaptureRpcInvalidation::Retire,
+        CaptureRpcInvalidation::ReboundSession,
+        CaptureRpcInvalidation::ReboundNonce,
     ] {
-        let mut current = expected.clone();
-        let ticket_matches = match state {
-            State::Cancelled
-            | State::Revoked
-            | State::Unloaded
-            | State::DeviceLost
-            | State::Expired => false,
-            State::ReboundSession => {
-                current.session_id = Some("replacement-thread".into());
-                true
-            }
-            State::ReboundNonce => {
-                current.binding_nonce = "replacement-nonce".into();
-                true
-            }
-        };
-        let mut calls = Vec::new();
-        let outcome = submit_guarded(
-            Origin::User,
+        let (fixture, tab, capture, generation, authority, send_id) =
+            admitted_capture_rpc_fixture();
+        let mut boundary = Some(state);
+        let (outcome, calls) = submit_capture_rpc(
+            &fixture,
+            &authority,
+            &send_id,
             None,
-            start_params(
-                "thread-a",
-                "capture-client",
-                "voice marker",
-                None,
-                json!({}),
-            ),
             |_, _| {
-                capture_rpc_identity_matches(
-                    ticket_matches,
-                    Some(&current),
-                    &expected,
-                    "thread-a",
-                    "nonce-a",
-                )
+                if let Some(state) = boundary.take() {
+                    invalidate_capture_rpc(&fixture, &tab, &capture, generation, &send_id, state);
+                }
             },
-            |method, params| {
-                calls.push((method, params));
-                std::future::ready(Ok(json!({"turn":{"id":"unexpected"}})))
-            },
+            vec![Ok(json!({"turn":{"id":"unexpected"}}))],
         )
         .await;
-        assert_eq!(outcome, GuardedSubmit::RefusedBeforeRequest);
+        assert_eq!(
+            outcome,
+            GuardedSubmit::RefusedBeforeRequest {
+                after_known_steer_refusal: false
+            }
+        );
         assert!(calls.is_empty());
-        let mut pastes = 0;
-        let refused = DeliveryError::TabBusyRefused {
-            tab: "tab-a".into(),
-            detail: "capture ticket stale".into(),
-        };
-        let _ = route_or_pty(Some(Err(refused)), || {
-            pastes += 1;
-            Ok(())
-        });
-        assert_eq!(pastes, 0);
+        assert!(!fixture.service.chat_send_ledger.has_rpc_handoff(&send_id));
+        assert_eq!(
+            fixture
+                .service
+                .chat_send_ledger
+                .status(&send_id)
+                .unwrap()
+                .state,
+            crate::service::chat_send_transaction::ChatSendState::Pending
+        );
     }
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
 async fn lark_recording_contract_rpc_capture_valid_ticket_tracks_one_request() {
-    let expected = capture_authority();
-    let mut calls = Vec::new();
-    let outcome = submit_guarded(
-        Origin::User,
+    let (fixture, tab, _, _, authority, send_id) = admitted_capture_rpc_fixture();
+    let (outcome, calls) = submit_capture_rpc(
+        &fixture,
+        &authority,
+        &send_id,
         None,
-        start_params(
-            "thread-a",
-            "capture-client",
-            "voice marker",
-            None,
-            json!({}),
-        ),
-        |_, _| {
-            capture_rpc_identity_matches(true, Some(&expected), &expected, "thread-a", "nonce-a")
-        },
-        |method, params| {
-            calls.push((method, params));
-            std::future::ready(Ok(json!({"turn":{"id":"turn-a"}})))
-        },
+        |_, _| {},
+        vec![Ok(json!({"turn":{"id":"turn-a"}}))],
     )
     .await;
     assert!(matches!(outcome, GuardedSubmit::Attempted(Ok(_))));
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].0, "turn/start");
     assert_eq!(calls[0].1["clientUserMessageId"], "capture-client");
-    assert_eq!(calls[0].1["threadId"], "thread-a");
+    assert_eq!(
+        calls[0].1["threadId"],
+        authority.session_id.as_deref().unwrap()
+    );
+    assert!(fixture.service.chat_send_ledger.has_rpc_handoff(&send_id));
+    let result = match outcome {
+        GuardedSubmit::Attempted(result) => result,
+        GuardedSubmit::RefusedBeforeRequest { .. } => unreachable!(),
+    };
+    assert!(
+        finish_handoff(
+            &fixture.service,
+            &tab,
+            authority.session_id.as_deref().unwrap(),
+            &send_id,
+            result,
+        )
+        .is_ok()
+    );
+    let status = fixture.service.chat_send_ledger.status(&send_id).unwrap();
+    assert_eq!(
+        status.state,
+        crate::service::chat_send_transaction::ChatSendState::Written
+    );
+    assert_eq!(status.correlation_id.as_deref(), Some("capture-client"));
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
 async fn lark_recording_contract_rpc_capture_uncertainty_never_pastes_or_replays() {
-    let expected = capture_authority();
-    let mut calls = Vec::new();
-    let outcome = submit_guarded(
-        Origin::User,
+    let (fixture, tab, _, _, authority, send_id) = admitted_capture_rpc_fixture();
+    let (outcome, calls) = submit_capture_rpc(
+        &fixture,
+        &authority,
+        &send_id,
         None,
-        start_params(
-            "thread-a",
-            "capture-client",
-            "voice marker",
-            None,
-            json!({}),
-        ),
-        |_, _| {
-            capture_rpc_identity_matches(true, Some(&expected), &expected, "thread-a", "nonce-a")
-        },
-        |method, params| {
-            calls.push((method, params));
-            std::future::ready(Err(ClientError::Deadline))
-        },
+        |_, _| {},
+        vec![Err(ClientError::Deadline)],
     )
     .await;
     assert_eq!(
@@ -198,16 +401,78 @@ async fn lark_recording_contract_rpc_capture_uncertainty_never_pastes_or_replays
         GuardedSubmit::Attempted(Err(ClientError::Deadline))
     );
     assert_eq!(calls.len(), 1);
-    let mut pastes = 0;
-    let uncertain = DeliveryError::SubmitUnconfirmed {
-        tab: "tab-a".into(),
-        detail: "RPC handoff uncertain".into(),
+    assert_eq!(calls[0].1["clientUserMessageId"], "capture-client");
+    assert!(fixture.service.chat_send_ledger.has_rpc_handoff(&send_id));
+    let result = match outcome {
+        GuardedSubmit::Attempted(result) => result,
+        GuardedSubmit::RefusedBeforeRequest { .. } => unreachable!(),
     };
-    let _ = route_or_pty(Some(Err(uncertain)), || {
-        pastes += 1;
-        Ok(())
-    });
-    assert_eq!(pastes, 0);
+    assert!(matches!(
+        finish_handoff(
+            &fixture.service,
+            &tab,
+            authority.session_id.as_deref().unwrap(),
+            &send_id,
+            result,
+        ),
+        Err(DeliveryError::SubmitUnconfirmed { .. })
+    ));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        crate::service::chat_send_transaction::ChatSendState::Unknown
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
+async fn lark_recording_contract_rpc_capture_cancel_after_steer_refusal_blocks_start() {
+    let (fixture, _, capture, _, authority, send_id) = admitted_capture_rpc_fixture();
+    let mut invalidated = false;
+    let (outcome, calls) = submit_capture_rpc(
+        &fixture,
+        &authority,
+        &send_id,
+        Some("active-turn"),
+        |method, _| {
+            if method == "turn/start" && !invalidated {
+                fixture.service.local_recordings.cancel(&capture.lease_id);
+                invalidated = true;
+            }
+        },
+        vec![
+            Err(refused("no active turn to steer")),
+            Ok(json!({"turn":{"id":"must-not-start"}})),
+        ],
+    )
+    .await;
+    assert!(matches!(
+        outcome,
+        GuardedSubmit::RefusedBeforeRequest {
+            after_known_steer_refusal: true
+        }
+    ));
+    assert!(invalidated);
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "turn/steer");
+    assert!(!calls.iter().any(|(method, _)| *method == "turn/start"));
+    assert!(!fixture.service.chat_send_ledger.has_rpc_handoff(&send_id));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        crate::service::chat_send_transaction::ChatSendState::Pending
+    );
 }
 
 #[tokio::test]
@@ -486,23 +751,33 @@ async fn codex_rpc_send_two_busy_messages_are_two_independently_confirmed_steers
         );
         assert_eq!(calls[index].1["clientUserMessageId"], ids[index]);
     }
-    assert!(ledger
-        .confirm_rpc_send("tab-a", "foreign", "nonce-a", &ids[0])
-        .is_none());
-    assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "stale", &ids[0])
-        .is_none());
-    assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
-        .is_some());
+    assert!(
+        ledger
+            .confirm_rpc_send("tab-a", "foreign", "nonce-a", &ids[0])
+            .is_none()
+    );
+    assert!(
+        ledger
+            .confirm_rpc_send("tab-a", "thread-a", "stale", &ids[0])
+            .is_none()
+    );
+    assert!(
+        ledger
+            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+            .is_some()
+    );
     assert_eq!(
         ledger.status(&ids[1]).unwrap().state,
         ChatSendState::Written
     );
-    assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
-        .is_none());
-    assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[1])
-        .is_some());
+    assert!(
+        ledger
+            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+            .is_none()
+    );
+    assert!(
+        ledger
+            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[1])
+            .is_some()
+    );
 }
