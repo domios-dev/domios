@@ -497,6 +497,7 @@ fn pty_env_drops_inherited_orchestration_authority() {
     let inherited = [
         "CODETERM_PLAN_ID",
         "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
         "CODETERM_LANE_BASE",
         "CODETERM_ROLE",
         "CODETERM_PARENT_TAB_ID",
@@ -519,10 +520,15 @@ fn pty_env_preserves_explicit_assigned_worker_authority() {
     let mut cmd = CommandBuilder::new("worker");
     cmd.env("CODETERM_PLAN_ID", "foreign-plan");
     cmd.env("CODETERM_TASK_ID", "foreign-task");
+    cmd.env("CODETERM_ATTEMPT_ID", "foreign-attempt");
     cmd.env("CODETERM_ROLE", "Orchestrator");
     let assigned = HashMap::from([
         ("CODETERM_PLAN_ID".to_string(), "assigned-plan".to_string()),
         ("CODETERM_TASK_ID".to_string(), "assigned-task".to_string()),
+        (
+            "CODETERM_ATTEMPT_ID".to_string(),
+            "assigned-attempt".to_string(),
+        ),
         (
             "CODETERM_LANE_BASE".to_string(),
             "assigned-base".to_string(),
@@ -767,4 +773,37 @@ fn pty_env_defaults_python_to_utf8_but_keeps_an_explicit_choice() {
         &HashMap::from([("PYTHONUTF8".to_string(), "0".to_string())]),
     );
     assert_eq!(cmd.get_env("PYTHONUTF8"), Some(std::ffi::OsStr::new("0")));
+}
+
+#[test]
+fn task_launch_env_survives_gui_and_normal_paths_without_ambient_authority() {
+    for path in [
+        "/usr/bin:/bin",
+        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    ] {
+        for task_bound in [false, true] {
+            let mut cmd = CommandBuilder::new("worker");
+            cmd.env("PATH", path);
+            let authority = [
+                ("CODETERM_PLAN_ID", "plan"),
+                ("CODETERM_TASK_ID", "task"),
+                ("CODETERM_ATTEMPT_ID", "attempt"),
+            ];
+            for (key, _) in authority {
+                cmd.env(key, "foreign");
+            }
+            let mut env = HashMap::from([("PATH".into(), path.into())]);
+            if task_bound {
+                env.extend(authority.map(|(key, value)| (key.into(), value.into())));
+            }
+            apply_pty_env(&mut cmd, &env);
+            for (key, value) in authority {
+                assert_eq!(
+                    cmd.get_env(key),
+                    task_bound.then(|| std::ffi::OsStr::new(value)),
+                    "{key}, PATH={path}, task_bound={task_bound}"
+                );
+            }
+        }
+    }
 }
