@@ -14,8 +14,9 @@ def require(condition, detail):
 
 
 def cli_data(payload):
-    if isinstance(payload, dict) and 'kind' in payload and 'ok' in payload:
+    if isinstance(payload, dict) and 'ok' in payload:
         require(payload['ok'] is True, f'CLI refused: {payload}')
+    if isinstance(payload, dict) and 'kind' in payload and 'ok' in payload:
         require('data' in payload, f'CLI envelope has no data: {payload}')
         return payload['data']
     return payload

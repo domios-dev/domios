@@ -16,6 +16,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(oracle.cli_data([dispatch]), [dispatch])
         with self.assertRaisesRegex(AssertionError, 'refused'):
             oracle.cli_data({'ok': False, 'kind': 'error', 'data': None})
+        with self.assertRaisesRegex(AssertionError, 'refused'):
+            oracle.cli_data({'ok': False, 'error': {'code': 'tab_busy_refused', 'bytes_written': False}})
 
     def test_rollout_requires_exact_embedded_session_identity(self):
         with tempfile.TemporaryDirectory() as root:
