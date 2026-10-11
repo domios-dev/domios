@@ -11,9 +11,13 @@ on:
       - '.github/workflows/cli-source-of-truth.yml'
   push:
     branches: [master]
-    paths-ignore:
-      - '.codeterm/build-machine/**'
-      - '.github/workflows/release*.yml'
+    paths:
+      - 'cli/**'
+      - 'generated/cli/cli-manifest.json'
+      - 'generated/cli/cli.md'
+      - 'src-tauri/prompts/codeterm_cli.md'
+      - 'packages/chat-ui/src/codeterm/**'
+      - '.github/workflows/cli-source-of-truth.yml'
 
 concurrency:
   group: cli-source-of-truth-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
