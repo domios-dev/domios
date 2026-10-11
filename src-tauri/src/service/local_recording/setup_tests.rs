@@ -1,5 +1,7 @@
 use super::*;
-use codeterm_plugin::local_recording::{LocalInputSetupError, LocalInputSubscription};
+use codeterm_plugin::local_recording::{
+    LocalInputSetupError, LocalInputSubscription, SubscriptionTeardown,
+};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -223,4 +225,81 @@ async fn lark_recording_contract_unload_during_setup_stops_late_success_before_r
     let ready = registry.begin_subscription_setup("trigger").unwrap();
     assert!(!registry.status("trigger").unwrap().capture_active);
     registry.cancel_subscription_setup(&ready);
+}
+
+#[test]
+fn lark_recording_contract_production_adapter_fails_closed_before_native_acquisition() {
+    let adapter = platform::production_adapter();
+    let selected = SelectedDevices {
+        input_id: "unreviewed-device".into(),
+        collection_id: "unreviewed-collection".into(),
+        microphone_id: "mic".into(),
+    };
+    let result = adapter.subscribe(&declaration(), &selected, 7, noop_callback());
+    let Err(error) = result else {
+        panic!("unsupported selection unexpectedly armed a production adapter");
+    };
+    assert!(!error.reason.is_empty());
+    assert!(error.teardown.is_none());
+}
+
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+async fn lark_recording_contract_production_enable_uses_injected_readiness_boundary() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let state: crate::service::ServiceState = Arc::new(fixture.service.clone());
+    assert!(fixture._app.manage(state));
+    let service = &fixture.service;
+    let registry = service.local_recording_registry.clone();
+    registry.register("trigger", declaration(), true);
+    service
+        .local_recording_registry
+        .select_devices("trigger", devices())
+        .unwrap();
+    let (adapter, entered, release, teardown) = fake_adapter(registry.clone(), false);
+    let adapter: Arc<dyn platform::LocalInputAdapter> = adapter;
+    let (status, finished) = service
+        .local_recording_set_enabled_with_adapter("trigger", true, adapter)
+        .unwrap();
+    assert!(!status.available);
+    wait_entered(entered).await;
+    assert!(!registry.status("trigger").unwrap().available);
+    release.send(()).unwrap();
+    let finished = finished.expect("enabled configured trigger schedules subscription");
+    tokio::task::spawn_blocking(move || finished.recv().unwrap())
+        .await
+        .unwrap();
+    assert!(registry.status("trigger").unwrap().available);
+    registry.cancel("trigger");
+    teardown.send(Ok(())).unwrap();
+    registry
+        .wait_for_subscription_slot("trigger", Duration::ZERO)
+        .unwrap();
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[test]
+fn lark_recording_contract_production_macos_adapter_requires_reviewed_element_mapping() {
+    let selected = SelectedDevices {
+        input_id: "macos-hid-v1:00000001:0000000000000002".into(),
+        collection_id: "macos-hid-collection-v1:00000003:000c:0001".into(),
+        microphone_id: "mic".into(),
+    };
+    let result = platform::production_adapter().subscribe(
+        &codeterm_plugin::local_recording::LocalRecordingTrigger {
+            vendor_id: 1,
+            product_id: 2,
+            usage_page: 0x000c,
+            usage: 1,
+        },
+        &selected,
+        7,
+        noop_callback(),
+    );
+    let Err(error) = result else {
+        panic!("Mac adapter armed without reviewed element mapping");
+    };
+    assert_eq!(error.reason, "macos_hid_element_mapping_unavailable");
+    assert!(error.teardown.is_none());
 }

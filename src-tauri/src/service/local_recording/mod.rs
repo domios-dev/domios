@@ -10,6 +10,7 @@ use crate::service::ServiceContext;
 use codeterm_plugin::local_recording::{
     LocalInputSetup, LocalRecordingRegistryHandle, RecordingStatus, SelectedDevices,
 };
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
@@ -127,12 +128,31 @@ impl ServiceContext {
         plugin_id: &str,
         enabled: bool,
     ) -> Result<RecordingStatus, String> {
+        self.local_recording_set_enabled_with_adapter(
+            plugin_id,
+            enabled,
+            platform::production_adapter(),
+        )
+        .map(|(status, _)| status)
+    }
+
+    fn local_recording_set_enabled_with_adapter(
+        &self,
+        plugin_id: &str,
+        enabled: bool,
+        adapter: Arc<dyn platform::LocalInputAdapter>,
+    ) -> Result<(RecordingStatus, Option<Receiver<()>>), String> {
         if enabled && !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
-        self.local_recording_registry
+        let status = self
+            .local_recording_registry
             .set_enabled(plugin_id, enabled)
-            .map_err(str::to_string)
+            .map_err(str::to_string)?;
+        let completion =
+            (enabled && status.granted && status.devices_selected && !status.available)
+                .then(|| self.schedule_local_recording_subscription(plugin_id.into(), adapter));
+        Ok((status, completion))
     }
 
     pub(crate) fn local_recording_select_devices(
@@ -143,9 +163,18 @@ impl ServiceContext {
         if !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
-        self.local_recording_registry
+        let generation = self
+            .local_recording_registry
             .select_devices(plugin_id, devices)
-            .map_err(str::to_string)
+            .map_err(str::to_string)?;
+        let status = self.local_recording_status(plugin_id)?;
+        if status.enabled && status.granted && !status.available {
+            self.schedule_local_recording_subscription(
+                plugin_id.into(),
+                platform::production_adapter(),
+            );
+        }
+        Ok(generation)
     }
 
     pub(crate) fn local_recording_start(
@@ -183,6 +212,38 @@ impl ServiceContext {
 
     pub(crate) fn local_recording_cancel(&self, lease: &str) {
         self.local_recordings.cancel(lease);
+    }
+
+    fn schedule_local_recording_subscription(
+        &self,
+        plugin_id: String,
+        adapter: Arc<dyn platform::LocalInputAdapter>,
+    ) -> Receiver<()> {
+        let app_handle = self.app_handle.clone();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        tauri::async_runtime::spawn(async move {
+            let result = match app_handle.try_state::<crate::service::ServiceState>() {
+                Some(state) => {
+                    let service = Arc::clone(state.inner());
+                    drop(state);
+                    let result = service.local_recording_subscribe(&plugin_id, adapter).await;
+                    if let Ok(status) = service.local_recording_status(&plugin_id) {
+                        crate::api::events::emit_everywhere(
+                            &service.app_handle,
+                            "local-recording-status",
+                            status,
+                        );
+                    }
+                    result
+                }
+                None => Err("recording_host_unavailable".into()),
+            };
+            if let Err(error) = result {
+                log::debug!("[local-recording] subscription setup refused: {error}");
+            }
+            let _ = finished_tx.send(());
+        });
+        finished_rx
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
@@ -29,24 +29,48 @@ pub trait LocalInputSubscription: Send {
 }
 
 #[derive(Clone)]
-pub struct SubscriptionTeardown(Arc<Mutex<std::sync::mpsc::Receiver<Result<(), String>>>>);
+pub struct SubscriptionTeardown(Arc<Mutex<SubscriptionTeardownSource>>);
+
+enum SubscriptionTeardownSource {
+    Receiver(std::sync::mpsc::Receiver<Result<(), String>>),
+    Waiter(Box<dyn FnMut(Duration) -> SubscriptionTeardownWait + Send>),
+}
 
 impl SubscriptionTeardown {
     pub fn new(completion: std::sync::mpsc::Receiver<Result<(), String>>) -> Self {
-        Self(Arc::new(Mutex::new(completion)))
+        Self(Arc::new(Mutex::new(SubscriptionTeardownSource::Receiver(
+            completion,
+        ))))
+    }
+
+    pub fn with_waiter(
+        waiter: impl FnMut(Duration) -> SubscriptionTeardownWait + Send + 'static,
+    ) -> Self {
+        Self(Arc::new(Mutex::new(SubscriptionTeardownSource::Waiter(
+            Box::new(waiter),
+        ))))
     }
 
     pub fn wait_timeout(&self, timeout: Duration) -> SubscriptionTeardownWait {
-        let Some(receiver) = self.0.try_lock() else {
+        let Some(mut source) = self.0.try_lock() else {
             return SubscriptionTeardownWait::Pending;
         };
-        match receiver.recv_timeout(timeout) {
-            Ok(Ok(())) => SubscriptionTeardownWait::Complete,
-            Ok(Err(error)) => SubscriptionTeardownWait::Failed(error),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => SubscriptionTeardownWait::Pending,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                SubscriptionTeardownWait::Failed("subscription_teardown_unacknowledged".into())
+        match &mut *source {
+            SubscriptionTeardownSource::Receiver(receiver) => {
+                match receiver.recv_timeout(timeout) {
+                    Ok(Ok(())) => SubscriptionTeardownWait::Complete,
+                    Ok(Err(error)) => SubscriptionTeardownWait::Failed(error),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        SubscriptionTeardownWait::Pending
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        SubscriptionTeardownWait::Failed(
+                            "subscription_teardown_unacknowledged".into(),
+                        )
+                    }
+                }
             }
+            SubscriptionTeardownSource::Waiter(waiter) => waiter(timeout),
         }
     }
 }
