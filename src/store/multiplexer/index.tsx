@@ -1,3 +1,4 @@
+import { teamCallerClaim } from "../../lib/teamActions";
 import {
   useCallback,
   useMemo,
@@ -853,7 +854,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         title: input.title,
         existing_tab_id: input.existingTabId,
       };
-      const result = await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body });
+      const callerTabId = input.existingTabId ?? stateRef.current.focused_tab_id;
+      const claim = teamCallerClaim(callerTabId, callerTabId ? stateRef.current.tabs[callerTabId]?.session_binding_nonce ?? undefined : undefined);
+      const result = await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body, ...claim });
       refreshFromBackend();
       return result;
     },

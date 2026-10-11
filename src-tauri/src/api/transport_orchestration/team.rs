@@ -84,8 +84,9 @@ pub(super) async fn make_orchestrator(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, RouteError> {
-    authority::validate_claim(&state, &headers, &authority::CallerClaim::default())?;
+    let (headers, _body): (_, Value) = attributed_body(&state, headers, body)?;
     super::super::agent_routes::make_orchestrator(State(state), headers, Path(id)).await
 }
 

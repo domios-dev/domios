@@ -25,7 +25,7 @@ export function canRetryUpload(upload: AttachmentUpload): boolean {
 
 export function createAttachmentUploads(dependencies: {
   store: (blob: Blob, name: string) => Promise<string>;
-  attach: (paths: string[]) => void;
+  attach: (paths: string[]) => unknown;
   publish: (uploads: AttachmentUpload[]) => void;
 }) {
   let sequence = 0;
@@ -41,8 +41,8 @@ export function createAttachmentUploads(dependencies: {
       const path = await dependencies.store(snapshot, upload.name);
       if (!active || !uploads.some((item) => item.id === upload.id)) return;
       if (!path.trim()) throw new Error("Upload returned no attachment path");
+      if (attach) await dependencies.attach([path]);
       uploads = uploads.filter((item) => item.id !== upload.id);
-      if (attach) dependencies.attach([path]);
       publish();
       return path;
     } catch (error) {

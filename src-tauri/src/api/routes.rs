@@ -16,8 +16,8 @@ use super::{
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
     pty_routes, services_routes, session_routes, surface_routes, tab_agent_routes, tab_routes,
-    task_routes, team_mission_control_routes, team_routes, team_spend, theme_routes,
-    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    task_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -120,6 +120,13 @@ async fn legacy_web_route_gone() -> StatusCode {
 }
 
 pub fn create_router(state: AppState) -> Router {
+    create_router_with_frontend(state, None)
+}
+
+pub fn create_router_with_frontend(
+    state: AppState,
+    bundles: Option<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>,
+) -> Router {
     let preview_admission = super::local_preview_routes::admission();
     let router = Router::new()
         .route(
@@ -197,15 +204,6 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/essence-source",
             get(essence_map_routes::read_essence_source),
-        )
-        .route(
-            "/api/teams/{team_id}/rename",
-            post(team_routes::rename_team),
-        )
-        .route("/api/teams/{team_id}/close", post(team_routes::close_team))
-        .route(
-            "/api/teams/{team_id}/members",
-            post(team_routes::add_team_member),
         )
         .route(
             "/api/teams/{team_id}/mission-control/spend",
@@ -654,10 +652,6 @@ pub fn create_router(state: AppState) -> Router {
             post(ai_helper_routes::spawn_ai_helper),
         )
         .route("/api/agents/done", get(agent_done_routes::list_done))
-        .route(
-            "/api/orchestration/new",
-            post(agent_routes::create_orchestration_pair),
-        )
         .route("/api/batch", post(agent_routes::batch_commands))
         .route(
             "/api/crons",
@@ -981,6 +975,7 @@ pub fn create_router(state: AppState) -> Router {
             axum::http::HeaderValue::from_static("no-cache"),
         );
         router
+            .merge(bundled_frontend_routes(dist))
             .route("/manifest.webmanifest", get(web_routes::web_manifest))
             .route(
                 "/manifest-bootstrap",
@@ -989,6 +984,17 @@ pub fn create_router(state: AppState) -> Router {
             .route("/web", get(legacy_web_route_gone))
             .route("/web/{*path}", get(legacy_web_route_gone))
             .fallback_service(root_serve)
+    } else {
+        router
+    };
+
+    let router = if let Some(bundles) = bundles {
+        router
+            .merge(super::frontend_bundle_routes::router(
+                state.clone(),
+                bundles.clone(),
+            ))
+            .layer(axum::Extension(bundles))
     } else {
         router
     };
@@ -1047,10 +1053,20 @@ async fn restore_orphaned_tab(
     ))
 }
 
+fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(dist: &std::path::Path) -> Router<S> {
+    let files = tower_http::set_header::SetResponseHeader::overriding(
+        tower_http::services::ServeDir::new(dist),
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Router::new().nest_service("/bundled", files)
+}
+
 fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
     router
         .merge(super::transport_tabs::router())
         .merge(super::transport_capabilities::router())
+        .merge(super::transport_orchestration::router())
 }
 
 #[cfg(test)]
