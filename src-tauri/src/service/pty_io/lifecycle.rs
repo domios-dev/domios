@@ -525,7 +525,7 @@ impl ServiceContext {
         }
         if self.resolve_pty_id(tab_id).is_ok() {
             self.emit_pty_reattached(tab_id);
-            self.materialize_restored_agent_for_send(tab_id)?;
+            self.materialize_restored_agent_with_claim(tab_id)?;
             return Ok(());
         }
 
@@ -581,7 +581,7 @@ impl ServiceContext {
             self.start_backend_reader_for(reader_pty_id.to_string());
         }
 
-        self.materialize_restored_agent_for_send(tab_id)?;
+        self.materialize_restored_agent_with_claim(tab_id)?;
         Ok(())
     }
 
@@ -598,6 +598,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn materialize_restored_agent_for_send(&self, tab_id: &str) -> Result<(), String> {
+        let _claim = self.pty_ownership.acquire(tab_id);
+        self.materialize_restored_agent_with_claim(tab_id)
+    }
+
+    fn materialize_restored_agent_with_claim(&self, tab_id: &str) -> Result<(), String> {
         self.recover_missing_restored_provider(tab_id)?;
         let (provider_id, mut session_id, cwd, launch_parameters, exact_session, session_cwd) = {
             let mux = self.mux.read();
