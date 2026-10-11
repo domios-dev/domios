@@ -96,7 +96,7 @@ impl ChatBackendProvider for Fixture {
 }
 
 #[test]
-fn blueprint_agent_cancel_and_expired_deadline_abort_the_provider() {
+fn blueprint_agent_cancel_aborts_and_expired_deadline_refuses_dispatch() {
     for cancel in [true, false] {
         let (started, entered) = mpsc::channel();
         let (aborted, abort) = mpsc::channel();
@@ -122,8 +122,8 @@ fn blueprint_agent_cancel_and_expired_deadline_abort_the_provider() {
             cancellation: cancellation.clone(),
         };
         let worker = std::thread::spawn(move || run(provider, request).unwrap());
-        entered.recv_timeout(Duration::from_secs(2)).unwrap();
         if cancel {
+            entered.recv_timeout(Duration::from_secs(2)).unwrap();
             cancellation.cancel();
         }
         let result = worker.join().unwrap();
@@ -135,9 +135,14 @@ fn blueprint_agent_cancel_and_expired_deadline_abort_the_provider() {
                 AgentTaskStatus::DeadlineExceeded
             }
         );
-        assert_eq!(
-            abort.recv_timeout(Duration::from_secs(2)).unwrap(),
-            "fixture-run"
-        );
+        if cancel {
+            assert_eq!(
+                abort.recv_timeout(Duration::from_secs(2)).unwrap(),
+                "fixture-run"
+            );
+        } else {
+            assert!(entered.try_recv().is_err());
+            assert!(abort.try_recv().is_err());
+        }
     }
 }

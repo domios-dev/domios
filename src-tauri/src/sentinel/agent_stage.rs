@@ -17,6 +17,17 @@ pub(super) fn run(
     let run_id = request.input.run_id.clone();
     let deadline = request.deadline;
     let cancellation = request.cancellation.clone();
+    if cancellation.is_cancelled() || Instant::now() >= deadline {
+        return Ok(AgentTaskResult {
+            status: if cancellation.is_cancelled() {
+                AgentTaskStatus::Cancelled
+            } else {
+                AgentTaskStatus::DeadlineExceeded
+            },
+            output: serde_json::Value::Null,
+            error: Some("agent task refused before dispatch".into()),
+        });
+    }
     let worker_signal = cancellation.clone();
     let worker_provider = provider.clone();
     let (complete, result) = mpsc::channel();
