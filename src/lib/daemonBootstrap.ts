@@ -51,6 +51,7 @@ export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredenti
     typeof window !== "undefined" && "__TAURI_INTERNALS__" in window,
     "frontendOrigin" in input ? input.frontendOrigin : undefined);
   if (typeof input.token === "string" && !input.token) throw new Error("Daemon bearer token required");
+  if (base && bootstrap?.origin === origin && bootstrap.token === input.token) return base;
   bootstrap = { origin, token: input.token };
   base = createTransportClient({ ...bootstrap, onGatewayState: gateway });
   peers.clear();

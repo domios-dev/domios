@@ -81,8 +81,10 @@ describe("explicit daemon bootstrap", () => {
 });
 
 it("boots the real native runtime graph from Vite and acknowledges readiness only over daemon HTTP", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", true);
+  const diagnostic = vi.fn();
   const eventTarget = new EventTarget();
-  const shell = { location: { origin: "http://127.0.0.1:1463", pathname: "/" }, __TAURI_INTERNALS__: {},
+  const shell = { __CODETERM_SHELL_DIAGNOSTIC__: diagnostic, location: { origin: "http://127.0.0.1:1463", pathname: "/" }, __TAURI_INTERNALS__: {},
     __CODETERM_DAEMON__: { origin: "http://127.0.0.1:7690", token: "dev-fixture", frontendOrigin: "http://127.0.0.1:1463" },
     sessionStorage: { getItem: () => null }, localStorage: { getItem: () => null },
     CustomEvent, dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget), addEventListener: eventTarget.addEventListener.bind(eventTarget), removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
@@ -94,7 +96,7 @@ it("boots the real native runtime graph from Vite and acknowledges readiness onl
     return new Response(JSON.stringify(url.endsWith("/bootstrap") ? { generation: 7 } : true), { headers: { "Content-Type": "application/json" } });
   });
   const { ensureDaemonRuntime } = await import("./daemonRuntime");
-  ensureDaemonRuntime();
+  for (let access = 0; access < 102; access++) ensureDaemonRuntime();
   const { invoke } = await import("./bridge");
   const generation = await invoke<number>("frontend_readiness_generation");
   expect(await invoke<boolean>("frontend_ready", { generation })).toBe(true);
@@ -102,4 +104,21 @@ it("boots the real native runtime graph from Vite and acknowledges readiness onl
   expect(JSON.parse(String(requests[1].init?.body))).toEqual({ generation: 7 });
   expect(new Headers(requests[1].init?.headers).get("Authorization")).toBe("Bearer dev-fixture");
   expect(shell).not.toHaveProperty("__CODETERM_DAEMON__");
+  expect(diagnostic.mock.calls.filter(([stage]) => stage === "runtime-bound")).toHaveLength(1);
+});
+
+it("preserves base and peer clients for stable configuration and binds once", async () => {
+  vi.stubGlobal("window", { location: { origin: "tauri://localhost" }, __TAURI_INTERNALS__: {} });
+  const { configureDaemonTransport, daemonTransportForPeer, onDaemonTransport } = await import("./daemonBootstrap");
+  const bound = vi.fn();
+  const stop = onDaemonTransport(bound);
+  const configuration = { origin: "http://127.0.0.1:7697", token: "stable-token" };
+  const first = configureDaemonTransport(configuration);
+  const peer = daemonTransportForPeer("peer");
+  for (let access = 0; access < 102; access++) expect(configureDaemonTransport(configuration)).toBe(first);
+  expect(daemonTransportForPeer("peer")).toBe(peer);
+  expect(bound).toHaveBeenCalledExactlyOnceWith(first);
+  expect(configureDaemonTransport({ ...configuration, token: "changed-token" })).not.toBe(first);
+  expect(bound).toHaveBeenCalledTimes(2);
+  stop();
 });
