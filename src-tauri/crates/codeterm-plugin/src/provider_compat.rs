@@ -49,6 +49,14 @@ pub struct CompatibilityEvaluation {
     pub reasons: Vec<CompatibilityReason>,
 }
 
+impl CompatibilityEvaluation {
+    pub fn allows_sqlite_read(&self) -> bool {
+        self.verdict == CompatibilityVerdict::Supported
+            || (self.verdict == CompatibilityVerdict::Unknown
+                && self.reasons == [CompatibilityReason::VersionNotDeclared])
+    }
+}
+
 impl Default for CompatibilityEvaluation {
     fn default() -> Self {
         unknown(CompatibilityReason::VersionUnknown)

@@ -47,6 +47,16 @@ fn parity_provider_compat_bundled_declarations_are_strict_and_honest() {
                 manifest.evaluate(Some("1.18.36")).verdict,
                 CompatibilityVerdict::Unknown
             );
+            for version in ["1.19.0", "1.19.99"] {
+                assert_eq!(
+                    manifest.evaluate(Some(version)).verdict,
+                    CompatibilityVerdict::Supported
+                );
+            }
+            assert_eq!(
+                manifest.evaluate(Some("1.20.0")).verdict,
+                CompatibilityVerdict::Unknown
+            );
             assert_eq!(
                 manifest.evaluate(Some("3.0.0")).verdict,
                 CompatibilityVerdict::Unknown
