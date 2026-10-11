@@ -7,7 +7,7 @@ const context = { apiOrigin: "http://localhost:7686", token: "owner", clientId: 
 
 type Listener = (event: { detail?: unknown }) => void;
 
-function harness(responses: unknown[], boot = context) {
+function harness(responses: unknown[], boot = context, pageOrigin = boot.apiOrigin) {
   const listeners = new Map<string, Listener>();
   const calls: { path: string; body: unknown; authorization: string }[] = [];
   const stored: string[] = [];
@@ -21,7 +21,7 @@ function harness(responses: unknown[], boot = context) {
   };
   new Function("sessionStorage", "location", "addEventListener", "fetch", "AbortSignal", script)(
     { getItem: () => JSON.stringify(boot), setItem: (_key: string, value: string) => stored.push(value) },
-    { origin: boot.apiOrigin, pathname: `/frontend/${ticket.releaseId}/index.html`, replace: navigate },
+    { origin: pageOrigin, pathname: `/frontend/${ticket.releaseId}/index.html`, replace: navigate },
     (name: string, listener: Listener) => listeners.set(name, listener), fetcher,
     { timeout: () => ({ addEventListener: (_name: string, listener: () => void) => { deadline = listener; } }) },
   );
@@ -59,6 +59,28 @@ describe("stable frontend observer", () => {
     h.listeners.get("error")!({});
     h.listeners.get("unhandledrejection")!({});
     expect(await h.navigated).toBe("http://localhost:7686/bundled/index.html");
+    expect(h.calls).toHaveLength(1);
+    expect(JSON.parse(h.stored[0]).ticket).toBeNull();
+  });
+  it("acknowledges the exact ticket at the daemon when the candidate uses a separate frontend origin", async () => {
+    const h = harness([{}], context, "http://localhost:1420");
+    h.listeners.get("codeterm:frontend-root-rendered")!({ detail: { ...ticket, releaseId: "foreign" } });
+    expect(h.calls).toEqual([]);
+    h.listeners.get("codeterm:frontend-root-rendered")!({ detail: ticket });
+    await Promise.resolve();
+    expect(h.calls).toEqual([{ path: "http://localhost:7686/api/frontend/healthy", body: { ...ticket, clientId: "client-a" }, authorization: "Bearer owner" }]);
+    h.deadline();
+    h.listeners.get("codeterm:frontend-root-rendered")!({ detail: ticket });
+    expect(h.calls).toHaveLength(1);
+    expect(h.stored).toEqual([]);
+  });
+  it.each(["error", "deadline"])("rolls back a separate-origin candidate on %s and restores the frontend origin", async failure => {
+    const h = harness([{ apiVersion: 2, active: null }], context, "http://localhost:1420");
+    if (failure === "deadline") h.deadline();
+    else h.listeners.get("error")!({});
+    expect(await h.navigated).toBe("http://localhost:1420/bundled/index.html");
+    expect(h.calls[0]).toEqual({ path: "http://localhost:7686/api/frontend/rollback", body: { releaseId: ticket.releaseId, generation: ticket.generation }, authorization: "Bearer owner" });
+    h.listeners.get("codeterm:frontend-root-rendered")!({ detail: ticket });
     expect(h.calls).toHaveLength(1);
     expect(JSON.parse(h.stored[0]).ticket).toBeNull();
   });
