@@ -12,6 +12,14 @@ def require(condition, detail):
         raise AssertionError(detail)
 
 
+def cli_data(payload):
+    if isinstance(payload, dict) and 'kind' in payload and 'ok' in payload:
+        require(payload['ok'] is True, f'CLI refused: {payload}')
+        require('data' in payload, f'CLI envelope has no data: {payload}')
+        return payload['data']
+    return payload
+
+
 def inspected(payload):
     require(isinstance(payload, list) and len(payload) == 1, "inspect must return exactly one tab")
     return payload[0]
