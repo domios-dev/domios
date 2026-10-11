@@ -14,7 +14,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE = "http://127.0.0.1:7686"
+BASE = os.environ.get("CODETERM_API_URL", "")
+PARSED_BASE = urllib.parse.urlparse(BASE)
+if PARSED_BASE.scheme != "http" or PARSED_BASE.hostname != "127.0.0.1" or PARSED_BASE.port in (None, 7685) or PARSED_BASE.path:
+    raise RuntimeError("observe.py requires the dev_run loopback DEV connection")
 AGENT_FIELDS = ("agent_type", "agent_session_id", "role", "role_profile", "team_id", "parent_tab_id", "title")
 SETUP_EXIT = 3
 
