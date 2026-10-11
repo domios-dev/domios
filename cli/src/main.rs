@@ -520,16 +520,15 @@ fn main_impl() {
         }
 
         Commands::RestApi { action } => {
-            let value = client.call(cmd::rest_api::rpc_method(&action), None);
-            if cli.json {
-                value
-            } else {
-                match value {
-                    Ok(value) => print!("{}", cmd::rest_api::render_status(&value)),
-                    Err(error) => crate::cmd::print::fail(1, error.to_string()),
-                }
-                return;
+            let result = cmd::rest_api::command_result(
+                &action,
+                client.call_detailed(cmd::rest_api::rpc_method(&action), None),
+            );
+            match result {
+                Ok(value) if !cli.json => print!("{}", cmd::rest_api::render_status(&value)),
+                result => cmd::print::handle_cli_result(cli.json, result),
             }
+            return;
         }
 
         Commands::Service { action } => {
