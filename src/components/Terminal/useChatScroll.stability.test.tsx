@@ -303,6 +303,53 @@ describe("attached tail at the history cap", () => {
   });
 });
 
+describe("send from history", () => {
+  it("shows the sent turn at bottom through echo reconciliation and streaming until the reader scrolls up", async () => {
+    await mount();
+    await userScrollTo(500);
+    expect(followTail.current).toBe(false);
+
+    optimistic = [{ id: "send-from-history", type: "user", content: "latest please", correlationId: "send-from-history" }];
+    await act(async () => hook!.followSend());
+    await update();
+    expectPinnedToBottom();
+    expect(domRows()[domRows().length - 1]?.textContent).toBe("latest please");
+
+    optimistic = [];
+    appendDelta(sourceRow("user", { content: "latest please", correlationId: "send-from-history" }));
+    await update();
+    await deliverScrollEvent();
+    expectPinnedToBottom();
+    appendDelta(sourceRow("assistant"));
+    await update();
+    expectPinnedToBottom();
+
+    await userScrollTo(scroll().scrollTop - 100);
+    const anchor = domRows()[14].dataset.sourceMessageId!;
+    const position = readerPosition(anchor);
+    appendDelta(sourceRow("assistant"));
+    await update();
+    expect(followTail.current).toBe(false);
+    expect(readerPosition(anchor)).toBe(position);
+  });
+
+  it("keeps following after composer growth clamps the pinned bottom before ResizeObserver delivery", async () => {
+    await mount();
+    await deliverScrollEvent();
+    let viewportHeight = VIEWPORT;
+    Object.defineProperty(scroll(), "clientHeight", { configurable: true, get: () => viewportHeight });
+    viewportHeight += 100;
+    scroll().scrollTop = scroll().scrollHeight - viewportHeight;
+    await deliverScrollEvent();
+    expect(followTail.current).toBe(true);
+    expect(modeChanges).not.toContain("detached");
+    appendDelta(sourceRow("assistant"));
+    viewportHeight = VIEWPORT;
+    await update();
+    expectPinnedToBottom();
+  });
+});
+
 describe("detached reader at the history cap", () => {
   it("stays on the same content through optimistic send, eviction above, streamed rows and render-id re-key", async () => {
     await mount();
