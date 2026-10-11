@@ -17,6 +17,7 @@ function fixture(responses: unknown[] = [{}]) {
 }
 
 const simple = [
+  ["chat_send_admissions", "POST", "/api/tabs/tab/chat-send/admissions"],
   ["mux_get_state", "GET", "/api/mux/state"],
   ["session_binding_state", "GET", "/api/tabs/tab/session/binding-state"],
   ["rebind_tab_session", "POST", "/api/tabs/tab/session/rebind"],

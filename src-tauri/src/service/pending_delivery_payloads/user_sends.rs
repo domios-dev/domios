@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+mod admission_evidence;
 mod admission_tokens;
+pub(crate) use admission_evidence::UserAdmissionEvidence;
 pub(crate) mod continuity;
 mod reservations;
 use admission_tokens::{AdmissionTokens, TokenEntry};
