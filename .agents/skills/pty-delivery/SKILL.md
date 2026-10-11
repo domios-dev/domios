@@ -77,8 +77,11 @@ latch or owner-approved restored-session adapter fallback, then writes those hel
 sends in admission order. A post-latch Chat UI send proceeds directly to its PTY
 write even when the provider is busy or another submit cycle is unsettled. Proven
 zero-write refusal retains that send as held; possible handoff becomes
-`submit_unconfirmed` and never replays. Programmatic agent/mesh/CLI sends keep the
-existing honest typed split. A queued record whose exact launch authority is
+`submit_unconfirmed` and never replays. Before first readiness, submitted socket text without a source tab uses the same durable user owner.
+Programmatic agent/mesh sends keep the existing honest typed split. Immediate CLI
+sends exit 1 when `ok:false` or `bytes_written:false`, even for retained input;
+JSON errors retain the daemon receipt in `data`. Inspect retained status and exact
+own-session evidence without replaying the send. A queued record whose exact launch authority is
 from an ended launch is settled as `failed` with `launch_ended_before_write`;
 its never-written payload is removed and it never enters the next launch.
 Claimed or uncertain records remain held and are never replayed.

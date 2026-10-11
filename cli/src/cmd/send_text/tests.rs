@@ -151,7 +151,7 @@ fn send_reports_pending_or_refused_never_sent_when_nothing_written() {
     });
     match analyze_send_text_response(&refusal) {
         SendTextOutcome::Error { msg, exit_code } => {
-            assert_eq!(exit_code, 2);
+            assert_eq!(exit_code, crate::cmd::print::CLI_ERROR_EXIT_CODE);
             assert_eq!(msg, "nothing was written");
         }
         other => panic!("expected explicit refusal, got {:?}", other),
@@ -165,23 +165,20 @@ fn send_reports_pending_or_refused_never_sent_when_nothing_written() {
 }
 
 #[test]
-fn pending_route_result_is_not_rendered_as_sent() {
+fn retained_zero_write_route_exits_nonzero() {
     let pending = serde_json::json!({
         "ok": true,
         "delivery": "pending",
         "bytes_written": false
     });
-    assert_eq!(
+    assert!(matches!(
         analyze_send_text_response(&pending),
-        SendTextOutcome::Pending {
-            message: "OK (pending)".into(),
-            bytes_written: false,
-        },
-    );
+        SendTextOutcome::Error { exit_code: 1, .. }
+    ));
 }
 
 #[test]
-fn unconfirmed_write_stays_pending_but_preserves_written_evidence() {
+fn written_pending_succeeds_but_explicit_failure_exits_nonzero() {
     let pending = serde_json::json!({
         "ok": true,
         "delivery": "pending",
@@ -199,24 +196,21 @@ fn unconfirmed_write_stays_pending_but_preserves_written_evidence() {
         "ok": false,
         "error": { "code": "submit_unconfirmed", "bytes_written": true }
     });
-    assert_eq!(
+    assert!(matches!(
         analyze_send_text_response(&unconfirmed),
-        SendTextOutcome::Pending {
-            message: "OK (pending)".into(),
-            bytes_written: true,
-        },
-    );
+        SendTextOutcome::Error { exit_code: 1, .. }
+    ));
 }
 
 #[test]
-fn explicit_error_field_exits_two() {
+fn explicit_error_field_exits_nonzero() {
     let v = serde_json::json!({
         "ok": false,
         "error": "PTY closed mid-write",
     });
     match analyze_send_text_response(&v) {
         SendTextOutcome::Error { msg, exit_code } => {
-            assert_eq!(exit_code, 2);
+            assert_eq!(exit_code, crate::cmd::print::CLI_ERROR_EXIT_CODE);
             assert!(msg.contains("PTY closed"));
         }
         other => panic!("expected Error, got {:?}", other),
@@ -437,4 +431,45 @@ fn require_agent_probe_resolves_the_general_agent_alias() {
         "aaaa1111"
     );
     assert!(find_target_record(&tabs, "zzzz9999").is_none());
+}
+
+#[test]
+fn send_failure_mapping_covers_flags_and_flat_refusal_details() {
+    for result in [
+        serde_json::json!({"ok": false}),
+        serde_json::json!({"ok": false, "bytes_written": true}),
+        serde_json::json!({"ok": true, "bytes_written": false}),
+        serde_json::json!({"ok": true, "delivery": "sent", "bytes_written": false}),
+    ] {
+        assert!(matches!(
+            analyze_send_text_response(&result),
+            SendTextOutcome::Error { exit_code: 1, .. }
+        ));
+    }
+    let result = serde_json::json!({"ok": false, "error": "tab_busy_refused", "bytes_written": false, "detail": "remote attachment or launch consumption pending"});
+    assert_eq!(
+        analyze_send_text_response(&result),
+        SendTextOutcome::Error {
+            msg: "tab_busy_refused: remote attachment or launch consumption pending".into(),
+            exit_code: 1,
+        }
+    );
+}
+
+#[test]
+fn send_failure_renderer_keeps_reason_on_stderr_in_both_modes_and_receipt_in_json() {
+    let receipt = serde_json::json!({"ok": true, "bytes_written": false, "status": "held", "send_id": "own-send"});
+    for json in [false, true] {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        super::write_send_text_failure(json, &receipt, "not written", &mut out, &mut err);
+        assert!(String::from_utf8(err).unwrap().contains("not written"));
+        if json {
+            let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+            assert_eq!(value["ok"], false);
+            assert_eq!(value["data"]["send_id"], "own-send");
+        } else {
+            assert!(out.is_empty());
+        }
+    }
 }
