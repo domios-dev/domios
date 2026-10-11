@@ -947,7 +947,7 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
     allow_superseded_payload: bool,
     payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Result<InjectionResult, InjectionError> {
-    if claim.pty_id() != pty_id {
+    if claim.pty_id() != pty_id || claim.command_wait().is_some() {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });

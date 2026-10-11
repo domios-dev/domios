@@ -255,7 +255,10 @@ fn submit_cycles() -> &'static Mutex<HashMap<String, Weak<SubmitCycle>>> {
 }
 
 struct ClaimLease {
-    _input: Option<super::input_reservation::InputReservation>,
+    _input: Result<
+        Option<super::input_reservation::InputReservation>,
+        super::input_reservation::CommandWait,
+    >,
     pty_id: String,
     cycle: Arc<SubmitCycle>,
     generation: u64,
@@ -279,6 +282,10 @@ pub(crate) struct SubmitCycleClaim {
 }
 
 impl SubmitCycleClaim {
+    pub(crate) fn command_wait(&self) -> Option<super::input_reservation::CommandWait> {
+        self._lease._input.as_ref().err().cloned()
+    }
+
     pub(crate) fn provider_exited(&self) -> bool {
         self.provider_exit
             .as_ref()
@@ -304,7 +311,7 @@ pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     claim_cycle(
         pty_id,
         None,
-        Some(super::input_reservation::reserve_send_input(pty_id)),
+        super::input_reservation::reserve_send_input(pty_id).map(Some),
     )
 }
 
@@ -312,20 +319,26 @@ pub(crate) fn claim_exit_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     claim_cycle(
         pty_id,
         Some(Arc::new(AtomicBool::new(false))),
-        Some(super::input_reservation::reserve_send_input(pty_id)),
+        super::input_reservation::reserve_send_input(pty_id).map(Some),
     )
 }
 
 pub(crate) fn claim_command_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
-    claim_cycle(pty_id, None, None)
+    claim_cycle(pty_id, None, Ok(None))
 }
 
 fn claim_cycle(
     pty_id: &str,
     provider_exit: Option<Arc<AtomicBool>>,
-    input: Option<super::input_reservation::InputReservation>,
+    input: Result<
+        Option<super::input_reservation::InputReservation>,
+        super::input_reservation::CommandWait,
+    >,
 ) -> SubmitCycleClaim {
-    let cycle = {
+    let blocked = input.is_err();
+    let cycle = if blocked {
+        Arc::new(SubmitCycle::new())
+    } else {
         let mut cycles = submit_cycles().lock();
         if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
             cycle
@@ -335,7 +348,11 @@ fn claim_cycle(
             cycle
         }
     };
-    let generation = cycle.claim(provider_exit.clone());
+    let generation = if blocked {
+        0
+    } else {
+        cycle.claim(provider_exit.clone())
+    };
     log::info!(
         "[submit-cycle] claim pty={} generation={}",
         pty_id,
@@ -357,6 +374,7 @@ fn claim_cycle(
 }
 
 pub(crate) fn notify_submit_cycle_provider_exit(pty_id: &str) {
+    super::input_reservation::command_pty_exited(pty_id);
     let cycle = submit_cycles().lock().get(pty_id).and_then(Weak::upgrade);
     if let Some(cycle) = cycle {
         cycle.provider_exited();
