@@ -4,6 +4,7 @@ import { useTauriFileDrop, materializeDroppedPaths } from "../../hooks/terminal"
 import { classifyAttachmentPaths, useWebFileDrop } from "./composerFiles";
 import type { InlineAttachment, InlineAttachmentSink } from "./useComposerCapsules";
 import { useAttachmentUploads } from "./useAttachmentUploads";
+import { needsAsyncClipboardImageRead } from "./composerAttachmentPlan";
 
 const IMAGE_EXT: Record<string, string> = {
   "image/png": "png",
@@ -123,7 +124,9 @@ export function useAttachments({
       // Not in Tauri, or no files on the clipboard — continue.
     }
 
-    const image = await readClipboardImage(syncImageFile);
+    const image = needsAsyncClipboardImageRead(Array.from(cd?.types ?? []), syncImageFile !== null)
+      ? await readClipboardImage(null)
+      : syncImageFile && { blob: syncImageFile, ext: imageExt(syncImageFile.type) };
     if (image) {
       e.preventDefault();
       try {
