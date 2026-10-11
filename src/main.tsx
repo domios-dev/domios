@@ -1,3 +1,4 @@
+import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { DaemonFrontendBootstrap } from "./components/DaemonFrontendBootstrap";
 import { ensureDaemonRuntime } from "./lib/daemonRuntime";
 import ReactDOM from "react-dom/client";
@@ -24,6 +25,7 @@ import "./components/Canvas/missionControl/missionControlBoard.css";
 import "./components/Usage/styles.css";
 import "./components/Snake/SnakeGame.css";
 
+frontendBootDiagnostic("module-entry");
 ensureDaemonRuntime();
 
 const root = document.getElementById("root")!;

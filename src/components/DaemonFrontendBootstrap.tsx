@@ -1,3 +1,4 @@
+import { frontendBootDiagnostic } from "../lib/frontendBootDiagnostic";
 import { useEffect, useState, type ReactNode } from "react";
 import { baseDaemonTransport, FRONTEND_BOOT_KEY, onDaemonTransport } from "../lib/daemonBootstrap";
 import { initializeBrowserFrontendUpdates } from "../lib/frontendUpdate/browser";
@@ -21,6 +22,7 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
         try {
           const stored = sessionStorage.getItem(FRONTEND_BOOT_KEY);
           const boot = stored ? JSON.parse(stored) as BootContext : null;
+          frontendBootDiagnostic("frontend-initialize");
           const initialized = await initializeBrowserFrontendUpdates(client, {
             clientId: boot?.clientId ?? getResizeClientId(), boot,
             bundled: boot?.bundled ?? { index: "/bundled/index.html", minApiVersion: 2, maxApiVersion: 2 },
@@ -28,8 +30,9 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
           });
           if (current !== generation) { initialized.dispose(); return; }
           dispose = initialized.dispose;
+          frontendBootDiagnostic("frontend-initialized");
           setReady(true);
-        } catch (failure) { if (current === generation) setError(failure); }
+        } catch (failure) { frontendBootDiagnostic("frontend-initialize-failed"); if (current === generation) setError(failure); }
       });
     });
     baseDaemonTransport();
