@@ -24,7 +24,7 @@ pub async fn mesh_pair_request(
     AxumState(state): AxumState<AppState>,
     Json(request): Json<crate::mesh::types::PairingRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (request_id, peer_name, our_id) = {
+    let (_request_id, peer_name, our_id) = {
         let mut mesh = state.mesh.lock();
         record_incoming_pairing_request(&mut mesh, request)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?

@@ -58,12 +58,6 @@ pub struct PluginManagerAction {
     pub remove_data: bool,
 }
 
-pub(super) async fn plugin_manager_snapshot_impl(
-    svc: tauri::State<'_, crate::service::ServiceState>,
-) -> Result<Value, String> {
-    plugin_manager_snapshot_for_service(svc.inner().clone()).await
-}
-
 pub(crate) async fn plugin_manager_snapshot_for_service(
     svc: crate::service::ServiceState,
 ) -> Result<Value, String> {
@@ -137,18 +131,6 @@ fn snapshot_flight_role() -> SnapshotFlightRole {
         SnapshotFlight { done, finish },
         SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst),
     )
-}
-
-pub(super) async fn plugin_manager_action_impl(
-    svc: tauri::State<'_, crate::service::ServiceState>,
-    action: PluginManagerAction,
-) -> Result<Value, String> {
-    let svc = svc.inner().clone();
-    let out = tokio::task::spawn_blocking(move || run_action(action, svc.as_ref()))
-        .await
-        .map_err(|e| e.to_string())?;
-    invalidate_plugin_snapshot();
-    out
 }
 
 pub(crate) fn run_action(

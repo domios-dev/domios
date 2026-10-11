@@ -585,14 +585,6 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn answer_owner_notification(
-        &self,
-        id: &str,
-        label: &str,
-    ) -> Result<serde_json::Value, String> {
-        self.answer_notification(id, label)
-    }
-
     /// An answer arrived on a push channel. The token names a position on one
     /// record; the label is resolved off that record and then walks the very
     /// same answer path an in-app tap walks, so the tapped label returns to the

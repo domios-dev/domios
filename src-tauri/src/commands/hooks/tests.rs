@@ -1,7 +1,7 @@
 use super::{
     infer_consent_for_owned_install, install_and_record_integration,
     install_provider_integration_body, reconciliation_log_line, repair_integration_on_startup,
-    restore_integration_for_provider, run_install_off_runtime, IntegrationRepairOutcome,
+    restore_integration_for_provider, IntegrationRepairOutcome,
 };
 use crate::agent::provider::{
     install_integration_with_trust_grant, AgentLaunchParams, AgentProvider,
@@ -194,96 +194,40 @@ fn startup_reconciliation_machine_owner_true_keeps_provider_capability_check() {
     assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
 }
 
-fn current_thread_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("current-thread runtime")
-}
-
-// The failing probe halts the body before audit persistence, so no test
-// ever writes the real config file.
 #[test]
-fn install_offload_runs_provider_install_off_runtime_thread() {
-    let probe = InstallProbeProvider::new("offload-probe", Err("halt before persist".into()));
-    let install_thread = probe.install_thread.clone();
-    let registry = Arc::new(AgentRegistry::new());
-    registry.register_provider(Box::new(probe));
-    let config = empty_config();
-
-    let runtime_thread = std::thread::current().id();
-    let result = current_thread_runtime().block_on(run_install_off_runtime(move || {
-        install_provider_integration_body(
-            &registry,
-            &config,
-            "offload-probe".into(),
-            Some(7686),
-            true,
-        )
-    }));
-
-    let recorded = install_thread
-        .lock()
-        .unwrap()
-        .expect("probe install must run");
-    assert_ne!(recorded, runtime_thread);
-    assert!(result.is_err());
-}
-
-#[test]
-fn install_offload_error_path_round_trips_fixture_error() {
+fn install_error_path_round_trips_fixture_error() {
     let fixture_error = "probe install refused: fixture-supplied".to_string();
     let probe = InstallProbeProvider::new("offload-probe", Err(fixture_error.clone()));
     let registry = Arc::new(AgentRegistry::new());
     registry.register_provider(Box::new(probe));
     let config = empty_config();
 
-    let result = current_thread_runtime().block_on(run_install_off_runtime(move || {
-        install_provider_integration_body(
-            &registry,
-            &config,
-            "offload-probe".into(),
-            Some(7686),
-            true,
-        )
-    }));
+    let result = install_provider_integration_body(
+        &registry,
+        &config,
+        "offload-probe".into(),
+        Some(7686),
+        true,
+    );
 
     assert_eq!(result, Err(fixture_error));
 }
 
 #[test]
-fn install_offload_success_path_round_trips_install_and_grant_result() {
+fn install_success_path_round_trips_install_and_grant_result() {
     let outcome = serde_json::json!({ "granted": true, "marker": "fixture-supplied" });
-    let probe = Arc::new(InstallProbeProvider::with_grant(
-        "offload-probe",
-        outcome.clone(),
-    ));
-    let install_thread = probe.install_thread.clone();
-    let grant_thread = probe.grant_thread.clone();
-
-    let runtime_thread = std::thread::current().id();
-    let result = current_thread_runtime().block_on(run_install_off_runtime({
-        let probe = probe.clone();
-        move || {
-            install_integration_with_trust_grant(
-                probe.as_ref(),
-                7686,
-                &IntegrationInstallOptions {
-                    consent: true,
-
-                    repair: false,
-                },
-            )
-        }
-    }));
-
+    let probe = InstallProbeProvider::with_grant("grant-probe", outcome.clone());
+    let result = install_integration_with_trust_grant(
+        &probe,
+        7686,
+        &IntegrationInstallOptions {
+            consent: true,
+            repair: false,
+        },
+    );
     assert_eq!(result, Ok(Some(outcome)));
-    let installed_on = install_thread
-        .lock()
-        .unwrap()
-        .expect("probe install must run");
-    let granted_on = grant_thread.lock().unwrap().expect("probe grant must run");
-    assert_ne!(installed_on, runtime_thread);
-    assert_ne!(granted_on, runtime_thread);
+    assert!(probe.install_thread.lock().unwrap().is_some());
+    assert!(probe.grant_thread.lock().unwrap().is_some());
 }
 
 #[test]

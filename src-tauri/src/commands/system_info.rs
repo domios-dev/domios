@@ -1,5 +1,3 @@
-use tauri::AppHandle;
-
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
     // Build number is constant for the OS lifetime — cache to avoid spawning cmd.exe on every TerminalTab mount (~1s on Win11 with Defender).
@@ -36,110 +34,6 @@ pub fn get_default_cwd() -> Result<String, String> {
     std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_network_info(
-    state: tauri::State<'_, crate::config::ConfigState>,
-    mesh: tauri::State<'_, crate::MeshStateHandle>,
-) -> Result<serde_json::Value, String> {
-    let local_ip =
-        crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    // duplicating the probe logic (which lacked IP validation, the GUI-bridge fallback, and a timeout).
-    let tailscale_ip = mesh.lock().tailscale_ip.clone();
-    let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
-    let port = state.lock().api.port;
-    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port).or_else(|| {
-        let mesh = mesh.lock();
-        crate::mesh::web_ui_endpoints::preferred_https_url(mesh.local_web_ui.as_ref())
-    });
-    Ok(serde_json::json!({
-        "local_ip": local_ip,
-        "tailscale_ip": tailscale_ip,
-        "tailscale_dns": tailscale_dns,
-        "api_port": port,
-        "api_url": format!("http://{}:{}", local_ip, port),
-        "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
-        "tailscale_https_url": tailscale_https_url,
-    }))
-}
-
-/// Read-only Tailscale Serve status for the Web Access panel — drives which
-/// affordance to show (install hint / enable button / already-active + disable).
-#[tauri::command]
-pub fn get_serve_status(
-    state: tauri::State<'_, crate::config::ConfigState>,
-    mesh: tauri::State<'_, crate::MeshStateHandle>,
-) -> crate::mesh::ServeStatus {
-    let port = state.lock().api.port;
-    let mut status = crate::mesh::probe_serve_status(port);
-    if status.https_url.is_none() {
-        if let Some(cached) =
-            crate::mesh::web_ui_endpoints::preferred_https_url(mesh.lock().local_web_ui.as_ref())
-        {
-            status.https_url = Some(cached);
-            status.active = true;
-        }
-    }
-    status
-}
-
-/// Consent-gated: stand up `tailscale serve` HTTPS → this daemon. The UI MUST
-/// have shown the exact commands and required a second confirming click before
-/// invoking this. Idempotent + defends against clobbering a sibling CodeTerm.
-#[tauri::command]
-pub async fn enable_web_access(
-    state: tauri::State<'_, crate::config::ConfigState>,
-    mesh: tauri::State<'_, crate::MeshStateHandle>,
-    app: AppHandle,
-    https_port: Option<u16>,
-) -> Result<crate::mesh::ServeResult, String> {
-    let port = state.lock().api.port;
-    crate::service::web_access::enable(app, mesh.inner().clone(), port, https_port).await
-}
-
-/// Tear down the Serve HTTPS listener that proxies to this daemon.
-#[tauri::command]
-pub async fn disable_web_access(
-    state: tauri::State<'_, crate::config::ConfigState>,
-    mesh: tauri::State<'_, crate::MeshStateHandle>,
-    app: AppHandle,
-) -> Result<crate::mesh::ServeResult, String> {
-    let port = state.lock().api.port;
-    crate::service::web_access::disable(app, mesh.inner().clone(), port).await
-}
-
-/// Cleanly restart the CodeTerm process. Used by the Settings UI after the user
-/// installs pwsh so the new shell is picked up by `detect_default_shell`.
-#[tauri::command]
-pub fn restart_app(app: AppHandle) {
-    crate::crash::shutdown::mark_shutting_down_for(
-        crate::crash::lifecycle::ShutdownReason::Restart,
-    );
-    app.restart();
-}
-
-/// Rebind the REST listener after a reported port collision without restarting
-/// the desktop process.
-#[tauri::command]
-pub async fn restart_rest_api(
-    control: tauri::State<'_, crate::startup::RestApiControlState>,
-) -> Result<crate::startup::RestApiStatus, String> {
-    control.restart_and_wait().await
-}
-
-#[tauri::command]
-pub fn get_rest_api_status(
-    control: tauri::State<'_, crate::startup::RestApiControlState>,
-) -> crate::startup::RestApiStatus {
-    control.status()
-}
-
-#[tauri::command]
-pub fn rest_api_port_released(
-    control: tauri::State<'_, crate::startup::RestApiControlState>,
-) -> Result<(), String> {
-    control.port_released()
 }
 
 /// Diagnostics surfaced in Settings → General on Windows: which shell we would
@@ -199,25 +93,6 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
     }
 }
 
-/// Open a new shell tab and run `winget install Microsoft.PowerShell` in it.
-#[tauri::command]
-pub async fn suggest_install_pwsh(
-    svc: tauri::State<'_, crate::service::ServiceState>,
-) -> Result<String, String> {
-    let svc = svc.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        svc.spawn_tab(crate::service::spawn::SpawnTabSpec {
-            shell: Some("powershell".into()),
-            title: Some("InstallPwsh".into()),
-            cmd: Some("winget install Microsoft.PowerShell".into()),
-            ..Default::default()
-        })
-        .map(|handle| handle.tab_id)
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
 /// Frontend reports WebGL renderer health here. Goes into the daemon
 /// log so rendering health is observable without opening the WebView
 /// devtools. Called from useXterm.ts on every TerminalTab mount.
@@ -240,18 +115,4 @@ pub fn report_webgl_status(state: String, detail: Option<String>) {
         ),
         other => log::warn!("[webgl] unknown state from FE: {other}"),
     }
-}
-
-#[tauri::command]
-pub fn generate_api_token(
-    state: tauri::State<'_, crate::config::ConfigState>,
-    app: AppHandle,
-) -> Result<String, String> {
-    let token = uuid::Uuid::new_v4().to_string().replace("-", "");
-    let mut cfg = state.lock().clone();
-    cfg.api.token = Some(token.clone());
-    crate::config::save_config_pub(&cfg)?;
-    *state.lock() = cfg.clone();
-    crate::api::events::emit_everywhere(&app, "config-changed", &cfg);
-    Ok(token)
 }

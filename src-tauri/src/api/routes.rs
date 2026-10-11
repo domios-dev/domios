@@ -102,6 +102,7 @@ async fn legacy_web_route_gone() -> StatusCode {
     StatusCode::NOT_FOUND
 }
 
+#[cfg(test)]
 pub fn create_router(state: AppState) -> Router {
     create_router_with_frontend(state, None)
 }
@@ -1084,6 +1085,3 @@ pub(crate) fn check_auth(
 ) -> Result<(), (StatusCode, &'static str)> {
     Ok(())
 }
-
-// Re-export route handlers so modules like commands/update/secrets keep stable imports.
-pub use super::network_routes::local_ip_address;

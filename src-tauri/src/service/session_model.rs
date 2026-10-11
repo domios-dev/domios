@@ -624,7 +624,7 @@ impl ServiceContext {
     fn notify_session_model_mismatch(
         &self,
         tab_id: &str,
-        session_id: &str,
+        _session_id: &str,
         mismatch: &crate::multiplexer::types::ModelIdentityMismatch,
     ) {
         if self.tab_is_user_facing(tab_id) {

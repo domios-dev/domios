@@ -12,9 +12,7 @@ pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
 mod spawn_warnings;
 pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
 
-pub(crate) use super::spawn_cli::{
-    cli_binary_on_path, create_cleared_agent_tab, provider_launch_preflight,
-};
+pub(crate) use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
 #[cfg(test)]
 pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 pub(crate) use super::spawn_params::{

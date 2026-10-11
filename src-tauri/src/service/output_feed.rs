@@ -8,6 +8,7 @@ impl ServiceContext {
         self.feed_pty_output_inner(pty_id, None, data)
     }
 
+    #[cfg(test)]
     pub(crate) fn feed_pty_output_for_generation(
         &self,
         pty_id: &str,
