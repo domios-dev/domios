@@ -63,6 +63,7 @@ import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
+import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
@@ -314,6 +315,16 @@ export function TabSessionChat({
     bootView: bootSetupView,
   });
 
+  const renderedEnrichedMessages = useMemo(
+    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    [enrichedMessages],
+  );
+  const sharedScrollRef = useRef<HTMLDivElement | null>(null);
+  const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
+    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}` });
+  const mountedContentVersion = useMemo(() => ({ enrichedMessages, start: mountedWindow.range.start,
+    end: mountedWindow.range.end, revision: mountedWindow.revision }),
+    [enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
   const {
     scrollRef,
     showScrollDown,
@@ -324,11 +335,12 @@ export function TabSessionChat({
     handleContentLayout,
     revealMessage,
   } = useChatScroll({
+    scrollRef: sharedScrollRef,
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,
     messageCount: enrichedMessages.length,
-    contentVersion: enrichedMessages,
+    contentVersion: mountedContentVersion,
     prependVersion: enrichedMessages[0]?.msg.id ?? null,
     followTailRef: chatFollowTailRef,
     onModeChange: (mode) => setHistoryReading(mode === "detached"),
@@ -336,9 +348,9 @@ export function TabSessionChat({
   useChatMessageReveal({
     tabId,
     ready: isActive && !chatChannelLoading,
-    contentVersion: enrichedMessages,
+    contentVersion: mountedContentVersion,
     revealMessage,
-    prepareMessage,
+    prepareMessage: (id) => mountedWindow.prepareMessage(id) || prepareMessage(id),
   });
 
   const followSentMessage = useCallback(() => {
@@ -563,10 +575,7 @@ export function TabSessionChat({
       </MessageTimeFrame>
     );
   };
-  const renderedEnrichedMessages = useMemo(
-    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
-    [enrichedMessages],
-  );
+
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId });
   const jumpToQuoted = useCallback((messageId: string) => { jumpToMessage(scrollRef.current, messageId); }, [scrollRef]);
@@ -836,13 +845,16 @@ export function TabSessionChat({
         {(reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {(askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
         <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />
-        {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
+        <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.range.top }} />
+        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
+          const messageIndex = mountedWindow.range.start + mountedIndex;
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const deliverySend = sendForRow(deliverySends, msg);
           return (
             <Fragment key={msg.id}>
+            <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
             <ChatMessageRow
               msg={msg}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
@@ -881,9 +893,11 @@ export function TabSessionChat({
             </ChatMessageRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
+            </div>
             </Fragment>
           );
         })}
+        <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {reportPlacement.trailing.map(renderOutboundReport)}
         {askPlacement.trailing.map(renderAsk)}
         {generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}

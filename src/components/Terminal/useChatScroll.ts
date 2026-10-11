@@ -54,6 +54,7 @@ function resolvePrependAnchor(el: HTMLDivElement, snapshot: PendingPrependSnapsh
 }
 
 export interface UseChatScrollOptions {
+  scrollRef?: RefObject<HTMLDivElement | null>;
   sessionKey: string;
   active: boolean;
   loading: boolean;
@@ -77,6 +78,7 @@ export interface UseChatScrollResult {
 }
 
 export function useChatScroll({
+  scrollRef: externalScrollRef,
   sessionKey,
   active,
   loading,
@@ -86,7 +88,8 @@ export function useChatScroll({
   followTailRef,
   onModeChange,
 }: UseChatScrollOptions): UseChatScrollResult {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const ownScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = externalScrollRef ?? ownScrollRef;
   const sessionKeyRef = useRef(sessionKey);
   const restoredKeyRef = useRef("");
   const persisted = getPersistedChatScrollState(sessionKey);
