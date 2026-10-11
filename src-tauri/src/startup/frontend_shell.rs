@@ -1,10 +1,19 @@
 use super::{RestApiControlState, RestApiPhase, RestApiStatus};
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use url::Url;
+
+mod model;
+use model::{boot_failure_action, BootFailureAction, BootObservation};
+
+#[derive(Default)]
+struct ShellSupervisor {
+    navigation: Arc<AtomicU64>,
+}
 
 #[derive(Clone, Serialize)]
 struct ShellBootstrap {
@@ -97,6 +106,7 @@ pub(crate) fn create_window(
     app: &tauri::App,
     config: &crate::config::schema::ApiConfig,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
+    app.manage(ShellSupervisor::default());
     let bootstrap = bootstrap(config)
         .map_err(|error| {
             log::error!("[frontend-shell] {error}");
@@ -120,10 +130,86 @@ pub(crate) fn create_window(
         builder = builder.initialization_script(bootstrap_script(&bootstrap)?);
     }
     Ok(builder
+        .on_page_load(|window, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                observe_navigation(window, payload.url().clone());
+            }
+        })
         .on_navigation(move |url| {
             navigation_allowed(url, origin.as_deref(), &unavailable, &fallback)
         })
         .build()?)
+}
+
+fn show_unavailable(window: &WebviewWindow) {
+    match unavailable_url()
+        .map_err(|error| error.to_string())
+        .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
+    {
+        Ok(()) => log::debug!("[frontend-shell] native recovery surface selected"),
+        Err(error) => log::error!("[frontend-shell] recovery surface failed: {error}"),
+    }
+}
+
+fn observe_navigation(window: WebviewWindow, url: Url) {
+    let app = window.app_handle();
+    let navigation = app.state::<ShellSupervisor>().navigation.clone();
+    let current_navigation = navigation.fetch_add(1, Ordering::AcqRel) + 1;
+    if url.scheme() == "data" {
+        return;
+    }
+    let control = app.state::<RestApiControlState>().inner().clone();
+    let listener = control.status();
+    if listener.phase != RestApiPhase::Listening {
+        return;
+    }
+    let frontend_generation = super::observe_frontend_boot();
+    let observation = BootObservation {
+        navigation: current_navigation,
+        listener_generation: listener.generation,
+        frontend_generation,
+        bundled_fallback: fallback_url().is_ok_and(|fallback| fallback == url),
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    tauri::async_runtime::spawn(async move {
+        let ready = tokio::task::spawn_blocking(move || {
+            super::wait_for_frontend_ready_until(frontend_generation, deadline)
+        })
+        .await
+        .unwrap_or(false);
+        if ready {
+            return;
+        }
+        match boot_failure_action(
+            observation,
+            navigation.load(Ordering::Acquire),
+            &control.status(),
+            super::frontend_readiness_generation(),
+        ) {
+            BootFailureAction::Ignore => {}
+            BootFailureAction::BundledFallback => {
+                log::warn!("[frontend-shell] root render was not acknowledged; selecting packaged fallback");
+                match fallback_url() {
+                    Ok(fallback) => {
+                        if let Err(error) = window.navigate(fallback) {
+                            log::error!(
+                                "[frontend-shell] packaged fallback navigation failed: {error}"
+                            );
+                            show_unavailable(&window);
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("[frontend-shell] packaged fallback URL failed: {error}");
+                        show_unavailable(&window);
+                    }
+                }
+            }
+            BootFailureAction::Unavailable => {
+                log::warn!("[frontend-shell] packaged root render was not acknowledged");
+                show_unavailable(&window);
+            }
+        }
+    });
 }
 
 async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, String> {
@@ -162,21 +248,73 @@ pub(crate) fn start(app: tauri::AppHandle, control: RestApiControlState) {
             let observed = status.borrow_and_update().clone();
             if let Some(window) = app.get_webview_window("main") {
                 match ready_origin(&observed, control.bound_addr()) {
-                    Ok(Some(origin)) => match frontend_url(&app, &origin).await {
-                        Ok(url) if control.status() == observed => {
-                            if let Err(error) = window.navigate(url) {
-                                log::error!("[frontend-shell] navigation failed: {error}");
+                    Ok(Some(origin)) => {
+                        let target = tokio::select! {
+                            target = frontend_url(&app, &origin) => target,
+                            changed = status.changed() => {
+                                if changed.is_err() { return; }
+                                continue;
+                            },
+                        };
+                        match target {
+                            Ok(url) if control.status() == observed => {
+                                if let Err(error) = window.navigate(url) {
+                                    log::error!("[frontend-shell] navigation failed: {error}");
+                                    show_unavailable(&window);
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                log::error!("[frontend-shell] frontend unavailable: {error}");
+                                show_unavailable(&window);
                             }
                         }
-                        Ok(_) => {}
-                        Err(error) => log::error!("[frontend-shell] frontend unavailable: {error}"),
-                    },
-                    Ok(None) => {}
-                    Err(error) => log::error!("[frontend-shell] {error}"),
+                    }
+                    Ok(None) => show_unavailable(&window),
+                    Err(error) => {
+                        log::error!("[frontend-shell] {error}");
+                        show_unavailable(&window);
+                    }
                 }
             }
             if status.changed().await.is_err() {
                 return;
+            }
+        }
+    });
+}
+
+pub(crate) fn retry(app: &tauri::AppHandle) {
+    let control = app.state::<RestApiControlState>().inner().clone();
+    let observed = control.status();
+    if observed.phase != RestApiPhase::Listening {
+        if let Err(error) = control.port_released() {
+            log::error!("[frontend-shell] native bind retry refused: {error}");
+        }
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        let target = match ready_origin(&observed, control.bound_addr()) {
+            Ok(Some(origin)) => frontend_url(&app, &origin).await,
+            _ => return,
+        };
+        if control.status() != observed {
+            return;
+        }
+        match target {
+            Ok(url) => {
+                if let Err(error) = window.navigate(url) {
+                    log::error!("[frontend-shell] native frontend retry failed: {error}");
+                    show_unavailable(&window);
+                }
+            }
+            Err(error) => {
+                log::error!("[frontend-shell] native frontend retry refused: {error}");
+                show_unavailable(&window);
             }
         }
     });
