@@ -1,15 +1,7 @@
 import { browserUploadBody } from "./browserUploadBody";
-/**
- * Web-mirror runtime: local daemon host/token + mesh relay targeting.
- *
- * In WEB mode (no Tauri) the React app talks to the Domios daemon that
- * served the browser UI over plain HTTP, authenticated by that daemon's own token.
- * The browser ALWAYS points at this local daemon. To view a paired mesh
- * peer the picker sets a "relay target" (a peer instance_id); requests are
- * then wrapped and proxied through the local daemon's `/api/mesh/relay-to`,
- * which forwards over the signed mesh channel. The browser never re-points
- * at the peer and never holds a peer-scoped secret.
- */
+import { baseDaemonTransport, daemonTransportForPeer, DAEMON_TOKEN_PREFIX } from "./daemonBootstrap";
+import { decodeTransportResponse, type TransportClient } from "./transportClient";
+export { TransportError as WebApiError } from "./transportClient";
 
 import { RELAY_PROTOCOL_VERSION } from "./types";
 
@@ -18,18 +10,11 @@ export const IS_WEB =
 
 export const GATEWAY_STATE_EVENT = "codeterm-gateway-state";
 
-function publishGatewayState(available: boolean): void {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new window.CustomEvent(GATEWAY_STATE_EVENT, { detail: { available } }));
-  }
-}
-
-const TOKEN_PREFIX = "codeterm-web-token:";
 const RELAY_PEER_KEY = "codeterm-web-relay-peer";
 const RELAY_NAME_KEY = "codeterm-web-relay-peer-name";
 
 function relayKey(base: string): string {
-  return `${base}:${selfHost()}`;
+  return `${base}:${typeof window === "undefined" ? "" : (window.location.origin ?? `${window.location.protocol}//${window.location.host}`)}`;
 }
 
 function migrateRelayFromSessionStorage(): void {
@@ -51,7 +36,7 @@ if (typeof window !== "undefined") {
 
 /** Origin the SPA was served from — the local daemon. */
 export function selfHost(): string {
-  return `${window.location.protocol}//${window.location.host}`;
+  return baseDaemonTransport().origin();
 }
 
 /** API host the browser talks to directly — always the local daemon. */
@@ -60,16 +45,16 @@ export function apiHost(): string {
 }
 
 export function tokenFor(host: string): string | null {
-  return localStorage.getItem(TOKEN_PREFIX + host);
+  return localStorage.getItem(DAEMON_TOKEN_PREFIX + host);
 }
 
 export function setTokenFor(host: string, token: string): void {
-  localStorage.setItem(TOKEN_PREFIX + host, token);
+  localStorage.setItem(DAEMON_TOKEN_PREFIX + host, token);
 }
 
 /** Local-daemon token (authenticates the browser to its own daemon). */
 export function currentToken(): string | null {
-  return tokenFor(selfHost());
+  return baseDaemonTransport().currentToken();
 }
 
 interface RelayTarget {
@@ -98,6 +83,7 @@ export function invalidateWebRequestContext(): number {
 
 /** Active mesh peer the browser is viewing through the relay, or null (self). */
 export function relayTarget(): RelayTarget | null {
+  if (typeof localStorage === "undefined") return null;
   const id = localStorage.getItem(relayKey(RELAY_PEER_KEY));
   if (!id) return null;
   return { id, name: localStorage.getItem(relayKey(RELAY_NAME_KEY)) ?? id };
@@ -143,37 +129,16 @@ export interface DaemonApiConfig {
  * mode: web uses `apiHost()` (tracks window.location), desktop uses the local daemon.
  * Never reconstruct from the daemon's bind address (`0.0.0.0`).
  */
-export function daemonHttpBase(api?: DaemonApiConfig): string {
-  if (IS_WEB) return apiHost();
-  const host = api?.host && api.host !== "0.0.0.0" ? api.host : "127.0.0.1";
-  return `http://${host}:${api?.port ?? 7686}`;
+export function daemonHttpBase(_api?: DaemonApiConfig): string {
+  return baseDaemonTransport().origin();
 }
 
-/** Token to authenticate daemon HTTP calls in the current access mode. */
-export function daemonAuthToken(api?: DaemonApiConfig): string {
-  return (IS_WEB ? currentToken() : api?.token) ?? "";
+export function daemonAuthToken(_api?: DaemonApiConfig): string {
+  return baseDaemonTransport().currentToken() ?? "";
 }
 
-export function daemonFetch(
-  api: DaemonApiConfig,
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> {
-  if (IS_WEB) return webFetch(path, init);
-  const headers = new Headers(init.headers);
-  const token = daemonAuthToken(api);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${daemonHttpBase(api)}${path}`, { ...init, headers });
-}
-
-export class WebApiError extends Error {
-  constructor(
-    public status: number,
-    public path: string,
-    body: string,
-  ) {
-    super(`${path} → HTTP ${status}: ${body.slice(0, 300)}`);
-  }
+export function daemonFetch(_api: DaemonApiConfig, path: string, init: RequestInit = {}): Promise<Response> {
+  return webFetch(path, init);
 }
 
 export function isPromptNotOnScreenResponse(value: unknown): boolean {
@@ -185,33 +150,8 @@ export function isPromptNotOnScreenResponse(value: unknown): boolean {
     && value.reason === "prompt_not_on_screen";
 }
 
-/** Mesh relay envelope returned by `/api/mesh/relay-to`. */
-interface RelayResponse {
-  ok: boolean;
-  status: number;
-  data: unknown;
-  error: string | null;
-}
-
-/** Authenticated fetch straight at the local daemon — never relayed. */
-export async function localFetch(
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> {
-  const headers = new Headers(init.headers);
-  headers.set("Content-Type", "application/json");
-  const token = currentToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  try {
-    const response = await fetch(`${selfHost()}${path}`, { ...init, headers });
-    publishGatewayState(true);
-    return response;
-  } catch (error) {
-    if (!(error instanceof DOMException && error.name === "AbortError")) {
-      publishGatewayState(false);
-    }
-    throw error;
-  }
+export function localFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return baseDaemonTransport().request!(path, init, true);
 }
 
 /** Local-daemon JSON call (bypasses any active relay target). */
@@ -220,17 +160,7 @@ export async function localJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const res = await localFetch(path, {
-    method,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new WebApiError(res.status, path, text);
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return text as unknown as T;
-  }
+  return baseDaemonTransport().localJson<T>(method, path, body);
 }
 
 /**
@@ -255,31 +185,9 @@ export async function webFetch(
 
   try {
     const requestInit = { ...init, signal: controller.signal };
-    if (!target) {
-      const response = await localFetch(path, requestInit);
-      if (generation !== requestContextGeneration) throw new DOMException("Peer context changed", "AbortError");
-      return response;
-    }
-
-    const method = (init.method ?? "GET").toUpperCase();
-    const body =
-      typeof init.body === "string" && init.body.length > 0
-        ? JSON.parse(init.body)
-        : null;
-    const local = await localFetch("/api/mesh/relay-to", {
-      method: "POST",
-      body: JSON.stringify({ target_peer_id: target.id, method, path, body }),
-      signal: controller.signal,
-    });
-    if (generation !== requestContextGeneration) throw new DOMException("Peer context changed", "AbortError");
-    if (!local.ok) return local;
-    const relay = (await local.json()) as RelayResponse;
-    if (generation !== requestContextGeneration) throw new DOMException("Peer context changed", "AbortError");
-    const inner = relay.data == null ? "" : JSON.stringify(relay.data);
-    return new Response(inner, {
-      status: relay.status || (relay.ok ? 200 : 502),
-      headers: { "Content-Type": "application/json" },
-    });
+    const response = await daemonTransportForPeer(target?.id).request!(path, requestInit);
+    assertWebRequestContext(generation);
+    return response;
   } finally {
     requestControllers.delete(controller);
     externalSignal?.removeEventListener("abort", abortFromExternal);
@@ -292,24 +200,13 @@ export async function webUpload(
   filename: string,
 ): Promise<{ path: string; size: number }> {
   const form = await browserUploadBody(file, filename);
-  const headers = new Headers();
-  const token = currentToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
   const controller = new AbortController();
   const interrupt = () => controller.abort();
   const visibilityChanged = () => { if (document.visibilityState === "hidden") interrupt(); };
   window.addEventListener("pagehide", interrupt);
   document.addEventListener("visibilitychange", visibilityChanged);
   try {
-    const res = await fetch(`${apiHost()}/api/upload`, {
-      method: "POST",
-      headers,
-      body: form,
-      signal: controller.signal,
-    });
-    const text = await res.text();
-    if (!res.ok) throw new WebApiError(res.status, "/api/upload", text);
-    return JSON.parse(text) as { path: string; size: number };
+    return await baseDaemonTransport().upload("/api/upload", form, { signal: controller.signal });
   } finally {
     window.removeEventListener("pagehide", interrupt);
     document.removeEventListener("visibilitychange", visibilityChanged);
@@ -320,26 +217,18 @@ export async function webJson<T>(
   method: string,
   path: string,
   body?: unknown,
+  opts?: Parameters<TransportClient["json"]>[3],
 ): Promise<T> {
   const generation = webRequestContext();
+  const deadline = opts?.timeoutMs === undefined ? undefined : AbortSignal.timeout(opts.timeoutMs);
+  const signal = opts?.signal && deadline ? AbortSignal.any([opts.signal, deadline]) : opts?.signal ?? deadline;
   const res = await webFetch(path, {
+    signal,
+    headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
     method,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
   assertWebRequestContext(generation);
-  if (!res.ok) {
-    if (res.status === 409 && path.endsWith("/prompt/respond")) {
-      try {
-        const value: unknown = JSON.parse(text);
-        if (isPromptNotOnScreenResponse(value)) return value as T;
-      } catch {}
-    }
-    throw new WebApiError(res.status, path, text);
-  }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return text as unknown as T;
-  }
+  return decodeTransportResponse<T>(res.status, path, text);
 }
