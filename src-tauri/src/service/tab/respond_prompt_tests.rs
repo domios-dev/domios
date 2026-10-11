@@ -135,26 +135,7 @@ fn detected_prompt_stays_respondable_without_notification() {
             .and_then(|tab| tab.pending_prompt.as_ref()),
         Some(&prompt)
     );
-    let pending_notice_id = {
-        let notifications = fixture.service.notif.lock();
-        let open = notifications
-            .list(false)
-            .into_iter()
-            .filter(|notification| !notification.resolved)
-            .collect::<Vec<_>>();
-        assert_eq!(open.len(), 1, "one notice represents this pending prompt");
-        let notice = open[0];
-        assert_eq!(notice.tab_id.as_deref(), Some(tab_id.as_str()));
-        assert_eq!(
-            notice.condition,
-            Some(crate::notification::dedupe::TabCondition::PendingPrompt)
-        );
-        assert_eq!(
-            notice.level,
-            Some(crate::notification::push::NotifyLevel::ActionNeeded)
-        );
-        notice.id.clone()
-    };
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 
     let identity = codeterm_types::pty::PromptIdentity::new(kind, &prompt);
     let actions = prompt
@@ -168,7 +149,7 @@ fn detected_prompt_stays_respondable_without_notification() {
             },
         )
         .collect();
-    let existing_id = fixture.service.create_prompt_notification_ext(
+    let existing_id = fixture.seed_prompt_notification(
         "opaque title".into(),
         Some("opaque body".into()),
         Some("warning"),
@@ -208,13 +189,7 @@ fn detected_prompt_stays_respondable_without_notification() {
     let answer = existing.answer.as_ref().expect("answer slot");
     assert_eq!(answer.answered_via.as_deref(), Some("tab_respond"));
     assert!(answer.delivered);
-    assert_eq!(notifications.list(false).len(), 2);
-    let pending_notice = notifications
-        .notification(&pending_notice_id)
-        .expect("the prompt condition notice remains auditable");
-    assert!(pending_notice.resolved);
-    assert!(pending_notice.read);
-    assert!(pending_notice.actions.is_none());
+    assert_eq!(notifications.list(false).len(), 1);
     drop(notifications);
     let _ = fixture.service.pty.lock().kill(&pty_id);
 }

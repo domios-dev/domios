@@ -207,23 +207,10 @@ pub(super) fn resolve_manual_update_with_model_gate(
                         .get_tab(&snapshot.tab_id)
                         .map(|tab| tab.title.clone())
                         .unwrap_or_else(|| snapshot.tab_id.clone());
-                    service.create_notification_ext(
+                    service.log_system_notice(
                         format!("{tab_title}: update skipped"),
                         Some("The classified update dialog was answered with Skip.".into()),
                         Some("info"),
-                        None,
-                        None,
-                        super::super::notification::NotificationOrigin::local_tab(
-                            snapshot.tab_id.clone(),
-                        ),
-                        super::super::notification::PushIntent {
-                            level: Some(crate::notification::push::NotifyLevel::Verbose),
-                            event_key: Some(format!(
-                                "classified-update-skip:{}",
-                                uuid::Uuid::new_v4()
-                            )),
-                        },
-                        None,
                     );
                 }
             }

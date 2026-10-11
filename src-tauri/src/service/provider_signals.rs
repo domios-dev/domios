@@ -198,15 +198,10 @@ pub(crate) fn plan_drift(signals: &ProviderSignals) -> bool {
 }
 
 pub(crate) fn warn(svc: &ServiceContext, tab: &str, body: String) {
-    svc.create_notification_ext(
-        "Provider state".into(),
+    svc.log_system_notice(
+        format!("Provider state for {tab}"),
         Some(body),
         Some("warning"),
-        None,
-        None,
-        super::notification::NotificationOrigin::local_tab(tab.into()),
-        super::notification::PushIntent::default(),
-        None,
     );
 }
 

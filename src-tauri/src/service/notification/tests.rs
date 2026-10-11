@@ -187,7 +187,7 @@ fn explicit_prompt_notification_answer_refuses_a_stale_prompt_structurally() {
             identity: identity.clone(),
         })
         .collect();
-    let id = fixture.service.create_prompt_notification_ext(
+    let id = fixture.seed_prompt_notification(
         "opaque title".into(),
         Some("opaque body".into()),
         Some("warning"),
