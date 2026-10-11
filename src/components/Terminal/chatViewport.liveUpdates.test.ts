@@ -20,6 +20,27 @@ describe("live transcript after viewport clamping", () => {
     expect(mode).toBe("pinned");
   });
 
+  it("preserves the live window across composer resize, optimistic replacement, resync and stream growth", () => {
+    let mode: "pinned" | "detached" = "pinned";
+    let previousTop = 600;
+    const sequence = [
+      { scrollHeight: 1000, clientHeight: 450, scrollTop: 550 },
+      { scrollHeight: 1050, clientHeight: 400, scrollTop: 650 },
+      { scrollHeight: 1020, clientHeight: 400, scrollTop: 620 },
+      { scrollHeight: 1020, clientHeight: 400, scrollTop: 619.75 },
+      { scrollHeight: 1200, clientHeight: 400, scrollTop: 800 },
+    ];
+    for (const geometry of sequence) {
+      mode = chatViewportModeAfterScroll(mode, previousTop, geometry);
+      previousTop = geometry.scrollTop;
+      expect(mode).toBe("pinned");
+      expect(chatWindowProjection([item("sent"), item("reply")], mode === "pinned" ? null : "sent").items).toHaveLength(2);
+    }
+    expect(chatViewportModeAfterScroll(mode, previousTop, {
+      scrollHeight: 1200, clientHeight: 400, scrollTop: 700,
+    })).toBe("detached");
+  });
+
   it("does not reattach an anchored reader when layout moves its bottom upward", () => {
     expect(chatViewportModeAfterScroll("detached", 600, {
       scrollHeight: 900, clientHeight: 400, scrollTop: 500,
@@ -32,7 +53,10 @@ describe("live transcript after viewport clamping", () => {
     });
     expect(mode).toBe("detached");
     const earlier = [item("earlier"), item("Screenshot")];
-    expect(chatWindowProjection([...earlier, item("new")], "Screenshot").items).toEqual(earlier);
+    const projection = chatWindowProjection([...earlier, item("new")], "Screenshot");
+    expect(projection.items).toEqual(earlier);
+    expect(projection.newerCount).toBe(1);
+    expect(chatWindowProjection([...earlier, item("new")], null).newerCount).toBe(0);
     expect(chatWindowProjection([...earlier, item("new")], null).items).toHaveLength(3);
   });
 });

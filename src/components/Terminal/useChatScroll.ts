@@ -171,7 +171,7 @@ export function useChatScroll({
   }, [persist, updateScrollDown, writeScrollTop]);
 
   const followSend = useCallback(() => {
-    if (modeRef.current === "pinned") scrollToBottom();
+    scrollToBottom();
   }, [scrollToBottom]);
 
   const prepareForHistoryPrepend = useCallback(() => {
