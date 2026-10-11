@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: [self-hosted, codeterm-builder]
+    runs-on: [self-hosted, linux-build]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
