@@ -13,6 +13,7 @@
 @import "../components/Terminal/tabTopBar.css";
 @import "../components/Terminal/scrollToLatest.css";
 @import "../components/Terminal/composerContext.css";
+@import "../components/Terminal/chatLayout.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";
 @import "../components/shared/rowKebab.css";

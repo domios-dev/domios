@@ -69,7 +69,7 @@ async function main(): Promise<void> {
 
   scroll.scrollTop = 599.9;
   await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
-  assert(followTail.current, "a fractional layout clamp at the bottom keeps the live tail pinned");
+  assert(!followTail.current, "fractional upward scrolling releases the live tail");
 
   scroll.scrollTop = 599;
   await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));

@@ -190,7 +190,7 @@ export function useChatScroll({
     const hookScrollTop = hookScrollTopRef.current;
     hookScrollTopRef.current = null;
     const fromHookWrite = hookScrollTop != null
-      && Math.abs(el.scrollTop - hookScrollTop) < SCROLL_WRITE_TOLERANCE_PX;
+      && el.scrollTop === hookScrollTop;
     const mode = fromHookWrite
       ? modeRef.current
       : chatViewportModeAfterScroll(modeRef.current, lastScrollTopRef.current, el);

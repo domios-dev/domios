@@ -402,7 +402,7 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: {
       </div>
       {isFullscreen && (
         <div
-          className="fixed z-50 bg-black/85 backdrop-blur-sm"
+          className="ct-chat-fullscreen fixed z-50 bg-black/85 backdrop-blur-sm"
           style={bounds ? { top: bounds.top, left: bounds.left, width: bounds.width, height: bounds.height } : { inset: 0 }}
           onClick={closeFullscreen}
         >

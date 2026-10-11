@@ -389,9 +389,9 @@ describe("detached reader at the history cap", () => {
   });
 });
 
-describe("reattaching at a fractional visual bottom", () => {
+describe("reattaching only at the bottom", () => {
   it.each([0.6, 1, 1.4])(
-    "reattaches a reader who scrolls down to a %spx fractional gap and follows the next send and reply",
+    "keeps a reader detached at a %spx gap until they return to the bottom",
     async (gap) => {
       await mount();
       await userScrollTo(500);
@@ -399,7 +399,8 @@ describe("reattaching at a fractional visual bottom", () => {
 
       const el = scroll();
       await userScrollTo(el.scrollHeight - el.clientHeight - gap);
-      expect(el.scrollHeight - el.scrollTop - el.clientHeight).toBeCloseTo(gap);
+      expect(followTail.current).toBe(false);
+      await userScrollTo(el.scrollHeight - el.clientHeight);
       expect(followTail.current).toBe(true);
       expect(modeChanges[modeChanges.length - 1]).toBe("pinned");
       expect(hook!.showScrollDown).toBe(false);
