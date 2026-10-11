@@ -71,7 +71,8 @@ function setupDom() {
       const url = String(input);
       if (url.includes("/api/plans?") && url.includes("full=1")) {
         fullCalls++;
-        return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
+        lastFullProject = new URL(url).searchParams.get("project");
+        return new Response(JSON.stringify({ plans: fullFixturePlans }), { status: 200 });
       }
       if (url.endsWith("/api/plans")) {
         indexCalls++;
@@ -95,28 +96,7 @@ function setupDom() {
 }
 
 async function installListenMock() {
-  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  __setInvokeForTest(async (command, args) => {
-    if (command === "list_plans_full") {
-      fullCalls++;
-      lastFullProject = (args?.project as string | null | undefined) ?? null;
-      return fullFixturePlans as never;
-    }
-    if (command === "list_plan_index") {
-      indexCalls++;
-      return [{
-        plan_id: FIXTURE_PLAN.id,
-        file_path: "/tmp/plan.json",
-        owner: FIXTURE_PLAN.owner,
-        title: FIXTURE_PLAN.title,
-        status: FIXTURE_PLAN.status,
-        updated_at: FIXTURE_PLAN.updated_at,
-        assigned_tab_ids: [],
-      }] as never;
-    }
-    if (command === "get_plan_full") return FIXTURE_PLAN as never;
-    throw new Error(`unexpected invoke: ${command}`);
-  });
+  const { __setListenForTest } = await import("../../lib/bridge");
   __setListenForTest(async (event, handler) => {
     if (!listenHandlers.has(event)) listenHandlers.set(event, new Set());
     listenHandlers.get(event)!.add(handler as ListenHandler);
@@ -254,8 +234,8 @@ test("desktop plan queries wait for config and bypass REST", async () => {
     await flushAsyncWork();
   });
   const callsAfterEnable: number = fullCalls;
-  assert(callsAfterEnable === 1, "loaded config enables one full IPC read");
-  assert(restCalls === 0, "desktop Plan reads never cross the REST auth boundary");
+  assert(callsAfterEnable === 1, "loaded config enables one full HTTP read");
+  assert(restCalls > 0, "desktop plan reads use authenticated HTTP");
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
     "sidebar receives plans after authentication",
