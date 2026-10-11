@@ -360,6 +360,7 @@ pub(crate) fn subscribe(
 }
 
 #[cfg(target_os = "macos")]
+#[path = "macos/native.rs"]
 mod native;
 #[cfg(test)]
 #[path = "macos/tests.rs"]
