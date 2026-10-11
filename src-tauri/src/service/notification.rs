@@ -208,18 +208,47 @@ pub(crate) fn create_notification_with_delivery(
         NotificationAdmission::Diagnostic => unreachable!(),
         NotificationAdmission::Explicit => match push.intent.level {
             // An identical live message is the same message: it keeps its record and reaches neither the native sink nor the panel again.
-            None => match store.lock().add_deduped(
-                title.clone(),
-                body.clone(),
-                parsed_severity,
-                provenance.clone(),
-                ask,
-                sticky,
-                surfaces.declared,
-            ) {
-                DeliveryAdmission::Deliver(id) => id,
-                DeliveryAdmission::Duplicate(id) => return id,
-            },
+            None => {
+                let mut store = store.lock();
+                let keyed_question = ask.condition.is_none()
+                    && crate::notification::answer::slot_for(
+                        ask.actions.as_deref(),
+                        provenance.tab_id.as_deref(),
+                    )
+                    .is_some();
+                let admitted = if let Some(event_key) =
+                    push.intent.event_key.as_deref().filter(|_| keyed_question)
+                {
+                    let scope = push::scope_key(&provenance);
+                    let event_key = push::event_key(Some(event_key), &title);
+                    store.supersede_question(&scope, &event_key);
+                    let id = store.add_ext(
+                        title.clone(),
+                        body.clone(),
+                        parsed_severity,
+                        provenance.clone(),
+                        ask,
+                        sticky,
+                        surfaces.declared,
+                    );
+                    store.remember_question(scope, event_key, &id);
+                    DeliveryAdmission::Deliver(id)
+                } else {
+                    store.add_deduped(
+                        title.clone(),
+                        body.clone(),
+                        parsed_severity,
+                        provenance.clone(),
+                        ask,
+                        sticky,
+                        surfaces.declared,
+                    )
+                };
+                match admitted {
+                    DeliveryAdmission::Deliver(id) => id,
+                    DeliveryAdmission::Duplicate(id) => return id,
+                }
+            }
             Some(level) => {
                 let admitted = store.lock().add_push(PushRequest {
                     scope: push::scope_key(&provenance),
@@ -321,6 +350,32 @@ pub(crate) fn create_notification_with_delivery(
     }
     // The panel must receive every record; `show_bell` only controls indicator presentation and must not gate delivery.
     emit(payload);
+    id
+}
+
+fn announce_notification_resolution(
+    store: &NotifState,
+    ids: &[String],
+    mut spend: impl FnMut(&str, &SpentQuestion),
+    mut emit: impl FnMut(&str, serde_json::Value),
+) {
+    for id in ids {
+        let spent = { store.lock().spent_question(id) };
+        if let Some(spent) = spent {
+            spend(id, &spent);
+        }
+        emit("notification-resolved", serde_json::json!({ "id": id }));
+    }
+}
+
+fn create_notification_announcing_resolution(
+    store: &NotifState,
+    create: impl FnOnce() -> String,
+    announce: impl FnOnce(&[String]),
+) -> String {
+    let id = create();
+    let superseded = { store.lock().take_superseded() };
+    announce(&superseded);
     id
 }
 
@@ -469,7 +524,7 @@ impl ServiceContext {
         actions: Option<Vec<NotificationAction>>,
         event_key: String,
     ) -> String {
-        let (id, _) = self.create_notification_actions_reported(
+        self.create_notification_actions_reported(
             title,
             body,
             Some("warning"),
@@ -480,22 +535,19 @@ impl ServiceContext {
                 level: Some(NotifyLevel::ActionNeeded),
                 event_key: Some(event_key),
             },
-        );
-        let superseded = { self.notif.lock().take_superseded() };
-        self.announce_resolved(&superseded);
-        id
+        )
+        .0
     }
 
     /// Tell every surface these records resolved: channels stop offering
     /// their buttons and the panel drops them from the live set.
     pub(crate) fn announce_resolved(&self, ids: &[String]) {
-        for id in ids {
-            let spent = { self.notif.lock().spent_question(id) };
-            if let Some(spent) = spent {
-                self.spend_on_channels(id, &spent);
-            }
-            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
-        }
+        announce_notification_resolution(
+            &self.notif,
+            ids,
+            |id, spent| self.spend_on_channels(id, spent),
+            |name, payload| self.notify_event(name, payload),
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -512,12 +564,14 @@ impl ServiceContext {
         // The declared level outlives the push policy: an install whose
         // channels resolve to nobody still has a desktop gate to satisfy.
         let declared = intent.level;
+        let event_key = intent.event_key.clone();
         let super::notification_push::PushPlan {
-            intent,
+            mut intent,
             per_scope_limit,
             targets,
             refusals,
         } = self.resolve_push_plan(intent);
+        intent.event_key = event_key;
         let surfaces = self.resolve_surface_dispatch(declared);
         // Judged before the plan is moved into the sink, off the same targets
         // the sink will use — so the report cannot disagree with the delivery.
@@ -533,28 +587,36 @@ impl ServiceContext {
                     .collect(),
             },
         });
-        let id = create_notification_with_delivery(
-            NotificationAdmission::Explicit,
+        let id = create_notification_announcing_resolution(
             &self.notif,
-            |title, body| {
-                crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
+            || {
+                create_notification_with_delivery(
+                    NotificationAdmission::Explicit,
+                    &self.notif,
+                    |title, body| {
+                        crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
+                    },
+                    title,
+                    body,
+                    severity,
+                    ask,
+                    sticky,
+                    origin,
+                    |candidate| self.resolve_tab_provenance(candidate),
+                    PushDispatch {
+                        intent,
+                        per_scope_limit,
+                        deliver: move |envelope: PushEnvelope| {
+                            super::notification_push::deliver_plan(
+                                &targets, &refusals, self, &envelope,
+                            )
+                        },
+                    },
+                    surfaces,
+                    |payload| self.notify_created(payload),
+                )
             },
-            title,
-            body,
-            severity,
-            ask,
-            sticky,
-            origin,
-            |candidate| self.resolve_tab_provenance(candidate),
-            PushDispatch {
-                intent,
-                per_scope_limit,
-                deliver: move |envelope: PushEnvelope| {
-                    super::notification_push::deliver_plan(&targets, &refusals, self, &envelope)
-                },
-            },
-            surfaces,
-            |payload| self.notify_created(payload),
+            |ids| self.announce_resolved(ids),
         );
         (id, unseen)
     }
