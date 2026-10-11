@@ -1,4 +1,5 @@
 [
+  "src/components/Terminal/ChatComposer.submission-keys.test.ts",
   "src/components/Sidebar/sidebarDrawerLayout.test.ts",
   "src/components/Sidebar/SidebarDrawer.test.tsx",
   "src/components/Terminal/useMessageActionHint.test.tsx",
