@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
-import { chatAnchorIdentities, resolveChatAnchorIndex, type ChatContentAnchor } from "./chatAnchorModel";
+import { chatAnchorIdentities, chatRevealIndex, resolveChatAnchorIndex, type ChatContentAnchor } from "./chatAnchorModel";
 import { getPersistedChatScrollState } from "./chatViewport";
 import { CHAT_ROW_ESTIMATE, chatRowOffsets, mountedChatWindow } from "./chatMountedWindow";
 
@@ -52,7 +52,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
 
   const prepareMessage = useCallback((id: string) => {
     const { rows: current, range: mounted } = live.current;
-    const index = current.findIndex(({ msg }) => msg.id === id || (msg.sourceMessageId ?? msg.id) === id);
+    const index = chatRevealIndex(current.map(({ msg }) => msg), id);
     if (index < 0 || (index >= mounted.start && index < mounted.end)) return false;
     followTailRef.current = false;
     setTarget({ key: sessionKey, id: current[index].msg.id });

@@ -30,6 +30,10 @@ function setupDom() {
   }
   Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: (cb: FrameRequestCallback) => { cb(0); return 0; } });
   Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: () => {} });
+  Object.defineProperty(window.HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) { return this.dataset.testid === "tab-session-chat-messages" ? 600 : 0; },
+  });
   class StubResizeObserver {
     observe(): void {}
     unobserve(): void {}

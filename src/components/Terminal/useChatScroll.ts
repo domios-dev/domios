@@ -24,6 +24,8 @@ import {
   type ChatContentAnchor,
 } from "./chatScrollAnchor";
 
+import { chatRevealIndex } from "./chatAnchorModel";
+
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
 const SCROLL_WRITE_TOLERANCE_PX = 1;
 
@@ -207,8 +209,9 @@ export function useChatScroll({
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
     if (!el) return false;
-    const row = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"))
-      .find((candidate) => candidate.dataset.messageId === messageId || candidate.dataset.sourceMessageId === messageId);
+    const rows = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
+    const index = chatRevealIndex(rows.map((row) => ({ id: row.dataset.messageId ?? "", sourceMessageId: row.dataset.sourceMessageId })), messageId);
+    const row = rows[index];
     if (!row) return false;
     writeScrollTop(el, row.offsetTop);
     // Detached, so a pinned tail cannot pull the revealed row back out of view.

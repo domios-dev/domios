@@ -37,3 +37,8 @@ export function resolveChatAnchorTop(rows: readonly ChatAnchorGeometry[], anchor
   const index = resolveChatAnchorIndex(rows, anchor);
   return index < 0 ? null : rows[index].top - anchor.offset;
 }
+
+export function chatRevealIndex(messages: readonly { id: string; sourceMessageId?: string }[], messageId: string): number {
+  const source = messages.findIndex((message) => (message.sourceMessageId ?? message.id) === messageId);
+  return source >= 0 ? source : messages.findIndex((message) => message.id === messageId);
+}
