@@ -207,6 +207,9 @@ def cmd_send_marker(deadline, tab_id, marker, prompt):
 
 
 def cmd_send_long_turn(deadline, tab_id, prompt, observation_path=None):
+    before_send = status(tab_id) or {}
+    if before_send.get('status', '').lower() != 'idle':
+        fail(f'{tab_id}: expected Idle before numeric task, got {before_send.get("status")}')
     wait = EventWait(deadline)
     api("POST", f"/api/tabs/{tab_id}/chat-raw/start", {"subscriptionId": f"restore-lifecycle-working-{tab_id}"})
     receipt = api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
@@ -216,7 +219,7 @@ def cmd_send_long_turn(deadline, tab_id, prompt, observation_path=None):
 
     def record():
         if observation_path:
-            pathlib.Path(observation_path).write_text(json.dumps({'send_receipt': receipt, 'states': frames, 'event_count': event_count, 'last_events': list(events)}, indent=2).replace(os.environ.get('CODETERM_API_TOKEN', 'no-token'), '[redacted]'))
+            pathlib.Path(observation_path).write_text(json.dumps({'status_before_send': before_send, 'send_receipt': receipt, 'states': frames, 'event_count': event_count, 'last_events': list(events)}, indent=2).replace(os.environ.get('CODETERM_API_TOKEN', 'no-token'), '[redacted]'))
 
     def working(_event):
         nonlocal event_count

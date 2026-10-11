@@ -70,4 +70,4 @@ def spawn_cases(default, cheap, default_only=False):
 
 def startup_prompt(worker, marker):
     acknowledgement = 'Run codeterm agent ack immediately. ' if worker else 'Run codeterm agent startup-ack immediately. '
-    return ('Read-only probe. Do not edit files, spawn agents, report completion, or change plan state. ' + acknowledgement + f'Reply {marker} and remain idle until instructed. Follow later bench messages exactly.')
+    return ('Read-only probe. Do not edit files, spawn agents, report completion, or change plan state. ' + acknowledgement + f'Reply {marker} as your final Chat reply and end this turn. Do not use sleep or wait tools, and do not route your reply with codeterm send. Follow later bench messages exactly.')

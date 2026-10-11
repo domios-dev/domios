@@ -114,3 +114,5 @@ A selected Codex Chat awaits the own-session startup reply under the existing tu
 After a daemon restart the Browser page reconnects with the scoped token and awaits the sidebar before selecting Chat. A fresh webview can otherwise show the Connect screen, which is a fixture prerequisite failure rather than a transcript stall.
 
 Codex phase 3 runs three restores without queued tasks, proving unprompted output after the owed continue. Phase 4 then uses a separate Working restore with opaque-marker-only sends; the marker payload does not instruct the agent to resume and cannot satisfy phase 3 by prompting original work.
+
+Fixture agents end each turn with a final Chat reply. Waiting between bench tasks means ending the turn, not calling a long sleep tool or routing the readiness reply only to the Manager. The 1fdf normal Beta receipt showed a 12-hour sleep after a routed ACK; it remains a fixture failure.
