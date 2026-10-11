@@ -53,13 +53,17 @@ impl Store {
         transaction.commit().map_err(|e| e.to_string())
     }
 
-    pub fn install(
+    pub(super) fn install(
         &self,
         verified: &VerifiedManifest,
         signature: &str,
         archive: &[u8],
     ) -> Result<(), String> {
         let manifest = verified.manifest();
+        use sha2::{Digest, Sha256};
+        if format!("{:x}", Sha256::digest(archive)) != manifest.sha256 {
+            return Err("Verified archive bytes changed".into());
+        }
         let destination = self.root.join("releases").join(&manifest.release_id);
         if destination.exists() {
             let stored = fs::read(destination.join("manifest.json")).map_err(|e| e.to_string())?;
