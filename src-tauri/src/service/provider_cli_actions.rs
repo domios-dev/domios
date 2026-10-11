@@ -110,7 +110,21 @@ pub(crate) fn launch_with_dispatch(
     let platform = crate::agent::provider::current_platform_tag();
     let status =
         super::provider_cli::provider_cli_status(&svc.provider_registry, provider, platform)?;
-    let command = operation_command(&status, operation, platform)?;
+    let mut command = operation_command(&status, operation, platform)?;
+    if matches!(operation, CliOperation::Update) && command.contains("{version}") {
+        let updater_provider = svc
+            .agent_registry
+            .provider_arc(provider)
+            .ok_or_else(|| "CLI update provider is unavailable".to_string())?;
+        let target = updater_provider
+            .check_for_update()
+            .ok_or_else(|| "No supported CLI update target is available".to_string())?;
+        command = super::provider_update::compatible_command_for_target(
+            &command,
+            &target.latest_version,
+            updater_provider.cli_compatibility().as_ref(),
+        )?;
+    }
     let prerequisites = match operation {
         CliOperation::Install => &status.installer_prerequisites,
         CliOperation::Update => &status.updater_prerequisites,

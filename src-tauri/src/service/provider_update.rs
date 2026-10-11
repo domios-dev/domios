@@ -4,41 +4,19 @@ use std::sync::{Arc, LazyLock};
 
 use codeterm_plugin::provider::{AgentProvider, ProviderUpdateAvailability};
 use parking_lot::Mutex;
+use tauri::Manager;
 
 use super::ServiceContext;
 use state::Admission;
 
 mod command;
-mod restarts;
+mod idle;
+mod policy;
+use policy::command_for_target;
+pub(crate) use policy::compatible_command_for_target;
 mod state;
 mod storage;
 mod watch;
-
-pub(crate) const IDLE_REFUSAL: &str = "provider update restart deferred until tab is idle";
-
-pub(crate) fn restart_eligible(service: &ServiceContext, tab: &str) -> bool {
-    let provider = service
-        .mux
-        .read()
-        .get_tab(tab)
-        .and_then(|tab| tab.agent_type.clone());
-    let Some(provider) = provider else {
-        return false;
-    };
-    let Ok(state) = storage::read() else {
-        return false;
-    };
-    if state.runs.values().any(|run| {
-        run.provider == provider
-            && matches!(
-                run.outcome,
-                state::RunOutcome::Running | state::RunOutcome::UnstoppedFailure(_)
-            )
-    }) {
-        return false;
-    }
-    restarts::readiness(service, tab).can_restart()
-}
 
 struct Update {
     provider: Arc<dyn AgentProvider>,
@@ -57,7 +35,7 @@ pub fn check_available(service: Arc<ServiceContext>, api_port: u16, allow_non_pr
     ENABLED.store(allowed, Ordering::Release);
     if allowed {
         watch::start(service.as_ref());
-        restarts::schedule_async(service.as_ref(), None);
+        idle::schedule_async(service.as_ref(), None);
     }
     let providers = service.agent_registry.all_provider_arcs();
     spawn_utility("provider-update-check", move || {
@@ -93,7 +71,7 @@ pub fn check_available(service: Arc<ServiceContext>, api_port: u16, allow_non_pr
 }
 
 pub(crate) fn coordinates_prompt(service: &ServiceContext, provider: &str) -> bool {
-    ENABLED.load(Ordering::Acquire)
+    updates_enabled(service)
         && service
             .agent_registry
             .provider_arc(provider)
@@ -104,7 +82,7 @@ pub(crate) fn manual_prompt_observed(
     service: &ServiceContext,
     snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
 ) {
-    if !ENABLED.load(Ordering::Acquire) {
+    if !updates_enabled(service) {
         return;
     }
     let provider_id = service
@@ -127,8 +105,8 @@ pub(crate) fn manual_prompt_observed(
     let service = service.clone();
     spawn_utility("provider-update-prompt", move || {
         if let Some(version) = provider
-            .update_prompt_availability(&screen)
-            .or_else(|| provider.check_for_update())
+            .check_for_update()
+            .or_else(|| provider.update_prompt_availability(&screen))
         {
             start_update(
                 &service,
@@ -156,24 +134,56 @@ fn update_instance_name(instance: Option<&str>, port: u16, allow_non_prod: bool)
     allow_non_prod.then(|| format!("instance on port {port}"))
 }
 
-fn start_update(service: &ServiceContext, update: Update) {
+fn updates_enabled(service: &ServiceContext) -> bool {
+    ENABLED.load(Ordering::Acquire)
+        && service
+            .app_handle
+            .try_state::<crate::config::ConfigState>()
+            .is_some_and(|config| config.lock().updater.auto_update_provider_clis)
+}
+
+fn start_update(service: &ServiceContext, mut update: Update) {
     let provider_id = update.provider.id().to_string();
     let key = format!("{provider_id}:{}", update.version.latest_version);
-    let tabs = restarts::provider_tabs(service, &provider_id);
+    let manifest = update.provider.cli_compatibility();
+    let busy = idle::provider_busy(service, &provider_id);
+    match policy::may_update_now(
+        updates_enabled(service),
+        busy,
+        manifest.as_ref(),
+        &update.version.latest_version,
+        &update.command,
+    ) {
+        policy::UpdateDecision::Deferred => {
+            log::debug!("[provider-update] {provider_id}: deferred until provider turns finish");
+            WAITING.lock().insert(provider_id, update);
+            return;
+        }
+        decision @ (policy::UpdateDecision::Disabled
+        | policy::UpdateDecision::Incompatible
+        | policy::UpdateDecision::UnboundedUpdater) => {
+            log::info!("[provider-update] {provider_id}: update withheld ({decision:?})");
+            return;
+        }
+        policy::UpdateDecision::Ready => {}
+    }
+    let resolved_command = match command_for_target(&update.command, &update.version.latest_version)
+    {
+        Ok(command) => command,
+        Err(error) => {
+            log::warn!("[provider-update] {provider_id}: {error}");
+            return;
+        }
+    };
     let admission = storage::transact(|state| {
-        let admission = state.begin(
+        state.begin(
             &provider_id,
             &update.version.current_version,
             &update.version.latest_version,
-        );
-        state.enroll(&key, &tabs);
-        admission
+        )
     });
     match admission {
-        Ok(Admission::Duplicate) => {
-            restarts::schedule(service, None);
-            return;
-        }
+        Ok(Admission::Duplicate) => return,
         Ok(Admission::ProviderBusy) => {
             WAITING.lock().insert(provider_id, update);
             return;
@@ -184,6 +194,7 @@ fn start_update(service: &ServiceContext, update: Update) {
         }
         Ok(Admission::Started) => {}
     }
+    update.command = resolved_command;
     let service = service.clone();
     let failure_service = service.clone();
     let failure_key = key.clone();
@@ -194,10 +205,9 @@ fn start_update(service: &ServiceContext, update: Update) {
             state.finish(
                 &failure_key,
                 Err(format!("installer utility thread failed: {error}")),
-                &[],
             )
         });
-        restarts::schedule(&failure_service, None);
+        idle::schedule(&failure_service, None);
     }
 }
 
@@ -230,20 +240,35 @@ fn install(service: ServiceContext, key: String, provider_id: String, update: Up
     ) && result.is_ok()
     {
         result = Err(
-            "update command succeeded but its journal write failed; automatic restarts withheld"
+            "update command succeeded but its journal write failed; update result unconfirmed"
                 .into(),
         );
     }
-    let tabs = restarts::provider_tabs(&service, &provider_id);
+    let summary = match &result {
+        Ok(()) => format!(
+            "{provider_id} CLI updater completed for target {}; applies at next launch",
+            update.version.latest_version
+        ),
+        Err(error) => format!("{provider_id} CLI update failed: {error}"),
+    };
+    log::info!("[provider-update] {summary}");
     if let Err(error) = storage::transact(|state| {
-        state.finish(&key, result, &tabs);
+        state.finish(&key, result);
         if !child_stopped {
             state.block_unstopped(&key);
         }
     }) {
-        log::error!("[provider-update] completion persistence failed; restart withheld: {error}");
+        log::error!(
+            "[provider-update] completion persistence failed; update result unconfirmed: {error}"
+        );
     }
-    restarts::schedule(&service, None);
+    crate::api::events::emit_everywhere(
+        &service.app_handle,
+        "provider-cli-completed",
+        serde_json::json!({
+            "provider": provider_id, "operation": "update", "summary": summary,
+        }),
+    );
     process_waiting(&service);
 }
 
@@ -255,21 +280,40 @@ fn process_waiting(service: &ServiceContext) {
 }
 
 pub(crate) fn task_state_changed(service: &ServiceContext) {
-    if ENABLED.load(Ordering::Acquire) {
-        restarts::schedule_async(service, None);
+    if updates_enabled(service) {
+        idle::schedule_async(service, None);
     }
 }
 
 pub(crate) fn tab_became_idle(service: &ServiceContext, tab_id: &str) {
-    if ENABLED.load(Ordering::Acquire) {
-        restarts::schedule_async(service, Some(tab_id.to_string()));
+    if updates_enabled(service) {
+        idle::schedule_async(service, Some(tab_id.to_string()));
     }
 }
 
 pub(crate) fn background_work_changed(service: &ServiceContext, tab_id: &str) {
-    if ENABLED.load(Ordering::Acquire) {
-        restarts::schedule_async(service, Some(tab_id.into()));
-    }
+    tab_became_idle(service, tab_id);
+}
+
+pub(crate) fn status_summary(provider: &str) -> Option<String> {
+    let state = storage::read().ok()?;
+    let run = state
+        .runs
+        .values()
+        .filter(|run| run.provider == provider)
+        .max_by_key(|run| run.started_at)?;
+    Some(match &run.outcome {
+        state::RunOutcome::Running => format!("Updating CLI to {}", run.target),
+        state::RunOutcome::Succeeded => {
+            format!(
+                "CLI updater completed for target {}; applies at next launch",
+                run.target
+            )
+        }
+        state::RunOutcome::Failed(error) | state::RunOutcome::UnstoppedFailure(error) => {
+            format!("CLI update failed: {error}")
+        }
+    })
 }
 
 fn spawn_utility(name: &str, work: impl FnOnce() + Send + 'static) {
@@ -310,20 +354,6 @@ fn journal(
             },
         )
         .is_ok()
-}
-
-fn notify_owner(
-    service: &ServiceContext,
-    _key: &str,
-    title: String,
-    body: String,
-    failed: bool,
-) -> String {
-    service.log_system_notice(
-        title,
-        Some(body),
-        Some(if failed { "warning" } else { "info" }),
-    )
 }
 
 #[cfg(test)]

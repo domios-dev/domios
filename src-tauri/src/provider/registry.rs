@@ -64,14 +64,14 @@ impl ProviderRegistry {
                         )
                     })
                     .ok_or_else(|| format!("Unknown provider: {id}"))?;
-                Ok(
-                    codeterm_plugin::provider_cli::observe_cli_with_compatibility(
-                        binary,
-                        installer,
-                        updater,
-                        compatibility.as_ref(),
-                    ),
-                )
+                let mut status = codeterm_plugin::provider_cli::observe_cli_with_compatibility(
+                    binary,
+                    installer,
+                    updater,
+                    compatibility.as_ref(),
+                );
+                status.update_summary = crate::service::provider_update::status_summary(id);
+                Ok(status)
             }
             None => Err(format!("Unknown provider: {id}")),
         }

@@ -233,8 +233,8 @@ Codex structured control is enabled by default in 1.12.4. The provider declares 
 
 ## Related documents
 
-Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
+Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider CLI updates run silently on the production instance when its provider has no active turn. Running agents are never restarted; the new CLI applies at their next launch. Results appear in logs and Settings. Disable automatic updates with `updater.auto_update_provider_clis = false` (default: true). Named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`. Declared-incompatible targets are withheld; an updater with declared breaking ranges must pin a supported target.
 
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names.
 Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above.
-<!-- revision: 104 -->
+<!-- revision: 105 -->

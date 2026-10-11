@@ -1,3 +1,4 @@
+import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
@@ -183,6 +184,7 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,

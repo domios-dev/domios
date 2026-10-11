@@ -115,6 +115,13 @@ PATH precedence without mutating the caller's environment.
 
 ### CLI status and management
 
+`checkForUpdate()` exports `{ currentVersion, latestVersion }` or null through
+its existing provider capability. Declare the probe binary in `subprocess.allow`
+and metadata host in `network.allow`; there is no manifest `checkForUpdate` key.
+Providers with breaking ranges select the newest supported non-breaking target
+and use `{version}` in their manifest updater. The host validates and substitutes
+that exact version for both automatic updates and `agent cli update`.
+
 The host's shared CLI status service uses `cliBinary`, falling back to
 `binaryName` and then the manifest id. Spawn preflight checks the actual launch
 binary. Status includes the resolver verdict and path plus `installer` and
@@ -168,7 +175,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `cliBinary` | string? | Binary probed for install/version checks. |
 | `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and gates read-only SQLite access: known breaking, invalid and undetected versions are refused; detected undeclared versions retain an unknown verdict and use best-effort SQL/JSON shape checks. Settings shows unverified compatibility quietly. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
-| `updater` | map platform→string | Per-OS update command run automatically in a bounded utility process by the provider coordinator; working tabs keep running. |
+| `updater` | map platform→string | Per-OS update command run silently by the coordinator. `{version}` pins the checked target; required when compatibility declares breaking ranges. Running agents keep running. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, Domios preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
