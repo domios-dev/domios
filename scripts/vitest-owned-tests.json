@@ -162,5 +162,7 @@
   "packages/chat-ui/src/highlightBudget.test.ts",
   "packages/chat-ui/src/ChatHighlightBudget.test.tsx",
   "src/lib/teamActions.test.ts",
-  "src/lib/orchestratorOnboard.nonce.test.ts"
+  "src/lib/orchestratorOnboard.nonce.test.ts",
+  "src/lib/frontendUpdate/runtime.test.ts",
+  "src/lib/frontendUpdate/useFrontendApp.test.tsx"
 ]

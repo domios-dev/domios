@@ -1,3 +1,4 @@
+import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
@@ -239,6 +240,16 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  useFrontendApp({
+    generation: state.generation,
+    workspaceId: state.active_workspace_id,
+    tabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,
+    hasWorkspace: id => state.workspaces.some(ws => ws.id === id),
+    hasTab: id => !!state.tabs[id],
+    selectWorkspace: setActiveWorkspace,
+    selectTab: setActiveTab,
+  });
+
   useHelperMomentsHost(state.tabs, configLoading ? null : config.integrations?.telegram_enabled ?? false);
   const peerContext = usePlanPeerContext();
   useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);

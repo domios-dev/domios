@@ -95,9 +95,19 @@ async fn activate(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .as_millis() as u64;
-    work(move || bundles.activate(&body.release_id, body.clients, now.saturating_add(30_000)))
-        .await
-        .map(Json)
+    let deadline_ms = now.saturating_add(30_000);
+    let deadline_bundles = bundles.clone();
+    let result =
+        work(move || bundles.activate(&body.release_id, body.clients, deadline_ms)).await?;
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            std::future::pending::<()>(),
+        )
+        .await;
+        let _ = work(move || deadline_bundles.failure_deadline(deadline_ms)).await;
+    });
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
