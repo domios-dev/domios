@@ -1,3 +1,4 @@
+import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
 import { baseDaemonTransport, daemonTransportForPeer, initializeDaemonTransport, onDaemonTransport } from "./daemonBootstrap";
 import { relayTarget, webJson, localJson, invalidateWebRequestContext } from "./webApi";
 import { bindOutputStreamTransport } from "./outputStream";
@@ -32,4 +33,5 @@ let bound = false;
 export function ensureDaemonRuntime(): void {
   if (!bound) { bound = true; onDaemonTransport(bindDaemonRuntime); }
   initializeDaemonTransport();
+  frontendBootDiagnostic("runtime-bound");
 }

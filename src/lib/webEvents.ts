@@ -1,3 +1,4 @@
+import { streamRecoveryAction } from "./streamRecoveryModel";
 /**
  * Web-mode event delivery for the `listen()` bridge.
  *
@@ -224,7 +225,10 @@ async function runStream(): Promise<void> {
       }, {
         signal: abort.signal, raw: true,
         onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },
-        onEnd() { resolve(); },
+        onEnd(end) {
+          if (streamRecoveryAction(end.reason, generation !== streamGeneration) === "reconnect") forceImmediateRetry = true;
+          resolve();
+        },
       });
     });
     if (generation !== streamGeneration) return;

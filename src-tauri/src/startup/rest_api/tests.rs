@@ -658,3 +658,66 @@ async fn socket_restart_recovers_after_foreign_port_owner_is_released() {
     control.shutdown_and_wait().await.unwrap();
     task.await.unwrap();
 }
+
+#[tokio::test]
+async fn listener_restart_contract_response_ack_drains_sse_then_health_proves_reserved_generation()
+{
+    use futures_util::StreamExt;
+    let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
+    let mut status = control.subscribe_status();
+    let router = health_router().route(
+        "/events",
+        axum::routing::get(|| async {
+            axum::response::sse::Sse::new(
+                futures_util::stream::once(async {
+                    Ok::<_, std::convert::Infallible>(
+                        axum::response::sse::Event::default().data("connected"),
+                    )
+                })
+                .chain(futures_util::stream::pending()),
+            )
+        }),
+    );
+    let task = tokio::spawn(start(control.clone(), address.to_string(), router));
+    let initial = wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
+    let response = reqwest::get(format!("http://{address}/events"))
+        .await
+        .unwrap();
+    let mut stream = response.bytes_stream();
+    assert!(stream.next().await.unwrap().is_ok());
+    let accepted = control.prepare_http_restart().await.unwrap();
+    assert_eq!(accepted.generation, initial.generation + 1);
+    assert_eq!(control.status(), initial);
+    assert!(control.prepare_http_restart().await.is_err());
+    accepted.response_complete.send(()).unwrap();
+    assert!(tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, stream.next())
+        .await
+        .unwrap()
+        .is_none());
+    let next = wait_for_status(&control, &mut status, |s| {
+        s.generation == accepted.generation && s.phase == RestApiPhase::Listening
+    })
+    .await;
+    assert_eq!(next.diagnostic, None);
+    assert_eq!(
+        reqwest::get(format!("http://{address}/api/health"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap(),
+        "ok"
+    );
+    let response = reqwest::get(format!("http://{address}/events"))
+        .await
+        .unwrap();
+    let mut reconnected = response.bytes_stream();
+    assert!(reconnected.next().await.unwrap().is_ok());
+    drop(reconnected);
+    control.shutdown_and_wait().await.unwrap();
+    task.await.unwrap();
+}

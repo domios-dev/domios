@@ -40,7 +40,6 @@ pub(crate) use frontend_ready::{
 pub(crate) use logging::setup_logging;
 pub(crate) use plan_restore::restore as restore_plans;
 pub(crate) use progress::StartupStep;
-#[cfg(test)]
 pub(crate) use rest_api::RestApiDiagnostic;
 pub(crate) use rest_api::{
     RestApiControl, RestApiControlState, RestApiPhase, RestApiRecovery, RestApiRuntimePolicy,
