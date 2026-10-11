@@ -1,7 +1,6 @@
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { onResync } from "../../lib/resync";
-import { classifyAttachmentPaths } from "./composerFiles";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import {cachedSlashCommands} from "../../lib/providerCapabilities";
@@ -184,6 +183,7 @@ function ChatComposerImpl({
   currentPtyId,
   pendingPrompt,
   attachments,
+  addAttachments,
   removeAttachment,
   clearAttachments,
   handlePasteEvent,
@@ -544,7 +544,7 @@ function ChatComposerImpl({
       {promptDock}
       <div data-testid="composer-row" className="relative">
         <ComposerActions
-          onAttach={(paths) => { void classifyAttachmentPaths(paths).then(capsules.insert).catch(flagComposerError); }}
+          onAttach={addAttachments}
           onSend={() => void send()}
           onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}

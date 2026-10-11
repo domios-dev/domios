@@ -41,12 +41,14 @@ fn tab_policy(
         return Err("Preview session changed".into());
     }
     let references = references::referenced_paths(&messages, authority.cwd.as_deref());
-    let mut denied: Vec<_> = configured.iter().map(PathBuf::from).collect();
+    let configured: Vec<_> = configured.iter().map(PathBuf::from).collect();
+    let mut denied = configured.clone();
     denied.push(crate::paths::data_dir());
     if let Some(home) = dirs::home_dir() {
         denied.push(home.join(".ssh"));
     }
-    PreviewPolicy::new(references, &denied)
+    PreviewPolicy::new(references, &denied)?
+        .with_uploads(&crate::api::web_routes::uploads_dir(), &configured)
 }
 
 pub(crate) fn read(
