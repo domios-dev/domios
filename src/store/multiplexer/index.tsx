@@ -808,25 +808,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         spawnInFlight.current.delete(guardKey);
       }
     }
-    const useRestSpawn = IS_WEB;
-    if (useRestSpawn) {
-      try {
-        const res = await guardedWebJson<{ tab_id: string }>("POST", "/api/agents/spawn", {
-          agent: agentId,
-          workspace_id: workspaceId,
-          cwd,
-          model,
-          reasoning_effort: reasoningEffort,
-          preset,
-          activate: true,
-        });
-        await refreshFromBackend();
-        return { workspaceId, tabId: res.tab_id };
-      } catch (e) {
-        notifySpawnFailure(workspaceId, agentId, e);
-        return null;
-      }
-    }
     const guardKey = `${workspaceId}:${agentId}`;
     if (spawnInFlight.current.has(guardKey)) return null;
     spawnInFlight.current.add(guardKey);
@@ -872,9 +853,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         title: input.title,
         existing_tab_id: input.existingTabId,
       };
-      const result = IS_WEB
-        ? await guardedWebJson<OrchestrationPairResult>("POST", "/api/orchestration/new", body)
-        : await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body });
+      const result = await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body });
       refreshFromBackend();
       return result;
     },

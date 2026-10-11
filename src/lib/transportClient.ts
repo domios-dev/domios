@@ -18,11 +18,17 @@ export interface SseMessage {
 }
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export interface StreamEnd {
+  reason: "eof" | "http" | "error" | "abort";
+  status?: number;
+  error?: unknown;
+}
+
 export interface TransportClient {
   json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; callerTabId?: string }): Promise<T>;
   localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; callerTabId?: string }): Promise<T>;
   upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T>;
-  subscribe(stream: string, onEvent: (name: string, data: unknown) => void, opts?: { signal?: AbortSignal }): Unsubscribe;
+  subscribe(stream: string, onEvent: (name: string, data: unknown) => void, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; onActivity?: () => void }): Unsubscribe;
   currentToken(): string | null;
   origin(): string;
 }
@@ -134,17 +140,19 @@ export function createTransportClient(options: TransportOptions): TransportClien
     subscribe(path, handler, init = {}) {
       resolvePath(path);
       const controller = new AbortController();
-        const abort = () => controller.abort(init.signal?.reason);
+      let cleaned = false;
+      const abort = () => controller.abort(init.signal?.reason);
       if (init.signal?.aborted) abort();
       else init.signal?.addEventListener("abort", abort, { once: true });
       const done = (async () => {
         let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        let end: StreamEnd = { reason: "eof" };
         const cancelReader = () => { void reader?.cancel().catch(() => {}); };
         controller.signal.addEventListener("abort", cancelReader, { once: true });
         try {
           const streamPath = options.relayPeerId
             ? `/api/mesh/relay-stream?${new URLSearchParams({ peer: options.relayPeerId, path })}` : path;
-          const response = await localFetch(streamPath, { ...init, headers: { Accept: "text/event-stream" }, signal: controller.signal });
+          const response = await localFetch(streamPath, { headers: { Accept: "text/event-stream" }, signal: controller.signal });
           if (!response.ok) throw new TransportError(response.status, path, await response.text());
           if (!response.body) throw new Error("Daemon SSE response has no body");
           reader = response.body.getReader();
@@ -154,6 +162,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
           while (!controller.signal.aborted) {
             const chunk = await reader.read();
             if (chunk.done || controller.signal.aborted) break;
+            init.onActivity?.();
             buffer += decoder.decode(chunk.value, { stream: true });
             let separator: RegExpExecArray | null;
             while ((separator = /\r?\n\r?\n/.exec(buffer))) {
@@ -162,26 +171,35 @@ export function createTransportClient(options: TransportOptions): TransportClien
               if (message && !controller.signal.aborted) {
                 let data: unknown = message.data;
                 try { data = JSON.parse(message.data); } catch {}
-                if (typeof data === "object" && data !== null && "event_type" in data && typeof data.event_type === "string" && "data" in data) {
+                if (!init.raw && typeof data === "object" && data !== null && "event_type" in data && typeof data.event_type === "string" && "data" in data) {
                   handler(data.event_type, data.data);
                 } else handler(message.event, data);
               }
             }
           }
         } catch (error) {
-          if (!controller.signal.aborted) throw error;
+          if (controller.signal.aborted) end = { reason: "abort", error: controller.signal.reason };
+          else {
+            end = error instanceof TransportError
+              ? { reason: "http", status: error.status, error }
+              : { reason: "error", error };
+            if (!init.onEnd) throw error;
+          }
         } finally {
           await reader?.cancel().catch(() => {});
           reader?.releaseLock();
           controller.signal.removeEventListener("abort", cancelReader);
           init.signal?.removeEventListener("abort", abort);
+          const finalEnd = controller.signal.aborted ? { reason: "abort" as const, error: controller.signal.reason } : end;
+          controller.abort();
+          if (!cleaned) init.onEnd?.(finalEnd);
         }
       })();
       void done.catch((error: unknown) => {
         if (options.onStreamError) options.onStreamError(error);
         else console.warn("Daemon SSE subscription failed", error);
       });
-      return () => controller.abort();
+      return () => { cleaned = true; controller.abort(); };
     },
   };
 }
