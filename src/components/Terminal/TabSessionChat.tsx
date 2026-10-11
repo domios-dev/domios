@@ -258,6 +258,7 @@ export function TabSessionChat({
     allMessages,
     enrichedMessages,
     hiddenMessageCount,
+    newerMessageCount,
     canBackfillOlder,
     backfillLoading,
     loadOlder,
@@ -339,10 +340,7 @@ export function TabSessionChat({
     prepareMessage,
   });
 
-  // A detached reader stays on its content through a send; only a followed tail
-  // re-projects the bounded window and moves with it.
   const followSentMessage = useCallback(() => {
-    if (!chatFollowTailRef.current) return;
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
@@ -908,7 +906,7 @@ export function TabSessionChat({
         onAsk={messageSelection.askSelection}
         onClear={messageSelection.clear}
       />
-      {showScrollDown && (
+      {(showScrollDown || newerMessageCount > 0) && (
         <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16 }}>
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
@@ -916,7 +914,7 @@ export function TabSessionChat({
             showLatest();
             scrollToBottom();
           }}
-          title="Scroll to latest"
+          title={newerMessageCount > 0 ? `Show ${newerMessageCount} new messages` : "Scroll to latest"}
         />
         </div>
       )}
