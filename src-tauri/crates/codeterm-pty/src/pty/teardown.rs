@@ -151,10 +151,9 @@ impl PtyReaper {
             // ConPTY close must not hide observed termination of the killed process tree.
             if let Ok(mut pair) = session.pair.lock() {
                 let _ = pair.take();
-                let mut state = session.teardown.state.lock();
-                state.console_closed = true;
-                session.teardown.changed.notify_all();
             }
+            session.teardown.state.lock().console_closed = true;
+            session.teardown.changed.notify_all();
         });
     }
 }
