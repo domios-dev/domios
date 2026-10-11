@@ -1,6 +1,6 @@
 import { formatAttachmentMarker, parseAttachmentMarkers } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
-import { planComposerAttachments } from "./composerAttachmentPlan";
+import { needsAsyncClipboardImageRead, planComposerAttachments } from "./composerAttachmentPlan";
 import {
   AttachmentTransferError,
   composeAttachmentDraft,
@@ -117,3 +117,8 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
+assert.equal(needsAsyncClipboardImageRead(["text/plain"], false), false);
+assert.equal(needsAsyncClipboardImageRead(["text/html", "text/plain"], false), true);
+assert.equal(needsAsyncClipboardImageRead([], false), true);
+assert.equal(needsAsyncClipboardImageRead(["Files"], true), false);
