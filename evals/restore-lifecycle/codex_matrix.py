@@ -96,7 +96,7 @@ class Matrix:
     def long_turn(self, tab, label):
         path = PAD / f'rl-{RUN}-{label}-{tab}.md'
         path.write_text('Write integers from 1 through 3000 one per line without tools. If interrupted, resume where you left off. Do not finish until all are written.')
-        observe.cmd_send_long_turn(TURN_DEADLINE, tab, path.read_text())
+        observe.cmd_send_long_turn(TURN_DEADLINE, tab, path.read_text(), OUT / f'{label}-{tab}-working-observation.json')
 
     def session_file(self, tab):
         row = self.inspect(tab)
