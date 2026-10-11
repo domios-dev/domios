@@ -275,6 +275,7 @@ class Matrix:
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, row in baseline.items():
             self.cli('focus-' + tab, 'tab', 'focus', tab, json_output=False)
+            self.cli('browser-before-select-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
             self.cli('browser-select-' + tab, 'plugin', 'browser', 'click', 'button', 'Open tab ' + row['title'], caller=self.orch, json_output=False)
             view = self.cli('browser-chat-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
             oracle.require('Starting' not in view, f'{tab}: Chat still Starting')
@@ -397,6 +398,7 @@ class Matrix:
         self.cli('idle-browser-open', 'plugin', 'browser', 'open', observe.BASE + '/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('idle-browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, marker in markers.items():
+            self.cli('idle-browser-before-select-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
             self.cli('idle-browser-select-' + tab, 'plugin', 'browser', 'click', 'button', 'Open tab ' + before[tab]['title'], caller=self.orch, json_output=False)
             waiter = observe.EventWait(TURN_DEADLINE)
             self.send(tab, f'Reply exactly {marker}-REPLY without tools. Remain idle afterward.', 'idle-first-' + tab)
