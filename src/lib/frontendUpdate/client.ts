@@ -1,3 +1,4 @@
+import { FrontendUpdateError } from "./bootstrapModel";
 import type { CheckpointWrite } from "./checkpoint";
 import { swapEvent, type SwapEvent, type SwapState, type Ticket } from "./model";
 
@@ -13,7 +14,7 @@ export interface ActivationResponse {
 }
 
 export function createFrontendUpdateClient(http: FrontendHttp, clientId: string) {
-  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(clientId)) throw new Error("Invalid frontend client ID");
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(clientId)) throw new FrontendUpdateError("invalid-client");
   const checkpointPath = `/api/frontend/clients/${encodeURIComponent(clientId)}/checkpoint`;
   return {
     checkpoint: () => http.json<CheckpointWrite | null>("GET", checkpointPath),

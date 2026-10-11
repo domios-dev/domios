@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT } from "./runtime";
 import { createFrontendSignals } from "./signals";
+import { TransportError } from "../transportClient";
+import { frontendUpdateDiagnostic } from "./bootstrapModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import type { StreamEnd, TransportClient } from "../transportClient";
 import type { CheckpointWrite, ClientCheckpoint } from "./checkpoint";
@@ -115,4 +117,20 @@ it("aggregates concurrent uploads and captures draft metadata and scroll without
   expect(frontendSignals.checkpoint().drafts["tab-session-chat-capsules:t"].text).toBe('{"attachment":"/uploads/file.png"}');
   expect(frontendSignals.checkpoint().scroll.t.chat).toBe('{"anchor":"row"}');
   signalFrontendUploads(second, 0);
+});
+
+
+it("reports checkpoint and status failure reasons before subscribing to swaps", async () => {
+  for (const failedPath of ["checkpoint", "status"]) {
+    const f = fixture();
+    const json = f.client.localJson;
+    f.client.localJson = async (method, path, body, options) => {
+      if (path.endsWith(failedPath)) throw new TransportError(404, path, "opaque-response");
+      return json(method, path, body, options);
+    };
+    let failure: unknown;
+    try { await initializeFrontendUpdateRuntime(f.client, f.options); } catch (error) { failure = error; }
+    expect(frontendUpdateDiagnostic(failure)).toMatchObject({ reason: `${failedPath}-unavailable`, httpStatus: 404 });
+    expect(f.subscriptions()).toBe(0);
+  }
 });

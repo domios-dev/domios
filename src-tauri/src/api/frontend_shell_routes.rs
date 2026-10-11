@@ -51,6 +51,19 @@ enum DiagnosticError {
     TypeError,
     SyntaxError,
     SecurityError,
+    FrontendUpdateError,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum UpdateFailureReason {
+    InvalidClient,
+    CheckpointUnavailable,
+    StatusUnavailable,
+    ApiIncompatible,
+    StorageUnavailable,
+    BootContextInvalid,
+    Unexpected,
 }
 
 #[derive(Deserialize)]
@@ -58,6 +71,8 @@ enum DiagnosticError {
 struct BootDiagnostic {
     stage: DiagnosticStage,
     error_name: Option<DiagnosticError>,
+    reason: Option<UpdateFailureReason>,
+    http_status: Option<u16>,
     source: Option<String>,
     line: Option<u32>,
     column: Option<u32>,
@@ -84,7 +99,7 @@ async fn diagnostic(
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
     });
-    log::debug!("[frontend-shell/page] stage={:?}, native={}, injected={}, mounted={}, error={:?}, source={source:?}, line={:?}, column={:?}", body.stage, body.native, body.injected, body.mounted, body.error_name, body.line, body.column);
+    log::debug!("[frontend-shell/page] stage={:?}, native={}, injected={}, mounted={}, error={:?}, reason={:?}, http_status={:?}, source={source:?}, line={:?}, column={:?}", body.stage, body.native, body.injected, body.mounted, body.error_name, body.reason, body.http_status, body.line, body.column);
     Ok(StatusCode::NO_CONTENT)
 }
 
