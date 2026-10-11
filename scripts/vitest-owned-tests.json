@@ -134,5 +134,7 @@
   "packages/chat-ui/src/orderedListGutter.test.ts",
   "src/components/WebGate/installHintLayout.test.ts",
   "src/components/WebGate/useInstallHintLayout.test.tsx",
-  "src/components/Terminal/ChatComposer.paste.test.tsx"
+  "src/components/Terminal/ChatComposer.paste.test.tsx",
+  "src/components/Sidebar/workspaceTeamModel.test.ts",
+  "src/components/Sidebar/TeamUnit.agents.test.tsx"
 ]
