@@ -69,7 +69,7 @@ import { matchesBinding } from "./lib/keybindings";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { nativeFolderDialog as openDialog } from "./lib/nativeBridge";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";

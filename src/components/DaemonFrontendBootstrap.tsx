@@ -1,3 +1,4 @@
+import { frontendApiContract } from "../lib/frontendApiContract";
 import { frontendBootDiagnostic } from "../lib/frontendBootDiagnostic";
 import { useEffect, useState, type ReactNode } from "react";
 import { baseDaemonTransport, FRONTEND_BOOT_KEY, onDaemonTransport } from "../lib/daemonBootstrap";
@@ -25,7 +26,7 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
           frontendBootDiagnostic("frontend-initialize");
           const initialized = await initializeBrowserFrontendUpdates(client, {
             clientId: boot?.clientId ?? getResizeClientId(), boot,
-            bundled: boot?.bundled ?? { index: "/bundled/index.html", minApiVersion: 2, maxApiVersion: 2 },
+            bundled: boot?.bundled ?? { index: "/bundled/index.html", minApiVersion: frontendApiContract.minApiVersion, maxApiVersion: frontendApiContract.maxApiVersion },
             onError: failure => { if (current === generation) setError(failure); },
           });
           if (current !== generation) { initialized.dispose(); return; }
