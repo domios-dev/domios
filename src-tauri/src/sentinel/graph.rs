@@ -180,6 +180,7 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
                 j.id,
                 j.revision,
                 j.agent_authored,
+                j.model_classification,
                 j.name,
                 j.scenario_id,
                 j.machine.paused,

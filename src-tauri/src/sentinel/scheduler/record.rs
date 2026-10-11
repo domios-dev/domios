@@ -30,6 +30,9 @@ pub fn record(
             "blueprint route stage requires a confident transition",
         ));
     }
+    if !job.model_classification {
+        return Ok(());
+    }
     let action = match stage {
         Stage::Decision => "decision",
         Stage::RouteClaim => "route_claim",

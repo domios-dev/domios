@@ -181,6 +181,9 @@ fn journal_replacement(
     binding: &PendingRunBinding,
     previous: &RunBinding,
 ) {
+    if !job.model_classification {
+        return;
+    }
     let event = replacement_event(job, binding, previous);
     if let Err(error) =
         crate::service::supporter::runtime_with_notifications(svc).sentinel_event(event)

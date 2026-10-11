@@ -42,6 +42,8 @@ pub struct Create {
     #[serde(default)]
     pub matches: BTreeMap<String, String>,
     #[serde(default)]
+    pub model_classification: bool,
+    #[serde(default)]
     pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
     pub timeout: Option<String>,
@@ -76,6 +78,8 @@ pub struct Sentinel {
     pub interval_ms: u64,
     pub routes: BTreeMap<String, Vec<Handler>>,
     pub matches: BTreeMap<String, String>,
+    #[serde(default)]
+    pub model_classification: bool,
     #[serde(default)]
     pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,

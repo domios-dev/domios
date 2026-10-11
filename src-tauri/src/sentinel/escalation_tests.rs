@@ -467,6 +467,7 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
 
     let job = create_escalating(&mut store);
     let update = super::amend::Update {
+        model_classification: false,
         name: Some("escalation-watch".into()),
         question: job.question.clone(),
         buckets: job.buckets.clone(),

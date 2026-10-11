@@ -62,7 +62,7 @@ pub(super) fn definition(job: &Sentinel) -> Value {
             }
         }
     }
-    let definition = json!({"probe":(!job.probe().is_empty()).then_some(probe),"probe_truncated":probe_truncated,"decision_kind":if job.matches.is_empty() {"agent"} else {"pattern"},"command_language":if cfg!(windows) {"powershell"} else {"bash"},"language":if cfg!(windows) {"powershell"} else {"bash"},
+    let definition = json!({"probe":(!job.probe().is_empty()).then_some(probe),"probe_truncated":probe_truncated,"model_classification":job.model_classification,"decision_kind":if job.matches.is_empty() && job.model_classification {"agent"} else {"pattern"},"command_language":if cfg!(windows) {"powershell"} else {"bash"},"language":if cfg!(windows) {"powershell"} else {"bash"},
         "question":question,"buckets":buckets,"commands":commands});
     if definition.to_string().len() > MAX_DEFINITION_BYTES {
         json!({"unavailable":"definition_exceeds_v1_bounds"})

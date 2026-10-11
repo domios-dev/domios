@@ -1,6 +1,6 @@
 # Blueprints
 
-A Blueprint watches status with bounded probes at a declared cadence, classifies changed output, or carries a terminal conversation. Use it to wait for CI or builds without repeated agent checks.
+A Blueprint watches status with bounded probes at a declared cadence, classifies changed output with deterministic patterns or an explicitly enabled model, or carries a terminal conversation. Use it to wait for CI or builds without repeated agent checks.
 
 Name graphs, handlers and crons by what they watch and do. Create requires `--name`; updates require `name`. Validate with `--dry-run`. Ready skeletons: `codeterm docs BLUEPRINT-RECIPES` or `codeterm blueprint recipe [<name>]`.
 
@@ -17,7 +17,7 @@ Exports omit owner ids, runtime and history. Commands, input, event parameters, 
 
 ## When to use a Blueprint graph
 
-Define a graph before repeating an external, agent or cron status check. Unchanged output costs no model call or agent turn; declared buckets route back to you. Observation and actions are deterministic. The model picks a finite bucket, never a command, target or reply. Actions stay in the creator's Team, workspace and machine; `other` means none fits.
+Define a graph before repeating an external, agent or cron status check. Pattern watches never call the model; unmatched output stays in `other`. Model classification requires `--model-classification` without `--match`. Unchanged output costs no model call or agent turn; declared buckets route back to you. Observation and actions are deterministic. The model picks a finite bucket, never a command, target or reply. Actions stay in the creator's Team, workspace and machine; `other` means none fits.
 
 Print a stable verdict before long output; only 32 KiB is kept. Timestamps and durations trigger classification, and errors must not resemble success. `--match` classifies first; the Choice adapter handles unmatched output. `--question` defines each bucket and `other`. After creating, end your turn and let a route wake you: waits, sleeps and background loops are polling. Observe same-Team, same-workspace tabs; utility shells need `--terminal-pattern` or `--output-settled`.
 
@@ -26,7 +26,7 @@ Probes receive the creating instance's CLI directory first on `PATH`, API URL/to
 ## Create a watch
 
 ```bash
-codeterm blueprint create --name ci-finished-watch --probe "gh run view 456 --json status,conclusion" --question "waiting while CI is in progress; finished when CI has completed with any conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
+codeterm blueprint create --name ci-finished-watch --probe "gh run view 456 --json status,conclusion" --question "waiting while CI is in progress; finished when CI has completed with any conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h --model-classification
 ```
 
 The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`, `h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout` bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition. `--route bucket=stop` ends it on its first accepted reading.
@@ -40,7 +40,7 @@ The creator's live tab supplies its cwd, workspace, and Team. Commands are execu
 Use `--observe` to watch an agent tab or a cron run instead of running a shell probe:
 
 ```bash
-codeterm blueprint create --name nightly-run-watch --observe cron-run:nightly --question "identify the current run state" --buckets waiting,finished --every 20s --timeout 1h
+codeterm blueprint create --name nightly-run-watch --observe cron-run:nightly --question "identify the current run state" --buckets waiting,finished --every 20s --timeout 1h --model-classification
 ```
 
 For `tab:<id>`, the observed tab must share the creator's Team and workspace. Without terminal options it observes agent status and prompts. A `cron-run:<id-or-name>` stage waits for a run, then observes the exact automation tab recorded for that run, even when that hidden tab has no Team membership. A finished run or removed tab unbinds the stage; a replacement run starts a fresh observation episode by resetting the observation hash, accepted bucket, held state, and per-run transition allowance while retaining history. A removed tab routes a notice to the creator agent with the reason.
@@ -51,13 +51,13 @@ An input stage watches data instead of a probe or observation: inline text, a fi
 
 ## Classification and transitions
 
-A connected Supporter adapter with Choice capability classifies output that matches no deterministic pattern, using one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never calls the model, including after a failed or budget-exhausted classification. Deterministic patterns are checked first, even when a Choice adapter is connected. One matching bucket is accepted at confidence 1; overlapping matches become `other`. Unmatched output uses the adapter when connected, or becomes `other` when no adapter is connected:
+With `--model-classification` and no patterns, a connected Supporter adapter with Choice capability classifies changed output, using one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never calls the model, including after a failed or budget-exhausted classification. Blueprints with declared patterns are entirely deterministic; unmatched output never falls back to a model. Blueprint probes and lifecycle records reach the Supporter journal only after explicit model-classification opt-in. One matching bucket is accepted at confidence 1; overlapping matches become `other`. Unmatched pattern output becomes the visible `other` state. Without patterns or model opt-in, the state is also `other`. An opted-in model watch requires a connected Choice adapter:
 
 ```bash
 codeterm blueprint create --name ci-result-watch --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
 ```
 
-Patterns see the formatted result: exit status, stdout, then stderr. Matching uses multiline anchors, normalizes CRLF to LF and removes trailing whitespace on each line. Match the status line with a multiline pattern such as `(?m)^success$` when the probe prints `success`. Create without either a connected Choice adapter or a pattern is refused.
+Patterns see the formatted result: exit status, stdout, then stderr. Matching uses multiline anchors, normalizes CRLF to LF and removes trailing whitespace on each line. Match the status line with a multiline pattern such as `(?m)^success$` when the probe prints `success`. A watch without patterns or explicit model opt-in remains unmatched; it never calls Supporter. `show` reports `classification=pattern`, `unmatched` or `model`, and JSON carries `model_classification`.
 
 Routes run once when a new accepted bucket differs from the previous accepted bucket, including the first accepted result. Model confidence must be at least 0.80. `other` and low confidence can use the reserved `other` handlers; adapter failure and exhausted budgets never escalate. Unknown or weak observations do not reset the last accepted bucket. Returning to a previously accepted bucket after another accepted bucket is a new transition.
 
@@ -186,4 +186,4 @@ codeterm blueprint create --recipe echo --set message=ready
 codeterm blueprint log BLUEPRINT_ID
 ```
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
