@@ -331,7 +331,7 @@ function ModelPickerPopover({
       aria-labelledby={titleId}
       data-testid="status-model-picker"
       className="ct-menu ct-model-picker"
-      style={{ width: PICKER_WIDTH, left: anchor?.left ?? 0, bottom: anchor?.bottom ?? 0, maxHeight: `min(440px, calc(var(--ct-visual-height, 100vh) - max(0px, ${anchor?.bottom ?? 0}px - var(--ct-visual-bottom, 0px)) - 8px))`, visibility: anchor ? undefined : "hidden" }}
+      style={{ width: PICKER_WIDTH, left: anchor?.left ?? 0, bottom: `max(${anchor?.bottom ?? 0}px, calc(var(--ct-visual-bottom, 0px) + 8px))`, maxHeight: `min(440px, calc(var(--ct-visual-height, 100vh) - max(8px, ${anchor?.bottom ?? 0}px - var(--ct-visual-bottom, 0px)) - 8px))`, visibility: anchor ? undefined : "hidden" }}
       onKeyDown={(event) => {
         if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
         if (event.code !== "Escape" && (event.target as HTMLElement).closest("button")) return;
