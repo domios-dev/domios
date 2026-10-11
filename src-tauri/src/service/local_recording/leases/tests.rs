@@ -1,6 +1,19 @@
 use super::*;
 use codeterm_plugin::local_recording::LocalRecordingTrigger;
 
+fn pty_authority() -> UserSendAuthority {
+    UserSendAuthority {
+        tab_id: "A".into(),
+        pty_id: Some("pty-A".into()),
+        binding_nonce: "nonce-A".into(),
+        pty_session_generation: Some(4),
+        provider_id: "provider-A".into(),
+        session_id: Some("session-A".into()),
+        observed_session_id: Some("session-A".into()),
+        prelaunch: false,
+    }
+}
+
 pub(in crate::service::local_recording) fn target() -> FrozenTarget {
     FrozenTarget::Chat(ChatIdentity {
         tab_id: "A".into(),
@@ -123,4 +136,35 @@ fn lark_recording_contract_wrong_subscription_and_device_are_refused() {
     assert!(leases
         .start("trigger", &devices, generation, target(), &registry)
         .is_err());
+}
+
+#[test]
+fn lark_recording_contract_rpc_ticket_requires_live_frozen_authority() {
+    let (registry, devices, generation) = armed();
+    let leases = RecordingLeases::default();
+    let authority = pty_authority();
+    let lease = leases
+        .start(
+            "trigger",
+            &devices,
+            generation,
+            FrozenTarget::Pty(authority.clone()),
+            &registry,
+        )
+        .unwrap();
+    leases.stopped(&lease.lease).unwrap();
+    let capture = leases.transcribing(&lease.lease).unwrap();
+    leases
+        .register_write_ticket("send-A", &lease.lease, capture)
+        .unwrap();
+    assert!(leases.write_ticket_matches_authority("send-A", &authority));
+
+    let mut rebound = authority.clone();
+    rebound.binding_nonce = "replacement-nonce".into();
+    assert!(!leases.write_ticket_matches_authority("send-A", &rebound));
+
+    leases.cancel(&lease.lease);
+    assert!(!leases.write_ticket_matches_authority("send-A", &authority));
+    leases.retire_write_ticket("send-A");
+    assert!(!leases.write_ticket_matches_authority("send-A", &authority));
 }

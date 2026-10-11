@@ -81,6 +81,7 @@ enum Invalidation {
     Unload,
     DeviceLoss,
     Deadline,
+    Retire,
 }
 
 fn assert_invalidated_before_write(invalidation: Invalidation) {
@@ -133,6 +134,10 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
             .service
             .local_recordings
             .expire_write_ticket(&accepted.status.send_id),
+        Invalidation::Retire => fixture
+            .service
+            .local_recordings
+            .retire_write_ticket(&accepted.status.send_id),
     }
     continue_tx.send(()).unwrap();
     await_owner_idle(&fixture, &tab);
@@ -199,6 +204,7 @@ fn lark_recording_contract_capture_cancel_revoke_unload_device_loss_and_deadline
     assert_invalidated_before_write(Invalidation::Unload);
     assert_invalidated_before_write(Invalidation::DeviceLoss);
     assert_invalidated_before_write(Invalidation::Deadline);
+    assert_invalidated_before_write(Invalidation::Retire);
 }
 
 #[test]

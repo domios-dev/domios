@@ -644,8 +644,8 @@ impl super::ServiceContext {
         if let Err(outcome) = self.deliver_parked_bootstrap_record(tab_id) {
             return Ok(outcome);
         }
-        self.drain_user_owner_with(tab_id, |record, text, readiness| {
-            self.submit_owned_user(record, text, readiness)
+        self.drain_user_owner_with(tab_id, |record, text, readiness, capture_send| {
+            self.submit_owned_user(record, text, readiness, capture_send)
         })
     }
 
@@ -656,6 +656,7 @@ impl super::ServiceContext {
             &UserSendRecord,
             &str,
             Option<&UserReadiness>,
+            bool,
         ) -> Result<(), DeliveryError>,
     ) -> Result<UserDrain, String> {
         let store = &self.pending_delivery_payloads.user_sends;
@@ -844,7 +845,7 @@ impl super::ServiceContext {
             let capture_send = self.local_recordings.has_write_ticket(&head.send_id);
             let outcome =
                 if self.user_send_readiness_is_current(&claimed.authority, readiness.as_ref()) {
-                    submit(&claimed, &text, readiness.as_ref())
+                    submit(&claimed, &text, readiness.as_ref(), capture_send)
                 } else {
                     self.pending_user_send(&claimed, "readiness_changed_before_payload_write");
                     Err(DeliveryError::TabBusyRefused {
@@ -938,6 +939,7 @@ impl super::ServiceContext {
         record: &UserSendRecord,
         text: &str,
         readiness: Option<&UserReadiness>,
+        capture_send: bool,
     ) -> Result<(), DeliveryError> {
         let authority = &record.authority;
         let tab_id = authority.tab_id.as_str();
@@ -955,11 +957,16 @@ impl super::ServiceContext {
                 detail: "user owner readiness changed before guarded input".into(),
             });
         }
-        let capture_send = self.local_recordings.has_write_ticket(&record.send_id);
-        if !capture_send {
-            if let Some(result) = super::codex_rpc::send::try_send_owned(self, record) {
-                return result;
+        if let Some(result) = super::codex_rpc::send::try_send_owned(self, record, capture_send) {
+            if capture_send
+                && result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| !error.bytes_written())
+            {
+                self.pending_user_send(record, "recording_capture_rpc_refused_before_handoff");
             }
+            return result;
         }
         let pty_id = authority
             .pty_id
@@ -1043,10 +1050,10 @@ impl super::ServiceContext {
         let readiness = readiness.cloned().map(std::sync::Arc::new);
         let pre_write_guard: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
             std::sync::Arc::new(move || {
-                let capture_current = service
-                    .local_recordings
-                    .write_ticket_current(&pending_record.send_id)
-                    .is_none_or(|current| current);
+                let capture_current = !capture_send
+                    || service
+                        .local_recordings
+                        .write_ticket_matches_authority(&pending_record.send_id, &guard_authority);
                 let current = capture_current
                     && service
                         .user_send_readiness_is_current(&guard_authority, readiness.as_deref());

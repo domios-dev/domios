@@ -2,6 +2,19 @@ use super::super::protocol::RpcError;
 use super::*;
 use std::collections::VecDeque;
 
+fn capture_authority() -> UserSendAuthority {
+    UserSendAuthority {
+        tab_id: "tab-a".into(),
+        pty_id: Some("pty-a".into()),
+        binding_nonce: "nonce-a".into(),
+        pty_session_generation: Some(7),
+        provider_id: "provider-a".into(),
+        session_id: Some("thread-a".into()),
+        observed_session_id: Some("thread-a".into()),
+        prelaunch: false,
+    }
+}
+
 async fn drive(
     origin: Origin,
     active: Option<&str>,
@@ -45,6 +58,186 @@ async fn codex_rpc_send_idle_user_starts_exactly_once() {
         calls[0].1["input"],
         json!([{"type":"text","text":"opaque payload"}])
     );
+}
+
+#[tokio::test]
+async fn lark_recording_contract_rpc_capture_ticket_denies_stale_identity_before_request() {
+    #[derive(Clone, Copy)]
+    enum State {
+        Cancelled,
+        Revoked,
+        Unloaded,
+        DeviceLost,
+        Expired,
+        ReboundSession,
+        ReboundNonce,
+    }
+
+    let expected = capture_authority();
+    for state in [
+        State::Cancelled,
+        State::Revoked,
+        State::Unloaded,
+        State::DeviceLost,
+        State::Expired,
+        State::ReboundSession,
+        State::ReboundNonce,
+    ] {
+        let mut current = expected.clone();
+        let ticket_matches = match state {
+            State::Cancelled
+            | State::Revoked
+            | State::Unloaded
+            | State::DeviceLost
+            | State::Expired => false,
+            State::ReboundSession => {
+                current.session_id = Some("replacement-thread".into());
+                true
+            }
+            State::ReboundNonce => {
+                current.binding_nonce = "replacement-nonce".into();
+                true
+            }
+        };
+        let mut calls = Vec::new();
+        let outcome = submit_guarded(
+            Origin::User,
+            None,
+            start_params(
+                "thread-a",
+                "capture-client",
+                "voice marker",
+                None,
+                json!({}),
+            ),
+            |_, _| {
+                capture_rpc_identity_matches(
+                    ticket_matches,
+                    Some(&current),
+                    &expected,
+                    "thread-a",
+                    "nonce-a",
+                )
+            },
+            |method, params| {
+                calls.push((method, params));
+                std::future::ready(Ok(json!({"turn":{"id":"unexpected"}})))
+            },
+        )
+        .await;
+        assert_eq!(outcome, GuardedSubmit::RefusedBeforeRequest);
+        assert!(calls.is_empty());
+        let mut pastes = 0;
+        let refused = DeliveryError::TabBusyRefused {
+            tab: "tab-a".into(),
+            detail: "capture ticket stale".into(),
+        };
+        let _ = route_or_pty(Some(Err(refused)), || {
+            pastes += 1;
+            Ok(())
+        });
+        assert_eq!(pastes, 0);
+    }
+}
+
+#[tokio::test]
+async fn lark_recording_contract_rpc_capture_valid_ticket_tracks_one_request() {
+    let expected = capture_authority();
+    let mut calls = Vec::new();
+    let outcome = submit_guarded(
+        Origin::User,
+        None,
+        start_params(
+            "thread-a",
+            "capture-client",
+            "voice marker",
+            None,
+            json!({}),
+        ),
+        |_, _| {
+            capture_rpc_identity_matches(true, Some(&expected), &expected, "thread-a", "nonce-a")
+        },
+        |method, params| {
+            calls.push((method, params));
+            std::future::ready(Ok(json!({"turn":{"id":"turn-a"}})))
+        },
+    )
+    .await;
+    assert!(matches!(outcome, GuardedSubmit::Attempted(Ok(_))));
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "turn/start");
+    assert_eq!(calls[0].1["clientUserMessageId"], "capture-client");
+    assert_eq!(calls[0].1["threadId"], "thread-a");
+}
+
+#[tokio::test]
+async fn lark_recording_contract_rpc_capture_uncertainty_never_pastes_or_replays() {
+    let expected = capture_authority();
+    let mut calls = Vec::new();
+    let outcome = submit_guarded(
+        Origin::User,
+        None,
+        start_params(
+            "thread-a",
+            "capture-client",
+            "voice marker",
+            None,
+            json!({}),
+        ),
+        |_, _| {
+            capture_rpc_identity_matches(true, Some(&expected), &expected, "thread-a", "nonce-a")
+        },
+        |method, params| {
+            calls.push((method, params));
+            std::future::ready(Err(ClientError::Deadline))
+        },
+    )
+    .await;
+    assert_eq!(
+        outcome,
+        GuardedSubmit::Attempted(Err(ClientError::Deadline))
+    );
+    assert_eq!(calls.len(), 1);
+    let mut pastes = 0;
+    let uncertain = DeliveryError::SubmitUnconfirmed {
+        tab: "tab-a".into(),
+        detail: "RPC handoff uncertain".into(),
+    };
+    let _ = route_or_pty(Some(Err(uncertain)), || {
+        pastes += 1;
+        Ok(())
+    });
+    assert_eq!(pastes, 0);
+}
+
+#[tokio::test]
+async fn lark_recording_contract_rpc_capture_hold_does_not_fall_back_to_paste() {
+    for gate in [
+        SendGate::classify(
+            Some(true),
+            super::super::lifecycle::DeliveryState::Pending,
+            true,
+            true,
+        ),
+        SendGate::classify(
+            Some(true),
+            super::super::lifecycle::DeliveryState::Ready,
+            false,
+            true,
+        ),
+    ] {
+        assert!(matches!(gate, SendGate::Hold(_)));
+        let mut pastes = 0;
+        let held = DeliveryError::TabBusyRefused {
+            tab: "tab-a".into(),
+            detail: "structured attachment pending".into(),
+        };
+        let _ = route_or_pty(Some(Err(held)), || {
+            pastes += 1;
+            Ok(())
+        });
+        assert_eq!(pastes, 0);
+    }
 }
 
 #[tokio::test]
