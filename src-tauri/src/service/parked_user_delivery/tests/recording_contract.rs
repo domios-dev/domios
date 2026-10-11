@@ -102,11 +102,13 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
     );
     let (at_guard_tx, at_guard_rx) = mpsc::channel();
     let (continue_tx, continue_rx) = mpsc::channel();
+    let continue_rx = Arc::new(Mutex::new(continue_rx));
+    let barrier_rx = continue_rx.clone();
     let _barrier = BeforeUserSubmitBoundary::install(
         &tab,
         Arc::new(move || {
             at_guard_tx.send(()).unwrap();
-            continue_rx.recv_timeout(TEST_DEADLINE).unwrap();
+            barrier_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
         }),
     );
     let accepted = fixture
@@ -118,12 +120,10 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
         )
         .unwrap();
     at_guard_rx.recv_timeout(TEST_DEADLINE).unwrap();
-    assert!(
-        fixture
-            .service
-            .local_recordings
-            .has_write_ticket(&accepted.status.send_id)
-    );
+    assert!(fixture
+        .service
+        .local_recordings
+        .has_write_ticket(&accepted.status.send_id));
     match invalidation {
         Invalidation::Cancel => fixture.service.local_recordings.cancel(&capture.lease_id),
         Invalidation::Revoke => fixture.service.local_recording_registry.revoke("trigger"),
@@ -131,12 +131,10 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
             .service
             .local_recording_registry
             .unregister("trigger"),
-        Invalidation::DeviceLoss => assert!(
-            fixture
-                .service
-                .local_recording_registry
-                .mark_unavailable("trigger", generation)
-        ),
+        Invalidation::DeviceLoss => assert!(fixture
+            .service
+            .local_recording_registry
+            .mark_unavailable("trigger", generation)),
         Invalidation::Deadline => fixture
             .service
             .local_recordings
@@ -149,21 +147,17 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
     continue_tx.send(()).unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(writes.load(Ordering::SeqCst), 0);
-    assert!(
-        !fixture
-            .service
-            .local_recordings
-            .has_write_ticket(&accepted.status.send_id)
-    );
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .queued(&tab)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(!fixture
+        .service
+        .local_recordings
+        .has_write_ticket(&accepted.status.send_id));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .queued(&tab)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -183,12 +177,14 @@ fn lark_recording_contract_identity_only_baseline_allows_cancelled_capture() {
     );
     let (at_guard_tx, at_guard_rx) = mpsc::channel();
     let (continue_tx, continue_rx) = mpsc::channel();
+    let continue_rx = Arc::new(Mutex::new(continue_rx));
+    let barrier_rx = continue_rx.clone();
     let cancelled = capture.active.clone();
     let _barrier = BeforeUserSubmitBoundary::install(
         &tab,
         Arc::new(move || {
             at_guard_tx.send(()).unwrap();
-            continue_rx.recv_timeout(TEST_DEADLINE).unwrap();
+            barrier_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
         }),
     );
     let reservation = fixture
@@ -235,11 +231,13 @@ fn lark_recording_contract_registered_ticket_survives_admission_and_valid_write_
     );
     let (at_guard_tx, at_guard_rx) = mpsc::channel();
     let (continue_tx, continue_rx) = mpsc::channel();
+    let continue_rx = Arc::new(Mutex::new(continue_rx));
+    let barrier_rx = continue_rx.clone();
     let _barrier = BeforeUserSubmitBoundary::install(
         &tab,
         Arc::new(move || {
             at_guard_tx.send(()).unwrap();
-            continue_rx.recv_timeout(TEST_DEADLINE).unwrap();
+            barrier_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
         }),
     );
     let accepted = fixture
@@ -251,21 +249,17 @@ fn lark_recording_contract_registered_ticket_survives_admission_and_valid_write_
         )
         .unwrap();
     at_guard_rx.recv_timeout(TEST_DEADLINE).unwrap();
-    assert!(
-        fixture
-            .service
-            .local_recordings
-            .has_write_ticket(&accepted.status.send_id)
-    );
+    assert!(fixture
+        .service
+        .local_recordings
+        .has_write_ticket(&accepted.status.send_id));
     continue_tx.send(()).unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(writes.load(Ordering::SeqCst), 1);
-    assert!(
-        !fixture
-            .service
-            .local_recordings
-            .has_write_ticket(&accepted.status.send_id)
-    );
+    assert!(!fixture
+        .service
+        .local_recordings
+        .has_write_ticket(&accepted.status.send_id));
 }
 
 #[test]
@@ -305,21 +299,17 @@ fn lark_recording_contract_possible_handoff_remains_uncertain_and_never_replays(
             .state,
         ChatSendState::Unknown
     );
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .queued(&tab)
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        !fixture
-            .service
-            .local_recordings
-            .has_write_ticket(&accepted.status.send_id)
-    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .queued(&tab)
+        .unwrap()
+        .is_empty());
+    assert!(!fixture
+        .service
+        .local_recordings
+        .has_write_ticket(&accepted.status.send_id));
     fixture.service.drain_user_owner(&tab).unwrap();
     assert_eq!(writes.load(Ordering::SeqCst), 1);
 }
