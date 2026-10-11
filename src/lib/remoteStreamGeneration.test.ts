@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { configureRemoteTabTransport } from "./remoteTabTransport";
 import { describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
@@ -23,7 +24,8 @@ const closedStream = (...frames: Uint8Array[]): Response =>
 
 describe("remote output generation replacement", () => {
   it("retains a separate boot frame when resuming output after EOF", async () => {
-    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:7685" } }));
+    configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
     const requests: URL[] = [];
     vi.stubGlobal("fetch", vi.fn(async (...args: unknown[]) => {
       requests.push(new URL(String(args[0])));
@@ -62,7 +64,8 @@ describe("remote output generation replacement", () => {
   });
 
   it("a superseded generation's finalizer cannot clear the replacement's controller", async () => {
-    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:7685" } }));
+    configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
     // gen1 delivers a frame (cursor set) then stays open; gen2 stays pending.
     const fetchMock = vi.fn()
       .mockReturnValueOnce(Promise.resolve(openStream(frame({ output: "hi", boot: "boot-a", offset: 2 }))))
@@ -85,7 +88,8 @@ describe("remote output generation replacement", () => {
   });
 
   it("initial remote subscribe replays history then live output", async () => {
-    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:7685" } }));
+    configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (...args: unknown[]) => {
       requests.push(String(args[0]));
@@ -109,7 +113,8 @@ describe("remote output generation replacement", () => {
   });
 
   it("EOF reconnect resumes from cursor without duplicate", async () => {
-    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:7685" } }));
+    configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
     const frameNew = frame({ boot: "boot-a", tab_id: "g2", output: "new", offset: 17 });
     const frameMore = frame({ boot: "boot-a", tab_id: "g2", output: "more", offset: 21 });
     const requests: string[] = [];

@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 pub(crate) mod listeners;
+mod restart;
+mod streams;
+pub(crate) use restart::RestartAcceptance;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +66,7 @@ struct RestApiLifecycle {
     recovery_transition: u64,
     bound_addr: Option<SocketAddr>,
     runtime_policy: RestApiRuntimePolicy,
+    pending_restart: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -93,6 +97,14 @@ pub(crate) struct RestApiControl {
 enum RestApiCommand {
     PortReleased,
     Restart {
+        completed: oneshot::Sender<RestApiStatus>,
+    },
+    PrepareRestart {
+        accepted: oneshot::Sender<Result<u64, String>>,
+        response_complete: oneshot::Receiver<()>,
+    },
+    ReservedRestart {
+        generation: u64,
         completed: oneshot::Sender<RestApiStatus>,
     },
     #[cfg(test)]
@@ -130,6 +142,7 @@ impl RestApiControl {
                 recovery_transition: 0,
                 bound_addr: None,
                 runtime_policy: RestApiRuntimePolicy::default(),
+                pending_restart: None,
             })),
             status_events,
             lifecycle_events,
@@ -191,6 +204,12 @@ impl RestApiControl {
         self.listeners.publish(Vec::new());
         let mut lifecycle = self.lifecycle.lock();
         lifecycle.status.generation += 1;
+        if lifecycle
+            .pending_restart
+            .is_some_and(|reserved| reserved <= lifecycle.status.generation)
+        {
+            lifecycle.pending_restart = None;
+        }
         lifecycle.listener_owned = false;
         lifecycle.bound_addr = None;
         let generation = lifecycle.status.generation;
@@ -333,8 +352,12 @@ impl RestApiControl {
 
     fn withdraw_listeners(&self, generation: u64) {
         let _transition = self.transition.lock();
-        if self.lifecycle.lock().status.generation == generation {
+        let mut lifecycle = self.lifecycle.lock();
+        if lifecycle.status.generation == generation {
             self.listeners.publish(Vec::new());
+            if lifecycle.status.phase == RestApiPhase::Listening {
+                self.publish_locked(&mut lifecycle, RestApiPhase::Starting, None, None);
+            }
         }
     }
 
@@ -359,12 +382,29 @@ impl RestApiControl {
     pub(crate) async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
         let (completed, response) = oneshot::channel();
         self.signal(RestApiCommand::Restart { completed })?;
-        tokio::time::timeout(Duration::from_secs(5), response)
+        tokio::time::timeout(Duration::from_secs(15), response)
             .await
             .map_err(|_| {
                 "REST API restart did not complete before the failure deadline".to_string()
             })?
             .map_err(|_| "REST API listener controller stopped".to_string())
+    }
+
+    pub(crate) async fn prepare_http_restart(&self) -> Result<RestartAcceptance, String> {
+        let (accepted, response) = oneshot::channel();
+        let (response_complete, body_complete) = oneshot::channel();
+        self.signal(RestApiCommand::PrepareRestart {
+            accepted,
+            response_complete: body_complete,
+        })?;
+        let generation = tokio::time::timeout(Duration::from_secs(5), response)
+            .await
+            .map_err(|_| "Listener supervisor did not acknowledge restart ownership".to_string())?
+            .map_err(|_| "Listener supervisor stopped".to_string())??;
+        Ok(RestartAcceptance {
+            generation,
+            response_complete,
+        })
     }
 
     #[cfg(test)]
@@ -488,29 +528,6 @@ async fn prove_health(address: SocketAddr, deadline: tokio::time::Instant) -> Re
     }
 }
 
-// Unix restart generations can overlap during handoff, so every listener must
-// opt into SO_REUSEPORT before the first generation binds.
-#[cfg(unix)]
-fn enable_shared_port_binding(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
-    use std::os::fd::AsRawFd;
-
-    let enabled: libc::c_int = 1;
-    let result = unsafe {
-        libc::setsockopt(
-            socket.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_REUSEPORT,
-            std::ptr::from_ref(&enabled).cast(),
-            std::mem::size_of_val(&enabled) as libc::socklen_t,
-        )
-    };
-    if result == -1 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 async fn bind_listener(bind_addr: &str) -> std::io::Result<std::net::TcpListener> {
     let address = bind_addr
         .parse::<SocketAddr>()
@@ -521,8 +538,6 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<std::net::TcpListener
         tokio::net::TcpSocket::new_v6()?
     };
     socket.set_reuseaddr(true)?;
-    #[cfg(unix)]
-    enable_shared_port_binding(&socket)?;
     socket.bind(address)?;
     socket.listen(1024)?.into_std()
 }
@@ -538,16 +553,69 @@ async fn await_bind_recovery(
     control: &RestApiControl,
     commands: &mut mpsc::UnboundedReceiver<RestApiCommand>,
 ) -> Option<GenerationEvent> {
-    match commands.recv().await {
-        Some(RestApiCommand::PortReleased) => Some(GenerationEvent::Replace),
-        Some(RestApiCommand::Restart { completed }) => Some(GenerationEvent::Restart(completed)),
-        #[cfg(test)]
-        Some(RestApiCommand::Shutdown { completed }) => Some(GenerationEvent::Shutdown(completed)),
-        None => {
-            *control.sender.lock() = None;
-            None
+    loop {
+        match commands.recv().await {
+            Some(RestApiCommand::PortReleased) => return Some(GenerationEvent::Replace),
+            Some(RestApiCommand::Restart { completed }) => {
+                if let Some(event) = native_restart(control, completed) {
+                    return Some(event);
+                }
+            }
+            Some(RestApiCommand::PrepareRestart {
+                accepted,
+                response_complete,
+            }) => {
+                restart::accept(control, accepted, response_complete);
+            }
+            Some(RestApiCommand::ReservedRestart {
+                generation,
+                completed,
+            }) => {
+                if let Some(event) = reserved_restart(control, generation, completed) {
+                    return Some(event);
+                }
+            }
+            #[cfg(test)]
+            Some(RestApiCommand::Shutdown { completed }) => {
+                return Some(GenerationEvent::Shutdown(completed))
+            }
+            None => {
+                *control.sender.lock() = None;
+                return None;
+            }
         }
     }
+}
+
+fn native_restart(
+    control: &RestApiControl,
+    completed: oneshot::Sender<RestApiStatus>,
+) -> Option<GenerationEvent> {
+    let lifecycle = control.lifecycle.lock();
+    if lifecycle.pending_restart.is_some() {
+        let mut rejected = lifecycle.status.clone();
+        rejected.phase = RestApiPhase::Failed;
+        rejected.message = Some("Listener restart is already reserved".into());
+        let _ = completed.send(rejected);
+        None
+    } else {
+        Some(GenerationEvent::Restart(completed))
+    }
+}
+
+fn reserved_restart(
+    control: &RestApiControl,
+    generation: u64,
+    completed: oneshot::Sender<RestApiStatus>,
+) -> Option<GenerationEvent> {
+    let status = control.status();
+    if status.generation.checked_add(1) == Some(generation)
+        && control.lifecycle.lock().pending_restart == Some(generation)
+    {
+        return Some(GenerationEvent::Restart(completed));
+    }
+    let _ = completed.send(status);
+    None
 }
 
 async fn finish_generation<F>(
@@ -555,12 +623,14 @@ async fn finish_generation<F>(
     generation: u64,
     shutdown_tx: oneshot::Sender<()>,
     server: F,
+    streams: &streams::GenerationStreams,
     event: GenerationEvent,
 ) -> Option<GenerationEvent>
 where
     F: std::future::Future<Output = Result<(), std::io::Error>>,
 {
     control.withdraw_listeners(generation);
+    streams.close();
     if matches!(event, GenerationEvent::ServerExited) {
         return Some(GenerationEvent::Replace);
     }
@@ -569,10 +639,10 @@ where
     let shutdown_result = if control.take_shutdown_error() {
         Err("forced shutdown failure".to_string())
     } else {
-        server.await.map_err(|error| error.to_string())
+        drain_server(server, Duration::from_secs(5)).await
     };
     #[cfg(not(test))]
-    let shutdown_result = server.await.map_err(|error| error.to_string());
+    let shutdown_result = drain_server(server, Duration::from_secs(5)).await;
     if let Err(error) = shutdown_result {
         let message = format!("REST API listener/server shutdown failed: {error}");
         log::error!("{message}");
@@ -590,6 +660,16 @@ where
         }
     }
     Some(event)
+}
+
+async fn drain_server<F: std::future::Future<Output = Result<(), std::io::Error>>>(
+    server: F,
+    failure_deadline: Duration,
+) -> Result<(), String> {
+    tokio::time::timeout(failure_deadline, server)
+        .await
+        .map_err(|_| "graceful completion exceeded its failure deadline".to_string())?
+        .map_err(|error| error.to_string())
 }
 
 async fn await_running_event<S, T>(
@@ -638,8 +718,12 @@ where
                     Some(RestApiCommand::Restart { completed }) => {
                         #[cfg(test)]
                         control.wait_for_restart_barrier().await;
-                        return Some(GenerationEvent::Restart(completed));
+                        if let Some(event) = native_restart(control, completed) { return Some(event); }
                     }
+                    Some(RestApiCommand::PrepareRestart { accepted, response_complete }) => restart::accept(control, accepted, response_complete),
+                    Some(RestApiCommand::ReservedRestart { generation, completed }) => {
+                        if let Some(event) = reserved_restart(control, generation, completed) { return Some(event); }
+                    },
                     #[cfg(test)]
                     Some(RestApiCommand::Shutdown { completed }) => {
                         return Some(GenerationEvent::Shutdown(completed));
@@ -792,11 +876,13 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
             .transpose()
             .expect("successfully bound tailnet listener has an address");
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let primary = listeners::serve_listener(listener, router.clone(), shutdown_rx);
+        let streams = streams::GenerationStreams::new();
+        let generation_router = streams.router(router.clone());
+        let primary = listeners::serve_listener(listener, generation_router.clone(), shutdown_rx);
         let mut server = Box::pin(listeners::serve(
             primary,
             remote_listener,
-            router.clone(),
+            generation_router,
             control.listeners.clone(),
         ));
         let health = listeners::prove_set(local_addr, remote_addr);
@@ -889,8 +975,12 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                         Some(RestApiCommand::Restart { completed }) => {
                             #[cfg(test)]
                             control.wait_for_restart_barrier().await;
-                            break GenerationEvent::Restart(completed);
+                            if let Some(event) = native_restart(&control, completed) { break event; }
                         }
+                        Some(RestApiCommand::PrepareRestart { accepted, response_complete }) => restart::accept(&control, accepted, response_complete),
+                        Some(RestApiCommand::ReservedRestart { generation, completed }) => {
+                            if let Some(event) = reserved_restart(&control, generation, completed) { break event; }
+                        },
                         #[cfg(test)]
                         Some(RestApiCommand::Shutdown { completed }) => {
                             break GenerationEvent::Shutdown(completed);
@@ -901,11 +991,13 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
             }
         };
 
-        let event = match finish_generation(&control, generation, shutdown_tx, server, event).await
-        {
-            Some(event) => event,
-            None => return,
-        };
+        let event =
+            match finish_generation(&control, generation, shutdown_tx, server, &streams, event)
+                .await
+            {
+                Some(event) => event,
+                None => return,
+            };
         match event {
             GenerationEvent::Replace => {}
             GenerationEvent::ServerExited => unreachable!("server exit is normalized"),
