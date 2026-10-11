@@ -10,6 +10,19 @@ description: >-
 
 # End-to-end Domios release to GitHub
 
+## Independent official plugin release
+
+Provider and capability plugin versions are independent of the app. For a plugin-only change, do not bump the app, run app release-preflight, build installers, or push an app release tag.
+
+1. Prepare only the selected plugin: `node scripts/release-plugin.mjs bump <id> <version>`. Preserve `minCodeterm` unless the release needs a new host capability; then pass `--min-codeterm <host-version>` explicitly.
+2. Commit the manifest, package, channel entry, source and generated bundle in a PR. Verify metadata with `node scripts/release-plugin.mjs check` and the selected plugin with `node scripts/check-plugin.mjs <id>` in canonical. Plugin-only CI checks bundles, types, tests and release metadata; mixed host changes retain host CI.
+3. Merge only after required checks pass. Tag the verified master commit `plugin-<id>-v<version>` and push that tag. `plugin-release.yml` validates the tag and selected plugin, publishes its archive and checksum, and leaves the app's latest release unchanged. The official git channel serves the merged plugin.
+4. Install with `codeterm plugin update-system <id>` and verify the installed version and compatibility. Updating the channel is explicit; this release path does not add automatic installation to the host. Existing tabs need no restart for plugin registration; a tab already using the plain PTY fallback needs its ordinary verified-session restart to change transport.
+
+Use a Blueprint to watch publication and stop it at completion or failure. Do not poll CI or bypass required checks.
+
+## Application release
+
 **Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
 "Default release path" right below). The pipeline: bump version on the open `release/X.Y.Z` branch →
 sync versions → merge to master by PR → tag the master commit with `release-X.Y.Z` → build
@@ -238,8 +251,8 @@ npm run check:versions
 node scripts/check-release-locks.mjs
 
 # check:versions covers root package.json, src-tauri/Cargo.toml,
-# cli/Cargo.toml, src-tauri/tauri.conf.json, provider plugin manifests,
-# plugin package.json files, plugins/channel.json, and shared packages.
+# cli/Cargo.toml, src-tauri/tauri.conf.json, and shared packages.
+# Plugin metadata is validated without changing its versions or minimum host.
 # Do not hand-edit just one version file.
 
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \

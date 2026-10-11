@@ -81,7 +81,8 @@ jobs:
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 5
     outputs:
-      run: ${{ steps.tree.outputs.run }}
+      run: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.host == 'true' }}
+      plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -103,6 +104,52 @@ jobs:
             fi
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v5
+        if: steps.tree.outputs.run == 'true'
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+
+      - id: scope
+        if: steps.tree.outputs.run == 'true'
+        run: node scripts/ci-scope.mjs HEAD^ HEAD
+
+  plugin-metadata:
+    name: plugin release contracts
+    needs: changed
+    if: ${{ needs.changed.result == 'success' }}
+    runs-on: [self-hosted, codeterm-builder]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - run: node scripts/release-plugin.mjs check
+      - run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+
+  plugins:
+    name: plugin (${{ matrix.plugin.id }})
+    needs: changed
+    if: ${{ needs.changed.outputs.plugins != '[]' }}
+    runs-on: [self-hosted, codeterm-builder]
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/check-plugin.mjs '${{ matrix.plugin.id }}'
 
   # Formatting is platform-independent, so it does not belong inside a platform
   # lane: gating that lane off silences the check with it, which is how 22 files
