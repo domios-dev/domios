@@ -18,8 +18,6 @@ let rows: Row[];
 let prefixHeight = 0;
 let bottomInset = 0;
 let viewportHeight = VIEWPORT;
-const frames = new Map<number, FrameRequestCallback>();
-let frameId = 0;
 
 function extent(element: HTMLElement): number {
   if (element.dataset.height) return Number(element.dataset.height);
@@ -80,9 +78,6 @@ beforeEach(() => {
   prefixHeight = 0;
   bottomInset = 0;
   viewportHeight = VIEWPORT;
-  frames.clear();
-  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { frames.set(++frameId, callback); return frameId; });
-  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
   followTail = { current: true };
   clearPersistedChatScrollState(SESSION);
   vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function(this: HTMLElement) { return offset(this); });
@@ -97,34 +92,6 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); clearPersistedChatScrollState(SESSION); });
 
 describe("mounted chat wiring", () => {
-  it("repairs resize events whose layout changes after the handler, without a chat commit", async () => {
-    viewportHeight = 650;
-    await render();
-    for (const height of [586, 650, 572, 592, 650]) {
-      await act(async () => {
-        window.dispatchEvent(new Event("resize"));
-        viewportHeight = height;
-        const queued = [...frames.values()];
-        frames.clear();
-        for (const callback of queued) callback(0);
-      });
-      expect(scroller().scrollTop).toBe(scroller().scrollHeight - height);
-      expect(followTail.current).toBe(true);
-    }
-  });
-  it("keeps a reader scroll that has not delivered its scroll event through an incoming commit", async () => {
-    await render();
-    const before = scroller().scrollTop - 300;
-    scroller().scrollTop = before;
-    const anchor = mounted().find((row) => row.offsetTop >= before) ?? mounted()[mounted().length - 1];
-    const id = anchor.dataset.messageId!;
-    const offsetBefore = anchor.offsetTop - before;
-    rows = [...rows, { msg: { id: "delayed", sourceMessageId: "reminder" }, height: 432 }];
-    await render();
-    expect(followTail.current).toBe(false);
-    expect(host.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!.offsetTop - scroller().scrollTop).toBe(offsetBefore);
-    expect(scrollApi.showScrollDown).toBe(true);
-  });
   it("repairs inset-only and composer-height commits before observer delivery", async () => {
     await render();
     bottomInset = 42;

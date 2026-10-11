@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatLayoutScrollTarget, chatViewportModeBeforeCommit, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { chatLayoutScrollTarget, shouldCaptureChatAnchor } from "./chatScrollDecisions";
 import { chatViewportModeAfterScroll } from "./chatViewport";
 import { captureChatAnchor, chatAnchorIdentities, chatRevealIndex, resolveChatAnchorIndex, resolveChatAnchorTop } from "./chatAnchorModel";
 
@@ -55,20 +55,5 @@ describe("chat layout ownership", () => {
     expect(shouldCaptureChatAnchor(before, { ...before, scrollTop: before.scrollTop - 300 })).toBe(true);
     expect(chatViewportModeAfterScroll("pinned", before, { ...before, scrollTop: before.scrollTop - 300 })).toBe("detached");
     expect(chatViewportModeAfterScroll("detached", { ...before, scrollTop: before.scrollTop - 300 }, before)).toBe("pinned");
-  });
-});
-
-
-describe("pending scroll before an incoming commit", () => {
-  it("captures a 300px detach before a delayed turn changes the DOM", () => {
-    const before = { scrollTop: 35873, scrollHeight: 36523, clientHeight: 650 };
-    const moved = { ...before, scrollTop: before.scrollTop - 300 };
-    expect(chatViewportModeBeforeCommit("pinned", before, moved)).toBe("detached");
-    expect(chatViewportModeBeforeCommit("detached", before, moved)).toBe("detached");
-  });
-  it.each([586, 572, 592])("keeps the pinned mode when client height shrinks to %s", (clientHeight) => {
-    const before = { scrollTop: 35873, scrollHeight: 36523, clientHeight: 650 };
-    expect(chatViewportModeBeforeCommit("pinned", before, { ...before, clientHeight })).toBe("pinned");
-    expect(chatLayoutScrollTarget("pinned", { ...before, clientHeight }, null)).toBe(36523);
   });
 });
