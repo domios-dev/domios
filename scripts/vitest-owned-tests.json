@@ -1,4 +1,6 @@
 [
+  "src/components/Sidebar/sidebarDrawerLayout.test.ts",
+  "src/components/Sidebar/SidebarDrawer.test.tsx",
   "src/components/Terminal/useMessageActionHint.test.tsx",
   "src/components/Terminal/messageActionHint.hover.test.ts",
   "src/components/AgentRun/codexStructuredTools.test.tsx",
