@@ -126,17 +126,9 @@ struct RegistryState {
     reservations: BTreeMap<u64, NativeReservation>,
 }
 
-struct InvalidationWork {
-    plugin_id: String,
-    generation: u64,
-    reason: Option<LocalRecordingInvalidationReason>,
-    stopped: Option<(u64, Box<dyn LocalInputSubscription>)>,
-}
-
 #[derive(Default)]
 pub struct LocalRecordingRegistry {
     state: Mutex<RegistryState>,
-    invalidation_observer: Mutex<Option<Arc<dyn Fn(LocalRecordingInvalidation) + Send + Sync>>>,
 }
 
 pub type LocalRecordingRegistryHandle = Arc<LocalRecordingRegistry>;
@@ -153,35 +145,7 @@ pub struct RecordingStatus {
     pub generation: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalRecordingInvalidation {
-    pub plugin_id: String,
-    pub generation: u64,
-    pub reason: LocalRecordingInvalidationReason,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum LocalRecordingInvalidationReason {
-    Disabled,
-    GrantRevoked,
-    Unregistered,
-    DeviceSelectionChanged,
-    DeviceRemoved,
-    AccessLost,
-    DeviceUnavailable,
-    Cancelled,
-}
-
 impl LocalRecordingRegistry {
-    pub fn set_invalidation_observer(
-        &self,
-        observer: Arc<dyn Fn(LocalRecordingInvalidation) + Send + Sync>,
-    ) {
-        *self.invalidation_observer.lock() = Some(observer);
-    }
-
     pub fn register(&self, id: &str, declaration: LocalRecordingTrigger, granted: bool) {
         self.unregister(id);
         self.state.lock().entries.insert(
@@ -200,21 +164,17 @@ impl LocalRecordingRegistry {
     }
 
     pub fn unregister(&self, id: &str) {
-        let invalidation = {
+        let stopped = {
             let mut state = self.state.lock();
             let Some(mut entry) = state.entries.remove(id) else {
                 return;
             };
             let RegistryState { reservations, .. } = &mut *state;
-            let (generation, stopped) = invalidate_entry(&mut entry, reservations);
-            InvalidationWork {
-                plugin_id: id.into(),
-                generation,
-                reason: Some(LocalRecordingInvalidationReason::Unregistered),
-                stopped,
-            }
+            invalidate_entry(&mut entry, reservations)
         };
-        self.finish_invalidation(invalidation);
+        if let Some((reservation_id, subscription)) = stopped {
+            self.request_stop(reservation_id, subscription);
+        }
     }
 
     pub fn contains(&self, id: &str) -> bool {
@@ -236,7 +196,7 @@ impl LocalRecordingRegistry {
     }
 
     pub fn set_enabled(&self, id: &str, enabled: bool) -> Result<RecordingStatus, &'static str> {
-        let (result, invalidation) = {
+        let (result, stopped) = {
             let mut state = self.state.lock();
             let RegistryState {
                 entries,
@@ -246,28 +206,23 @@ impl LocalRecordingRegistry {
             if enabled && !entry.granted {
                 return Err("local_recording_grant_required");
             }
-            let invalidation = if entry.enabled != enabled {
-                let (generation, stopped) = invalidate_entry(entry, reservations);
+            let stopped = if entry.enabled != enabled {
+                let stopped = invalidate_entry(entry, reservations);
                 entry.enabled = enabled;
-                Some(InvalidationWork {
-                    plugin_id: id.into(),
-                    generation,
-                    reason: (!enabled).then_some(LocalRecordingInvalidationReason::Disabled),
-                    stopped,
-                })
+                stopped
             } else {
                 None
             };
-            (status(id, entry), invalidation)
+            (status(id, entry), stopped)
         };
-        if let Some(invalidation) = invalidation {
-            self.finish_invalidation(invalidation);
+        if let Some((reservation_id, subscription)) = stopped {
+            self.request_stop(reservation_id, subscription);
         }
         Ok(result)
     }
 
     pub fn revoke(&self, id: &str) {
-        let invalidation = {
+        let stopped = {
             let mut state = self.state.lock();
             let RegistryState {
                 entries,
@@ -276,17 +231,14 @@ impl LocalRecordingRegistry {
             let Some(entry) = entries.get_mut(id) else {
                 return;
             };
-            let (generation, stopped) = invalidate_entry(entry, reservations);
+            let stopped = invalidate_entry(entry, reservations);
             entry.granted = false;
             entry.enabled = false;
-            InvalidationWork {
-                plugin_id: id.into(),
-                generation,
-                reason: Some(LocalRecordingInvalidationReason::GrantRevoked),
-                stopped,
-            }
+            stopped
         };
-        self.finish_invalidation(invalidation);
+        if let Some((reservation_id, subscription)) = stopped {
+            self.request_stop(reservation_id, subscription);
+        }
     }
 
     pub fn select_devices(&self, id: &str, devices: SelectedDevices) -> Result<u64, &'static str> {
@@ -296,27 +248,21 @@ impl LocalRecordingRegistry {
         {
             return Err("devices_unavailable");
         }
-        let (generation, invalidation) = {
+        let (generation, stopped) = {
             let mut state = self.state.lock();
             let RegistryState {
                 entries,
                 reservations,
             } = &mut *state;
             let entry = entries.get_mut(id).ok_or("trigger_not_declared")?;
-            let (old_generation, stopped) = invalidate_entry(entry, reservations);
+            let stopped = invalidate_entry(entry, reservations);
             entry.devices = Some(devices);
             entry.available = false;
-            (
-                entry.generation,
-                InvalidationWork {
-                    plugin_id: id.into(),
-                    generation: old_generation,
-                    reason: Some(LocalRecordingInvalidationReason::DeviceSelectionChanged),
-                    stopped,
-                },
-            )
+            (entry.generation, stopped)
         };
-        self.finish_invalidation(invalidation);
+        if let Some((reservation_id, subscription)) = stopped {
+            self.request_stop(reservation_id, subscription);
+        }
         Ok(generation)
     }
 
@@ -469,8 +415,7 @@ impl LocalRecordingRegistry {
             } = &mut *state;
             let stopped = if let Some(entry) = entries.get_mut(&setup.plugin_id) {
                 if entry.reservation_id == Some(setup.reservation_id) {
-                    let (_, stopped) = invalidate_entry(entry, reservations);
-                    stopped
+                    invalidate_entry(entry, reservations)
                 } else {
                     None
                 }
@@ -543,20 +488,7 @@ impl LocalRecordingRegistry {
     }
 
     pub fn mark_unavailable(&self, id: &str, generation: u64) -> bool {
-        self.mark_unavailable_with_reason(
-            id,
-            generation,
-            LocalRecordingInvalidationReason::DeviceUnavailable,
-        )
-    }
-
-    pub fn mark_unavailable_with_reason(
-        &self,
-        id: &str,
-        generation: u64,
-        reason: LocalRecordingInvalidationReason,
-    ) -> bool {
-        let invalidation = {
+        let stopped = {
             let mut state = self.state.lock();
             let RegistryState {
                 entries,
@@ -568,16 +500,11 @@ impl LocalRecordingRegistry {
             if entry.generation != generation {
                 return false;
             }
-            let (old_generation, stopped) = invalidate_entry(entry, reservations);
-            InvalidationWork {
-                plugin_id: id.into(),
-                generation: old_generation,
-                reason: Some(reason),
-                stopped,
-            }
+            invalidate_entry(entry, reservations)
         };
-        debug_assert_eq!(invalidation.generation, generation);
-        self.finish_invalidation(invalidation);
+        if let Some((reservation_id, subscription)) = stopped {
+            self.request_stop(reservation_id, subscription);
+        }
         true
     }
 
@@ -615,7 +542,7 @@ impl LocalRecordingRegistry {
     }
 
     pub fn cancel(&self, id: &str) {
-        let invalidation = {
+        let stopped = {
             let mut state = self.state.lock();
             let RegistryState {
                 entries,
@@ -624,29 +551,9 @@ impl LocalRecordingRegistry {
             let Some(entry) = entries.get_mut(id) else {
                 return;
             };
-            let (generation, stopped) = invalidate_entry(entry, reservations);
-            InvalidationWork {
-                plugin_id: id.into(),
-                generation,
-                reason: Some(LocalRecordingInvalidationReason::Cancelled),
-                stopped,
-            }
+            invalidate_entry(entry, reservations)
         };
-        self.finish_invalidation(invalidation);
-    }
-
-    fn finish_invalidation(&self, invalidation: InvalidationWork) {
-        if let Some(reason) = invalidation.reason {
-            let observer = self.invalidation_observer.lock().clone();
-            if let Some(observer) = observer {
-                observer(LocalRecordingInvalidation {
-                    plugin_id: invalidation.plugin_id,
-                    generation: invalidation.generation,
-                    reason,
-                });
-            }
-        }
-        if let Some((reservation_id, subscription)) = invalidation.stopped {
+        if let Some((reservation_id, subscription)) = stopped {
             self.request_stop(reservation_id, subscription);
         }
     }
@@ -691,20 +598,15 @@ impl LocalRecordingRegistry {
 fn invalidate_entry(
     entry: &mut Entry,
     reservations: &mut BTreeMap<u64, NativeReservation>,
-) -> (u64, Option<(u64, Box<dyn LocalInputSubscription>)>) {
-    let old_generation = entry.generation;
+) -> Option<(u64, Box<dyn LocalInputSubscription>)> {
+    entry.available = false;
     if let Some(active) = entry.active.take() {
         active.store(false, Ordering::Release);
     }
-    entry.available = false;
     entry.generation = next_generation();
-    let Some(reservation_id) = entry.reservation_id.take() else {
-        return (old_generation, None);
-    };
-    let Some(reservation) = reservations.get_mut(&reservation_id) else {
-        return (old_generation, None);
-    };
-    let stopped = match std::mem::replace(&mut reservation.phase, ReservationPhase::StopRequested) {
+    let reservation_id = entry.reservation_id.take()?;
+    let reservation = reservations.get_mut(&reservation_id)?;
+    match std::mem::replace(&mut reservation.phase, ReservationPhase::StopRequested) {
         ReservationPhase::Active(subscription) => Some((reservation_id, subscription)),
         ReservationPhase::SettingUp { .. } => {
             reservation.phase = ReservationPhase::SettingUp { cancelled: true };
@@ -715,8 +617,7 @@ fn invalidate_entry(
             reservation.phase = ReservationPhase::Stopping(teardown);
             None
         }
-    };
-    (old_generation, stopped)
+    }
 }
 
 fn mark_setup_cancelled(reservations: &mut BTreeMap<u64, NativeReservation>, id: u64) {

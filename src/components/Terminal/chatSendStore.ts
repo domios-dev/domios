@@ -90,12 +90,6 @@ export function addChatSend(tabId: string, send: ChatSend): void {
   publish(tabId, [...readChatSends(tabId), send].slice(-MAX_SENDS_PER_TAB));
 }
 
-export function removeChatSend(tabId: string, id: string): void {
-  const current = readChatSends(tabId);
-  const next = current.filter((send) => send.id !== id && send.correlationId !== id);
-  if (next.length !== current.length) publish(tabId, next);
-}
-
 export function observeDeliveryStatus(status: ChatSendStatus): void {
   const current = readChatSends(status.tab_id);
   const next = current.map((send) => applyDeliveryStatus(send, status));
