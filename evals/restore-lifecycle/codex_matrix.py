@@ -291,6 +291,8 @@ class Matrix:
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, row in baseline.items():
             self.browser_select(tab, 'browser-' + tab)
+            path = self.session_file(tab)
+            self.wait(lambda path=path: any('READY ACK' in text for text in oracle.assistant_texts(path)), tab + ' own startup reply while Chat selected')
             self.cli('browser-chat-ready-' + tab, 'plugin', 'browser', 'wait', '--text', 'READY ACK', caller=self.orch, json_output=False)
             view = self.cli('browser-chat-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
             oracle.require('starting' not in view.lower(), f'{tab}: Chat still Starting')
