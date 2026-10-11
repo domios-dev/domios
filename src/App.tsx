@@ -8,6 +8,8 @@ import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
+import { LarkCaptureStatus } from "./components/Terminal/voice/LarkCaptureStatus";
+import { useLarkCapture } from "./components/Terminal/voice/useLarkCapture";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
 import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
@@ -92,17 +94,6 @@ function useStableJsonValue<T>(value: T): T {
 function AppInner() {
   useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
-  useEffect(() => {
-    if (!IS_WEB) {
-      void (async () => {
-        const generation = await invoke<number>("frontend_readiness_generation");
-        const accepted = await invoke<boolean>("frontend_ready", { generation });
-        if (!accepted) throw new Error("frontend readiness generation was replaced");
-      })().catch((error) => {
-        console.warn("Unable to report frontend readiness", error);
-      });
-    }
-  }, []);
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phone width owns the sidebar: it becomes an overlay drawer and yields the viewport to the content until the hamburger reopens it.
   const {
@@ -238,6 +229,19 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  const larkCapture = useLarkCapture({ tabs: state.tabs });
+  useEffect(() => {
+    if (!IS_WEB) {
+      void (async () => {
+        await larkCapture.ready;
+        const generation = await invoke<number>("frontend_readiness_generation");
+        const accepted = await invoke<boolean>("frontend_ready", { generation });
+        if (!accepted) throw new Error("frontend readiness generation was replaced");
+      })().catch((error) => {
+        console.warn("Unable to report frontend readiness", error);
+      });
+    }
+  }, [larkCapture.ready]);
   useHelperMomentsHost(state.tabs, configLoading ? null : config.integrations?.telegram_enabled ?? false);
   const peerContext = usePlanPeerContext();
   useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);
@@ -649,6 +653,7 @@ function AppInner() {
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
         className="flex flex-1 min-h-0 relative"
       >
+        <LarkCaptureStatus state={larkCapture.state} onCancel={larkCapture.cancel} />
         {sidebarMounted && (
           <>
             {/* Narrow shell: the sidebar overlays the content with a tap-to-close
