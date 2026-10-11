@@ -1,4 +1,4 @@
-import { invoke } from "../../lib/bridge";
+import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import type { CronJob } from "../../lib/types";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import type { MergedJob } from "./jobsModel";
@@ -10,8 +10,8 @@ export interface JobsActionAdapter {
 }
 
 export const hostJobsActionAdapter: JobsActionAdapter = {
-  stopCron: (job) => invoke("cron_cancel", { id: job.id }),
-  deleteCron: (job) => invoke("cron_delete", { id: job.id }),
+  stopCron: (job) => orchestrationTransport().cron_cancel({ id: job.id }),
+  deleteCron: (job) => orchestrationTransport().cron_delete({ id: job.id }),
 };
 
 export interface JobActionContext {

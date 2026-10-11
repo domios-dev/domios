@@ -24,36 +24,26 @@ import {
   type ChatContentAnchor,
 } from "./chatScrollAnchor";
 
+import { chatRevealIndex } from "./chatAnchorModel";
+
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
 const SCROLL_WRITE_TOLERANCE_PX = 1;
 
 interface PendingPrependSnapshot extends ChatPrependSnapshot {
   version: unknown;
-  anchorId: string | null;
-  anchorOffset: number;
+  anchor: ChatContentAnchor | null;
 }
 
-function capturePrependAnchor(el: HTMLDivElement): Pick<PendingPrependSnapshot, "anchorId" | "anchorOffset"> {
-  const rows = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
-  let anchor = rows[0] ?? null;
-  for (const row of rows) {
-    if (row.offsetTop > el.scrollTop) break;
-    anchor = row;
-  }
-  return {
-    anchorId: anchor?.dataset.messageId ?? null,
-    anchorOffset: anchor ? anchor.offsetTop - el.scrollTop : 0,
-  };
+function capturePrependAnchor(el: HTMLDivElement): Pick<PendingPrependSnapshot, "anchor"> {
+  return { anchor: captureChatContentAnchor(el) };
 }
 
 function resolvePrependAnchor(el: HTMLDivElement, snapshot: PendingPrependSnapshot): number | null {
-  if (!snapshot.anchorId) return null;
-  const anchor = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"))
-    .find((row) => row.dataset.messageId === snapshot.anchorId);
-  return anchor ? anchor.offsetTop - snapshot.anchorOffset : null;
+  return snapshot.anchor ? chatScrollTopForAnchor(el, snapshot.anchor) : null;
 }
 
 export interface UseChatScrollOptions {
+  scrollRef?: RefObject<HTMLDivElement | null>;
   sessionKey: string;
   active: boolean;
   loading: boolean;
@@ -61,6 +51,7 @@ export interface UseChatScrollOptions {
   contentVersion: unknown;
   prependVersion: unknown;
   followTailRef?: MutableRefObject<boolean>;
+  onViewportChange?: () => void;
   onModeChange?: (mode: ChatViewportMode) => void;
 }
 
@@ -77,6 +68,7 @@ export interface UseChatScrollResult {
 }
 
 export function useChatScroll({
+  scrollRef: externalScrollRef,
   sessionKey,
   active,
   loading,
@@ -85,8 +77,10 @@ export function useChatScroll({
   prependVersion,
   followTailRef,
   onModeChange,
+  onViewportChange,
 }: UseChatScrollOptions): UseChatScrollResult {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const ownScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = externalScrollRef ?? ownScrollRef;
   const sessionKeyRef = useRef(sessionKey);
   const restoredKeyRef = useRef("");
   const persisted = getPersistedChatScrollState(sessionKey);
@@ -120,6 +114,7 @@ export function useChatScroll({
     setPersistedChatScrollState(sessionKeyRef.current, {
       mode: modeRef.current,
       scrollTop: el.scrollTop,
+      anchor: modeRef.current === "detached" ? contentAnchorRef.current : null,
     });
   }, []);
 
@@ -129,7 +124,8 @@ export function useChatScroll({
     el.scrollTop = value;
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (el.scrollTop !== before) hookScrollTopRef.current = el.scrollTop;
-  }, []);
+    onViewportChange?.();
+  }, [onViewportChange]);
 
   const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
     const changed = modeRef.current !== mode;
@@ -213,8 +209,9 @@ export function useChatScroll({
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
     if (!el) return false;
-    const row = Array.from(el.querySelectorAll<HTMLElement>("[data-source-message-id]"))
-      .find((candidate) => candidate.dataset.sourceMessageId === messageId);
+    const rows = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
+    const index = chatRevealIndex(rows.map((row) => ({ id: row.dataset.messageId ?? "", sourceMessageId: row.dataset.sourceMessageId })), messageId);
+    const row = rows[index];
     if (!row) return false;
     writeScrollTop(el, row.offsetTop);
     // Detached, so a pinned tail cannot pull the revealed row back out of view.
@@ -227,7 +224,7 @@ export function useChatScroll({
     const observer = observerRef.current;
     if (!observer) return;
     const observed = observedRef.current;
-    const children = new Set<Element>(Array.from(el.children));
+    const children = new Set<Element>([...Array.from(el.children), ...Array.from(el.querySelectorAll("[data-chat-window-row]"))]);
     for (const child of observed) {
       if (children.has(child)) continue;
       observer.unobserve(child);
@@ -243,7 +240,7 @@ export function useChatScroll({
   // Content boxes are observed too: async image, iframe and diagram growth never re-renders the list.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!el || !active || typeof ResizeObserver === "undefined") return;
     const observed = observedRef.current;
     const observer = new ResizeObserver(() => {
       if (el.clientHeight === 0) return;
@@ -258,7 +255,7 @@ export function useChatScroll({
       observed.clear();
       observerRef.current = null;
     };
-  }, [holdContentAnchor, observeContent, scrollToBottom]);
+  }, [active, holdContentAnchor, observeContent, scrollToBottom]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -267,14 +264,16 @@ export function useChatScroll({
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || !active || loading || messageCount === 0) return;
+    if (!active) { restoredKeyRef.current = ""; return; }
+    if (!el || loading || messageCount === 0) return;
     el.style.overflowAnchor = "none";
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {
       restoredKeyRef.current = sessionKey;
       const restored = getPersistedChatScrollState(sessionKey);
       if (restored?.mode === "detached") {
-        writeScrollTop(el, restored.scrollTop);
+        const anchored = restored.anchor ? chatScrollTopForAnchor(el, restored.anchor) : null;
+        writeScrollTop(el, anchored ?? restored.scrollTop);
         setMode("detached", el);
       } else {
         scrollToBottom();

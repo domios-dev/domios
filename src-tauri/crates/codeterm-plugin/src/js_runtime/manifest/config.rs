@@ -635,6 +635,8 @@ impl From<&SerdeReasoningEffortInfo> for ReasoningEffortInfo {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PermissionsConfig {
     #[serde(default)]
+    pub project_files: Vec<String>,
+    #[serde(default)]
     pub transport_events: Vec<String>,
     #[serde(default)]
     pub send_text: bool,

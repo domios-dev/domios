@@ -26,7 +26,6 @@ const API: ApiConfig = {
 
 type ListenHandler = (ev: { payload: unknown }) => void;
 const listenHandlers = new Map<string, Set<ListenHandler>>();
-// Desktop plan reads are IPC into PlanStore, so the call oracle counts invokes.
 let planReadCalls = 0;
 let lastFullProject: string | null | undefined;
 let failPlanReads = false;
@@ -43,18 +42,19 @@ function setupDom() {
 }
 
 async function installBridgeMocks() {
-  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  __setInvokeForTest(async (command, args) => {
+  const { __setListenForTest } = await import("../../lib/bridge");
+  globalThis.fetch = async (input) => {
     planReadCalls++;
     if (failPlanReads) throw new TypeError("Load failed");
-    if (command === "list_plans_full") {
-      lastFullProject = (args?.project as string | null | undefined) ?? null;
-      return [FIXTURE_PLAN] as never;
+    const url = new URL(String(input));
+    if (url.searchParams.get("full") === "1") {
+      lastFullProject = url.searchParams.get("project");
+      return Response.json({ plans: [FIXTURE_PLAN] });
     }
-    if (command === "get_plan_full") return FIXTURE_PLAN as never;
-    if (command === "list_plan_index") return [] as never;
-    throw new Error(`unexpected invoke: ${command}`);
-  });
+    if (url.pathname === "/api/plans") return Response.json({ plans: [] });
+    if (url.pathname.startsWith("/api/plans/")) return Response.json(FIXTURE_PLAN);
+    throw new Error(`unexpected request: ${url}`);
+  };
   __setListenForTest(async (event, handler) => {
     if (!listenHandlers.has(event)) listenHandlers.set(event, new Set());
     listenHandlers.get(event)!.add(handler as ListenHandler);
@@ -95,7 +95,7 @@ async function renderProbe(
     root.render(<PlansProbe />);
   });
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 0));
+    await Promise.resolve();
   });
   return { root };
 }
@@ -113,7 +113,7 @@ async function main() {
       holder.current = state;
     });
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
+      await Promise.resolve();
     });
     if (!holder.current) throw new Error("state captured");
     assert(!holder.current.loading, "finished loading");
@@ -130,12 +130,12 @@ async function main() {
       holder.current = state;
     });
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
+      await Promise.resolve();
     });
     const callsAfterLoad = planReadCalls;
     emitPlanChanged(FIXTURE_PLAN.id);
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
+      await Promise.resolve();
     });
     assert(planReadCalls > callsAfterLoad, "refetch after plan-changed");
     if (!holder.current) throw new Error("state captured");
@@ -150,12 +150,12 @@ async function main() {
       holder.current = state;
     });
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
+      await Promise.resolve();
     });
     const callsAfterLoad = planReadCalls;
     await act(async () => {
       emitPlansLoaded();
-      await new Promise((r) => setTimeout(r, 20));
+      await Promise.resolve();
     });
     assert(planReadCalls > callsAfterLoad, "plans-loaded refetches full plans");
     assert(holder.current?.plans[0]?.id === FIXTURE_PLAN.id, "plan still present");
@@ -174,7 +174,7 @@ async function main() {
       },
     );
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
+      await Promise.resolve();
     });
     assert(lastFullProject === "/tmp/project-a", "project scope reached the plan read");
     assert(planReadCalls === 1, "one plan read on load");
@@ -190,7 +190,7 @@ async function main() {
       holder.current = state;
     });
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 30));
+      await Promise.resolve();
     });
     assert(holder.current?.error?.includes("Reconnecting"), "friendly error on failure");
     assert(!holder.current?.error?.includes("TypeError"), "no raw TypeError");

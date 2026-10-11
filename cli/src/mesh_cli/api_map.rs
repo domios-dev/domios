@@ -949,6 +949,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Pad { .. }
         | Commands::System { .. }
         | Commands::Docs { .. }
+        | Commands::RestApi { .. }
         | Commands::Surface { .. }
         | Commands::Debug { .. } => {
             unreachable!("transport table declares this command non-REST")

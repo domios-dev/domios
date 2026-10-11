@@ -14,7 +14,8 @@ pub fn grants_path(bundle_dir: &Path) -> PathBuf {
     bundle_dir.join("grants.yaml")
 }
 
-const TOGGLEABLE: [&str; 6] = [
+const TOGGLEABLE: [&str; 7] = [
+    "project_write",
     "manage_workspaces",
     "spawn_agents",
     "agent_commands",
@@ -59,6 +60,7 @@ pub fn load_grants(bundle_dir: &Path) -> PluginGrants {
                 .map(|permission| (permission.to_string(), false))
                 .collect(),
             network_allow: Vec::new(),
+            project_write_roots: Vec::new(),
         },
     }
 }
