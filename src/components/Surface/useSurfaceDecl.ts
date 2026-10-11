@@ -5,12 +5,6 @@ import { rememberDeclaredSurfaces } from "./surfaceIcon";
 import { findDeclaredSurface, parseDeclaredSurfaces, type SurfaceDeclLookup } from "./surfaceRenderPlan";
 
 const LOADING: SurfaceDeclLookup = { status: "loading" };
-const RETRY_DELAYS_MS = [1_000, 2_000, 5_000];
-const RETRY_STEADY_MS = 15_000;
-
-export function surfaceDeclRetryDelay(attempt: number): number {
-  return RETRY_DELAYS_MS[attempt] ?? RETRY_STEADY_MS;
-}
 
 // A transient refetch failure must not tear down a surface that is already rendering.
 export function nextSurfaceDeclLookup(previous: SurfaceDeclLookup, next: SurfaceDeclLookup): SurfaceDeclLookup {
@@ -18,19 +12,23 @@ export function nextSurfaceDeclLookup(previous: SurfaceDeclLookup, next: Surface
   return next;
 }
 
-function usePluginsGeneration(): number {
-  const [generation, setGeneration] = useState(0);
+function usePluginsGeneration(): number | null {
+  const [generation, setGeneration] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
     let unlisten: UnlistenFn | undefined;
     listen("contributions-changed", () => {
-      if (alive) setGeneration((n) => n + 1);
+      if (alive) setGeneration((n) => (n ?? 0) + 1);
     })
       .then((fn) => {
-        if (alive) unlisten = fn;
-        else fn();
+        if (alive) {
+          unlisten = fn;
+          setGeneration((current) => current ?? 0);
+        } else fn();
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (alive) setGeneration(0);
+      });
     return () => {
       alive = false;
       unlisten?.();
@@ -39,7 +37,7 @@ function usePluginsGeneration(): number {
   return generation;
 }
 
-export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: string, surfaceId: string): SurfaceDeclLookup {
+export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: string, surfaceId: string, refreshGeneration = 0): SurfaceDeclLookup {
   const [lookup, setLookup] = useState<SurfaceDeclLookup>(LOADING);
   const pluginsGeneration = usePluginsGeneration();
   const identity = useRef<string | null>(null);
@@ -48,9 +46,8 @@ export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: strin
   const token = api?.token;
 
   useEffect(() => {
+    if (pluginsGeneration === null) return;
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let attempt = 0;
     const key = JSON.stringify([host, port, token, pluginId, surfaceId]);
     if (identity.current !== key) {
       identity.current = key;
@@ -59,7 +56,6 @@ export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: strin
     const settle = (next: SurfaceDeclLookup) => {
       if (controller.signal.aborted) return;
       setLookup((previous) => nextSurfaceDeclLookup(previous, next));
-      if (next.status !== "ready" || !next.declared) timer = setTimeout(load, surfaceDeclRetryDelay(attempt++));
     };
     const load = () => {
       daemonFetch({ host, port, token }, "/api/surfaces", { signal: controller.signal })
@@ -74,9 +70,8 @@ export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: strin
     load();
     return () => {
       controller.abort();
-      clearTimeout(timer);
     };
-  }, [host, port, token, pluginId, surfaceId, pluginsGeneration]);
+  }, [host, port, token, pluginId, surfaceId, pluginsGeneration, refreshGeneration]);
 
   return lookup;
 }

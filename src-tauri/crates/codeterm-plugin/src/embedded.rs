@@ -159,6 +159,10 @@ fn write_dir(dir: &Dir<'_>, dst: &std::path::Path) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "embedded/browser_tests.rs"]
+mod browser_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{bundle_hash, system_plugins};

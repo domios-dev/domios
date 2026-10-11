@@ -239,7 +239,9 @@ impl CapabilityRegistries {
 }
 
 /// A view surface needs the plugin's view; a stream surface renders from a core runtime instead.
-fn renderable_surfaces(caps: &super::manifest::Capabilities) -> Vec<crate::surfaces::SurfaceDecl> {
+pub(crate) fn renderable_surfaces(
+    caps: &super::manifest::Capabilities,
+) -> Vec<crate::surfaces::SurfaceDecl> {
     caps.surfaces
         .iter()
         .filter(|surface| caps.view || surface.stream_runtime().is_some())
