@@ -807,6 +807,26 @@ mod tests {
         out
     }
 
+    fn event_family(name: &str) -> String {
+        name.split(['$', '{']).next().unwrap_or(name).to_string()
+    }
+
+    #[test]
+    fn event_seam_covers_all_frontend_listeners_dynamic_families() {
+        assert_eq!(
+            event_family("tab-status-${tabId}"),
+            event_family("tab-status-{pty_id}")
+        );
+        assert_eq!(
+            event_family("tab-chat-msg-${tabId}"),
+            event_family("tab-chat-msg-{}")
+        );
+        assert_eq!(
+            event_family("pty-resize-owner-changed"),
+            "pty-resize-owner-changed"
+        );
+    }
+
     /// CI guard: no frontend-listened event may be delivered ONLY via a raw
     /// `app.emit()` — it must go through `emit_everywhere` (native + SSE bus) or
     /// carry a typed `SystemEvent` whose `type_name()` reaches the bus via
@@ -819,14 +839,41 @@ mod tests {
         let frontend = Path::new(manifest).join("../src");
         let backend = Path::new(manifest).join("src");
 
-        // Frontend static listen() names (dynamic per-tab `${…}` names excluded).
-        let listen_re =
-            regex::Regex::new(r#"listen\w*\s*(?:<[^>]*>)?\s*\(\s*["']([a-zA-Z0-9:_-]+)["']"#)
-                .unwrap();
+        let packages = Path::new(manifest).join("../packages");
+        let mut frontend_sources = read_sources(&frontend, &["ts", "tsx", "js", "jsx"]);
+        frontend_sources.extend(read_sources(&packages, &["ts", "tsx", "js", "jsx"]));
+        frontend_sources.retain(|(path, _)| !path.to_string_lossy().contains(".test."));
+        let backend_sources = read_sources(&backend, &["rs"]);
+        let const_re =
+            regex::Regex::new(r#"const\s+(\w+)\s*(?::[^=;]+)?=\s*["']([^"']+)["']"#).unwrap();
+        let mut constants = std::collections::BTreeMap::<String, BTreeSet<String>>::new();
+        for (_, source) in frontend_sources.iter().chain(backend_sources.iter()) {
+            for capture in const_re.captures_iter(source) {
+                constants
+                    .entry(capture[1].to_string())
+                    .or_default()
+                    .insert(capture[2].to_string());
+            }
+        }
+        let listen_re = regex::Regex::new(
+            r#"listen\w*\s*(?:<[^>]*>)?\s*\(\s*(?:["'`]([^"'`]+)["'`]|([A-Z][A-Z0-9_]+))"#,
+        )
+        .unwrap();
         let mut listened = BTreeSet::new();
-        for (_, src) in read_sources(&frontend, &["ts", "tsx"]) {
-            for c in listen_re.captures_iter(&src) {
-                listened.insert(c[1].to_string());
+        for (path, source) in &frontend_sources {
+            for capture in listen_re.captures_iter(source) {
+                if let Some(name) = capture.get(1) {
+                    listened.insert(event_family(name.as_str()));
+                } else if let Some(name) = capture.get(2) {
+                    let values = constants.get(name.as_str()).unwrap_or_else(|| {
+                        panic!(
+                            "Unresolved listener constant {} in {}",
+                            name.as_str(),
+                            path.display()
+                        )
+                    });
+                    listened.extend(values.iter().map(|value| event_family(value)));
+                }
             }
         }
         assert!(
@@ -862,14 +909,40 @@ mod tests {
             "type_name scan broke: {typed:?}"
         );
 
-        // `.emit(` prefix so it is not matched. Multiline-aware via `\s`.
-        let raw_re = regex::Regex::new(r#"\.emit\s*\(\s*"([a-zA-Z0-9:_-]+)""#).unwrap();
+        let raw_re = regex::Regex::new(
+            r#"\.emit\s*\(\s*(?:format!\s*\(\s*)?(?:"([^"]+)"|([A-Z][A-Z0-9_]+))"#,
+        )
+        .unwrap();
         let mut offenders = Vec::new();
-        for (path, src) in read_sources(&backend, &["rs"]) {
-            for c in raw_re.captures_iter(&src) {
-                let name = c[1].to_string();
-                if listened.contains(&name) && !typed.contains(&name) {
-                    offenders.push(format!("{}: raw emit(\"{name}\")", path.display()));
+        for (path, source) in &backend_sources {
+            for capture in raw_re.captures_iter(source) {
+                let names = if let Some(value) = capture.get(1) {
+                    BTreeSet::from([event_family(value.as_str())])
+                } else if let Some(name) = capture.get(2) {
+                    constants
+                        .get(name.as_str())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Unresolved emitted constant {} in {}",
+                                name.as_str(),
+                                path.display()
+                            )
+                        })
+                        .iter()
+                        .map(|value| event_family(value))
+                        .collect()
+                } else {
+                    continue;
+                };
+                for name in names {
+                    let native = path.ends_with("native_resize.rs")
+                        && matches!(
+                            name.as_str(),
+                            "terminal-window-resize-start" | "terminal-window-resize-commit"
+                        );
+                    if listened.contains(&name) && !typed.contains(&name) && !native {
+                        offenders.push(format!("{}: raw emit({name})", path.display()));
+                    }
                 }
             }
         }

@@ -11,14 +11,13 @@ const LOADED = { ...PRELOAD, token: "loaded-token" };
 
 const authOf = (call: unknown[]): string => {
   const init = call[1] as { headers?: Record<string, string> } | undefined;
-  return init?.headers?.Authorization ?? "";
+  return new Headers(init?.headers).get("Authorization") ?? "";
 };
 
 describe("remote transport credentials", () => {
   it("channel darkened without a token revives when the real token arrives", async () => {
     vi.stubGlobal("window", new EventTarget());
     const fetchMock = vi.fn()
-      .mockReturnValueOnce(Promise.resolve(new Response(null, { status: 401 })))
       .mockReturnValue(new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
     configureRemoteTabTransport(PRELOAD);
@@ -31,8 +30,8 @@ describe("remote transport credentials", () => {
 
     configureRemoteTabTransport(LOADED);
     expect(remoteOutputSubscriptionSnapshot(id)).toEqual({ generation: darkened + 1, hasController: true });
-    expect(authOf(fetchMock.mock.calls[0])).toBe("");
-    expect(authOf(fetchMock.mock.calls[1])).toBe(`Bearer ${LOADED.token}`);
+    expect(fetchMock.mock.calls.length).toBe(1);
+    expect(authOf(fetchMock.mock.calls[0])).toBe(`Bearer ${LOADED.token}`);
 
     unsubscribe();
     vi.unstubAllGlobals();
@@ -54,4 +53,7 @@ describe("remote transport credentials", () => {
   });
 });
 
+let completed = false;
+it("completes all event barriers", () => { completed = true; });
+process.once("beforeExit", () => { if (!completed) process.exitCode = 1; });
 finish();

@@ -27,6 +27,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
   const writes = new Map<string, string[]>();
   const ready = new Map<string, boolean>();
   const previousFetch = globalThis.fetch;
+  api.setTokenFor(api.apiHost(), "fixture-token");
   api.setRelayTarget(peerId, "Windows");
   browser.localStorage.setItem("codeterm-web-output-stream", "off");
   globalThis.fetch = async (input) => {
@@ -71,7 +72,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
       assert.equal(urls[0].searchParams.get("peer"), peerId);
       assert.equal(urls[0].searchParams.get("path"), "/api/output/stream");
       assert.equal(urls[0].searchParams.has("since"), false);
-      assert.equal(ready.get(tabId), true);
+      assert.equal(ready.get(tabId), false);
     }
     for (const [text, offset] of [["history", 7], ["live", 11]] as const) {
       await act(async () => {
@@ -80,7 +81,10 @@ test("mounted bare relay terminals open one composite stream each despite the lo
         ));
       });
     }
-    for (const tabId of tabIds) assert.deepEqual(writes.get(tabId), ["history", "live"]);
+    for (const tabId of tabIds) {
+      assert.deepEqual(writes.get(tabId), ["history", "live"]);
+      assert.equal(ready.get(tabId), true);
+    }
     output.resetOutputStream();
     assert.equal(requests.length, tabIds.length, "relay mode never opens a local aggregate");
   } finally {

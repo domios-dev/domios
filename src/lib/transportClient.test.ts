@@ -100,3 +100,71 @@ describe("transportClient", () => {
     expect(parseSseFrame("event: output\nid: b:2\ndata: first\ndata: second")).toEqual({ event: "output", id: "b:2", data: "first\nsecond" });
   });
 });
+
+
+describe("SSE lifecycle", () => {
+  it.each([200, 400])("reports the end once with status %s", async (status) => {
+    const { client } = clientWith(status === 200 ? new Response(new ReadableStream({ start(c) { c.close(); } })) : new Response("", { status }));
+    let resolve!: (end: unknown) => void;
+    const ended = new Promise((done) => { resolve = done; });
+    const onEnd = vi.fn(resolve);
+    client.subscribe("/api/events/stream", () => {}, { onEnd });
+    expect(await ended).toMatchObject(status === 200 ? { reason: "eof" } : { reason: "http", status: 400 });
+    expect(onEnd).toHaveBeenCalledOnce();
+  });
+  it("reports a network failure with the original error", async () => {
+    const error = new Error("offline");
+    const client = createTransportClient({ origin, token: () => "token", fetch: vi.fn().mockRejectedValue(error) });
+    let resolve!: (end: unknown) => void;
+    const ended = new Promise((done) => { resolve = done; });
+    const onEnd = vi.fn(resolve);
+    client.subscribe("/api/events/stream", () => {}, { onEnd });
+    expect(await ended).toEqual({ reason: "error", error });
+    expect(onEnd).toHaveBeenCalledOnce();
+  });
+  it("does not deliver events or an end after caller cleanup", async () => {
+    let release!: (response: Response) => void;
+    let canceled!: () => void;
+    const cancelled = new Promise<void>((resolve) => { canceled = resolve; });
+    const fetch = vi.fn<typeof globalThis.fetch>(() => new Promise((resolve) => { release = resolve; }));
+    const client = createTransportClient({ origin, token: () => "token", fetch });
+    const onEnd = vi.fn();
+    const onEvent = vi.fn();
+    const cleanup = client.subscribe("/api/events/stream", onEvent, { onEnd });
+    cleanup();
+    release(new Response(new ReadableStream({ cancel() { canceled(); } })));
+    await cancelled;
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+  it("reports external abort to its owning generation", async () => {
+    const { client } = clientWith(new Response(new ReadableStream()));
+    const abort = new AbortController();
+    let resolve!: (end: unknown) => void;
+    const ended = new Promise((done) => { resolve = done; });
+    client.subscribe("/api/events/stream", () => {}, { signal: abort.signal, onEnd: resolve });
+    abort.abort("superseded");
+    expect(await ended).toEqual({ reason: "abort", error: "superseded" });
+  });
+});
+
+
+describe("SSE raw envelope and activity options", () => {
+  it("retains cursor metadata and counts heartbeat activity", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    let received!: () => void;
+    const delivered = new Promise<void>((resolve) => { received = resolve; });
+    const { client, fetch } = clientWith(new Response(new ReadableStream({ start(c) { controller = c; } })));
+    const envelope = { event_type: "tab", data: { id: "tab" }, boot: "boot", seq: 7 };
+    const handler = vi.fn(() => received());
+    const activity = vi.fn();
+    const stop = client.subscribe("/api/events/stream", handler, { raw: true, onActivity: activity });
+    controller.enqueue(new TextEncoder().encode(": heartbeat\n\n"));
+    controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(envelope)}\n\n`));
+    await delivered;
+    expect(handler).toHaveBeenCalledExactlyOnceWith("message", envelope);
+    expect(activity).toHaveBeenCalledTimes(2);
+    expect(new Headers(fetch.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer secret");
+    stop();
+  });
+});
