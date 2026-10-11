@@ -9,6 +9,7 @@ export interface SupporterActivity {
   budget_reached: boolean | null;
   fallback: boolean;
   tab_title?: string | null;
+  tab_id?: string | null;
   asked?: SupporterQuestionAnswer[] | null;
 }
 

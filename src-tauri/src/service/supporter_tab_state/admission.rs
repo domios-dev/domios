@@ -37,6 +37,7 @@ struct Admission {
     frames: HashSet<u64>,
     events: HashMap<&'static str, u64>,
     last_frame_at: Option<Instant>,
+    last_frame: Option<u64>,
     first_opinion_observed: bool,
 }
 
@@ -57,12 +58,18 @@ impl Admission {
         }
         if self.episode != episode {
             self.episode = episode;
-            self.frames.clear();
-            self.events.clear();
+        }
+        if self.last_frame == Some(frame) && matches!(cause, Cause::FirstOpinion) {
+            self.first_opinion_observed = true;
+        }
+        if self.last_frame == Some(frame) && !matches!(cause, Cause::Lifecycle(_)) {
+            return false;
         }
         if matches!(cause, Cause::FirstOpinion) && !self.first_opinion_observed {
             self.first_opinion_observed = true;
             self.frames.insert(frame);
+            self.last_frame = Some(frame);
+            self.last_frame_at = Some(now);
             return true;
         }
         if let Cause::Lifecycle(event) = cause {
@@ -80,10 +87,33 @@ impl Admission {
         {
             return false;
         }
+        if self.frames.len() >= 256 {
+            self.frames.clear();
+        }
         self.frames.insert(frame);
+        self.last_frame = Some(frame);
         self.last_frame_at = Some(now);
         true
     }
+}
+
+pub(super) fn structurally_decisive(
+    trigger: ObservationTrigger,
+    state: &str,
+    confidence: f64,
+    live_state: &str,
+    pending_prompt: bool,
+) -> bool {
+    !pending_prompt
+        && state == "working"
+        && confidence.is_finite()
+        && (confidence >= 0.9 || live_state == "working")
+        && matches!(
+            trigger,
+            ObservationTrigger::OutputCandidate
+                | ObservationTrigger::ParkedEdge
+                | ObservationTrigger::BusyNoOutput
+        )
 }
 
 static ADMISSIONS: LazyLock<Mutex<HashMap<String, Admission>>> = LazyLock::new(Default::default);
@@ -106,6 +136,52 @@ pub(super) fn forget(tab: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confident_working_adapter_suppresses_background_only() {
+        assert!(structurally_decisive(
+            ObservationTrigger::BusyNoOutput,
+            "working",
+            0.95,
+            "",
+            false
+        ));
+        assert!(structurally_decisive(
+            ObservationTrigger::BusyNoOutput,
+            "working",
+            0.0,
+            "working",
+            false
+        ));
+        assert!(!structurally_decisive(
+            ObservationTrigger::BusyNoOutput,
+            "working",
+            0.5,
+            "",
+            false
+        ));
+        assert!(!structurally_decisive(
+            ObservationTrigger::BusyNoOutput,
+            "working",
+            0.95,
+            "working",
+            true
+        ));
+        assert!(!structurally_decisive(
+            ObservationTrigger::SpawnDeadline,
+            "working",
+            0.95,
+            "working",
+            false
+        ));
+        assert!(!structurally_decisive(
+            ObservationTrigger::OutputCandidate,
+            "unknown",
+            1.0,
+            "working",
+            false
+        ));
+    }
 
     #[test]
     fn unchanged_frames_make_one_call_despite_output_and_failures() {
@@ -173,7 +249,7 @@ mod tests {
         let mut admission = Admission::default();
         let now = Instant::now();
         assert!(admission.claim("launch", 1, 42, Cause::Frame, now));
-        assert!(admission.claim(
+        assert!(!admission.claim(
             "launch",
             1,
             42,
@@ -203,7 +279,7 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(calls, 12);
+        assert_eq!(calls, 11);
     }
 
     #[test]
@@ -213,6 +289,6 @@ mod tests {
         assert!(admission.claim("launch", 1, 42, Cause::Frame, now));
         assert!(admission.claim("launch", 1, 43, Cause::Frame, now + FRAME_INTERVAL));
         assert!(!admission.claim("launch", 1, 42, Cause::Frame, now + FRAME_INTERVAL * 2));
-        assert!(admission.claim("launch", 2, 42, Cause::Frame, now + FRAME_INTERVAL * 2));
+        assert!(!admission.claim("launch", 2, 42, Cause::Frame, now + FRAME_INTERVAL * 2));
     }
 }
