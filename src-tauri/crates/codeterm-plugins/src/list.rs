@@ -23,12 +23,22 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
         let record = read_install_record(&folder_id)
             .or_else(|_| read_install_record(&id))
             .ok();
-        let version = manifest.as_ref().and_then(|m| m.version.as_deref());
-        let update = installed_update_status(&id, version, record.as_ref().map(|r| &r.source));
+        let provenance = plugin_provenance(
+            &id,
+            record.as_ref().map(|record| &record.source),
+            manifest
+                .as_ref()
+                .and_then(|manifest| manifest.version.as_deref()),
+        );
+        let update = installed_update_status(
+            &id,
+            provenance.version.as_deref(),
+            provenance.source.as_ref(),
+        );
         rows.push(InstalledPluginRow {
             update,
             id: id.clone(),
-            version: manifest.as_ref().and_then(|m| m.version.clone()),
+            version: provenance.version,
             display_name: manifest.and_then(|m| m.display_name),
             path: path.display().to_string(),
             install_path: path.display().to_string(),
@@ -38,12 +48,14 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
             last_change: record.as_ref().and_then(|r| r.last_change.clone()),
             state: if path.with_extension("tmp-install").exists() {
                 "mid-install".to_string()
+            } else if record.is_none() && is_reserved_system_id(&id) {
+                "bundled".to_string()
             } else {
                 "installed".to_string()
             },
-            source: record.map(|r| r.source),
-            system: is_reserved_system_id(&id),
-            removable: !is_reserved_system_id(&id),
+            source: provenance.source,
+            system: provenance.system,
+            removable: !provenance.system,
         });
     }
     merge_system_rows(&mut rows);
@@ -74,11 +86,15 @@ pub(super) fn system_rank(id: &str) -> (u8, usize) {
 }
 
 pub(super) fn virtual_system_row(id: &str) -> InstalledPluginRow {
+    let metadata = bundled_metadata(id).map(|(_, manifest)| manifest);
+    let version = metadata
+        .as_ref()
+        .and_then(|manifest| manifest.version.clone());
     InstalledPluginRow {
-        update: installed_update_status(id, app_version().as_deref(), None),
+        update: installed_update_status(id, version.as_deref(), None),
         id: id.to_string(),
-        version: app_version(),
-        display_name: None,
+        version,
+        display_name: metadata.and_then(|manifest| manifest.display_name),
         path: String::new(),
         install_path: String::new(),
         install_time: None,
@@ -86,10 +102,7 @@ pub(super) fn virtual_system_row(id: &str) -> InstalledPluginRow {
         verified: true,
         last_change: None,
         state: "bundled".to_string(),
-        source: Some(InstallSource::SystemChannel {
-            channel: SYSTEM_CHANNEL_NAME.to_string(),
-            path: format!("provider-{id}"),
-        }),
+        source: effective_install_source(id, None),
         system: true,
         removable: false,
     }

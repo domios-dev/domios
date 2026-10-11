@@ -287,3 +287,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
 <!-- revision: 5 -->
+
+### REST listener bind recovery
+
+When the local socket works but HTTP is down, run `codeterm rest-api status` on the owning instance. A `bind_ownership_failed` diagnostic includes the address and OS error. Release the foreign port owner, then run `codeterm rest-api restart`; it waits for health proof and fails if binding still fails. These commands never fall back to HTTP or cross mesh. Confirm the actual Browser surface renders after Retry surface lookup. Never kill production to repair a listener collision.

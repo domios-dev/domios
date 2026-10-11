@@ -24,11 +24,10 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
         return Err(format!("plugin '{id}' is not installed"));
     }
     let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
-    let record = read_install_record(id).map_err(|_| {
-        let decision = update_availability(before.as_deref(), UpdateSource::Unknown, None);
-        format!("plugin '{id}' is not updatable: {}", decision.reason)
-    })?;
-    let channel = match &record.source {
+    let record = read_install_record(id).ok();
+    let provenance = effective_install_source(id, record.as_ref().map(|record| &record.source))
+        .ok_or_else(|| format!("plugin '{id}' is not updatable: unknown_source"))?;
+    let channel = match &provenance {
         InstallSource::Channel { channel, .. } => channel,
         InstallSource::SystemChannel { channel, .. } => {
             ensure_system_channel()?;
@@ -43,7 +42,7 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
         }
     };
     refresh_channel(Some(channel))?;
-    let status = installed_update_status(id, before.as_deref(), Some(&record.source));
+    let status = installed_update_status(id, before.as_deref(), Some(&provenance));
     if status["available"] != true {
         return Err(format!(
             "plugin '{id}' is not updatable: {}",
@@ -64,7 +63,7 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
     let path = plugin_path(plugin)?;
     let source = Path::new(&ch.path).join(&path);
     let after = manifest_version(&source).ok().flatten();
-    let next_source = match &record.source {
+    let next_source = match &provenance {
         InstallSource::SystemChannel { .. } => InstallSource::SystemChannel {
             channel: channel.clone(),
             path,
@@ -83,7 +82,7 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
             Some(channel.clone()),
         )),
         source: next_source,
-        ..record.clone()
+        id: id.to_string(),
     };
     let result = install_from_dir(&source, id, Some(&next_record));
     audit_plugin_result("update", Some(id), Some(channel), before, after, &result);

@@ -61,6 +61,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Updates | `update check`, `update install --auto` | — |
 | Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
 | Services registry | `service --help` | `docs MESH` |
+| REST listener status/recovery while HTTP is down | `rest-api status`, `rest-api restart` through the local socket | `docs CONFIG` |
 | Essence map | `essence-map --help` | `docs ESSENCE-MAP` |
 | Provider launch leftovers | `integration sweep-profiles --provider <id>` is a dry run; only the owner adds `--confirm` | — |
 | Keep the machine awake | `keepawake start` / `stop` / `status` | — |

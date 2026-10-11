@@ -48,6 +48,13 @@ pub(super) fn dispatch(
                 &svc.agent_command_registry,
             ))
         }
+        "rest_api.status" | "rest_api.restart" => {
+            let control = app
+                .state::<crate::startup::RestApiControlState>()
+                .inner()
+                .clone();
+            return tauri::async_runtime::block_on(rest_api::execute(method, &control));
+        }
         "api.request" => return local_api::dispatch(&params, app),
         "system.identify" => {
             return Ok(serde_json::json!({
@@ -62,6 +69,8 @@ pub(super) fn dispatch(
                 "system.identify",
                 "plugin.refresh_installed",
                 "system.capabilities",
+                "rest_api.status",
+                "rest_api.restart",
                 "api.request",
                 "workspace.list",
                 "workspace.create",
@@ -440,10 +449,14 @@ pub(crate) fn dispatch_mesh_rpc(
             serde_json::Value::String(peer_id.into()),
         );
     }
-    if method.starts_with("model_provider.") {
+    if method.starts_with("model_provider.") || method.starts_with("rest_api.") {
         return Err(JsonRpcError {
             code: -32600,
-            message: "model provider operations are local-only".into(),
+            message: if method.starts_with("rest_api.") {
+                "REST listener operations are local-only".into()
+            } else {
+                "model provider operations are local-only".into()
+            },
             data: None,
         });
     }

@@ -1,10 +1,11 @@
 #[path = "src/bundle_hash.rs"]
 mod bundle_hash;
 
-/// Core plugins that ship with the app but are not agent providers.
-const CORE_PLUGIN_DIRS: &[&str] = &["analytics", "browser"];
+#[path = "../codeterm-util/src/bundled_plugin_dirs.rs"]
+mod bundled_plugin_dirs;
 
 fn main() {
+    println!("cargo:rerun-if-changed=../codeterm-util/src/bundled_plugin_dirs.rs");
     generate_system_plugin_hashes();
 }
 
@@ -40,11 +41,10 @@ fn generate_system_plugin_hashes() {
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
-        let id = match dir_name.strip_prefix("provider-") {
-            Some(provider) => provider.to_string(),
-            None if CORE_PLUGIN_DIRS.contains(&dir_name.as_str()) => dir_name.clone(),
-            None => continue,
+        let Some(id) = bundled_plugin_dirs::bundled_plugin_id(&dir_name) else {
+            continue;
         };
+        let id = id.to_string();
         verify_id_matches_folder(&path, &id);
         let h = bundle_hash::hash_bundle(&path)
             .unwrap_or_else(|e| panic!("hash plugin {}: {e}", path.display()));

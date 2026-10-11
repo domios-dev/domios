@@ -611,3 +611,50 @@ async fn pending_bind_is_silent_without_a_bound_listener() {
         "with no listener owned there is no live bind to contradict"
     );
 }
+
+#[tokio::test]
+async fn socket_restart_recovers_after_foreign_port_owner_is_released() {
+    let occupier = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = occupier.local_addr().unwrap();
+    let control = Arc::new(RestApiControl::new());
+    let mut status = control.subscribe_status();
+    let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
+    wait_for_status(&control, &mut status, |status| {
+        status.phase == RestApiPhase::Failed
+    })
+    .await;
+    let failed = crate::socket::server::rest_api::execute("rest_api.status", &control)
+        .await
+        .unwrap();
+    assert_eq!(failed["phase"], "failed");
+    assert_eq!(failed["diagnostic"], "bind_ownership_failed");
+    assert!(failed["message"]
+        .as_str()
+        .unwrap()
+        .contains(&address.to_string()));
+    let still_occupied = crate::socket::server::rest_api::execute("rest_api.restart", &control)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        still_occupied.data.unwrap()["diagnostic"],
+        "bind_ownership_failed"
+    );
+    drop(occupier);
+    let recovered = crate::socket::server::rest_api::execute("rest_api.restart", &control)
+        .await
+        .unwrap();
+    assert_eq!(recovered["phase"], "listening");
+    assert!(recovered["generation"].as_u64().unwrap() > failed["generation"].as_u64().unwrap());
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!("http://{address}/api/health"))
+        .header(reqwest::header::CONNECTION, "close")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.text().await.unwrap(), "ok");
+    control.shutdown_and_wait().await.unwrap();
+    task.await.unwrap();
+}
