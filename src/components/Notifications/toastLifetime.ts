@@ -1,3 +1,5 @@
+export const CHAT_ERROR_TOAST_LIFETIME_MS = 10_000;
+
 export const MAX_TOAST_LIFETIME_MS = 15_000;
 
 export function toastLifetime(configured = 5000): number {

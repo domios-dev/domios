@@ -1,3 +1,4 @@
+import { canSendDelayedMessage } from "./delayedMessageModel";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Timer, X } from "lucide-react";
@@ -154,7 +155,7 @@ export function DelayedMessageModal({ target, busy, onSubmit, onStash, onDelete,
         </div>
         <div className="ct-delayed-modal__foot">
           {onDelete && <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--danger" disabled={busy} onClick={onDelete}>Delete</button>}
-          {onSendNow && <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--quiet" disabled={busy} onClick={onSendNow}>Send now</button>}
+          {onSendNow && <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--quiet" disabled={busy || !canSendDelayedMessage(editing ?? undefined)} onClick={onSendNow}>Send now</button>}
           {onStash && <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--quiet" disabled={busy || !text.trim()} onClick={() => onStash(text)}>Stash</button>}
           <span className="ct-delayed-modal__spacer" />
           <button type="button" className="ct-delayed-modal__btn" disabled={busy} onClick={onClose}>Cancel</button>

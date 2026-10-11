@@ -3,7 +3,7 @@ import { withFailureDeadline } from "../test/withFailureDeadline";
 import { agentProvidersFromResponse, syncAgentDescriptorCache } from "../hooks/useAgentProviders";
 import { getAgentDescriptor } from "./agentDescriptorCache";
 import type { ProviderDescriptor } from "./types";
-import { webJson, invalidateWebRequestContext } from "./webApi";
+import { webJson, webUpload, invalidateWebRequestContext } from "./webApi";
 
 describe("web JSON prompt response transport", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -108,6 +108,36 @@ describe("peer provider catalog relay", () => {
     const catalog = agentProvidersFromResponse(await webJson("GET", "/api/agents/providers"));
     syncAgentDescriptorCache(catalog, false, null);
     expect(getAgentDescriptor(descriptor.id)?.supports_chat_ui).toBe(true);
+  });
+});
+
+describe("browser attachment upload transport", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("uses browser multipart and interrupts a suspended voice upload", async () => {
+    const page = new EventTarget();
+    const doc = new EventTarget();
+    vi.stubGlobal("window", Object.assign(page, { location: { protocol: "https:", host: "phone" } }));
+    vi.stubGlobal("document", Object.assign(doc, { visibilityState: "visible" }));
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    let started!: () => void;
+    const requestStarted = new Promise<void>((resolve) => { started = resolve; });
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://phone/api/upload");
+      expect(new Headers(init.headers).has("Content-Type")).toBe(false);
+      const field = (init.body as FormData).get("file") as File;
+      expect(field.name).toBe("voice-note.webm");
+      expect(field.type).toBe("audio/webm");
+      expect(await field.text()).toBe("voice");
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal!.addEventListener("abort", () => reject(new DOMException("Interrupted", "AbortError")), { once: true });
+        started();
+      });
+    });
+    const result = webUpload(new Blob(["voice"], { type: "audio/webm" }), "voice-note.webm");
+    const rejected = expect(result).rejects.toThrow("Interrupted");
+    await withFailureDeadline(requestStarted, "voice upload start");
+    page.dispatchEvent(new Event("pagehide"));
+    await rejected;
   });
 });
 
