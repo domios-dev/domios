@@ -58,12 +58,10 @@ export function initializeDaemonTransport(): TransportClient | undefined {
   if (base) return base;
   if (typeof window === "undefined") return undefined;
   const injected = window.__CODETERM_DAEMON__;
-  if (injected) {
-    delete window.__CODETERM_DAEMON__;
-    return configureDaemonTransport(injected);
-  }
+  delete window.__CODETERM_DAEMON__;
   const restored = window.sessionStorage ? readReloadCredentials(window.sessionStorage) : typeof sessionStorage === "undefined" ? undefined : readReloadCredentials(sessionStorage);
   if (restored) return configureDaemonTransport(restored);
+  if (injected) return configureDaemonTransport(injected);
   if ("__TAURI_INTERNALS__" in window) return undefined;
   return configureDaemonTransport({
     origin: window.location.origin ?? `${window.location.protocol}//${window.location.host}`,
