@@ -111,5 +111,6 @@
   "src/lib/surfaceControlStore.test.tsx",
   "src/components/Surface/surfaceIcon.test.ts",
   "src/components/CrashReportToast.test.tsx",
-  "src/lib/generalSession.adapter.test.ts"
+  "src/lib/generalSession.adapter.test.ts",
+  "src/hooks/terminal/terminalScroll.test.ts"
 ]
