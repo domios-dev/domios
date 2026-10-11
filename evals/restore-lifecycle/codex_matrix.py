@@ -486,11 +486,11 @@ class Matrix:
         if failed or any(row[1] == 'FAIL' for row in self.results):
             raise SystemExit(1)
         if self.team:
-            self.cli('team-cleanup', 'team', 'close', self.team)
+            self.cli('team-cleanup', 'team', 'close', self.team, '--force')
         if self.workspace:
             self.cli('workspace-cleanup', 'workspace', 'close', self.workspace, '--force', json_output=False)
         if self.plan:
-            self.cli('plan-cleanup', 'plan', 'delete', self.plan, json_output=False)
+            self.cli('plan-cleanup', 'plan', 'delete', self.plan, '--yes', json_output=False)
 
 
 if __name__ == '__main__':
