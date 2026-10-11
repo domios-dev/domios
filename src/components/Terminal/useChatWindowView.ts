@@ -29,6 +29,7 @@ import {
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
+import { deliveryProjectionSends } from "./chatDeliveryModel";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
 
@@ -63,11 +64,7 @@ export function useChatWindowView({
     const index = lastSessionResetIndex(committedRows);
     return index >= 0 ? timestampMs(committedRows[index]?.timestamp) : null;
   }, [committedRows]);
-  const liveSends = useMemo(() => {
-    if (resetCutoffMs == null) return sends;
-    return sends.filter((send) => send.sentAtMs >= resetCutoffMs);
-  }, [sends, resetCutoffMs]);
-
+  const liveSends = useMemo(() => deliveryProjectionSends(sends, resetCutoffMs), [sends, resetCutoffMs]);
   const projection = useMemo(() => projectTranscript(transcript, liveSends), [transcript, liveSends]);
   const allMessages = useMemo(() => projectContextEpochs(projection.rows), [projection]);
   useLayoutEffect(() => {
