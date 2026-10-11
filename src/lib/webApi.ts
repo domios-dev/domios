@@ -230,5 +230,5 @@ export async function webJson<T>(
   });
   const text = await res.text();
   assertWebRequestContext(generation);
-  return decodeTransportResponse<T>(res.status, path, text);
+  return decodeTransportResponse<T>(res.status, path, text, res.headers.get("content-type"));
 }

@@ -64,7 +64,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (url) => {
     if (String(url) === `${selfHost()}/api/mesh/peers`) {
-      return new Response(JSON.stringify({ local_instance_name: "Gateway", paired: peers }));
+      return Response.json({ local_instance_name: "Gateway", paired: peers });
     }
     throw new Error(`Unexpected request: ${String(url)}`);
   });
