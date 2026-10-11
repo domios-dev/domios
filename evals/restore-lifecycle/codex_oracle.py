@@ -17,11 +17,11 @@ def inspected(payload):
     return payload[0]
 
 
-def bindings(records, before=None):
+def bindings(records, before=None, provider="codex"):
     sessions = set()
     for tab, row in records.items():
         sid, nonce = row.get("agent_session_id"), row.get("session_binding_nonce")
-        require(row.get("agent_type") == "codex" and sid, f"{tab}: missing Codex session")
+        require(row.get("agent_type") == provider and sid, f"{tab}: missing {provider} session")
         require(sid not in sessions, f"{tab}: duplicate session {sid}")
         sessions.add(sid)
         require(nonce and nonce == row.get("reported_session_binding_nonce"), f"{tab}: unauthenticated nonce")

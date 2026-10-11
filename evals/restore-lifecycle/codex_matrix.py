@@ -1,4 +1,4 @@
-"""Codex-only live matrix; all CLI operations go through the DEV-pinned dc."""
+"""Codex and OpenCode live matrix; all CLI operations go through the DEV-pinned dc."""
 import concurrent.futures
 import json
 import os
@@ -393,13 +393,15 @@ class Matrix:
             self.phase_respawn()
             self.phase_foreign()
             self.phase_idle()
+            from opencode_track import OpenCodeTrack
+            OpenCodeTrack(self).run()
         except BaseException as error:
             self.write('failure.txt', str(error))
             if self.log_path.exists():
                 self.log_since(self.log_offset, 'failure')
             self.results.append((self.phase, 'FAIL', str(error)))
             executed = {row[0] for row in self.results}
-            for phase in range(1, 8):
+            for phase in range(1, 12):
                 if phase not in executed:
                     self.results.append((phase, 'FAIL', 'NOT EXECUTED: prerequisite phase failed'))
             self.table()
