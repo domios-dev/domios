@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.1",
+  "version": "1.14.2",
   "minCodeterm": "1.14.1",
   "hostApi": 2,
   "displayName": "Codex",
@@ -10,7 +10,7 @@
     "agentProvider": true,
     "structuredControl": {
       "protocol": "codex-app-server",
-      "minVersion": "0.160.0"
+      "minVersion": "0.159.0"
     }
   },
   "iconColor": "var(--ct-fg)",
@@ -246,6 +246,7 @@
   "icon": "icon.svg",
   "cliCompatibility": {
     "supported": [
+      "=0.159.0",
       "=0.160.0"
     ],
     "breaking": []
