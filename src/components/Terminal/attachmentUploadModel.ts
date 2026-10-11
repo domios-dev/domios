@@ -6,7 +6,7 @@ export interface UploadFailure {
 export function classifyUploadFailure(error: unknown): UploadFailure {
   const message = error instanceof Error ? error.message : String(error);
   const status = typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
-  const interrupted = error instanceof TypeError || (error instanceof Error && error.name === "AbortError");
+  const interrupted = error instanceof TypeError || (error instanceof Error && ["AbortError", "NotReadableError"].includes(error.name));
   const multipart = status === 400 && /multipart\/form-data/i.test(message);
   return { message, retryable: interrupted || multipart || status === 408 || status === 429 || (typeof status === "number" && status >= 500) };
 }

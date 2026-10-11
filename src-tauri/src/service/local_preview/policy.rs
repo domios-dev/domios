@@ -7,6 +7,8 @@ use crate::commands::html_preview::checked_path;
 pub(super) struct PreviewPolicy {
     references: HashSet<String>,
     denied: Vec<String>,
+    uploads: Option<PathBuf>,
+    upload_denied: Vec<String>,
 }
 
 impl PreviewPolicy {
@@ -22,10 +24,39 @@ impl PreviewPolicy {
         Ok(Self {
             references,
             denied: roots,
+            uploads: None,
+            upload_denied: Vec::new(),
         })
     }
 
+    pub fn with_uploads(mut self, uploads: &Path, denied: &[PathBuf]) -> Result<Self, String> {
+        self.upload_denied = Self::new(HashSet::new(), denied)?.denied;
+        self.uploads = uploads.canonicalize().ok();
+        Ok(self)
+    }
+
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
+        // Uploads are user-provided artifacts; require a canonical direct child to exclude symlink escapes.
+        if let Some(uploads) = &self.uploads {
+            if requested
+                .parent()
+                .and_then(|parent| parent.canonicalize().ok())
+                .as_ref()
+                == Some(uploads)
+                && canonical.is_none_or(|path| path.parent() == Some(uploads.as_path()))
+                && !self.upload_denied.iter().any(|root| {
+                    std::iter::once(requested).chain(canonical).any(|path| {
+                        let key = denial_key(path);
+                        key == *root
+                            || key
+                                .strip_prefix(root.as_str())
+                                .is_some_and(|rest| rest.starts_with('/'))
+                    })
+                })
+            {
+                return Ok(());
+            }
+        }
         if !self.references.contains(&path_key(requested)) {
             return Err("Preview path is not referenced".into());
         }
