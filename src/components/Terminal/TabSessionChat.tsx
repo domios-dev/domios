@@ -63,6 +63,7 @@ import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
+import { ChatHighlightBudgetProvider, ChatHighlightRow } from "@codeterm/chat-ui";
 import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
@@ -754,6 +755,7 @@ export function TabSessionChat({
     && !inlinePrompt;
 
   return (
+    <ChatHighlightBudgetProvider>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
@@ -855,6 +857,7 @@ export function TabSessionChat({
           return (
             <Fragment key={msg.id}>
             <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
+            <ChatHighlightRow id={msg.id}>
             <ChatMessageRow
               msg={msg}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
@@ -892,6 +895,7 @@ export function TabSessionChat({
                 onJumpToMessage={jumpToQuoted}
               />
             </ChatMessageRow>
+            </ChatHighlightRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
             </div>
@@ -1004,5 +1008,6 @@ export function TabSessionChat({
     </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
+    </ChatHighlightBudgetProvider>
   );
 }

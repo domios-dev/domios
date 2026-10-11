@@ -84,3 +84,5 @@ export { messageParts, normalizedMarkdown, type MessagePart } from "./messagePar
 export { MessagePartsContext } from "./MessagePartsContext";
 
 export { MessageTimeFrame } from "./MessageTimeFrame";
+
+export { ChatHighlightBudgetProvider, ChatHighlightRow } from "./ChatHighlightBudget";

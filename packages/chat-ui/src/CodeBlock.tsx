@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2, RotateCcw, Scan } from "lucide-react";
 import { SyntaxHighlighter } from "./syntaxHighlighter";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
+import { HIGHLIGHT_LINE_LIMIT, highlightSourceEligible } from "./highlightBudget";
 import { inferCodeLanguage } from "./codeLanguage";
 import {
   ensureMermaidInitialized,
@@ -21,7 +22,7 @@ import { fitMermaidScale, mermaidSvgSize, type MermaidSize } from "./mermaidFull
 
 export const PRE_WRAP_CLASS = "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
 
-export const LONG_CODE_PREVIEW_LINES = 300;
+export const LONG_CODE_PREVIEW_LINES = HIGHLIGHT_LINE_LIMIT;
 const CODE_PREVIEW_HEAD_LINES = 8;
 const CODE_PREVIEW_TAIL_LINES = 8;
 export const CODE_BLOCK_DEFAULT_MAX_HEIGHT = "500px";
@@ -143,6 +144,7 @@ type CodeContentProps = {
   wrapLines?: boolean;
   showLineNumbers?: boolean;
   forcePlainText?: boolean;
+  explicitHighlight?: boolean;
   mermaidSvg: string | null;
   shouldDisplayMermaid: boolean;
   showMermaidFallback: boolean;
@@ -167,6 +169,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   wrapLines = false,
   showLineNumbers = false,
   forcePlainText = false,
+  explicitHighlight = false,
   mermaidSvg,
   shouldDisplayMermaid,
   showMermaidFallback,
@@ -255,6 +258,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
             <div className="px-2 py-1.5 text-xs opacity-70">Rendering mermaid…</div>
           )}
           <SyntaxHighlighter
+            explicitHighlight={explicitHighlight}
             language={resolvedLanguage}
             showLineNumbers={showLineNumbers}
             lineNumberStyle={{ color: "var(--ct-muted-fg)", userSelect: "none" }}
@@ -318,15 +322,17 @@ export function CodeBlock({
   const canCollapse = collapsible && !mermaidMode && lineCountValue > collapseAfterLines;
   const [isMobileViewport, setIsMobileViewport] = useState(() => getMobileViewport());
   const [expanded, setExpanded] = useState(!canCollapse);
+  const [richRequested, setRichRequested] = useState(false);
   const [copied, setCopied] = useState(false);
   const [mermaidError, setMermaidError] = useState<string | null>(null);
   const [mermaidSvg, setMermaidSvg] = useState<string | null>(null);
   const [mermaidLoading, setMermaidLoading] = useState(false);
   const mermaidCandidates = useMemo(() => (mermaidMode ? getMermaidRenderCandidates(normalizedText) : []), [mermaidMode, normalizedText]);
   const mermaidRenderKey = mermaidCandidates.join("\u0000");
-  const shouldUsePlainRenderer = (!mermaidMode && (normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD || isToolTraceLanguage(language)))
-    || (mermaidMode && (mermaidCandidates[0]?.length ?? 0) > MERMAID_RENDER_LENGTH_LIMIT);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const highlightEligible = highlightSourceEligible(normalizedText, richRequested || isFullscreen);
+  const shouldUsePlainRenderer = (!mermaidMode && (normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD || isToolTraceLanguage(language) || !highlightEligible))
+    || (mermaidMode && (mermaidCandidates[0]?.length ?? 0) > MERMAID_RENDER_LENGTH_LIMIT);
   const [fullscreenBounds, setFullscreenBounds] = useState<RectLike | null>(null);
   const copyTimer = useRef<number | null>(null);
   const fullscreenBoundsRaf = useRef<number | null>(null);
@@ -808,6 +814,7 @@ export function CodeBlock({
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
+                if (!expanded) setRichRequested(true);
                 setExpanded((value) => !value);
               }}
               className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
@@ -837,6 +844,8 @@ export function CodeBlock({
             <span>Fullscreen</span>
           </button>
         </div>
+        {!mermaidMode && !highlightEligible && <button type="button" onClick={() => { setRichRequested(true); setExpanded(true); }}
+          className="select-none px-2 py-1 text-xs" aria-label="Highlight code">Highlight code</button>}
         <CodeBlockContent
           wrapLines={wrapLines}
           showLineNumbers={showLineNumbers}
@@ -847,6 +856,7 @@ export function CodeBlock({
           mermaidMode={mermaidMode}
           mermaidSvg={mermaidSvg}
           forcePlainText={shouldUsePlainRenderer}
+          explicitHighlight={richRequested || isFullscreen}
           shouldDisplayMermaid={shouldDisplayMermaid}
           showMermaidFallback={showMermaidFallback}
           suppressMermaidErrorOutput={suppressMermaidErrorOutput}
@@ -942,6 +952,7 @@ export function CodeBlock({
                 mermaidMode={mermaidMode}
                 mermaidSvg={mermaidSvg}
                 forcePlainText={shouldUsePlainRenderer}
+          explicitHighlight={richRequested || isFullscreen}
                 shouldDisplayMermaid={shouldDisplayMermaid}
                 showMermaidFallback={showMermaidFallback}
                 suppressMermaidErrorOutput={suppressMermaidErrorOutput}
