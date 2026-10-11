@@ -3,6 +3,7 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import {
   chatBodyView,
+  chatChannelLoadingRow,
   chatRailsVisible,
   placeChatRails,
   railRowCount,
@@ -68,6 +69,23 @@ describe("chat body authority", () => {
       bootView: { kind: "starting", label: "Starting" },
     });
     expect(view.kind).toBe("none");
+  });
+});
+
+describe("chat channel status", () => {
+  it("shows channel recovery alongside an authoritative transcript", () => {
+    const view = chatBodyView({ hasTranscript: true, chatLoading: true, unavailable: null, bootView: { kind: "none" } });
+    expect(chatChannelLoadingRow(true, view)).toBe("model");
+  });
+  it("hides channel status after loading completes", () => {
+    expect(chatChannelLoadingRow(false, { kind: "none" })).toBe(null);
+  });
+  it("leaves an empty loading transcript to its body indicator", () => {
+    const view = chatBodyView({ hasTranscript: false, chatLoading: true, unavailable: null, bootView: { kind: "none" } });
+    expect(chatChannelLoadingRow(true, view)).toBe(null);
+  });
+  it("leaves a reported failure to its body indicator", () => {
+    expect(chatChannelLoadingRow(true, { kind: "failed", reason: "no_transcript_source" })).toBe(null);
   });
 });
 

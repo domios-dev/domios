@@ -176,5 +176,6 @@
   "src/lib/frontendUpdate/bootstrapModel.test.ts",
   "src/lib/runtimeBindingModel.test.ts",
   "src/components/providerLogoModel.test.ts",
-  "src/components/ProviderGlyph.test.tsx"
+  "src/components/ProviderGlyph.test.tsx",
+  "src/components/Terminal/ChatChannelLoadingStatus.test.tsx"
 ]
