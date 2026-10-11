@@ -310,6 +310,7 @@ test("standalone ct artifact directives render pages, images, and documents", as
   });
 
   assert(parseLocalArtifactDirective(`@ds-page "${pagePath}"`)?.path === pagePath, "quoted ds-page parses");
+  assert(parseLocalArtifactDirective(`@ct-image ${imagePath}`)?.kind === "image", "legacy ct-image parses");
   const { host } = await render(
     <RichMarkdown text={`@ds-page ${pagePath}\n\n@ds-image ${imagePath}\n\n@ds-document ${documentPath}`} />,
   );
