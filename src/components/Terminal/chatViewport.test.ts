@@ -30,28 +30,28 @@ assert(
   "a viewport away from bottom stays detached",
 );
 assert(
-  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1004, scrollTop: 600, clientHeight: 400 }) === "pinned",
+  chatViewportModeAfterScroll("pinned", { scrollHeight: 1004, scrollTop: 600, clientHeight: 400 }, { scrollHeight: 1004, scrollTop: 600, clientHeight: 400 }) === "pinned",
   "a viewport resize cannot detach a pinned live tail",
 );
 assert(
-  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599.9, clientHeight: 400 }) === "pinned",
+  chatViewportModeAfterScroll("pinned", { scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }, { scrollHeight: 1000, scrollTop: 599.9, clientHeight: 400 }) === "pinned",
   "fractional bottom rounding keeps the live tail pinned",
 );
 assert(
-  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599, clientHeight: 400 }) === "detached",
+  chatViewportModeAfterScroll("pinned", { scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }, { scrollHeight: 1000, scrollTop: 599, clientHeight: 400 }) === "detached",
   "meaningful upward movement detaches immediately",
 );
 
 assert(
-  chatViewportModeAfterScroll("detached", 7000, { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }) === "detached",
+  chatViewportModeAfterScroll("detached", { scrollHeight: 8400, scrollTop: 7000, clientHeight: 400 }, { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }) === "detached",
   "scrolling down short of the bottom stays detached",
 );
 assert(
-  chatViewportModeAfterScroll("detached", 7999, { scrollHeight: 8400, scrollTop: 7998.5, clientHeight: 400 }) === "detached",
+  chatViewportModeAfterScroll("detached", { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }, { scrollHeight: 8400, scrollTop: 7998.5, clientHeight: 400 }) === "detached",
   "moving up inside the bottom band stays detached",
 );
 assert(
-  chatViewportModeAfterScroll("detached", 7000, { scrollHeight: 8400, scrollTop: 7990, clientHeight: 400 }) === "detached",
+  chatViewportModeAfterScroll("detached", { scrollHeight: 8400, scrollTop: 7000, clientHeight: 400 }, { scrollHeight: 8400, scrollTop: 7990, clientHeight: 400 }) === "detached",
   "a reader short of the bottom stays detached",
 );
 
@@ -77,5 +77,5 @@ assert(getPersistedChatScrollState(key) === null, "clearing removes persisted st
 
 console.log("chat viewport geometry checks passed");
 
-assert(chatViewportModeAfterScroll("detached", 7999, { scrollHeight: 8400, scrollTop: 8000, clientHeight: 400 }) === "pinned", "returning to the bottom reattaches");
-assert(chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599.999, clientHeight: 400 }) === "pinned", "bottom rounding cannot detach the live tail");
+assert(chatViewportModeAfterScroll("detached", { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }, { scrollHeight: 8400, scrollTop: 8000, clientHeight: 400 }) === "pinned", "returning to the bottom reattaches");
+assert(chatViewportModeAfterScroll("pinned", { scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }, { scrollHeight: 1000, scrollTop: 599.999, clientHeight: 400 }) === "pinned", "bottom rounding cannot detach the live tail");
