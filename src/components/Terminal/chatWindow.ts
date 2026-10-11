@@ -109,3 +109,13 @@ export function slideChatWindowOlder(
   const newEnd = Math.max(1, end - Math.min(step, start));
   return timelineItemKey(items[newEnd - 1]);
 }
+
+export function chatReadingWindowAnchor(
+  items: readonly TimelineItem[],
+  anchorKey: string | null,
+  followTail: boolean,
+  previousTail: ChatWindowAnchorIdentity | null,
+): string | null {
+  if (anchorKey != null || followTail || previousTail == null) return anchorKey;
+  return rekeyedChatWindowAnchor(items, previousTail);
+}
