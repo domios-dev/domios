@@ -51,7 +51,7 @@ daemon's `agent cli status codex` detects the version.
 | 4 restore queue, three cycles | Each Worker was pre-ready and Chat send returned held at queue admission; unique marker exactly once in its own transcript, zero in others; no expired_launch/refused_pending | `cycle-*-queue-window.json`, `cycle-*-queue-*.json`, `cycle-*-dev.log`, exact bound transcript paths |
 | 5 respawn and old close | New ACKed attempt remains open after old close; new Worker's real report reaches persisted in_review; no stale binding | `respawn.json`, `respawn-after-close.json`, `report-task.json`, `respawn-dev.log` |
 | 6 foreign Codex | Scratch Codex exits successfully with inherited Worker identity; tool evidence proves execution; own binding nonce, attempt and session unchanged | `foreign-before-task.json`, `foreign-after-task.json`, own transcript's helper JSON tool output |
-| 7 idle restart | All agents idle; same bound sessions and all user turns preserved; no new user turn or delivered continue | `idle-before.json`, `idle-after.json`, `idle-dev.log` |
+| 7 idle restart | All agents idle; same bound sessions and all user turns preserved; no spontaneous user turn or delivered continue; then each Worker receives one marked first message and shows its reply live | `idle-before.json`, `idle-after.json`, `idle-dev.log` |
 
 Each phase emits an explicit `PASS mode=... phase=...` or `FAIL` line and
 `results.md` contains the mode table. Failure preserves the fixture and exact
