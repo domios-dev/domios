@@ -22,16 +22,6 @@ pub(crate) fn parse_live_prompt(
                 .parse_prompt(screen)
                 .map(|prompt| (prompt, PromptKind::Provider))
         });
-    log::debug!(
-        "[live-prompt-decision] provider={} state_confidence={:?} parsed_identity={:?}",
-        provider.id(),
-        classification
-            .as_ref()
-            .map(|value| (value.state, value.confidence)),
-        parsed
-            .as_ref()
-            .map(|(prompt, kind)| codeterm_types::pty::PromptIdentity::new(*kind, prompt))
-    );
     let resolved = resolve_live_prompt(parsed, classification.as_ref());
     log::trace!(
         "[live-prompt] provider={} classification={:?} interactive={}",

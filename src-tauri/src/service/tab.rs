@@ -725,56 +725,23 @@ impl ServiceContext {
             value,
             expected_identity,
         ) {
-            return result
-                .map(|_| RespondPromptOutcome::Structured)
-                .map_err(|error| {
-                    log::debug!(
-                        "[respond_prompt-refusal] tab={} check=permission_response error={}",
-                        tab_id,
-                        error
-                    );
-                    error
-                });
+            return result.map(|_| RespondPromptOutcome::Structured);
         }
         let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
-            log::debug!("[respond_prompt-refusal] tab={} check=tab_missing", tab_id);
             return Err(format!("Tab not found: {}", tab_id));
         };
         let response_identity = tab.prompt_identity();
-        let refuse = |check: &str,
-                      outcome,
-                      observed: Option<&codeterm_types::pty::PromptIdentity>| {
-            let dimensions = self.resolve_pty_id(tab_id).ok().and_then(|pty_id| {
-                self.screen_state
-                    .lock()
-                    .native_prompt_input(&pty_id)
-                    .map(|input| (input.screen.rows, input.screen.cols))
-            });
-            log::debug!(
-                "[respond_prompt-refusal] tab={} check={} outcome={:?} expected={:?} pending={:?} observed={:?} dimensions_rows_cols={:?}",
-                tab_id, check, outcome, expected_identity, response_identity, observed, dimensions
-            );
-            Ok(outcome)
-        };
         if let Some(expected) = expected_identity {
             let current_identity = tab.prompt_identity();
             if current_identity.as_ref() != Some(expected) {
-                return refuse(
-                    "pending_identity",
-                    RespondPromptOutcome::StalePrompt,
-                    current_identity.as_ref(),
-                );
+                return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
         let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
         if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
             && structured_prompt.is_none()
         {
-            return refuse(
-                "structured_missing",
-                RespondPromptOutcome::StalePrompt,
-                None,
-            );
+            return Ok(RespondPromptOutcome::StalePrompt);
         }
         if let Some(expected) = expected_identity {
             if expected.kind == codeterm_types::pty::PromptKind::Structured {
@@ -785,37 +752,18 @@ impl ServiceContext {
                     )
                 });
                 if current_identity.as_ref() != Some(expected) {
-                    return refuse(
-                        "structured_identity",
-                        RespondPromptOutcome::StalePrompt,
-                        current_identity.as_ref(),
-                    );
+                    return Ok(RespondPromptOutcome::StalePrompt);
                 }
             } else if structured_prompt.is_some() {
-                return refuse(
-                    "structured_replaced_provider",
-                    RespondPromptOutcome::StalePrompt,
-                    None,
-                );
+                return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
         if structured_prompt.is_some() {
             let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value)
             else {
-                return refuse(
-                    "structured_response_missing",
-                    RespondPromptOutcome::StalePrompt,
-                    None,
-                );
+                return Ok(RespondPromptOutcome::StalePrompt);
             };
-            match result.map_err(|error| {
-                log::debug!(
-                    "[respond_prompt-refusal] tab={} check=structured_response_error error={}",
-                    tab_id,
-                    error
-                );
-                error
-            })? {
+            match result? {
                 crate::service::structured_prompt::StructuredResponse::Advanced => {}
                 crate::service::structured_prompt::StructuredResponse::Answered {
                     option_index,
@@ -838,11 +786,7 @@ impl ServiceContext {
             .ok()
             .and_then(|index| index.checked_sub(1))
         else {
-            return refuse(
-                "option_not_numeric",
-                RespondPromptOutcome::InvalidOption,
-                None,
-            );
+            return Ok(RespondPromptOutcome::InvalidOption);
         };
 
         if structured_prompt
@@ -850,11 +794,7 @@ impl ServiceContext {
             .or(tab.pending_prompt.as_ref())
             .is_some_and(|prompt| prompt.multi_select == Some(true))
         {
-            return refuse(
-                "pending_multi_select",
-                RespondPromptOutcome::InvalidOption,
-                None,
-            );
+            return Ok(RespondPromptOutcome::InvalidOption);
         }
         let pending_option_count = structured_prompt
             .as_ref()
@@ -865,51 +805,32 @@ impl ServiceContext {
                     .map(|prompt| prompt.options.len())
             });
         if pending_option_count.is_some_and(|count| option_index >= count) {
-            return refuse(
-                "pending_option_bounds",
-                RespondPromptOutcome::InvalidOption,
-                None,
-            );
+            return Ok(RespondPromptOutcome::InvalidOption);
         }
 
         let Ok(pty_id) = self.resolve_pty_id(tab_id) else {
-            return refuse("pty_missing", RespondPromptOutcome::NoPty, None);
+            return Ok(RespondPromptOutcome::NoPty);
         };
-        let (screen, screen_dimensions) = {
-            let state = self.screen_state.lock();
-            (
-                state.get_screen_text(&pty_id).unwrap_or_default(),
-                state
-                    .native_prompt_input(&pty_id)
-                    .map(|input| (input.screen.rows, input.screen.cols)),
-            )
+        let screen = {
+            self.screen_state
+                .lock()
+                .get_screen_text(&pty_id)
+                .unwrap_or_default()
         };
-        let clean = crate::pty::ansi::clean_terminal_output(&screen);
-        log::debug!("[respond_prompt-screen] tab={} provider={:?} option_index={} expected={:?} pending={:?} normalization=legacy_vt dimensions_rows_cols={:?}", tab_id, tab.agent_type, option_index, expected_identity, response_identity, screen_dimensions);
         let steps = match respond_screen::response_steps(
             &self.agent_registry,
             tab.agent_type.as_deref(),
-            &clean,
+            &screen,
             option_index,
             expected_identity,
             || self.default_prompt_response(option_index),
         ) {
             Ok(steps) => steps,
             Err(outcome) => {
-                log::debug!(
-                    "[respond_prompt-screen-refusal] tab={} snapshot_dimensions_rows_cols={:?}",
-                    tab_id,
-                    screen_dimensions
-                );
-                return refuse("live_screen_response", outcome, None);
+                log::debug!("[respond_prompt] Tab {} refused: {:?}", tab_id, outcome);
+                return Ok(outcome);
             }
         };
-        log::debug!(
-            "[respond_prompt-keys] tab={} option_index={} steps={:?}",
-            tab_id,
-            option_index,
-            steps
-        );
         let pty = self.pty.clone();
         std::thread::spawn(move || {
             for step in steps {
