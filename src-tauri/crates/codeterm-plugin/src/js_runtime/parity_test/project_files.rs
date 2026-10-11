@@ -51,14 +51,57 @@ fn project_files_refuse_symlink_escape_even_with_missing_parents() {
     let outside = tempfile::tempdir().unwrap();
     std::os::unix::fs::symlink(outside.path(), root.path().join("escape")).unwrap();
     let project = root.path().canonicalize().unwrap();
-    let sb = PluginSandbox::restricted(Vec::new(), vec![outside.path().canonicalize().unwrap()])
-        .with_project_roots(
-            vec![project.clone()],
-            vec![project],
-            root.path().join("grants.yaml"),
+    let alias_dir = tempfile::tempdir().unwrap();
+    let alias = alias_dir.path().join("parent");
+    std::os::unix::fs::symlink(root.path().parent().unwrap(), &alias).unwrap();
+    let alias_project = alias.join(root.path().file_name().unwrap());
+    assert_eq!(alias_project.canonicalize().unwrap(), project);
+    for outside_is_project in [false, true] {
+        let outside_root = outside.path().canonicalize().unwrap();
+        let mut projects = vec![project.clone()];
+        if outside_is_project {
+            projects.push(outside_root.clone());
+        }
+        let sb = Arc::new(
+            PluginSandbox::restricted(vec![outside_root.clone()], vec![outside_root])
+                .with_project_roots(projects.clone(), projects, root.path().join("grants.yaml")),
         );
-    assert!(!sb.can_write(root.path().join("escape/missing/file").to_str().unwrap()));
-    assert!(!sb.can_read(root.path().join("escape/missing/file").to_str().unwrap()));
+        let vm = PluginVm::from_source_sandboxed(
+            "project-escape",
+            r#"module.exports.default = {
+                write(path) { return host.writeFileAtomic(path, 'fixture'); },
+                read(path) { return host.readFile(path); }
+            };"#
+            .into(),
+            None,
+            sb.clone(),
+        )
+        .unwrap();
+        for base in [root.path(), project.as_path(), alias_project.as_path()] {
+            for suffix in ["escape/file", "escape/missing/file"] {
+                let path = base.join(suffix);
+                assert!(!sb.can_write(path.to_str().unwrap()));
+                assert!(!sb.can_read(path.to_str().unwrap()));
+                let written: bool = call_json(&vm, "write", &[serde_json::json!(path)]).unwrap();
+                assert!(!written);
+            }
+            assert!(sb.can_write(base.join("missing/file").to_str().unwrap()));
+            assert!(sb.can_read(base.join("missing/file").to_str().unwrap()));
+        }
+        let outside_file = outside.path().join("file");
+        assert!(sb.can_write(outside_file.to_str().unwrap()));
+        let written: bool = call_json(&vm, "write", &[serde_json::json!(outside_file)]).unwrap();
+        assert!(written);
+        let escaped_read: Option<String> = call_json(
+            &vm,
+            "read",
+            &[serde_json::json!(root.path().join("escape/file"))],
+        )
+        .unwrap();
+        assert_eq!(escaped_read, None);
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "fixture");
+        assert!(!outside.path().join("missing").exists());
+    }
 }
 
 #[test]

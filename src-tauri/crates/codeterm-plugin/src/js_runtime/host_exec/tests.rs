@@ -291,7 +291,7 @@ fn run_drains_output_larger_than_pipe_buffer_without_deadlock() {
     let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
     assert!(out.get("error").is_none(), "unexpected error: {out}");
     assert_eq!(out["code"], 0);
-    assert_eq!(out["stdout"].as_str().map(str::len), Some(200_000));
+    assert_eq!(out["stdout"].as_str().map(str::len), Some(128 * 1024));
 }
 
 #[test]

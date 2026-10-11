@@ -13991,6 +13991,28 @@
       ]
     },
     {
+      "name": "rest-api",
+      "about": "Inspect and recover the local REST listener through the socket",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "restart",
+          "about": "Restart the REST listener and wait for readiness or a reported failure",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show listener phase and the last bind or runtime error over the local socket",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "send",
       "about": "Send text to a tab (default: current tab)",
       "aliases": [],

@@ -117,6 +117,51 @@ fn sentinel_probe_native_output_is_bounded_and_drained() {
 
 #[cfg(unix)]
 #[test]
+fn sentinel_probe_native_exited_group_retirement_is_idempotent() {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "IFS= read -r _; exit 0"])
+        .process_group(0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let event =
+        unsafe { OwnedFd::from_raw_fd(super::cancellation::unix::parent_event(pid).unwrap()) };
+    drop(child.stdin.take());
+    let mut pending = libc::pollfd {
+        fd: event.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    assert_eq!(unsafe { libc::poll(&mut pending, 1, 3000) }, 1);
+    assert_ne!(pending.revents & libc::POLLIN, 0);
+    let ownership = super::process::LeaderOwnership::Retained(pid);
+    for _ in 0..2 {
+        super::group_retirement::signal_owned_group(ownership, pid).unwrap();
+        super::group_retirement::retire(ownership, pid, std::time::Instant::now() + PROBE_RUNTIME)
+            .unwrap();
+    }
+    assert!(child.wait().unwrap().success());
+    assert!(super::group_retirement::observe_retired(
+        super::process::LeaderOwnership::Retired(pid),
+        pid
+    )
+    .unwrap());
+    assert!(super::group_retirement::signal_owned_group(
+        super::process::LeaderOwnership::Retired(pid),
+        pid
+    )
+    .is_err());
+}
+
+#[cfg(unix)]
+#[test]
 fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
     let fixture = ControlFixture::new(true, false);
     let owner = Arc::new(ProbeResourceOwner::new());
