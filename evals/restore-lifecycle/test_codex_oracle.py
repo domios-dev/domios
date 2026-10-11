@@ -17,6 +17,15 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, 'refused'):
             oracle.cli_data({'ok': False, 'kind': 'error', 'data': None})
 
+    def test_rollout_requires_exact_embedded_session_identity(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'rollout-own.jsonl'
+            path.write_text(json.dumps({'type': 'session_meta', 'payload': {'id': 'foreign'}}))
+            with self.assertRaisesRegex(AssertionError, 'expected one'):
+                oracle.own_rollout(root, 'own')
+            path.write_text(json.dumps({'type': 'session_meta', 'payload': {'id': 'own'}}))
+            self.assertEqual(oracle.own_rollout(root, 'own'), path)
+
     def row(self, sid='own'):
         return dict(agent_type='codex', agent_session_id=sid, session_binding_nonce='n',
                     reported_session_binding_nonce='n', boot_stage='agent_ready', structured_control_active=True)

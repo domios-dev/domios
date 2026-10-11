@@ -103,6 +103,9 @@ class Matrix:
         data = self.cli(f'session-{self.serial}-{tab}', 'sessions', 'get', row['agent_session_id'])
         path = data.get('transcript_path') or data.get('file_path')
         oracle.require(path and pathlib.Path(path).is_file(), f'{tab}: own-session transcript unavailable: {data}')
+        if pathlib.Path(path).name == 'session_index.jsonl':
+            path = oracle.own_rollout(pathlib.Path(path).parent / 'sessions', row['agent_session_id'])
+            self.write(f'session-{self.serial}-{tab}-metadata-finding.json', {'reported_path': data['file_path'], 'validated_rollout': str(path), 'finding': 'session metadata returns index instead of transcript'})
         return pathlib.Path(path)
 
     def health(self):

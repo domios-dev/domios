@@ -1,5 +1,6 @@
 """Fail-closed evidence checks for the Codex restart matrix."""
 import json
+import pathlib
 import re
 
 GUI_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -39,6 +40,20 @@ def bindings(records, before=None, provider="codex"):
         if before:
             for key in IDENTITY:
                 require(row.get(key) == before[tab].get(key), f"{tab}: {key} changed")
+
+
+def own_rollout(root, session_id):
+    matches = []
+    for path in pathlib.Path(root).glob(f'**/*{session_id}.jsonl'):
+        with path.open(encoding='utf-8') as stream:
+            try:
+                meta = json.loads(next(stream))
+            except (StopIteration, json.JSONDecodeError):
+                continue
+        if meta.get('type') == 'session_meta' and meta.get('payload', {}).get('id') == session_id:
+            matches.append(path)
+    require(len(matches) == 1, f'{session_id}: expected one authenticated rollout, found {matches}')
+    return matches[0]
 
 
 def user_texts(path):
