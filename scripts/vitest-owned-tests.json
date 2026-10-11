@@ -179,5 +179,6 @@
   "src/components/providerLogoModel.test.ts",
   "src/components/ProviderGlyph.test.tsx",
   "src/components/Terminal/ChatChannelLoadingStatus.test.tsx",
-  "src/lib/pluginDocument.test.ts"
+  "src/lib/pluginDocument.test.ts",
+  "src/lib/eventSubscriptionRegistry.test.ts"
 ]
