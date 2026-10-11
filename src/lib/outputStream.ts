@@ -1,5 +1,6 @@
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
-import { streamRecoveryAction } from "./streamRecoveryModel";
+import { createAggregateOutputRegistry } from "./aggregateOutputRegistry";
+import { OutputRetention } from "./outputRetention";
 import { apiHost, currentToken, relayTarget } from "./webApi";
 import { onResync } from "./resync";
 import {
@@ -55,6 +56,8 @@ interface OutputFrame {
 
 const BOOT_KEY = "codeterm-web-output-boot";
 const replay = new TerminalOutputReplay();
+const retainedOutput = new OutputRetention();
+const aggregate = createAggregateOutputRegistry(openAggregateStream);
 const sinkIdentities = new WeakMap<TabOutputSink, { terminal: object; ptyId: string }>();
 
 declare global {
@@ -71,15 +74,10 @@ declare global {
 const sinks = new Map<string, Set<TabOutputSink>>();
 const offsets = new Map<string, number>();
 const rings = new Map<string, { boot: string; ptyId?: string }>();
-/** Tabs whose full history was already streamed into a live xterm this page
- *  lifetime — a re-mount must NOT re-request a multi-MB replay. */
-const replayed = new Set<string>();
 
 let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
-let reconnectQueued = false;
 let started = false;
-let forceImmediateRetry = false;
 
 export function replayOffsetsAfterBootChange(tabIds: Iterable<string>): Map<string, number> {
   return new Map<string, number>([...tabIds].map((tabId): [string, number] => [tabId, 0]));
@@ -139,10 +137,11 @@ function handleFrame(msg: OutputFrame): void {
     saveBoot(msg.boot);
     offsets.clear();
     rings.clear();
+    retainedOutput.clear();
     for (const [tabId, offset] of replayOffsetsAfterBootChange(sinks.keys())) {
       offsets.set(tabId, offset);
     }
-    forceReconnect();
+    queueMicrotask(() => aggregate.replace(openAggregateStream));
     return;
   }
   if (msg.boot) saveBoot(msg.boot);
@@ -155,6 +154,10 @@ function handleFrame(msg: OutputFrame): void {
     const sameRing = previous?.boot === ring.boot && previous.ptyId === ring.ptyId;
     offsets.set(tab, sameRing ? Math.max(offsets.get(tab) ?? 0, msg.offset) : msg.offset);
     rings.set(tab, ring);
+    retainedOutput.append(tab, {
+      boot: ring.boot, ptyId: msg.pty_id ?? tab, offset: msg.offset,
+      bytes: msg.data ? new Uint8Array(msg.data) : new TextEncoder().encode(msg.output),
+    });
     if (set) {
       perf && (perf.batches += 1);
       for (const sink of set) deliverOutput(tab, sink, msg);
@@ -176,67 +179,49 @@ function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): 
   replay.deliver(identity.terminal, tabId, {
     boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
     offset: frame.offset ?? bytes.length, bytes,
-  }, (payload) => {
-    if (sink.onBytes) sink.onBytes(payload);
-    else sink.onOutput(new TextDecoder().decode(payload));
-  });
+  }, (payload) => writeSinkBytes(sink, payload));
 }
 
-function forceReconnect(): void {
-  if (reconnectQueued) return;
-  reconnectQueued = true;
-  queueMicrotask(() => {
-    reconnectQueued = false;
-    forceImmediateRetry = true;
-    if (streamAbort) streamAbort.abort();
-    else if (started) void runStream();
-  });
+function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void {
+  if (sink.onBytes) sink.onBytes(bytes);
+  else sink.onOutput(new TextDecoder().decode(bytes));
 }
 
-async function runStream(): Promise<void> {
-  if (selectedRelayTarget()) return;
-  for (;;) {
-    const abort = new AbortController();
-    streamAbort = abort;
-    let progressed = false;
-    const client = outputClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
-    await new Promise<void>((resolve) => {
-      client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
-        if (abort.signal.aborted || streamAbort !== abort) return;
-        handleFrame(data as OutputFrame);
-        progressed = true;
-      }, {
-        signal: abort.signal, raw: true,
-        onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
-        onEnd(end) {
-          if (streamRecoveryAction(end.reason, abort.signal.aborted) === "reconnect") forceImmediateRetry = true;
-          if (end.reason === "error" || end.reason === "http") {
-            const error = end.error instanceof Error ? end.error : new Error(String(end.error));
-            for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
-          }
-          resolve();
-        },
-      });
-    });
-    if (abort.signal.aborted && streamAbort !== abort) return;
-    if (forceImmediateRetry) { forceImmediateRetry = false; continue; }
-    streamAbort = null;
-    if (!progressed) return;
-  }
+function recoverOutputStream(): void {
+  aggregate.recover();
+}
+
+function openAggregateStream(): () => void {
+  const abort = new AbortController();
+  streamAbort = abort;
+  const client = outputClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
+  client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
+    if (abort.signal.aborted || streamAbort !== abort) return;
+    handleFrame(data as OutputFrame);
+  }, {
+    signal: abort.signal, raw: true,
+    onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
+    onEnd(end) {
+      if (abort.signal.aborted || streamAbort !== abort) return;
+      streamAbort = null;
+      aggregate.ended();
+      if (DEV_BUILD) console.debug("[output-stream] waiting for recovery signal", { reason: end.reason });
+      if (end.reason === "error" || end.reason === "http") {
+        const error = end.error instanceof Error ? end.error : new Error(String(end.error));
+        for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
+      }
+    },
+  });
+  return () => { abort.abort(); if (streamAbort === abort) streamAbort = null; };
 }
 
 function ensureStarted(): void {
   if (started || selectedRelayTarget()) return;
   started = true;
-  window.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, forceReconnect);
-  queueMicrotask(() => { if (started) void runStream(); });
+  window.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recoverOutputStream);
+  aggregate.attach();
 }
 
-/**
- * Attach a terminal to a tab's multiplexed output. First subscription of a
- * tab this page-lifetime requests a full history replay (offset 0); re-mounts
- * resume from the tracked offset (xterm is keep-alive, scrollback persists).
- */
 export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal: object = sink, ptyId: string = tabId): () => void {
   sinkIdentities.set(sink, { terminal, ptyId });
   const route = tabOutputRoute(tabId, selectedRelayTarget()?.id ?? null);
@@ -247,22 +232,17 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
     sinks.set(tabId, set);
   }
   set.add(sink);
-  const resume = replay.offset(terminal, tabId, boot ?? "", ptyId);
-  if (!replayed.has(tabId) || resume < (offsets.get(tabId) ?? 0)) {
-    replayed.add(tabId);
-    offsets.set(tabId, resume);
-    if (started) forceReconnect();
+  const cached = retainedOutput.snapshot(tabId);
+  if (cached && cached.ptyId === ptyId) {
+    const from = cached.offset - cached.bytes.length;
+    if (replay.offset(terminal, tabId, cached.boot, ptyId) < from) sink.onTruncated(from);
+    replay.deliver(terminal, tabId, cached, (bytes) => writeSinkBytes(sink, bytes));
+    sink.onReady?.();
   }
   ensureStarted();
   return () => {
     set!.delete(sink);
     if (set!.size === 0) sinks.delete(tabId);
-    if (sinks.size === 0) {
-      started = false;
-      window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, forceReconnect);
-      streamAbort?.abort();
-      streamAbort = null;
-    }
   };
 }
 
@@ -468,23 +448,21 @@ export function waitForRemoteOutputGenerationSettlement(ordinaryTabId: string, g
   return remoteRecords.get(ordinaryTabId)?.settlements.get(generation)?.promise ?? Promise.resolve();
 }
 
-/** Force an immediate reconnect keeping all offsets (wake-from-sleep resume):
- *  the fresh `?since` cursor replays exactly what was missed. */
 export function pokeOutputStream(): void {
   if (!started) return;
-  forceReconnect();
+  recoverOutputStream();
 }
 
 onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */
 export function resetOutputStream(): void {
-  reconnectQueued = false;
   started = false;
-  streamAbort?.abort();
+  aggregate.dispose();
+  window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recoverOutputStream);
   streamAbort = null;
+  retainedOutput.clear();
   offsets.clear();
   rings.clear();
-  replayed.clear();
   if (sinks.size > 0) ensureStarted();
 }
