@@ -10,6 +10,7 @@ use axum::{
 use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
 
+mod frontend_registration;
 mod transport_registration;
 
 #[cfg(debug_assertions)]

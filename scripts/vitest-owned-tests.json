@@ -160,5 +160,7 @@
   "src/components/Terminal/chatAnchorModel.test.ts",
   "src/components/Terminal/useMountedChatWindow.test.tsx",
   "packages/chat-ui/src/highlightBudget.test.ts",
-  "packages/chat-ui/src/ChatHighlightBudget.test.tsx"
+  "packages/chat-ui/src/ChatHighlightBudget.test.tsx",
+  "src/lib/frontendUpdate/runtime.test.ts",
+  "src/lib/frontendUpdate/useFrontendApp.test.tsx"
 ]
