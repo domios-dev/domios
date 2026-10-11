@@ -465,6 +465,9 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
 
 fn runtime(job: &Sentinel) -> StageRuntime {
     StageRuntime {
+        runs_since_transition: job.progress.runs_since_transition,
+        last_probe_at: job.progress.last_probe_at,
+        probe_state: job.progress.probe_state.clone(),
         causal_run_json: job
             .causal_run
             .as_ref()
@@ -547,6 +550,9 @@ pub(super) fn import(job: &Sentinel) -> Result<SentinelImport, String> {
 
 pub(super) fn outcome(job: &Sentinel) -> RuntimeOutcome {
     RuntimeOutcome {
+        runs_since_transition: job.progress.runs_since_transition,
+        last_probe_at: job.progress.last_probe_at,
+        probe_state: job.progress.probe_state.clone(),
         last_hash: job.machine.last_hash.clone(),
         last_bucket: job.machine.last_bucket.clone(),
         stopped: job.machine.stopped,
@@ -629,6 +635,11 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             held: runtime.held,
         },
         last_reason: runtime.last_reason,
+        progress: super::super::progress::Progress {
+            runs_since_transition: runtime.runs_since_transition,
+            last_probe_at: runtime.last_probe_at,
+            probe_state: runtime.probe_state,
+        },
         run_transitions: runtime.run_transitions,
         revision: runtime.generation,
         agent_authored: record.identity.agent_authored,

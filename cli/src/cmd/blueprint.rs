@@ -70,8 +70,12 @@ fn render(job: &Value) {
         }
         return;
     }
-    println!(
-        "{} [{}] bucket={} every={}ms{}",
+    println!("{}", watch_summary(job));
+}
+
+fn watch_summary(job: &Value) -> String {
+    format!(
+        "{} [{}] bucket={} ×{} every={}ms last_probe_at={}{}",
         job["id"].as_str().unwrap_or("?"),
         if job
             .pointer("/machine/stopped")
@@ -90,15 +94,18 @@ fn render(job: &Value) {
                 "watching"
             }
         },
-        job.pointer("/machine/last_bucket")
-            .and_then(Value::as_str)
+        job["probe_state"]
+            .as_str()
+            .or_else(|| job.pointer("/machine/last_bucket").and_then(Value::as_str))
             .unwrap_or("unclassified"),
+        job["runs_since_transition"].as_u64().unwrap_or(0),
         job["interval_ms"],
+        job["last_probe_at"],
         job["last_reason"]
             .as_str()
             .map(|reason| format!(" reason={reason}"))
             .unwrap_or_default()
-    );
+    )
 }
 
 fn render_history(history: &Value) {

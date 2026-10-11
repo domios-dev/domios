@@ -178,6 +178,7 @@ fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body()
         &handle.store,
         &lease,
         &crate::sentinel::probe::Output {
+            success: true,
             bytes: received.as_bytes().to_vec(),
             text: received.clone(),
             ..Default::default()

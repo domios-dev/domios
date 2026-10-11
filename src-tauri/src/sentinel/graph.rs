@@ -186,6 +186,7 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
                 j.machine.stopped,
                 j.machine.last_bucket,
                 j.last_reason,
+                j.progress,
                 j.routes,
                 j.transitions,
                 j.expires_at,

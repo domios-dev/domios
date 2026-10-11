@@ -12,6 +12,7 @@ mod pipeline;
 mod pipeline_journal;
 pub(crate) mod portable;
 pub(crate) mod probe;
+mod progress;
 pub(crate) mod provenance;
 pub(crate) mod public_definition;
 pub(crate) mod routes;
