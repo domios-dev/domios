@@ -909,3 +909,22 @@ fn hooks_repaired_content_is_instance_agnostic() {
     assert!(!dev_content.contains("CODETERM_API_PORT"));
     assert!(!dev_content.contains("Bearer ct_"));
 }
+
+#[test]
+fn transport_capabilities_contract_uninstall_refuses_unowned_provider_files() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(InstallProbeProvider::with_kind(
+        "drop-in",
+        IntegrationKind::PluginFile,
+        Ok(()),
+        serde_json::json!({"plugin_file_exists": true, "plugin_file_owned": false}),
+    )));
+    assert_eq!(
+        super::uninstall_provider_integration_core(&registry, "drop-in"),
+        Err("Domios will not remove an unmarked provider plugin file".into())
+    );
+    assert_eq!(
+        super::uninstall_provider_integration_core(&registry, "unknown"),
+        Err("Unknown provider: unknown".into())
+    );
+}

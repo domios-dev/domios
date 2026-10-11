@@ -146,5 +146,6 @@
   "src/components/Automation/probeProgress.test.ts",
   "src/lib/transportClient.test.ts",
   "src/lib/nativeBridge.test.ts",
-  "src/lib/transportParity.test.ts"
+  "src/lib/transportParity.test.ts",
+  "src/lib/transport/capabilities.test.ts"
 ]
