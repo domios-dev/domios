@@ -204,11 +204,19 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
             let script = dir.join("powershell.ps1");
             if script.exists() {
                 cmd.arg("-NoExit");
-                cmd.arg("-File");
-                cmd.arg(script.as_os_str());
+                cmd.arg("-Command");
+                cmd.arg(powershell_integration_command(&script));
             }
         }
     }
+}
+
+// Execution policy gates script files only, so loading the text runs on a default
+// Restricted Windows install without relaxing the policy for the user's own scripts.
+#[cfg(any(target_os = "windows", test))]
+fn powershell_integration_command(script: &std::path::Path) -> String {
+    let path = script.to_string_lossy().replace('\'', "''");
+    format!("Invoke-Expression ([System.IO.File]::ReadAllText('{path}'))")
 }
 
 /// zsh OSC 633 hooks (precmd/preexec + PS1 wrap). Appended after user config.
@@ -468,6 +476,17 @@ __preserve_ct_fish_prompt
 mod tests {
     use super::*;
 
+    #[test]
+    fn powershell_integration_loads_as_text_with_the_path_quoted() {
+        let command = powershell_integration_command(std::path::Path::new(
+            "C:/Users/o'neil/.codeterm/ps.ps1",
+        ));
+        assert_eq!(
+            command,
+            "Invoke-Expression ([System.IO.File]::ReadAllText('C:/Users/o''neil/.codeterm/ps.ps1'))"
+        );
+    }
+
     /// The portable-pty invariant behind the prod crash: a default-prog (login)
     /// builder panics the instant an arg is added.
     #[test]
@@ -547,8 +566,11 @@ mod tests {
         apply_env(&mut cmd, "powershell.exe");
         let argv = cmd.get_argv();
         assert_eq!(argv[1], "-NoExit");
-        assert_eq!(argv[2], "-File");
-        assert_eq!(argv[3], script.as_os_str());
+        assert_eq!(argv[2], "-Command");
+        assert_eq!(
+            argv[3].to_string_lossy(),
+            powershell_integration_command(&script)
+        );
     }
 
     #[cfg(target_os = "windows")]
