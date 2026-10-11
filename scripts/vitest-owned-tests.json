@@ -124,5 +124,9 @@
   "src/components/Notifications/NotificationBell.choice.test.tsx",
   "src/components/Terminal/chatViewport.liveUpdates.test.ts",
   "src/components/Sidebar/GeneralWorkspaceTabs.test.tsx",
-  "src/lib/newSessionSection.test.ts"
+  "src/lib/newSessionSection.test.ts",
+  "packages/chat-ui/src/orderedListGutter.test.ts",
+  "src/components/WebGate/installHintLayout.test.ts",
+  "src/components/WebGate/useInstallHintLayout.test.tsx",
+  "src/components/Terminal/ChatComposer.paste.test.tsx"
 ]
