@@ -106,7 +106,7 @@ type StopKind = "send" | "discard" | "preview";
  * `discardPreview()` drops it. A live AnalyserNode records amplitude peaks for
  * the preview waveform.
  */
-export function useVoiceRecorder(onError: (msg: string) => void) {
+export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = storeBlob) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [preview, setPreview] = useState<VoicePreviewData | null>(null);
@@ -375,7 +375,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   }
 
   async function uploadBlob(blob: Blob, mime: string): Promise<string[]> {
-    const path = await storeBlob(blob, `voice-note-${Date.now()}.${audioExt(mime)}`);
+    const path = await persistBlob(blob, `voice-note-${Date.now()}.${audioExt(mime)}`);
     return path.trim() ? [path] : [];
   }
 

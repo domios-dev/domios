@@ -21,12 +21,14 @@ export function useComposerVoice({
   onAttach,
   onSendWithAttachments,
   onError,
+  persistBlob,
 }: {
   hasText: boolean;
   onSend: () => void;
   onAttach: (paths: string[]) => void;
   onSendWithAttachments: (paths: string[]) => void;
   onError: (msg: string) => void;
+  persistBlob?: (blob: Blob, name: string) => Promise<string>;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -37,7 +39,7 @@ export function useComposerVoice({
   const stateRef = useRef<VoiceState>(initVoiceState());
   const [, forceRender] = useState(0);
 
-  const voice = useVoiceRecorder(onError);
+  const voice = useVoiceRecorder(onError, persistBlob);
   // Ref so window-handler closures always call the latest voice methods.
   const voiceRef = useRef(voice);
   voiceRef.current = voice;

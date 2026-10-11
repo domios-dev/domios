@@ -1,3 +1,7 @@
+import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
+import { onResync } from "../../lib/resync";
+import { classifyAttachmentPaths } from "./composerFiles";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import {cachedSlashCommands} from "../../lib/providerCapabilities";
@@ -48,7 +52,7 @@ import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { hasCapsuleTokens } from "./composerCapsules";
+import { capsuleSegments, hasCapsuleTokens } from "./composerCapsules";
 import { useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
@@ -180,7 +184,6 @@ function ChatComposerImpl({
   currentPtyId,
   pendingPrompt,
   attachments,
-  addAttachments,
   removeAttachment,
   clearAttachments,
   handlePasteEvent,
@@ -258,6 +261,7 @@ function ChatComposerImpl({
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
+  const imageCapsules = capsuleSegments(input, capsules.registry).flatMap((segment) => "span" in segment && segment.capsule?.kind === "image" ? [segment] : []);
   const capabilities = useMuxSelector(useCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
@@ -310,13 +314,29 @@ function ChatComposerImpl({
     delayedTabRef.current = tabId;
     const feed = createDelayedMessageFeed(tabId, {
       load: listDelayedMessages,
-      publish: setDelayedMessages,
+      publish: (messages) => {
+        setDelayedMessages(messages);
+        setDelayedModal((target) => target?.kind === "edit"
+          ? (messages.some((message) => message.id === target.message.id && canSendDelayedMessage(message)) ? target : null)
+          : target);
+      },
       subscribe: (changed) => listen<{ tabId?: string }>("delayed-send-changed", (event) => {
         changed(event.payload?.tabId);
       }),
     });
+    const wake = () => {
+      if (document.visibilityState !== "hidden") void feed.wake();
+    };
+    const stopResync = onResync(() => void feed.wake());
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    window.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, wake);
     delayedFeedRef.current = feed;
     return () => {
+      stopResync();
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, wake);
       feed.dispose();
       if (delayedFeedRef.current === feed) delayedFeedRef.current = null;
     };
@@ -511,7 +531,7 @@ function ChatComposerImpl({
             busy={delayedBusyId === id}
             onClose={closeDelayedModal}
             onDelete={() => runOnDelayed(id, () => deleteDelayedMessage(id))}
-            onSendNow={() => runOnDelayed(id, () => sendDelayedMessageNow(id))}
+            onSendNow={() => runOnDelayed(id, () => sendCurrentDelayedMessage(id, { load: () => listDelayedMessages(tabId), send: sendDelayedMessageNow }))}
             onSubmit={(patch) => runOnDelayed(id, () => updateDelayedMessage(id, patch))}
           />
         );
@@ -524,16 +544,17 @@ function ChatComposerImpl({
       {promptDock}
       <div data-testid="composer-row" className="relative">
         <ComposerActions
-          onAttach={addAttachments}
+          onAttach={(paths) => { void classifyAttachmentPaths(paths).then(capsules.insert).catch(flagComposerError); }}
           onSend={() => void send()}
           onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
           sendDisabled={!input.trim() && attachments.length === 0 && !reply.reply}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
-          cardHeader={(reply.reply || attachments.length > 0) && <>
+          cardHeader={(reply.reply || attachments.length > 0 || imageCapsules.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
             {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
+            {imageCapsules.map((segment) => <ComposerBubbleRow key={segment.span.start} attachments={[segment.capsule!.path]} onRemove={() => capsules.remove(segment.span)} />)}
           </>}
         >
           <SlashPicker
