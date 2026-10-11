@@ -74,3 +74,20 @@ fn provider_compat_unknown_and_invalid_never_become_supported() {
     invalid.breaking[0].reasons.clear();
     assert!(invalid.validate().is_err());
 }
+
+#[test]
+fn provider_compat_sqlite_best_effort_requires_a_detected_undeclared_version() {
+    for (version, allowed) in [
+        (None, false),
+        (Some("bad"), false),
+        (Some("1.2.2"), true),
+        (Some("1.2.3"), true),
+        (Some("2.0.0"), false),
+    ] {
+        assert_eq!(policy().evaluate(version).allows_sqlite_read(), allowed);
+    }
+    assert!(!evaluate(None, Some("1.2.3")).allows_sqlite_read());
+    let mut invalid = policy();
+    invalid.supported.push("invalid".into());
+    assert!(!invalid.evaluate(Some("1.2.3")).allows_sqlite_read());
+}
