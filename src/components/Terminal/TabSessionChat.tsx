@@ -1,3 +1,4 @@
+import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -60,6 +61,7 @@ import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
+import { useChatLayoutInsets } from "./useChatLayoutInsets";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
@@ -190,6 +192,7 @@ export function TabSessionChat({
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
+  const floatingBottomInset = useChatLayoutInsets(chatRootRef);
   const chatFollowTailRef = useRef(true);
 
   const { setFocusedTab, selectTabByTab, addNotification, answerNotification } = useMultiplexer();
@@ -241,6 +244,8 @@ export function TabSessionChat({
         : message,
       severity: "Error",
       level: "failure",
+      ephemeral: true,
+      lifetime_ms: CHAT_ERROR_TOAST_LIFETIME_MS,
     });
   }, [addNotification, tabId]);
 
@@ -455,6 +460,7 @@ export function TabSessionChat({
   );
 
   const {
+    uploadStatus,
     attachments,
     addAttachments,
     removeAttachment,
@@ -794,7 +800,7 @@ export function TabSessionChat({
         aria-label="Conversation"
         aria-live="polite"
       >
-        <div>
+        <div style={{ paddingBottom: floatingBottomInset }}>
         {touchMode && (
           <div
             aria-hidden="true"
@@ -903,6 +909,7 @@ export function TabSessionChat({
         onClear={messageSelection.clear}
       />
       {showScrollDown && (
+        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16 }}>
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
           onClick={() => {
@@ -910,8 +917,8 @@ export function TabSessionChat({
             scrollToBottom();
           }}
           title="Scroll to latest"
-          className="absolute bottom-4 right-4 z-30"
         />
+        </div>
       )}
       </div>
       <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
@@ -951,6 +958,7 @@ export function TabSessionChat({
       {deliveryPlansSink}
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
+      {uploadStatus}
       {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}

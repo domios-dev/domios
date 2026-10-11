@@ -32,11 +32,9 @@ export function chatViewportModeAfterScroll(
   previousScrollTop: number,
   viewport: ChatViewportGeometry,
 ): ChatViewportMode {
-  if (isChatViewportAtBottom(viewport)) return "pinned";
-  if (currentMode === "detached") {
-    return isChatViewportNearBottom(viewport) && viewport.scrollTop >= previousScrollTop ? "pinned" : "detached";
-  }
-  return previousScrollTop - viewport.scrollTop > VIEWPORT_TOLERANCE_PX ? "detached" : "pinned";
+  if (viewport.scrollTop < previousScrollTop) return "detached";
+  if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 0) return "pinned";
+  return currentMode;
 }
 
 export interface ChatPrependSnapshot {

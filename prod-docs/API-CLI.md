@@ -28,6 +28,8 @@ Message and pad file options accept `-` as UTF-8 stdin, including `plan task rem
 
 Same-version manifest hash drift remains a diagnostic in `plugin channel diff`; it does not produce an UPDATE badge or count. Local directory installs and source tree plugins have no channel update. Reinstall local changes with `codeterm plugin install --from-dir <path>`. Unknown install provenance or a missing channel cannot authorize an update. `plugin update-system` remains the explicit system synchronization and same-version repair operation; it preserves newer installed versions.
 
+Official system plugins have independent release versions. Their `minCodeterm` declares the required host version, so a compatible plugin can update without updating the app. The embedded copy is an offline fallback and never replaces a newer channel release. Use `codeterm plugin update-system <id>` to install an official system release even when an embedded install has no channel provenance yet. Channel installation is explicit; publishing a plugin does not itself update running installations automatically.
+
 ### CLI JSON ID Contract
 
 Planner mutation commands emit one JSON envelope: `{ok, kind, id, data, hints?, error?}`. `id` is the primary created or mutated entity id, and `data` contains the raw daemon payload with typed fields such as `plan_id`, `task_id`, `spec_id`, and `section_id`. For example, `spec create --json` returns `kind == "spec"` and `id == spec_id`, `plan create --json` returns `kind == "plan"` and `id == plan_id`, and `plan task add --json` returns `kind == "task"` and `id == task_id`.
@@ -134,4 +136,4 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 
 Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or Team-authority base, overriding a builtin kind, or asking to own a contract without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->
