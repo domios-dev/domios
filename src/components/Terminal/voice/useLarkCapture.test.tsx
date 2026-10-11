@@ -509,7 +509,9 @@ async function main() {
     await act(async () => emit("local-recording-status", recordingStatus(23)));
     await startCapture(lease("lease-recorder-error", 23));
     await emitRecorderStarted(10);
+    recorders[10].state = "inactive";
     await act(async () => recorders[10].onerror?.(new Event("error")));
+    assert.equal(currentCaptureOwner(), "lark", "inactive error still waits for the actual stop event");
     await stopRecorder(10);
     assert.equal(current().state.phase, "error", "active recorder failure cancels through the same controller");
     assert.equal(currentCaptureOwner(), null);
