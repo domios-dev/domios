@@ -159,3 +159,35 @@ fn menu_echo_followed_by_work_is_not_a_live_menu() {
     let screen = "Choose a mode?\n› 1. Default\n  2. Restricted\nPress enter to confirm\n• Working (esc to interrupt)\n›";
     assert!(parse_live_prompt(&provider, screen).is_none());
 }
+
+#[test]
+fn captured_followup_menu_reaches_pending_prompt_but_numbered_echo_does_not() {
+    let provider = bundled_provider();
+    let screen = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-codex/tests/fixtures/tab-state/reasoning-submenu-0.160.0.txt"
+    ));
+    let (prompt, kind) = parse_live_prompt(&provider, screen).expect("live follow-up menu");
+    assert_eq!(kind, PromptKind::Provider);
+    assert_eq!(prompt.options.len(), 5);
+    let mut detector = crate::agent::prompt::PromptDetector::new();
+    let decision = detector.evaluate_pty_output_parsed(
+        "worker",
+        true,
+        true,
+        Some(crate::agent::prompt::ResolvedPrompt {
+            prompt,
+            explicit: false,
+        }),
+    );
+    assert!(matches!(
+        decision,
+        crate::agent::prompt::PromptDecision::NewPrompt { .. }
+    ));
+    assert_eq!(detector.active_prompt("worker").unwrap().options.len(), 5);
+    let echo = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-codex/tests/fixtures/tab-state/echoed-numbered-message.txt"
+    ));
+    assert!(parse_live_prompt(&provider, echo).is_none());
+}
