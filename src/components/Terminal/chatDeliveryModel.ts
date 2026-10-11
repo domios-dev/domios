@@ -12,11 +12,12 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { status?: ChatSendStatus; requestFailed?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
 
 export function deliveryState(send: DeliverySend): DeliveryState {
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
   if (send.echo || send.status?.state === "delivered") return "delivered";
+  if (!send.status && send.requestUncertain) return "uncertain";
   if (send.status?.state === "submit_unconfirmed") return "uncertain";
   return send.status?.state === "held" ? "queued" : "sending";
 }
@@ -32,7 +33,15 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence === status.sequence
     && send.status.send_id === status.send_id && send.status.state === status.state
     && send.status.pending_reason === status.pending_reason && send.status.error === status.error) return send;
-  return { ...send, status, requestFailed: false, echo: status.state === "failed" ? undefined : send.echo };
+  return { ...send, status, requestFailed: false, requestUncertain: false, echo: status.state === "failed" ? undefined : send.echo };
+}
+
+export type AdmissionEvidence = "present" | "absent" | "unknown";
+
+export function reconcileAdmissionEvidence(send: DeliverySend, evidence: AdmissionEvidence): DeliverySend {
+  if (send.status || deliveryState(send) === "delivered" || send.requestFailed) return send;
+  const failed = evidence === "absent" && send.requestHadResponse === false;
+  return { ...send, requestFailed: failed, requestUncertain: !failed };
 }
 
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
@@ -57,10 +66,11 @@ export function reconcileDeliveryStatusesModel(
 ): readonly DeliverySend[] {
   return current.map((send) => {
     const prior = requested.find((item) => item.id === send.id);
+    const status = statuses.find((item) => item.correlationId != null && item.correlationId === send.correlationId);
+    if (status) return applyDeliveryStatus(send, status);
     if (!prior || prior.status !== send.status || prior.correlationId !== send.correlationId
       || prior.requestFailed !== send.requestFailed) return send;
-    const status = statuses.find((item) => item.correlationId != null && item.correlationId === send.correlationId);
-    return reconcileDeliverySnapshot(status ? applyDeliveryStatus(send, status) : send, statuses);
+    return reconcileDeliverySnapshot(send, statuses);
   });
 }
 

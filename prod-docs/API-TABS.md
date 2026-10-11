@@ -34,6 +34,7 @@ Both routes exist as distinct handlers; choosing is route selection.
 | `POST /api/tabs/{id}/send` | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when a user send or an enveloped/programmatic agent send is accepted by its background queue, or a structured delivery error with its `bytes_written` status. User sends also return `send_id`. Long limited-provider sends add `pad_file`; batches add `pad_files`. |
 | `POST /api/tabs/{id}/chat-send` | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`, and optional `pad_file`; accepts a tab with agent identity at any launch stage or a chat-backend tab, and refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
 | `GET /api/tabs/{id}/chat-send` | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
+| `POST /api/tabs/{id}/chat-send/admissions` | Read-only durable admission lookup; `{ "clientTokens": ["opaque-token"] }` returns `{ correlationId, evidence: "present" | "absent" | "unknown" }[]`. Pending reservations, retained receipts and ledger entries count as present; incomplete retention or unreadable storage never proves absence. |
 
 `POST .../send` is the REST send path for user text, mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` terminal input; its `delivery` values are in the table above. User text accepted while a provider dialog is classified stays in the durable user-send queue until a PTY state-change event makes delivery safe. Agent and programmatic text uses the delivery outbox for the same hold-and-release behavior. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
 
@@ -223,4 +224,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 55 -->
+<!-- revision: 56 -->
