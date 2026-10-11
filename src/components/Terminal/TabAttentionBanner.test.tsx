@@ -65,3 +65,30 @@ it("drops the visited surface on clear or resolution", async () => {
   await render([{ ...notification, resolved: true }]);
   expect(host.querySelector('[role="region"]')).toBeNull();
 });
+
+it("keeps integration notices without choices behind the details control", async () => {
+  const details = ["body-token", "state-token", "next-step-token", `/install/${"path-token/".repeat(80)}`];
+  const integrationNotice: Notification = {
+    ...notification,
+    id: "integration-notice",
+    title: "provider-token status-token",
+    body: details.join("\n\n"),
+    actions: undefined,
+    answer: undefined,
+  };
+  await render([integrationNotice]);
+  await render([{ ...integrationNotice, read: true }]);
+  expect(host.querySelector('[role="region"]')?.getAttribute("aria-label"))
+    .toContain(integrationNotice.title);
+  for (const detail of details) expect(host.textContent).not.toContain(detail);
+  const expand = button(`Show attention details for ${tab.title}`);
+  expect(expand.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => expand.click());
+  for (const detail of details) expect(host.textContent).toContain(detail);
+  const collapse = button(`Hide attention details for ${tab.title}`);
+  expect(collapse.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => collapse.click());
+  for (const detail of details) expect(host.textContent).not.toContain(detail);
+  await act(async () => button(`Dismiss attention for ${tab.title}`).click());
+  expect(host.querySelector('[role="region"]')).toBeNull();
+});
