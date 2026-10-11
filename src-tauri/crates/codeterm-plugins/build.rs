@@ -14,6 +14,10 @@ fn main() {
             continue;
         };
         let manifest_path = entry.path().join("plugin.json");
+        // provider-shared holds shared plugin sources, not a plugin; only a manifest makes one.
+        if !manifest_path.is_file() {
+            continue;
+        }
         let manifest = std::fs::read_to_string(&manifest_path).expect("bundled plugin manifest");
         println!("cargo:rerun-if-changed={}", manifest_path.display());
         plugins.push((id.to_owned(), directory, manifest));

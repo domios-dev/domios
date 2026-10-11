@@ -23,6 +23,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
+mod filesystem;
 mod sqlite;
 
 use super::manifest::{CredentialConfig, PluginManifest};
@@ -356,33 +357,6 @@ impl PluginSandbox {
         self.svc.get()
     }
 
-    fn path_under(roots: &[PathBuf], path: &str) -> bool {
-        let Some(target) = codeterm_util::project_roots::canonical_target(Path::new(path)) else {
-            return false;
-        };
-        roots.iter().any(|root| {
-            std::fs::canonicalize(root)
-                .map(|r| target.starts_with(&r))
-                .unwrap_or(false)
-        })
-    }
-
-    pub(super) fn with_project_roots(
-        mut self,
-        roots: Vec<PathBuf>,
-        granted: Vec<PathBuf>,
-        grants_path: PathBuf,
-    ) -> Self {
-        self.project_write_roots = roots
-            .iter()
-            .filter(|root| granted.contains(root))
-            .cloned()
-            .collect();
-        self.project_read_roots = roots;
-        self.denied_writes.push(grants_path);
-        self
-    }
-
     /// Oldest grant is evicted past this; a tab rarely visits this many cwds.
     const MAX_GRANTED_CWD_ROOTS: usize = 32;
 
@@ -417,51 +391,6 @@ impl PluginSandbox {
             let denied = std::fs::canonicalize(denied).unwrap_or_else(|_| denied.clone());
             denied == target
         })
-    }
-
-    pub(super) fn can_read(&self, path: &str) -> bool {
-        if self.is_denied_read(path) {
-            self.record_denial();
-            return false;
-        }
-        let allowed = self.unrestricted
-            || Self::path_under(&self.read_roots, path)
-            || Self::path_under(&self.project_read_roots, path)
-            || Self::path_under(&self.granted_read_roots.lock(), path);
-        if !allowed {
-            self.record_denial();
-        }
-        allowed
-    }
-
-    pub(super) fn can_write(&self, path: &str) -> bool {
-        let target = codeterm_util::project_roots::canonical_target(Path::new(path));
-        let denied = target.as_ref().is_some_and(|target| {
-            self.denied_writes.iter().any(|denied| {
-                codeterm_util::project_roots::canonical_target(denied).as_ref() == Some(target)
-            })
-        });
-        let project = self
-            .project_read_roots
-            .iter()
-            .any(|root| Path::new(path).starts_with(root))
-            || Self::path_under(&self.project_read_roots, path);
-        let allowed = !denied
-            && if project {
-                Self::path_under(&self.project_write_roots, path)
-            } else {
-                self.unrestricted || Self::path_under(&self.write_roots, path)
-            };
-        if !allowed {
-            self.record_denial();
-        }
-        allowed
-    }
-
-    pub(super) fn project_write_allowed(&self, root: &str) -> bool {
-        codeterm_util::project_roots::canonical_root(root)
-            .ok()
-            .is_some_and(|root| self.project_write_roots.contains(&root))
     }
 
     /// `envGet` policy: unrestricted plugins read anything; confined ones can't
