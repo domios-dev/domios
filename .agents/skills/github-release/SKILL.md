@@ -21,6 +21,8 @@ Provider and capability plugin versions are independent of the app. For a plugin
 
 Use a Blueprint to watch publication and stop it at completion or failure. Do not poll CI or bypass required checks.
 
+If plugin-only CI stays queued at `tree is new`, check the required runner label and runner status. An offline Mac runner once blocked all platform-independent plugin checks. Scope detection, metadata, plugin verification, issue metadata and plugin publication use `linux-build`; restore that runner rather than waiting for Mac or running an app release.
+
 ## Application release
 
 **Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
