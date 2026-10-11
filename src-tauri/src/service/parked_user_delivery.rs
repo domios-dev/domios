@@ -47,6 +47,9 @@ pub(crate) enum UserDrain {
 
 type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
 
+mod owner_wake;
+use owner_wake::OwnerWakeBoundary;
+
 fn is_prelaunch_stage(stage: Option<codeterm_types::pty::BootStage>) -> bool {
     matches!(
         stage,
@@ -550,21 +553,19 @@ impl super::ServiceContext {
         tauri::async_runtime::spawn_blocking(move || {
             loop {
                 let generation = owner.wake_generation.load(Ordering::Acquire);
-                let refusal_generation = match service.drain_user_owner(&tab_id) {
-                    Ok(UserDrain::ZeroWriteRefusal {
-                        dispatch_generation,
-                    }) => Some(dispatch_generation),
-                    Ok(UserDrain::Idle) => None,
-                    Err(error) => {
-                        log::warn!("[chat-send] tab={tab_id} owner held: {error}");
-                        Some(owner.dispatch_generation.load(Ordering::Acquire))
-                    }
-                };
-                let changed = || match refusal_generation {
-                    Some(refused_at) => {
-                        owner.dispatch_generation.load(Ordering::Acquire) != refused_at
-                    }
-                    None => owner.wake_generation.load(Ordering::Acquire) != generation,
+                let dispatch_generation = owner.dispatch_generation.load(Ordering::Acquire);
+                let outcome = service.drain_user_owner(&tab_id);
+                if let Err(error) = &outcome {
+                    log::warn!("[chat-send] tab={tab_id} owner held: {error}");
+                }
+                let boundary =
+                    OwnerWakeBoundary::after_drain(generation, dispatch_generation, &outcome);
+                let refusal_generation = boundary.refusal_generation();
+                let changed = || {
+                    boundary.changed(
+                        owner.wake_generation.load(Ordering::Acquire),
+                        owner.dispatch_generation.load(Ordering::Acquire),
+                    )
                 };
                 if !owner.revoked.load(Ordering::Acquire) && changed() {
                     continue;
