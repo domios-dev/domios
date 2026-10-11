@@ -1,3 +1,4 @@
+import { browserUploadBody } from "./browserUploadBody";
 /**
  * Web-mirror runtime: local daemon host/token + mesh relay targeting.
  *
@@ -290,19 +291,29 @@ export async function webUpload(
   file: Blob,
   filename: string,
 ): Promise<{ path: string; size: number }> {
-  const form = new FormData();
-  form.append("file", file, filename);
+  const form = await browserUploadBody(file, filename);
   const headers = new Headers();
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${apiHost()}/api/upload`, {
-    method: "POST",
-    headers,
-    body: form,
-  });
-  const text = await res.text();
-  if (!res.ok) throw new WebApiError(res.status, "/api/upload", text);
-  return JSON.parse(text) as { path: string; size: number };
+  const controller = new AbortController();
+  const interrupt = () => controller.abort();
+  const visibilityChanged = () => { if (document.visibilityState === "hidden") interrupt(); };
+  window.addEventListener("pagehide", interrupt);
+  document.addEventListener("visibilitychange", visibilityChanged);
+  try {
+    const res = await fetch(`${apiHost()}/api/upload`, {
+      method: "POST",
+      headers,
+      body: form,
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new WebApiError(res.status, "/api/upload", text);
+    return JSON.parse(text) as { path: string; size: number };
+  } finally {
+    window.removeEventListener("pagehide", interrupt);
+    document.removeEventListener("visibilitychange", visibilityChanged);
+  }
 }
 
 export async function webJson<T>(

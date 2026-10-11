@@ -30,6 +30,11 @@ export function createDelayedMessageFeed(tabId: string, dependencies: FeedDepend
   return {
     ready,
     refresh,
+    wake() {
+      if (!active) return Promise.resolve();
+      dependencies.publish([]);
+      return refresh();
+    },
     dispose() {
       active = false;
       unlisten?.();

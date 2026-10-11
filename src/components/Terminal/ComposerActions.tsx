@@ -1,9 +1,9 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerInputShell } from "./ComposerInputShell";
 import { ComposerScheduleButton } from "./ComposerScheduleButton";
-import { storeBrowserFiles } from "./composerFiles";
+import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
@@ -36,13 +36,15 @@ export function ComposerActions({
   canAttach = true,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
+  const uploads = useAttachmentUploads(onAttach);
+  const voiceUploads = useAttachmentUploads(onSendWithAttachments);
   const voiceUi = useComposerVoice({
     hasText,
     onSend,
     onAttach,
     onSendWithAttachments,
     onError,
+    persistBlob: voiceUploads.store,
   });
 
   return (
@@ -56,16 +58,16 @@ export function ComposerActions({
         onChange={(e) => {
           const files = e.target.files;
           if (!files || files.length === 0) return;
-          setUploading(true);
-          void storeBrowserFiles(Array.from(files), onAttach, onError).finally(() => {
-            setUploading(false);
+          void uploads.addFiles(Array.from(files)).finally(() => {
             if (fileRef.current) fileRef.current.value = "";
           });
         }}
       />}
+      {uploads.status}
+      {voiceUploads.status}
       <div className="relative flex w-full items-end gap-1.5">
         {canAttach && !voiceUi.isPreview && (
-          <ComposerAttachButton uploading={uploading} onClick={() => fileRef.current?.click()} />
+          <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />
         )}
         <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
           actions={voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>

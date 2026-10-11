@@ -36,6 +36,7 @@ export async function classifyAttachmentPaths(paths: string[]): Promise<InlineAt
 export function useWebFileDrop(
   onAttach: (paths: string[]) => void,
   onError: (msg: string) => void,
+  uploadFiles?: (files: File[]) => Promise<void>,
 ) {
   const [dragOver, setDragOver] = useState(false);
   if (!IS_WEB) {
@@ -60,7 +61,7 @@ export function useWebFileDrop(
       setDragOver(false);
       if (e.dataTransfer.files.length === 0) return;
       e.preventDefault();
-      void storeBrowserFiles(Array.from(e.dataTransfer.files), onAttach, onError);
+      void (uploadFiles ? uploadFiles(Array.from(e.dataTransfer.files)) : storeBrowserFiles(Array.from(e.dataTransfer.files), onAttach, onError));
     },
   };
   return { dragOver, handlers };
