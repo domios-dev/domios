@@ -1,0 +1,61 @@
+import { readFile, writeFile, mkdir, cp } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { deterministicArchive } from './archive.mjs';
+import { canonicalManifest, createManifest, validateTag, checksum } from './manifest.mjs';
+import { fixtureSign, productionSign, verifySignature } from './sign.mjs';
+import { publishRelease } from './publish.mjs';
+
+const fixtureRoot = fileURLToPath(new URL('./fixtures/', import.meta.url));
+export async function prepare({ contract, tag, dist, output, dryRun, sourceSha }) {
+  validateTag(tag, contract);
+  const archive = await deterministicArchive(dist);
+  const manifest = createManifest(tag, contract, archive);
+  const canonical = canonicalManifest(manifest);
+  const publicKey = dryRun ? await readFile(path.join(fixtureRoot, 'frontend-test.pub'), 'utf8') : contract.publicKey;
+  if (!dryRun && (!publicKey || publicKey.trim().split('\n').at(-1) === (await readFile(path.join(fixtureRoot, 'frontend-test.pub'), 'utf8')).trim().split('\n').at(-1))) throw new Error('Production frontend identity is unset or fixture-only');
+  const signature = dryRun ? fixtureSign(canonical, await readFile(path.join(fixtureRoot, 'frontend-test.pem'), 'utf8'), publicKey)
+    : await productionSign(canonical, publicKey, process.env.FRONTEND_SIGNING_PRIVATE_KEY);
+  verifySignature(canonical, signature, publicKey);
+  await mkdir(output, { recursive: true });
+  await cp(dist, path.join(output, 'dist'), { recursive: true });
+  await writeFile(path.join(output, `${tag}.tar.gz`), archive);
+  await writeFile(path.join(output, 'frontend-manifest.json'), canonical);
+  await writeFile(path.join(output, 'frontend-manifest.json.minisig'), signature);
+  await writeFile(path.join(output, 'frontend-verification.pub'), publicKey);
+  await writeFile(path.join(output, 'provenance.json'), JSON.stringify({ contractVersion: contract.contractVersion, sourceSha, tag, archiveSha256: checksum(archive), minApiVersion: manifest.minApiVersion, maxApiVersion: manifest.maxApiVersion, fixtureSigning: dryRun, node: process.version }));
+  return manifest;
+}
+function githubRemote(repository, output) {
+  const gh = args => execFileSync('gh', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
+  const asset = name => path.join(output, name);
+  return {
+    createDraft: async tag => { gh(['release', 'create', tag, '--repo', repository, '--draft', '--latest=false', '--title', tag, '--notes', 'Independent signed frontend release']); },
+    upload: async (tag, name) => { gh(['release', 'upload', tag, asset(name), '--repo', repository]); },
+    download: async (tag, name) => {
+      const release = JSON.parse(gh(['api', `repos/${repository}/releases/tags/${tag}`]));
+      const item = release.assets.find(item => item.name === name);
+      if (!item) throw new Error('Versioned upload missing');
+      return gh(['api', `repos/${repository}/releases/assets/${item.id}`, '-H', 'Accept: application/octet-stream']);
+    },
+    publish: async tag => { gh(['release', 'edit', tag, '--repo', repository, '--draft=false', '--latest=false']); },
+    discover: async () => {
+      gh(['release', 'view', 'frontend-latest', '--repo', repository]);
+      gh(['release', 'upload', 'frontend-latest', asset('frontend-manifest.json'), asset('frontend-manifest.json.minisig'), '--clobber', '--repo', repository]);
+    },
+  };
+}
+async function main() {
+  const [command, tag, output = 'frontend-release-output'] = process.argv.slice(2);
+  const contract = JSON.parse(await readFile('frontend-release-contract.json', 'utf8'));
+  validateTag(tag, contract);
+  const dryRun = process.env.FRONTEND_DRY_RUN === 'true';
+  if (command === 'validate') return;
+  if (command === 'prepare') { await prepare({ contract, tag, dist: 'dist', output, dryRun, sourceSha: process.env.GITHUB_SHA }); return; }
+  if (command !== 'publish') throw new Error('Unknown frontend release operation');
+  const manifest = JSON.parse(await readFile(path.join(output, 'frontend-manifest.json'), 'utf8'));
+  if (manifest.releaseId !== tag || manifest.minApiVersion !== contract.minApiVersion || manifest.maxApiVersion !== contract.maxApiVersion || manifest.url !== createManifest(tag, contract, Buffer.alloc(0)).url) throw new Error('Artifact contract mismatch');
+  await publishRelease({ manifest, archive: await readFile(path.join(output, `${tag}.tar.gz`)), signature: await readFile(path.join(output, 'frontend-manifest.json.minisig'), 'utf8'), publicKey: contract.publicKey, fixtureKey: await readFile(path.join(fixtureRoot, 'frontend-test.pub'), 'utf8'), dryRun }, githubRemote(contract.repository, output));
+}
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(() => { console.error('Frontend release failed; no discovery update is authorized. Inspect the failed step and configured frontend identity.'); process.exitCode = 1; });
