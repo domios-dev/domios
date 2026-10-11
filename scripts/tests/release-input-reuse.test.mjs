@@ -6,15 +6,16 @@ import test from "node:test";
 const source = readFileSync(new URL("../../build.sh", import.meta.url), "utf8");
 const preparation = source.match(/^prepare_release_bundle_inputs\(\) \{\n[\s\S]*?^\}/m)?.[0];
 
-function commands(env = {}) {
+function commands(env = {}, captureEnvironment = false) {
   assert.ok(preparation);
   return execFileSync("bash", ["-c", `
 set -e
 pnpm() { printf 'pnpm'; printf ' <%s>' "$@"; printf '\\n'; }
-node() { printf 'node'; printf ' <%s>' "$@"; printf '\\n'; }
-cargo() { printf 'cargo'; printf ' <%s>' "$@"; printf '\\n'; }
+node() { if [ \"$1\" = -p ]; then command node \"$@\"; return; fi; printf 'node'; printf ' <%s>' "$@"; printf '\\n'; }
+cargo() { ${captureEnvironment ? `bash -c 'printf "cargo-deployment-target=<%s>\\n" "$MACOSX_DEPLOYMENT_TARGET"';` : ''} printf 'cargo'; printf ' <%s>' "$@"; printf '\\n'; }
 ${preparation}
 prepare_release_bundle_inputs
+${captureEnvironment ? `bash -c 'printf "deployment-target=<%s>\\n" "$MACOSX_DEPLOYMENT_TARGET"'` : ''}
 `], { encoding: "utf8", env: { ...process.env, CARGO_BUILD_TARGET: "", CODETERM_RELEASE_FEATURES: "", ...env } })
     .trim().split("\n");
 }
@@ -43,4 +44,12 @@ test("CLI build entrypoints leave source timestamps under Cargo ownership", () =
   assert.doesNotMatch(source, /touch cli\/src\/main\.rs|touch-cli-main/);
   const prep = readFileSync(new URL("../dev-prep.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(prep, /touch\("cli\/src\/main\.rs"\)|utimesSync/);
+});
+
+test("release preparation exports the packaging deployment target to child processes", () => {
+  const config = JSON.parse(readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  const calls = commands({ MACOSX_DEPLOYMENT_TARGET: "fixture-inherited-target" }, true);
+  const cargoTargets = calls.filter(call => call.startsWith("cargo-deployment-target="));
+  assert.deepEqual(cargoTargets, Array(2).fill(`cargo-deployment-target=<${config.bundle.macOS.minimumSystemVersion}>`));
+  assert.equal(calls.at(-1), `deployment-target=<${config.bundle.macOS.minimumSystemVersion}>`);
 });
