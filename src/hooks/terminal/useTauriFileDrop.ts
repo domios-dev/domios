@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { invoke } from "../../lib/bridge";
+import { nativeBridge } from "../../lib/nativeBridge";
 
 export interface UseTauriFileDropOptions {
   containerRef: React.RefObject<HTMLElement | null>;
@@ -30,12 +29,11 @@ export function useTauriFileDrop({
   useEffect(() => {
     if (!enabled) return;
     // Native drag-drop is a Tauri webview feature — no-op in web mode.
-    if (!("__TAURI_INTERNALS__" in window)) return;
+    if (!nativeBridge.fileDrop) return;
     let unlisten: (() => void) | null = null;
     let cancelled = false;
 
-    getCurrentWebview().onDragDropEvent((event) => {
-      const payload = event.payload;
+    nativeBridge.fileDrop.subscribe((payload) => {
       const el = containerRef.current;
       if (!el) return;
 
@@ -75,7 +73,7 @@ export function useTauriFileDrop({
 export async function materializeDroppedPaths(paths: string[]): Promise<string[]> {
   if (paths.length === 0) return [];
   try {
-    return await invoke<string[]>("materialize_dropped_files", { paths });
+    return await nativeBridge.materializeDroppedFiles(paths);
   } catch {
     return paths;
   }

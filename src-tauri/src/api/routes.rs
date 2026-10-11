@@ -661,6 +661,7 @@ pub fn create_router_with_frontend(
             "/api/crons/{id}",
             get(cron_routes::cron_get)
                 .put(cron_routes::cron_update)
+                .patch(owner_cron_update)
                 .delete(cron_routes::cron_delete),
         )
         .route("/api/crons/{id}/enable", post(cron_routes::cron_enable))
@@ -816,6 +817,7 @@ pub fn create_router_with_frontend(
             "/api/mesh/peers/{id}/access",
             post(mesh_routes::mesh_set_access),
         );
+    let router = router.route("/api/mux/restore-orphaned", post(restore_orphaned_tab));
     let router = domain_transport_routes(router);
     let router = super::memory_router::memory_routes(router);
     let router = router
@@ -1012,6 +1014,43 @@ pub fn create_router_with_frontend(
             mem_routes::decision::supporter_error_envelope,
         ))
         .with_state(state)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RestoreOrphanedTab {
+    tab_id: String,
+}
+
+async fn owner_cron_update(
+    state: axum::extract::State<AppState>,
+    headers: HeaderMap,
+    id: axum::extract::Path<String>,
+    body: axum::Json<crate::cron::store::CronUpdateParams>,
+) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
+    if !super::auth::is_local_caller(&state.0, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+    }
+    cron_routes::cron_update(state, headers, id, body).await
+}
+
+async fn restore_orphaned_tab(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
+    axum::Json(body): axum::Json<RestoreOrphanedTab>,
+) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
+    if !super::auth::is_local_caller(&state, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+    }
+    let service = state.svc.clone();
+    let (workspace_id, tab_id) =
+        tokio::task::spawn_blocking(move || service.reopen_orphaned_tab(&body.tab_id))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    Ok(axum::Json(
+        serde_json::json!({ "workspace_id": workspace_id, "tab_id": tab_id }),
+    ))
 }
 
 fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(dist: &std::path::Path) -> Router<S> {

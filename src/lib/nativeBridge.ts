@@ -1,5 +1,5 @@
 import type { TransportClient } from "./transportClient";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -81,7 +81,7 @@ function subscribeNativeResize(event: string, handler: () => void): NativeUnsubs
   return () => { cancelled = true; unsubscribe?.(); unsubscribe = undefined; };
 }
 
-export function createNativeBridge(native: boolean = isTauri()): NativeBridge {
+export function createNativeBridge(native: boolean = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window): NativeBridge {
   const unavailable = (name: string): never => { throw new NativeCapabilityUnavailable(name); };
   const clipboard = () => {
     if (!globalThis.navigator?.clipboard) return unavailable("browser clipboard");

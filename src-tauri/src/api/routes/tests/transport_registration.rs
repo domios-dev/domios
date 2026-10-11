@@ -40,6 +40,8 @@ async fn transport_domain_registration_contract_auth_methods_and_persisted_cwd()
     );
     let routes = [
         ("POST", format!("/api/tabs/{tab}/cwd")),
+        ("POST", "/api/mux/restore-orphaned".into()),
+        ("PATCH", "/api/crons/missing".into()),
         ("GET", format!("/api/tabs/{tab}/history")),
         ("GET", "/api/agents/providers/unknown/model-usage".into()),
         ("GET", "/api/system/default-cwd".into()),
@@ -66,7 +68,7 @@ async fn transport_domain_registration_contract_auth_methods_and_persisted_cwd()
             .clone()
             .oneshot(
                 Request::builder()
-                    .method("PUT")
+                    .method("TRACE")
                     .uri(&path)
                     .header("authorization", "Bearer preview-test-token")
                     .body(Body::empty())
@@ -110,6 +112,96 @@ async fn transport_domain_registration_contract_auth_methods_and_persisted_cwd()
     );
 }
 
+#[test]
+fn transport_registry_contract_orphan_restore_body_is_explicit() {
+    assert!(serde_json::from_value::<super::super::RestoreOrphanedTab>(
+        serde_json::json!({"tab_id": "orphan"})
+    )
+    .is_ok());
+    for body in [
+        serde_json::json!({}),
+        serde_json::json!({"tab_id": "orphan", "command": "arbitrary"}),
+    ] {
+        assert!(serde_json::from_value::<super::super::RestoreOrphanedTab>(body).is_err());
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+async fn transport_registry_contract_owner_mutations_restore_and_persist() {
+    let (mut mux, tab) = MultiplexerState::new();
+    let workspace = mux.list_workspaces()[0].id.clone();
+    mux.rename_tab(&tab, "Restored by HTTP").unwrap();
+    mux.close_workspace(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("transport-fixture"),
+    ));
+    let state = fixture::app_state(&fixture);
+    let job = state
+        .cron
+        .lock()
+        .create(
+            serde_json::from_value(serde_json::json!({
+                "name": "Before", "workspace_id": workspace, "schedule": "0 0 * * *",
+                "task": "opaque-task", "enabled": false, "agent": "transport-fixture"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    for owner in [false, true] {
+        let mut headers = axum::http::HeaderMap::new();
+        if owner {
+            headers.insert(
+                "authorization",
+                "Bearer preview-test-token".parse().unwrap(),
+            );
+        }
+        let update = super::super::owner_cron_update(
+            axum::extract::State(state.clone()),
+            headers.clone(),
+            axum::extract::Path(job.id.clone()),
+            axum::Json(serde_json::from_value(serde_json::json!({"name":"After"})).unwrap()),
+        )
+        .await;
+        if owner {
+            update.unwrap();
+            assert_eq!(state.cron.lock().get(&job.id).unwrap().name, "After");
+            let persisted = crate::cron::store::CronStore::new_with_path(
+                fixture.temp.path().join("crons.json"),
+            );
+            assert_eq!(persisted.get(&job.id).unwrap().name, "After");
+        } else {
+            assert_eq!(update.unwrap_err().0, StatusCode::FORBIDDEN);
+            assert_eq!(state.cron.lock().get(&job.id).unwrap().name, "Before");
+        }
+        let restored = super::super::restore_orphaned_tab(
+            axum::extract::State(state.clone()),
+            headers,
+            axum::Json(super::super::RestoreOrphanedTab {
+                tab_id: tab.clone(),
+            }),
+        )
+        .await;
+        if owner {
+            let body = restored.unwrap().0;
+            let restored_tab = body["tab_id"].as_str().unwrap();
+            assert_eq!(
+                fixture
+                    .service
+                    .mux
+                    .read()
+                    .get_tab(restored_tab)
+                    .unwrap()
+                    .title,
+                "Restored by HTTP"
+            );
+        } else {
+            assert_eq!(restored.unwrap_err().0, StatusCode::FORBIDDEN);
+            assert!(fixture.service.mux.read().get_tab(&tab).is_none());
+        }
+    }
+}
 #[tokio::test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn transport_domain_registration_contract_team_nonce_and_persisted_rename() {

@@ -11,6 +11,7 @@ const renderAct = (body: () => Promise<void>) => withFailureDeadline(act(body), 
 
 async function main() {
   const win = new Window({ url: "http://gateway:7685" });
+  Object.assign(win, { __CODETERM_DAEMON__: { origin: /^https?:/.test(win.location.origin) ? win.location.origin : "http://127.0.0.1:7686", token: "test-token" } });
   const globals = {
     window: win, document: win.document, navigator: win.navigator,
     localStorage: win.localStorage, sessionStorage: win.sessionStorage,

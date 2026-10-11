@@ -15,8 +15,9 @@ type Args = Record<string, unknown> & {
 };
 const enc = encodeURIComponent;
 const s = (args: Args, key: string, alias?: string): string => String(args[key] ?? (alias ? args[alias] : undefined) ?? "");
-export function createTabsTransport(client: TabsTransportClient) {
-    const webPtyOffsets = new Map<string, number>();
+export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
+export function createTabsTransport(client: TabsTransportClient, cursors: PtyCursors = { offsets: new Map(), truncations: new Map() }) {
+    const webPtyOffsets = cursors.offsets;
     const remotePtyIds = new RemotePtyIdCache();
     const clientFor = (args: Args): TabsTransportClient => ({
         json: (method, path, body, opts) => client.json(method, path, body, {
@@ -231,6 +232,7 @@ export function createTabsTransport(client: TabsTransportClient) {
                 truncated_from?: number;
             }>("GET", `/api/pty/${enc(ptyId)}/read?offset=${offset}`);
             webPtyOffsets.set(ptyId, resp.offset);
+            if (resp.truncated_from !== undefined) cursors.truncations.set(ptyId, resp.truncated_from);
             return resp.data;
         },
         write_pty_string: (a: Args) => clientFor(a).json("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, {
