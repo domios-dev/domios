@@ -47,6 +47,7 @@ class OpenCodeTrack:
 
     def select(self, tab):
         row = self.host.inspect(tab)
+        self.browser('before-select-' + tab, 'snapshot')
         self.browser('select-' + tab, 'click', 'button', 'Open tab ' + row['title'])
 
     def visible(self, tab, marker, label):
