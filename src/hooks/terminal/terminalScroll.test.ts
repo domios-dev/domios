@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
-import { dispatchTerminalTouchScroll, terminalScrollAction } from "./terminalScroll";
+import { dispatchTerminalTouchScroll, terminalScrollAction, terminalScrollPoints } from "./terminalScroll";
 
 class CoordinateWheelEvent extends MouseEvent {
   static readonly DOM_DELTA_LINE = 1;
@@ -18,6 +18,15 @@ beforeAll(() => vi.stubGlobal("WheelEvent", CoordinateWheelEvent));
 afterAll(() => vi.unstubAllGlobals());
 
 describe("terminal gesture routing", () => {
+  it("distributes wheel positions across the dragged region in both directions", () => {
+    expect(terminalScrollPoints(-3, { x: 10, y: 40 }, { x: 40, y: 100 })).toEqual([
+      { x: 20, y: 60 }, { x: 30, y: 80 }, { x: 40, y: 100 },
+    ]);
+    expect(terminalScrollPoints(3, { x: 40, y: 100 }, { x: 10, y: 40 })).toEqual([
+      { x: 30, y: 80 }, { x: 20, y: 60 }, { x: 10, y: 40 },
+    ]);
+    expect(terminalScrollPoints(0, { x: 10, y: 40 }, { x: 40, y: 100 })).toEqual([]);
+  });
   for (const buffer of ["normal", "alternate"] as const) {
     for (const mouseTracking of ["none", "x10", "vt200", "drag", "any"] as const) {
       it(`${buffer}/${mouseTracking} keeps desktop wheel handling native`, () => {
@@ -95,11 +104,8 @@ it("touch produces SGR wheel bytes through real xterm and the terminal PTY write
   const screen = host.querySelector<HTMLElement>(".xterm-screen")!;
   screen.style.padding = "0px";
   const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
-  let written: () => void = () => {};
-  const receipt = new Promise<void>(resolve => { written = resolve; });
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
     calls.push({ command, args });
-    written();
     return undefined as T;
   });
   const root = createRoot(reactHost);
@@ -130,11 +136,25 @@ it("touch produces SGR wheel bytes through real xterm and the terminal PTY write
       touch("touchstart", 180);
       touch("touchmove", 196);
     });
-    await receipt;
     expect(calls).toEqual([{
       command: "write_pty_string",
       args: { ptyId: "touch-pty", data: "\x1b[<64;11;13M" },
     }]);
+    calls.length = 0;
+    await act(async () => {
+      touch("touchend", 196);
+      touch("touchstart", 64);
+      touch("touchmove", 352);
+      touch("touchend", 352);
+      touch("touchstart", 352);
+      touch("touchmove", 64);
+      touch("touchend", 64);
+    });
+    expect(calls.every(call => call.command === "write_pty_string" && call.args?.ptyId === "touch-pty")).toBe(true);
+    expect(calls.map(call => call.args?.data).join("")).toBe([
+      ...Array.from({ length: 18 }, (_, i) => `\x1b[<64;11;${i + 6}M`),
+      ...Array.from({ length: 18 }, (_, i) => `\x1b[<65;11;${22 - i}M`),
+    ].join(""));
   } finally {
     await act(async () => root.unmount());
     term.dispose();

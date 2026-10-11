@@ -11,7 +11,22 @@ export function terminalScrollAction(state: TerminalScrollState, gesture: "touch
   return state.buffer === "alternate" || reportsWheel ? "wheel" : "scrollback";
 }
 
-export function dispatchTerminalTouchScroll(term: Terminal, lines: number, x: number, y: number): void {
+export interface TerminalScrollPoint {
+  x: number;
+  y: number;
+}
+
+export function terminalScrollPoints(lines: number, start: TerminalScrollPoint, end: TerminalScrollPoint): TerminalScrollPoint[] {
+  return Array.from({ length: Math.abs(lines) }, (_, index) => {
+    const fraction = (index + 1) / Math.abs(lines);
+    return {
+      x: start.x + (end.x - start.x) * fraction,
+      y: start.y + (end.y - start.y) * fraction,
+    };
+  });
+}
+
+export function dispatchTerminalTouchScroll(term: Terminal, lines: number, x: number, y: number, start = { x, y }): void {
   const action = terminalScrollAction({
     buffer: term.buffer.active.type,
     mouseTracking: term.modes.mouseTrackingMode,
@@ -22,14 +37,14 @@ export function dispatchTerminalTouchScroll(term: Terminal, lines: number, x: nu
   }
   const screen = term.element?.querySelector(".xterm-screen");
   if (!screen) return;
-  for (let row = 0; row < Math.abs(lines); row++) {
+  for (const point of terminalScrollPoints(lines, start, { x, y })) {
     screen.dispatchEvent(new WheelEvent("wheel", {
       bubbles: true,
       cancelable: true,
       deltaMode: WheelEvent.DOM_DELTA_LINE,
       deltaY: Math.sign(lines),
-      clientX: x,
-      clientY: y,
+      clientX: point.x,
+      clientY: point.y,
     }));
   }
 }
