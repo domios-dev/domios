@@ -207,6 +207,8 @@ class Matrix:
     def phase_spawn(self):
         ws = self.cli('workspace-create', 'workspace', 'create', f'Restore{RUN}', '--provision')
         self.workspace = ws['id']
+        subprocess.run(['git', 'init', '--quiet', ws['cwd']], check=True)
+        subprocess.run(['git', '-C', ws['cwd'], '-c', 'user.name=Restore bench', '-c', 'user.email=restore-bench@localhost', 'commit', '--quiet', '--allow-empty', '-m', 'Initialize restore fixture'], check=True)
         pair = self.cli('team-pair', 'team', 'pair', '--orchestrator', 'codex', '--planner', 'codex', '--workspace', self.workspace, '--title', f'Restore{RUN}')
         self.orch = pair['orchestrator_tab_id']
         self.tabs = [self.orch, pair['planner_tab_id']]
