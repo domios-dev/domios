@@ -307,7 +307,7 @@ impl BrowserRuntime {
                 let base64 = self.screenshot_base64(page, full).await?;
                 let path = self.save_evidence(ctx, name, base64).await?;
                 let path = path.to_string_lossy();
-                Ok(format!("saved {path} (show it with @ct-image {path})"))
+                Ok(format!("saved {path} (show it with @ds-image {path})"))
             }
             other => Err(format!("unknown verb \"{other}\"")),
         }

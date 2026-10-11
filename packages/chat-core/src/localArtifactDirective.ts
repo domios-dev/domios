@@ -1,7 +1,8 @@
 export type LocalArtifactKind = "page" | "image" | "document";
 export interface LocalArtifactDirective { kind: LocalArtifactKind; path: string; }
 export function parseLocalArtifactDirective(source: string): LocalArtifactDirective | null {
-  const match = /^\s*@ds-(page|image|document)\s+(?:"([^"]+)"|'([^']+)'|(.+?))\s*$/i.exec(
+  // `@ct-` is the pre-Domios prefix that older prompts and peers still emit.
+  const match = /^\s*@(?:ds|ct)-(page|image|document)\s+(?:"([^"]+)"|'([^']+)'|(.+?))\s*$/i.exec(
     source.replace(/\r/g, ""),
   );
   const path = (match?.[2] || match?.[3] || match?.[4] || "").trim();
