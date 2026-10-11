@@ -152,5 +152,10 @@
   "src/lib/frontendUpdate/model.test.ts",
   "src/lib/frontendUpdate/checkpoint.test.ts",
   "src/lib/frontendUpdate/client.test.ts",
-  "src/lib/frontendUpdate/observer.test.ts"
+  "src/lib/frontendUpdate/observer.test.ts",
+  "src/components/Terminal/chatMountedWindow.test.ts",
+  "src/components/Terminal/chatAnchorModel.test.ts",
+  "src/components/Terminal/useMountedChatWindow.test.tsx",
+  "packages/chat-ui/src/highlightBudget.test.ts",
+  "packages/chat-ui/src/ChatHighlightBudget.test.tsx"
 ]
