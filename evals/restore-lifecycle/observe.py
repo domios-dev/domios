@@ -44,7 +44,10 @@ def api(method, path, payload=None):
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         raw = response.read().decode("utf-8")
-        return json.loads(raw) if raw.strip() else {}
+        value = json.loads(raw) if raw.strip() else {}
+        if isinstance(value, dict) and value.get("ok") is False:
+            fail(f"{method} {path}: refused: {json.dumps(value)}")
+        return value
 
 
 def status(tab_id):
@@ -207,7 +210,7 @@ def cmd_send_long_turn(deadline, tab_id, prompt):
     api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
 
     def working(_event):
-        return (status(tab_id) or {}).get("status") == "Working"
+        return (status(tab_id) or {}).get("status", "").lower() == "working"
 
     wait.until(working, f"tab {tab_id} to report Working")
     print(f"working {tab_id}")
