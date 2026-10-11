@@ -85,6 +85,18 @@ A generated artifact is produced from a source of truth and is never hand-edited
 
 A lane Worker runs isolated checks only. When a generator needs the checkout's built CLI (`essence-map` also refuses a linked worktree), list the exact regeneration and verification commands under `GATES REQUESTED` for the Orchestrator's canonical wave batch.
 
+## Build timing and warm reuse
+
+`release-inputs` (also used by `build` and `install-local`) records Cargo HTML
+timings for CLI and app/embed preparation under the operation’s target
+`cargo-timings/` directory. App preparation enables `tauri/custom-protocol`,
+matching Tauri packaging so its dependency graph can be reused. Preserve that
+feature when changing release preparation.
+
+CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
+do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
+SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
+
 ## Cache retention and troubleshooting
 
 Gateway acquisition triggers retention at most once per hour; there are no timers or background sweep jobs. `cache-retention.json` in the machine gateway records the last completed run. Exceptional targets carry `.codeterm-cache.json` with their physical checkout path, last-use timestamp, measured byte count, and live build-owner PIDs. Preparation refreshes the marker even for exceptional commands that run outside the gateway.
@@ -214,6 +226,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Release preparation and Tauri packaging compile Tauri and the app dependency graph twice | Preparation omitted `tauri/custom-protocol`, which packaging enables | Keep the packaging feature in `prepare_release_bundle_inputs`; inspect its Cargo timings and the gateway log after a serialized canonical build. |
 | `build.ps1 cli` builds and writes the manifest, then fails copying the installed CLI with `Device or resource busy` | Windows has the active dev CLI executable open | Do not kill unrelated callers. For artifact verification, run `cli/target/release/codeterm.exe cli-manifest --write` from that checkout, then run the focused CLI manifest gate. Report the install failure separately; the owner can reinstall when its callers release the executable. |
 | `check-tests` fails to mmap `libcodeterm_lib.rlib` with Windows error 1455, followed by missing-crate or macro-resolution errors | The machine exhausted its paging-file commitment during concurrent Rust compilation | Let the owning compile finish; report the resource failure rather than changing source for secondary diagnostics. Run the next authorized focused selector through the gateway. Retry `check-tests` only after the owner has serialized compilation or restored memory capacity. |
 | `test-one app` in a fresh canonical checkout fails with `glob pattern bundled-cli/* path not found or didn't match any files` | The focused app operation skipped the compile-only frontend and CLI/embed resource preparation already used by `test` and `check` | Use the focused app operation with `prepare_dev_frontend_dist` and `prepare_bundle_stubs` before compilation. These existing placeholders satisfy Tauri metadata only; the authority test runs in-process and never executes them. Production bundling still replaces the placeholders with real signed binaries. |
@@ -517,4 +530,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
