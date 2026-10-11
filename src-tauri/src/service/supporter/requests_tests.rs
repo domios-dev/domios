@@ -199,6 +199,7 @@ fn supporter_failure_activity_labels_the_tab_state_decision_point() {
     };
 
     runtime.failure_with_activity(
+        None,
         VerdictKind::TabState,
         Some("tab"),
         &DecisionError::Transport("private detail".into()),
@@ -361,7 +362,7 @@ fn supporter_402_exhaustion_alerts_once_and_blocks_calls() {
 }
 
 #[test]
-fn supporter_first_opinion_physical_requests_counted_per_real_request() {
+fn supporter_rerank_rejects_sequential_wire_requests_after_one_call() {
     struct Local;
     impl DecisionModel for Local {
         fn id(&self) -> &str {
@@ -425,7 +426,25 @@ fn supporter_first_opinion_physical_requests_counted_per_real_request() {
     );
     assert_eq!(
         wire.decide_questions(&request(3), Instant::now() + Duration::from_secs(2)),
-        Err(DecisionError::Budget)
+        Err(DecisionError::Unsupported)
+    );
+    assert_eq!(runtime.status(2)["calls_last_hour"], 1);
+    let other = budgeted_model_with_activity(
+        Arc::new(Sequential),
+        runtime.clone(),
+        2,
+        VerdictKind::Sentinel,
+        None,
+        None,
+        None,
+    );
+    assert_eq!(
+        other
+            .decide_questions(&request(3), Instant::now() + Duration::from_secs(2))
+            .unwrap()
+            .answers
+            .len(),
+        3
     );
     assert_eq!(runtime.status(2)["calls_last_hour"], 2);
 }
@@ -489,4 +508,53 @@ fn supporter_first_opinion_adapter_batch_cannot_hide_a_second_physical_request()
         Err(DecisionError::Unsupported)
     );
     assert_eq!(runtime.status(0)["calls_last_hour"], 1);
+}
+
+#[test]
+fn supporter_unavailable_backoff_emits_once_and_does_not_extend_on_blocked_calls() {
+    let clock = codeterm_types::decision::deadline::FixtureClock::new(Instant::now());
+    let origin = clock.now();
+    let _scope = clock.enter();
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    runtime.failure_with_activity(
+        Some("fixture"),
+        VerdictKind::TabState,
+        Some("tab"),
+        &DecisionError::Unavailable("offline".into()),
+        None,
+    );
+    assert!(!runtime.adapter_available("fixture"));
+    for second in 1..60 {
+        clock.advance_to(origin + Duration::from_secs(second));
+        let error = runtime.admit_adapter("fixture").unwrap_err();
+        runtime.failure_with_activity(
+            Some("fixture"),
+            VerdictKind::TabState,
+            Some("tab"),
+            &error,
+            None,
+        );
+    }
+    assert_eq!(runtime.feed(100, None).unwrap().len(), 1);
+    clock.advance_to(origin + Duration::from_secs(60));
+    assert!(runtime.adapter_available("fixture"));
+    runtime.failure_with_activity(
+        Some("fixture"),
+        VerdictKind::TabState,
+        Some("tab"),
+        &DecisionError::Unavailable("offline".into()),
+        None,
+    );
+    assert_eq!(runtime.feed(100, None).unwrap().len(), 1);
+    runtime.mark_adapter_ready("fixture");
+    assert!(runtime.adapter_available("fixture"));
+    runtime.failure_with_activity(
+        Some("fixture"),
+        VerdictKind::TabState,
+        Some("tab"),
+        &DecisionError::Unavailable("new outage".into()),
+        None,
+    );
+    assert_eq!(runtime.feed(100, None).unwrap().len(), 2);
 }

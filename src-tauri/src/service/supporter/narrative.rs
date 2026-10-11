@@ -256,6 +256,7 @@ pub(crate) fn tab_state(title: &str, label: &str) -> Vec<QuestionAnswer> {
     )]
 }
 
+#[cfg(test)]
 pub(crate) fn rerank(query: &str, title: Option<&str>, count: usize) -> Vec<QuestionAnswer> {
     let answer = title.map_or_else(
         || "No memories ranked".into(),

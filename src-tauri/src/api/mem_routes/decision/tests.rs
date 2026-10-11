@@ -256,6 +256,40 @@ impl Drop for StubModel {
 }
 
 impl DecisionModel for StubModel {
+    fn supports_question_batch(&self) -> bool {
+        true
+    }
+
+    fn decide_questions(
+        &self,
+        request: &codeterm_types::decision::DecisionQuestionsRequest,
+        deadline: Instant,
+    ) -> Result<codeterm_types::decision::DecisionResponse, DecisionError> {
+        codeterm_types::decision::physical::before_request()?;
+        let answers = request
+            .questions
+            .iter()
+            .map(|(name, question)| {
+                let candidate = &request.state["candidates"][name];
+                let single = DecisionRequest {
+                    state: Value::String(format!(
+                        "{}\n{}",
+                        candidate["title"].as_str().unwrap_or_default(),
+                        candidate["body"].as_str().unwrap_or_default()
+                    )),
+                    instructions: question.instructions.clone(),
+                    question: question.question.clone(),
+                };
+                self.decide(&single, deadline)
+                    .map(|answer| (name.clone(), answer))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(codeterm_types::decision::DecisionResponse {
+            answers,
+            usage: None,
+        })
+    }
+
     fn id(&self) -> &str {
         STUB_ID
     }
@@ -763,3 +797,5 @@ mod clock;
 mod docs;
 mod graph;
 mod sessions;
+
+mod batching;

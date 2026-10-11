@@ -126,6 +126,7 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             super::narrative::MAX_NAME_CHARS
         ));
     }
+    entry["tab_id"] = value["tab"].as_str().map_or(Value::Null, |tab| json!(tab));
     entry["decision_point"] = json!(allowed(
         &value["decision_point"],
         &[
