@@ -803,6 +803,27 @@ impl super::ServiceContext {
                 .live_binding
                 .as_ref()
                 .and_then(|binding| binding.session_id.as_deref());
+            let submit_claim = if let Some(pty_id) = head.authority.pty_id.as_deref() {
+                let claim = self
+                    .chat_send_ledger
+                    .take_user_submit_claim(&head.send_id)
+                    .unwrap_or_else(|| {
+                        super::pty_io::submit_transaction::claim_submit_cycle(pty_id)
+                    });
+                if let Some(wait) = claim.command_wait() {
+                    let dispatch_generation = store
+                        .tab(tab_id)
+                        .dispatch_generation
+                        .load(Ordering::Acquire);
+                    self.hold_user_send_for_model_command(tab_id, &head.send_id, wait);
+                    return Ok(UserDrain::ZeroWriteRefusal {
+                        dispatch_generation,
+                    });
+                }
+                Some(claim)
+            } else {
+                None
+            };
             if !store.claim(&head, session)? {
                 return Ok(self.pending_user_send(&head, "owner_claim_refused"));
             }
@@ -826,6 +847,10 @@ impl super::ServiceContext {
                 .load(Ordering::Acquire);
             let outcome =
                 if self.user_send_readiness_is_current(&claimed.authority, readiness.as_ref()) {
+                    if let Some(claim) = submit_claim {
+                        self.chat_send_ledger
+                            .store_user_submit_claim(&head.send_id, claim);
+                    }
                     submit(&claimed, &text, readiness.as_ref())
                 } else {
                     self.pending_user_send(&claimed, "readiness_changed_before_payload_write");
@@ -834,6 +859,7 @@ impl super::ServiceContext {
                         detail: "user owner authority revoked before handoff".into(),
                     })
                 };
+            self.chat_send_ledger.take_user_submit_claim(&head.send_id);
             let zero_write = outcome
                 .as_ref()
                 .err()
@@ -915,6 +941,9 @@ impl super::ServiceContext {
     ) -> Result<(), DeliveryError> {
         let authority = &record.authority;
         let tab_id = authority.tab_id.as_str();
+        let admitted_claim = self
+            .chat_send_ledger
+            .take_user_submit_claim(&record.send_id);
         if !self.user_send_readiness_is_current(authority, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),
@@ -939,6 +968,16 @@ impl super::ServiceContext {
                 tab: tab_id.into(),
                 detail: "user owner has no resolved PTY authority".into(),
             })?;
+        let claim = admitted_claim
+            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id))
+            .with_trace_id(&record.send_id);
+        if let Some(wait) = claim.command_wait() {
+            self.hold_user_send_for_model_command(tab_id, &record.send_id, wait);
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.into(),
+                detail: "model command owns PTY input".into(),
+            });
+        }
         // Resolved after readiness was observed, so a hook installed before readiness is never missed.
         let permit = {
             let mux = self.mux.read();
@@ -997,11 +1036,6 @@ impl super::ServiceContext {
                 detail: "user owner revoked before submit cycle".into(),
             });
         }
-        let claim = self
-            .chat_send_ledger
-            .take_user_submit_claim(&record.send_id)
-            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id))
-            .with_trace_id(&record.send_id);
         if !self.user_send_readiness_is_current(authority, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),

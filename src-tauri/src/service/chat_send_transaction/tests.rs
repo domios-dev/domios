@@ -793,3 +793,61 @@ fn emitted_wire_field_matches_chat_core_consumer_correlation_id() {
     // ca6aebc5) reads as NormalizedChatMessage.correlationId.
     assert_eq!(json["correlationId"], serde_json::json!("tok-Z"));
 }
+
+#[test]
+fn model_command_hold_is_queued_until_written_and_exact_turn_delivered() {
+    let ledger = ChatSendLedger::default();
+    let pending = ledger
+        .try_start_scoped(
+            "tab-1",
+            "opaque payload",
+            None,
+            Some(SendLiveBinding {
+                session_id: Some("session-1".into()),
+                binding_nonce: Some("nonce-1".into()),
+            }),
+        )
+        .unwrap();
+    ledger.state.lock().owned.insert(
+        pending.send_id.clone(),
+        (
+            crate::service::pending_delivery_payloads::user_sends::UserSendAuthority {
+                tab_id: "tab-1".into(),
+                pty_id: Some("pty-1".into()),
+                binding_nonce: "nonce-1".into(),
+                pty_session_generation: Some(1),
+                provider_id: "provider".into(),
+                session_id: Some("session-1".into()),
+                observed_session_id: Some("session-1".into()),
+                prelaunch: false,
+            },
+            true,
+        ),
+    );
+    let held = ledger
+        .set_user_pending_reason(&pending.send_id, Some("awaiting_model_command"))
+        .unwrap();
+    assert_eq!(held.state, ChatSendState::Pending);
+    assert_eq!(serde_json::to_value(&held).unwrap()["state"], "held");
+    assert_eq!(
+        held.pending_reason.as_deref(),
+        Some("awaiting_model_command")
+    );
+    assert!(!ledger.user_payload_may_have_been_written(&held.send_id));
+    let written = ledger.mark_user_written(&held.send_id).unwrap();
+    assert_eq!(written.state, ChatSendState::Written);
+    assert!(written.pending_reason.is_none());
+    assert!(ledger
+        .confirm_delivered_user_turn_scoped(
+            "tab-1",
+            "foreign-session",
+            Some("nonce-1"),
+            "opaque payload"
+        )
+        .is_none());
+    let delivered = ledger
+        .confirm_delivered_user_turn_scoped("tab-1", "session-1", Some("nonce-1"), "opaque payload")
+        .unwrap();
+    assert_eq!(delivered.state, ChatSendState::Sent);
+    assert_eq!(delivered.send_id, held.send_id);
+}
