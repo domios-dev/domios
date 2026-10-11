@@ -1,7 +1,9 @@
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatFloatingBottomInset } from "./chatLayoutInsets";
 
 export function useChatLayoutInsets(rootRef: RefObject<HTMLDivElement | null>): number {
+  const previousInset = useRef(0);
   const [inset, setInset] = useState(0);
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -11,7 +13,12 @@ export function useChatLayoutInsets(rootRef: RefObject<HTMLDivElement | null>): 
       const tops = Array.from(bar.querySelectorAll<HTMLElement>(".ct-ctx-pill, .ct-agent-stop"))
         .filter((element) => element.getClientRects().length && window.getComputedStyle(element).visibility !== "hidden")
         .map((element) => element.getBoundingClientRect().top);
-      setInset(chatFloatingBottomInset(bar.getBoundingClientRect().top, tops));
+      const next = chatFloatingBottomInset(bar.getBoundingClientRect().top, tops);
+      if (next !== previousInset.current) {
+        chatScrollDiagnostic(root.dataset.tabId ?? "chat", "inset", { before: previousInset.current, inset: next, barTop: bar.getBoundingClientRect().top });
+        previousInset.current = next;
+      }
+      setInset(next);
     };
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     resize?.observe(bar);

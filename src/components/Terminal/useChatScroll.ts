@@ -25,6 +25,8 @@ import {
 } from "./chatScrollAnchor";
 
 import { chatLayoutScrollTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { useChatPaintRepair } from "./useChatPaintRepair";
+import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatRevealIndex } from "./chatAnchorModel";
 
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
@@ -130,10 +132,13 @@ export function useChatScroll({
   const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
     const changed = modeRef.current !== mode;
     modeRef.current = mode;
-    el.style.overflowAnchor = "none";
+    if (el.style.overflowAnchor !== "none") el.style.overflowAnchor = "none";
     contentAnchorRef.current = mode === "detached" ? captureChatContentAnchor(el) : null;
     if (followTailRef) followTailRef.current = mode === "pinned";
-    if (changed) onModeChangeRef.current?.(mode);
+    if (changed) {
+      chatScrollDiagnostic(sessionKeyRef.current, "mode", { mode, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
+      onModeChangeRef.current?.(mode);
+    }
     persist(el);
   }, [followTailRef, persist]);
 
@@ -198,6 +203,8 @@ export function useChatScroll({
       ? modeRef.current
       : chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el);
     const layoutChanged = chatViewportLayoutChanged(lastViewportRef.current, el);
+    chatScrollDiagnostic(sessionKeyRef.current, "scroll", { fromHookWrite, layoutChanged, previous: lastViewportRef.current,
+      modeBefore: modeRef.current, modeAfter: mode, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
     if (mode === "detached" && layoutChanged) holdContentAnchor(el);
     if (mode === "pinned" && !isChatViewportAtBottom(el)) writeScrollTop(el, el.scrollHeight);
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
@@ -205,6 +212,8 @@ export function useChatScroll({
     else setMode(mode, el);
     updateScrollDown(el);
   }, [holdContentAnchor, persist, setMode, updateScrollDown, writeScrollTop]);
+
+  useChatPaintRepair(scrollRef, active && !loading, sessionKey, handleContentLayout);
 
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
@@ -266,7 +275,7 @@ export function useChatScroll({
     const el = scrollRef.current;
     if (!active) { restoredKeyRef.current = ""; return; }
     if (!el || loading || messageCount === 0) return;
-    el.style.overflowAnchor = "none";
+    if (el.style.overflowAnchor !== "none") el.style.overflowAnchor = "none";
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {
       restoredKeyRef.current = sessionKey;
