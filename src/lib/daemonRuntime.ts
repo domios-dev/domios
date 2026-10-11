@@ -1,3 +1,4 @@
+import { createRuntimeBinding } from "./runtimeBindingModel";
 import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
 import { baseDaemonTransport, daemonTransportForPeer, initializeDaemonTransport, onDaemonTransport } from "./daemonBootstrap";
 import { relayTarget, webJson, localJson, invalidateWebRequestContext } from "./webApi";
@@ -18,20 +19,17 @@ export const selectedDaemonTransport: TransportClient = {
   origin: () => baseDaemonTransport().origin(),
 };
 
-let runtimeClient: TransportClient | undefined;
-function bindDaemonRuntime(base: TransportClient): void {
-  if (runtimeClient && runtimeClient !== base) invalidateWebRequestContext();
-  runtimeClient = base;
+const bindDaemonRuntime = createRuntimeBinding<TransportClient>((base) => {
   bindOutputStreamTransport(base);
   bindWebEventsTransport(base);
   bindRemoteTabEventsTransport(base);
   bindNativeBridgeTransport(base);
   bindOrchestrationTransport(selectedDaemonTransport);
-}
+  frontendBootDiagnostic("runtime-bound");
+}, invalidateWebRequestContext);
 
 let bound = false;
 export function ensureDaemonRuntime(): void {
   if (!bound) { bound = true; onDaemonTransport(bindDaemonRuntime); }
   initializeDaemonTransport();
-  frontendBootDiagnostic("runtime-bound");
 }

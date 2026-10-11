@@ -8,7 +8,7 @@
     const diagnostic = (stage, failure) => {
       const name = failure?.name;
       const errorName = ["Error", "ReferenceError", "TypeError", "SyntaxError", "SecurityError", "FrontendUpdateError"].includes(name) ? name : undefined;
-      const reason = ["invalid-client", "checkpoint-unavailable", "status-unavailable", "api-incompatible", "storage-unavailable", "boot-context-invalid", "unexpected"].includes(failure?.reason) ? failure.reason : undefined;
+      const reason = ["invalid-client", "checkpoint-unavailable", "status-unavailable", "api-incompatible", "storage-unavailable", "boot-context-invalid", "unexpected", "native-capability-denied", "rejected-string", "rejected-value"].includes(failure?.reason) ? failure.reason : undefined;
       const httpStatus = Number.isInteger(failure?.httpStatus) && failure.httpStatus >= 100 && failure.httpStatus <= 599 ? failure.httpStatus : undefined;
       const source = String(failure?.filename ?? "").split("/").pop().split("?")[0].split("#")[0];
       void fetch(bootstrap.origin + "/api/frontend/diagnostic", {
@@ -20,7 +20,14 @@
     };
     window.__CODETERM_SHELL_DIAGNOSTIC__ = diagnostic;
     window.addEventListener("error", event => diagnostic("script-error", { name: event.error?.name, filename: event.filename, lineno: event.lineno, colno: event.colno }));
-    window.addEventListener("unhandledrejection", event => diagnostic("promise-error", { name: event.reason?.name }));
+    const rejectionDiagnostic = value => {
+      if (typeof value === "string") {
+        const denied = /^(?:[a-z][a-z0-9_-]*\.)?[a-z][a-z0-9_-]* (?:not allowed|explicitly denied)\b/.test(value);
+        return { reason: denied ? "native-capability-denied" : "rejected-string" };
+      }
+      return { name: value?.name, reason: value?.reason ?? "rejected-value" };
+    };
+    window.addEventListener("unhandledrejection", event => diagnostic("promise-error", rejectionDiagnostic(event.reason)));
   }
   window.__CODETERM_DAEMON__ = bootstrap;
   window.__CODETERM_SHELL_DIAGNOSTIC__?.("bootstrap-injected");
