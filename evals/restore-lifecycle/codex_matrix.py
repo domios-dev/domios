@@ -187,7 +187,7 @@ class Matrix:
         # Starting each mode is itself a scoped full stop/start, before fixture creation.
         self.restart('mode-start')
         info = self.cli('cli-status', 'agent', 'cli', 'status', 'codex')
-        oracle.require(info.get('detected_version') and info.get('version_probe') == 'detected', f'Codex version not detected: {info}')
+        oracle.require(info.get('version_probe') in ('pending', 'detected'), f'Codex version probe failed: {info}')
         binary = info.get('resolved_path')
         oracle.require(binary, f'Codex resolved binary missing: {info}')
         executable = pathlib.Path(binary).resolve()
@@ -199,7 +199,7 @@ class Matrix:
             probe = subprocess.run([str(executable), '--version'], env={'PATH': oracle.GUI_PATH, 'HOME': os.environ['HOME'], 'USER': os.environ['USER']}, capture_output=True, text=True)
             self.write('wrapper-minimal-path.txt', f'exit={probe.returncode}\n{probe.stdout}{probe.stderr}')
             oracle.require(probe.returncode == 127 and 'node' in probe.stderr, 'GUI fixture did not exercise the missing env-node dependency')
-        self.pass_phase(1, 'daemon PATH and npm env-node wrapper proven; version detected')
+        self.pass_phase(1, 'daemon PATH and npm env-node wrapper proven; version detection checked after startup ACK')
 
     def phase_spawn(self):
         ws = self.cli('workspace-create', 'workspace', 'create', f'Restore{RUN}', '--provision')
@@ -259,6 +259,8 @@ class Matrix:
             texts = oracle.user_texts(path)
             oracle.require(texts, f'{tab}: own-session transcript has no user turn')
             self.wait(lambda path=path: any('startup_acknowledged' in text or 'ACKNOWLEDGED' in text for text in oracle.tool_outputs(path)), tab + ' own startup ACK result')
+        info = self.cli('cli-status-after-ack', 'agent', 'cli', 'status', 'codex')
+        oracle.require(info.get('detected_version') and info.get('version_probe') == 'detected', f'Codex version not detected after startup ACK: {info}')
         # This UI proof is intentionally mandatory and never inferred from an HTTP 200.
         self.cli('browser-open', 'plugin', 'browser', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
