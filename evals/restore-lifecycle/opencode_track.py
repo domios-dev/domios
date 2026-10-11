@@ -66,6 +66,7 @@ class OpenCodeTrack:
     def spawn(self):
         host = self.host
         host.phase = 8
+        default_only = os.environ.get('RL_OC_RESTORE_DEFAULT_ONLY') == '1'
         catalog = host.cli('opencode-models', 'agent', 'models', 'opencode')
         cheap = os.environ.get('RL_OPENCODE_MODEL')
         if not cheap:
@@ -80,7 +81,7 @@ class OpenCodeTrack:
         oracle.require(cheap != default, 'cheap OpenCode model must differ from default')
         host.cli('opencode-cli-status', 'agent', 'cli', 'status', 'opencode')
         offset = host.log_path.stat().st_size
-        for title, model, worker in (('Delta', default, True), ('Epsilon', cheap, True), ('Zeta', default, False)):
+        for title, model, worker in evidence.spawn_cases(default, cheap, default_only):
             startup = 'RL-OPENCODE-START-' + title
             prompt = ('Read-only probe. Do not edit files, spawn agents, report completion, or change plan state. '
                       'Run codeterm agent startup-ack immediately. ' +
@@ -167,7 +168,7 @@ class OpenCodeTrack:
             if actual != self.expected[tab]:
                 self.finding(tab, 'model_display_unverified', dict(expected_id=self.expected[tab], detected_display=actual), 'opencode-spawn.json')
         oracle.require(not any(row['kind'] == 'startup_failure' for row in self.findings), 'OpenCode child startup failed; see per-child findings')
-        host.pass_phase(8, 'OpenCode: two Workers default/cheap plus plain default; timings, ACK and visible startup')
+        host.pass_phase(8, ('OpenCode: default Worker and plain default' if default_only else 'OpenCode: two Workers default/cheap plus plain default') + '; timings, ACK and visible startup')
 
     def first_turn(self, label='first', phase=9):
         self.host.phase = phase
@@ -258,8 +259,11 @@ class OpenCodeTrack:
     def run(self):
         from codex_matrix import MODE, OUT
         try:
+            requested = oracle.selected_phases(os.environ.get('RL_PHASES'))
             for phase, action in ((8, self.spawn), (9, self.first_turn),
                                   (10, lambda: self.restart(False)), (11, lambda: self.restart(True))):
+                if phase not in requested:
+                    continue
                 self.host.phase = phase
                 try:
                     action()

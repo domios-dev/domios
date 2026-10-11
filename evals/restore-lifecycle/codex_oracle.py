@@ -162,6 +162,7 @@ def resumed_numeric_output(path, baseline_user_count):
 def selected_phases(value=None):
     phases = set(range(1, 12)) if value is None else set(map(int, value.split(',')))
     require({1, 2}.issubset(phases) and phases.issubset(set(range(1, 12))), 'phase selection requires setup phases 1 and 2 and valid phase ids')
-    for group in ({3, 4}, {8, 9, 10, 11}):
+    for group in ({3, 4},):
         require(not phases.intersection(group) or group.issubset(phases), 'dependent phase groups must be selected together')
+    require(not phases.intersection({9, 10, 11}) or 8 in phases, 'OpenCode checks require spawn phase 8')
     return phases

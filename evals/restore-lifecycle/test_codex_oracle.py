@@ -139,6 +139,7 @@ class EvidenceTests(unittest.TestCase):
     def test_selected_phases_require_setup_and_complete_groups(self):
         self.assertEqual(oracle.selected_phases(), set(range(1, 12)))
         self.assertEqual(oracle.selected_phases('1,2,3,4,7'), {1, 2, 3, 4, 7})
+        self.assertEqual(oracle.selected_phases('1,2,3,4,8,10,11'), {1, 2, 3, 4, 8, 10, 11})
         for value in ('3,4', '1,2,3', '1,2,9', '1,2,12'):
             with self.subTest(value=value), self.assertRaises(AssertionError):
                 oracle.selected_phases(value)

@@ -5,6 +5,13 @@ import opencode_evidence as evidence
 
 
 class OpenCodeEvidenceTests(unittest.TestCase):
+    def test_restore_roster_excludes_cheap_provider_without_losing_worker_or_plain_spawn(self):
+        cases = evidence.spawn_cases('default', 'cheap', default_only=True)
+        self.assertEqual({model for _, model, _ in cases}, {'default'})
+        self.assertEqual({worker for _, _, worker in cases}, {True, False})
+        self.assertEqual(len(cases), 2)
+        self.assertIn(('Epsilon', 'cheap', True), evidence.spawn_cases('default', 'cheap'))
+
     def row(self, key, kind, content):
         return dict(id=key, type=kind, content=content)
 
