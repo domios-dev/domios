@@ -17,11 +17,13 @@ export function useTouchScroll({ containerRef, termRef, termReady }: UseTouchScr
     el.style.touchAction = "none";
 
     let lastY: number | null = null;
+    let lastX = 0;
     let carry = 0;
 
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) { lastY = null; return; }
       lastY = e.touches[0].clientY;
+      lastX = e.touches[0].clientX;
       carry = 0;
     };
 
@@ -29,13 +31,16 @@ export function useTouchScroll({ containerRef, termRef, termReady }: UseTouchScr
       const term = termRef.current;
       if (lastY == null || e.touches.length !== 1 || !term || el.clientHeight === 0) return;
       const y = e.touches[0].clientY;
+      const x = e.touches[0].clientX;
+      const start = { x: lastX, y: lastY };
       const cell = el.clientHeight / Math.max(term.rows, 1);
       carry += (y - lastY) / cell;
       lastY = y;
+      lastX = x;
       const lines = Math.trunc(carry);
       if (lines !== 0) {
         carry -= lines;
-        dispatchTerminalTouchScroll(term, -lines, e.touches[0].clientX, y);
+        dispatchTerminalTouchScroll(term, -lines, x, y, start);
       }
       e.preventDefault();
       e.stopPropagation();
