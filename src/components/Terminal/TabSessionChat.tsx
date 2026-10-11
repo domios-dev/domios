@@ -1,3 +1,4 @@
+import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -241,6 +242,8 @@ export function TabSessionChat({
         : message,
       severity: "Error",
       level: "failure",
+      ephemeral: true,
+      lifetime_ms: CHAT_ERROR_TOAST_LIFETIME_MS,
     });
   }, [addNotification, tabId]);
 
@@ -455,6 +458,7 @@ export function TabSessionChat({
   );
 
   const {
+    uploadStatus,
     attachments,
     addAttachments,
     removeAttachment,
@@ -951,6 +955,7 @@ export function TabSessionChat({
       {deliveryPlansSink}
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
+      {uploadStatus}
       {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}

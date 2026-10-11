@@ -123,7 +123,7 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
       >
         <span className="ct-capsule ct-capsule--padded">
           <CapsuleDecor kind={kind} />
-          {name}{detail && <span className="ct-capsule__detail">{detail}</span>}
+          {kind === "image" && image.src && <img src={image.src} alt="" onError={image.markFailed} draggable={false} className="mr-1 inline-block h-12 max-w-24 rounded-md object-cover align-middle" />}{name}{detail && <span className="ct-capsule__detail">{detail}</span>}
         </span>
       </button>
       {previewing && !open && (
