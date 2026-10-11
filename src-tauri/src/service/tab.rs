@@ -53,6 +53,7 @@ pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
 mod ownership;
 mod rename_guard;
+mod respond_screen;
 mod scrollback;
 
 pub(crate) use rename_guard::refuse_task_bound_rename;
@@ -816,70 +817,26 @@ impl ServiceContext {
                 .get_screen_text(&pty_id)
                 .unwrap_or_default()
         };
-        let clean = crate::pty::ansi::clean_terminal_output(&screen);
-        let agent_type = tab.agent_type.clone();
-        let provider_prompt = agent_type.as_deref().and_then(|at| {
-            crate::agent::prompt::parse_prompt_safely(|| {
-                self.agent_registry.parse_interactive_prompt(at, &clean)
-            })
+        let steps = match respond_screen::response_steps(
+            &self.agent_registry,
+            tab.agent_type.as_deref(),
+            &screen,
+            option_index,
+            expected_identity,
+            || self.default_prompt_response(option_index),
+        ) {
+            Ok(steps) => steps,
+            Err(outcome) => {
+                log::debug!("[respond_prompt] Tab {} refused: {:?}", tab_id, outcome);
+                return Ok(outcome);
+            }
+        };
+        let pty = self.pty.clone();
+        std::thread::spawn(move || {
+            for step in steps {
+                let _ = pty.lock().write(&pty_id, &step);
+            }
         });
-        if provider_prompt
-            .as_ref()
-            .is_some_and(|(prompt, _)| prompt.multi_select == Some(true))
-        {
-            return Ok(RespondPromptOutcome::InvalidOption);
-        }
-        if let Some(expected) = expected_identity {
-            let current_identity = provider_prompt
-                .as_ref()
-                .map(|(prompt, kind)| codeterm_types::pty::PromptIdentity::new(*kind, prompt));
-            let manual_update_identity_matches = expected.kind
-                == codeterm_types::pty::PromptKind::ManualUpdate
-                && current_identity
-                    .as_ref()
-                    .is_some_and(|current| current.options == expected.options);
-            if current_identity.as_ref() != Some(expected) && !manual_update_identity_matches {
-                return Ok(RespondPromptOutcome::StalePrompt);
-            }
-        }
-        let option_count = provider_prompt
-            .as_ref()
-            .map(|(prompt, _)| prompt.options.len());
-        let prompt_on_screen = provider_prompt.is_some();
-
-        if prompt_on_screen {
-            let Some(option_count) = option_count else {
-                return Ok(RespondPromptOutcome::PromptNotOnScreen);
-            };
-            if option_index >= option_count {
-                return Ok(RespondPromptOutcome::InvalidOption);
-            }
-
-            let steps = if let Some(ref at) = agent_type {
-                self.agent_registry
-                    .build_prompt_response(at, option_index, &clean)
-                    .unwrap_or_else(|| self.default_prompt_response(option_index))
-            } else {
-                self.default_prompt_response(option_index)
-            };
-            if steps.is_empty() {
-                return Ok(RespondPromptOutcome::PromptNotOnScreen);
-            }
-
-            let pty = self.pty.clone();
-            let pid = pty_id.clone();
-            std::thread::spawn(move || {
-                for step in steps {
-                    let _ = pty.lock().write(&pid, &step);
-                }
-            });
-        } else {
-            log::debug!(
-                "[respond_prompt] Prompt not on screen — skipping PTY input for Tab {}",
-                tab_id
-            );
-            return Ok(RespondPromptOutcome::PromptNotOnScreen);
-        }
 
         self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
         self.emit_state_changed();
