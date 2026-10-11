@@ -29,6 +29,17 @@ describe("explicit daemon bootstrap", () => {
     expect(readReloadCredentials({ getItem })).toEqual({ apiOrigin: context.apiOrigin, token: "swap-token" });
     expect(context.ticket.token).toBe("health-ticket");
   });
+  it("prefers swap credentials and consumes the shell injection after a reload", async () => {
+    const shell = {
+      location: { origin: "http://127.0.0.1:7697" }, __TAURI_INTERNALS__: {},
+      __CODETERM_DAEMON__: { origin: "http://127.0.0.1:7697", token: "initial-shell-token" },
+      sessionStorage: { getItem: () => JSON.stringify({ apiOrigin: "http://127.0.0.1:7697", token: "swap-token" }) },
+    };
+    vi.stubGlobal("window", shell);
+    const { initializeDaemonTransport } = await import("./daemonBootstrap");
+    expect(initializeDaemonTransport()!.currentToken()).toBe("swap-token");
+    expect(shell).not.toHaveProperty("__CODETERM_DAEMON__");
+  });
   it("accepts BootContext directly and rebinds clients on replacement", async () => {
     vi.stubGlobal("window", { location: { origin: "tauri://localhost" }, __TAURI_INTERNALS__: {} });
     const { configureDaemonTransport, onDaemonTransport } = await import("./daemonBootstrap");

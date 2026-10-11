@@ -88,7 +88,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn frontend_ready_event_wakes_armed_waiter() {
+    fn transport_bootstrap_contract_frontend_ready_event_wakes_armed_waiter() {
         let signal = std::sync::Arc::new(FrontendReadySignal::default());
         let generation = signal.arm();
         let waiter_signal = signal.clone();
@@ -109,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn frontend_ready_deadline_is_not_success() {
+    fn transport_bootstrap_contract_frontend_ready_deadline_is_not_success() {
         let signal = FrontendReadySignal::default();
         let generation = signal.arm();
 
@@ -117,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn prior_frontend_generation_cannot_satisfy_rearmed_waiter() {
+    fn transport_bootstrap_contract_prior_frontend_generation_cannot_satisfy_rearmed_waiter() {
         let signal = FrontendReadySignal::default();
         let prior_generation = signal.arm();
         assert!(signal.mark_ready(prior_generation));

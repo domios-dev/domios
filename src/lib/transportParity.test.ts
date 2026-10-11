@@ -51,17 +51,17 @@ import fixtures from "./transportCommandContracts.json";
 export const pendingRouteContracts = [
   ["POST", "/api/automation/node-files"],
   ["GET", "/api/tabs/{id}/bridge/thread"], ["POST", "/api/tabs/{id}/bridge/thread"], ["DELETE", "/api/tabs/{id}/bridge/thread"],
-  ["GET", "/api/frontend/bootstrap"], ["POST", "/api/frontend/ready"],
-  ["GET", "/api/desktop/recovery"], ["GET", "/api/listener/status"], ["POST", "/api/listener/restart"],
+  ["POST", "/api/listener/restart"],
 ].map(([method, path]) => ({ method, path }));
 
 function registeredContracts() {
   const routes = readFileSync("src-tauri/src/api/routes.rs", "utf8");
   const modules = readFileSync("src-tauri/src/api/mod.rs", "utf8");
   const sources = [routes];
-  for (const domain of ["transport_tabs", "transport_capabilities", "transport_orchestration"]) {
+  for (const domain of ["transport_tabs", "transport_capabilities", "transport_orchestration", "frontend_shell_routes"]) {
     if (modules.includes(`pub mod ${domain};`) && routes.includes(`${domain}::router()`)) {
-      sources.push(readFileSync(`src-tauri/src/api/${domain}/mod.rs`, "utf8"));
+      const sourcePath = domain === "frontend_shell_routes" ? `${domain}.rs` : `${domain}/mod.rs`;
+      sources.push(readFileSync(`src-tauri/src/api/${sourcePath}`, "utf8"));
     }
   }
   expect(routes).toContain("tab_agent_routes::mount(router)");

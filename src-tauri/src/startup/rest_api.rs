@@ -343,8 +343,7 @@ impl RestApiControl {
         self.lifecycle.lock().listener_owned
     }
 
-    #[cfg(test)]
-    fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
+    pub(crate) fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
         self.status_events.subscribe()
     }
 
