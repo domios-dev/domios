@@ -321,6 +321,7 @@ export function TabSessionChat({
     followSend: rawFollowSentMessage,
     prepareForHistoryPrepend,
     handleScroll,
+    handleContentLayout,
     revealMessage,
   } = useChatScroll({
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
@@ -853,6 +854,7 @@ export function TabSessionChat({
             >
               <MessageBubble
                 message={msg}
+                onContentLayout={handleContentLayout}
                 streaming={msg.id === streamingId}
                 userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
                   ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />

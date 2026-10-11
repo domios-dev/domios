@@ -13,20 +13,25 @@ test("streaming text stays visible until deferred markdown commits", async () =>
   }
   const host = document.createElement("div");
   const root = createRoot(host);
+  const layouts: number[] = [];
+  const onContentLayout = () => { layouts.push(host.querySelectorAll("strong").length); };
   const message = { id: "answer", type: "assistant" as const, content: "First **answer** 🌲" };
   try {
-    await act(async () => root.render(<MessageBubble message={message} streaming />));
+    await act(async () => root.render(<MessageBubble message={message} streaming onContentLayout={onContentLayout} />));
     assert.equal(host.textContent, message.content);
     assert.equal(host.querySelector("strong"), null);
     const grown = { ...message, content: message.content + "\n\nSecond **answer**" };
-    await act(async () => root.render(<MessageBubble message={grown} streaming />));
+    await act(async () => root.render(<MessageBubble message={grown} streaming onContentLayout={onContentLayout} />));
     assert.equal(host.textContent, grown.content);
     await act(async () => {
-      flushSync(() => root.render(<MessageBubble message={grown} streaming={false} />));
+      layouts.length = 0;
+      flushSync(() => root.render(<MessageBubble message={grown} streaming={false} onContentLayout={onContentLayout} />));
+      assert.deepEqual(layouts, [0]);
       assert.equal(host.textContent, grown.content);
       assert.equal(host.querySelector("strong"), null);
     });
     assert.equal(host.querySelectorAll("strong").length, 2);
+    assert.deepEqual(layouts, [0, 2]);
     assert.equal(host.textContent, "First answer 🌲\nSecond answer");
   } finally {
     await act(async () => root.unmount());
