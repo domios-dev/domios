@@ -190,6 +190,7 @@ fn env_compose_absent_identity_omits_variables_instead_of_blanking_them() {
         "CODETERM_TEAM_ID",
         "CODETERM_PLAN_ID",
         "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
         "CODETERM_LANE_BASE",
         "CODETERM_PAD_DIR",
         "CODETERM_ROLE",
@@ -241,6 +242,7 @@ fn env_compose_service_surface_matches_todays_agent_launch_map() {
         "CODETERM_SOCKET_PATH",
         "CODETERM_TAB_ID",
         "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
         "CODETERM_TEAM_ID",
         "CODETERM_WORKER_ID",
     ]
@@ -303,4 +305,99 @@ fn unbound_tab_env_carries_no_plan_identity() {
 
     assert!(task_env.get("CODETERM_PLAN_ID").is_none());
     assert!(task_env.get("CODETERM_TASK_ID").is_none());
+}
+
+#[test]
+fn task_env_selects_own_open_attempt_and_lane_base() {
+    use crate::plan::TaskExecutionAttempt;
+    let own = TaskExecutionAttempt {
+        id: "current-attempt".into(),
+        executor_tab_id: AGENT_TAB_ID.into(),
+        base: Some("attempt-base".into()),
+        ..Default::default()
+    };
+    let attempts = [
+        own.clone(),
+        TaskExecutionAttempt {
+            id: "closed-attempt".into(),
+            closed_at: Some(4),
+            ..own.clone()
+        },
+        TaskExecutionAttempt {
+            id: "retired-attempt".into(),
+            retired_at: Some(5),
+            ..own.clone()
+        },
+        TaskExecutionAttempt {
+            id: "foreign-attempt".into(),
+            executor_tab_id: "other-tab".into(),
+            ..own
+        },
+    ];
+    let env = compose_task_env("plan", "task", AGENT_TAB_ID, &attempts, Some("lane-base"));
+    assert_eq!(env["CODETERM_ATTEMPT_ID"], "current-attempt");
+    assert_eq!(env["CODETERM_LANE_BASE"], "attempt-base");
+    let env = compose_task_env("plan", "task", "missing-tab", &attempts, Some("lane-base"));
+    assert!(!env.contains_key("CODETERM_ATTEMPT_ID"));
+    assert_eq!(env["CODETERM_LANE_BASE"], "lane-base");
+}
+
+#[test]
+fn dispatched_task_env_reconstructs_the_durable_attempt_id() {
+    let (_dir, store, plan_id, task_id) = store_with_bound_task(LANE_BASE);
+    let plan = store.get(&plan_id).unwrap();
+    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    let attempt = task.execution_attempts.last().unwrap();
+    assert_eq!(
+        tab_task_env(&store, AGENT_TAB_ID)["CODETERM_ATTEMPT_ID"],
+        attempt.id
+    );
+}
+
+#[test]
+fn launch_env_composes_task_identity_in_gui_and_normal_path_modes() {
+    let attempt = crate::plan::TaskExecutionAttempt {
+        id: "attempt".into(),
+        executor_tab_id: AGENT_TAB_ID.into(),
+        ..Default::default()
+    };
+    for path in [
+        "/usr/bin:/bin",
+        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    ] {
+        for task_bound in [false, true] {
+            let tab = TabLaunchEnv {
+                tab_id: AGENT_TAB_ID.into(),
+                pad_dir: None,
+                session_binding_nonce: "binding".into(),
+                shell_nonce: "shell".into(),
+                identity: HashMap::from([("PATH".into(), path.into())]),
+                task: if task_bound {
+                    compose_task_env(
+                        "plan",
+                        "task",
+                        AGENT_TAB_ID,
+                        std::slice::from_ref(&attempt),
+                        None,
+                    )
+                } else {
+                    HashMap::new()
+                },
+            };
+            for surface in [LaunchSurface::Service, LaunchSurface::Frontend] {
+                let env = compose_launch_env(&instance_env(), Some(&tab), surface);
+                for (key, value) in [
+                    ("CODETERM_PLAN_ID", "plan"),
+                    ("CODETERM_TASK_ID", "task"),
+                    ("CODETERM_ATTEMPT_ID", "attempt"),
+                ] {
+                    assert_eq!(
+                        env.get(key).map(String::as_str),
+                        task_bound.then_some(value)
+                    );
+                }
+                assert_eq!(env["PATH"], path);
+            }
+        }
+    }
 }
