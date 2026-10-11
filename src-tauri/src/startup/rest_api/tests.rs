@@ -92,9 +92,10 @@ async fn mesh_tailnet_production_runtime_binds_serves_and_publishes_both_listene
     control
         .listeners
         .configure(Some("127.0.0.1:0".parse().unwrap()), Arc::new(|_| {}));
+    let primary = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
-    let server = spawn(control.clone(), "127.0.0.1:0".into(), health_router());
-    wait_for_status(&control, &mut status, |s| {
+    let server = spawn(control.clone(), primary.to_string(), health_router());
+    let initial = wait_for_status(&control, &mut status, |s| {
         s.phase == RestApiPhase::Listening
     })
     .await;
@@ -104,6 +105,28 @@ async fn mesh_tailnet_production_runtime_binds_serves_and_publishes_both_listene
     assert_ne!(addresses[0], addresses[1]);
     tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for address in &addresses {
+            let response = client
+                .get(format!("http://{address}/api/health"))
+                .header(reqwest::header::CONNECTION, "close")
+                .send()
+                .await
+                .unwrap();
+            assert!(response.status().is_success());
+            assert_eq!(response.text().await.unwrap(), "ok");
+        }
+        control
+            .listeners
+            .configure(Some(addresses[1]), Arc::new(|_| {}));
+        let restarted = control.restart_and_wait().await.unwrap();
+        assert_eq!(
+            restarted.phase,
+            RestApiPhase::Listening,
+            "{:?}",
+            restarted.message
+        );
+        assert_eq!(restarted.generation, initial.generation + 1);
+        assert_eq!(control.listeners.ready(), addresses);
         for address in &addresses {
             let response = client
                 .get(format!("http://{address}/api/health"))
