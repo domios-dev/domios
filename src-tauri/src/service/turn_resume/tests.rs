@@ -562,3 +562,25 @@ fn wave_reports_unsettled_tabs_at_its_failure_deadline() {
         .wait_drained(Instant::now() + READY_DEADLINE)
         .is_empty());
 }
+
+#[test]
+fn live_resume_keeps_owed_continue_past_deadline_then_claims_once() {
+    let (mut mux, tab_id) = agent_tab(TimelineState::Idle);
+    assert!(set_state(&mut mux, &tab_id, TimelineState::Working));
+    let mut restored = restart(&mux);
+    restored.get_tab_mut(&tab_id).unwrap().boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    let restored = shared(restored);
+    let wave = Wave::new(SECOND, owed_tab_ids(&restored, SECOND));
+    assert_eq!(
+        settle_deadline(&restored, &tab_id, &wave, true),
+        DeadlineOutcome::Retained
+    );
+    assert!(wave.is_pending(&tab_id));
+    assert_eq!(step(&restored, &tab_id, SECOND), Step::Waiting);
+    resumed_ready(&mut restored.write(), &tab_id, "session-a");
+    assert!(matches!(
+        advance_consider(&restored, &tab_id, &wave, false),
+        Some(Step::Claimed(_))
+    ));
+    assert_eq!(advance_consider(&restored, &tab_id, &wave, false), None);
+}
