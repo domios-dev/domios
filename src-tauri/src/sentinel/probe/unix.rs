@@ -552,7 +552,7 @@ impl UnixRun {
             .hard
             .max(Instant::now() + super::PROBE_RUNTIME);
         if self.ownership == LeaderOwnership::Retained(self.child_id) {
-            self.request_cancel(failure);
+            self.cancel_attempted = true;
             match super::group_retirement::retire(
                 self.ownership,
                 self.child_id,
@@ -595,10 +595,6 @@ impl UnixRun {
                     break;
                 }
             }
-            if self.owner_is_closing() && self.ownership == LeaderOwnership::Retained(self.child_id)
-            {
-                self.request_cancel(failure);
-            }
         }
         if !self.has_open_streams()
             && self.group_retired
@@ -630,18 +626,6 @@ impl UnixRun {
             for resource in cleanup_failure.unconfirmed {
                 failure.unconfirmed(resource);
             }
-        }
-    }
-
-    fn request_cancel(&mut self, failure: &mut ProbeFailure) {
-        if self.cancel_attempted {
-            return;
-        }
-        self.cancel_attempted = true;
-        if let Err(error) =
-            super::group_retirement::signal_owned_group(self.ownership, self.child_id)
-        {
-            failure.cleanup_error(error);
         }
     }
 
@@ -983,9 +967,9 @@ impl RetainedResources for UnixPending {
     }
 
     fn request_cancel(&mut self) -> Vec<String> {
-        let mut failure = ProbeFailure::new("probe_cleanup");
-        self.run.request_cancel(&mut failure);
-        failure.cleanup_errors
+        // wait_events must arm exit observation before sending destructive signals.
+        self.run.cancel_attempted = true;
+        Vec::new()
     }
 
     fn wait_for_settlement(&mut self) -> Settlement {
