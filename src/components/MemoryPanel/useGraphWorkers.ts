@@ -1,3 +1,4 @@
+import { daemonFetch } from "../../lib/webApi";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import type {
@@ -5,7 +6,7 @@ import type {
   GraphWorkerInfo,
   SpawnWorkerReq,
 } from "../../lib/types";
-import { baseUrl, authHeaders, jsonHeaders } from "./memoryApi";
+import { authHeaders, jsonHeaders } from "./memoryApi";
 
 const POLL_INTERVAL_MS = 3000;
 // Safety-net poll for missed worker events (orphan cleanup/races).
@@ -39,7 +40,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl(api)}/api/mem/workers`, {
+      const res = await daemonFetch(api, `/api/mem/workers`, {
         headers: authHeaders(api),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -117,7 +118,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
 
   const spawn = useCallback(
     async (req: SpawnWorkerReq): Promise<GraphWorkerInfo> => {
-      const res = await fetch(`${baseUrl(api)}/api/mem/workers`, {
+      const res = await daemonFetch(api, `/api/mem/workers`, {
         method: "POST",
         headers: jsonHeaders(api),
         body: JSON.stringify(req),
@@ -139,7 +140,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
 
   const kill = useCallback(
     async (workerId: string): Promise<void> => {
-      const res = await fetch(`${baseUrl(api)}/api/mem/workers/${workerId}`, {
+      const res = await daemonFetch(api, `/api/mem/workers/${workerId}`, {
         method: "DELETE",
         headers: authHeaders(api),
       });
