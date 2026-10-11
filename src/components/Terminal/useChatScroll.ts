@@ -10,11 +10,13 @@ import {
   chatViewportModeAfterScroll,
   chatScrollTopAfterPrepend,
   getPersistedChatScrollState,
+  isChatViewportAtBottom,
   isChatViewportNearBottom,
   setPersistedChatScrollState,
   shouldRestoreChatViewport,
   type ChatPrependSnapshot,
   type ChatViewportMode,
+  type ChatViewportGeometry,
 } from "./chatViewport";
 import {
   captureChatContentAnchor,
@@ -91,7 +93,9 @@ export function useChatScroll({
   const prependSnapshotRef = useRef<PendingPrependSnapshot | null>(null);
   const prependVersionRef = useRef(prependVersion);
   prependVersionRef.current = prependVersion;
-  const lastScrollTopRef = useRef(persisted?.scrollTop ?? 0);
+  const lastViewportRef = useRef<ChatViewportGeometry>({
+    scrollTop: persisted?.scrollTop ?? 0, scrollHeight: 0, clientHeight: 0,
+  });
   const contentAnchorRef = useRef<ChatContentAnchor | null>(null);
   const hookScrollTopRef = useRef<number | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -104,7 +108,7 @@ export function useChatScroll({
     sessionKeyRef.current = sessionKey;
     const next = getPersistedChatScrollState(sessionKey);
     modeRef.current = next?.mode ?? "pinned";
-    lastScrollTopRef.current = next?.scrollTop ?? 0;
+    lastViewportRef.current = { scrollTop: next?.scrollTop ?? 0, scrollHeight: 0, clientHeight: 0 };
     prependSnapshotRef.current = null;
     contentAnchorRef.current = null;
     hookScrollTopRef.current = null;
@@ -122,7 +126,7 @@ export function useChatScroll({
   const writeScrollTop = useCallback((el: HTMLDivElement, value: number) => {
     const before = el.scrollTop;
     el.scrollTop = value;
-    lastScrollTopRef.current = el.scrollTop;
+    lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (el.scrollTop !== before) hookScrollTopRef.current = el.scrollTop;
   }, []);
 
@@ -155,7 +159,7 @@ export function useChatScroll({
     const anchor = contentAnchorRef.current;
     const clampedToBottom = el.scrollTop >= el.scrollHeight - el.clientHeight - SCROLL_WRITE_TOLERANCE_PX;
     const unhandledUserScroll = !clampedToBottom
-      && Math.abs(el.scrollTop - lastScrollTopRef.current) >= SCROLL_WRITE_TOLERANCE_PX;
+      && Math.abs(el.scrollTop - lastViewportRef.current.scrollTop) >= SCROLL_WRITE_TOLERANCE_PX;
     if (!anchor || unhandledUserScroll) {
       contentAnchorRef.current = captureChatContentAnchor(el);
       return;
@@ -193,12 +197,13 @@ export function useChatScroll({
       && el.scrollTop === hookScrollTop;
     const mode = fromHookWrite
       ? modeRef.current
-      : chatViewportModeAfterScroll(modeRef.current, lastScrollTopRef.current, el);
-    lastScrollTopRef.current = el.scrollTop;
+      : chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el);
+    if (mode === "pinned" && !isChatViewportAtBottom(el)) writeScrollTop(el, el.scrollHeight);
+    lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (fromHookWrite) persist(el);
     else setMode(mode, el);
     updateScrollDown(el);
-  }, [persist, setMode, updateScrollDown]);
+  }, [persist, setMode, updateScrollDown, writeScrollTop]);
 
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
