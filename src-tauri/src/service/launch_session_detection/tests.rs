@@ -531,18 +531,10 @@ fn resume_target_is_exact_and_belongs_to_the_current_launch() {
 }
 
 #[test]
-fn resumed_file_requires_provider_owned_exact_evidence() {
-    assert!(resume_file_binding_allowed(true, true, Some(true)));
-    for evidence in [
-        (false, true, Some(true)),
-        (true, false, Some(true)),
-        (true, true, Some(false)),
-        (true, true, None),
-    ] {
-        assert!(!resume_file_binding_allowed(
-            evidence.0, evidence.1, evidence.2
-        ));
-    }
+fn resumed_session_requires_exact_provider_store_evidence() {
+    assert!(resume_session_binding_allowed(Some(true)));
+    assert!(!resume_session_binding_allowed(Some(false)));
+    assert!(!resume_session_binding_allowed(None));
 }
 
 #[test]
@@ -556,7 +548,7 @@ fn plain_pty_resume_binds_its_claimed_session_without_a_sidecar() {
     let target = resumed_session_target(tab, Some("saved-session"))
         .unwrap()
         .to_string();
-    assert!(resume_file_binding_allowed(true, true, Some(true)));
+    assert!(resume_session_binding_allowed(Some(true)));
     let mux = std::sync::Arc::new(codeterm_util::lock_hold::TimedRwLock::new(
         "plain-resume",
         state,
@@ -581,5 +573,87 @@ fn plain_pty_resume_binds_its_claimed_session_without_a_sidecar() {
     let state = mux.read();
     let tab = state.get_tab(&id).unwrap();
     assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
+    assert!(tab.launch_session_authenticated());
+}
+
+#[test]
+fn sqlite_resume_binds_only_the_claimed_session_without_a_session_file() {
+    use crate::agent::provider::AgentProvider;
+    struct SqliteStoreProvider(parking_lot::Mutex<rusqlite::Connection>);
+    impl AgentProvider for SqliteStoreProvider {
+        fn id(&self) -> &str {
+            "sqlite-fixture"
+        }
+        fn display_name(&self) -> &str {
+            "SQLite fixture"
+        }
+        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+            crate::agent::provider::ReadinessStrategy::PollShellPrompt {
+                timeout: std::time::Duration::ZERO,
+            }
+        }
+        fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+            crate::agent::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn session_exists(&self, _: &str, id: &str) -> Option<bool> {
+            self.0
+                .lock()
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM session WHERE id = ?1)",
+                    [id],
+                    |row| row.get(0),
+                )
+                .ok()
+        }
+    }
+    let store = rusqlite::Connection::open_in_memory().unwrap();
+    store.execute_batch("CREATE TABLE session (id TEXT PRIMARY KEY); INSERT INTO session VALUES ('own'), ('newest-sibling');").unwrap();
+    let provider = SqliteStoreProvider(parking_lot::Mutex::new(store));
+    assert!(provider.session_file_path("/work", "own").is_none());
+    assert!(provider_owns_resume_session(&provider, "/work", "own"));
+    assert!(!provider_owns_resume_session(&provider, "/work", "missing"));
+    let (mut state, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = state.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("sqlite-fixture".into());
+    tab.pty_id = Some("own-pty".into());
+    tab.cwd = Some("/work".into());
+    tab.session_binding_nonce = Some("current-launch".into());
+    tab.remember_resume_binding_nonce("own");
+    assert_eq!(resumed_session_target(tab, Some("own")), Some("own"));
+    assert_eq!(resumed_session_target(tab, Some("newest-sibling")), None);
+    let mux = std::sync::Arc::new(codeterm_util::lock_hold::TimedRwLock::new(
+        "sqlite-resume",
+        state,
+    ));
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(provider));
+    let claim = crate::api::hook_routes::bind_detected_session(
+        &mux,
+        &registry,
+        &id,
+        "sqlite-fixture",
+        "own",
+        "current-launch",
+    )
+    .unwrap();
+    assert!(claim.nonce_verified);
+    let mux = mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some("own"));
     assert!(tab.launch_session_authenticated());
 }

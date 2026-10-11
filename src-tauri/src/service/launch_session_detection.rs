@@ -677,12 +677,16 @@ fn resumed_session_target<'a>(
     target.filter(|session| !session.is_empty() && marker == Some(*session))
 }
 
-fn resume_file_binding_allowed(
-    exact_capability: bool,
-    file_exists: bool,
-    session_exists: Option<bool>,
+fn resume_session_binding_allowed(session_exists: Option<bool>) -> bool {
+    session_exists == Some(true)
+}
+
+fn provider_owns_resume_session(
+    provider: &dyn crate::agent::provider::AgentProvider,
+    cwd: &str,
+    session_id: &str,
 ) -> bool {
-    exact_capability && file_exists && session_exists == Some(true)
+    resume_session_binding_allowed(provider.session_exists(cwd, session_id))
 }
 
 impl ServiceContext {
@@ -801,19 +805,14 @@ impl ServiceContext {
         if !self.resumed_provider_is_live(tab_id, &pty_id) {
             return None;
         }
-        let owns_file = self
+        let owns_session = self
             .agent_registry
             .with_provider(&provider_id, |provider| {
-                resume_file_binding_allowed(
-                    provider.supports_launch_session_detection(),
-                    provider
-                        .session_file_path(&cwd, &session_id)
-                        .is_some_and(|path| path.is_file()),
-                    provider.session_exists(&cwd, &session_id),
-                )
+                provider_owns_resume_session(provider, &cwd, &session_id)
             })
             .unwrap_or(false);
-        owns_file.then_some(DetectedLaunchSession {
+        log::debug!("[resume-session-evidence] tab={tab_id} session={session_id} owns_session={owns_session}");
+        owns_session.then_some(DetectedLaunchSession {
             provider_id,
             binding_nonce,
             detection: LaunchSessionDetection {
