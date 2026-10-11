@@ -24,6 +24,88 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/updateCheck.ts
+function record(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
+  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  if (!currentVersion || !versionParts(currentVersion)) return null;
+  const response = record(host2.fetch(JSON.stringify({
+    url: metadataUrl,
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: { Accept: "application/vnd.npm.install-v1+json" }
+  })));
+  if (response?.status !== 200) return null;
+  const metadata = record(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+}
+
+// plugins/provider-opencode/src/update.ts
+function checkOpencodeUpdate() {
+  let manifest;
+  try {
+    manifest = JSON.parse(host.manifestJson());
+  } catch {
+    return null;
+  }
+  if (!manifest?.cliCompatibility?.supported?.length) return null;
+  return checkProviderUpdate(host, "opencode", "https://registry.npmjs.org/opencode-ai", manifest.cliCompatibility);
+}
+
 // plugins/provider-opencode/src/opencodeConfig.ts
 var OWNERSHIP_MARKER = "x-domios";
 function isDomiosOwned(entry) {
@@ -216,7 +298,7 @@ function fileDiffFromEdit(edit) {
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
 
 // plugins/provider-opencode/src/fileDiffs.ts
-function record(value) {
+function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function parsePatch(path, patch) {
@@ -278,10 +360,10 @@ function parsePatch(path, patch) {
   return files;
 }
 function opencodeFileDiffs(path, edits, metadata) {
-  const value = record(metadata);
+  const value = record2(metadata);
   if (Array.isArray(value.files)) {
     return value.files.flatMap((entry) => {
-      const item = record(entry);
+      const item = record2(entry);
       const filePath = typeof item.filePath === "string" ? item.filePath : "";
       return opencodeFileDiffs(filePath, [], { diff: item.diff }).map((diff) => ({
         ...diff,
@@ -1091,16 +1173,16 @@ function applyDomiosPresets(config, presets) {
 }
 
 // plugins/provider-opencode/src/modelProviders.ts
-function record2(value) {
+function record3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function readModelProviders(config) {
-  if (!record2(config) || config.provider !== void 0 && !record2(config.provider)) {
+  if (!record3(config) || config.provider !== void 0 && !record3(config.provider)) {
     throw new Error("Invalid provider config");
   }
   return Object.entries(config.provider ?? {}).flatMap(([id, entry]) => {
-    if (!record2(entry) || entry["x-domios"] !== true) return [];
-    if (!record2(entry.options) || typeof entry.options.baseURL !== "string") {
+    if (!record3(entry) || entry["x-domios"] !== true) return [];
+    if (!record3(entry.options) || typeof entry.options.baseURL !== "string") {
       throw new Error("Invalid owned provider");
     }
     const kind = entry.npm === "@ai-sdk/anthropic" ? "anthropic" : entry.npm === "@ai-sdk/openai-compatible" ? "openai-compatible" : null;
@@ -1116,7 +1198,7 @@ function readModelProviders(config) {
       id,
       kind,
       baseUrl: entry.options.baseURL,
-      models: record2(entry.models) ? Object.keys(entry.models) : [],
+      models: record3(entry.models) ? Object.keys(entry.models) : [],
       ...typeof entry.name === "string" ? { name: entry.name } : {},
       ...env ? { keyEnv: env } : {},
       ...typeof secret === "string" ? { secretName: secret } : {}
@@ -1204,16 +1286,16 @@ function decisionRunOptions(model, request, remainingMs = DECISION_TIMEOUT_MS) {
     }
   };
 }
-function record3(value) {
+function record4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function probability(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 function validateDecision(answer, question) {
-  if (!record3(answer) || answer.type !== question.type) return false;
+  if (!record4(answer) || answer.type !== question.type) return false;
   if (question.type === "noul") return probability(answer.p);
-  if (!record3(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
+  if (!record4(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
   const entries = Object.entries(answer.probabilities);
   if (!entries.length || entries.some(([, value]) => !probability(value))) return false;
   const mass = entries.reduce((sum, [, value]) => sum + value, 0);
@@ -1230,10 +1312,10 @@ function parseDecisionEvents(stdout, question) {
   try {
     for (const line of stdout.split(/\r?\n/).filter((line2) => line2.trim())) {
       const event = JSON.parse(line);
-      if (!record3(event)) return { error: "invalid_response" };
+      if (!record4(event)) return { error: "invalid_response" };
       if (event.type === "tool_use" || event.type === "error") return { error: "transport" };
-      if (event.type === "text" && record3(event.part) && typeof event.part.text === "string") text += event.part.text;
-      if (event.type === "step_finish" && record3(event.part) && event.part.reason === "stop") completed = true;
+      if (event.type === "text" && record4(event.part) && typeof event.part.text === "string") text += event.part.text;
+      if (event.type === "step_finish" && record4(event.part) && event.part.reason === "stop") completed = true;
     }
     if (!completed) return { error: "invalid_response" };
     const answer = JSON.parse(text);
@@ -1387,6 +1469,7 @@ function withPadPermissionConfig(command, instructions, cleanup, launchConfig = 
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 var plugin = {
+  checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,
   ...decisionModel,
   ...modelProviderExports,

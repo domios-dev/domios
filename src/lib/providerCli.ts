@@ -1,4 +1,5 @@
 export interface ProviderCliStatus {
+  update_summary?: string | null;
   detected_version?: string | null;
   version_probe?: "pending" | "detected" | "missing" | "unreadable" | "failed" | "timeout" | "invalid" | "saturated";
   compatibility?: { verdict: "supported" | "breaking" | "unknown"; reasons: string[] };

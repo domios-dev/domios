@@ -482,7 +482,7 @@ export function SettingsPanel({
                   <InfoRow label="Version" value={__APP_VERSION__} />
                 </SettingsCard>
 
-                <UpdateSection />
+                <UpdateSection config={localConfig} onUpdate={update} />
 
                 <SettingsCard icon={<ExternalLink size={16} />} title="Created by">
                   <div className="text-xs text-[var(--ct-fg)]">Andrey Kovalev</div>
