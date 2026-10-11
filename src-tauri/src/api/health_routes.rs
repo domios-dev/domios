@@ -30,6 +30,10 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
                 obj.insert("build".into(), serde_json::json!(env!("BUILD_HASH")));
                 obj.insert("build_sha".into(), serde_json::json!(env!("BUILD_SHA")));
                 obj.insert(
+                    "apiVersion".into(),
+                    serde_json::json!(crate::frontend_bundle_api_version::API_VERSION),
+                );
+                obj.insert(
                     "instance".into(),
                     serde_json::json!({
                         "name": std::env::var("CODETERM_INSTANCE").unwrap_or_default(),
@@ -42,7 +46,10 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
             }
             Json(json)
         }
-        Err(_) => Json(serde_json::json!({"status": "error"})),
+        Err(_) => Json(serde_json::json!({
+            "status": "error",
+            "apiVersion": crate::frontend_bundle_api_version::API_VERSION,
+        })),
     }
 }
 
