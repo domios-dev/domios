@@ -112,3 +112,5 @@ For the owner-authorized provider-outage rerun, use `RL_PHASES=1,2,3,4,8,10,11 R
 A selected Codex Chat awaits the own-session startup reply under the existing turn deadline before the DOM check. Native ACK can precede that assistant reply; a 15-second browser timeout before the reply exists is a fixture failure. Task-bound OpenCode Workers use `agent ack`; plain agents use `agent startup-ack`.
 
 After a daemon restart the Browser page reconnects with the scoped token and awaits the sidebar before selecting Chat. A fresh webview can otherwise show the Connect screen, which is a fixture prerequisite failure rather than a transcript stall.
+
+Codex phase 3 runs three restores without queued tasks, proving unprompted output after the owed continue. Phase 4 then uses a separate Working restore with opaque-marker-only sends; the marker payload does not instruct the agent to resume and cannot satisfy phase 3 by prompting original work.
