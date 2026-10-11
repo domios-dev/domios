@@ -3,8 +3,8 @@ import { replayOffsetsAfterBootChange } from "../../lib/outputStream";
 import { terminalHistorySource } from "./scrollbackReplay";
 
 describe("restored terminal history ownership", () => {
-  it("reads restored native history from the seeded backend buffer", () => {
-    expect(terminalHistorySource("pty", false, false)).toBe("backend-buffer");
+  it("reads restored desktop history from the aggregate stream", () => {
+    expect(terminalHistorySource("pty", false, false)).toBe("transport");
   });
 
   it("uses one web transport owner for history and live output", () => {
