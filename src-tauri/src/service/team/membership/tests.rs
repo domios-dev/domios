@@ -135,6 +135,22 @@ fn adopt_agent_attaches_a_running_roleless_tab() {
     let tab = mux.get_tab(&agent_tab).unwrap();
     assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(tab.parent_tab_id.as_deref(), Some(orchestrator.as_str()));
+    assert!(tab.spawned_by_tab_id.is_none());
+}
+
+#[test]
+fn adopt_agent_preserves_the_original_spawner() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let agent_tab = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&agent_tab).unwrap().spawned_by_tab_id = Some("original-creator".into());
+    adopt_agent_into_team(&mut mux, &team_id, &agent_tab, &orchestrator).unwrap();
+    assert_eq!(
+        mux.get_tab(&agent_tab)
+            .unwrap()
+            .spawned_by_tab_id
+            .as_deref(),
+        Some("original-creator")
+    );
 }
 
 #[test]
@@ -147,6 +163,7 @@ fn adopt_agent_moves_a_running_plain_shell_into_utility_shells() {
     assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(tab.pty_id.as_deref(), Some("running-server"));
     assert!(tab.is_utility_shell());
+    assert!(tab.spawned_by_tab_id.is_none());
 }
 
 #[test]
