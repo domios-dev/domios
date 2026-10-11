@@ -782,7 +782,7 @@ unsafe fn parse_active_usages(preparsed: *mut c_void, report: &[u8]) -> Option<V
         usages.as_mut_ptr(),
         &mut usage_count,
         preparsed,
-        report.as_ptr().cast_mut(),
+        report.as_ptr().cast::<i8>().cast_mut(),
         report.len() as u32,
     );
     (status == HIDP_STATUS_SUCCESS && usage_count as usize <= usages.len())
