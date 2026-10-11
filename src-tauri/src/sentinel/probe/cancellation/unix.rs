@@ -147,7 +147,9 @@ impl Events {
         &mut self,
         child: &std::process::Child,
     ) -> Result<(), String> {
-        self.parent = Some(Descriptor::new(parent_event(child.id())?));
+        self.parent = Some(Descriptor::new(
+            parent_event(child.id()).map_err(|error| error.to_string())?,
+        ));
         Ok(())
     }
 
@@ -240,25 +242,25 @@ impl Events {
 }
 
 #[cfg(target_os = "linux")]
-pub(in crate::sentinel::probe) fn parent_event(pid: u32) -> Result<RawFd, String> {
+pub(in crate::sentinel::probe) fn parent_event(pid: u32) -> io::Result<RawFd> {
     // The descriptor observes exit without reaping or granting signal authority.
     let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
     if fd < 0 {
-        Err(io::Error::last_os_error().to_string())
+        Err(io::Error::last_os_error())
     } else {
         Ok(fd as RawFd)
     }
 }
 
 #[cfg(target_os = "macos")]
-pub(in crate::sentinel::probe) fn parent_event(pid: u32) -> Result<RawFd, String> {
+pub(in crate::sentinel::probe) fn parent_event(pid: u32) -> io::Result<RawFd> {
     let fd = unsafe { libc::kqueue() };
     if fd < 0 {
-        return Err(io::Error::last_os_error().to_string());
+        return Err(io::Error::last_os_error());
     }
     let mut owned = Descriptor::new(fd);
     if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
-        return Err(io::Error::last_os_error().to_string());
+        return Err(io::Error::last_os_error());
     }
     let event = libc::kevent {
         ident: pid as _,
@@ -269,15 +271,18 @@ pub(in crate::sentinel::probe) fn parent_event(pid: u32) -> Result<RawFd, String
         udata: std::ptr::null_mut(),
     };
     if unsafe { libc::kevent(fd, &event, 1, std::ptr::null_mut(), 0, std::ptr::null()) } < 0 {
-        return Err(io::Error::last_os_error().to_string());
+        return Err(io::Error::last_os_error());
     }
     owned.raw.take();
     Ok(fd)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub(in crate::sentinel::probe) fn parent_event(_: u32) -> Result<RawFd, String> {
-    Err("probe_cancel_parent_wait_unsupported_platform".into())
+pub(in crate::sentinel::probe) fn parent_event(_: u32) -> io::Result<RawFd> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "probe_cancel_parent_wait_unsupported_platform",
+    ))
 }
 
 #[cfg(target_os = "linux")]
