@@ -137,7 +137,7 @@ describe("tab command HTTP contract", () => {
 
   it("refuses a mismatched, empty or malformed remote target before making a request", async () => {
     const { transport, calls } = fixture();
-    for (const ordinaryTabId of ["mesh:other/tab", "mesh:peer/", "mesh:peer/tab/extra"]) {
+    for (const ordinaryTabId of ["mesh:other/tab", "mesh:peer/", "mesh:peer/tab/extra", "mesh:peer/tab?query", "mesh:peer/tab whitespace"]) {
       await expect(transport.mesh_remote_tab_action({ peerId: "peer", ordinaryTabId, method: "POST", suffix: "/stop" })).rejects.toThrow("owner mismatch");
     }
     expect(calls).toHaveLength(0);
