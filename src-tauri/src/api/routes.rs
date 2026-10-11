@@ -20,11 +20,12 @@ use super::{
     usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
-const FRONTEND_REQUEST_HEADERS: [&str; 8] = [
+const FRONTEND_REQUEST_HEADERS: [&str; 9] = [
     "authorization",
     "content-type",
     "accept",
     "x-codeterm-tab-id",
+    "x-codeterm-client-id",
     "x-codeterm-session-id",
     "x-codeterm-binding-nonce",
     "x-codeterm-session-binding-nonce",
