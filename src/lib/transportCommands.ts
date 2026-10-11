@@ -8,12 +8,7 @@ export type CommandAdapter = (args: CommandArgs) => Promise<unknown>;
 const enc = encodeURIComponent;
 const s = (args: CommandArgs, key: string): string => String(args[key] ?? '');
 export const CLIENT_LOCAL_COMMANDS = ['mux_set_chat_view', 'kill_pty'] as const;
-export const REFUSED_COMMANDS = {
-  chatbackend_describe_model_switch: "No daemon implementation is registered for model-switch descriptions",
-  restore_provider_integration: "No audited restore route",
-  check_provider_rule: "No audited rule status route",
-  install_provider_rule: "No audited rule install route",
-};
+export const REFUSED_COMMANDS: Record<string, string> = {};
 export const CANNED_COMMANDS = { check_cli_installed: true };
 export function createCommandRegistry(client: TransportClient, cursors?: PtyCursors): Record<string, CommandAdapter> {
   const webJson = client.json.bind(client);
@@ -60,7 +55,6 @@ export function createCommandRegistry(client: TransportClient, cursors?: PtyCurs
         ? client.localJson(method, path, body, opts)
         : client.json(method, path, body, opts)
   }, cursors), createCapabilitiesTransport(client), createOrchestrationTransport(client), extra);
-  delete registry.chatbackend_describe_model_switch;
   return registry;
 }
 export function dispatchCommand<T>(registry: Record<string, CommandAdapter>, command: string, args: CommandArgs = {}): Promise<T> {

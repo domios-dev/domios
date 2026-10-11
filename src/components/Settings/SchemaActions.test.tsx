@@ -1,6 +1,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createCommandRegistry, dispatchCommand } from "../../lib/transportCommands";
+import type { TransportClient } from "../../lib/transportClient";
 import type { AppConfig, SettingField } from "../../lib/types";
 
 const fixture = vi.hoisted(() => ({ invoke: vi.fn(), integration: { integration_state: "absent" } as unknown }));
@@ -76,4 +78,34 @@ describe("schema section actions", () => {
     await renderSection(true);
     expect(host.querySelector('[role="group"][aria-label="Actions"]')).toBeNull();
   });
+});
+
+
+it("wires provider rule badges and actions to audited daemon routes", async () => {
+  const calls: [string, string][] = [];
+  const json: TransportClient["json"] = async <T,>(method: string, path: string) => {
+    calls.push([method, path]);
+    return { installed: false, ok: true } as T;
+  };
+  const client: TransportClient = { json, localJson: json, currentToken: () => "owner", origin: () => "", upload: vi.fn(), subscribe: () => () => {} };
+  const registry = createCommandRegistry(client);
+  fixture.invoke.mockImplementation((command: string, args: Record<string, unknown>) => dispatchCommand(registry, command, args));
+  const providerArgs = { providerId: "fixture" };
+  await act(async () => root.render(<SchemaRenderer
+    schema={[
+      { kind: "badge", query_command: "check_provider_rule", query_args: providerArgs, variants: [{ id: "missing", label: "Rule missing", style: "red" }] },
+      action("rule", "primary", { label: "Install rule", command: "install_provider_rule", state_query: "check_provider_rule", args: providerArgs }),
+      action("backup", "danger", { label: "Restore backup", command: "restore_provider_integration", args: providerArgs }),
+    ]}
+    providerId="fixture" config={{ agents: {} } as AppConfig} onChange={() => {}}
+  />));
+  expect(host.textContent).toContain("Rule missing");
+  const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === label)!;
+  await act(async () => button("Install rule").click());
+  await act(async () => button("Restore backup").click());
+  expect(calls.filter(([method]) => method === "POST")).toEqual([
+    ["POST", "/api/setup/rules/install?provider=fixture"],
+    ["POST", "/api/setup/hooks/restore?provider=fixture"],
+  ]);
+  expect(calls.filter(([method]) => method === "GET")).toEqual(Array(3).fill(["GET", "/api/setup/rules?provider=fixture"]));
 });

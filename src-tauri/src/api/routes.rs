@@ -535,6 +535,10 @@ pub fn create_router_with_frontend(
             "/api/setup/hooks/uninstall",
             post(theme_routes::uninstall_hooks_api),
         )
+        .route(
+            "/api/setup/hooks/restore",
+            post(theme_routes::restore_hooks_api),
+        )
         .route("/api/debug/clock", get(debug_routes::clock_status))
         .route(
             "/api/debug/clock/advance",
