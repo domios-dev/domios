@@ -32,6 +32,7 @@ export function chatViewportModeAfterScroll(
   previousScrollTop: number,
   viewport: ChatViewportGeometry,
 ): ChatViewportMode {
+  if (currentMode === "pinned" && isChatViewportAtBottom(viewport)) return "pinned";
   if (viewport.scrollTop < previousScrollTop) return "detached";
   if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 0) return "pinned";
   return currentMode;

@@ -69,7 +69,15 @@ async function main(): Promise<void> {
 
   scroll.scrollTop = 599.9;
   await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
-  assert(!followTail.current, "fractional upward scrolling releases the live tail");
+  assert(followTail.current, "fractional bottom rounding preserves the live tail");
+
+  setGeometry(scroll, { scrollHeight: 900, clientHeight: 400 });
+  scroll.scrollTop = 500;
+  await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
+  assert(followTail.current, "layout clamping to the new bottom preserves the live tail");
+  setGeometry(scroll, { scrollHeight: 1000, clientHeight: 400 });
+  await render(root, 2, 2);
+  assertScrollTop(scroll, 600, "new turns follow the tail after layout clamping");
 
   scroll.scrollTop = 599;
   await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
