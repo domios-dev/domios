@@ -2,8 +2,14 @@
 
 Proves that a Team of agent tabs survives full dev restarts (the reboot
 analogue) behind the same tab ids, with the same provider, session, role, team
-and title. Dev only (port 7686); every CLI call goes through the `evals/_lib`
+and title. DEV only (the selected named instance or default port 7686); every CLI call goes through the `evals/_lib`
 `dc` wrapper.
+
+## Codex release regression matrix (#557, #555)
+
+The dedicated [Codex matrix](CODEX.md) runs all seven phases in GUI PATH and
+normal modes, scoped to mobileqa/7690, after the Orchestrator supplies the
+merged release SHA. The older mixed-provider scenario below remains separate.
 
 ## Run
 
