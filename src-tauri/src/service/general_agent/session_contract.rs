@@ -7,12 +7,20 @@ pub(super) enum LaunchOwnership {
     FreshSession,
 }
 
+#[derive(Default)]
+pub(super) struct FreshLaunchSelection {
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub preset_args: Vec<String>,
+}
+
 pub(super) struct TabLaunch<'a> {
     pub tab_id: String,
     pub session_id: Option<String>,
     pub provider: &'a str,
     pub permission_bypass: bool,
     pub ownership: LaunchOwnership,
+    pub selection: FreshLaunchSelection,
 }
 
 impl LaunchOwnership {

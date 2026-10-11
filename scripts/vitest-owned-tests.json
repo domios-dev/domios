@@ -122,5 +122,7 @@
   "src/components/Notifications/attentionSurfaceModel.test.ts",
   "src/components/Terminal/TabContent.notifications.test.tsx",
   "src/components/Notifications/NotificationBell.choice.test.tsx",
-  "src/components/Terminal/chatViewport.liveUpdates.test.ts"
+  "src/components/Terminal/chatViewport.liveUpdates.test.ts",
+  "src/components/Sidebar/GeneralWorkspaceTabs.test.tsx",
+  "src/lib/newSessionSection.test.ts"
 ]
