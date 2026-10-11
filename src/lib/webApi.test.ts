@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import { withFailureDeadline } from "../test/withFailureDeadline";
 import { agentProvidersFromResponse, syncAgentDescriptorCache } from "../hooks/useAgentProviders";
@@ -15,6 +16,7 @@ describe("web JSON prompt response transport", () => {
       CustomEvent: class {},
     });
     vi.stubGlobal("localStorage", { getItem: () => null });
+    configureDaemonTransport({ origin: `http://${window.location.host}`, token: "fixture-token" });
     vi.stubGlobal("fetch", async () => new Response(
       JSON.stringify({ ok: false, reason: "prompt_not_on_screen" }),
       { status: 409, headers: { "Content-Type": "application/json" } },
@@ -31,6 +33,7 @@ describe("web JSON prompt response transport", () => {
       CustomEvent: class {},
     });
     vi.stubGlobal("localStorage", { getItem: () => null });
+    configureDaemonTransport({ origin: `http://${window.location.host}`, token: "fixture-token" });
     vi.stubGlobal("fetch", async () => new Response(
       JSON.stringify({ reason: "other_conflict" }),
       { status: 409, headers: { "Content-Type": "application/json" } },
@@ -46,6 +49,7 @@ describe("web JSON prompt response transport", () => {
       CustomEvent: class {},
     });
     vi.stubGlobal("localStorage", { getItem: () => null });
+    configureDaemonTransport({ origin: `http://${window.location.host}`, token: "fixture-token" });
     vi.stubGlobal("fetch", async () => new Response(
       JSON.stringify({ ok: true, reason: "prompt_not_on_screen" }),
       { status: 409, headers: { "Content-Type": "application/json" } },
@@ -65,6 +69,7 @@ describe("web config response context", () => {
       CustomEvent: class {},
     });
     vi.stubGlobal("localStorage", { getItem: () => null });
+    configureDaemonTransport({ origin: `http://${window.location.host}`, token: "fixture-token" });
     let beginBody!: () => void;
     const bodyStarted = new Promise<void>((resolve) => { beginBody = resolve; });
     let finishBody!: (value: string) => void;
@@ -97,6 +102,7 @@ describe("peer provider catalog relay", () => {
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => key.includes("relay-peer:") ? "owning-peer" : null,
     });
+    configureDaemonTransport({ origin: `http://${window.location.host}`, token: "fixture-token" });
     const descriptor = { id: "peer-only-provider", supports_chat_ui: true } as ProviderDescriptor;
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
       expect(url).toBe("http://gateway:7686/api/mesh/relay-to");
@@ -119,6 +125,7 @@ describe("browser attachment upload transport", () => {
     vi.stubGlobal("window", Object.assign(page, { location: { protocol: "https:", host: "phone" } }));
     vi.stubGlobal("document", Object.assign(doc, { visibilityState: "visible" }));
     vi.stubGlobal("localStorage", { getItem: () => null });
+    configureDaemonTransport({ origin: `http://${window.location.host}`, token: "fixture-token" });
     let started!: () => void;
     const requestStarted = new Promise<void>((resolve) => { started = resolve; });
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {

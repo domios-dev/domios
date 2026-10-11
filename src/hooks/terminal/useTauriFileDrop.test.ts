@@ -1,6 +1,7 @@
-import { __setInvokeForTest } from "../../lib/bridge";
+import { nativeBridge } from "../../lib/nativeBridge";
 import { materializeDroppedPaths } from "./useTauriFileDrop";
 
+const originalMaterialize = nativeBridge.materializeDroppedFiles;
 let passed = 0;
 let failed = 0;
 
@@ -25,7 +26,7 @@ async function test(name: string, fn: () => Promise<void>) {
     console.error(`✗ ${name}`);
     console.error(error);
   } finally {
-    __setInvokeForTest(null);
+    nativeBridge.materializeDroppedFiles = originalMaterialize;
   }
 }
 
@@ -34,10 +35,10 @@ console.log("useTauriFileDrop:");
 async function main() {
   await test("materializes native dropped paths through the backend", async () => {
     const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
-    __setInvokeForTest(async (cmd, args) => {
-      calls.push({ cmd, args });
+    nativeBridge.materializeDroppedFiles = async (paths) => {
+      calls.push({ cmd: "materialize_dropped_files", args: { paths } });
       return ["/durable/drop.png"] as unknown as never;
-    });
+    };
 
     const paths = await materializeDroppedPaths(["/var/folders/x/T/TemporaryItems/NSIRD_screencaptureui_1.png"]);
 
@@ -49,9 +50,9 @@ async function main() {
   });
 
   await test("falls back to raw paths if backend materialization is unavailable", async () => {
-    __setInvokeForTest(async () => {
+    nativeBridge.materializeDroppedFiles = async () => {
       throw new Error("unavailable");
-    });
+    };
 
     const raw = ["/Users/me/file.txt"];
     assertEq("raw paths preserved", await materializeDroppedPaths(raw), raw);

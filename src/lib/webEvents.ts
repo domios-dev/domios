@@ -21,7 +21,7 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 let eventClient: TransportClient | undefined;
 export function bindWebEventsTransport(client: TransportClient): void {
   eventClient = client;
-  resetWebEvents();
+  if (started) resetWebEvents();
 }
 const eventOrigin = () => eventClient?.origin() ?? apiHost();
 
