@@ -10,6 +10,7 @@ import {
   ChatSessionIntentLine,
   isSessionIntentOnlyMessage,
   MessageBubble,
+  MessageTimeFrame,
   OutboundReportCard,
   sessionIntentFromMessages,
 } from "@codeterm/chat-ui";
@@ -68,7 +69,6 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
-import { agentMessageTimeIds } from "./chatMessageTimePlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -537,13 +537,15 @@ export function TabSessionChat({
         role="article"
         aria-label={`Report to ${entry.descriptor.recipient}`}
       >
-        <OutboundReportCard
-          report={entry.descriptor}
-          onFocusTab={() => resolveFocusTab(entry.targetTabId)}
-          fontScale={uiFontScale}
-          onOpenPlan={onOpenPlan}
-          resolvePlanRef={resolvePlanRef}
-        />
+        <MessageTimeFrame timestamp={entry.at == null ? undefined : String(entry.at)} side="left">
+          <OutboundReportCard
+            report={entry.descriptor}
+            onFocusTab={() => resolveFocusTab(entry.targetTabId)}
+            fontScale={uiFontScale}
+            onOpenPlan={onOpenPlan}
+            resolvePlanRef={resolvePlanRef}
+          />
+        </MessageTimeFrame>
       </div>
     );
   };
@@ -551,13 +553,14 @@ export function TabSessionChat({
     const ask = asks[index];
     if (!ask) return null;
     return (
-      <ChatAskCard
-        key={ask.id}
-        notification={ask}
-        onAnswer={answerNotification}
-        resolveTabName={resolveTabName}
-        fontScale={uiFontScale}
-      />
+      <MessageTimeFrame key={ask.id} timestamp={String(ask.timestamp)} side="left">
+        <ChatAskCard
+          notification={ask}
+          onAnswer={answerNotification}
+          resolveTabName={resolveTabName}
+          fontScale={uiFontScale}
+        />
+      </MessageTimeFrame>
     );
   };
   const renderedEnrichedMessages = useMemo(
@@ -567,10 +570,7 @@ export function TabSessionChat({
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId });
   const jumpToQuoted = useCallback((messageId: string) => { jumpToMessage(scrollRef.current, messageId); }, [scrollRef]);
-  const agentTimeMessageIds = useMemo(
-    () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
-    [renderedEnrichedMessages],
-  );
+
   const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
   // does: a body that still owns a loading or failed state emits no rail rows.
@@ -859,7 +859,6 @@ export function TabSessionChat({
                 userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
                   ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
-                showTimestamp={msg.type === "user" || agentTimeMessageIds.has(msg.id)}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={originProps?.origin ?? origin}
