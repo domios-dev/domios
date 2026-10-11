@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::*;
 use crate::provider::{PasteCapability, ReadinessStrategy, TaskDelivery};
 
-struct NativePasteFixture(bool);
+struct NativePasteFixture(bool, Option<crate::provider::MultilinePasteStrategy>);
 
 #[async_trait::async_trait]
 impl AgentProvider for NativePasteFixture {
@@ -45,6 +45,7 @@ impl AgentProvider for NativePasteFixture {
     fn paste_capability(&self) -> Option<PasteCapability> {
         Some(PasteCapability {
             supports_bracketed_paste: self.0,
+            multiline: self.1,
             untrusted_above_lines: 0,
             typed_follow_up: String::new(),
             requires_typed_instruction_for_routed_messages: false,
@@ -54,10 +55,23 @@ impl AgentProvider for NativePasteFixture {
 
 #[test]
 fn bracketed_paste_support_native_js_parity() {
-    for (declaration, expected) in [
-        (serde_json::json!({"supportsBracketedPaste": false}), false),
-        (serde_json::json!({"supportsBracketedPaste": true}), true),
-        (serde_json::json!({}), true),
+    for (declaration, expected, multiline) in [
+        (
+            serde_json::json!({"supportsBracketedPaste": false}),
+            false,
+            None,
+        ),
+        (
+            serde_json::json!({"supportsBracketedPaste": true}),
+            true,
+            None,
+        ),
+        (serde_json::json!({}), true, None),
+        (
+            serde_json::json!({"supportsBracketedPaste": false, "multiline": "tagged_block"}),
+            false,
+            Some(crate::provider::MultilinePasteStrategy::TaggedBlock),
+        ),
     ] {
         let raw = serde_json::json!({
             "id": "paste-fixture", "version": "0.1.0", "displayName": "Paste Fixture",
@@ -76,7 +90,7 @@ fn bracketed_paste_support_native_js_parity() {
         )
         .unwrap();
         let js = JsProvider::new(manifest, Arc::new(vm));
-        let native = NativePasteFixture(expected);
+        let native = NativePasteFixture(expected, multiline);
         assert_eq!(js.paste_capability(), native.paste_capability());
     }
 }
