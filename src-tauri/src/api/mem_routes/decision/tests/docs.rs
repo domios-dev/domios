@@ -46,14 +46,15 @@ fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
             "section": section.section_title,
             "anchor": section.anchor,
             "pointer": format!("codeterm docs {}", section.doc_name),
-            "relevance": 0.99,
             "via": "docs",
         }])
     );
     assert_eq!(
         output["supporter"]["sources"],
-        json!({ "recall": 0, "graph": 0, "docs": 1 })
+        json!({ "recall": 0, "graph": 0, "docs": 1, "sessions": 0 })
     );
+    assert_eq!(output["supporter"]["status"], "skipped");
+    assert_eq!(output["supporter"]["reason"], "small_pool");
     assert_eq!(access_counts(&backend), before);
 }
 
@@ -132,7 +133,7 @@ fn docs_zero_keeps_the_existing_applied_output() {
 }
 
 #[test]
-fn docs_are_absent_from_off_and_fallback_results() {
+fn docs_are_absent_when_off_and_preserved_when_small_pool_skips_model() {
     let backend = seeded();
     let query = "Bitwarden vault master password auto unlock";
     let plain = SearchParams {
@@ -155,7 +156,6 @@ fn docs_are_absent_from_off_and_fallback_results() {
     assert_eq!(normalized(off), normalized(baseline));
 
     let request = applied_query(query, 2);
-    let baseline = baseline_oracle(&backend, &request);
     let failed = resolve_search(
         &backend,
         &registry_with(StubMode::Fail(DecisionError::Unavailable(
@@ -167,15 +167,12 @@ fn docs_are_absent_from_off_and_fallback_results() {
     .unwrap();
     assert_eq!(
         failed["supporter"],
-        json!({ "status": "fallback", "reason": "unavailable" })
+        json!({ "status": "skipped", "reason": "small_pool", "sources": { "recall": 0, "graph": 0, "docs": 3, "sessions": 0 } })
     );
-    assert_eq!(
-        normalized(without_envelope(failed.clone())),
-        normalized(baseline)
-    );
+    assert_eq!(failed["hits"].as_array().unwrap().len(), 2);
     assert!(failed["hits"]
         .as_array()
         .unwrap()
         .iter()
-        .all(|hit| hit["source"] != "doc"));
+        .all(|hit| hit["source"] == "doc"));
 }

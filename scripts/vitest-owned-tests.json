@@ -82,6 +82,7 @@
   "src/components/MemoryPanel/MemoryListTab.test.tsx",
   "src/components/Usage/SupporterAllowanceRow.test.tsx",
   "src/components/Supporter/ActivityFeed.test.tsx",
+  "src/components/Supporter/reflexFeed.test.ts",
   "src/components/Titlebar/SupporterActivityTray.test.tsx",
   "src/components/Terminal/NewSessionPicker.modal.test.tsx",
   "src/components/Terminal/SurfaceTabView.test.tsx",

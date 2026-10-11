@@ -125,11 +125,10 @@ fn sessions_zero_preserves_the_previous_applied_output() {
 }
 
 #[test]
-fn fallback_omits_session_candidates_and_matches_baseline() {
+fn small_session_pool_skips_model_and_preserves_first_stage() {
     let mut backend = seeded();
     backend.sessions.push(session_candidate());
     let query = request("release command", 2);
-    let baseline = baseline_oracle(&backend, &query);
 
     let output = resolve_search(
         &backend,
@@ -143,15 +142,12 @@ fn fallback_omits_session_candidates_and_matches_baseline() {
 
     assert_eq!(
         output["supporter"],
-        json!({ "status": "fallback", "reason": "unavailable" })
+        json!({ "status": "skipped", "reason": "small_pool", "sources": { "recall": 0, "graph": 0, "docs": 0, "sessions": 1 } })
     );
-    assert_eq!(
-        normalized(without_envelope(output.clone())),
-        normalized(baseline)
-    );
+    assert_eq!(backend.runtime.status(0)["calls_last_hour"], 0);
     assert!(output["hits"]
         .as_array()
         .unwrap()
         .iter()
-        .all(|hit| hit["source"] != "session"));
+        .all(|hit| hit["source"] == "session"));
 }

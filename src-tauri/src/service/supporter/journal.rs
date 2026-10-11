@@ -36,6 +36,7 @@ pub(crate) enum Action {
     #[serde(rename = "strong_action")]
     Strong,
     WeakHint,
+    #[cfg(test)]
     Rerank,
     Recovery,
 }

@@ -410,11 +410,8 @@ fn supporter_first_opinion_is_admitted_once_per_launch_after_periodic_observatio
     let config = enabled();
     run(&host, &id, ObservationTrigger::WorkerIdle).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
-        .unwrap()
-        .join()
-        .unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(candidates::spawn(&host, &config, &id, None, |_, _, _| {}).is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(candidates::spawn(&host, &config, &id, None, |_, _, _| {}).is_none());
     assert!(candidates::spawn_with_origin(
         &host,
@@ -427,13 +424,13 @@ fn supporter_first_opinion_is_admitted_once_per_launch_after_periodic_observatio
         |_, _, _| {},
     )
     .is_none());
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     host.session_key = Some("next-launch".into());
     candidates::spawn(&host, &config, &id, None, |_, _, _| {})
         .unwrap()
         .join()
         .unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
 struct CandidateModel {

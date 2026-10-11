@@ -115,23 +115,28 @@ export function reflexOutcome(entry: SupporterActivity): ReflexRow {
     ...result, phrase, subject, fallback, tone: fallback ? "fallback" : result.tone,
     kind: kind ? entry.kind : "unknown",
     confidence: ["strong", "weak", "low", "unknown"].includes(entry.confidence_band) ? entry.confidence_band : "unknown",
-    key: JSON.stringify([entry.kind, entry.action, entry.label, subject, fallback]),
+    key: JSON.stringify([entry.kind, entry.action, entry.label, entry.tab_id ?? subject, entry.reason, entry.confidence_band, fallback]),
     count: 1, time: entry.time,
   };
 }
 
 export function groupReflexes(entries: readonly SupporterActivity[]): ReflexRow[] {
   const rows: ReflexRow[] = [];
+  const lastByTab = new Map<string, ReflexRow>();
   for (const entry of entries) {
     const row = reflexOutcome(entry);
-    const previous = rows[rows.length - 1];
+    const tab = entry.tab_id ?? entry.tab_title ?? "global";
+    const previous = lastByTab.get(tab);
     if (previous?.key === row.key) {
       const count = previous.count + 1;
       if (Number.isFinite(row.time) && (!Number.isFinite(previous.time) || row.time > previous.time)) {
         Object.assign(previous, row);
       }
       previous.count = count;
-    } else rows.push(row);
+    } else {
+      rows.push(row);
+      lastByTab.set(tab, row);
+    }
   }
   return rows;
 }
