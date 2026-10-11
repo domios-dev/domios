@@ -1021,7 +1021,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn check_for_update(&self) -> Option<ProviderUpdateAvailability> {
-        self.try_call("checkForUpdate", &[])
+        // A plugin reports "no update" as null; only a malformed answer is an error.
+        self.try_call::<Option<ProviderUpdateAvailability>>("checkForUpdate", &[])
+            .flatten()
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
