@@ -31,8 +31,8 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     const file = body.get("file") as File;
     expect(file.type).toBe("image/png");
     expect(file.size).toBe(5);
-    if (++requests === 1 && failure === "HTTP 503") return { ok: false, status: 503, text: async () => "busy" };
-    return { ok: true, status: 200, text: async () => JSON.stringify({ path, size: 5 }) };
+    if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
+    return Response.json({ path, size: 5 });
   });
   vi.stubGlobal("fetch", fetch);
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {

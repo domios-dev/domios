@@ -24,8 +24,8 @@ it("web update channel reads and writes use the browser gateway and selected rel
     requests.push({ url, init });
     assert.equal(url.origin, origin);
     assert.equal(new Headers(init.headers).get("Authorization"), "Bearer gateway-token");
-    return new Response(JSON.stringify(url.pathname === "/api/mesh/relay-to"
-      ? { ok: true, status: 200, data: { channel: "rc" } } : { channel: "stable" }));
+    return Response.json(url.pathname === "/api/mesh/relay-to"
+      ? { ok: true, status: 200, data: { channel: "rc" } } : { channel: "stable" });
   });
   try {
     await requestUpdateChannel(config);
