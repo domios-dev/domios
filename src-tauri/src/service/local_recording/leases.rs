@@ -134,7 +134,7 @@ impl RecordingLeases {
         state.captures.insert(
             lease.clone(),
             Capture {
-                lease_id: lease,
+                lease_id: lease.clone(),
                 plugin_id: plugin_id.into(),
                 target,
                 active,
