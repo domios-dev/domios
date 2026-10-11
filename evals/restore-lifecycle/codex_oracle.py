@@ -129,7 +129,10 @@ def tool_outputs(path):
                 continue
             payload = row.get("payload", {})
             if row.get("type") == "response_item" and payload.get("type") in ("function_call_output", "custom_tool_call_output"):
-                result.append(payload.get("output", ""))
+                output = payload.get("output", "")
+                if isinstance(output, list):
+                    output = "\n".join(part.get('text', '') for part in output if isinstance(part, dict))
+                result.append(output)
     return result
 
 

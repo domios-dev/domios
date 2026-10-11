@@ -80,7 +80,9 @@ class EvidenceTests(unittest.TestCase):
             rows = [dict(type='response_item', payload=dict(type='message', role='assistant', content=[dict(text='claimed')]))]
             rows.append(dict(type='response_item', payload=dict(type='function_call_output', output='actual')))
             path.write_text('\n'.join(json.dumps(row) for row in rows))
-            self.assertEqual(oracle.tool_outputs(path), ['actual'])
+            rows.append(dict(type='response_item', payload=dict(type='custom_tool_call_output', output=[dict(type='input_text', text='array output')])))
+            path.write_text('\n'.join(json.dumps(row) for row in rows))
+            self.assertEqual(oracle.tool_outputs(path), ['actual', 'array output'])
 
     def test_marker_duplicate_and_cross_delivery_refused(self):
         oracle.exact_markers({'a': ['opaque'], 'b': []}, {'a': 'opaque'})

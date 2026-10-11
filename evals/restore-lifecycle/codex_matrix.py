@@ -211,6 +211,8 @@ class Matrix:
         self.orch = pair['orchestrator_tab_id']
         self.tabs = [self.orch, pair['planner_tab_id']]
         observe.cmd_wait_bound(DEADLINE, self.tabs)
+        for tab in self.tabs:
+            self.send(tab, 'This is a read-only automated restore bench. Do not edit files, create or modify plans, dispatch agents, or coordinate the fixture Workers. Reply READY ACK and remain idle until the bench gives you another explicit message.', 'pair-fixture-' + tab)
         self.team = self.inspect(self.orch)['team_id']
         model = os.environ.get('RL_CODEX_MODEL')
         if not model:
@@ -261,7 +263,10 @@ class Matrix:
             self.write('transcript-' + tab + '.path', str(path))
             texts = oracle.user_texts(path)
             oracle.require(texts, f'{tab}: own-session transcript has no user turn')
-            self.wait(lambda path=path: any('startup_acknowledged' in text or 'ACKNOWLEDGED' in text for text in oracle.tool_outputs(path)), tab + ' own startup ACK result')
+            if tab in self.workers:
+                self.wait(lambda path=path: any('startup_acknowledged' in text or 'ACKNOWLEDGED' in text for text in oracle.tool_outputs(path)), tab + ' own startup ACK result')
+            else:
+                self.wait(lambda path=path: any('READY ACK' in text for text in oracle.assistant_texts(path)), tab + ' own pair fixture ACK')
         info = self.cli('cli-status-after-ack', 'agent', 'cli', 'status', 'codex')
         oracle.require(info.get('detected_version') and info.get('version_probe') == 'detected', f'Codex version not detected after startup ACK: {info}')
         # This UI proof is intentionally mandatory and never inferred from an HTTP 200.
