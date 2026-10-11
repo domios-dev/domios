@@ -7,6 +7,8 @@ import {
   slideChatWindowOlder,
   timelineItemKey,
   chatMessageAnchor,
+  chatReadingWindowAnchor,
+  chatWindowAnchorIdentity,
 } from "./chatWindow";
 
 function assert(condition: unknown, label: string): asserts condition {
@@ -102,3 +104,16 @@ function items(count: number, offset = 0): TimelineItem[] {
 }
 
 console.log("chat window checks passed");
+
+{
+  const committed = items(220);
+  const boundary = chatWindowAnchorIdentity(committed, "m-219");
+  const arrival = [...committed, ...items(2, 220)];
+  const reading = chatReadingWindowAnchor(arrival, null, false, boundary);
+  assert(reading === "m-219", "a detached reader with no published anchor retains the previously committed tail");
+  const projection = chatWindowProjection(arrival, reading);
+  assert(projection.newerCount === 2, "the delayed arrival and reply stay newer than the detached reading boundary");
+  assert(timelineItemKey(projection.items[projection.items.length - 1]) === "m-219", "an arrival cannot move the detached reading window");
+  assert(chatReadingWindowAnchor(arrival, null, true, boundary) === null, "a pinned hydration never inherits a reading boundary");
+  assert(chatWindowProjection(arrival, chatReadingWindowAnchor(arrival, null, true, boundary)).newerCount === 0, "a pinned view follows arrivals");
+}

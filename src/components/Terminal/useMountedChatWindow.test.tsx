@@ -1,6 +1,8 @@
 import { act, useMemo, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useChatWindowView } from "./useChatWindowView";
+import { clearTranscriptWindows, commitTranscriptBatch, useTranscriptWindow } from "./transcriptStore";
 import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll, type UseChatScrollResult } from "./useChatScroll";
 import { clearPersistedChatScrollState } from "./chatViewport";
@@ -18,6 +20,8 @@ let rows: Row[];
 let prefixHeight = 0;
 let bottomInset = 0;
 let viewportHeight = VIEWPORT;
+let loading = false;
+let frames: Map<number, FrameRequestCallback>;
 
 function extent(element: HTMLElement): number {
   if (element.dataset.height) return Number(element.dataset.height);
@@ -41,7 +45,7 @@ function Harness({ active }: { active: boolean }) {
   mountApi = useMountedChatWindow({ rows, scrollRef, active, followTailRef: followTail, sessionKey: SESSION });
   const contentVersion = useMemo(() => ({ rows, range: mountApi.range, revision: mountApi.revision }),
     [rows, mountApi.range.start, mountApi.range.end, mountApi.revision]);
-  scrollApi = useChatScroll({ scrollRef, sessionKey: SESSION, active, loading: false,
+  scrollApi = useChatScroll({ scrollRef, sessionKey: SESSION, active, loading,
     onViewportChange: mountApi.syncViewport, messageCount: rows.length, contentVersion, prependVersion: rows[0]?.msg.id, followTailRef: followTail });
   return <div data-testid="scroller" ref={(element) => {
     scrollRef.current = element;
@@ -66,6 +70,13 @@ function Harness({ active }: { active: boolean }) {
   </div>;
 }
 
+let logicalApi: ReturnType<typeof useChatWindowView>;
+function LogicalHarness() {
+  const window = useTranscriptWindow(SESSION);
+  logicalApi = useChatWindowView({ tabId: SESSION, windowKey: SESSION, transcript: window.transcript,
+    anchorKey: window.anchorKey, followTailRef: followTail, loadOlderPage: async () => false });
+  return null;
+}
 function scroller(): HTMLDivElement { return host.querySelector('[data-testid="scroller"]')!; }
 function mounted(): HTMLElement[] { return Array.from(host.querySelectorAll("[data-message-id]")); }
 async function render(active = true) { await act(async () => root.render(<Harness active={active} />)); }
@@ -78,6 +89,11 @@ beforeEach(() => {
   prefixHeight = 0;
   bottomInset = 0;
   viewportHeight = VIEWPORT;
+  loading = false;
+  frames = new Map();
+  let nextFrame = 0;
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { frames.set(++nextFrame, callback); return nextFrame; });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
   followTail = { current: true };
   clearPersistedChatScrollState(SESSION);
   vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function(this: HTMLElement) { return offset(this); });
@@ -92,6 +108,76 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); clearPersistedChatScrollState(SESSION); });
 
 describe("mounted chat wiring", () => {
+  it("keeps initial mount and hydrated content pinned without reader events", async () => {
+    rows = [];
+    loading = true;
+    await render();
+    rows = Array.from({ length: 220 }, (_, index) => ({ msg: { id: `m${index}`, sourceMessageId: `s${index}` }, height: 100 }));
+    await render();
+    expect(followTail.current).toBe(true);
+    loading = false;
+    await render();
+    expect(followTail.current).toBe(true);
+    expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render();
+    expect(followTail.current).toBe(true);
+    expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
+  });
+  it("never classifies an unreported programmatic top reset as reader movement", async () => {
+    await render();
+    scroller().scrollTop = 0;
+    await render();
+    expect(followTail.current).toBe(true);
+    await act(async () => scrollApi.handleContentLayout());
+    await move(scroller().scrollTop);
+    expect(followTail.current).toBe(true);
+    expect(scrollApi.showScrollDown).toBe(false);
+    expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
+  });
+  it("repairs resize events after inset shrink reaches layout without a chat commit", async () => {
+    await render();
+    for (const height of [586, 650, 572, 592, 650]) {
+      await act(async () => {
+        window.dispatchEvent(new Event("resize"));
+        viewportHeight = height;
+        const callbacks = Array.from(frames.values());
+        frames.clear();
+        callbacks.forEach((callback) => callback(0));
+      });
+      expect(followTail.current).toBe(true);
+      expect(scroller().scrollHeight - scroller().clientHeight - scroller().scrollTop).toBe(0);
+    }
+  });
+  it("counts a delayed arrival against the committed boundary of an already detached reader", async () => {
+    clearTranscriptWindows();
+    const initial = Array.from({ length: 220 }, (_, i) => ({ id: `logical-${i}`, type: "assistant" as const, content: `row ${i}` }));
+    commitTranscriptBatch(SESSION, { kind: "snapshot", authority: { sourceSessionId: "session", sessionBindingNonce: "nonce" },
+      range: { start: 0, end: 22000 }, rows: initial });
+    await act(async () => root.render(<LogicalHarness />));
+    expect(logicalApi.newerMessageCount).toBe(0);
+    const boundary = logicalApi.enrichedMessages[logicalApi.enrichedMessages.length - 1].msg.id;
+    followTail.current = false;
+    await act(async () => {
+      commitTranscriptBatch(SESSION, { kind: "delta", authority: { sourceSessionId: "session", sessionBindingNonce: "nonce" },
+        range: { start: 22000, end: 22200 }, rows: [
+          { id: "delayed-user", type: "user", content: "reminder" },
+          { id: "delayed-reply", type: "assistant", content: "reply" },
+        ] });
+      root.render(<LogicalHarness />);
+    });
+    expect(followTail.current).toBe(false);
+    expect(logicalApi.newerMessageCount).toBe(2);
+    expect(logicalApi.enrichedMessages[logicalApi.enrichedMessages.length - 1].msg.id).toBe(boundary);
+    await act(async () => logicalApi.showLatest());
+    expect(followTail.current).toBe(true);
+    expect(logicalApi.newerMessageCount).toBe(0);
+    expect(logicalApi.enrichedMessages[logicalApi.enrichedMessages.length - 1].msg.content).toBe("reply");
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    clearTranscriptWindows();
+  });
   it("repairs inset-only and composer-height commits before observer delivery", async () => {
     await render();
     bottomInset = 42;
