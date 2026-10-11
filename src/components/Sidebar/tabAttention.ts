@@ -1,6 +1,7 @@
 import type { Notification, Tab, TabStatus } from "../../lib/types";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { tabActivity } from "../../lib/tabActivity";
+import { isLiveAttention } from "../Notifications/attentionSurfaceModel";
 import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 
 export type TabAttentionKind = "waiting" | "action_needed" | "failure";
@@ -18,7 +19,7 @@ export interface TabAttention {
 }
 
 export function attentionNotifications(tabId: string, notifications: readonly Notification[]): Notification[] {
-  return notifications.filter((item) => item.tab_id === tabId && !item.read && !item.resolved
+  return notifications.filter((item) => item.tab_id === tabId && !item.read && isLiveAttention(item)
     && (item.level === "failure" || item.level === "action_needed"));
 }
 
