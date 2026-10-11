@@ -130,7 +130,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
   /** True when the paste became capsules; files and images stay with the attachment paste path. */
   const handlePaste = useCallback((event: ClipboardEvent<HTMLTextAreaElement>): boolean => {
     const data = event.clipboardData;
-    if (!data || Array.from(data.items ?? []).some((item) => item.kind === "file")) return false;
+    if (!data || data.files?.length || Array.from(data.items ?? []).some((item) => item.kind === "file")) return false;
     const text = data.getData(DOMIOS_TEXT_MIME) || data.getData("text/plain");
     if (!text) return false;
     const el = event.currentTarget;
