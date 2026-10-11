@@ -1,3 +1,30 @@
+#[cfg(debug_assertions)]
+mod assets;
+
+pub(crate) fn application_context(
+    context: tauri::Context<tauri::Wry>,
+) -> tauri::Context<tauri::Wry> {
+    #[cfg(debug_assertions)]
+    {
+        let mut context = context;
+        if context.config().build.dev_url.is_some() {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist");
+            match assets::DevelopmentAssets::load(&root) {
+                Ok(assets) => {
+                    context.set_assets(Box::new(assets));
+                    log::debug!("[frontend-shell] prepared development fallback assets installed");
+                }
+                Err(error) => {
+                    log::error!("[frontend-shell] development fallback unavailable: {error}")
+                }
+            }
+        }
+        context
+    }
+    #[cfg(not(debug_assertions))]
+    context
+}
+
 use super::{RestApiControlState, RestApiPhase, RestApiStatus};
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};

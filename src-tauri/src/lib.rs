@@ -953,7 +953,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(startup::handle_window_event)
-        .build(tauri::generate_context!())
+        .build(startup::frontend_shell::application_context(
+            tauri::generate_context!(),
+        ))
         .expect("error while building tauri application")
         .run(|_app, _event| {
             #[cfg(target_os = "macos")]

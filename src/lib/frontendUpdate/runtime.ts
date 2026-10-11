@@ -1,3 +1,4 @@
+import { FrontendUpdateError } from "./bootstrapModel";
 import { frontendApiCompatible } from "../frontendApiContract";
 import { streamRecoveryAction } from "../streamRecoveryModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
@@ -35,11 +36,12 @@ export interface FrontendRuntimeOptions {
 }
 
 export async function initializeFrontendUpdateRuntime(client: TransportClient, options: FrontendRuntimeOptions) {
-  const api = createFrontendUpdateClient({ json: (method, path, body) => client.localJson(method, path, body) }, options.clientId);
-  const restored = await api.checkpoint();
+  const api = createFrontendUpdateClient({ json: (method, path, body) => client.localJson(method, path, body, { signal: AbortSignal.timeout(5000) }) }, options.clientId);
+  const restored = await api.checkpoint().catch(error => { throw new FrontendUpdateError("checkpoint-unavailable", error); });
   if (restored) options.signals.hydrate(restored.payload);
-  const status = await client.localJson<FrontendStatus>("GET", "/api/frontend/status");
-  if (!frontendApiCompatible(status.apiVersion)) throw new Error("Daemon API is incompatible with this frontend");
+  const status = await client.localJson<FrontendStatus>("GET", "/api/frontend/status", undefined, { signal: AbortSignal.timeout(5000) })
+    .catch(error => { throw new FrontendUpdateError("status-unavailable", error); });
+  if (!frontendApiCompatible(status.apiVersion)) throw new FrontendUpdateError("api-incompatible");
   const controller = createSwapController(initialSwapState(status.apiVersion, options.signals.checkpoint(), options.signals.safety(), restored?.revision ?? 0), api, ticket => {
     const token = client.currentToken();
     if (!token) { options.onError(new Error("Frontend reload requires daemon credentials")); return; }

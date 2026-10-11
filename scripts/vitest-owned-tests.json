@@ -171,5 +171,6 @@
   "src/components/DaemonFrontendBootstrap.test.tsx",
   "src/components/Extensions/ChatModelBubble.test.tsx",
   "src/lib/buildMismatchGuard.test.ts",
-  "src/lib/nativeConfinement.test.ts"
+  "src/lib/nativeConfinement.test.ts",
+  "src/lib/frontendUpdate/bootstrapModel.test.ts"
 ]
