@@ -347,7 +347,7 @@ fn build_opencode_db(path: &std::path::Path) {
             "msg1",
             SES_ID,
             TC_SESSION + 1,
-            r#"{"role":"assistant","modelID":"anthropic/claude-sonnet-4"}"#
+            r#"{"role":"assistant","providerID":"anthropic","modelID":"claude-sonnet-4"}"#
         ],
     )
     .unwrap();
@@ -398,7 +398,7 @@ fn sqlite_backed_session_capabilities() {
     let model = j
         .detect_session_model("/work/proj", SES_ID)
         .expect("detectSessionModel must resolve a model");
-    assert!(!model.is_empty());
+    assert_eq!(model, "anthropic/claude-sonnet-4");
 
     // readStructuredChat joins part⋈message into native ChatMsg + advances cursor.
     let chat = j.read_structured_chat("/work/proj", SES_ID, None);

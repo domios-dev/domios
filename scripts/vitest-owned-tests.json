@@ -135,5 +135,7 @@
   "packages/chat-ui/src/orderedListGutter.test.ts",
   "src/components/WebGate/installHintLayout.test.ts",
   "src/components/WebGate/useInstallHintLayout.test.tsx",
-  "src/components/Terminal/ChatComposer.paste.test.tsx"
+  "src/components/Terminal/ChatComposer.paste.test.tsx",
+  "plugins/provider-opencode/tests/catalogueIdentity.test.ts",
+  "src/lib/newSessionUnavailableChoice.test.ts"
 ]
