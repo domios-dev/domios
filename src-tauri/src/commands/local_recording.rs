@@ -81,7 +81,8 @@ pub(crate) async fn local_recording_commit(
     lease: String,
     clip_handle: String,
     client_token: String,
-) -> crate::service::local_recording::LocalRecordingCommitOutcome {
-    svc.local_recording_commit(&lease, &clip_handle, client_token)
-        .await
+) -> Result<crate::service::local_recording::LocalRecordingCommitOutcome, String> {
+    Ok(svc
+        .local_recording_commit(&lease, &clip_handle, client_token)
+        .await)
 }
