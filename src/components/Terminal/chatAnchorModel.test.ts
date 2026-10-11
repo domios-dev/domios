@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { chatLayoutScrollTarget, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { chatViewportModeAfterScroll } from "./chatViewport";
 import { captureChatAnchor, chatAnchorIdentities, chatRevealIndex, resolveChatAnchorIndex, resolveChatAnchorTop } from "./chatAnchorModel";
 
 describe("chat anchor identity and pixels", () => {
@@ -26,5 +28,32 @@ describe("chat anchor identity and pixels", () => {
     const anchor = { id: "range-b", key: "duplicate", ordinal: 1, offset: -35 };
     expect(resolveChatAnchorTop([{ ...identities[1], top: 950 }], anchor)).toBe(985);
     expect(captureChatAnchor([], 0)).toBeNull();
+  });
+});
+
+
+describe("chat layout ownership", () => {
+  const before = { scrollTop: 31226, scrollHeight: 31876, clientHeight: 650 };
+  it("repairs pinned inset growth without a transcript change", () => {
+    const after = { ...before, scrollHeight: before.scrollHeight + 42 };
+    expect(chatLayoutScrollTarget("pinned", after, null)).toBe(31918);
+    expect(chatViewportModeAfterScroll("pinned", before, after)).toBe("pinned");
+  });
+  it("repairs a phone composer resize without detaching", () => {
+    const after = { ...before, clientHeight: 572 };
+    expect(chatViewportModeAfterScroll("pinned", before, after)).toBe("pinned");
+    expect(chatLayoutScrollTarget("pinned", after, null)).toBe(31876);
+  });
+  it("preserves a detached anchor after a mounted extent clamp", () => {
+    const detached = { scrollTop: 127103, scrollHeight: 128053, clientHeight: 650 };
+    const clamped = { scrollTop: 121033, scrollHeight: 121683, clientHeight: 650 };
+    expect(shouldCaptureChatAnchor(detached, clamped)).toBe(false);
+    expect(chatViewportModeAfterScroll("detached", detached, clamped)).toBe("detached");
+    expect(chatLayoutScrollTarget("detached", detached, 127103)).toBe(127103);
+  });
+  it("distinguishes an unhandled reader movement from layout repair", () => {
+    expect(shouldCaptureChatAnchor(before, { ...before, scrollTop: before.scrollTop - 300 })).toBe(true);
+    expect(chatViewportModeAfterScroll("pinned", before, { ...before, scrollTop: before.scrollTop - 300 })).toBe("detached");
+    expect(chatViewportModeAfterScroll("detached", { ...before, scrollTop: before.scrollTop - 300 }, before)).toBe("pinned");
   });
 });
