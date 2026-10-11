@@ -12,11 +12,12 @@ use super::*;
 use crate::agent::provider::{
     AgentLaunchParams, AgentProvider, ReadinessStrategy, SystemPromptDelivery, TaskDelivery,
 };
-use crate::notification::desktop::{self, DesktopPolicy};
+use crate::notification::desktop::DesktopPolicy;
 use crate::notification::store::NotificationStore;
 use crate::notification::NotifState;
 use crate::service::notification::{
-    create_notification_with_delivery, NotificationAdmission, PushDispatch, SurfaceDispatch,
+    create_notification_with_delivery, NotificationAdmission, NotificationOrigin, PushDispatch,
+    SurfaceDispatch,
 };
 use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
 use codeterm_types::notification::NotifyDestination;
