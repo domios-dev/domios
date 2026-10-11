@@ -15,6 +15,8 @@ export interface VoiceState {
 }
 
 export type VoiceAction =
+  | { type: "HANDS_FREE_START" }
+  | { type: "HANDS_FREE_READY" }
   | { type: "POINTER_DOWN"; pointerId: number; x: number; y: number }
   | { type: "POINTER_MOVE"; pointerId: number; x: number; y: number; overCancelZone: boolean }
   | { type: "POINTER_UP"; pointerId: number }
@@ -56,6 +58,10 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
   const { phase, pointerId } = state;
 
   switch (action.type) {
+    case "HANDS_FREE_START":
+      return phase === "idle" ? { ...state, phase: "starting" } : state;
+    case "HANDS_FREE_READY":
+      return phase === "starting" ? { ...state, phase: "locked" } : state;
     case "POINTER_DOWN":
       if (phase !== "idle") return state;
       return {

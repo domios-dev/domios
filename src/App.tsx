@@ -9,6 +9,7 @@ import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { LarkCaptureStatus } from "./components/Terminal/voice/LarkCaptureStatus";
+import { LocalRecordingSetup } from "./components/Terminal/voice/LocalRecordingSetup";
 import { useLarkCapture } from "./components/Terminal/voice/useLarkCapture";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
@@ -654,6 +655,7 @@ function AppInner() {
         className="flex flex-1 min-h-0 relative"
       >
         <LarkCaptureStatus state={larkCapture.state} onCancel={larkCapture.cancel} />
+        {larkCapture.setupPluginId && <LocalRecordingSetup pluginId={larkCapture.setupPluginId} onClose={larkCapture.closeSetup} />}
         {sidebarMounted && (
           <>
             {/* Narrow shell: the sidebar overlays the content with a tap-to-close

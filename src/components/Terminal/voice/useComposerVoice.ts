@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { bubblePoseFromPointer, type BubblePose } from "../composerBubble";
 import { useVoiceRecorder } from "./useVoiceRecorder";
+import { registerComposerRecording } from "./composerRecording";
 import {
   voiceReducer,
   initVoiceState,
@@ -16,12 +17,14 @@ function pointInRect(x: number, y: number, rect: DOMRect | undefined): boolean {
 }
 
 export function useComposerVoice({
+  tabId,
   hasText,
   onSend,
   onAttach,
   onSendWithAttachments,
   onError,
 }: {
+  tabId?: string;
   hasText: boolean;
   onSend: () => void;
   onAttach: (paths: string[]) => void;
@@ -37,7 +40,11 @@ export function useComposerVoice({
   const stateRef = useRef<VoiceState>(initVoiceState());
   const [, forceRender] = useState(0);
 
-  const voice = useVoiceRecorder(onError);
+  const hardwareRef = useRef<{ cancel: () => void; stop: () => void } | null>(null);
+  const voice = useVoiceRecorder((message) => {
+    onError(message);
+    hardwareRef.current?.cancel();
+  });
   // Ref so window-handler closures always call the latest voice methods.
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
@@ -120,6 +127,10 @@ export function useComposerVoice({
   }
 
   async function stopToPreview() {
+    if (hardwareRef.current) {
+      hardwareRef.current.stop();
+      return;
+    }
     const s = stateRef.current;
     if (s.busy || s.phase !== "locked") return;
     dispatch({ type: "BUSY_START" });
@@ -142,6 +153,10 @@ export function useComposerVoice({
   }
 
   function cancelVoice() {
+    if (hardwareRef.current) {
+      hardwareRef.current.cancel();
+      return;
+    }
     if (stateRef.current.busy) return;
     dispatch({ type: "BUSY_START" });
     void runCancelVoice();
@@ -153,6 +168,34 @@ export function useComposerVoice({
       dispatch({ type: "POINTER_CANCEL", pointerId: s.pointerId });
     }
   }
+
+  useEffect(() => {
+    if (!tabId) return;
+    const unregister = registerComposerRecording(tabId, {
+      async start(microphoneId, runtime, cancel, stop) {
+        if (stateRef.current.phase !== "idle") return false;
+        hardwareRef.current = { cancel, stop };
+        dispatch({ type: "HANDS_FREE_START" });
+        const started = await voiceRef.current.start({ microphoneId, runtime });
+        dispatch({ type: started ? "HANDS_FREE_READY" : "START_FAIL" });
+        if (!started) hardwareRef.current = null;
+        return started;
+      },
+      async stop(discard) {
+        dispatch({ type: "BUSY_START" });
+        try {
+          return await voiceRef.current.stopClip(discard);
+        } finally {
+          hardwareRef.current = null;
+          dispatch({ type: "BUSY_END_IDLE" });
+        }
+      },
+    });
+    return () => {
+      unregister();
+      hardwareRef.current?.cancel();
+    };
+  }, [tabId]);
 
   useEffect(() => {
     function onWindowPointerMove(e: globalThis.PointerEvent) {

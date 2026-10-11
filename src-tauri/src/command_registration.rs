@@ -124,6 +124,7 @@ pub(crate) fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::B
         commands::local_recording::local_recording_status,
         commands::local_recording::local_recording_set_enabled,
         commands::local_recording::local_recording_select_devices,
+        commands::local_recording::local_recording_input_devices,
         commands::local_recording::local_recording_capture_stopped,
         commands::local_recording::local_recording_cancel,
         commands::local_recording::local_recording_manual_capture,

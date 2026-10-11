@@ -2,6 +2,7 @@ mod admission;
 pub(crate) mod chat;
 mod clip;
 mod completion;
+mod inventory;
 pub(crate) mod leases;
 pub(crate) mod platform;
 
