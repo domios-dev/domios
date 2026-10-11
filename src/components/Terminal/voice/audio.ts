@@ -229,3 +229,8 @@ export async function storeBlob(blob: Blob, filename: string): Promise<string> {
     name: filename,
   });
 }
+
+export async function storeVoiceBlob(blob: Blob, mime: string): Promise<string[]> {
+  const path = await storeBlob(blob, `voice-note-${Date.now()}.${audioExt(mime)}`);
+  return path.trim() ? [path] : [];
+}

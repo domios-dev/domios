@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -49,6 +49,7 @@ pub(crate) enum CapturePhase {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CaptureLeaseView {
     pub(crate) lease: String,
+    pub(crate) plugin_id: String,
     pub(crate) tab_id: String,
     pub(crate) microphone_id: String,
     pub(crate) generation: u64,
@@ -62,12 +63,15 @@ pub(crate) struct RecordingLeases {
 
 struct WriteTicket {
     lease: String,
+    plugin_id: String,
+    generation: u64,
     capture: Capture,
 }
 
 #[derive(Default)]
 struct LeaseState {
     captures: HashMap<String, Capture>,
+    generations: HashMap<String, u64>,
     manual_capture: bool,
 }
 
@@ -98,13 +102,19 @@ impl RecordingLeases {
         if state.manual_capture {
             return Err("manual_capture_owned".into());
         }
-        state.captures.retain(|_, capture| {
-            let current = capture.is_current(Instant::now());
-            if !current {
+        let stale = state
+            .captures
+            .iter()
+            .filter_map(|(lease, capture)| {
+                (!capture.is_current(Instant::now())).then_some(lease.clone())
+            })
+            .collect::<Vec<_>>();
+        for lease in stale {
+            if let Some(capture) = state.captures.remove(&lease) {
                 capture.active.store(false, Ordering::Release);
             }
-            current
-        });
+            state.generations.remove(&lease);
+        }
         if !state.captures.is_empty() {
             return Err("parallel_capture".into());
         }
@@ -114,6 +124,7 @@ impl RecordingLeases {
         let lease = uuid::Uuid::new_v4().to_string();
         let view = CaptureLeaseView {
             lease: lease.clone(),
+            plugin_id: plugin_id.into(),
             tab_id: target.tab_id().into(),
             microphone_id: devices.microphone_id.clone(),
             generation,
@@ -129,6 +140,7 @@ impl RecordingLeases {
                 phase: CapturePhase::Recording,
             },
         );
+        state.generations.insert(lease.clone(), generation);
         Ok(view)
     }
 
@@ -158,7 +170,9 @@ impl RecordingLeases {
     }
 
     pub(crate) fn finish(&self, lease: &str) {
-        self.state.lock().captures.remove(lease);
+        let mut state = self.state.lock();
+        state.captures.remove(lease);
+        state.generations.remove(lease);
     }
 
     pub(crate) fn register_write_ticket(
@@ -170,7 +184,15 @@ impl RecordingLeases {
         if capture.lease_id != lease {
             return Err("recording_write_ticket_lease_mismatch".into());
         }
+        let generation = self
+            .state
+            .lock()
+            .generations
+            .get(lease)
+            .copied()
+            .ok_or_else(|| "capture_lease_stale".to_string())?;
         capture.validate()?;
+        let ticket_capture = capture.clone();
         let mut tickets = self.write_tickets.lock();
         if tickets.contains_key(send_id) || tickets.len() >= MAX_CAPTURE_WRITE_TICKETS {
             return Err("recording_write_ticket_capacity".into());
@@ -179,9 +201,16 @@ impl RecordingLeases {
             send_id.into(),
             WriteTicket {
                 lease: lease.into(),
+                plugin_id: capture.plugin_id.clone(),
+                generation,
                 capture,
             },
         );
+        drop(tickets);
+        if let Err(error) = ticket_capture.validate() {
+            self.write_tickets.lock().remove(send_id);
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -234,20 +263,63 @@ impl RecordingLeases {
     }
 
     pub(crate) fn cancel(&self, lease: &str) {
-        if let Some(capture) = self.state.lock().captures.remove(lease) {
+        let mut state = self.state.lock();
+        state.generations.remove(lease);
+        if let Some(capture) = state.captures.remove(lease) {
             capture.active.store(false, Ordering::Release);
         }
     }
 
-    pub(crate) fn close_tab(&self, tab_id: &str) {
-        self.state.lock().captures.retain(|_, capture| {
-            if capture.target.tab_id() == tab_id {
-                capture.active.store(false, Ordering::Release);
-                false
-            } else {
-                true
+    pub(crate) fn invalidate_generation(&self, plugin_id: &str, generation: u64) -> usize {
+        let mut invalidated = HashSet::new();
+        {
+            let mut state = self.state.lock();
+            let leases = state
+                .captures
+                .iter()
+                .filter_map(|(lease, capture)| {
+                    let matches = capture.plugin_id == plugin_id
+                        && state.generations.get(lease) == Some(&generation);
+                    matches.then_some(lease.clone())
+                })
+                .collect::<Vec<_>>();
+            for lease in leases {
+                if let Some(capture) = state.captures.remove(&lease) {
+                    capture.active.store(false, Ordering::Release);
+                    invalidated.insert(lease.clone());
+                }
+                state.generations.remove(&lease);
             }
-        });
+        }
+        {
+            let mut tickets = self.write_tickets.lock();
+            tickets.retain(|_, ticket| {
+                let matches = ticket.plugin_id == plugin_id && ticket.generation == generation;
+                if matches {
+                    ticket.capture.active.store(false, Ordering::Release);
+                    invalidated.insert(ticket.lease.clone());
+                }
+                !matches
+            });
+        }
+        invalidated.len()
+    }
+
+    pub(crate) fn close_tab(&self, tab_id: &str) {
+        let mut state = self.state.lock();
+        let leases = state
+            .captures
+            .iter()
+            .filter_map(|(lease, capture)| {
+                (capture.target.tab_id() == tab_id).then_some(lease.clone())
+            })
+            .collect::<Vec<_>>();
+        for lease in leases {
+            if let Some(capture) = state.captures.remove(&lease) {
+                capture.active.store(false, Ordering::Release);
+            }
+            state.generations.remove(&lease);
+        }
     }
 }
 
