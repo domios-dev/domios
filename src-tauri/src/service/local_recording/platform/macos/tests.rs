@@ -1,4 +1,27 @@
 use super::*;
+use std::sync::{Arc, Mutex};
+
+struct FakeRunLoopResources(Arc<Mutex<Vec<&'static str>>>);
+
+impl RunLoopResourceOps for FakeRunLoopResources {
+    fn stop_and_wake(&mut self) {
+        let mut events = self.0.lock().unwrap();
+        events.push("stop");
+        events.push("wake");
+    }
+
+    fn release(&mut self) {
+        self.0.lock().unwrap().push("release");
+    }
+}
+
+fn fake_run_loop(events: Arc<Mutex<Vec<&'static str>>>) -> RunLoopHandle {
+    RunLoopHandle::new(FakeRunLoopResources(events))
+}
+
+fn run_loop_events(events: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
+    events.lock().unwrap().clone()
+}
 
 fn device_id(location_id: u32, registry_entry_id: u64) -> String {
     format!("{DEVICE_ID_PREFIX}{location_id:08x}:{registry_entry_id:016x}")
@@ -284,4 +307,67 @@ fn lark_input_macos_stale_callback_after_stop_is_inert() {
         decoder.observe(&selected.input_id, &selected.collection_id, 19, 1),
         None
     );
+}
+
+#[test]
+fn lark_input_macos_queued_readiness_abandonment_stops_and_releases_once() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+
+    send_ready_run_loop(ready_tx, fake_run_loop(events.clone()));
+    drop(ready_rx);
+
+    assert_eq!(run_loop_events(&events), ["stop", "wake", "release"]);
+    assert!(matches!(
+        done_rx.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    done_tx.send(Ok(())).unwrap();
+    assert_eq!(done_rx.try_recv(), Ok(Ok(())));
+    assert_eq!(run_loop_events(&events), ["stop", "wake", "release"]);
+}
+
+#[test]
+fn lark_input_macos_readiness_transfer_keeps_owner_until_cleanup() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+
+    send_ready_run_loop(ready_tx, fake_run_loop(events.clone()));
+    let mut owner = ready_rx.recv().unwrap().unwrap();
+    assert!(run_loop_events(&events).is_empty());
+
+    owner.stop();
+    owner.stop();
+    drop(owner);
+    assert_eq!(run_loop_events(&events), ["stop", "wake", "release"]);
+}
+
+#[test]
+fn lark_input_macos_failed_readiness_send_retires_owner_once() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    drop(ready_rx);
+
+    send_ready_run_loop(ready_tx, fake_run_loop(events.clone()));
+
+    assert_eq!(run_loop_events(&events), ["stop", "wake", "release"]);
+}
+
+#[test]
+fn lark_input_macos_missing_loop_entry_retires_untransferred_owner_once() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+
+    abandon_ready_run_loop(
+        ready_tx,
+        "macos_input_start_unacknowledged",
+        Some(fake_run_loop(events.clone())),
+    );
+
+    assert!(matches!(
+        ready_rx.try_recv(),
+        Ok(Err(reason)) if reason == "macos_input_start_unacknowledged"
+    ));
+    assert_eq!(run_loop_events(&events), ["stop", "wake", "release"]);
 }
