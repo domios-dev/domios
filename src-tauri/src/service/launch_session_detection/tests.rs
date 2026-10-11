@@ -505,3 +505,81 @@ fn sandbox_additional_roots_logged_when_included() {
     );
     assert_eq!(sandbox_additional_roots_log("tab-1", 0), None);
 }
+
+#[test]
+fn resume_target_is_exact_and_belongs_to_the_current_launch() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.session_binding_nonce = Some("current".into());
+    tab.prior_session_binding_nonces
+        .push(crate::multiplexer::types::PriorBindingNonce {
+            nonce: "current".into(),
+            session_id: None,
+            resume_target_session_id: Some("own".into()),
+        });
+    assert_eq!(resumed_session_target(tab, Some("own")), Some("own"));
+    assert_eq!(resumed_session_target(tab, Some("newest-global")), None);
+    assert_eq!(resumed_session_target(tab, None), None);
+    tab.session_binding_nonce = Some("replacement".into());
+    assert_eq!(resumed_session_target(tab, Some("own")), None);
+    tab.agent_session_id = Some("foreign".into());
+    assert_eq!(resumed_session_target(tab, Some("own")), None);
+    assert_eq!(
+        resumed_session_target(tab, Some("foreign")),
+        Some("foreign")
+    );
+}
+
+#[test]
+fn resumed_file_requires_provider_owned_exact_evidence() {
+    assert!(resume_file_binding_allowed(true, true, Some(true)));
+    for evidence in [
+        (false, true, Some(true)),
+        (true, false, Some(true)),
+        (true, true, Some(false)),
+        (true, true, None),
+    ] {
+        assert!(!resume_file_binding_allowed(
+            evidence.0, evidence.1, evidence.2
+        ));
+    }
+}
+
+#[test]
+fn plain_pty_resume_binds_its_claimed_session_without_a_sidecar() {
+    let (mut state, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = state.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("file-backed-fixture".into());
+    tab.pty_id = Some("own-pty".into());
+    tab.session_binding_nonce = Some("current-launch".into());
+    tab.remember_resume_binding_nonce("saved-session");
+    let target = resumed_session_target(tab, Some("saved-session"))
+        .unwrap()
+        .to_string();
+    assert!(resume_file_binding_allowed(true, true, Some(true)));
+    let mux = std::sync::Arc::new(codeterm_util::lock_hold::TimedRwLock::new(
+        "plain-resume",
+        state,
+    ));
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session(
+            "file-backed-fixture",
+            "saved-session",
+        ),
+    ));
+    let claim = crate::api::hook_routes::bind_detected_session(
+        &mux,
+        &registry,
+        &id,
+        "file-backed-fixture",
+        &target,
+        "current-launch",
+    )
+    .unwrap();
+    assert!(claim.nonce_verified);
+    let state = mux.read();
+    let tab = state.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
+    assert!(tab.launch_session_authenticated());
+}
