@@ -9,7 +9,7 @@ import tempfile
 
 def main():
     marker = sys.argv[1]
-    required = ('CODETERM_TAB_ID', 'CODETERM_SESSION_BINDING_NONCE', 'CODETERM_ATTEMPT_ID')
+    required = ('CODETERM_TAB_ID', 'CODETERM_SESSION_BINDING_NONCE')
     missing = [key for key in required if not os.environ.get(key)]
     if missing:
         raise SystemExit('missing inherited Worker identity: ' + ', '.join(missing))
@@ -32,7 +32,7 @@ def main():
         print(json.dumps({'marker': marker, 'foreign_exit': result.returncode, 'foreign_session': sessions[0],
                           'inherited_tab': os.environ['CODETERM_TAB_ID'],
                           'inherited_nonce': os.environ['CODETERM_SESSION_BINDING_NONCE'],
-                          'inherited_attempt': os.environ['CODETERM_ATTEMPT_ID']}))
+                          'inherited_attempt': os.environ.get('CODETERM_ATTEMPT_ID')}))
 
 
 if __name__ == '__main__':

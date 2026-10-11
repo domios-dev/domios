@@ -47,6 +47,7 @@ class OpenCodeTrack:
 
     def select(self, tab):
         row = self.host.inspect(tab)
+        self.host.cli('opencode-focus-' + tab, 'tab', 'focus', tab, json_output=False)
         self.browser('before-select-' + tab, 'snapshot')
         self.browser('select-' + tab, 'click', 'button', 'Open tab ' + row['title'])
 
@@ -70,7 +71,7 @@ class OpenCodeTrack:
         catalog = host.cli('opencode-models', 'agent', 'models', 'opencode')
         cheap = os.environ.get('RL_OPENCODE_MODEL')
         if not cheap:
-            candidates = [row['id'] for row in catalog if any(term in row.get('description', '').lower() for term in ('free', 'cheap', 'affordable'))]
+            candidates = [row['id'] for row in catalog if any(term in ' '.join(str(row.get(key, '')) for key in ('description', 'display_name', 'id')).lower() for term in ('free', 'cheap', 'affordable'))]
             oracle.require(candidates, 'set RL_OPENCODE_MODEL: no cheap OpenCode catalogue entry')
             cheap = candidates[0]
         providers = host.cli('opencode-providers', 'agent', 'providers')
