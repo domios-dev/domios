@@ -75,7 +75,7 @@ fn captured_submenu_option_two_writes_only_declared_enter() {
     let reemulated = crate::pty::ansi::clean_terminal_output(&rendered);
     assert_eq!(
         respond(&registry, &reemulated, None),
-        Err(RespondPromptOutcome::PromptNotOnScreen)
+        Ok(vec![b"\r".to_vec()])
     );
 }
 
