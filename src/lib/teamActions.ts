@@ -35,6 +35,7 @@ export interface TeamMemberRequest {
   managerTabId: string | null;
   model?: string;
   brief?: string;
+  sessionBindingNonce?: string;
 }
 
 export interface TeamMemberAttachment {
@@ -55,20 +56,23 @@ export function requestTeamMember(invoke: Invoke, request: TeamMemberRequest): P
     ...(request.model ? { model: request.model } : {}),
     ...(request.brief !== undefined ? { brief: request.brief } : {}),
     callerTabId: request.managerTabId,
+    ...(request.sessionBindingNonce ? { sessionBindingNonce: request.sessionBindingNonce } : {}),
   });
 }
 
 export function buildTeamActions({
   invoke,
+  callerNonce,
 }: {
   invoke: Invoke;
+  callerNonce?: (tabId: string) => string | undefined;
 }): TeamActions {
   return {
     async onRenameTeam(teamId, name, managerTabId) {
-      await invoke("mux_rename_team", { teamId, name, callerTabId: managerTabId });
+      await invoke("mux_rename_team", { teamId, name, callerTabId: managerTabId, ...(managerTabId && callerNonce ? { sessionBindingNonce: callerNonce(managerTabId) } : {}) });
     },
     async onAddTeamMember(teamId, role, providerId, managerTabId, model) {
-      await requestTeamMember(invoke, { teamId, role, providerId, managerTabId, model });
+      await requestTeamMember(invoke, { teamId, role, providerId, managerTabId, model, sessionBindingNonce: managerTabId ? callerNonce?.(managerTabId) : undefined });
     },
     async onCloseTeam(teamId) {
       // The Sidebar confirmation dialog is the human override for busy Workers.

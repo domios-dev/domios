@@ -1,5 +1,5 @@
-import { invoke, listen } from "../../lib/bridge";
-import { ALL_JOBS_SCOPE, sameScope, type AutomationGraph, type AutomationGraphAdapter, type AutomationIdentity, type AutomationScope } from "./types";
+import { orchestrationTransport, listenOrchestration as listen } from "../../lib/transport/orchestrationRuntime";
+import { ALL_JOBS_SCOPE, sameScope, type AutomationGraphAdapter, type AutomationIdentity, type AutomationScope } from "./types";
 
 export const AUTOMATION_GRAPH_EVENT = "automation-graph-changed";
 
@@ -7,8 +7,8 @@ export const hostAutomationAdapter: AutomationGraphAdapter = {
   async read(attachment, signal) {
     signal.throwIfAborted();
     const graph = attachment.team_id === ALL_JOBS_SCOPE
-      ? await invoke<AutomationGraph>("automation_graph_workspace_snapshot", { workspaceId: attachment.workspace_id })
-      : await invoke<AutomationGraph>("automation_graph_snapshot", { workspaceId: attachment.workspace_id, teamId: attachment.team_id });
+      ? await orchestrationTransport().automation_graph_workspace_snapshot( { workspaceId: attachment.workspace_id })
+      : await orchestrationTransport().automation_graph_snapshot( { workspaceId: attachment.workspace_id, teamId: attachment.team_id });
     signal.throwIfAborted();
     return graph;
   },
@@ -19,7 +19,7 @@ export const hostAutomationAdapter: AutomationGraphAdapter = {
   },
   async stop(attachment, identity) {
     if (!matchesActionScope(attachment, identity) || identity.kind !== "blueprint") throw new Error("Invalid Blueprint scope");
-    await invoke("automation_graph_stop_blueprint", {
+    await orchestrationTransport().automation_graph_stop_blueprint( {
       workspaceId: attachment.workspace_id,
       teamId: identity.team_id,
       id: identity.id,
@@ -27,7 +27,7 @@ export const hostAutomationAdapter: AutomationGraphAdapter = {
   },
   async delete(attachment, identity) {
     if (!matchesActionScope(attachment, identity) || identity.kind !== "blueprint") throw new Error("Invalid Blueprint scope");
-    await invoke("automation_graph_delete_blueprint", { workspaceId: attachment.workspace_id, teamId: identity.team_id, id: identity.id });
+    await orchestrationTransport().automation_graph_delete_blueprint( { workspaceId: attachment.workspace_id, teamId: identity.team_id, id: identity.id });
   },
 };
 

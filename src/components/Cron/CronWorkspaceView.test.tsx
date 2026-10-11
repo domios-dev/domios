@@ -1,3 +1,5 @@
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Cron/CronWorkspaceView.test.tsx
 
 import { act } from "react";
@@ -143,6 +145,7 @@ async function flushUntil(predicate: () => boolean, maxTicks = 50): Promise<void
 }
 
 async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, calls: string[], lastRunStatus = "Success", automation?: AutomationGraphViewProps): Promise<{ host: HTMLDivElement; root: Root }> {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => cronJob() as T));
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "cron_get") return cronJob() as T;
     if (command === "mesh_inventory_list") return inventory([projectedCronService(lastRunStatus)]) as T;

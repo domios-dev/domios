@@ -1,31 +1,31 @@
 import assert from "node:assert/strict";
-import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT } from "./hostAdapter";
 import { attachment, deferred, fixtureGraph, sentinelIdentity } from "./fixtures.testdata";
 import { ALL_JOBS_SCOPE, type AutomationGraph, type AutomationScope } from "./types";
 
 async function main() {
-  const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
-  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
-    calls.push({ command, args });
+  const calls: Array<{ method: string; path: string; body?: unknown }> = [];
+  let event!: (payload: AutomationScope & { revision: string }) => void;
+  let off = false;
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>(method: string, path: string, body?: unknown) => {
+    calls.push({ method, path, body });
     return fixtureGraph() as T;
-  });
-  try {
+  }, (stream, handler) => {
+    assert.equal(stream, "/api/events/stream");
+    event = (payload) => handler(AUTOMATION_GRAPH_EVENT, payload);
+    return () => { off = true; };
+  }));
+  {
     assert.deepEqual(await hostAutomationAdapter.read(attachment, new AbortController().signal), fixtureGraph());
-    assert.deepEqual(calls.pop(), { command: "automation_graph_snapshot", args: { workspaceId: attachment.workspace_id, teamId: attachment.team_id } });
+    assert.deepEqual(calls.pop(), { method: "GET", path: `/api/automation/graph?workspace_id=${attachment.workspace_id}&team_id=${attachment.team_id}`, body: undefined });
     await hostAutomationAdapter.read({ ...attachment, team_id: null }, new AbortController().signal);
-    assert.equal(calls.pop()?.args?.teamId, null);
+    assert(calls.pop()?.path.endsWith("&team_id="));
     await hostAutomationAdapter.read({ ...attachment, team_id: ALL_JOBS_SCOPE }, new AbortController().signal);
-    assert.deepEqual(calls.pop(), { command: "automation_graph_workspace_snapshot", args: { workspaceId: attachment.workspace_id } });
+    assert.deepEqual(calls.pop(), { method: "GET", path: `/api/automation/graph/workspace?workspace_id=${attachment.workspace_id}`, body: undefined });
     console.log("✓ snapshots use exact Team scopes or one bounded workspace-wide read");
 
-    let event!: (payload: AutomationScope & { revision: string }) => void;
-    let off = false;
-    __setListenForTest(async <T,>(name: string, handler: (input: { payload: T }) => void) => {
-      assert.equal(name, AUTOMATION_GRAPH_EVENT);
-      event = (payload) => handler({ payload: payload as T });
-      return () => { off = true; };
-    });
     let changed = 0;
     const unsubscribe = await hostAutomationAdapter.subscribe(attachment, () => { changed++; });
     event({ ...attachment, team_id: "other", revision: "foreign" });
@@ -43,23 +43,23 @@ async function main() {
     console.log("✓ committed-change subscription filters exact scopes or any Team in the workspace");
 
     await hostAutomationAdapter.stop(attachment, sentinelIdentity);
-    assert.deepEqual(calls.pop(), { command: "automation_graph_stop_blueprint", args: { workspaceId: attachment.workspace_id, teamId: attachment.team_id, id: sentinelIdentity.id } });
+    assert.deepEqual(calls.pop(), { method: "POST", path: `/api/automation/blueprints/${sentinelIdentity.id}/stop`, body: { workspace_id: attachment.workspace_id, team_id: attachment.team_id, caller_tab_id: undefined, session_binding_nonce: undefined } });
     await hostAutomationAdapter.delete({ ...attachment, team_id: ALL_JOBS_SCOPE }, { ...sentinelIdentity, team_id: "team-b" });
-    assert.deepEqual(calls.pop(), { command: "automation_graph_delete_blueprint", args: { workspaceId: attachment.workspace_id, teamId: "team-b", id: sentinelIdentity.id } });
+    assert.deepEqual(calls.pop(), { method: "DELETE", path: `/api/automation/blueprints/${sentinelIdentity.id}`, body: { workspace_id: attachment.workspace_id, team_id: "team-b" } });
     await assert.rejects(hostAutomationAdapter.delete(attachment, { ...sentinelIdentity, team_id: "other" }));
     await assert.rejects(hostAutomationAdapter.stop(attachment, { ...sentinelIdentity, team_id: "other" }));
     assert.equal(calls.length, 0);
     console.log("✓ stop and delete retain identity Team scope without creator or nonce impersonation");
 
     const held = deferred<AutomationGraph>();
-    __setInvokeForTest(async <T,>() => held.promise as Promise<T>);
+    configureOrchestrationTransport(orchestrationTestClient(async <T,>() => held.promise as Promise<T>));
     const controller = new AbortController();
     const pending = hostAutomationAdapter.read(attachment, controller.signal);
     controller.abort();
     held.resolve(fixtureGraph());
     await assert.rejects(pending);
-    console.log("✓ aborted attachment rejects a late invoke snapshot");
+    console.log("✓ aborted attachment rejects a late HTTP snapshot");
     console.log("5 hostAutomationAdapter cases passed");
-  } finally { __setInvokeForTest(null); __setListenForTest(null); }
+  }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

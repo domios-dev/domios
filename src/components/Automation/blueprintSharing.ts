@@ -1,4 +1,4 @@
-import { invoke } from "../../lib/bridge";
+import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 
 export interface BlueprintRecipe {
   schema_version: number;
@@ -25,8 +25,8 @@ export interface BlueprintSharingApi {
 }
 
 export const blueprintSharingApi: BlueprintSharingApi = {
-  export: (workspaceId, teamId, id) => invoke("blueprint_export_file", { workspaceId, teamId, id }),
-  import: (callerTabId, recipe, assignments) => invoke("blueprint_import_file", { callerTabId, recipe, assignments }),
+  export: (workspaceId, teamId, id) => orchestrationTransport().blueprint_export_file({ workspaceId, teamId, id }) as Promise<BlueprintRecipe>,
+  import: (callerTabId, recipe, assignments) => orchestrationTransport().blueprint_import_file({ callerTabId, recipe, assignments }),
   save: (recipe) => {
     const link = document.createElement("a");
     const source = recipe.definition.create ?? recipe.definition.spec;
