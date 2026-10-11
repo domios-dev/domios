@@ -296,6 +296,14 @@ impl ServiceContext {
                 tab_id: snap.tab_id.clone(),
             }
         };
+        let _input =
+            crate::service::pty_io::submit_transaction::reserve_command_input(&snap.pty_id)
+                .map_err(|reason| ModelSwitchError::InputNotReady(reason.into()))?;
+        log::debug!(
+            "[agent-model] reserved command input tab={} pty={}",
+            snap.tab_id,
+            snap.pty_id
+        );
         let commands = self
             .agent_registry
             .with_provider(&snap.provider, |provider| provider.model_switch_commands())
@@ -642,7 +650,8 @@ impl ServiceContext {
                 ready
             },
             || {
-                let _claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+                let _claim =
+                    crate::service::pty_io::submit_transaction::claim_command_submit_cycle(pty_id);
                 let (session, permit, input) = {
                     let mux = self.mux.read();
                     if !mux

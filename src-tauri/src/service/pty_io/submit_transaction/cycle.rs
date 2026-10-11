@@ -255,6 +255,7 @@ fn submit_cycles() -> &'static Mutex<HashMap<String, Weak<SubmitCycle>>> {
 }
 
 struct ClaimLease {
+    _input: Option<super::input_reservation::InputReservation>,
     pty_id: String,
     cycle: Arc<SubmitCycle>,
     generation: u64,
@@ -300,14 +301,30 @@ impl SubmitCycleClaim {
 }
 
 pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
-    claim_cycle(pty_id, None)
+    claim_cycle(
+        pty_id,
+        None,
+        Some(super::input_reservation::reserve_send_input(pty_id)),
+    )
 }
 
 pub(crate) fn claim_exit_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
-    claim_cycle(pty_id, Some(Arc::new(AtomicBool::new(false))))
+    claim_cycle(
+        pty_id,
+        Some(Arc::new(AtomicBool::new(false))),
+        Some(super::input_reservation::reserve_send_input(pty_id)),
+    )
 }
 
-fn claim_cycle(pty_id: &str, provider_exit: Option<Arc<AtomicBool>>) -> SubmitCycleClaim {
+pub(crate) fn claim_command_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
+    claim_cycle(pty_id, None, None)
+}
+
+fn claim_cycle(
+    pty_id: &str,
+    provider_exit: Option<Arc<AtomicBool>>,
+    input: Option<super::input_reservation::InputReservation>,
+) -> SubmitCycleClaim {
     let cycle = {
         let mut cycles = submit_cycles().lock();
         if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
@@ -330,6 +347,7 @@ fn claim_cycle(pty_id: &str, provider_exit: Option<Arc<AtomicBool>>) -> SubmitCy
         cycle: Arc::clone(&cycle),
         generation,
         _lease: Arc::new(ClaimLease {
+            _input: input,
             pty_id: pty_id.to_string(),
             cycle,
             generation,
