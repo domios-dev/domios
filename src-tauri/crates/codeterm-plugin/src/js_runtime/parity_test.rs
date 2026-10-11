@@ -27,6 +27,8 @@ mod control_keys;
 mod decision_model;
 #[path = "parity_test/delivery_modal.rs"]
 mod delivery_modal;
+#[path = "parity_test/folder_trust_record.rs"]
+mod folder_trust_record;
 #[path = "parity_test/model_catalogue.rs"]
 mod model_catalogue;
 #[path = "parity_test/model_providers.rs"]
