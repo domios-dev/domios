@@ -118,7 +118,7 @@ console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acte
 }
 
 console.log("\n--- positive: structural pending prompt and active terminal choice surface once ---\n");
-for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt"]) {
+for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt", "reasoning-submenu-0.160.0.txt"]) {
   const r = classify(plugin, fixture(f));
   eq(r?.state, "clarifying_question", `${f}: state is clarifying_question`);
   assertSingleInputSurface(r, "clarifying_question", f);
@@ -127,6 +127,16 @@ for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt"])
   const candidate = classify(plugin, fixture("recovery-dialog-lookalike.txt"));
   eq(candidate?.state, "clarifying_question", "composer lookalike is a screen-only modal candidate");
   assertSingleInputSurface(candidate, "clarifying_question", "composer lookalike candidate");
+}
+
+{
+  const screen = fixture("reasoning-submenu-0.160.0.txt");
+  const renamed = screen.replace(/Select Reasoning Level[^\n]*/, "Opaque menu")
+    .replace(/enter default · s session · esc back/, "enter accept · x scope · esc dismiss");
+  eq(classify(plugin, renamed)?.state, "clarifying_question", "keyboard legend survives rewritten menu copy");
+  assertNoInputRequest(classify(plugin, fixture("echoed-numbered-message.txt")), "echoed numbered message");
+  assertNoInputRequest(classify(plugin, `${screen}\n› ready composer`), "stale submenu before composer");
+  assertNoInputRequest(classify(plugin, screen.replace("› 2.", "  2.")), "submenu without active selection");
 }
 
 console.log("\n--- stale auth prose at ready or streaming tail is neither Question nor Auth ---\n");
