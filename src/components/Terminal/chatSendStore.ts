@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { ChatSend, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, deliveryState, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, reconcileDeliverySnapshot, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 
@@ -110,9 +110,8 @@ export function failChatSendRequest(tabId: string, id: string): void {
 export function reconcileDeliveryStatuses(tabId: string, statuses: readonly ChatSendStatus[]): void {
   for (const status of statuses) observeDeliveryStatus(status);
   const current = readChatSends(tabId);
-  const missing = current.some((send) => send.status?.state === "failed" && !statuses.some((status) => status.send_id === send.status?.send_id));
-  if (missing) publish(tabId, current.map((send) => send.status?.state === "failed" && !statuses.some((status) => status.send_id === send.status?.send_id)
-    ? { ...send, status: undefined } : send));
+  const next = current.map((send) => reconcileDeliverySnapshot(send, statuses));
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
 export function beginChatSendRetry(tabId: string, id: string): DeliverySend | undefined {

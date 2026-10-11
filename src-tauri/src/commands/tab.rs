@@ -967,12 +967,9 @@ pub async fn chat_send_status(
     let svc = svc.inner().clone();
     // Ledger read doubles as the closed-chat reconciliation point: scan each
     // unconfirmed send's own session append window before reporting state.
-    tokio::task::spawn_blocking(move || {
-        svc.reconcile_chat_send_evidence(&tab_id);
-        svc.chat_send_ledger.reconcile(&tab_id)
-    })
-    .await
-    .map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || svc.reconcile_user_send_statuses(&tab_id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// P1: open a non-PTY chatBackend tab driven by `plugin_id` (a plugin declaring

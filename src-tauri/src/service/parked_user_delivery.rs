@@ -47,6 +47,7 @@ pub(crate) enum UserDrain {
 
 type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
 
+mod continuity;
 mod owner_wake;
 use owner_wake::OwnerWakeBoundary;
 
@@ -295,7 +296,13 @@ impl super::ServiceContext {
         let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
         let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
         let in_flight_prelaunch = prelaunch_authority_matches_current_launch(tab, authority);
-        prelaunch_authority_matches_failed_launch(tab, authority)
+        let session_changed =
+            super::pending_delivery_payloads::user_sends::continuity::known_session_changed(
+                authority.observed_session_id.as_deref(),
+                tab.agent_session_id.as_deref(),
+            );
+        session_changed
+            || prelaunch_authority_matches_failed_launch(tab, authority)
             || (!in_flight_prelaunch
                 && (!same_pty
                     || tab.session_binding_nonce.as_deref()
@@ -664,6 +671,13 @@ impl super::ServiceContext {
             let Some(mut head) = store.queued(tab_id)?.into_iter().next() else {
                 return Ok(UserDrain::Idle);
             };
+            self.chat_send_ledger.restore_user_record(&head);
+            if let Some(carried) = self.carry_held_user_send(&head)? {
+                head = carried;
+            }
+            if self.held_user_identity_is_unresolved(&head) {
+                return Ok(self.pending_user_send(&head, "held_launch_identity_pending"));
+            }
             if let Some(rebound) = self.advance_prelaunch_user_authority(&head)? {
                 head = rebound;
             }
