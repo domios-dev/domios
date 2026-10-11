@@ -32,6 +32,45 @@ Each pattern names the source, buckets and handlers; put silent buckets as `[]` 
 `codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints the handlers JSON and create
 command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph.
 
+Creation proves admission only. Execute the read-only probe once, check exit status and raw output, then verify
+the first actual execution and recognized bucket with `blueprint show`. Match LF/CRLF deliberately. Inspect retained
+transitions and handler results when a route fires; empty Runs alone is not evidence of a broken probe or UI.
+
+<!-- blueprint-recipe:github-ci-watch -->
+### github-ci-watch
+
+**Purpose:** Watch one exact GitHub Actions run and notify on a successful or unsuccessful completed result.
+
+```json
+{"waiting":[],"passed":[{"type":"notify","parameters":{}}],"failed":[{"type":"notify","parameters":{}}]}
+```
+
+```bash
+codeterm blueprint create --name github-ci-result --probe 'gh run view <RUN_ID> --repo <OWNER/REPO> --json status,conclusion --jq "if .status != \"completed\" then \"waiting\" elif .conclusion == \"success\" then \"passed\" else \"failed\" end"' --question 'waiting means the exact run is incomplete; passed means completed success; failed means completed unsuccessful; other means a probe error' --buckets waiting,passed,failed --match 'waiting=^\s*waiting\s*$' --match 'passed=^\s*passed\s*$' --match 'failed=^\s*failed\s*$' --until passed --handlers-file handlers.json --timeout 2h --dry-run
+```
+<!-- /blueprint-recipe -->
+
+Use the run id for the intended PR head or release tag, never the newest global run. Verify all required PR checks
+before merging. A green release workflow is build evidence; verify published assets separately. On failure, inspect
+the failed job and stop the graph. Authentication or transport errors are probe errors, never build verdicts.
+
+<!-- blueprint-recipe:github-publication-watch -->
+### github-publication-watch
+
+**Purpose:** Watch publication of one exact GitHub release tag and notify when its required assets are present.
+
+```json
+{"waiting":[],"published":[{"type":"notify","parameters":{}}]}
+```
+
+```bash
+codeterm blueprint create --name github-release-publication --probe 'gh release view <TAG> --repo <OWNER/REPO> --json tagName,isDraft,assets --jq "if .isDraft or ([.assets[].name] | index(\"<ARCHIVE_NAME>\")) == null or ([.assets[].name] | index(\"<CHECKSUM_NAME>\")) == null then \"waiting\" else \"published\" end"' --question 'waiting means draft or required assets absent; published means the exact release is public with both assets; other means missing release or probe error' --buckets waiting,published --match 'waiting=^\s*waiting\s*$' --match 'published=^\s*published\s*$' --until published --handlers-file handlers.json --timeout 2h --dry-run
+```
+<!-- /blueprint-recipe -->
+
+Fill in the exact archive and checksum names. A missing release stays unclassified; diagnose gh errors explicitly.
+Asset presence does not prove correct bytes: download and verify the checksum before declaring publication complete.
+
 <!-- blueprint-recipe:team-watch -->
 ### team-watch
 
@@ -236,4 +275,4 @@ codeterm blueprint stop <INPUT_GRAPH_ID>
 codeterm blueprint stop <OUTPUT_GRAPH_ID>
 ```
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
