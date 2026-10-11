@@ -6,6 +6,62 @@ const MAX_COLLECTION_DEPTH: usize = 32;
 const DEVICE_ID_PREFIX: &str = "macos-hid-v1:";
 const COLLECTION_ID_PREFIX: &str = "macos-hid-collection-v1:";
 
+pub(crate) trait RunLoopResourceOps: Send {
+    fn stop_and_wake(&mut self);
+    fn release(&mut self);
+}
+
+pub(crate) struct RunLoopHandle {
+    operations: Option<Box<dyn RunLoopResourceOps>>,
+    stop_requested: bool,
+}
+
+impl RunLoopHandle {
+    pub(crate) fn new(operations: impl RunLoopResourceOps + 'static) -> Self {
+        Self {
+            operations: Some(Box::new(operations)),
+            stop_requested: false,
+        }
+    }
+
+    pub(crate) fn stop(&mut self) {
+        if self.stop_requested {
+            return;
+        }
+        self.stop_requested = true;
+        if let Some(operations) = self.operations.as_mut() {
+            operations.stop_and_wake();
+        }
+    }
+}
+
+pub(crate) fn send_ready_run_loop(
+    sender: std::sync::mpsc::SyncSender<Result<RunLoopHandle, String>>,
+    run_loop: RunLoopHandle,
+) {
+    if let Err(error) = sender.send(Ok(run_loop)) {
+        drop(error.0);
+    }
+}
+
+pub(crate) fn abandon_ready_run_loop(
+    sender: std::sync::mpsc::SyncSender<Result<RunLoopHandle, String>>,
+    reason: &'static str,
+    run_loop: Option<RunLoopHandle>,
+) {
+    let _ = sender.send(Err(reason.into()));
+    drop(run_loop);
+}
+
+impl Drop for RunLoopHandle {
+    fn drop(&mut self) {
+        self.stop();
+        if let Some(mut operations) = self.operations.take() {
+            operations.release();
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MacInputEvent {
     Press {

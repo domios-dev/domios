@@ -1,7 +1,8 @@
 use super::{
-    access_failure_reason, approve_descriptor, native_error, setup_validation_error, AccessCheck,
-    DeviceIdentity, ElementDescriptor, ElementKind, InputDecoder, MacInputEvent, MacSelection,
-    MacUnavailableReason, MAX_COLLECTION_DEPTH, MAX_DESCRIPTOR_ELEMENTS,
+    abandon_ready_run_loop, access_failure_reason, approve_descriptor, native_error,
+    send_ready_run_loop, setup_validation_error, AccessCheck, DeviceIdentity, ElementDescriptor,
+    ElementKind, InputDecoder, MacInputEvent, MacSelection, MacUnavailableReason, RunLoopHandle,
+    RunLoopResourceOps, MAX_COLLECTION_DEPTH, MAX_DESCRIPTOR_ELEMENTS,
 };
 use std::ffi::{c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -203,26 +204,34 @@ impl MacTeardown {
     }
 }
 
-struct RunLoopHandle(CFRunLoopRef);
-unsafe impl Send for RunLoopHandle {}
-impl RunLoopHandle {
-    fn stop(&self) {
-        unsafe {
-            CFRunLoopStop(self.0);
-            CFRunLoopWakeUp(self.0);
-        }
+struct CoreFoundationRunLoop {
+    run_loop: CFRunLoopRef,
+    stop_requested: Arc<AtomicBool>,
+}
+unsafe impl Send for CoreFoundationRunLoop {}
+
+impl RunLoopResourceOps for CoreFoundationRunLoop {
+    fn stop_and_wake(&mut self) {
+        request_run_loop_stop(self.run_loop, &self.stop_requested);
+    }
+
+    fn release(&mut self) {
+        unsafe { CFRelease(self.run_loop) };
     }
 }
 
-impl Drop for RunLoopHandle {
-    fn drop(&mut self) {
-        unsafe { CFRelease(self.0) };
+fn request_run_loop_stop(run_loop: CFRunLoopRef, stop_requested: &AtomicBool) {
+    if !stop_requested.swap(true, Ordering::AcqRel) {
+        unsafe {
+            CFRunLoopStop(run_loop);
+            CFRunLoopWakeUp(run_loop);
+        }
     }
 }
 impl MacInputSubscription {
     pub(crate) fn request_stop(&mut self) -> Option<MacTeardown> {
         self.active.store(false, Ordering::Release);
-        if let Some(run_loop) = &self.run_loop {
+        if let Some(run_loop) = self.run_loop.as_mut() {
             run_loop.stop();
         }
         self.completion.take().map(|completion| MacTeardown {
@@ -236,7 +245,7 @@ impl Drop for MacInputSubscription {
     fn drop(&mut self) {
         if self.completion.is_some() {
             self.active.store(false, Ordering::Release);
-            if let Some(run_loop) = &self.run_loop {
+            if let Some(run_loop) = self.run_loop.as_mut() {
                 run_loop.stop();
             }
             self.completion.take();
@@ -251,13 +260,14 @@ struct NativeState {
     active: Arc<AtomicBool>,
     decoder: Option<InputDecoder>,
     run_loop: CFRunLoopRef,
+    run_loop_stop: Arc<AtomicBool>,
     selected_device: IOHIDDeviceRef,
     requires_input_monitoring: bool,
 }
 
 struct RunLoopStart {
-    ready: Option<SyncSender<Result<usize, String>>>,
-    run_loop: CFRunLoopRef,
+    ready: Option<SyncSender<Result<RunLoopHandle, String>>>,
+    run_loop: Option<RunLoopHandle>,
     active: Arc<AtomicBool>,
 }
 unsafe extern "C" fn run_loop_started(
@@ -270,16 +280,11 @@ unsafe extern "C" fn run_loop_started(
         return;
     };
     if !start.active.load(Ordering::Acquire) {
-        let _ = ready.send(Err("macos_input_setup_cancelled".into()));
-        CFRunLoopStop(start.run_loop);
-        CFRunLoopWakeUp(start.run_loop);
-        CFRelease(start.run_loop);
+        abandon_ready_run_loop(ready, "macos_input_setup_cancelled", start.run_loop.take());
         return;
     }
-    if ready.send(Ok(start.run_loop as usize)).is_err() {
-        CFRunLoopStop(start.run_loop);
-        CFRunLoopWakeUp(start.run_loop);
-        CFRelease(start.run_loop);
+    if let Some(run_loop) = start.run_loop.take() {
+        send_ready_run_loop(ready, run_loop);
     }
 }
 
@@ -296,10 +301,7 @@ impl NativeState {
                 });
             (self.callback)(event);
         }
-        unsafe {
-            CFRunLoopStop(self.run_loop);
-            CFRunLoopWakeUp(self.run_loop);
-        }
+        request_run_loop_stop(self.run_loop, &self.run_loop_stop);
     }
     fn input_active(&self) -> bool {
         self.active.load(Ordering::Acquire)
@@ -347,7 +349,7 @@ fn fail_setup(
     context: *mut c_void,
     error: String,
     reason: MacUnavailableReason,
-    ready: SyncSender<Result<usize, String>>,
+    ready: SyncSender<Result<RunLoopHandle, String>>,
     done: SyncSender<Result<(), String>>,
 ) {
     state.emit_unavailable(reason);
@@ -426,7 +428,7 @@ pub(crate) fn subscribe(
     };
     Ok(MacInputSubscription {
         active,
-        run_loop: Some(RunLoopHandle(run_loop as CFRunLoopRef)),
+        run_loop: Some(run_loop),
         completion: Some(done_rx),
     })
 }
@@ -436,7 +438,7 @@ fn run_session(
     generation: u64,
     callback: Arc<dyn Fn(MacInputEvent) + Send + Sync>,
     active: Arc<AtomicBool>,
-    ready: SyncSender<Result<usize, String>>,
+    ready: SyncSender<Result<RunLoopHandle, String>>,
     done: SyncSender<Result<(), String>>,
 ) {
     let run_loop = unsafe { CFRunLoopGetCurrent() };
@@ -474,6 +476,7 @@ fn run_session(
         active,
         decoder: None,
         run_loop,
+        run_loop_stop: Arc::new(AtomicBool::new(false)),
         selected_device: std::ptr::null_mut(),
         requires_input_monitoring: false,
     });
@@ -508,7 +511,10 @@ fn run_session(
     }
     let mut start = RunLoopStart {
         ready: Some(ready),
-        run_loop: retained_run_loop,
+        run_loop: Some(RunLoopHandle::new(CoreFoundationRunLoop {
+            run_loop: retained_run_loop,
+            stop_requested: state.run_loop_stop.clone(),
+        })),
         active: state.active.clone(),
     };
     let observer_context =
@@ -525,7 +531,7 @@ fn run_session(
     };
     if observer.is_null() {
         let ready = start.ready.take().unwrap();
-        unsafe { CFRelease(retained_run_loop) };
+        drop(start.run_loop.take());
         return fail_setup(
             state,
             resources,
@@ -542,6 +548,13 @@ fn run_session(
     unsafe {
         CFRunLoopObserverInvalidate(observer);
         CFRelease(observer);
+    }
+    if let Some(ready) = start.ready.take() {
+        abandon_ready_run_loop(
+            ready,
+            "macos_input_start_unacknowledged",
+            start.run_loop.take(),
+        );
     }
     if state.input_active() {
         state.emit_unavailable(MacUnavailableReason::Error);
