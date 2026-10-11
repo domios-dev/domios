@@ -28,7 +28,8 @@ fn parity_project_write_grant_is_the_native_and_js_ceiling() {
         let vm = PluginVm::from_source_sandboxed(
             "project-files",
             r#"module.exports.default = {
-            write(path) { return host.writeFileAtomic(path, 'fixture'); }
+            write(path) { return host.writeFileAtomic(path, 'fixture'); },
+            allowed(root) { return host.projectWriteAllowed(root); }
         };"#
             .into(),
             None,
@@ -36,6 +37,8 @@ fn parity_project_write_grant_is_the_native_and_js_ceiling() {
         )
         .unwrap();
         let js: bool = call_json(&vm, "write", &[serde_json::json!(file)]).unwrap();
+        let js_allowed: bool = call_json(&vm, "allowed", &[serde_json::json!(project)]).unwrap();
+        assert_eq!(js_allowed, approved);
         assert_eq!(js, native);
         assert_eq!(file.exists(), approved);
     }
@@ -48,11 +51,12 @@ fn project_files_refuse_symlink_escape_even_with_missing_parents() {
     let outside = tempfile::tempdir().unwrap();
     std::os::unix::fs::symlink(outside.path(), root.path().join("escape")).unwrap();
     let project = root.path().canonicalize().unwrap();
-    let sb = PluginSandbox::restricted(Vec::new(), Vec::new()).with_project_roots(
-        vec![project.clone()],
-        vec![project],
-        root.path().join("grants.yaml"),
-    );
+    let sb = PluginSandbox::restricted(Vec::new(), vec![outside.path().canonicalize().unwrap()])
+        .with_project_roots(
+            vec![project.clone()],
+            vec![project],
+            root.path().join("grants.yaml"),
+        );
     assert!(!sb.can_write(root.path().join("escape/missing/file").to_str().unwrap()));
     assert!(!sb.can_read(root.path().join("escape/missing/file").to_str().unwrap()));
 }

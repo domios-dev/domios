@@ -136,6 +136,14 @@ pub enum StepKind {
         from: MediaKind,
         to: MediaKind,
     },
+    Agent {
+        provider: String,
+        profile: String,
+        task: String,
+        deadline_ms: u64,
+        max_tokens: u32,
+        max_turns: u16,
+    },
 }
 
 impl StepKind {
@@ -147,6 +155,7 @@ impl StepKind {
             Self::Ask { .. } => 1,
             Self::Filter { .. } => 2,
             Self::Convert { .. } => 3,
+            Self::Agent { .. } => 4,
         }]
         .name
     }
@@ -154,13 +163,15 @@ impl StepKind {
     pub fn output_type(&self) -> IoType {
         match self {
             Self::Convert { to, .. } => IoType::from(*to),
-            Self::Command { .. } | Self::Ask { .. } | Self::Filter { .. } => IoType::Text,
+            Self::Command { .. } | Self::Ask { .. } | Self::Filter { .. } | Self::Agent { .. } => {
+                IoType::Text
+            }
         }
     }
 
     pub fn outcomes(&self) -> Result<BTreeSet<String>, String> {
         match self {
-            Self::Command { .. } | Self::Convert { .. } => {
+            Self::Command { .. } | Self::Convert { .. } | Self::Agent { .. } => {
                 Ok(["done".into(), "failed".into()].into())
             }
             Self::Ask { buckets, .. } => {
@@ -299,6 +310,32 @@ pub fn validate(
             );
         }
         match &step.kind {
+            StepKind::Agent {
+                provider,
+                profile,
+                task,
+                deadline_ms,
+                max_tokens,
+                max_turns,
+            } => {
+                if provider.is_empty()
+                    || provider.len() > 128
+                    || profile.is_empty()
+                    || profile.len() > 128
+                    || task.is_empty()
+                    || task.len() > 32768
+                    || task.contains('\0')
+                    || *deadline_ms == 0
+                    || *deadline_ms > 3_600_000
+                    || *max_tokens == 0
+                    || *max_tokens > 1_000_000
+                    || *max_turns == 0
+                    || *max_turns > 100
+                    || step.input != IoType::Text
+                {
+                    error(&mut errors, &format!("{field}.agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
+                }
+            }
             StepKind::Command { command }
                 if command.trim().is_empty() || command.len() > MAX_COMMAND_BYTES =>
             {
@@ -741,7 +778,7 @@ impl StepJournalEntry {
         }
         if !matches!(
             self.step_kind.as_str(),
-            "command" | "convert" | "ask" | "filter"
+            "command" | "convert" | "ask" | "filter" | "agent"
         ) {
             return Err("step_kind is not declared".into());
         }
@@ -773,6 +810,35 @@ impl StepJournalEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blueprint_agent_step_is_bounded_and_routes_done_or_failed() {
+        let agent = StepKind::Agent {
+            provider: "fixture".into(),
+            profile: "reader".into(),
+            task: "opaque".into(),
+            deadline_ms: 1000,
+            max_tokens: 1000,
+            max_turns: 2,
+        };
+        assert_eq!(agent.name(), "agent");
+        assert_eq!(agent.output_type(), IoType::Text);
+        assert_eq!(
+            agent.outcomes().unwrap(),
+            BTreeSet::from(["done".into(), "failed".into()])
+        );
+        assert!(serde_json::from_value::<StepKind>(serde_json::json!({"kind":"agent","provider":"fixture","profile":"reader","task":"opaque","deadline_ms":1000,"max_tokens":1000,"max_turns":2,"unknown":true})).is_err());
+        let mut step = command("bounded", IoType::Text);
+        step.kind = agent;
+        assert!(validate(&spec(vec![step.clone()]), &[]).is_ok());
+        if let StepKind::Agent { max_turns, .. } = &mut step.kind {
+            *max_turns = 0;
+        }
+        assert!(validate(&spec(vec![step]), &[])
+            .unwrap_err()
+            .iter()
+            .any(|e| e.field == "steps[0].agent"));
+    }
     use crate::sentinel_input::DataRef;
 
     fn command(name: &str, input: IoType) -> Step {

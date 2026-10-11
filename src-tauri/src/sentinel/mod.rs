@@ -1,4 +1,5 @@
 pub(crate) mod actions;
+mod agent_stage;
 pub(crate) mod amend;
 pub(crate) mod classify;
 pub(crate) mod command;
