@@ -12,10 +12,6 @@ fn should_latch_user_input(
     lazy_session && evidence == LaunchInputEvidence::ProviderComposer && current_launch && plain
 }
 
-pub(super) fn requires_initial_composer(lazy_input: bool, resume_session_id: Option<&str>) -> bool {
-    lazy_input && resume_session_id.is_none()
-}
-
 pub(super) fn requires_composer(svc: &ServiceContext, provider: &str, tab: &str) -> bool {
     svc.agent_registry
         .with_provider(provider, |provider| {
@@ -63,13 +59,6 @@ pub(super) fn observe(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn resumed_lazy_session_uses_authenticated_binding_instead_of_initial_composer() {
-        assert!(!requires_initial_composer(true, Some("saved-session")));
-        assert!(requires_initial_composer(true, None));
-        assert!(!requires_initial_composer(false, None));
-    }
 
     #[test]
     fn parked_user_delivery_lazy_first_input_waits_for_provider_composer() {
