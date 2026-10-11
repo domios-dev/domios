@@ -43,6 +43,7 @@ enum DiagnosticStage {
     ScriptError,
     PromiseError,
     RequestFailed,
+    ChatScroll,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +76,7 @@ enum BootFailureReason {
 struct BootDiagnostic {
     stage: DiagnosticStage,
     request: Option<RequestFailure>,
+    chat: Option<Value>,
     error_name: Option<DiagnosticError>,
     reason: Option<BootFailureReason>,
     http_status: Option<u16>,
@@ -118,6 +120,16 @@ async fn diagnostic(
             StatusCode::CONFLICT,
             "Frontend diagnostics require a debug build".into(),
         ));
+    }
+    if let Some(chat) = &body.chat {
+        let encoded = chat.to_string();
+        if encoded.len() > 4096 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Chat diagnostic exceeds metadata limit".into(),
+            ));
+        }
+        log::debug!("[chat-scroll] {encoded}");
     }
     if let Some(request) = &body.request {
         log::debug!(
