@@ -17,60 +17,123 @@ pub(super) fn load_sqlite_fixture_js(id: &str) -> JsProvider {
 
 #[test]
 fn opencode_declared_sqlite_version_resumes_exact_session_with_history() {
+    for (version, fixture, count) in [
+        (
+            "1.18.35",
+            include_str!(
+                "../../../../../../plugins/provider-opencode/tests/fixtures/sqlite-1.18.35.sql"
+            ),
+            2,
+        ),
+        (
+            "1.19.0",
+            include_str!(
+                "../../../../../../plugins/provider-opencode/tests/fixtures/sqlite-1.19.0.sql"
+            ),
+            3,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("opencode.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(fixture).unwrap();
+        drop(conn);
+        let _env = EnvGuard::new(&[("OPENCODE_DB", db.to_str().unwrap())]);
+        let provider =
+            super::super::provider_observation::with_fixture_version(Some(version), || {
+                load_js("opencode")
+            });
+        assert_eq!(
+            provider
+                .cli_compatibility()
+                .unwrap()
+                .evaluate(Some(version))
+                .verdict,
+            crate::provider_compat::CompatibilityVerdict::Supported
+        );
+        assert_eq!(
+            provider.session_exists("/fixture", "ses_fixture_owned"),
+            Some(true)
+        );
+        assert_eq!(
+            provider.session_exists("/fixture", "ses_missing"),
+            Some(false)
+        );
+        assert!(provider
+            .build_resume_command("ses_fixture_owned", false)
+            .unwrap()
+            .contains("ses_fixture_owned"));
+        let chat = provider.read_structured_chat("/fixture", "ses_fixture_owned", None);
+        assert_eq!(chat.messages.len(), count);
+        assert!(chat
+            .messages
+            .iter()
+            .any(|message| message.kind == "user" && message.content == "opaque-user-turn"));
+        assert!(chat.messages.iter().any(
+            |message| message.kind == "assistant" && message.content == "opaque-assistant-turn"
+        ));
+        for version in [None, Some("2.0.0")] {
+            let blocked = super::super::provider_observation::with_fixture_version(version, || {
+                load_js("opencode")
+            });
+            assert_eq!(
+                blocked.session_exists("/fixture", "ses_fixture_owned"),
+                None
+            );
+            assert!(blocked
+                .read_structured_chat("/fixture", "ses_fixture_owned", None)
+                .messages
+                .is_empty());
+        }
+        for version in ["1.18.36", "1.20.0", "3.0.0"] {
+            let unverified =
+                super::super::provider_observation::with_fixture_version(Some(version), || {
+                    load_js("opencode")
+                });
+            assert_eq!(
+                unverified
+                    .cli_compatibility()
+                    .unwrap()
+                    .evaluate(Some(version))
+                    .verdict,
+                crate::provider_compat::CompatibilityVerdict::Unknown
+            );
+            assert_eq!(
+                unverified.session_exists("/fixture", "ses_fixture_owned"),
+                Some(true)
+            );
+            assert_eq!(
+                unverified
+                    .read_structured_chat("/fixture", "ses_fixture_owned", None)
+                    .messages,
+                chat.messages
+            );
+        }
+    }
+}
+
+#[test]
+fn opencode_unverified_sqlite_changed_shape_returns_unknown() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute_batch(include_str!(
-        "../../../../../../plugins/provider-opencode/tests/fixtures/sqlite-1.18.35.sql"
-    ))
+    conn.execute_batch(
+        "CREATE TABLE session (replacement_id TEXT); CREATE TABLE part (replacement_data TEXT);",
+    )
     .unwrap();
     drop(conn);
     let _env = EnvGuard::new(&[("OPENCODE_DB", db.to_str().unwrap())]);
-    let provider =
-        super::super::provider_observation::with_fixture_version(Some("1.18.35"), || {
-            load_js("opencode")
-        });
+    let provider = super::super::provider_observation::with_fixture_version(Some("1.20.0"), || {
+        load_js("opencode")
+    });
     assert_eq!(
-        provider
-            .cli_compatibility()
-            .unwrap()
-            .evaluate(Some("1.18.35"))
-            .verdict,
-        crate::provider_compat::CompatibilityVerdict::Supported
+        provider.session_exists("/fixture", "ses_fixture_owned"),
+        None
     );
-    assert!(provider.session_exists("/fixture", "ses_fixture_owned") == Some(true));
-    assert_eq!(
-        provider.session_exists("/fixture", "ses_missing"),
-        Some(false)
-    );
-    let command = provider
-        .build_resume_command("ses_fixture_owned", false)
-        .unwrap();
-    assert!(command.contains("ses_fixture_owned"));
-    let chat = provider.read_structured_chat("/fixture", "ses_fixture_owned", None);
-    assert_eq!(
-        chat.messages
-            .iter()
-            .map(|message| (message.kind.as_str(), message.content.as_str()))
-            .collect::<Vec<_>>(),
-        vec![
-            ("user", "opaque-user-turn"),
-            ("assistant", "opaque-assistant-turn")
-        ]
-    );
-    for version in [None, Some("1.18.36"), Some("2.0.0")] {
-        let blocked = super::super::provider_observation::with_fixture_version(version, || {
-            load_js("opencode")
-        });
-        assert_eq!(
-            blocked.session_exists("/fixture", "ses_fixture_owned"),
-            None
-        );
-        assert!(blocked
-            .read_structured_chat("/fixture", "ses_fixture_owned", None)
-            .messages
-            .is_empty());
-    }
+    assert!(provider
+        .read_structured_chat("/fixture", "ses_fixture_owned", None)
+        .messages
+        .is_empty());
 }
 
 #[test]

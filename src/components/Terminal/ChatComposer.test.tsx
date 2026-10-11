@@ -79,3 +79,21 @@ test("late listener binding is released after disposal without fetching", async 
   assert.equal(stopped, 1);
   assert.equal(calls, 0);
 });
+
+test("wake discards stale stash immediately and converges to the daemon after missed delivery", async () => {
+  const next = deferred<DelayedMessage[]>();
+  const published: DelayedMessage[][] = [];
+  let calls = 0;
+  const feed = createDelayedMessageFeed("one", {
+    load: async () => ++calls === 1 ? [{ id: "fired", state: "queued" }] as DelayedMessage[] : next.promise,
+    publish: (messages) => published.push(messages),
+    subscribe: async () => () => {},
+  });
+  await feed.ready;
+  const wake = feed.wake();
+  assert.deepEqual(published[published.length - 1], []);
+  next.resolve([]);
+  await wake;
+  assert.deepEqual(published[published.length - 1], []);
+  feed.dispose();
+});

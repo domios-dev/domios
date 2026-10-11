@@ -71,6 +71,7 @@ mod tests {
                     buckets: vec!["waiting".into()],
                     every: "20s".into(),
                     routes: BTreeMap::new(),
+                    model_classification: false,
                     matches: BTreeMap::from([("waiting".into(), ".*".into())]),
                     rearm_on_change: BTreeSet::new(),
                     until: None,

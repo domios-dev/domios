@@ -356,49 +356,12 @@ pub async fn hook_permission(
 
             let parsed =
                 crate::agent::prompt::parse_prompt_safely(|| registry.parse_prompt(&at, &clean));
-            let tail = if parsed.is_none() && clean.len() > 100 {
-                Some(crate::agent::prompt::utf8_tail(&clean, 300).to_string())
-            } else {
-                None
-            };
-            let decision = state.svc.prompt_detector.lock().hook_detected_parsed(
+            state.svc.prompt_detector.lock().hook_detected_parsed(
                 &tab_id,
                 clean.len(),
-                tail.as_deref(),
+                None,
                 parsed,
-            );
-
-            if !matches!(decision, crate::agent::prompt::PromptDecision::None) {
-                decision
-            } else {
-                // raw buffer with ANSI stripped as a second source.
-                let raw = state
-                    .svc
-                    .output_buf
-                    .lock()
-                    .get_text(&pty_id)
-                    .unwrap_or_default();
-                if raw.is_empty() {
-                    decision
-                } else {
-                    let stripped = crate::pty::ansi::strip_ansi(&raw);
-                    let tail = crate::agent::prompt::utf8_tail(&stripped, 3000);
-                    log::debug!(
-                        "[hook_permission] fallback raw buffer len={}, tail_len={}",
-                        raw.len(),
-                        tail.len()
-                    );
-                    let parsed = crate::agent::prompt::parse_prompt_safely(|| {
-                        registry.parse_prompt(&at, tail)
-                    });
-                    state.svc.prompt_detector.lock().hook_detected_parsed(
-                        &tab_id,
-                        tail.len(),
-                        Some(crate::agent::prompt::utf8_tail(tail, 300)),
-                        parsed,
-                    )
-                }
-            }
+            )
         } else {
             crate::agent::prompt::PromptDecision::None
         }

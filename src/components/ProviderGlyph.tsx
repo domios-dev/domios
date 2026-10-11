@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
-import { useMemo } from "react";
+import { Bot } from "lucide-react";
+import { useProviderLogo } from "./useProviderLogo";
 
 interface Props {
   iconSvg?: string | null;
@@ -11,11 +12,13 @@ interface Props {
   working?: boolean;
 }
 
-/** Presentational provider glyph: inline SVG (or hint glyph fallback) at 1em,
- *  with the optional working-pulse animation. Source-agnostic — feed it icon
- *  fields from a ProviderDescriptor (agent) or the plugin snapshot (shell). */
-export function ProviderGlyph({ iconSvg, iconColor, iconHint, className, style, title, working }: Props) {
-  const html = useMemo(() => (iconSvg ? forceInlineSize(iconSvg) : null), [iconSvg]);
+export function ProviderGlyph(props: Props) {
+  return <ProviderGlyphContent key={props.iconSvg ?? ""} {...props} />;
+}
+
+function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, working }: Props) {
+  const { presentation, onLoad, onError } = useProviderLogo(iconSvg);
+  const html = iconSvg ? forceInlineSize(iconSvg) : null;
 
   const cls = ["agent-icon", working ? "agent-icon-working" : "", className]
     .filter(Boolean)
@@ -30,23 +33,34 @@ export function ProviderGlyph({ iconSvg, iconColor, iconHint, className, style, 
     ...style,
   };
 
-  if (!html) {
+  if (presentation === "logo" && html) {
     return (
-      <span className={cls} style={computedStyle} role="img" aria-label={title} title={title}>
-        {iconHint ?? ""}
-      </span>
+      <span
+        className={cls}
+        style={computedStyle}
+        role="img"
+        aria-label={title ?? "Agent logo"}
+        title={title}
+        onErrorCapture={onError}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     );
   }
 
+  const label = title ? `${title} default agent icon` : "Default agent icon";
   return (
-    <span
-      className={cls}
-      style={computedStyle}
-      role="img"
-      aria-label={title}
-      title={title}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <span className={cls} style={{ ...computedStyle, position: "relative" }} role="img" aria-label={label} title={title}>
+      <Bot size="1em" aria-hidden="true" />
+      {html && (
+        <span
+          aria-hidden="true"
+          style={{ position: "absolute", inset: 0, visibility: "hidden" }}
+          onLoadCapture={onLoad}
+          onErrorCapture={onError}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
+    </span>
   );
 }
 

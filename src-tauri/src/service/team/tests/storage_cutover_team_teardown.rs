@@ -121,6 +121,7 @@ fn team_storage_fixture() -> TeamStorageFixture {
                 timeout: Some("1h".into()),
                 paused: true,
                 handlers: None,
+                model_classification: false,
                 max_transitions: None,
                 max_actions: None,
                 escalation_timeout_ms: None,

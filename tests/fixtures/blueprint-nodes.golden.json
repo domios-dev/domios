@@ -75,6 +75,20 @@
       }
     },
     {
+      "params_schema": {
+        "provider": "agent-task capable provider id",
+        "profile": "profile id",
+        "task": "bounded instruction",
+        "deadline_ms": "1..3600000",
+        "max_tokens": "1..1000000",
+        "max_turns": "1..100"
+      },
+      "role": "agent",
+      "kind": "step",
+      "type": "agent",
+      "title": "Pipeline step: bounded agent task"
+    },
+    {
       "role": "action",
       "kind": "handler",
       "type": "notify",

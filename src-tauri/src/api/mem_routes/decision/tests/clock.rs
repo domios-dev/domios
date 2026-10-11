@@ -58,11 +58,10 @@ fn decision_fixture_clock_preserves_graph_and_fallback_after_persistence() {
         .iter()
         .rposition(|row| row["action"] == "verdict")
         .unwrap();
-    let ranked = rows
-        .iter()
-        .position(|row| row["action"] == "rerank")
-        .unwrap();
-    assert!(first_spend < first_verdict && last_verdict < ranked);
+    assert!(first_spend < first_verdict);
+    assert_eq!(first_verdict, last_verdict);
+    assert_eq!(rows.iter().filter(|row| row["kind"] == "rerank").count(), 1);
+    assert_eq!(rows[first_verdict]["question_count"], 7);
     assert_eq!(persistence_events.load(Ordering::SeqCst), rows.len());
     let request = params(2);
     for (reason, error) in [

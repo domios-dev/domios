@@ -1,3 +1,4 @@
+import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -9,6 +10,7 @@ import {
   ChatSessionIntentLine,
   isSessionIntentOnlyMessage,
   MessageBubble,
+  MessageTimeFrame,
   OutboundReportCard,
   sessionIntentFromMessages,
 } from "@codeterm/chat-ui";
@@ -60,13 +62,15 @@ import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
+import { useChatLayoutInsets } from "./useChatLayoutInsets";
+import { ChatHighlightBudgetProvider, ChatHighlightRow } from "@codeterm/chat-ui";
+import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
-import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
-import { agentMessageTimeIds } from "./chatMessageTimePlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -85,7 +89,7 @@ import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
 import { streamingMessageId } from "./streamingMessage";
-import { jumpToMessage } from "./jumpToMessage";
+import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 import { HelperMomentCard } from "./HelperMomentCard";
 import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
 import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
@@ -190,6 +194,7 @@ export function TabSessionChat({
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
+  const floatingBottomInset = useChatLayoutInsets(chatRootRef);
   const chatFollowTailRef = useRef(true);
 
   const { setFocusedTab, selectTabByTab, addNotification, answerNotification } = useMultiplexer();
@@ -241,6 +246,8 @@ export function TabSessionChat({
         : message,
       severity: "Error",
       level: "failure",
+      ephemeral: true,
+      lifetime_ms: CHAT_ERROR_TOAST_LIFETIME_MS,
     });
   }, [addNotification, tabId]);
 
@@ -253,6 +260,7 @@ export function TabSessionChat({
     allMessages,
     enrichedMessages,
     hiddenMessageCount,
+    newerMessageCount,
     canBackfillOlder,
     backfillLoading,
     loadOlder,
@@ -308,6 +316,16 @@ export function TabSessionChat({
     bootView: bootSetupView,
   });
 
+  const renderedEnrichedMessages = useMemo(
+    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    [enrichedMessages],
+  );
+  const sharedScrollRef = useRef<HTMLDivElement | null>(null);
+  const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
+    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}` });
+  const mountedContentVersion = useMemo(() => ({ enrichedMessages, start: mountedWindow.range.start,
+    end: mountedWindow.range.end, revision: mountedWindow.revision }),
+    [enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
   const {
     scrollRef,
     showScrollDown,
@@ -315,13 +333,16 @@ export function TabSessionChat({
     followSend: rawFollowSentMessage,
     prepareForHistoryPrepend,
     handleScroll,
+    handleContentLayout,
     revealMessage,
   } = useChatScroll({
+    scrollRef: sharedScrollRef,
+    onViewportChange: mountedWindow.syncViewport,
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,
     messageCount: enrichedMessages.length,
-    contentVersion: enrichedMessages,
+    contentVersion: mountedContentVersion,
     prependVersion: enrichedMessages[0]?.msg.id ?? null,
     followTailRef: chatFollowTailRef,
     onModeChange: (mode) => setHistoryReading(mode === "detached"),
@@ -329,15 +350,12 @@ export function TabSessionChat({
   useChatMessageReveal({
     tabId,
     ready: isActive && !chatChannelLoading,
-    contentVersion: enrichedMessages,
+    contentVersion: mountedContentVersion,
     revealMessage,
-    prepareMessage,
+    prepareMessage: (id) => mountedWindow.prepareMessage(id) || prepareMessage(id),
   });
 
-  // A detached reader stays on its content through a send; only a followed tail
-  // re-projects the bounded window and moves with it.
   const followSentMessage = useCallback(() => {
-    if (!chatFollowTailRef.current) return;
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
@@ -455,6 +473,7 @@ export function TabSessionChat({
   );
 
   const {
+    uploadStatus,
     attachments,
     addAttachments,
     removeAttachment,
@@ -532,13 +551,15 @@ export function TabSessionChat({
         role="article"
         aria-label={`Report to ${entry.descriptor.recipient}`}
       >
-        <OutboundReportCard
-          report={entry.descriptor}
-          onFocusTab={() => resolveFocusTab(entry.targetTabId)}
-          fontScale={uiFontScale}
-          onOpenPlan={onOpenPlan}
-          resolvePlanRef={resolvePlanRef}
-        />
+        <MessageTimeFrame timestamp={entry.at == null ? undefined : String(entry.at)} side="left">
+          <OutboundReportCard
+            report={entry.descriptor}
+            onFocusTab={() => resolveFocusTab(entry.targetTabId)}
+            fontScale={uiFontScale}
+            onOpenPlan={onOpenPlan}
+            resolvePlanRef={resolvePlanRef}
+          />
+        </MessageTimeFrame>
       </div>
     );
   };
@@ -546,26 +567,21 @@ export function TabSessionChat({
     const ask = asks[index];
     if (!ask) return null;
     return (
-      <ChatAskCard
-        key={ask.id}
-        notification={ask}
-        onAnswer={answerNotification}
-        resolveTabName={resolveTabName}
-        fontScale={uiFontScale}
-      />
+      <MessageTimeFrame key={ask.id} timestamp={String(ask.timestamp)} side="left">
+        <ChatAskCard
+          notification={ask}
+          onAnswer={answerNotification}
+          resolveTabName={resolveTabName}
+          fontScale={uiFontScale}
+        />
+      </MessageTimeFrame>
     );
   };
-  const renderedEnrichedMessages = useMemo(
-    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
-    [enrichedMessages],
-  );
+
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
-  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId });
-  const jumpToQuoted = useCallback((messageId: string) => { jumpToMessage(scrollRef.current, messageId); }, [scrollRef]);
-  const agentTimeMessageIds = useMemo(
-    () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
-    [renderedEnrichedMessages],
-  );
+  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
+  const jumpToQuoted = useCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
+
   const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
   // does: a body that still owns a loading or failed state emits no rail rows.
@@ -740,6 +756,7 @@ export function TabSessionChat({
     && !inlinePrompt;
 
   return (
+    <ChatHighlightBudgetProvider>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
@@ -794,7 +811,7 @@ export function TabSessionChat({
         aria-label="Conversation"
         aria-live="polite"
       >
-        <div>
+        <div style={{ paddingBottom: floatingBottomInset }}>
         {touchMode && (
           <div
             aria-hidden="true"
@@ -828,18 +845,23 @@ export function TabSessionChat({
             </button>
           </div>
         )}
-        {(reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
-        {(askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
-        <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />
-        {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
+        {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
+        {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
+        {isActive && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
+        <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.range.top }} />
+        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
+          const messageIndex = mountedWindow.range.start + mountedIndex;
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const deliverySend = sendForRow(deliverySends, msg);
           return (
             <Fragment key={msg.id}>
+            <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
+            <ChatHighlightRow id={msg.id}>
             <ChatMessageRow
               msg={msg}
+              sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
@@ -849,11 +871,11 @@ export function TabSessionChat({
             >
               <MessageBubble
                 message={msg}
+                onContentLayout={handleContentLayout}
                 streaming={msg.id === streamingId}
                 userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
-                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />
+                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
-                showTimestamp={msg.type === "user" || agentTimeMessageIds.has(msg.id)}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={originProps?.origin ?? origin}
@@ -874,14 +896,17 @@ export function TabSessionChat({
                 onJumpToMessage={jumpToQuoted}
               />
             </ChatMessageRow>
+            </ChatHighlightRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
+            </div>
             </Fragment>
           );
         })}
-        {reportPlacement.trailing.map(renderOutboundReport)}
-        {askPlacement.trailing.map(renderAsk)}
-        {generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
+        <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
+        {isActive && reportPlacement.trailing.map(renderOutboundReport)}
+        {isActive && askPlacement.trailing.map(renderAsk)}
+        {isActive && generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}
@@ -902,16 +927,17 @@ export function TabSessionChat({
         onAsk={messageSelection.askSelection}
         onClear={messageSelection.clear}
       />
-      {showScrollDown && (
+      {(showScrollDown || newerMessageCount > 0) && (
+        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16 }}>
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
           onClick={() => {
             showLatest();
             scrollToBottom();
           }}
-          title="Scroll to latest"
-          className="absolute bottom-4 right-4 z-30"
+          title={newerMessageCount > 0 ? `Show ${newerMessageCount} new messages` : "Scroll to latest"}
         />
+        </div>
       )}
       </div>
       <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
@@ -922,13 +948,14 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      {chatChannelLoading && setupView.kind === "none" && <TabLoadingIndicator label={`${provider?.displayName ?? tabProvider} loading chat`} />}
       <div ref={setContextSlot} className="ct-ctx-slot" />
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
           showActivity={setupView.kind === "none" && !chatChannelLoading}
+          channelLoadingLabel={chatChannelLoadingRow(chatChannelLoading, setupView) === "model"
+            ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
@@ -951,6 +978,7 @@ export function TabSessionChat({
       {deliveryPlansSink}
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
+      {uploadStatus}
       {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
@@ -982,5 +1010,6 @@ export function TabSessionChat({
     </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
+    </ChatHighlightBudgetProvider>
   );
 }

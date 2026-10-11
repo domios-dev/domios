@@ -11,7 +11,7 @@ export function useProviderCliStatus(providerId: string) {
     const request = ++sequence.current;
     try {
       const next = await invoke<ProviderCliStatus>("provider_cli_status", { providerId });
-      if (sequence.current === request) { setStatus(next); setError(null); }
+      if (sequence.current === request) { setStatus(next); if (next.update_summary != null) setSummary(next.update_summary); setError(null); }
     } catch (error) {
       if (sequence.current === request) { setStatus(null); setError(String(error)); }
     }

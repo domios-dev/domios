@@ -77,6 +77,9 @@ impl super::ServiceContext {
                 StepKind::Convert { .. } => {
                     checks.push(field_check(&format!("steps[{index}].convert"), &errors));
                 }
+                StepKind::Agent { .. } => {
+                    checks.push(field_check(&format!("steps[{index}].agent"), &errors));
+                }
                 StepKind::Command { .. } => {}
             }
         }
@@ -312,6 +315,14 @@ impl super::ServiceContext {
                 "params_schema":{"from":conversion.from.as_str(), "to":conversion.to.as_str()}
             }));
         }
+        for provider in self
+            .chatbackend_registry
+            .active()
+            .into_iter()
+            .filter(|p| p.supports_agent_tasks())
+        {
+            nodes.push(json!({"role":"agent", "kind":"agent_provider", "type":provider.id(), "title":provider.display_name(), "profiles":provider.list_presets().unwrap_or_default()}));
+        }
         let event_sources = self.graph_node_registry.event_sources();
         for source in &event_sources {
             let schemas = source.to_value();
@@ -381,6 +392,18 @@ impl super::ServiceContext {
             .err()
             .unwrap_or_default();
         for (index, step) in spec.steps.iter().enumerate() {
+            if let StepKind::Agent { provider, .. } = &step.kind {
+                if !self
+                    .chatbackend_registry
+                    .get(provider)
+                    .is_some_and(|p| p.supports_agent_tasks())
+                {
+                    errors.push(ValidationError {
+                        field: format!("steps[{index}].agent"),
+                        reason: "provider does not support bounded agent tasks".into(),
+                    });
+                }
+            }
             if let StepKind::Convert { from, to } = &step.kind {
                 let field = format!("steps[{index}].convert");
                 if self.converter_registry.plan(*from, *to).is_err()

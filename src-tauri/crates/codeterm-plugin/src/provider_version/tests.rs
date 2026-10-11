@@ -85,3 +85,32 @@ fn provider_compat_cli_status_serializes_version_verdict_and_reasons() {
     assert_eq!(json["compatibility"]["verdict"], "supported");
     assert_eq!(json["compatibility"]["reasons"], serde_json::json!([]));
 }
+
+#[cfg(unix)]
+#[test]
+fn provider_compat_env_wrapper_version_probe_survives_minimal_gui_path() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = root.path().join("cli-wrapper");
+    std::fs::write(
+        &wrapper,
+        "#!/usr/bin/env sh\nprintf 'codex-cli 0.162.1\\n'\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let broken = Command::new(&wrapper)
+        .env("PATH", "/nonexistent")
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert_eq!(broken.status.code(), Some(127));
+    let mut resolved = crate::provider_command::command(&wrapper).unwrap();
+    resolved.env("PATH", "/nonexistent");
+    assert_eq!(
+        probe_command(resolved),
+        VersionObservation {
+            version: Some("0.162.1".into()),
+            status: ProbeStatus::Detected
+        }
+    );
+}

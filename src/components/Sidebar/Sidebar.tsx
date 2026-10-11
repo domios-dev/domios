@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { open } from "@tauri-apps/plugin-dialog";
+import { nativeFolderDialog as open } from "../../lib/nativeBridge";
 import { IS_WEB } from "../../lib/webApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { isPhoneViewport } from "../../hooks/useSidebarViewport";
@@ -163,11 +163,7 @@ export function Sidebar({
     blueprints: string[];
     teams: TeamCloseResource[];
   } | null>(null);
-  const [sessionPicker, setSessionPicker] = useState<{
-    workspaceId: string;
-    workspaceCwd: string | null;
-    initialProviderId?: string;
-  } | null>(null);
+  const [sessionPicker, setSessionPicker] = useState<OpenNewSessionDetail | null>(null);
   const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
@@ -764,7 +760,7 @@ export function Sidebar({
         >
           {(!isSidebarCollapsed || isPeeking) && (
             <>
-            <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+            <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
               {isCompact && (
                 <SidebarCompactRail
                   groups={compactGroups}
@@ -1088,6 +1084,7 @@ export function Sidebar({
           agentsConfig={agentsConfig}
           agentConfig={config?.agent}
           initialProviderId={sessionPicker.initialProviderId}
+          section={sessionPicker.section ?? (state.workspaces.find((workspace) => workspace.id === sessionPicker.workspaceId)?.protected ? "general" : "workspace")}
           onClose={() => setSessionPicker(null)}
         />
       )}

@@ -1,3 +1,4 @@
+import { nativeBridge } from "../lib/nativeBridge";
 import assert from "node:assert/strict";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -87,6 +88,7 @@ async function main() {
     value: async () => ({ ok: false, status: 404 }),
   });
 
+  nativeBridge.updater = { check: async () => updateInfo, status: async () => runtimeStatus("idle"), install: async () => await installResponse as { status: string } };
   __setListenForTest(async () => () => {});
   __setInvokeForTest(async <T,>(command: string) => {
     switch (command) {
@@ -130,6 +132,7 @@ async function main() {
 
     await unmount();
   } finally {
+    nativeBridge.updater = undefined;
     __setInvokeForTest(null);
     __setListenForTest(null);
     Object.defineProperty(globalThis, "fetch", {

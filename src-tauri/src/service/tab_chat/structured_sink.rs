@@ -12,6 +12,7 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::chat_send_transaction::{LiveProvenance, TurnPosition};
 
 pub trait StructuredSink: Send + Sync {
+    fn observe(&self, _tab: &str, _records: &[crate::agent::chat_types::RichMessage]) {}
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>);
 }
 
@@ -62,6 +63,16 @@ pub struct TauriStructuredSink {
 }
 
 impl StructuredSink for TauriStructuredSink {
+    fn observe(&self, tab: &str, records: &[crate::agent::chat_types::RichMessage]) {
+        if let (Some(session), Some(nonce), Some(svc)) = (
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+            self.app.try_state::<crate::service::ServiceState>(),
+        ) {
+            crate::service::provider_signals::apply_structured(&svc, tab, session, nonce, records);
+        }
+    }
+
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
         if let (Some(session_id), Some(binding_nonce)) = (
             self.source_session_id.as_deref(),

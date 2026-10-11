@@ -28,6 +28,10 @@ export function chatRailsVisible(view: ChatBodyView): boolean {
   return view.kind === "none";
 }
 
+export function chatChannelLoadingRow(loading: boolean, view: ChatBodyView): "model" | null {
+  return loading && view.kind === "none" ? "model" : null;
+}
+
 function emptyPlacement(): OutboundReportPlacement {
   return { afterIndex: new Map(), trailing: [] };
 }

@@ -22,8 +22,8 @@ pub(super) fn host_query(
         return Ok(None);
     }
     if let Some(compatibility) = observation.sqlite_compatibility(sandbox) {
-        if compatibility.verdict != crate::provider_compat::CompatibilityVerdict::Supported {
-            log::warn!(
+        if !compatibility.allows_sqlite_read() {
+            log::debug!(
                 "[provider-compatibility] direct_sqlite disabled verdict={:?} reasons={:?}",
                 compatibility.verdict,
                 compatibility.reasons

@@ -42,7 +42,7 @@ test("unconfirmed writes never offer Retry even after a late request rejection",
   observeDeliveryStatus({ tab_id: tabId, send_id: "tx", correlationId: "token", state: "submit_unconfirmed",
     error: null, ledger_id: "ledger", sequence: 3, retained_from: 1 });
   failChatSendRequest(tabId, "token");
-  assert.equal(deliveryState(readChatSends(tabId)[0]), "sending");
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
   assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
 });
 

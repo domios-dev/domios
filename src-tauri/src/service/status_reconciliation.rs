@@ -45,6 +45,25 @@ pub(super) fn snapshot_with_reconciled_status(
     })
 }
 
+pub(super) fn try_reconciled_tab_statuses(
+    mux: &MuxState,
+    tracker: &AgentTrackerState,
+    registry: &AgentRegistry,
+) -> Option<std::collections::HashMap<String, TabStatus>> {
+    let mux = mux.try_read()?;
+    let tracker = tracker.try_lock()?;
+    Some(
+        mux.all_tabs()
+            .filter_map(|tab| {
+                crate::multiplexer::state::resolved_tab_status(tab, &tracker, |tab, raw| {
+                    reconcile_tab_status(registry, tab, raw)
+                })
+                .map(|status| (tab.id.clone(), status))
+            })
+            .collect(),
+    )
+}
+
 pub(crate) fn try_snapshot_with_reconciled_status(
     mux: &MuxState,
     tracker: &AgentTrackerState,

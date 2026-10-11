@@ -44,7 +44,7 @@ impl AgentProvider for Native {
     fn structured_control(&self) -> Option<StructuredControl> {
         Some(StructuredControl {
             protocol: "codex-app-server".into(),
-            min_version: "0.160.0".into(),
+            min_version: "0.159.0".into(),
         })
     }
 }

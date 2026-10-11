@@ -1,3 +1,4 @@
+import { probeStateLabel } from "../Automation/probeProgress";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { describeSchedule, formatFuture } from "../../lib/formatters";
@@ -75,4 +76,8 @@ export function sentinelRowText(job: BlueprintScenarioJob, title: string): { met
     : root?.cadence_ms ? `Every ${formatDuration(root.cadence_ms)}`
     : "No description";
   return { meta, idHint: `Blueprint ${scenario.id}` };
+}
+
+export function sentinelStateLabel(job: BlueprintScenarioJob): string {
+  return job.root ? probeStateLabel(job.root) : job.state;
 }

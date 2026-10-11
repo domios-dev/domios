@@ -1,3 +1,4 @@
+import { memoryListControlsVisible } from "./memoryDetailModel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { List, Network, RefreshCw } from "lucide-react";
 import { MemorySnapshotCanvas } from "./MemorySnapshotCanvas";
@@ -43,6 +44,7 @@ interface Props {
 }
 
 export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate, onOpenAgentsSettings }: Props) {
+  const [detailOpen, setDetailOpen] = useState(false);
   const touchUi = useTouchOptimizedUi();
   const [activeTab, setActiveTab] = useState<MemoryTab>(normalizeTab(initialState?.activeTab));
   const [inspectView, setInspectView] = useState<"graph" | "list">("graph");
@@ -112,6 +114,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     const handler = (e: KeyboardEvent) => {
       const inField =
         e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      if (detailOpen) return;
       if (e.key === "Escape") {
         if (inField) return;
         e.preventDefault();
@@ -128,7 +131,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose, activeTab, inspectView]);
+  }, [onClose, activeTab, inspectView, detailOpen]);
 
   const snapshotError =
     snapshot.error ??
@@ -142,47 +145,49 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       data-testid="memory-panel"
       data-memory-active-tab={activeTab}
     >
-      {/* Header with tabs */}
-      <div
-        className={`${UI_PANEL.toolbar} ct-section-toolbar gap-0 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}
-        style={touchUi ? { height: "auto", minHeight: "3.25rem" } : undefined}
-      >
-        <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
-          <strong>Memory</strong>
-          <span className="text-[11px] opacity-70 max-sm:hidden" data-testid="memory-stats-summary">
-            {/* Use fresh memStats (refreshes on mem-activity) — the cached graph
-                snapshot is keyed by layout_version and goes stale after edge edits. */}
-            {memStats
-              ? memStats.total_entities + memStats.total_items
-              : (snapshot.stats?.node_count ?? 0)}{" "}
-            nodes &middot;{" "}
-            {memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)} edges
-          </span>
-          {memStats && memStats.total_vectors < memStats.total_items && (
-            <span className="text-[11px] text-[var(--ct-yellow)] flex items-center gap-1">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--ct-yellow)] animate-pulse" />
-              indexing {memStats.total_vectors}/{memStats.total_items}
+      {memoryListControlsVisible(detailOpen) && <>
+        {/* Header with tabs */}
+        <div
+          className={`${UI_PANEL.toolbar} ct-section-toolbar gap-0 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}
+          style={touchUi ? { height: "auto", minHeight: "3.25rem" } : undefined}
+        >
+          <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
+            <strong>Memory</strong>
+            <span className="text-[11px] opacity-70 max-sm:hidden" data-testid="memory-stats-summary">
+              {/* Use fresh memStats (refreshes on mem-activity) — the cached graph
+                  snapshot is keyed by layout_version and goes stale after edge edits. */}
+              {memStats
+                ? memStats.total_entities + memStats.total_items
+                : (snapshot.stats?.node_count ?? 0)}{" "}
+              nodes &middot;{" "}
+              {memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)} edges
             </span>
-          )}
-          {memStats && memStats.total_vectors >= memStats.total_items && memStats.total_vectors > 0 && (
-            <span className="text-[11px] text-[var(--ct-green)] opacity-60 max-sm:hidden">
-              {memStats.total_vectors} vectors
-            </span>
-          )}
+            {memStats && memStats.total_vectors < memStats.total_items && (
+              <span className="text-[11px] text-[var(--ct-yellow)] flex items-center gap-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--ct-yellow)] animate-pulse" />
+                indexing {memStats.total_vectors}/{memStats.total_items}
+              </span>
+            )}
+            {memStats && memStats.total_vectors >= memStats.total_items && memStats.total_vectors > 0 && (
+              <span className="text-[11px] text-[var(--ct-green)] opacity-60 max-sm:hidden">
+                {memStats.total_vectors} vectors
+              </span>
+            )}
+          </div>
+
+          <div className="ct-section-toolbar__tabs border-l border-[var(--ct-border)] pl-3">
+            <LiquidTabRail
+              value={activeTab}
+              options={TABS}
+              onChange={setActiveTab}
+              label="Memory sections"
+              touch={touchUi}
+              testIdPrefix="memory-tab"
+            />
+          </div>
         </div>
 
-        <div className="ct-section-toolbar__tabs border-l border-[var(--ct-border)] pl-3">
-          <LiquidTabRail
-            value={activeTab}
-            options={TABS}
-            onChange={setActiveTab}
-            label="Memory sections"
-            touch={touchUi}
-            testIdPrefix="memory-tab"
-          />
-        </div>
-      </div>
-
+      </>}
       {/* Tab content */}
       <div className="relative flex-1 min-h-0">
         {activeTab === "dreams" && <MemoryDreamsTab api={api} />}
@@ -192,6 +197,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             nodes={nodes}
             selectedId={selectedId}
             onSelectItem={setSelectedId}
+            onDetailOpenChange={setDetailOpen}
             onViewInGraph={handleViewInGraph}
             updateNode={updateNode}
             removeNode={removeNode}
@@ -235,7 +241,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             />
           </div>
         )}
-        {activeTab === "inspect" && (
+        {activeTab === "inspect" && memoryListControlsVisible(detailOpen) && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5">
             <button
               type="button"

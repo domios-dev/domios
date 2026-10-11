@@ -13,6 +13,7 @@ const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the t
 /// One row per `Commands` variant, updated only with an intentional transport change.
 /// Column 0 is the clap name, so coverage can be compared against the parser.
 const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
+    ("rest-api", &["codeterm", "rest-api", "status"], Local::Socket, MeshRelay::Fallthrough, ApiVerdict::Unsupported("REST listener recovery is local-only; run it on the target machine")),
     (
         "trace",
         &["codeterm", "trace", "recent"],
@@ -431,7 +432,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 22, "unsupported command count changed");
+    assert_eq!(checked, 23, "unsupported command count changed");
 }
 
 #[test]

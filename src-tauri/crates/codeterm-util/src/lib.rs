@@ -9,6 +9,7 @@ pub mod plugin_agent_guide;
 pub mod plugin_config;
 pub mod plugin_grants;
 pub mod process_util;
+pub mod project_roots;
 pub mod secret_file;
 pub mod shell;
 pub mod task_files;

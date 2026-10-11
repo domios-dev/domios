@@ -30,3 +30,9 @@ describe("bound file-tail attachment", () => {
     expect(attachmentActivity("attached", false, true)).toEqual({ loading: false, recovering: false });
   });
 });
+
+
+it("a fresh unbound launch does not recover the previous session transcript", () => {
+  expect(attachmentActivity("awaiting_session", false, true, false)).toEqual({ loading: false, recovering: false });
+  expect(attachmentActivity("awaiting_store", false, true, true)).toEqual({ loading: false, recovering: true });
+});

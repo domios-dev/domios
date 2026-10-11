@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { finish, it, vi } from "../test/standaloneTest";
 
-it("relay output transport cannot be disabled by the local aggregate killswitch", async () => {
+it("both shells always use output streams regardless of the obsolete killswitch", async () => {
   stubBrowser();
   const { webOutputTransportActive } = await import("./outputStream");
   try {
     for (const enabled of [false, true]) {
       assert.equal(webOutputTransportActive(true, "928b06dd-0631-43e2-9252-3c6573b54b8d", enabled), true);
-      assert.equal(webOutputTransportActive(true, null, enabled), enabled);
-      assert.equal(webOutputTransportActive(false, null, enabled), false);
+      assert.equal(webOutputTransportActive(true, null, enabled), true);
+      assert.equal(webOutputTransportActive(false, null, enabled), true);
     }
   } finally {
     vi.unstubAllGlobals();
@@ -28,6 +28,7 @@ function stubBrowser(): void {
   vi.stubGlobal("window", browser);
   vi.stubGlobal("localStorage", storage);
   vi.stubGlobal("sessionStorage", storage);
+  storage.setItem("codeterm-web-token:http://gateway.test:7685", "fixture-token");
 }
 
 it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer output", async () => {

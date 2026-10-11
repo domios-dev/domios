@@ -1,3 +1,6 @@
+import { beforeEach as beforeDaemonCase } from "vitest";
+import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
+beforeDaemonCase(() => configureDaemonFixture());
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window as HappyWindow } from "happy-dom";
@@ -63,6 +66,24 @@ afterEach(async () => {
 });
 
 describe("MemoryListTab", () => {
+  it("opens the named item and Back restores the originating list", async () => {
+    const item = { id: "fixture-id", title: "Fixture name", kind: "note", body: "Body", tags: [], summary: null, area: null, importance: null, has_vector: false, has_body: true };
+    globalThis.fetch = (async () => ({ ok: true, json: async () => item } as Response)) as typeof fetch;
+    const onDetailOpenChange = vi.fn();
+    await act(async () => root.render(<MemoryListTab api={api} nodes={new Map([[item.id, item]])} selectedId={null} onSelectItem={() => {}} onViewInGraph={() => {}} updateNode={() => {}} removeNode={() => {}} onDetailOpenChange={onDetailOpenChange} />));
+    await act(async () => host.querySelector<HTMLElement>('[data-testid="memory-list-item"] > div')!.click());
+    expect(onDetailOpenChange).toHaveBeenLastCalledWith(true);
+    expect(host.querySelector('[data-testid="memory-item-heading"]')?.textContent).toBe(item.title);
+    expect(host.querySelector('[data-testid="memory-list-search"]')).toBeNull();
+    const back = host.querySelector<HTMLButtonElement>('button[aria-label="Back to Memory Inspect"]');
+    expect(back).not.toBeNull();
+    await act(async () => back!.click());
+    expect(onDetailOpenChange).toHaveBeenLastCalledWith(false);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[data-testid="memory-list-search"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="memory-list-item"]')?.getAttribute('data-memory-id')).toBe(item.id);
+  });
+
   it("memory_list_search_disables_supporter_rerank", async () => {
     await act(async () => {
       root.render(

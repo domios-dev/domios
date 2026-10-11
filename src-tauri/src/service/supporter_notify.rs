@@ -5,9 +5,7 @@ use tauri::Manager;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use super::notification::{NotificationOrigin, PushIntent};
 use super::ServiceContext;
-use codeterm_types::notification::{CallerAction, NotifyLevel};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -285,64 +283,22 @@ fn emit_batch(service: &ServiceContext, notices: Vec<Notice>) {
         .map(|n| format!("{}: {}", n.title, n.body))
         .collect::<Vec<_>>()
         .join("\n");
-    service.create_notification_ext(
-        title,
-        Some(body),
-        Some("warning"),
-        Some(vec![
-            CallerAction::Answer {
-                label: "I will resolve it in Domios".into(),
-            },
-            CallerAction::Dismiss {
-                label: "Dismiss".into(),
-            },
-        ]),
-        Some(true),
-        NotificationOrigin::local_tab(first.tab.clone()),
-        PushIntent {
-            level: Some(NotifyLevel::ActionNeeded),
-            event_key: Some(format!("supporter:{}", first.label)),
-        },
-        None,
-    );
+    service.log_system_notice(title, Some(body), Some("warning"));
 }
 
 pub(crate) fn verbose(service: &ServiceContext, tab: &str, title: &str, body: &str) {
-    service.create_notification_ext(
+    service.log_system_notice(
         title.into(),
-        Some(body.into()),
+        Some(format!("Tab {tab}: {body}")),
         Some("info"),
-        None,
-        Some(false),
-        NotificationOrigin::local_tab(tab.into()),
-        PushIntent {
-            level: Some(NotifyLevel::Verbose),
-            event_key: None,
-        },
-        None,
     );
 }
 
 pub(crate) fn failure(service: &ServiceContext, tab: &str, title: &str, body: &str) {
-    service.create_notification_ext(
+    service.log_system_notice(
         title.into(),
-        Some(body.into()),
+        Some(format!("Tab {tab}: {body}")),
         Some("error"),
-        Some(vec![
-            CallerAction::Answer {
-                label: "I will restart the General Agent".into(),
-            },
-            CallerAction::Dismiss {
-                label: "Dismiss".into(),
-            },
-        ]),
-        Some(true),
-        NotificationOrigin::local_tab(tab.into()),
-        PushIntent {
-            level: Some(NotifyLevel::Failure),
-            event_key: Some("general-agent-recovery-exhausted".into()),
-        },
-        None,
     );
 }
 

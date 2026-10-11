@@ -8,7 +8,7 @@ use codeterm_types::decision::{
 use serde_json::json;
 use tauri::Manager;
 
-use super::machine::{regex_verdict, regex_verdict_if_matched, Verdict};
+use super::machine::{regex_verdict, Verdict};
 use super::provenance::{Classification, Failure, Source};
 use super::store::Sentinel;
 use crate::mem::decision::token_store::TokenStore;
@@ -143,9 +143,12 @@ pub fn with_pattern_precedence(
     output: &str,
     classify_adapter: impl FnOnce() -> Classification,
 ) -> Classification {
-    regex_verdict_if_matched(&job.matches, output)
-        .map(Classification::regex)
-        .unwrap_or_else(classify_adapter)
+    super::classification_policy::classify(
+        &job.matches,
+        output,
+        job.model_classification,
+        classify_adapter,
+    )
 }
 
 pub fn fallback(job: &Sentinel, output: &str) -> Classification {
@@ -192,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn sentinel_adapter_classifies_output_with_no_matching_pattern() {
+    fn sentinel_unmatched_patterns_do_not_call_connected_adapter() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = crate::sentinel::tests::store(
             dir.path(),
@@ -208,8 +211,8 @@ mod tests {
             }))
         });
 
-        assert_eq!(classification.source, Source::Adapter);
-        assert_eq!(classification.result.unwrap().bucket, "waiting");
+        assert_eq!(classification.source, Source::Regex);
+        assert_eq!(classification.result.unwrap().bucket, "other");
     }
 
     struct AdapterAnswer {

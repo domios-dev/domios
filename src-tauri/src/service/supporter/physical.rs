@@ -62,6 +62,8 @@ impl physical::RequestObserver for Meter {
             Err(DecisionError::Deadline)
         } else if self.limit.is_some_and(|limit| state.0 >= limit) {
             Err(DecisionError::Unsupported)
+        } else if state.0 > 0 {
+            self.runtime.admit_adapter(&self.adapter)
         } else {
             self.runtime.reserve_request(
                 self.cap,

@@ -3,6 +3,7 @@ pub mod chat_types;
 pub mod classify_input;
 pub mod command_detection;
 pub mod detector;
+pub(crate) mod interactive_prompt;
 pub mod keys;
 pub mod kpi;
 pub mod kpi_ledger;

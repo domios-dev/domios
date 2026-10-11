@@ -1,6 +1,7 @@
+import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import { invoke } from "../../lib/bridge";
 import { ORCHESTRATOR_KIND, roleKind } from "../../lib/roleKind";
-import { requestTeamMember, selectTeamStaffingManager, type TeamMemberAttachment, type TeamMemberRequest } from "../../lib/teamActions";
+import { selectTeamStaffingManager, type TeamMemberAttachment, type TeamMemberRequest } from "../../lib/teamActions";
 import type { MultiplexerState, OrchestrationPairInput, OrchestrationPairResult } from "../../lib/types";
 import { buildCartographerMapTask, selectCartographerMapTeam, type CartographerMapDraft } from "./cartographerMapModel";
 
@@ -22,7 +23,11 @@ export function cartographerMapActions(
   return {
     snapshot: () => invoke<MultiplexerState>("mux_get_state"),
     createPair,
-    addMember: async (request) => await requestTeamMember(invoke, request) as TeamMemberAttachment,
+    addMember: (request) => orchestrationTransport().mux_add_team_member({
+      teamId: request.teamId, role: request.role, provider: request.providerId,
+      callerTabId: request.managerTabId, sessionBindingNonce: request.sessionBindingNonce,
+      model: request.model, brief: request.brief,
+    }),
   };
 }
 
@@ -70,6 +75,7 @@ export async function startCartographerMap(
         throw new Error("The replacement Orchestrator belongs to a different Team");
       }
       managerTabId = anchor.tab_id;
+      snapshot = await actions.snapshot();
     }
   }
   const attachment = await actions.addMember({
@@ -79,6 +85,7 @@ export async function startCartographerMap(
     managerTabId,
     model: request.draft.modelId,
     brief: buildCartographerMapTask(request.draft, request.projectPaths),
+    sessionBindingNonce: managerTabId ? snapshot.tabs[managerTabId]?.session_binding_nonce ?? undefined : undefined,
   });
   if (!attachment.tab_id || attachment.team.id !== team.id || attachment.team.workspace_id !== workspace.id) {
     throw new Error("The Cartographer is not attached to the requested workspace Team");

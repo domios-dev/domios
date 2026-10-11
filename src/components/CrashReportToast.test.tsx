@@ -28,6 +28,7 @@ vi.mock("../lib/bridge", () => ({
     return () => fakes.listeners.delete(name);
   }),
 }));
+vi.mock("../lib/nativeBridge", () => ({ nativeBridge: { openFolder: (path: string) => fakes.invoke("open_folder", { path }) } }));
 vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => fakes.update }));
 vi.mock("./Automation/resource", () => ({ AutomationResource: class {
   subscribe(handler: () => void) { fakes.graphChanged = handler; return () => { fakes.graphChanged = undefined; }; }

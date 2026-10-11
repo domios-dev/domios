@@ -44,11 +44,6 @@ pub fn record_clean_shutdown(reason: lifecycle::ShutdownReason) {
     lifecycle::record_clean_shutdown(reason);
 }
 
-#[tauri::command]
-pub fn get_recovery_state() -> lifecycle::RecoveryState {
-    lifecycle::recovery_state()
-}
-
 /// Trigger a synthetic crash for verifying the handlers work end-to-end.
 /// Dev-only — the function literally does not exist in release builds, so
 /// there is no way to reach it from a production daemon even via a forged

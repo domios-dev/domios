@@ -76,6 +76,7 @@ fn insert_with_options(
                 buckets: vec!["waiting".into()],
                 every: "10s".into(),
                 routes: Default::default(),
+                model_classification: false,
                 matches: [("waiting".to_string(), ".*".to_string())]
                     .into_iter()
                     .collect(),

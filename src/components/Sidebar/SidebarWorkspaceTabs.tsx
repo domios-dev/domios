@@ -405,9 +405,10 @@ export function SidebarWorkspaceTabs({
     renderedTeamIds.add(teamId);
 
     const members = (membersByTeam.get(teamId) ?? []).filter((member) => !attachedIds.has(member.tab.id));
-    const { managers, terminals, workers } = partitionTeamMembers(members);
+    const { managers, terminals, workers, agents } = partitionTeamMembers(members);
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
+    const agentItems = agents.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workingLocal = workers.filter((member) => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length;
     const team = teamById.get(teamId) ?? remoteTeams.get(teamId) ?? {
@@ -446,6 +447,12 @@ export function SidebarWorkspaceTabs({
               {workers.map((member) => renderMemberRow(member, { teamId, index: 1 }))}
             </SortableContext>
           </>
+        }
+        agentCount={agents.length}
+        agents={
+          <SortableContext items={agentItems} strategy={verticalListSortingStrategy}>
+            {agents.map((member) => renderMemberRow(member, { teamId, index: 3 }))}
+          </SortableContext>
         }
         terminalCount={terminals.length}
         terminals={

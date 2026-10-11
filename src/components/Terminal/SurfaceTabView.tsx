@@ -27,6 +27,7 @@ interface SurfaceTabViewProps {
   api?: ApiConfig;
   isVisible: boolean;
   decl: SurfaceDeclLookup;
+  onRetry?: () => void;
   createTransport?: SurfaceTransportFactory;
 }
 
@@ -70,10 +71,11 @@ function SurfaceActorTag({ surfaceTabId }: { surfaceTabId: string }) {
   );
 }
 
-function SurfaceUnavailable({ title, error }: { title: string; error?: string }) {
+function SurfaceUnavailable({ title, error, onRetry }: { title: string; error?: string; onRetry?: () => void }) {
   return (
     <div role="status" data-testid="surface-unavailable" className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm text-[var(--ct-muted-fg)]">
-      <p>{title} unavailable: the plugin is not loaded</p>
+      <p>{error ? `${title}: could not reach the surface registry` : `${title}: no surface is registered`}</p>
+      {onRetry && <button type="button" onClick={onRetry}>Retry surface lookup</button>}
       {error && (
         <details className="max-w-full text-xs">
           <summary className="cursor-pointer select-none">Details</summary>
@@ -125,6 +127,7 @@ export function SurfaceTabView({
   api,
   isVisible,
   decl,
+  onRetry,
   createTransport = createHttpSseSurfaceTransport,
 }: SurfaceTabViewProps) {
   const label = surfaceDisplayLabel(tab.title, backing, ownerName);
@@ -161,7 +164,7 @@ export function SurfaceTabView({
         {plan.kind === "stream" && plan.live && (
           <StreamSurfaceBody tab={tab} api={api} ownerName={ownerName} chrome={plan.chrome} createTransport={createTransport} />
         )}
-        {plan.kind === "unavailable" && <SurfaceUnavailable title={tab.title || backing.surface_id} error={plan.error} />}
+        {plan.kind === "unavailable" && <SurfaceUnavailable title={tab.title || backing.surface_id} error={plan.error} onRetry={onRetry} />}
         {plan.kind === "unsupported" && (
           <p role="alert" className="p-4 text-sm text-[var(--ct-muted-fg)]">{plan.message}</p>
         )}

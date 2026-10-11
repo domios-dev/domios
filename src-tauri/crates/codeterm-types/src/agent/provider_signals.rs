@@ -35,6 +35,8 @@ pub enum PermissionMode {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionObservations {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_model: Option<String>,
     pub api_error: Option<ApiErrorKind>,
     pub permission_mode: Option<PermissionMode>,
     #[serde(default)]

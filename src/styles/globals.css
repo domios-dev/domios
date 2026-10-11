@@ -13,6 +13,7 @@
 @import "../components/Terminal/tabTopBar.css";
 @import "../components/Terminal/scrollToLatest.css";
 @import "../components/Terminal/composerContext.css";
+@import "../components/Terminal/chatLayout.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";
 @import "../components/shared/rowKebab.css";
@@ -1124,21 +1125,6 @@ button,
 .sidebar-tab:hover .sidebar-tab-badge,
 .sidebar-tab:focus-within .sidebar-tab-badge {
   opacity: 0;
-}
-
-/* Row kebab lives in its own right-edge lane, so it never covers the row's badges. */
-.sidebar-tab-kebab {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  opacity: 0;
-  transform: translateX(3px);
-  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
 /* Plan view modes: Board in its own capsule, the plan views in another, one thumb gliding across both. */
@@ -5617,3 +5603,9 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
 @keyframes ct-toast-countdown { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 1; } }
 .ct-toast-countdown { opacity: .28; animation: ct-toast-countdown linear forwards; }
 @media (prefers-reduced-motion: reduce) { .ct-toast-countdown { animation: none; } }
+
+@media (max-width: 768px), (pointer: coarse) {
+  .ct-markdown-ordered-list {
+    padding-inline-start: max(1.25rem, var(--ct-list-marker-gutter));
+  }
+}

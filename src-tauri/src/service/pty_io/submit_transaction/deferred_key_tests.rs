@@ -330,17 +330,15 @@ fn run_with_readiness_guard_and_follow_up(
         typed_follow_up,
         tui_strategy(),
         opts(),
-        |initial_key, turn_was_started| {
+        |initial_key, _turn_was_started| {
             let state = transport.state.lock().unwrap();
-            if state.dialog && !state.composer_ready {
+            let allowed = if initial_key {
+                submit_key_readiness(state.dialog)
+            } else {
+                !state.dialog || state.composer_ready
+            };
+            if !allowed {
                 return Err(InjectionError::AgentTuiPresent {
-                    pty_id: "test-pty".into(),
-                });
-            }
-            if initial_key
-                && !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready)
-            {
-                return Err(InjectionError::AgentInputUnavailable {
                     pty_id: "test-pty".into(),
                 });
             }
@@ -350,35 +348,35 @@ fn run_with_readiness_guard_and_follow_up(
 }
 
 #[test]
-fn idle_poll_transition_after_paste_wakes_the_deferred_first_key() {
-    let pty_id = "idle-poll-deferred-first-key";
-    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
-    transport.connect_submit_cycle(pty_id);
-    let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || {
-        run_with_readiness_guard_and_follow_up(&send_transport, "first", Some(" follow-up"))
-    });
+fn first_key_readiness_allows_post_ready_working_without_a_modal() {
+    assert!(submit_key_readiness(false));
+}
 
-    paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the payload reaches the composer before readiness");
-    event_wait_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the first key guard waits for turn end");
-    assert_eq!(transport.state.lock().unwrap().writes, ["paste:first"]);
-    {
-        let mut state = transport.state.lock().unwrap();
-        state.busy = false;
-        state.turn_started = false;
-    }
-    notify_submit_cycle_status_transition(pty_id, TabStatus::Working, TabStatus::Idle);
+#[test]
+fn first_key_readiness_holds_a_delivery_modal() {
+    assert!(!submit_key_readiness(true));
+}
 
-    let result = join(send, "deferred first key send").unwrap().unwrap();
+#[test]
+fn busy_after_first_readiness_submits_long_payload_and_follow_up_without_an_idle_event() {
+    let (transport, _, _, event_wait_rx) = EventTransport::new(true, 0);
+    let text = "x".repeat(9439);
+    let result =
+        run_with_readiness_guard_and_follow_up(&transport, &text, Some(" follow-up")).unwrap();
     assert!(result.submit_observed);
+    assert_eq!(result.submit_key_writes, 1);
+    let state = transport.state.lock().unwrap();
+    assert!(state.busy);
+    assert!(!state.composer_ready);
     assert_eq!(
-        transport.state.lock().unwrap().writes,
-        ["paste:first", "follow_up: follow-up", "enter"]
+        state.writes,
+        [
+            format!("paste:{text}"),
+            "follow_up: follow-up".into(),
+            "enter".into()
+        ]
     );
+    assert!(event_wait_rx.try_recv().is_err());
 }
 
 #[test]
@@ -414,52 +412,27 @@ fn idle_paste_echo_then_idle_poll_keeps_first_key_immediate() {
 }
 
 #[test]
-fn active_turn_wait_expires_without_an_idle_event() {
-    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
-    let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "busy"));
+fn modal_after_busy_payload_handoff_holds_first_key_without_replaying_payload() {
+    for composer_ready in [false, true] {
+        let (transport, paste_rx, _, _) = EventTransport::new(true, 0);
+        transport.pause_after_paste();
+        let send_transport = Arc::clone(&transport);
+        let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "busy"));
+        paste_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        {
+            let mut state = transport.state.lock().unwrap();
+            state.dialog = true;
+            state.composer_ready = composer_ready;
+        }
+        transport.release_paste();
 
-    paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the payload reaches the composer once");
-    event_wait_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("busy readiness waits on an event with a failure deadline");
-    {
-        let state = transport.state.lock().unwrap();
-        assert!(state.draft_visible);
-        assert!(!state.dialog);
+        let result = join(send, "active turn modal guard").unwrap().unwrap_err();
+        assert!(matches!(
+            result,
+            InjectionError::SubmitNeverConfirmed { .. }
+        ));
+        assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
     }
-
-    let result = join(send, "active turn wait").unwrap().unwrap();
-    assert!(result.submit_observed);
-    assert_eq!(result.submit_key_writes, 1);
-    assert_eq!(
-        transport.state.lock().unwrap().writes,
-        ["paste:busy", "enter"]
-    );
-}
-
-#[test]
-fn active_turn_deadline_never_submits_into_a_dialog() {
-    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
-    let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "busy"));
-
-    paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the payload reaches the composer once");
-    event_wait_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the first key waits for turn end");
-    transport.state.lock().unwrap().dialog = true;
-
-    let result = join(send, "active turn modal guard").unwrap().unwrap_err();
-    assert!(matches!(
-        result,
-        InjectionError::SubmitNeverConfirmed { .. }
-    ));
-    assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
 }
 
 #[test]
@@ -688,16 +661,15 @@ fn start_claimed_send_with_recovery_window(
                 retry_offsets: [Duration::from_secs(1); 6],
             },
             options,
-            |_initial_key, turn_was_started| {
+            |initial_key, _turn_was_started| {
                 let state = transport.state.lock().unwrap();
-                if state.dialog && !state.composer_ready {
+                let allowed = if initial_key {
+                    submit_key_readiness(state.dialog)
+                } else {
+                    !state.dialog || state.composer_ready
+                };
+                if !allowed {
                     return Err(InjectionError::AgentTuiPresent {
-                        pty_id: "test-pty".into(),
-                    });
-                }
-                if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready)
-                {
-                    return Err(InjectionError::AgentInputUnavailable {
                         pty_id: "test-pty".into(),
                     });
                 }
