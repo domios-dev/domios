@@ -1574,6 +1574,11 @@ ensure_deps() {
 }
 
 prepare_release_bundle_inputs() {
+  local minimum_macos_version
+  minimum_macos_version=$(node -p "require('./src-tauri/tauri.conf.json').bundle?.macOS?.minimumSystemVersion || ''")
+  if [ -n "$minimum_macos_version" ]; then
+    export MACOSX_DEPLOYMENT_TARGET="$minimum_macos_version"
+  fi
   local cargo_target_args=()
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     cargo_target_args=(--target "$CARGO_BUILD_TARGET")

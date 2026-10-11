@@ -93,6 +93,14 @@ timings for CLI and app/embed preparation under the operation’s target
 matching Tauri packaging so its dependency graph can be reused. Preserve that
 feature when changing release preparation.
 
+If packaging recompiles native dependencies, Tauri and the app after preparation,
+compare `release/.fingerprint/*/run-*.json` environment records. Tauri CLI sets
+`MACOSX_DEPLOYMENT_TARGET` from `bundle.macOS.minimumSystemVersion`; a transition
+from unset to that value invalidates native build scripts and their dependents.
+`prepare_release_bundle_inputs` exports the same config value before either Cargo
+build. Keep this environment shared through packaging; do not hardcode a second
+minimum version or change the tuned profiles to hide the rebuild.
+
 CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
 do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
 SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
