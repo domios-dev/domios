@@ -71,6 +71,21 @@ impl std::error::Error for ChatBackendError {}
 pub trait ChatBackendProvider: Send + Sync {
     fn id(&self) -> &str;
 
+    fn supports_agent_tasks(&self) -> bool {
+        false
+    }
+
+    fn run_agent_task(
+        &self,
+        _request: &crate::agent_task::AgentTaskRequest,
+    ) -> Result<crate::agent_task::AgentTaskResult, String> {
+        Err("provider does not support bounded agent tasks".into())
+    }
+
+    fn abort_agent_task(&self, _run_id: &str) -> Result<(), String> {
+        Err("provider does not support bounded agent tasks".into())
+    }
+
     fn display_name(&self) -> &str {
         self.id()
     }

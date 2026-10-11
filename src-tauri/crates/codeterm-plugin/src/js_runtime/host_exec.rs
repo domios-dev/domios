@@ -22,6 +22,7 @@ use super::host_api::PluginSandbox;
 const MAX_EXEC_JOBS_PER_PLUGIN: usize = 128;
 const EXEC_JOB_RETENTION: Duration = Duration::from_secs(5 * 60);
 const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
+mod control;
 
 thread_local! {
     static HOST_EXEC_ENV: RefCell<Vec<HashMap<String, String>>> = const { RefCell::new(Vec::new()) };
@@ -171,6 +172,7 @@ pub(super) fn run_with_host_env(
         Ok(c) => c,
         Err(e) => return err(&format!("spawn {}: {e}", opts.bin)),
     };
+    let registration = control::spawned(child.id());
     if let Some(s) = &opts.stdin {
         if let Some(mut si) = child.stdin.take() {
             let _ = si.write_all(s.as_bytes());
@@ -181,15 +183,13 @@ pub(super) fn run_with_host_env(
     let (err_tx, err_rx) = std::sync::mpsc::channel::<String>();
     let _out_thread = child.stdout.take().map(|mut s| {
         std::thread::spawn(move || {
-            let mut buf = String::new();
-            let _ = s.read_to_string(&mut buf);
+            let buf = bounded_output(&mut s);
             let _ = out_tx.send(buf);
         })
     });
     let _err_thread = child.stderr.take().map(|mut s| {
         std::thread::spawn(move || {
-            let mut buf = String::new();
-            let _ = s.read_to_string(&mut buf);
+            let buf = bounded_output(&mut s);
             let _ = err_tx.send(buf);
         })
     });
@@ -224,6 +224,7 @@ pub(super) fn run_with_host_env(
     };
     let out = recv_until(&out_rx);
     let errout = recv_until(&err_rx);
+    drop(registration);
     let mut value = serde_json::json!({
         "code": status_code,
         "stdout": out,
@@ -269,6 +270,7 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
         Err(error) => return err(&format!("spawn {}: {error}", opts.bin)),
     };
 
+    let registration = control::spawned(child.id());
     let Some(stdout_pipe) = child.stdout.take() else {
         return err("exec conversation stdout pipe unavailable");
     };
@@ -395,6 +397,7 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
         }
     }
     let stderr = err_rx.recv_timeout(drain).unwrap_or_default();
+    drop(registration);
     let mut value = serde_json::json!({
         "code": status_code,
         "stdout": stdout,
@@ -411,6 +414,21 @@ fn json_rpc_response_id(line: &str) -> Option<u64> {
         .ok()?
         .get("id")?
         .as_u64()
+}
+
+fn bounded_output(reader: &mut impl Read) -> String {
+    const LIMIT: usize = 128 * 1024;
+    let mut kept = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(count) => {
+                kept.extend_from_slice(&chunk[..count.min(LIMIT.saturating_sub(kept.len()))])
+            }
+        }
+    }
+    String::from_utf8_lossy(&kept).into_owned()
 }
 
 #[cfg(windows)]
@@ -483,6 +501,8 @@ struct ExecJob {
     stderr: Option<String>,
     error: Option<String>,
     result: Option<serde_json::Value>,
+    process: Arc<control::Process>,
+    waiters: Vec<crate::converter::ConversionCancellation>,
 }
 
 static EXEC_JOBS: LazyLock<Mutex<HashMap<String, ExecJob>>> =
@@ -531,8 +551,14 @@ pub(super) fn start_with_host_env(
         Ok(json) => json,
         Err(e) => return err(&e),
     };
+    let Some(process) = EXEC_JOBS.lock().get(&job_id).map(|job| job.process.clone()) else {
+        return err("exec cancelled before spawn");
+    };
     let worker_job_id = job_id.clone();
-    std::thread::spawn(move || run_exec_worker(worker_job_id, owned, sandbox));
+    std::thread::spawn(move || {
+        let _scope = control::Scope::new(process);
+        run_exec_worker(worker_job_id, owned, sandbox)
+    });
 
     serde_json::json!({ "jobId": job_id }).to_string()
 }
@@ -602,24 +628,74 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
 
 pub(super) fn close(plugin_id: &str, job_id: &str) {
     let plugin_id = normalize_plugin_id(plugin_id);
-    EXEC_JOBS.lock().retain(|id, job| {
-        let dropped = id == job_id && job.plugin_id == plugin_id;
-        if dropped {
-            job.done_event.signal();
+    let removed = {
+        let mut jobs = EXEC_JOBS.lock();
+        if jobs
+            .get(job_id)
+            .is_some_and(|job| job.plugin_id == plugin_id)
+        {
+            jobs.remove(job_id)
+        } else {
+            None
         }
-        !dropped
-    });
+    };
+    if let Some(job) = removed {
+        job.process.cancel();
+        job.done_event.signal();
+        for waiter in job.waiters {
+            waiter.notify_change();
+        }
+    }
 }
 
 pub(super) fn drop_plugin_jobs(plugin_id: &str) {
     let plugin_id = normalize_plugin_id(plugin_id);
-    EXEC_JOBS.lock().retain(|_, job| {
-        let dropped = job.plugin_id == plugin_id;
-        if dropped {
-            job.done_event.signal();
+    let ids: Vec<_> = EXEC_JOBS
+        .lock()
+        .iter()
+        .filter(|(_, job)| job.plugin_id == plugin_id)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in ids {
+        close(&plugin_id, &id);
+    }
+}
+
+pub(super) fn wait_json_interruptible(
+    plugin_id: &str,
+    job_id: &str,
+    cancellation: &crate::converter::ConversionCancellation,
+    deadline: Instant,
+) -> WaitResult {
+    let plugin_id = normalize_plugin_id(plugin_id);
+    {
+        let mut jobs = EXEC_JOBS.lock();
+        if let Some(job) = jobs
+            .get_mut(job_id)
+            .filter(|job| job.plugin_id == plugin_id)
+        {
+            job.waiters.push(cancellation.clone());
         }
-        !dropped
-    });
+    }
+    loop {
+        let generation = cancellation.generation();
+        if cancellation.is_cancelled() || Instant::now() >= deadline {
+            close(&plugin_id, job_id);
+            return WaitResult::TimedOut;
+        }
+        let done = EXEC_JOBS
+            .lock()
+            .get(job_id)
+            .filter(|job| job.plugin_id == plugin_id)
+            .is_none_or(|job| job.done);
+        if done {
+            return WaitResult::Completed(poll(&plugin_id, job_id));
+        }
+        cancellation.wait_for_change(
+            generation,
+            deadline.saturating_duration_since(Instant::now()),
+        );
+    }
 }
 
 /// Wait for `job_id` without a VM lock, or return the bounded refusal outcome.
@@ -748,6 +824,9 @@ fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
             .and_then(|v| v.as_str())
             .map(String::from);
         job.done_event.signal();
+        for waiter in &job.waiters {
+            waiter.notify_change();
+        }
     }
 }
 
@@ -760,353 +839,11 @@ fn finish_json_job(job_id: &str, result: &str) {
         job.finished_at = Some(Instant::now());
         job.result = Some(result);
         job.done_event.signal();
+        for waiter in &job.waiters {
+            waiter.notify_change();
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::js_runtime::host_api::PluginSandbox;
-    use crate::js_runtime::PROCESS_TEST_LOCK as TEST_LOCK;
-    use std::time::Instant;
-
-    fn reset_exec_jobs() {
-        EXEC_JOBS.lock().clear();
-    }
-
-    fn print_hello_opts() -> serde_json::Value {
-        #[cfg(windows)]
-        {
-            serde_json::json!({
-                "bin": "powershell",
-                "args": ["-NoProfile", "-Command", "[Console]::Out.Write('hello')"],
-            })
-        }
-        #[cfg(not(windows))]
-        {
-            serde_json::json!({ "bin": "sh", "args": ["-c", "printf hello"] })
-        }
-    }
-
-    fn sleep_opts() -> serde_json::Value {
-        #[cfg(windows)]
-        {
-            serde_json::json!({
-                "bin": "powershell",
-                "args": ["-NoProfile", "-Command", "Start-Sleep -Seconds 2"],
-            })
-        }
-        #[cfg(not(windows))]
-        {
-            serde_json::json!({ "bin": "sh", "args": ["-c", "sleep 2"] })
-        }
-    }
-
-    fn poll_until_done(plugin_id: &str, job_id: &str) -> serde_json::Value {
-        let started = Instant::now();
-        loop {
-            let v: serde_json::Value = serde_json::from_str(&poll(plugin_id, job_id)).unwrap();
-            if v["done"].as_bool() == Some(true) {
-                return v;
-            }
-            // A bounded failure deadline, not a performance budget: five seconds
-            // measured machine load and failed under verify.
-            assert!(
-                started.elapsed() < Duration::from_secs(60),
-                "exec timed out"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    #[test]
-    fn start_then_poll_yields_done_and_stdout() {
-        let _guard = TEST_LOCK.lock();
-        reset_exec_jobs();
-        let started: serde_json::Value =
-            serde_json::from_str(&start("test-plugin", &print_hello_opts().to_string())).unwrap();
-        let job_id = started["jobId"].as_str().expect("job id");
-        assert!(job_id.starts_with("exec:test-plugin:"));
-
-        let done = poll_until_done("test-plugin", job_id);
-        assert_eq!(done["done"], true);
-        assert_eq!(done["code"], 0);
-        assert_eq!(done["stdout"], "hello");
-
-        let missing: serde_json::Value =
-            serde_json::from_str(&poll("test-plugin", job_id)).unwrap();
-        assert_eq!(missing["error"], "job not found");
-    }
-
-    #[test]
-    fn non_allowlisted_cmd_is_denied_by_same_gate_as_blocking_exec() {
-        let _guard = TEST_LOCK.lock();
-        reset_exec_jobs();
-        let sb = PluginSandbox::restricted(vec![], vec![]);
-        let opts = serde_json::json!({ "bin": "rm", "args": ["-rf", "/"] }).to_string();
-        let bin = bin_of(&opts).unwrap_or_default();
-
-        let raw = if sb.can_exec(&bin) {
-            start("test-plugin", &opts)
-        } else {
-            err(&format!("exec denied: {bin}"))
-        };
-
-        let denied: serde_json::Value = serde_json::from_str(&raw).unwrap();
-        assert_eq!(denied["error"], "exec denied: rm");
-    }
-
-    #[test]
-    fn detached_exec_rejects_log_paths_outside_plugin_write_roots() {
-        let _guard = TEST_LOCK.lock();
-        reset_exec_jobs();
-        let temp = tempfile::tempdir().unwrap();
-        let allowed = temp.path().join("allowed");
-        std::fs::create_dir_all(&allowed).unwrap();
-        let outside = temp.path().join("outside.log");
-        let outside_path = outside.to_string_lossy().into_owned();
-        let sandbox = PluginSandbox::restricted(vec![], vec![allowed]);
-        let opts = serde_json::json!({
-            "bin": "missing-executable",
-            "detach": true,
-            "logFile": outside_path,
-        });
-        let opts_json = opts.to_string();
-        let expected = format!(
-            "detached exec log denied: {} is outside plugin write roots",
-            outside.display()
-        );
-
-        let result: serde_json::Value =
-            serde_json::from_str(&run_with_host_env(&opts_json, &HashMap::new(), &sandbox))
-                .unwrap();
-        let async_result: serde_json::Value = serde_json::from_str(&start_with_host_env(
-            "log-denial-plugin",
-            &opts_json,
-            &HashMap::new(),
-            Arc::new(PluginSandbox::restricted(
-                vec![],
-                vec![temp.path().join("allowed")],
-            )),
-        ))
-        .unwrap();
-
-        assert_eq!(result["error"].as_str(), Some(expected.as_str()));
-        assert_eq!(async_result["error"].as_str(), Some(expected.as_str()));
-        assert!(EXEC_JOBS.lock().is_empty());
-        assert!(!outside.exists());
-    }
-
-    #[test]
-    fn host_exec_env_overrides_plugin_env_for_identity() {
-        let opts = serde_json::json!({
-            "bin": "codeterm",
-            "env": {
-                "CODETERM_TAB_ID": "spoofed",
-                "PLUGIN_VAR": "kept"
-            }
-        })
-        .to_string();
-        let host_env = HashMap::from([
-            ("CODETERM_TAB_ID".to_string(), "chat-tab".to_string()),
-            (
-                "CODETERM_SOCKET_PATH".to_string(),
-                "/tmp/codeterm.sock".to_string(),
-            ),
-        ]);
-
-        let merged: ExecOpts =
-            serde_json::from_str(&inject_host_env_json(&opts, &host_env).unwrap()).unwrap();
-
-        assert_eq!(
-            merged.env.get("CODETERM_TAB_ID").map(String::as_str),
-            Some("chat-tab")
-        );
-        assert_eq!(
-            merged.env.get("CODETERM_SOCKET_PATH").map(String::as_str),
-            Some("/tmp/codeterm.sock")
-        );
-        assert_eq!(
-            merged.env.get("PLUGIN_VAR").map(String::as_str),
-            Some("kept")
-        );
-    }
-
-    #[test]
-    fn start_returns_immediately_without_holding_the_caller_for_the_command_duration() {
-        let _guard = TEST_LOCK.lock();
-        reset_exec_jobs();
-        let t = Instant::now();
-        let started: serde_json::Value =
-            serde_json::from_str(&start("slow-plugin", &sleep_opts().to_string())).unwrap();
-        let elapsed = t.elapsed();
-        let job_id = started["jobId"].as_str().expect("job id");
-
-        assert!(
-            elapsed < Duration::from_millis(500),
-            "start blocked for {elapsed:?} — VM lock would be held for the exec duration"
-        );
-
-        let poll1: serde_json::Value = serde_json::from_str(&poll("slow-plugin", job_id)).unwrap();
-        assert_eq!(poll1["done"], false);
-
-        close("slow-plugin", job_id);
-    }
-
-    #[test]
-    fn exec_job_cap_is_per_plugin() {
-        let _guard = TEST_LOCK.lock();
-        reset_exec_jobs();
-        for _ in 0..MAX_EXEC_JOBS_PER_PLUGIN {
-            start_exec_job("cap-plugin").unwrap();
-        }
-        assert_eq!(
-            start_exec_job("cap-plugin").unwrap_err(),
-            format!("plugin cap-plugin reached the exec job limit ({MAX_EXEC_JOBS_PER_PLUGIN})")
-        );
-        let other_plugin_job = start_exec_job("other-plugin").unwrap();
-        close("other-plugin", &other_plugin_job);
-        drop_plugin_jobs("cap-plugin");
-    }
-
-    #[test]
-    fn completed_job_survives_an_unrelated_start_until_polled() {
-        let _guard = TEST_LOCK.lock();
-        reset_exec_jobs();
-        let completed = start_exec_job("owner-plugin").unwrap();
-        finish_exec_job(
-            &completed,
-            &serde_json::json!({ "code": 0, "stdout": "owned", "stderr": "" }),
-        );
-
-        let unrelated = start_exec_job("other-plugin").unwrap();
-        let result: serde_json::Value =
-            serde_json::from_str(&poll("owner-plugin", &completed)).unwrap();
-
-        assert_eq!(result["code"], 0);
-        assert_eq!(result["stdout"], "owned");
-        close("other-plugin", &unrelated);
-    }
-
-    #[test]
-    fn insertion_reaps_completed_unpolled_jobs_past_retention() {
-        let _guard = TEST_LOCK.lock();
-        reset_exec_jobs();
-        let completed = start_exec_job("leaky-plugin").unwrap();
-        finish_exec_job(
-            &completed,
-            &serde_json::json!({ "code": 0, "stdout": "done", "stderr": "" }),
-        );
-        EXEC_JOBS.lock().get_mut(&completed).unwrap().finished_at =
-            Some(Instant::now() - EXEC_JOB_RETENTION - Duration::from_millis(1));
-
-        let next = start_exec_job("leaky-plugin").unwrap();
-        let result: serde_json::Value =
-            serde_json::from_str(&poll("leaky-plugin", &completed)).unwrap();
-
-        assert_eq!(result["error"], "job not found");
-        close("leaky-plugin", &next);
-    }
-
-    #[test]
-    fn run_drains_output_larger_than_pipe_buffer_without_deadlock() {
-        #[cfg(windows)]
-        let opts = serde_json::json!({
-            "bin": "powershell",
-            "args": ["-NoProfile", "-Command", "[Console]::Out.Write('x' * 200000)"],
-            "timeoutMs": 10000,
-        });
-        #[cfg(not(windows))]
-        let opts = serde_json::json!({
-            "bin": "sh",
-            "args": ["-c", "head -c 200000 /dev/zero | tr '\\0' x"],
-            "timeoutMs": 10000,
-        });
-
-        // A deadlocked pipe cannot reach the assertions below, which is the proof.
-        // Wall-clock is not: it measured machine load and flaked at 6.6s.
-        let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
-        assert!(out.get("error").is_none(), "unexpected error: {out}");
-        assert_eq!(out["code"], 0);
-        assert_eq!(out["stdout"].as_str().map(str::len), Some(200_000));
-    }
-
-    #[test]
-    fn conversation_keeps_stdin_open_until_each_response_arrives() {
-        #[cfg(windows)]
-        let opts = serde_json::json!({
-            "bin": "powershell",
-            "args": ["-NoProfile", "-Command", r#"$line = $null; while (($line = [Console]::In.ReadLine()) -ne $null) { if ($line.Contains('"id":1')) { [Console]::Out.WriteLine('{"id":1,"result":{}}') }; if ($line.Contains('"id":2')) { [Console]::Out.WriteLine('{"id":2,"result":{}}') } }"#],
-            "conversation": [
-                { "stdin": "{\"method\":\"initialize\",\"id\":1}\n", "awaitResponseIds": [1] },
-                { "stdin": "{\"method\":\"hooks/list\",\"id\":2}\n", "awaitResponseIds": [2] }
-            ],
-            "timeoutMs": 10000
-        });
-        #[cfg(not(windows))]
-        let opts = serde_json::json!({
-            "bin": "sh",
-            "args": ["-c", r#"while IFS= read -r line; do case "$line" in *'"id":1'*) printf '%s\n' '{"id":1,"result":{}}';; *'"id":2'*) printf '%s\n' '{"id":2,"result":{}}';; esac; done"#],
-            "conversation": [
-                { "stdin": "{\"method\":\"initialize\",\"id\":1}\n", "awaitResponseIds": [1] },
-                { "stdin": "{\"method\":\"hooks/list\",\"id\":2}\n", "awaitResponseIds": [2] }
-            ],
-            "timeoutMs": 10000
-        });
-
-        let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
-        assert_eq!(
-            out["code"], 0,
-            "conversation process must exit cleanly: {out}"
-        );
-        assert!(
-            out.get("error").is_none(),
-            "conversation must complete: {out}"
-        );
-        let stdout = out["stdout"].as_str().unwrap_or_default();
-        assert!(stdout.contains("\"id\":1"));
-        assert!(stdout.contains("\"id\":2"));
-    }
-
-    #[test]
-    fn run_times_out_blocking_process() {
-        // The grandchild outsleeps any PowerShell startup jitter, so run()
-        // blocking on it reads as a 30s outlier, not a boundary value.
-        #[cfg(windows)]
-        let opts = serde_json::json!({
-            "bin": "powershell",
-            "args": [
-                "-NoProfile",
-                "-Command",
-                r#"$p = Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 30') -NoNewWindow -PassThru; Wait-Process -Id $p.Id"#
-            ],
-            "timeoutMs": 50,
-        });
-        #[cfg(not(windows))]
-        let opts = serde_json::json!({
-            "bin": "sh",
-            "args": ["-c", "sleep 2"],
-            "timeoutMs": 50,
-        });
-
-        // Windows: budget for slow PowerShell interpreter startup under CI
-        // contention (measured well before the 30s a real regression would take).
-        #[cfg(windows)]
-        let max_elapsed = Duration::from_secs(8);
-        #[cfg(not(windows))]
-        let max_elapsed = Duration::from_secs(1);
-
-        let started = Instant::now();
-        let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
-        assert!(
-            started.elapsed() < max_elapsed,
-            "timeout waited for descendant pipe handles to close: {:?}",
-            started.elapsed()
-        );
-        assert!(out
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .contains("timed out"));
-    }
-}
+mod tests;

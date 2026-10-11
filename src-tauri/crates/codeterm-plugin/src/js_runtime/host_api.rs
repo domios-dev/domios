@@ -111,6 +111,9 @@ pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    project_read_roots: Vec<PathBuf>,
+    project_write_roots: Vec<PathBuf>,
+    denied_writes: Vec<PathBuf>,
     /// Read-roots granted at runtime for tab cwds the HOST hands the plugin
     /// (bubble/glance ctx). Never fed from plugin-authored values (view args).
     granted_read_roots: parking_lot::Mutex<Vec<PathBuf>>,
@@ -157,6 +160,9 @@ impl PluginSandbox {
             unrestricted: true,
             read_roots: Vec::new(),
             write_roots: Vec::new(),
+            project_read_roots: Vec::new(),
+            project_write_roots: Vec::new(),
+            denied_writes: Vec::new(),
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             denied_reads: Vec::new(),
             credentials: Vec::new(),
@@ -182,6 +188,9 @@ impl PluginSandbox {
             unrestricted: false,
             read_roots,
             write_roots,
+            project_read_roots: Vec::new(),
+            project_write_roots: Vec::new(),
+            denied_writes: Vec::new(),
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             denied_reads: Vec::new(),
             credentials: Vec::new(),
@@ -348,21 +357,30 @@ impl PluginSandbox {
     }
 
     fn path_under(roots: &[PathBuf], path: &str) -> bool {
-        // to the lexical path when the target doesn't exist yet (writes).
-        let target = std::fs::canonicalize(path)
-            .ok()
-            .or_else(|| {
-                Path::new(path)
-                    .parent()
-                    .and_then(|p| std::fs::canonicalize(p).ok())
-                    .map(|p| p.join(Path::new(path).file_name().unwrap_or_default()))
-            })
-            .unwrap_or_else(|| PathBuf::from(path));
+        let Some(target) = codeterm_util::project_roots::canonical_target(Path::new(path)) else {
+            return false;
+        };
         roots.iter().any(|root| {
             std::fs::canonicalize(root)
                 .map(|r| target.starts_with(&r))
                 .unwrap_or(false)
         })
+    }
+
+    pub(super) fn with_project_roots(
+        mut self,
+        roots: Vec<PathBuf>,
+        granted: Vec<PathBuf>,
+        grants_path: PathBuf,
+    ) -> Self {
+        self.project_write_roots = roots
+            .iter()
+            .filter(|root| granted.contains(root))
+            .cloned()
+            .collect();
+        self.project_read_roots = roots;
+        self.denied_writes.push(grants_path);
+        self
     }
 
     /// Oldest grant is evicted past this; a tab rarely visits this many cwds.
@@ -408,6 +426,7 @@ impl PluginSandbox {
         }
         let allowed = self.unrestricted
             || Self::path_under(&self.read_roots, path)
+            || Self::path_under(&self.project_read_roots, path)
             || Self::path_under(&self.granted_read_roots.lock(), path);
         if !allowed {
             self.record_denial();
@@ -416,11 +435,33 @@ impl PluginSandbox {
     }
 
     pub(super) fn can_write(&self, path: &str) -> bool {
-        let allowed = self.unrestricted || Self::path_under(&self.write_roots, path);
+        let target = codeterm_util::project_roots::canonical_target(Path::new(path));
+        let denied = target.as_ref().is_some_and(|target| {
+            self.denied_writes.iter().any(|denied| {
+                codeterm_util::project_roots::canonical_target(denied).as_ref() == Some(target)
+            })
+        });
+        let project = self
+            .project_read_roots
+            .iter()
+            .any(|root| Path::new(path).starts_with(root))
+            || Self::path_under(&self.project_read_roots, path);
+        let allowed = !denied
+            && if project {
+                Self::path_under(&self.project_write_roots, path)
+            } else {
+                self.unrestricted || Self::path_under(&self.write_roots, path)
+            };
         if !allowed {
             self.record_denial();
         }
         allowed
+    }
+
+    pub(super) fn project_write_allowed(&self, root: &str) -> bool {
+        codeterm_util::project_roots::canonical_root(root)
+            .ok()
+            .is_some_and(|root| self.project_write_roots.contains(&root))
     }
 
     /// `envGet` policy: unrestricted plugins read anything; confined ones can't
@@ -616,6 +657,10 @@ pub(super) fn install(
         std::fs::canonicalize(&path)
             .ok()
             .map(|path| codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+    });
+    let sb = sandbox.clone();
+    bind!("projectWriteAllowed", move |root: String| -> bool {
+        sb.project_write_allowed(&root)
     });
     let sb = sandbox.clone();
     bind!("jsonBooleanRecord", move |path: String,
