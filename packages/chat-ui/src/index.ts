@@ -82,3 +82,5 @@ export { knownLanguageFromPath } from "./codeLanguage";
 
 export { messageParts, normalizedMarkdown, type MessagePart } from "./messageParts";
 export { MessagePartsContext } from "./MessagePartsContext";
+
+export { MessageTimeFrame } from "./MessageTimeFrame";

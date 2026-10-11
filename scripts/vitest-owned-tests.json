@@ -45,7 +45,6 @@
   "src/components/Canvas/planView/PlanParagraphAsk.test.tsx",
   "src/components/Canvas/planView/BoardTaskCard.actions.test.tsx",
   "src/components/Terminal/useChatScroll.stability.test.tsx",
-  "src/components/Terminal/chatMessageTimePlacement.test.ts",
   "src/components/Terminal/receiverTargetMark.test.tsx",
   "src/components/Terminal/terminalActivationResize.test.tsx",
   "src/components/Terminal/ChatComposer.composition.test.tsx",
@@ -124,5 +123,7 @@
   "src/components/Notifications/NotificationBell.choice.test.tsx",
   "src/components/Terminal/chatViewport.liveUpdates.test.ts",
   "src/components/Sidebar/GeneralWorkspaceTabs.test.tsx",
-  "src/lib/newSessionSection.test.ts"
+  "src/lib/newSessionSection.test.ts",
+  "packages/chat-ui/src/messageRowTime.test.ts",
+  "packages/chat-ui/src/MessageBubble.time.test.tsx"
 ]
