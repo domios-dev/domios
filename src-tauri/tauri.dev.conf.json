@@ -9,6 +9,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "create": false,
         "title": "CodeTerm",
         "width": 1200,
         "height": 800,
