@@ -156,9 +156,10 @@ impl ServiceContext {
                                 .into(),
                         );
                     }
-                    let _claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(
-                        &target.pty_id,
-                    );
+                    let _claim =
+                        crate::service::pty_io::submit_transaction::claim_command_submit_cycle(
+                            &target.pty_id,
+                        );
                     let (session, permit, input) = {
                         let mux = self.mux.read();
                         if !mux
