@@ -60,6 +60,7 @@ impl Slot {
 #[derive(Default)]
 struct Entry {
     epoch: u64,
+    admission: super::admission::Admission,
     baseline: Observation,
     slots: BTreeMap<ReminderKind, Slot>,
     last_soft_class: Option<String>,
@@ -174,6 +175,25 @@ impl Gate {
         entry.baseline.last_activity = observation.last_activity;
         entry.baseline.answered_choices = observation.answered_choices;
         entry.baseline.pending_hard = observation.pending_hard;
+    }
+
+    pub(crate) fn admit_judgement(
+        &self,
+        key: &str,
+        snapshot: &Snapshot,
+        now: u64,
+        interval: u64,
+    ) -> Result<(), &'static str> {
+        let mut entries = self.entries.lock();
+        let entry = self.entry(&mut entries, key).ok_or("scope_capacity")?;
+        let same = entry
+            .slots
+            .get(&snapshot.scope.kind)
+            .is_some_and(|slot| slot.same(&snapshot.hash(), &snapshot.state_hash(), snapshot));
+        let (next, result) =
+            super::admission::admit(&entry.admission, snapshot, same, now, interval);
+        entry.admission = next;
+        result
     }
 
     #[cfg(test)]

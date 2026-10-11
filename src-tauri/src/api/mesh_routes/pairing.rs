@@ -24,7 +24,7 @@ pub async fn mesh_pair_request(
     AxumState(state): AxumState<AppState>,
     Json(request): Json<crate::mesh::types::PairingRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (request_id, peer_name, our_id) = {
+    let (_request_id, peer_name, our_id) = {
         let mut mesh = state.mesh.lock();
         record_incoming_pairing_request(&mut mesh, request)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?
@@ -34,18 +34,10 @@ pub async fn mesh_pair_request(
         "mesh-state-changed",
         serde_json::Value::Null,
     );
-    state.svc.create_notification_ext(
+    state.svc.log_system_notice(
         "Mesh pairing request".into(),
         Some(format!("{} is waiting for owner approval.", peer_name)),
         Some("info"),
-        None,
-        Some(true),
-        crate::service::notification::NotificationOrigin::default(),
-        crate::service::notification::PushIntent {
-            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-            event_key: Some(format!("mesh-pairing-{request_id}")),
-        },
-        None,
     );
     Ok(Json(serde_json::json!({"ok": true, "instance_id": our_id})))
 }

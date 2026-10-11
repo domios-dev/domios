@@ -76,7 +76,7 @@ export function PlanSidePanel({
     : (loading ? "Loading plan…" : "This plan is not available.");
 
   return (
-    <SidePanelFrame panelRef={panelRef} state={state} label={dialogLabel} closeLabel={`Close ${subject}`} onClose={onClose} contentKey={contentKey} replaced={content.replaced}
+    <SidePanelFrame panelRef={panelRef} state={state} label={dialogLabel} backLabel={target.returnTo ? "Chat" : "originating view"} onClose={onClose} contentKey={contentKey} replaced={content.replaced}
       data-testid="plan-side-panel" data-kind={key ? "task" : "plan"} data-plan-id={target.planId} data-task-id={task?.id ?? taskRef}
       title={<>
         {key && (

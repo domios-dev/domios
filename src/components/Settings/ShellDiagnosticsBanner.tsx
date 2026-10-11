@@ -1,3 +1,4 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { Sliders } from "lucide-react";
@@ -30,7 +31,7 @@ export function ShellDiagnosticsBanner({ onDismissSettings }: { onDismissSetting
 
   const handleRestart = async () => {
     try {
-      await invoke("restart_app");
+      await nativeBridge.restartApp();
     } catch (e) {
       console.warn("restart_app failed:", e);
     }

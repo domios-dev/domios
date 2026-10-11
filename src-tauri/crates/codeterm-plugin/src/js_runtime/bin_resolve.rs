@@ -357,6 +357,9 @@ pub fn well_known_bin_dirs() -> Vec<std::path::PathBuf> {
         dirs.push(home.join(".local/bin"));
         dirs.push(home.join("bin"));
         dirs.push(home.join(".volta/bin"));
+        dirs.extend(crate::provider_command::versioned_bin_dirs(
+            &home.join(".nvm/versions/node"),
+        ));
         dirs.push(home.join(".bun/bin"));
         dirs.push(home.join(".cargo/bin"));
         dirs.push(home.join("scoop/shims"));

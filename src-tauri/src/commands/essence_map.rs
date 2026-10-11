@@ -210,26 +210,5 @@ pub(crate) fn read_workspace_essence_source_core(
         .map_err(|error| format!("Unable to read essence source: {error}"))
 }
 
-#[tauri::command]
-pub async fn read_workspace_essence_maps(
-    project_paths: Vec<String>,
-) -> Result<Vec<WorkspaceEssenceMapFile>, String> {
-    tokio::task::spawn_blocking(move || Ok(read_workspace_essence_maps_core(&project_paths)))
-        .await
-        .map_err(|error| format!("Essence map read task failed: {error}"))?
-}
-
-#[tauri::command]
-pub async fn read_workspace_essence_source(
-    project_path: String,
-    source_path: String,
-) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || {
-        read_workspace_essence_source_core(&project_path, &source_path)
-    })
-    .await
-    .map_err(|error| format!("Essence source read task failed: {error}"))?
-}
-
 #[cfg(test)]
 mod tests;

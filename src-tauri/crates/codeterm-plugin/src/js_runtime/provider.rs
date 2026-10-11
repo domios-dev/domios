@@ -62,6 +62,10 @@ impl JsProvider {
         vm: Arc<PluginVm>,
         trust: ProviderTrust,
     ) -> Self {
+        crate::model_catalog::register_catalogue_capability(
+            &manifest.id,
+            &manifest.model_catalogue,
+        );
         // Register the plugin's models with the catalog so settings UI and `default_model()` resolve through the same plumbing as native providers.
         if !manifest.models.is_empty() {
             let models = call_json::<Vec<super::SerdeModelInfo>>(&vm, "modelCatalogueSeed", &[])

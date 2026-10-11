@@ -101,7 +101,7 @@ async fn wait_for_activity(
 }
 
 #[derive(Debug, PartialEq)]
-struct TabOutputFrame {
+pub(crate) struct TabOutputFrame {
     output: String,
     offset: u64,
 }
@@ -133,7 +133,7 @@ fn drain_tab_output(
     frames
 }
 
-fn tab_output_frames(
+pub(crate) fn tab_output_frames(
     mut activity: broadcast::Receiver<OutputStreamActivity>,
     output_buf: crate::OutputBufferState,
     pty_id: Option<String>,
@@ -434,6 +434,27 @@ fn selected_tabs(
         .collect()
 }
 
+pub(crate) fn output_ended_frame(tab: &str, ended: &mut bool) -> Option<serde_json::Value> {
+    if *ended {
+        return None;
+    }
+    *ended = true;
+    Some(serde_json::json!({ "tab_id": tab, "ended": true }))
+}
+
+pub(crate) fn output_bytes_frame(
+    tab: &str,
+    pty: &str,
+    boot: &str,
+    data: &[u8],
+    offset: u64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "tab_id": tab, "pty_id": pty, "boot": boot,
+        "output": String::from_utf8_lossy(data), "data": data, "offset": offset
+    })
+}
+
 /// One blocking sweep over changed PTYs. Pure sync — safe for
 /// `spawn_blocking`; locks are acquired in order mux > output_buf >
 /// agent_tracker and each is dropped before the next, none held across `.await`.
@@ -527,10 +548,13 @@ fn sweep(
                 silent.push(tab.clone());
                 continue;
             }
-            let text = String::from_utf8_lossy(&read.output).to_string();
-            frames.push(
-                serde_json::json!({ "tab_id": tab, "output": text, "offset": read.new_offset }),
-            );
+            frames.push(output_bytes_frame(
+                tab,
+                pty,
+                &boot,
+                &read.output,
+                read.new_offset,
+            ));
             t.offset = read.new_offset;
         }
     }
@@ -549,9 +573,8 @@ fn sweep(
             });
             let dead = known.contains(pty) && tracker.get_status(pty) == TabStatus::Dead;
             if dead {
-                if !t.ended {
-                    frames.push(serde_json::json!({ "tab_id": tab, "ended": true }));
-                    t.ended = true;
+                if let Some(frame) = output_ended_frame(&tab, &mut t.ended) {
+                    frames.push(frame);
                 }
             } else if t.ended {
                 // Respawned into a fresh pty on the same tab — full-replay it.

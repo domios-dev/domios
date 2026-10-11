@@ -372,7 +372,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
                 finish_run(cron_state, job_id, &run_id, CronRunStatus::Failed, None)
                     .unwrap_or(false);
 
-            service.create_notification(format!("Cron failed: {}", job_id), Some(e), Some("error"));
+            service.log_system_notice(format!("Cron failed: {}", job_id), Some(e), Some("error"));
             if fresh_transition {
                 crate::cron::notify::notify_on_consecutive_failure(service, cron_state, job_id);
             }

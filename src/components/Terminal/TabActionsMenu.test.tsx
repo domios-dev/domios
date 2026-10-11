@@ -1,3 +1,5 @@
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 // Run: npx tsx src/components/Terminal/TabActionsMenu.test.tsx
 
 import { act } from "react";
@@ -155,6 +157,16 @@ async function cleanup({ host, root }: Mounted) {
   host.remove();
 }
 
+test("the menu shows its model's name and keeps session copy wired", async () => {
+  const mounted = await mountOpen(headerInput());
+  assert(byTestId("tab-menu-head")?.textContent?.includes(TAB.title), "model title rendered");
+  const copy = byTestId("tab-menu-copy-session-id");
+  assert(copy?.getAttribute("aria-label"), "copy has an accessible name");
+  await act(async () => copy!.click());
+  assert(mounted.actions.length === 1 && mounted.actions[0].type === "copySessionId", "session copy dispatched once");
+  await cleanup(mounted);
+});
+
 test("the auto-confirm checkbox reports its state, requests the flip and keeps the menu open", async () => {
   const mounted = await mountOpen(headerInput({ pluginTabMenu: { items: [], receiverTargets: {} } }));
   const item = byTestId("tab-permission-auto-confirm");
@@ -232,15 +244,15 @@ test("an unavailable Attach stays focusable, explains itself and does nothing", 
   await cleanup(mounted);
 });
 
-test("auto-confirm and Telegram go through their bridge commands", async () => {
+test("auto-confirm keeps its command and Telegram uses authenticated HTTP", async () => {
   const calls: Array<[string, unknown]> = [];
-  __setInvokeForTest((async (command: string, args?: unknown) => {
-    calls.push([command, args]);
-    if (command === "bridge_thread_state") return { bridge_active: true, topics: "unavailable", bound: false, link: null };
-    if (command === "bridge_thread_open") return { link: "https://t.me/c/1234567890/7" };
-    return true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  }) as any);
+  __setInvokeForTest(async <T,>(command: string, args?: unknown) => { calls.push([command, args]); return true as T; });
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>(method: string, path: string, body?: unknown) => {
+    calls.push([`${method} ${path}`, body]);
+    if (method === "GET") return { bridge_active: true, topics: "unavailable", bound: false, link: null } as T;
+    if (method === "POST") return { link: "https://t.me/c/1234567890/7" } as T;
+    return { outcomes: [] } as T;
+  }));
   try {
     await setTabPermissionAutoConfirm("tab-7", true);
     const state = await fetchTelegramThreadState("tab-7");
@@ -252,9 +264,9 @@ test("auto-confirm and Telegram go through their bridge commands", async () => {
   }
   assert(JSON.stringify(calls) === JSON.stringify([
     ["mux_set_permission_auto_confirm", { tabId: "tab-7", enabled: true }],
-    ["bridge_thread_state", { tabId: "tab-7" }],
-    ["bridge_thread_open", { tabId: "tab-7" }],
-    ["bridge_thread_close", { tabId: "tab-7" }],
+    ["GET /api/tabs/tab-7/bridge/thread", undefined],
+    ["POST /api/tabs/tab-7/bridge/thread", { selected_tab_id: "tab-7" }],
+    ["DELETE /api/tabs/tab-7/bridge/thread", { selected_tab_id: "tab-7" }],
   ]), `commands carry the tab through: ${JSON.stringify(calls)}`);
 });
 

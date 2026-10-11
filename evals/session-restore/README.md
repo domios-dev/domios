@@ -126,3 +126,32 @@ behaviour is checked manually before merging anything that touches
 `startup::states`.
 
 <!-- revision: 3 -->
+
+## SQLite and lazy-session restore regression (#563)
+
+Canonical live QA owns this leg; Workers do not restart a shared DEV. Use the
+bench's `dc` wrapper against the owner-selected DEV and record its health SHA.
+Create a lazy-session SQLite provider tab, require its composer readiness to
+clear Starting before sending, then create a conversation and record its exact
+session ID. Restart idle DEV and send one opaque marker immediately after
+reopening the tab. Require that same session's transcript to contain exactly one
+matching user turn and its answer, with the original bubble resolved. Send a
+second marker and require both bubbles to remain resolved without duplicate rows.
+Repeat while a reply is working: require a single automatic continue bubble,
+exact-session confirmation or a quiet uncertain status, and no Retry for uncertain
+input. Close/reopen Chat to verify status hydration, then check a file-backed
+provider's first post-restore send as the comparison.
+
+Deterministic fixtures: `launch_session_detection::tests::sqlite_resume_binds_only_the_claimed_session_without_a_session_file`,
+`agent_delivery_outbox::tests::restored_send_before_auth_flushes_once_without_another_ready_edge`,
+and `src/components/Terminal/opencodeLaunchDelivery.test.tsx`. A sibling row or
+newest session for the same cwd never proves the claimed session.
+
+For the working-restart leg, capture each restored PTY's `session-bound`,
+`first-composer`, `AgentReady`, and paste events. A lazy-session provider must
+reach its first composer before AgentReady releases any owed continue, even
+when its exact saved session already authenticated through a hook. Verify one
+fresh continue user turn and its reply in each own session, or one quiet uncertain
+bubble if submission remains unconfirmed. No probe or payload replay may stand
+in for that first continue. The pure ordering fixture is
+`launch_input_gate::tests::restored_continue::restored_owed_continue_waits_for_first_composer_then_claims_once`.

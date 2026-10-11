@@ -773,3 +773,30 @@ fn _unused_import_guard() {
     let _ = encode_cwd_dashed("/home/x/proj");
     let _ = json!(null);
 }
+
+#[test]
+fn required_live_catalogue_never_falls_back_to_manifest_model_or_default() {
+    let id = "required-live-default-564";
+    let json = r#"{
+        "id":"required-live-default-564", "version":"0.1.0", "displayName":"Fixture",
+        "modelCatalogue":{"authority":"authoritative","liveDiscoveryRequired":true},
+        "models":[{"id":"router/removed","displayName":"Removed"}],
+        "defaultModel":"router/removed"
+    }"#;
+    let provider = load(json, "module.exports.default = {};");
+    assert!(provider.available_models().is_empty());
+    assert!(provider.default_model().is_none());
+    crate::model_catalog::put_live(
+        id,
+        vec![ModelInfo {
+            id: "router/working".into(),
+            display_name: "Working".into(),
+            ..Default::default()
+        }],
+        Some("router/working".into()),
+    );
+    assert_eq!(provider.available_models()[0].id, "router/working");
+    assert_eq!(provider.default_model().as_deref(), Some("router/working"));
+    crate::model_catalog::unregister(id);
+    crate::model_catalog::cleanup(id);
+}

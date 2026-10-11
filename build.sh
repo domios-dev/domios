@@ -1574,18 +1574,22 @@ ensure_deps() {
 }
 
 prepare_release_bundle_inputs() {
+  local minimum_macos_version
+  minimum_macos_version=$(node -p "require('./src-tauri/tauri.conf.json').bundle?.macOS?.minimumSystemVersion || ''")
+  if [ -n "$minimum_macos_version" ]; then
+    export MACOSX_DEPLOYMENT_TARGET="$minimum_macos_version"
+  fi
   local cargo_target_args=()
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     cargo_target_args=(--target "$CARGO_BUILD_TARGET")
   fi
   pnpm build
-  node scripts/touch-cli-main.js
-  cargo build --release --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
+  cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
   node scripts/prepare-embed-stub.js
-  cargo build --release --manifest-path src-tauri/Cargo.toml \
+  cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
     "${cargo_target_args[@]}" \
-    --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+    --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
     --bin codeterm --bin codeterm-embed
   node scripts/bundle-embed.js
 }
@@ -1942,7 +1946,6 @@ EOF
     ensure_deps
     prepare_bundle_stubs
     ct_configure_sccache
-    touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
@@ -1963,7 +1966,6 @@ EOF
   cli)
     echo "[build] CLI uses Cargo's cli/target lock; app/dev gateway is independent."
     ct_configure_sccache
-    touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     built_cli_artifact="$(cli_release_binary)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
@@ -2113,7 +2115,6 @@ EOF
     ensure_deps
     ct_configure_sccache
     echo "Building CLI..."
-    touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     built_cli_artifact="$(cli_release_binary)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"

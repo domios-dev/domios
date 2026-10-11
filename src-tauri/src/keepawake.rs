@@ -694,38 +694,6 @@ fn restart_active_session(state: &KeepAwakeState, app: &AppHandle) -> Result<(),
     .map(|_| ())
 }
 
-#[tauri::command]
-pub fn keepawake_start(
-    duration_secs: Option<u64>,
-    display: Option<bool>,
-    gnome_policy: Option<bool>,
-    system_block: Option<bool>,
-    state: tauri::State<'_, KeepAwakeState>,
-    app: AppHandle,
-) -> Result<KeepAwakeStatus, String> {
-    start(
-        &state,
-        &app,
-        duration_secs,
-        display,
-        gnome_policy,
-        system_block,
-    )
-}
-
-#[tauri::command]
-pub fn keepawake_stop(
-    state: tauri::State<'_, KeepAwakeState>,
-    app: AppHandle,
-) -> Result<(), String> {
-    stop(&state, &app)
-}
-
-#[tauri::command]
-pub fn keepawake_status(state: tauri::State<'_, KeepAwakeState>) -> KeepAwakeStatus {
-    status(&state)
-}
-
 fn stop_inner(state: &KeepAwakeState) {
     if let Some(session) = state.lock().take() {
         let _ = session.stop_tx.send(());

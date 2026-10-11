@@ -1,6 +1,8 @@
 //! Notification creation with OS toast support.
 
-use codeterm_types::notification::{adopt_caller_actions, CallerAction, NotificationAction};
+#[cfg(test)]
+use codeterm_types::notification::NotificationAction;
+use codeterm_types::notification::{adopt_caller_actions, CallerAction};
 
 use super::ServiceContext;
 use crate::notification::{
@@ -83,17 +85,14 @@ impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
 /// into `PushDispatch` — the push opt-in clears its own intent when nobody is
 /// subscribed, while the declared level still governs the toast.
 ///
-/// The panel is not represented here. It is the complete log and takes every
-/// record unconditionally, so there is no policy for it to consult.
+/// The panel receives every admitted agent record.
 pub struct SurfaceDispatch {
     pub declared: Option<NotifyLevel>,
     pub desktop: DesktopPolicy,
 }
 
 impl SurfaceDispatch {
-    /// Routes that raise no toast at all: internal diagnostics and the in-app
-    /// provider-update prompt. They still reach the panel, which is where they
-    /// have always landed — silence is about interrupting, not about recording.
+    /// Disables desktop delivery without changing admission.
     pub fn silent() -> Self {
         Self {
             declared: None,
@@ -155,10 +154,13 @@ fn resolve_origin(
 #[cfg(test)]
 mod notify_gate_tests;
 
+mod admission;
+use admission::{destination, NoticeDestination, NoticeSource};
+
 #[derive(Debug)]
 pub(crate) enum NotificationAdmission {
     Diagnostic,
-    /// Explicitly requested (CLI/REST/frontend): stored, emitted, native best-effort.
+    /// Admitted through the agent notify-send boundary.
     Explicit,
 }
 
@@ -186,7 +188,15 @@ pub(crate) fn create_notification_with_delivery(
     surfaces: SurfaceDispatch,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
-    if matches!(admission, NotificationAdmission::Diagnostic) {
+    let source = match admission {
+        NotificationAdmission::Diagnostic => NoticeSource::System,
+        NotificationAdmission::Explicit => NoticeSource::AgentNotifySend,
+    };
+    if destination(source, true) == NoticeDestination::Log {
+        log::debug!(
+            "[system-notice] severity={severity:?} {title}: {}",
+            body.as_deref().unwrap_or_default()
+        );
         return uuid::Uuid::new_v4().to_string();
     }
     let actions = ask.actions.clone();
@@ -208,18 +218,47 @@ pub(crate) fn create_notification_with_delivery(
         NotificationAdmission::Diagnostic => unreachable!(),
         NotificationAdmission::Explicit => match push.intent.level {
             // An identical live message is the same message: it keeps its record and reaches neither the native sink nor the panel again.
-            None => match store.lock().add_deduped(
-                title.clone(),
-                body.clone(),
-                parsed_severity,
-                provenance.clone(),
-                ask,
-                sticky,
-                surfaces.declared,
-            ) {
-                DeliveryAdmission::Deliver(id) => id,
-                DeliveryAdmission::Duplicate(id) => return id,
-            },
+            None => {
+                let mut store = store.lock();
+                let keyed_question = ask.condition.is_none()
+                    && crate::notification::answer::slot_for(
+                        ask.actions.as_deref(),
+                        provenance.tab_id.as_deref(),
+                    )
+                    .is_some();
+                let admitted = if let Some(event_key) =
+                    push.intent.event_key.as_deref().filter(|_| keyed_question)
+                {
+                    let scope = push::scope_key(&provenance);
+                    let event_key = push::event_key(Some(event_key), &title);
+                    store.supersede_question(&scope, &event_key);
+                    let id = store.add_ext(
+                        title.clone(),
+                        body.clone(),
+                        parsed_severity,
+                        provenance.clone(),
+                        ask,
+                        sticky,
+                        surfaces.declared,
+                    );
+                    store.remember_question(scope, event_key, &id);
+                    DeliveryAdmission::Deliver(id)
+                } else {
+                    store.add_deduped(
+                        title.clone(),
+                        body.clone(),
+                        parsed_severity,
+                        provenance.clone(),
+                        ask,
+                        sticky,
+                        surfaces.declared,
+                    )
+                };
+                match admitted {
+                    DeliveryAdmission::Deliver(id) => id,
+                    DeliveryAdmission::Duplicate(id) => return id,
+                }
+            }
             Some(level) => {
                 let admitted = store.lock().add_push(PushRequest {
                     scope: push::scope_key(&provenance),
@@ -324,6 +363,32 @@ pub(crate) fn create_notification_with_delivery(
     id
 }
 
+fn announce_notification_resolution(
+    store: &NotifState,
+    ids: &[String],
+    mut spend: impl FnMut(&str, &SpentQuestion),
+    mut emit: impl FnMut(&str, serde_json::Value),
+) {
+    for id in ids {
+        let spent = { store.lock().spent_question(id) };
+        if let Some(spent) = spent {
+            spend(id, &spent);
+        }
+        emit("notification-resolved", serde_json::json!({ "id": id }));
+    }
+}
+
+fn create_notification_announcing_resolution(
+    store: &NotifState,
+    create: impl FnOnce() -> String,
+    announce: impl FnOnce(&[String]),
+) -> String {
+    let id = create();
+    let superseded = { store.lock().take_superseded() };
+    announce(&superseded);
+    id
+}
+
 impl ServiceContext {
     fn notify_created(&self, payload: serde_json::Value) {
         self.notify_event("notification-created", payload);
@@ -342,8 +407,7 @@ impl ServiceContext {
         })
     }
 
-    /// Internal diagnostic sink: fire-and-forget, never enters the user inbox.
-    pub fn create_notification(
+    pub fn log_system_notice(
         &self,
         title: String,
         body: Option<String>,
@@ -366,30 +430,11 @@ impl ServiceContext {
         )
     }
 
-    /// Explicitly requested notification (CLI/REST/frontend surfaces).
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_notification_ext(
-        &self,
-        title: String,
-        body: Option<String>,
-        severity: Option<&str>,
-        actions: Option<Vec<CallerAction>>,
-        sticky: Option<bool>,
-        origin: NotificationOrigin,
-        intent: PushIntent,
-        offer: Option<SurfaceOffer>,
-    ) -> String {
-        self.create_notification_ext_reported(
-            title, body, severity, actions, sticky, origin, intent, offer,
-        )
-        .0
-    }
-
     /// The same explicit notification, plus the honest answer to "will anyone
     /// see this". The record is opened either way — the report is information
     /// for the caller, never a refusal.
     #[allow(clippy::too_many_arguments)]
-    pub fn create_notification_ext_reported(
+    pub fn create_agent_notification_reported(
         &self,
         title: String,
         body: Option<String>,
@@ -399,10 +444,23 @@ impl ServiceContext {
         origin: NotificationOrigin,
         intent: PushIntent,
         offer: Option<SurfaceOffer>,
-    ) -> (String, Option<Unseen>) {
+    ) -> Result<(String, Option<Unseen>), String> {
+        let live_agent_caller = origin.peer_name.is_none()
+            && origin.caller_tab_id.as_deref().is_some_and(|id| {
+                self.mux
+                    .read()
+                    .get_tab(id)
+                    .is_some_and(|tab| tab.agent_type.is_some())
+            });
+        if destination(NoticeSource::AgentNotifySend, live_agent_caller) != NoticeDestination::Bell
+        {
+            return Err(
+                "Bell notifications require notify send from a live agent caller tab".into(),
+            );
+        }
         // The provenance seam: a caller-supplied set becomes stored actions
         // here, through a conversion with no invoke arm to reach.
-        self.create_notification_actions_reported(
+        Ok(self.create_notification_actions_reported(
             title,
             body,
             severity,
@@ -414,88 +472,18 @@ impl ServiceContext {
             sticky,
             origin,
             intent,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn create_prompt_notification_ext(
-        &self,
-        title: String,
-        body: Option<String>,
-        severity: Option<&str>,
-        actions: Option<Vec<NotificationAction>>,
-        sticky: Option<bool>,
-        origin: NotificationOrigin,
-        intent: PushIntent,
-    ) -> String {
-        self.create_notification_actions_reported(
-            title,
-            body,
-            severity,
-            Ask::offering(actions),
-            sticky,
-            origin,
-            intent,
-        )
-        .0
-    }
-
-    /// A sticky action-needed notice keyed to one standing condition of one
-    /// tab: one live record per tab and condition, resolved when it ends.
-    pub(crate) fn create_condition_notification(
-        &self,
-        tab_id: &str,
-        condition: TabCondition,
-        title: String,
-        body: Option<String>,
-        actions: Option<Vec<NotificationAction>>,
-    ) -> String {
-        self.create_condition_notification_with_key(
-            tab_id,
-            condition,
-            title,
-            body,
-            actions,
-            condition.key(tab_id),
-        )
-    }
-
-    pub(crate) fn create_condition_notification_with_key(
-        &self,
-        tab_id: &str,
-        condition: TabCondition,
-        title: String,
-        body: Option<String>,
-        actions: Option<Vec<NotificationAction>>,
-        event_key: String,
-    ) -> String {
-        let (id, _) = self.create_notification_actions_reported(
-            title,
-            body,
-            Some("warning"),
-            Ask::about(condition, actions),
-            Some(true),
-            NotificationOrigin::local_tab(tab_id.to_string()),
-            PushIntent {
-                level: Some(NotifyLevel::ActionNeeded),
-                event_key: Some(event_key),
-            },
-        );
-        let superseded = { self.notif.lock().take_superseded() };
-        self.announce_resolved(&superseded);
-        id
+        ))
     }
 
     /// Tell every surface these records resolved: channels stop offering
     /// their buttons and the panel drops them from the live set.
     pub(crate) fn announce_resolved(&self, ids: &[String]) {
-        for id in ids {
-            let spent = { self.notif.lock().spent_question(id) };
-            if let Some(spent) = spent {
-                self.spend_on_channels(id, &spent);
-            }
-            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
-        }
+        announce_notification_resolution(
+            &self.notif,
+            ids,
+            |id, spent| self.spend_on_channels(id, spent),
+            |name, payload| self.notify_event(name, payload),
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -512,12 +500,14 @@ impl ServiceContext {
         // The declared level outlives the push policy: an install whose
         // channels resolve to nobody still has a desktop gate to satisfy.
         let declared = intent.level;
+        let event_key = intent.event_key.clone();
         let super::notification_push::PushPlan {
-            intent,
+            mut intent,
             per_scope_limit,
             targets,
             refusals,
         } = self.resolve_push_plan(intent);
+        intent.event_key = event_key;
         let surfaces = self.resolve_surface_dispatch(declared);
         // Judged before the plan is moved into the sink, off the same targets
         // the sink will use — so the report cannot disagree with the delivery.
@@ -533,28 +523,36 @@ impl ServiceContext {
                     .collect(),
             },
         });
-        let id = create_notification_with_delivery(
-            NotificationAdmission::Explicit,
+        let id = create_notification_announcing_resolution(
             &self.notif,
-            |title, body| {
-                crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
+            || {
+                create_notification_with_delivery(
+                    NotificationAdmission::Explicit,
+                    &self.notif,
+                    |title, body| {
+                        crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
+                    },
+                    title,
+                    body,
+                    severity,
+                    ask,
+                    sticky,
+                    origin,
+                    |candidate| self.resolve_tab_provenance(candidate),
+                    PushDispatch {
+                        intent,
+                        per_scope_limit,
+                        deliver: move |envelope: PushEnvelope| {
+                            super::notification_push::deliver_plan(
+                                &targets, &refusals, self, &envelope,
+                            )
+                        },
+                    },
+                    surfaces,
+                    |payload| self.notify_created(payload),
+                )
             },
-            title,
-            body,
-            severity,
-            ask,
-            sticky,
-            origin,
-            |candidate| self.resolve_tab_provenance(candidate),
-            PushDispatch {
-                intent,
-                per_scope_limit,
-                deliver: move |envelope: PushEnvelope| {
-                    super::notification_push::deliver_plan(&targets, &refusals, self, &envelope)
-                },
-            },
-            surfaces,
-            |payload| self.notify_created(payload),
+            |ids| self.announce_resolved(ids),
         );
         (id, unseen)
     }
@@ -585,14 +583,6 @@ impl ServiceContext {
                 Err("That choice was not offered by this notification".to_string())
             }
         }
-    }
-
-    pub(crate) fn answer_owner_notification(
-        &self,
-        id: &str,
-        label: &str,
-    ) -> Result<serde_json::Value, String> {
-        self.answer_notification(id, label)
     }
 
     /// An answer arrived on a push channel. The token names a position on one

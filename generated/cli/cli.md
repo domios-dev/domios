@@ -250,9 +250,10 @@ Classify a bounded probe or same-Team agent observation
 - `--input-file` — Absolute or caller-cwd-relative path of the input data file
 - `--input-text` — Inline input text (only for --input text)
 - `--input-url` — http or https URL of the input data
-- `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
+- `--match` — Deterministic classification: unmatched output never calls the model; bucket=regex
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
+- `--model-classification` — Opt in to Supporter model classification when no patterns are declared
 - `--name` — Short meaningful name describing what is watched and what happens
 - `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
 - `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
@@ -2957,6 +2958,18 @@ Update bundled system provider plugins from the official plugin channel
 Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it
 
 - `<dir>` — Path to the plugin directory (the folder containing plugin.json)
+
+#### `codeterm rest-api`
+
+Inspect and recover the local REST listener through the socket
+
+#### `codeterm rest-api restart`
+
+Restart the REST listener and wait for readiness or a reported failure
+
+#### `codeterm rest-api status`
+
+Show listener phase and the last bind or runtime error over the local socket
 
 #### `codeterm send`
 

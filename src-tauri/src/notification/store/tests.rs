@@ -260,6 +260,58 @@ mod notification_admission {
     }
 
     #[test]
+    fn same_event_key_resend_retires_read_question() {
+        for read in [false, true] {
+            let question = |tab_id: &str, key: &str| {
+                let mut request = request(
+                    tab_id,
+                    NotifyLevel::ActionNeeded,
+                    Some(key),
+                    "opaque-title",
+                    "opaque-body",
+                    GENEROUS_LIMIT,
+                );
+                request.ask = Ask::offering(Some(vec![NotificationAction::Answer {
+                    label: "opaque-choice".into(),
+                }]));
+                request
+            };
+            let mut store = NotificationStore::new(10);
+            let first = store.add_push(question("asker", "event")).id().to_string();
+            let other_scope = store.add_push(question("other", "event")).id().to_string();
+            let other_key = store
+                .add_push(question("asker", "other-event"))
+                .id()
+                .to_string();
+            if read {
+                assert!(store.mark_read(&first));
+            }
+            let next = store.add_push(question("asker", "event"));
+            assert!(matches!(next, PushAdmission::Deliver(_)));
+            assert_ne!(first, next.id());
+            let retired = store.notification(&first).unwrap();
+            assert!(retired.resolved);
+            assert!(retired.read);
+            assert!(retired.actions.is_none());
+            assert_eq!(retired.body.as_deref(), Some("opaque-body"));
+            assert_eq!(
+                store.record_answer(&first, "opaque-choice"),
+                AnswerAdmission::NotOffered
+            );
+            assert!(store.offers_choice(next.id()));
+            let fresh = store.answer_slot(next.id()).unwrap();
+            assert_eq!(fresh.asked_from_tab.as_deref(), Some("asker"));
+            assert!(fresh.answered.is_none());
+            assert!(!fresh.delivered);
+            assert!(!store.notification(&other_scope).unwrap().resolved);
+            assert!(!store.notification(&other_key).unwrap().resolved);
+            assert_eq!(store.list(false).len(), 4);
+            assert_eq!(store.take_superseded(), vec![first]);
+            assert!(store.take_superseded().is_empty());
+        }
+    }
+
+    #[test]
     fn same_event_key_while_unread_is_a_duplicate() {
         const KEY: &str = "release-build";
         const FIRST_TITLE: &str = "Build started";

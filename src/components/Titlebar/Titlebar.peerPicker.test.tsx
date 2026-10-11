@@ -1,3 +1,6 @@
+import { beforeEach as beforeDaemonCase } from "vitest";
+import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
+beforeDaemonCase(() => configureDaemonFixture());
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +35,7 @@ vi.mock("../../lib/bridge", async (importOriginal) => ({
   invoke: vi.fn(async () => undefined),
   listen: vi.fn(async () => () => undefined),
 }));
-vi.mock("../../lib/webEvents", () => ({ resetWebEvents: vi.fn(), webListen: vi.fn() }));
+vi.mock("../../lib/webEvents", () => ({ bindWebEventsTransport: vi.fn(), resetWebEvents: vi.fn(), webListen: vi.fn() }));
 
 import { Titlebar } from "./Titlebar";
 import { Sidebar } from "../Sidebar/Sidebar";
@@ -61,7 +64,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (url) => {
     if (String(url) === `${selfHost()}/api/mesh/peers`) {
-      return new Response(JSON.stringify({ local_instance_name: "Gateway", paired: peers }));
+      return Response.json({ local_instance_name: "Gateway", paired: peers });
     }
     throw new Error(`Unexpected request: ${String(url)}`);
   });

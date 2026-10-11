@@ -848,9 +848,29 @@ export interface ChatSessionInfo {
 }
 
 // `spawnable` makes the backend user-openable; `watcher` opts into host-driven watcher ticks.
-export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean };
+export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean; sessionConfig?: boolean; agentTasks?: boolean };
+
+export interface AgentTaskInput {
+  runId: string;
+  tabId: string;
+  workspaceId: string;
+  profile: string;
+  task: string;
+  input: string;
+  timeoutMs: number;
+  maxTokens: number;
+  maxTurns: number;
+}
+
+export interface AgentTaskResult {
+  status: "done" | "failed" | "cancelled" | "deadline_exceeded";
+  output: unknown;
+  error?: string;
+}
 
 export interface ChatBackend {
+  runAgentTask?(input: AgentTaskInput): AgentTaskResult;
+  abortAgentTask?(runId: string): void;
   openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
   sendMessage(sessionId: string, text: string): void;
   // Optional turn-advance, called each tick before `poll` so an async backend drains its tickets. Best-effort; omit if synchronous.

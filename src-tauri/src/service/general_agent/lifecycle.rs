@@ -467,6 +467,7 @@ pub fn start_general_agent(
             provider: provider_name,
             permission_bypass,
             ownership: super::session_contract::LaunchOwnership::Main,
+            selection: Default::default(),
         },
     );
 }
@@ -477,6 +478,7 @@ pub(super) fn start_fresh_general_session(
     tab_id: String,
     provider: &str,
     permission_bypass: bool,
+    selection: super::session_contract::FreshLaunchSelection,
 ) {
     let _claim = match AutomaticLaunchClaim::acquire(&svc.mux, &tab_id) {
         Ok(claim) => claim,
@@ -497,6 +499,7 @@ pub(super) fn start_fresh_general_session(
             provider,
             permission_bypass,
             ownership: super::session_contract::LaunchOwnership::FreshSession,
+            selection,
         },
     );
 }

@@ -4,7 +4,7 @@ import { act, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Tab, MultiplexerState, Team, Workspace } from "../../lib/types";
-import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
 import { PlansProvider, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
@@ -37,6 +37,7 @@ function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://127.0.0.1:7686/team-recovery" });
   (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
+  Object.assign(window, { __CODETERM_DAEMON__: { origin: window.location.origin, token: "test-token" } });
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
@@ -179,17 +180,6 @@ function installFetch() {
 }
 
 async function installListen() {
-  __setInvokeForTest(async (command, args) => {
-    if (!restAvailable) throw new TypeError("PlanStore unavailable");
-    if (command === "list_plans_full") return backendPlans as never;
-    if (command === "list_plan_index") return backendPlans.map(indexEntry) as never;
-    if (command === "get_plan_full") {
-      const found = backendPlans.find((value) => value.id === args?.planId);
-      if (!found) throw new Error("plan not found");
-      return found as never;
-    }
-    throw new Error(`unexpected invoke: ${command}`);
-  });
   __setListenForTest(async (event, handler) => {
     const handlers = listenHandlers.get(event) ?? new Set<ListenHandler>();
     handlers.add(handler as ListenHandler);
@@ -340,7 +330,6 @@ async function main() {
   assertCurrentProjection(host);
 
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
   __setListenForTest(null);
   console.log("  ✓ Team active-plan recovery converges after one existing full resync");
 }

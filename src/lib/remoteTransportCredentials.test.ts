@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
   remoteOutputSubscriptionSnapshot,
@@ -11,14 +12,15 @@ const LOADED = { ...PRELOAD, token: "loaded-token" };
 
 const authOf = (call: unknown[]): string => {
   const init = call[1] as { headers?: Record<string, string> } | undefined;
-  return init?.headers?.Authorization ?? "";
+  return new Headers(init?.headers).get("Authorization") ?? "";
 };
 
 describe("remote transport credentials", () => {
   it("channel darkened without a token revives when the real token arrives", async () => {
-    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:7685" } }));
+    let token: string | null = null;
+    configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: () => token });
     const fetchMock = vi.fn()
-      .mockReturnValueOnce(Promise.resolve(new Response(null, { status: 401 })))
       .mockReturnValue(new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
     configureRemoteTabTransport(PRELOAD);
@@ -29,17 +31,20 @@ describe("remote transport credentials", () => {
     await waitForRemoteOutputGenerationSettlement(id, darkened);
     expect(remoteOutputSubscriptionSnapshot(id)).toEqual({ generation: darkened, hasController: false });
 
+    token = LOADED.token;
     configureRemoteTabTransport(LOADED);
     expect(remoteOutputSubscriptionSnapshot(id)).toEqual({ generation: darkened + 1, hasController: true });
-    expect(authOf(fetchMock.mock.calls[0])).toBe("");
-    expect(authOf(fetchMock.mock.calls[1])).toBe(`Bearer ${LOADED.token}`);
+    expect(fetchMock.mock.calls.length).toBe(1);
+    expect(authOf(fetchMock.mock.calls[0])).toBe(`Bearer ${LOADED.token}`);
 
     unsubscribe();
     vi.unstubAllGlobals();
   });
 
   it("a config re-emit carrying the same credentials does not churn the connection", async () => {
-    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:7685" } }));
+    let token: string | null = null;
+    configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: () => token });
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
     configureRemoteTabTransport(LOADED);
 
@@ -54,4 +59,7 @@ describe("remote transport credentials", () => {
   });
 });
 
+let completed = false;
+it("completes all event barriers", () => { completed = true; });
+process.once("beforeExit", () => { if (!completed) process.exitCode = 1; });
 finish();

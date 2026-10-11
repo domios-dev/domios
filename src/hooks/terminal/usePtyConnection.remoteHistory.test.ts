@@ -7,14 +7,14 @@ describe("remote terminal initial history ownership", () => {
     expect(shouldFetchInitialTerminalHistory("mesh:peer/tab", false, true)).toBe(false);
   });
 
-  it("keeps native local history replay and web stream ownership", () => {
-    expect(shouldFetchInitialTerminalHistory("pty", false, false)).toBe(true);
+  it("uses one stream replay owner in both shells", () => {
+    expect(shouldFetchInitialTerminalHistory("pty", false, false)).toBe(false);
     expect(shouldFetchInitialTerminalHistory("pty", true, false)).toBe(false);
     expect(shouldFetchInitialTerminalHistory(null, false, false)).toBe(false);
   });
 
   it("gives restored history exactly one initial replay owner per transport", () => {
-    expect(terminalHistorySource("pty", false, false)).toBe("backend-buffer");
+    expect(terminalHistorySource("pty", false, false)).toBe("transport");
     expect(terminalHistorySource("pty", true, false)).toBe("transport");
   });
 });

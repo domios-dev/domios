@@ -33,6 +33,7 @@ const API: ApiConfig = {
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://127.0.0.1:7686/plan-button" });
+  Object.assign(window, { __CODETERM_DAEMON__: { origin: /^https?:/.test(window.location.origin) ? window.location.origin : "http://127.0.0.1:7686", token: "test-token" } });
   (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
@@ -44,25 +45,18 @@ function setupDom() {
 
 let planChangedListener: ((event: { payload?: { plan_id?: string } }) => void) | null = null;
 
-// Desktop reads plans straight from PlanStore over IPC — never localhost REST.
 async function installBridgeMocks() {
-  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  __setInvokeForTest(async (command) => {
-    if (command === "list_plan_index") {
-      return [{
-        plan_id: FIXTURE_PLAN.id,
-        file_path: "/tmp/plan.json",
-        owner: FIXTURE_PLAN.owner,
-        title: FIXTURE_PLAN.title,
-        status: FIXTURE_PLAN.status,
-        updated_at: FIXTURE_PLAN.updated_at,
-        assigned_tab_ids: [],
-      }] as never;
-    }
-    if (command === "list_plans_full") return [FIXTURE_PLAN] as never;
-    if (command === "get_plan_full") return FIXTURE_PLAN as never;
-    throw new Error(`unexpected invoke: ${command}`);
-  });
+  const { __setListenForTest } = await import("../../lib/bridge");
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/plans" && url.searchParams.get("full") === "1") return Response.json({ plans: [FIXTURE_PLAN] });
+    if (url.pathname === "/api/plans") return Response.json({ plans: [{
+      plan_id: FIXTURE_PLAN.id, file_path: "/tmp/plan.json", owner: FIXTURE_PLAN.owner,
+      title: FIXTURE_PLAN.title, status: FIXTURE_PLAN.status, updated_at: FIXTURE_PLAN.updated_at, assigned_tab_ids: [],
+    }] });
+    if (url.pathname.startsWith("/api/plans/")) return Response.json(FIXTURE_PLAN);
+    throw new Error(`unexpected request: ${url}`);
+  };
   __setListenForTest(async (event, handler) => {
     if (event === "plan-changed") planChangedListener = handler as typeof planChangedListener;
     return () => {
@@ -89,7 +83,7 @@ async function renderButton(tabId: string, tab?: Tab): Promise<{ host: HTMLDivEl
     );
   });
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 30));
+    await Promise.resolve();
   });
   return { host, root };
 }

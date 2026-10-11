@@ -130,6 +130,7 @@ impl crate::service::ServiceContext {
         client_token: Option<String>,
         replay_only: bool,
     ) -> Result<UserReservation, String> {
+        self.restore_durable_user_statuses(tab_id)?;
         let authority = self.user_send_authority(tab_id)?;
         if let Some(service) = self.app_handle.try_state::<super::super::ServiceState>() {
             let weak = Arc::downgrade(service.inner());
@@ -322,7 +323,7 @@ impl crate::service::ServiceContext {
             held_before_readiness,
         )?;
         let status = self.chat_send_ledger.admit_user(&record);
-        let status = if held_before_readiness {
+        let mut status = if held_before_readiness {
             self.chat_send_ledger
                 .set_user_pending_reason(&record.send_id, Some("awaiting_agent_ready"))
                 .unwrap_or(status)
@@ -346,8 +347,14 @@ impl crate::service::ServiceContext {
         if self.user_authority_is_ready(&record.authority) {
             if let Some(pty_id) = record.authority.pty_id.as_deref() {
                 let claim = super::super::pty_io::submit_transaction::claim_submit_cycle(pty_id);
-                self.chat_send_ledger
-                    .store_user_submit_claim(&record.send_id, claim);
+                if let Some(wait) = claim.command_wait() {
+                    status = self
+                        .hold_user_send_for_model_command(&tab, &record.send_id, wait)
+                        .unwrap_or(status);
+                } else {
+                    self.chat_send_ledger
+                        .store_user_submit_claim(&record.send_id, claim);
+                }
             }
         }
         drop(reservation);

@@ -997,10 +997,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &pty_id,
                 &agent_cmd,
                 &readiness_attempt,
-                user_input::requires_initial_composer(
-                    session_starts_on_first_turn || user_composer_required,
-                    resume_session_id.as_deref(),
-                ),
+                session_starts_on_first_turn || user_composer_required,
                 input_readiness_timeout,
                 provider_readiness,
                 composer_cursor_position,
@@ -1072,7 +1069,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             };
             if let Some(e) = delivery_error {
                 let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
-                svc.create_notification(title, Some(body), Some("error"));
+                svc.log_system_notice(title, Some(body), Some("error"));
                 log::error!(
                     "launch_agent: task delivery failed for Tab {} (pty {}): {}",
                     tab_id,

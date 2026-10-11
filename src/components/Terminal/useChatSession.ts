@@ -42,8 +42,8 @@ import {
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
-import type { ChatSendStatus } from "./chatSendStatus";
-import { chatSendAt, observeDeliveryStatus, reconcileDeliveryStatuses } from "./chatSendStore";
+import { reconcileTrackedChatMessages, type ChatSendStatus } from "./chatSendStatus";
+import { chatSendAt, observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -248,8 +248,7 @@ export function useChatSession({
     try {
       do {
         sendStatusQueuedRef.current = false;
-        const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
-        reconcileDeliveryStatuses(tabId, statuses);
+        const statuses = await reconcileTrackedChatMessages(tabId);
         for (const status of statuses) {
           trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
           stampConfirmedTranscriptRow(windowKeyRef.current, status);
@@ -641,7 +640,7 @@ export function useChatSession({
   }, [committedRows, emitDiagnostic, tabId, transcript]);
 
   return {
-    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current),
+    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
     error,
     attachmentState,
     /** Set = the wait is over and it failed; the view reports it rather than
@@ -652,6 +651,7 @@ export function useChatSession({
     allMessages: view.allMessages,
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
+    newerMessageCount: view.newerMessageCount,
     canBackfillOlder: view.canBackfillOlder,
     backfillLoading: view.backfillLoading,
     loadOlder: view.loadOlder,

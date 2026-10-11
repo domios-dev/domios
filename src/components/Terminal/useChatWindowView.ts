@@ -20,6 +20,7 @@ import {
 } from "./chatSendStore";
 import {
   chatWindowAnchorIdentity,
+  chatReadingWindowAnchor,
   chatMessageAnchor,
   chatWindowProjection,
   chatWindowRange,
@@ -28,6 +29,7 @@ import {
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
+import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
 
 /** Viewport projection over the committed transcript and the tab's sends: window anchor
@@ -83,13 +85,29 @@ export function useChatWindowView({
 
   // A re-keyed or committed anchor row keeps the reading window in the same render,
   // so the tail is never projected under a detached reader in between.
+  const committedTailRef = useRef<ChatWindowAnchorIdentity | null>(null);
+  const tailWindowKeyRef = useRef(windowKey);
+  if (tailWindowKeyRef.current !== windowKey) {
+    tailWindowKeyRef.current = windowKey;
+    committedTailRef.current = null;
+  }
+  const readingAnchorKey = chatReadingWindowAnchor(allTimelineItems, anchorKey, followTailRef.current, committedTailRef.current);
+  useLayoutEffect(() => {
+    if (!followTailRef.current) {
+      if (anchorKey == null && readingAnchorKey != null) updateWindowAnchor(readingAnchorKey);
+      return;
+    }
+    const tail = allTimelineItems[allTimelineItems.length - 1];
+    committedTailRef.current = tail ? chatWindowAnchorIdentity(allTimelineItems, timelineItemKey(tail)) : null;
+  }, [allTimelineItems, anchorKey, followTailRef, readingAnchorKey, updateWindowAnchor]);
+
   const anchorIdentityRef = useRef<ChatWindowAnchorIdentity | null>(null);
   const loadedAnchorKey = useMemo(() => {
-    if (anchorKey == null) return null;
-    if (allTimelineItems.some((item) => timelineItemKey(item) === anchorKey)) return anchorKey;
+    if (readingAnchorKey == null) return null;
+    if (allTimelineItems.some((item) => timelineItemKey(item) === readingAnchorKey)) return readingAnchorKey;
     const identity = anchorIdentityRef.current;
     return identity ? rekeyedChatWindowAnchor(allTimelineItems, identity) : null;
-  }, [allTimelineItems, anchorKey]);
+  }, [allTimelineItems, readingAnchorKey]);
   const anchorIdentity = useMemo(
     () => chatWindowAnchorIdentity(allTimelineItems, loadedAnchorKey),
     [allTimelineItems, loadedAnchorKey],
@@ -102,14 +120,19 @@ export function useChatWindowView({
   );
   const windowAnchorIsLoaded = anchorKey == null || loadedAnchorKey != null;
 
-  const projectedTimelineItems = useMemo(
-    () => chatWindowProjection(allTimelineItems, loadedAnchorKey).items,
+  const windowProjection = useMemo(
+    () => chatWindowProjection(allTimelineItems, loadedAnchorKey),
     [allTimelineItems, loadedAnchorKey],
   );
+  const diagnosticTail = allTimelineItems.length > 0 ? timelineItemKey(allTimelineItems[allTimelineItems.length - 1]) : null;
+  useLayoutEffect(() => {
+    chatScrollDiagnostic(windowKey, "window", { anchorKey, loadedAnchorKey, newerCount: windowProjection.newerCount,
+      followTail: followTailRef.current, tail: diagnosticTail });
+  }, [anchorKey, loadedAnchorKey, windowProjection.newerCount, diagnosticTail, followTailRef, windowKey]);
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(
-    () => enrichTimelineItems(projectedTimelineItems, enrichmentCacheRef.current),
-    [projectedTimelineItems],
+    () => enrichTimelineItems(windowProjection.items, enrichmentCacheRef.current),
+    [windowProjection],
   );
 
   const hiddenMessageCount = transcript.evictedOlder + windowRange.start;
@@ -177,8 +200,8 @@ export function useChatWindowView({
     followTailRef.current = false;
     if (anchorKey != null) return;
     const item = allTimelineItems[windowRange.end - 1];
-    updateWindowAnchor(item ? timelineItemKey(item) : null);
-  }, [allTimelineItems, anchorKey, followTailRef, showLatest, updateWindowAnchor, windowRange.end]);
+    updateWindowAnchor(readingAnchorKey ?? (item ? timelineItemKey(item) : null));
+  }, [allTimelineItems, anchorKey, followTailRef, readingAnchorKey, showLatest, updateWindowAnchor, windowRange.end]);
 
   // The send key is captured here, once, when the composer accepts the send.
   const addOptimistic = useCallback((content: string) => {
@@ -201,6 +224,7 @@ export function useChatWindowView({
     committedRows,
     enrichedMessages,
     hiddenMessageCount,
+    newerMessageCount: windowProjection.newerCount,
     loadOlder,
     setHistoryReading,
     showLatest,

@@ -1,3 +1,6 @@
+import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
+import { onResync } from "../../lib/resync";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import {cachedSlashCommands} from "../../lib/providerCapabilities";
@@ -13,6 +16,7 @@ import { ComposerContextMeter } from "./ComposerContextMeter";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { classifyComposerDevice, composerEnterIntent } from "./composerKeyboard";
 import {
   createDelayedMessage,
   deleteDelayedMessage,
@@ -48,8 +52,8 @@ import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { hasCapsuleTokens } from "./composerCapsules";
-import { useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
+import { capsuleSegments, hasCapsuleTokens } from "./composerCapsules";
+import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
@@ -129,16 +133,6 @@ function SlashPicker({
 }
 
 const SUGGESTION_MENU_STYLE = { zIndex: 10, "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties;
-
-export function composerEnterIntent(
-  key: string,
-  shiftKey: boolean,
-  isComposing: boolean,
-): "submit" | "newline" | "none" {
-  if (isComposing) return "none";
-  if (key !== "Enter") return "none";
-  return shiftKey ? "newline" : "submit";
-}
 
 function recordComposerRender(tabId: string): void {
   if (typeof window === "undefined") return;
@@ -235,6 +229,10 @@ function ChatComposerImpl({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
+  const composerDevice = classifyComposerDevice({
+    userAgent: navigator.userAgent, platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints, touchOptimizedUi: touchMode,
+  });
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -258,6 +256,7 @@ function ChatComposerImpl({
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
+  const imageCapsules = capsuleSegments(input, capsules.registry).flatMap((segment) => "span" in segment && segment.capsule?.kind === "image" ? [segment] : []);
   const capabilities = useMuxSelector(useCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
@@ -310,13 +309,29 @@ function ChatComposerImpl({
     delayedTabRef.current = tabId;
     const feed = createDelayedMessageFeed(tabId, {
       load: listDelayedMessages,
-      publish: setDelayedMessages,
+      publish: (messages) => {
+        setDelayedMessages(messages);
+        setDelayedModal((target) => target?.kind === "edit"
+          ? (messages.some((message) => message.id === target.message.id && canSendDelayedMessage(message)) ? target : null)
+          : target);
+      },
       subscribe: (changed) => listen<{ tabId?: string }>("delayed-send-changed", (event) => {
         changed(event.payload?.tabId);
       }),
     });
+    const wake = () => {
+      if (document.visibilityState !== "hidden") void feed.wake();
+    };
+    const stopResync = onResync(() => void feed.wake());
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    window.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, wake);
     delayedFeedRef.current = feed;
     return () => {
+      stopResync();
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, wake);
       feed.dispose();
       if (delayedFeedRef.current === feed) delayedFeedRef.current = null;
     };
@@ -511,7 +526,7 @@ function ChatComposerImpl({
             busy={delayedBusyId === id}
             onClose={closeDelayedModal}
             onDelete={() => runOnDelayed(id, () => deleteDelayedMessage(id))}
-            onSendNow={() => runOnDelayed(id, () => sendDelayedMessageNow(id))}
+            onSendNow={() => runOnDelayed(id, () => sendCurrentDelayedMessage(id, { load: () => listDelayedMessages(tabId), send: sendDelayedMessageNow }))}
             onSubmit={(patch) => runOnDelayed(id, () => updateDelayedMessage(id, patch))}
           />
         );
@@ -532,9 +547,10 @@ function ChatComposerImpl({
           onError={flagComposerError}
           sendDisabled={!input.trim() && attachments.length === 0 && !reply.reply}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
-          cardHeader={(reply.reply || attachments.length > 0) && <>
+          cardHeader={(reply.reply || attachments.length > 0 || imageCapsules.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
             {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
+            {imageCapsules.map((segment) => <ComposerBubbleRow key={segment.span.start} attachments={[segment.capsule!.path]} onRemove={() => capsules.remove(segment.span)} />)}
           </>}
         >
           <SlashPicker
@@ -577,6 +593,16 @@ function ChatComposerImpl({
               onKeyDown={(e) => {
                 recordComposerIgnoredKey(e.key);
                 if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
+                const enterIntent = composerEnterIntent(composerDevice, {
+                  code: e.code || e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey,
+                  metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing,
+                });
+                if ((e.code || e.key) === "Enter" || e.code === "NumpadEnter") {
+                  if (enterIntent !== "submit") {
+                    if (enterIntent === "newline") setPickerOpen(false);
+                    return;
+                  }
+                }
                 if (capsules.handleKeyDown(e)) return;
                 if (mentionPicker.handleKey(e)) return;
                 const shortcutContext = { composerFocus: isActive, composing: compositionGate.active,
@@ -591,10 +617,6 @@ function ChatComposerImpl({
                   setInput(capsules.fromPortable(recall.stash(capsules.toPortable(input))));
                   return;
                 }
-                if (touchMode && e.key === "Enter" && !e.shiftKey) {
-                  setPickerOpen(false);
-                  return;
-                }
                 if (pickerOpen) {
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
@@ -606,9 +628,9 @@ function ChatComposerImpl({
                     setPickerHighlight((h) => Math.max(h - 1, 0));
                     return;
                   }
-                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                  if (e.key === "Tab" || enterIntent === "submit") {
                     e.preventDefault();
-                    if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
+                    if (enterIntent === "submit" && cliFallbackCommandPayload(input)) {
                       void send();
                       return;
                     }
@@ -628,7 +650,7 @@ function ChatComposerImpl({
                   reply.clear();
                   return;
                 }
-                if (composerEnterIntent(e.key, e.shiftKey, e.nativeEvent.isComposing) === "submit") {
+                if (enterIntent === "submit") {
                   e.preventDefault();
                   void send();
                 }
@@ -649,6 +671,13 @@ function ChatComposerImpl({
               }}
               onPaste={(e) => {
                 if (capsules.handlePaste(e)) return;
+                const data = e.clipboardData;
+                const hasFiles = data.files?.length || Array.from(data.items ?? []).some((item) => item.kind === "file");
+                if (hasFiles) {
+                  const text = data.getData("text/plain");
+                  e.preventDefault();
+                  if (text) replaceTextareaRange(e.currentTarget, e.currentTarget.selectionStart, e.currentTarget.selectionEnd, text);
+                }
                 void handlePasteEvent(e.nativeEvent);
               }}
               onCopy={(e) => capsules.handleCopy(e, false)}
@@ -657,7 +686,7 @@ function ChatComposerImpl({
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."
                 : "Message"}
-              enterKeyHint={touchMode ? "enter" : "send"}
+              enterKeyHint={composerDevice === "phone" ? "enter" : "send"}
               style={{
                 color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",
                 lineHeight: `${COMPOSER_MIN_HEIGHT}px`,

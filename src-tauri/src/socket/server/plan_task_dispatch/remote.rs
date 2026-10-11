@@ -12,6 +12,56 @@ fn encoded_bundle_size_allowed(encoded_size: usize, max_bundle_bytes: usize) -> 
     encoded_size <= max_bundle_bytes.div_ceil(3) * 4
 }
 
+struct RemoteModelSelection {
+    provider_id: String,
+    model: Option<String>,
+}
+
+fn remote_model_selection(
+    explicit_provider: Option<&str>,
+    requested: Option<&str>,
+    default_provider: &str,
+    provider_ids: &[String],
+) -> Result<RemoteModelSelection, JsonRpcError> {
+    let explicit = explicit_provider
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let requested = requested.map(str::trim).filter(|value| !value.is_empty());
+    let (provider, model) = match requested {
+        Some(requested) if requested.contains(':') => {
+            let (provider, model) = requested
+                .split_once(':')
+                .ok_or_else(|| invalid_dispatch("mesh model requires provider:model"))?;
+            if provider.is_empty() || model.is_empty() {
+                return Err(invalid_dispatch("mesh model requires provider:model"));
+            }
+            if explicit.is_some_and(|explicit| !explicit.eq_ignore_ascii_case(provider)) {
+                return Err(invalid_dispatch(
+                    "mesh model provider conflicts with explicit agent",
+                ));
+            }
+            (provider, Some(model))
+        }
+        Some(requested)
+            if provider_ids
+                .iter()
+                .any(|id| id.eq_ignore_ascii_case(requested)) =>
+        {
+            if explicit.is_some_and(|explicit| !explicit.eq_ignore_ascii_case(requested)) {
+                return Err(invalid_dispatch(
+                    "mesh model provider conflicts with explicit agent",
+                ));
+            }
+            (requested, None)
+        }
+        model => (explicit.unwrap_or(default_provider), model),
+    };
+    Ok(RemoteModelSelection {
+        provider_id: provider.to_string(),
+        model: model.map(str::to_string),
+    })
+}
+
 pub(super) fn dispatch(
     params: &Option<Value>,
     app: &tauri::AppHandle,
@@ -89,13 +139,12 @@ pub(super) fn dispatch(
         .map_err(|error| invalid_dispatch(&error))?;
     let authorized_gates = dispatch_authorized_gates(p)?;
     let requested_model = owned_str(p, "model").or_else(|| detail.task.model.clone());
-    let model = crate::service::spawn::resolve_agent_model_selection(
-        &svc.agent_registry,
+    let model = remote_model_selection(
         owned_str(p, "agent").as_deref(),
         requested_model.as_deref(),
         &crate::config::default_agent_provider(),
-    )
-    .map_err(super::super::model_errors::invalid_model_rpc_error)?;
+        &svc.agent_registry.provider_ids(),
+    )?;
     super::preflight::preflight_review_capacity(&plan, &detail.task)
         .map_err(super::super::plan::plan_rpc_err)?;
     let regression_warning =
@@ -685,6 +734,26 @@ Remote final report: write the report to a file, then run `codeterm plan task re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mesh_model_selection_defers_catalogue_validation_to_peer() {
+        let selected = remote_model_selection(None, Some("grok:grok-4.7"), "claude", &[]).unwrap();
+        assert_eq!(selected.provider_id, "grok");
+        assert_eq!(selected.model.as_deref(), Some("grok-4.7"));
+        let selected =
+            remote_model_selection(Some("remote-only"), Some("unknown-model"), "claude", &[])
+                .unwrap();
+        assert_eq!(selected.provider_id, "remote-only");
+        assert_eq!(selected.model.as_deref(), Some("unknown-model"));
+        assert!(
+            remote_model_selection(Some("claude"), Some("grok:grok-4.7"), "claude", &[]).is_err()
+        );
+        assert!(remote_model_selection(None, Some("grok:"), "claude", &[]).is_err());
+        let selected =
+            remote_model_selection(None, Some("codex"), "claude", &["codex".into()]).unwrap();
+        assert_eq!(selected.provider_id, "codex");
+        assert_eq!(selected.model, None);
+    }
 
     #[test]
     fn mesh_dispatch_refuses_peer_without_repo_or_base() {

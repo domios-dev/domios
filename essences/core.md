@@ -90,19 +90,9 @@ Providers may declare live model and effort commands. These run only at an idle 
 
 #### Provider lifecycle
 
-The planned coordinator extends the existing provider update responsibility under deterministic provider and session evidence. A declared update check or classified update prompt initiates one automatic update per provider and target version, deduplicated across tabs and restarts, without a consent click. The coordinator is a deterministic host operation; model availability changes its classification path, not its authority to perform the declared update. It uses the provider's declared update operation; only production participates by default, with explicit opt-in for another instance.
+Provider CLI updates are silent host operations using the provider's declared updater and compatibility verdict. Production participates by default; other instances opt in. A default-on setting allows opting out. An active provider turn defers the update to an idle event. Running agents are never restarted to apply an update; subsequent launches use the updated CLI.
 
-While an update runs, prompts receive only the provider-declared safe option, such as Skip; a working tab is never told to choose Update now. Success restarts idle tabs through session-aware recovery, including the General Agent. A turn in flight or an in-progress task keeps a tab pending until its next eligible idle event. Each tab restarts at most once per update. Failure restarts nothing and leaves the old version running. One summary reports restarted and pending tabs, is updated as pending work finishes, and retains failure evidence; update and restart actions are journaled.
-
-Provider updates use the provider's declared command and target version, shared
-across tabs and instances. The production instance coordinates automatically;
-other instances opt in. A classified update prompt answers only the declared
-safe option. A successful update resumes each idle tab, including the General
-Agent; an active turn or task attempt defers that tab to its next idle event.
-There is at most one automatic restart per tab per update. A failed command
-restarts nothing, preserves working tabs and reports its captured error. One
-summary tracks restarted and pending tabs, and the Supporter journal records
-the run and restart outcomes.
+A classified update prompt receives only the provider-declared safe option. A declared-incompatible target is refused. Results and captured failures go to logs and the provider's Settings status, without a bell entry or an owner action prompt. The host retains durable update claims and process ownership evidence to prevent concurrent or replayed operations.
 
 ### Prompts {#core:prompts}
 
@@ -139,7 +129,7 @@ One flat, trusted fabric of the owner's machines, and the relay that carries com
 The confined runtime for everything that is not core: agent providers, capability plugins, views, receivers and the channels they install from.
 
 - Part of: core:service-layer.
-- Invariants: plugin capabilities and access follow the [permission contract](permissions.md#plugin-grants-and-integration-consent). Plugin logic and views stay within the host's confinement boundary, and host APIs expose only the access that boundary allows. Official core providers ship with the app, are trusted by their official provenance, track the app version, and are never downgraded; third-party capability plugins are opt-in and remain sandboxed. Inbound receiver destinations are host-owned and user-selected; events go to the selected live tab and use the General Agent path if no live target remains, with no retry into a different tab, while plugins can see or clear only their own binding. Setup helpers and global provider integrations follow that contract's explicit-consent and ownership boundaries. Plugins declare graph nodes (media conversions and typed event sources), and conversion chains come from those declarations alone, never from a plugin identity.
+- Invariants: plugin capabilities and access follow the [permission contract](permissions.md#plugin-grants-and-integration-consent). Plugin logic and views stay within the host's confinement boundary, and host APIs expose only the access that boundary allows. Official core providers ship with the app as offline fallbacks, release independently through the official channel, declare their minimum compatible host, are trusted by official provenance, and are never downgraded by an older embedded copy; third-party capability plugins are opt-in and remain sandboxed. Inbound receiver destinations are host-owned and user-selected; events go to the selected live tab and use the General Agent path if no live target remains, with no retry into a different tab, while plugins can see or clear only their own binding. Setup helpers and global provider integrations follow that contract's explicit-consent and ownership boundaries. Plugins declare graph nodes (media conversions and typed event sources), and conversion chains come from those declarations alone, never from a plugin identity.
 - Dependent capabilities: agent providers, plugins and channels, webhook receivers, voice, and Analytics.
 
 The system channel participates in the same list, diff and refresh inventory as registered channels, even before it has a local registration. Listing needs no network access. An explicitly named channel failure is visible; an unavailable channel does not hide the others from an aggregate diff.

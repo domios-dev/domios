@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, type Ref } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { nativeBridge } from "../../lib/nativeBridge";
 import type { ApiConfig, ThemeConfig } from "../../lib/types";
 import { CloseXIcon, HamburgerIcon } from "../Icons";
 
@@ -64,8 +64,8 @@ export function Titlebar({
 }: TitlebarProps) {
   void _theme;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
-  const isTauri = !IS_WEB;
-  const appWindow = isTauri ? getCurrentWindow() : null;
+  const isTauri = nativeBridge.window !== undefined;
+  const appWindow = nativeBridge.window;
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
   const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
   const handleClose = useCallback(() => appWindow?.close(), [appWindow]);

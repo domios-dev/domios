@@ -11,7 +11,15 @@ impl Environment {
     pub(crate) fn current_instance() -> Self {
         let instance = crate::service::instance_env::InstanceEnv::resolve();
         let cli = crate::service::instance_env::instance_cli_binary_path();
-        let path = std::env::var_os("PATH");
+        let inherited = std::env::var_os("PATH");
+        let path = probe_path(
+            inherited.as_deref(),
+            if cfg!(target_os = "macos") {
+                &["/opt/homebrew/bin", "/usr/local/bin"]
+            } else {
+                &[]
+            },
+        );
         Self::for_instance(
             &instance.socket_path,
             &instance.api_url,
@@ -38,12 +46,18 @@ impl Environment {
             Some(token) => environment.set("CODETERM_API_TOKEN", token),
             None => environment.remove("CODETERM_API_TOKEN"),
         }
+        if let Some(path) = inherited_path {
+            environment
+                .variables
+                .push((OsString::from("PATH"), path.to_os_string()));
+        }
         if let Some(cli_binary) = cli_binary {
             if let Some(cli_dir) = crate::pty::manager::cli_dir_of(cli_binary.as_os_str()) {
                 let inherited_path = inherited_path.unwrap_or_default();
                 if let Some(path) =
                     crate::pty::manager::path_with_cli_dir_first(inherited_path, &cli_dir)
                 {
+                    environment.variables.retain(|(key, _)| key != "PATH");
                     environment.variables.push((OsString::from("PATH"), path));
                 }
             }
@@ -112,9 +126,35 @@ impl Environment {
     }
 }
 
+fn probe_path(inherited: Option<&OsStr>, defaults: &[&str]) -> Option<OsString> {
+    let mut paths: Vec<_> = std::env::split_paths(inherited.unwrap_or_default()).collect();
+    for directory in defaults {
+        let directory = std::path::PathBuf::from(directory);
+        if !paths.contains(&directory) {
+            paths.push(directory);
+        }
+    }
+    std::env::join_paths(paths).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_path_adds_homebrew_without_reordering_inherited_tools() {
+        let inherited = std::env::join_paths(["/usr/bin", "/usr/local/bin"]).unwrap();
+        let path = probe_path(Some(&inherited), &["/opt/homebrew/bin", "/usr/local/bin"]).unwrap();
+        let entries: Vec<_> = std::env::split_paths(&path).collect();
+        assert_eq!(
+            entries,
+            vec![
+                std::path::PathBuf::from("/usr/bin"),
+                std::path::PathBuf::from("/usr/local/bin"),
+                std::path::PathBuf::from("/opt/homebrew/bin")
+            ]
+        );
+    }
 
     #[test]
     fn sentinel_probe_environment_uses_instance_cli_and_auth() {

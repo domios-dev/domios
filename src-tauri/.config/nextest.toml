@@ -1,0 +1,3 @@
+# Canonical QA gates run every selected test so one pass reports every failure.
+[profile.qa]
+fail-fast = false

@@ -1,5 +1,5 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 import { useCallback, useEffect } from "react";
-import { invoke } from "../../lib/bridge";
 import { Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
 import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
 import type { HelpSectionId } from "../../help/types";
@@ -15,6 +15,7 @@ import { ModelDefaultsCard } from "./ModelDefaultsCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { AgentIcon } from "../AgentIcon";
 
 export function AgentsOverview({
@@ -92,7 +93,7 @@ export function AgentsOverview({
       >
         <button
           type="button"
-          onClick={() => invoke("open_folder", { path: "~/.codeterm/skills" }).catch(() => {})}
+          onClick={() => nativeBridge.openFolder("~/.codeterm/skills").catch(() => {})}
           className="ct-bar-pill ct-settings-link"
         >
           Open skills folder
@@ -135,7 +136,7 @@ export function AgentProviderScreen({
     return <div className="text-[10px] text-[var(--ct-red)]">Failed to load agent providers: {error}</div>;
   }
   if (loading && !provider) {
-    return <div className="text-[10px] text-[var(--ct-muted-fg)]">Loading provider…</div>;
+    return <TabLoadingIndicator label="Loading provider" />;
   }
   if (!provider) {
     // Transient: the pop effect above will unmount us on the next tick.

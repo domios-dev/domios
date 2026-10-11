@@ -23,6 +23,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
+mod filesystem;
 mod sqlite;
 
 use super::manifest::{CredentialConfig, PluginManifest};
@@ -111,6 +112,9 @@ pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    project_read_roots: Vec<PathBuf>,
+    project_write_roots: Vec<PathBuf>,
+    denied_writes: Vec<PathBuf>,
     /// Read-roots granted at runtime for tab cwds the HOST hands the plugin
     /// (bubble/glance ctx). Never fed from plugin-authored values (view args).
     granted_read_roots: parking_lot::Mutex<Vec<PathBuf>>,
@@ -158,6 +162,9 @@ impl PluginSandbox {
             unrestricted: true,
             read_roots: Vec::new(),
             write_roots: Vec::new(),
+            project_read_roots: Vec::new(),
+            project_write_roots: Vec::new(),
+            denied_writes: Vec::new(),
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             denied_reads: Vec::new(),
             credentials: Vec::new(),
@@ -184,6 +191,9 @@ impl PluginSandbox {
             unrestricted: false,
             read_roots,
             write_roots,
+            project_read_roots: Vec::new(),
+            project_write_roots: Vec::new(),
+            denied_writes: Vec::new(),
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             denied_reads: Vec::new(),
             credentials: Vec::new(),
@@ -355,24 +365,6 @@ impl PluginSandbox {
         self.svc.get()
     }
 
-    fn path_under(roots: &[PathBuf], path: &str) -> bool {
-        // to the lexical path when the target doesn't exist yet (writes).
-        let target = std::fs::canonicalize(path)
-            .ok()
-            .or_else(|| {
-                Path::new(path)
-                    .parent()
-                    .and_then(|p| std::fs::canonicalize(p).ok())
-                    .map(|p| p.join(Path::new(path).file_name().unwrap_or_default()))
-            })
-            .unwrap_or_else(|| PathBuf::from(path));
-        roots.iter().any(|root| {
-            std::fs::canonicalize(root)
-                .map(|r| target.starts_with(&r))
-                .unwrap_or(false)
-        })
-    }
-
     /// Oldest grant is evicted past this; a tab rarely visits this many cwds.
     const MAX_GRANTED_CWD_ROOTS: usize = 32;
 
@@ -407,28 +399,6 @@ impl PluginSandbox {
             let denied = std::fs::canonicalize(denied).unwrap_or_else(|_| denied.clone());
             denied == target
         })
-    }
-
-    pub(super) fn can_read(&self, path: &str) -> bool {
-        if self.is_denied_read(path) {
-            self.record_denial();
-            return false;
-        }
-        let allowed = self.unrestricted
-            || Self::path_under(&self.read_roots, path)
-            || Self::path_under(&self.granted_read_roots.lock(), path);
-        if !allowed {
-            self.record_denial();
-        }
-        allowed
-    }
-
-    pub(super) fn can_write(&self, path: &str) -> bool {
-        let allowed = self.unrestricted || Self::path_under(&self.write_roots, path);
-        if !allowed {
-            self.record_denial();
-        }
-        allowed
     }
 
     /// `envGet` policy: unrestricted plugins read anything; confined ones can't
@@ -624,6 +594,10 @@ pub(super) fn install(
         std::fs::canonicalize(&path)
             .ok()
             .map(|path| codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+    });
+    let sb = sandbox.clone();
+    bind!("projectWriteAllowed", move |root: String| -> bool {
+        sb.project_write_allowed(&root)
     });
     let sb = sandbox.clone();
     bind!("jsonBooleanRecord", move |path: String,

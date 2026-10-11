@@ -3,10 +3,11 @@ import { IS_WEB } from "../../../lib/webApi";
 import { DEV_BUILD } from "../../../lib/devBuild";
 import {
   MIN_VOICE_BYTES,
+  audioExt,
   microphoneErrorMessage,
   pickAudioMime,
   createVoiceRecorder,
-  storeVoiceBlob,
+  storeBlob,
 } from "./audio";
 import { claimCaptureOwnership, releaseCaptureOwnership, exactMicrophoneConstraints, hasExactLiveMicrophone } from "./larkCaptureModel";
 import type { RecordedVoiceClip, RecordingRuntime } from "./composerRecording";
@@ -57,7 +58,7 @@ type StopResult = string[] | boolean | RecordedVoiceClip | null;
  * `discardPreview()` drops it. A live AnalyserNode records amplitude peaks for
  * the preview waveform.
  */
-export function useVoiceRecorder(onError: (msg: string) => void) {
+export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = storeBlob) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [preview, setPreview] = useState<VoicePreviewData | null>(null);
@@ -396,7 +397,8 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   }
 
   async function uploadBlob(blob: Blob, mime: string): Promise<string[]> {
-    return storeVoiceBlob(blob, mime);
+    const path = await persistBlob(blob, `voice-note-${Date.now()}.${audioExt(mime)}`);
+    return path.trim() ? [path] : [];
   }
 
   function stopWith(kind: StopKind): Promise<StopResult> {

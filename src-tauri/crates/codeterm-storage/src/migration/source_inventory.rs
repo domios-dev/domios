@@ -36,7 +36,9 @@ pub struct CaptureLimits {
 impl Default for CaptureLimits {
     fn default() -> Self {
         CaptureLimits {
-            max_files: 128,
+            // Legacy desk backup retention alone keeps up to 142 snapshots; the byte bounds
+            // are the real budget, so the count only stops a runaway tree.
+            max_files: 1024,
             max_file_bytes: 64 << 20,
             max_total_bytes: 256 << 20,
             max_scan_entries: 16_384,

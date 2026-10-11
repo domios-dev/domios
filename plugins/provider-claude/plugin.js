@@ -24,6 +24,81 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/updateCheck.ts
+function record(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
+  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  if (!currentVersion || !versionParts(currentVersion)) return null;
+  const response = record(host2.fetch(JSON.stringify({
+    url: metadataUrl,
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: { Accept: "application/vnd.npm.install-v1+json" }
+  })));
+  if (response?.status !== 200) return null;
+  const metadata = record(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+}
+
+// plugins/provider-claude/src/update.ts
+function checkClaudeUpdate() {
+  return checkProviderUpdate(host, "claude", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
+}
+
 // plugins/provider-claude/src/preTrust.ts
 function claudeProjectKey(canonical, windows) {
   if (!windows) return canonical;
@@ -140,10 +215,10 @@ var LIMIT = 1e7;
 function count(value) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= LIMIT ? value : null;
 }
-function parseContextUsage(record2) {
-  if (!record2 || typeof record2 !== "object") return null;
-  if (record2.type === "system" && record2.subtype === "compact_boundary") {
-    const tokens = count(record2.compactMetadata?.postTokens);
+function parseContextUsage(record3) {
+  if (!record3 || typeof record3 !== "object") return null;
+  if (record3.type === "system" && record3.subtype === "compact_boundary") {
+    const tokens = count(record3.compactMetadata?.postTokens);
     return tokens === null ? null : {
       used_tokens: tokens,
       window_tokens: 0,
@@ -151,9 +226,9 @@ function parseContextUsage(record2) {
       source: "claude-jsonl-compaction"
     };
   }
-  const statusline = record2.context_window;
-  const hasStatusline = Object.prototype.hasOwnProperty.call(record2, "context_window");
-  const usage = hasStatusline ? statusline?.current_usage : record2.type === "assistant" ? record2.message?.usage : null;
+  const statusline = record3.context_window;
+  const hasStatusline = Object.prototype.hasOwnProperty.call(record3, "context_window");
+  const usage = hasStatusline ? statusline?.current_usage : record3.type === "assistant" ? record3.message?.usage : null;
   if (!usage || typeof usage !== "object") return null;
   const input = count(usage.input_tokens);
   const creation = usage.cache_creation_input_tokens === void 0 ? 0 : count(usage.cache_creation_input_tokens);
@@ -161,7 +236,7 @@ function parseContextUsage(record2) {
   if (input === null || creation === null || read === null || input + creation + read > LIMIT) return null;
   const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage.context_window_size !== void 0 ? usage.context_window_size : 0);
   if (window === null) return null;
-  const rawCost = record2.cost?.total_cost_usd;
+  const rawCost = record3.cost?.total_cost_usd;
   const cost = typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0 && rawCost <= 1e6 ? rawCost : null;
   return {
     used_tokens: input + creation + read,
@@ -249,7 +324,7 @@ function statuslineLaunchArgs(args) {
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function classifyAccessError(error, record2) {
+function classifyAccessError(error, record3) {
   const detail = object(error);
   const info = object(detail?.codexErrorInfo);
   const fields = [
@@ -263,11 +338,11 @@ function classifyAccessError(error, record2) {
     detail?.codexErrorInfo,
     ...Object.keys(info ?? {}),
     ...Object.values(info ?? {}).map((value) => object(value)?.httpStatusCode),
-    record2.status,
-    record2.statusCode,
-    record2.status_code,
-    record2.apiErrorStatus,
-    record2.apiErrorCode
+    record3.status,
+    record3.statusCode,
+    record3.status_code,
+    record3.apiErrorStatus,
+    record3.apiErrorCode
   ];
   if (fields.some((value) => typeof value === "string" && (value.startsWith("oauth_") || value.startsWith("authentication_")))) return "authentication";
   if (fields.some((value) => value === 401 || value === 403 || typeof value === "string" && [
@@ -304,24 +379,24 @@ function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function parseAuthStatus(value) {
-  const record2 = object2(value);
-  if (!record2 || typeof record2.loggedIn !== "boolean") return null;
-  const result = { loggedIn: record2.loggedIn };
+  const record3 = object2(value);
+  if (!record3 || typeof record3.loggedIn !== "boolean") return null;
+  const result = { loggedIn: record3.loggedIn };
   for (const key of ["authMethod", "subscriptionType", "configDirectory"]) {
-    const field = record2[key];
+    const field = record3[key];
     if (field !== void 0 && field !== null && (typeof field !== "string" || field.length > 4096)) return null;
     result[key] = field ?? null;
   }
   return result;
 }
 function parseSessionObservations(value) {
-  const record2 = object2(value);
-  if (!record2) return null;
+  const record3 = object2(value);
+  if (!record3) return null;
   const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
-  const permission_mode = typeof record2.permissionMode === "string" && modes.includes(record2.permissionMode) ? record2.permissionMode : null;
-  const isError = record2.isApiErrorMessage === true;
-  const api_error = isError ? classifyAccessError(record2.error, record2) : null;
-  const clears_api_error = record2.type === "assistant" && !isError && !!object2(record2.message);
+  const permission_mode = typeof record3.permissionMode === "string" && modes.includes(record3.permissionMode) ? record3.permissionMode : null;
+  const isError = record3.isApiErrorMessage === true;
+  const api_error = isError ? classifyAccessError(record3.error, record3) : null;
+  const clears_api_error = record3.type === "assistant" && !isError && !!object2(record3.message);
   return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error } : null;
 }
 
@@ -370,17 +445,17 @@ function registryDir() {
   return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
 function registrySessionId(raw, pid, startToken) {
-  let record2;
+  let record3;
   try {
-    record2 = JSON.parse(raw);
+    record3 = JSON.parse(raw);
   } catch (_) {
     return null;
   }
-  if (!record2 || typeof record2 !== "object" || record2.pid !== pid) return null;
-  if (typeof record2.kind === "string" && record2.kind !== "interactive") return null;
-  if (typeof record2.procStart !== "string") return null;
-  if (!startToken || record2.procStart.trim() !== startToken) return null;
-  const sessionId = typeof record2.sessionId === "string" ? record2.sessionId.trim() : "";
+  if (!record3 || typeof record3 !== "object" || record3.pid !== pid) return null;
+  if (typeof record3.kind === "string" && record3.kind !== "interactive") return null;
+  if (typeof record3.procStart !== "string") return null;
+  if (!startToken || record3.procStart.trim() !== startToken) return null;
+  const sessionId = typeof record3.sessionId === "string" ? record3.sessionId.trim() : "";
   return sessionId || null;
 }
 function detectClaudeLaunchSession(evidence) {
@@ -1041,17 +1116,17 @@ function fileDiff(path, hunks) {
 }
 function claudeFileDiffs(result) {
   if (!result || typeof result !== "object" || Array.isArray(result)) return [];
-  const record2 = result;
-  const path = typeof record2.filePath === "string" ? record2.filePath : "";
-  if (!path.trim() || !Array.isArray(record2.structuredPatch)) return [];
+  const record3 = result;
+  const path = typeof record3.filePath === "string" ? record3.filePath : "";
+  if (!path.trim() || !Array.isArray(record3.structuredPatch)) return [];
   const hunks = [];
-  for (const entry of record2.structuredPatch) {
+  for (const entry of record3.structuredPatch) {
     const hunk = patchHunk(entry);
     if (!hunk) return [];
     hunks.push(hunk);
   }
-  if (hunks.length > 0) return [{ ...fileDiff(path, hunks), kind: record2.type === "create" ? "add" : "modify" }];
-  return record2.type === "create" && typeof record2.content === "string" ? [{ ...fileDiff(path, createdHunks(record2.content)), kind: "add" }] : [];
+  if (hunks.length > 0) return [{ ...fileDiff(path, hunks), kind: record3.type === "create" ? "add" : "modify" }];
+  return record3.type === "create" && typeof record3.content === "string" ? [{ ...fileDiff(path, createdHunks(record3.content)), kind: "add" }] : [];
 }
 
 // plugins/provider-claude/src/toolFields.ts
@@ -1130,7 +1205,7 @@ var NOTIFICATION_STATES = {
   cancelled: "interrupted",
   canceled: "interrupted"
 };
-function record(value) {
+function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function text(value) {
@@ -1175,7 +1250,7 @@ function isAgentActivityBlock(block) {
 }
 function isSubAgentCall(name, input) {
   const tool = text(name);
-  return (tool === "Agent" || tool === "Task") && typeof record(input)?.prompt === "string";
+  return (tool === "Agent" || tool === "Task") && typeof record2(input)?.prompt === "string";
 }
 function subAgentCallBlock(id, input) {
   const callId = text(id);
@@ -1184,12 +1259,12 @@ function subAgentCallBlock(id, input) {
   return agentBlock(callId, {
     agent_state: "started",
     agent_description: description,
-    agent_model: modelFamily(record(input)?.model)
+    agent_model: modelFamily(record2(input)?.model)
   }, description);
 }
 function subAgentLaunchBlock(toolUseId, toolUseResult) {
   const callId = text(toolUseId);
-  const result = record(toolUseResult);
+  const result = record2(toolUseResult);
   const agentId = text(result?.agentId);
   const state = LAUNCH_STATES[text(result?.status)];
   if (!callId || !result || !PLAIN_ID_RE.test(agentId) || !state) return null;
@@ -2252,6 +2327,7 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,

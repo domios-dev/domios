@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronLeft, Folder, FolderPlus, Home, RefreshCw, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { BusyState } from "./BusyState";
@@ -93,10 +94,13 @@ export function RemoteFolderPicker({
     return items;
   }, [listing]);
 
-  return (
+  return createPortal(
     <>
       <div className="fixed inset-0 z-50 bg-black/45" onClick={onCancel} />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className="fixed z-50 left-1/2 top-1/2 flex w-[min(92vw,520px)] max-h-[82vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border shadow-2xl"
         style={{
           background: "var(--ct-bg, #0d1117)",
@@ -117,6 +121,7 @@ export function RemoteFolderPicker({
             onClick={onCancel}
             className="flex h-9 w-9 items-center justify-center rounded hover:bg-[var(--ct-hover)]"
             title="Close"
+            aria-label="Close folder picker"
           >
             <X size={16} />
           </button>
@@ -279,6 +284,7 @@ export function RemoteFolderPicker({
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

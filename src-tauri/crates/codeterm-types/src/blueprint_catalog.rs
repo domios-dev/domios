@@ -77,6 +77,13 @@ pub const STEPS: &[NodeDescriptor] = &[
         title: "Pipeline step: convert",
         metadata: r#"{"params_schema":{"from":"media kind","to":"media kind"}}"#,
     },
+    NodeDescriptor {
+        role: "agent",
+        kind: "step",
+        name: "agent",
+        title: "Pipeline step: bounded agent task",
+        metadata: r#"{"params_schema":{"provider":"agent-task capable provider id","profile":"profile id","task":"bounded instruction","deadline_ms":"1..3600000","max_tokens":"1..1000000","max_turns":"1..100"}}"#,
+    },
 ];
 pub const ROUTES: &[NodeDescriptor] = &[
     NodeDescriptor {
@@ -219,6 +226,14 @@ mod tests {
             StepKind::Convert {
                 from: MediaKind::Audio,
                 to: MediaKind::Text,
+            },
+            StepKind::Agent {
+                provider: "fixture".into(),
+                profile: "reader".into(),
+                task: "inspect".into(),
+                deadline_ms: 1000,
+                max_tokens: 1000,
+                max_turns: 2,
             },
         ];
         assert_eq!(

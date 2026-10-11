@@ -56,6 +56,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn confirmed_timeout_keeps_watching_but_unknown_resources_remain_fenced() {
+        let failure = ProbeFailure::new("probe_timeout");
+        assert_eq!(decide(None, &failure), Decision::Ordinary);
+        let mut uncertain = failure;
+        uncertain.unconfirmed(ResourceKind::ProcessGroup);
+        assert_eq!(decide(None, &uncertain), Decision::StopResources);
+    }
+
+    #[test]
     fn probe_owner_capacity_stops_for_routed_lifecycle_failure() {
         assert_eq!(
             decide(None, &ProbeFailure::new("probe_owner_capacity")),

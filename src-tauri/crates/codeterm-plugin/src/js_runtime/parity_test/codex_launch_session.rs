@@ -97,3 +97,50 @@ fn launch_marker_binds_only_the_rollout_that_carries_it() {
         None
     );
 }
+
+#[test]
+fn codex_0160_simultaneous_launches_bind_only_their_own_marker() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let state_db = dir.path().join("state_5.sqlite");
+    let _env = EnvGuard::new(&[("CODETERM_CODEX_STATE_DB_PATH", state_db.to_str().unwrap())]);
+    let codex = load_js("codex");
+    let fixture = include_str!(
+        "../../../../../../plugins/provider-codex/tests/fixtures/launch-session-0.160.0.jsonl"
+    );
+    let other = "ct-launch-fedcba9876543210fedcba9876543210";
+    let db = rusqlite::Connection::open(&state_db).unwrap();
+    db.execute_batch("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, created_at INTEGER NOT NULL);").unwrap();
+    for (id, marker) in [("launch-a", MARKER), ("launch-b", other)] {
+        let path = dir.path().join(format!("rollout-{id}.jsonl"));
+        std::fs::write(
+            &path,
+            fixture
+                .replace("fixture-session-0.160.0", id)
+                .replace(MARKER, marker),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO threads VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, path.to_str().unwrap(), 1_789_000_010_i64],
+        )
+        .unwrap();
+    }
+    for (id, marker) in [("launch-a", MARKER), ("launch-b", other)] {
+        let evidence = LaunchSessionEvidence {
+            cwd: "/work".into(),
+            launch_marker: Some(marker.into()),
+            launched_at_ms: 1_789_000_000_000,
+            processes: Vec::new(),
+        };
+        assert_eq!(
+            codex.detect_launch_session(&evidence),
+            Some(LaunchSessionDetection {
+                session_id: id.into(),
+                source: LaunchSessionSource::LaunchMarker
+            })
+        );
+    }
+}

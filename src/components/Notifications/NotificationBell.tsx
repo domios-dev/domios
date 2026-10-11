@@ -4,6 +4,8 @@ import { Bell } from "lucide-react";
 import type { Notification } from "../../lib/types";
 import { UI_TRAY_BTN } from "../shared/design";
 import { NotificationPanel } from "./NotificationPanel";
+import { anchoredPanelPosition } from "./notificationPanelPosition";
+export { anchoredPanelPosition } from "./notificationPanelPosition";
 
 interface NotificationBellProps {
   notifications: Notification[];
@@ -14,26 +16,6 @@ interface NotificationBellProps {
   onNavigate: (tabId: string, workspaceId: string | null) => void;
   onAnswer?: (id: string, label: string) => void;
 }
-
-/// Where the panel sits relative to the bell, and how wide it may grow.
-///
-/// The panel is right-anchored and grows leftward, so its own max-width cannot
-/// stop it running off the left edge on a narrow viewport; only the room
-/// remaining to the left of the anchor can.
-export function anchoredPanelPosition(
-  rect: { bottom: number; right: number },
-  viewportWidth: number,
-): { top: number; right: number; maxWidth: number } {
-  const right = Math.max(EDGE_GUTTER, viewportWidth - rect.right);
-  return {
-    top: rect.bottom + 6,
-    right,
-    maxWidth: Math.max(MIN_PANEL_WIDTH, viewportWidth - right - EDGE_GUTTER),
-  };
-}
-
-const EDGE_GUTTER = 8;
-const MIN_PANEL_WIDTH = 240;
 
 export function NotificationBell({
   notifications,

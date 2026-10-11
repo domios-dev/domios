@@ -39,6 +39,7 @@ struct Activity {
 
 pub(crate) struct SupporterRuntime {
     activity: Mutex<Activity>,
+    backoffs: Mutex<super::backoff::Backoffs>,
     journal: Mutex<Journal>,
     spend: SpendBook,
     team_resolver: OnceLock<TabFieldResolver>,
@@ -57,6 +58,7 @@ impl SupporterRuntime {
         let snapshot = loaded.unwrap_or_default();
         let last_activity = snapshot.calls.back().copied();
         Self {
+            backoffs: Mutex::new(Default::default()),
             activity: Mutex::new(Activity {
                 calls: snapshot.calls,
                 budget_reached: snapshot.budget_reached,
@@ -106,7 +108,18 @@ impl SupporterRuntime {
         }
     }
 
+    pub(crate) fn adapter_available(&self, adapter: &str) -> bool {
+        self.backoffs.lock().available(
+            adapter,
+            self.connection_epoch(),
+            codeterm_types::decision::deadline::now(),
+        )
+    }
+
     pub(crate) fn admit_adapter(&self, adapter: &str) -> Result<(), DecisionError> {
+        if !self.adapter_available(adapter) {
+            return Err(DecisionError::Unavailable("adapter_backoff".into()));
+        }
         self.spend
             .admit(adapter, chrono::Utc::now().timestamp_millis())
     }
@@ -128,6 +141,7 @@ impl SupporterRuntime {
     }
 
     pub(crate) fn mark_adapter_ready(&self, adapter: &str) {
+        self.backoffs.lock().recovered(adapter);
         self.activity
             .lock()
             .ready_adapters
@@ -193,11 +207,24 @@ impl SupporterRuntime {
 
     pub(crate) fn failure_with_activity(
         &self,
+        adapter: Option<&str>,
         kind: VerdictKind,
         tab: Option<&str>,
         error: &DecisionError,
         context: Option<&super::ActivityContext>,
     ) {
+        if matches!(error, DecisionError::Unavailable(reason) if reason == "adapter_backoff") {
+            return;
+        }
+        if let (Some(adapter), DecisionError::Unavailable(_)) = (adapter, error) {
+            if !self.backoffs.lock().failed(
+                adapter,
+                self.connection_epoch(),
+                codeterm_types::decision::deadline::now(),
+            ) {
+                return;
+            }
+        }
         let reason = match error {
             DecisionError::Budget => "budget",
             DecisionError::CreditExhausted | DecisionError::Http(402) => "credit_exhausted",
@@ -211,6 +238,7 @@ impl SupporterRuntime {
         let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(),
             "kind": kind, "tab": tab, "label": "other", "action": "notify_only", "reason": reason,
             "decision_point": decision_point,
+            "backoff": matches!(error, DecisionError::Unavailable(_)),
             "asked": context.map(|context| context.failure(reason)) }));
     }
 
@@ -307,7 +335,9 @@ impl SupporterRuntime {
             value["team_id"] = json!(self.team_id(value["tab"].as_str()));
         }
         if let Some(title) = value["tab"].as_str().and_then(|tab| {
-            self.tab_title_resolver.get().and_then(|resolve| resolve(tab))
+            self.tab_title_resolver
+                .get()
+                .and_then(|resolve| resolve(tab))
         }) {
             value["tab_title"] = json!(super::narrative::scrub(
                 &title,

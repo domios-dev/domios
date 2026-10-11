@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { installerShellLanguage, missingInstallerPrerequisites, providerCliPresentation, providerCliView, type ProviderCliStatus } from "./providerCli";
+import { providerCompatibilityHint, installerShellLanguage, missingInstallerPrerequisites, providerCliPresentation, providerCliView, type ProviderCliStatus } from "./providerCli";
 
 const base: ProviderCliStatus = { required: true, installed: null, binary: "tool", resolved_path: null, availability: "unknown", searched: [], installer: "opaque installer", updater: null };
 describe("provider CLI presentation", () => {
@@ -40,5 +40,24 @@ describe("provider CLI view", () => {
   it("labels the install command with the shell it runs in", () => {
     expect(installerShellLanguage("irm https://example.invalid/install.ps1 | iex")).toBe("powershell");
     expect(installerShellLanguage("curl -fsSL https://example.invalid/install.sh | sh")).toBe("bash");
+  });
+});
+
+describe("provider compatibility hint", () => {
+  const installed = { ...base, installed: true, detected_version: "1.20.0" };
+  it("keeps unsupported versions visible without claiming verified support", () => {
+    const hint = providerCompatibilityHint({ ...installed, compatibility: { verdict: "unknown", reasons: ["version_not_declared"] } });
+    expect(hint).toContain(installed.detected_version);
+    expect(hint).not.toBeNull();
+    expect(providerCliView({ ...installed, compatibility: { verdict: "unknown", reasons: ["version_not_declared"] } }, null).compatibilityHint).toBe(hint);
+    expect(providerCompatibilityHint({ ...installed, compatibility: { verdict: "breaking", reasons: ["sqlite_schema_conversion"] } })).not.toBe(hint);
+    expect(providerCompatibilityHint({ ...installed, detected_version: null, compatibility: { verdict: "unknown", reasons: ["version_unknown"] } })).not.toBeNull();
+  });
+  it("stays quiet for supported, undeclared, missing and backend CLIs", () => {
+    for (const status of [null, base, installed,
+      { ...installed, compatibility: { verdict: "supported" as const, reasons: [] } },
+      { ...installed, compatibility: { verdict: "unknown" as const, reasons: ["undeclared_capability"] } },
+      { ...installed, required: false, compatibility: { verdict: "unknown" as const, reasons: [] } },
+    ]) expect(providerCompatibilityHint(status)).toBeNull();
   });
 });

@@ -159,7 +159,7 @@ fn parity_update_command_for_provider_fixtures() {
     for (id, command) in [
         ("claude", "claude update"),
         ("codex", "codex update"),
-        ("opencode", "opencode upgrade"),
+        ("opencode", "opencode upgrade {version}"),
     ] {
         let native = NativeUpdateFixture { id, command };
         let js = load_js(id);
@@ -221,5 +221,28 @@ fn parity_live_prompt_response_abstains_without_explicit_valid_steps() {
         let provider = load_js(id);
         assert_eq!(provider.launch_onboarding_safe_choice(screen), None);
         assert!(provider.live_prompt_response(1, screen).is_some());
+    }
+}
+
+#[test]
+fn parity_update_check_existing_capability_preserves_target_versions() {
+    let expected = crate::provider::ProviderUpdateAvailability {
+        current_version: "1.18.35".into(),
+        latest_version: "1.19.8".into(),
+    };
+    let js = load_inline_js("fixture", "module.exports.default = { checkForUpdate: () => ({currentVersion:'1.18.35', latestVersion:'1.19.8'}) };");
+    assert!(js.supports_update_check());
+    assert_eq!(
+        serde_json::to_value(js.check_for_update()).unwrap(),
+        serde_json::to_value(Some(expected)).unwrap()
+    );
+    for id in ["claude", "codex", "opencode"] {
+        assert!(load_js(id).supports_update_check(), "{id}");
+    }
+    for platform in ["macos", "linux", "windows"] {
+        assert!(load_js("opencode")
+            .update_command(platform)
+            .unwrap()
+            .contains("{version}"));
     }
 }

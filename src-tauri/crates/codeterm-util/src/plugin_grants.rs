@@ -9,4 +9,6 @@ pub struct PluginGrants {
     pub permissions: BTreeMap<String, bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub network_allow: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub project_write_roots: Vec<String>,
 }

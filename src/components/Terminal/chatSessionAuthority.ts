@@ -23,10 +23,11 @@ export function attachmentActivity(
   state: ChatAttachmentState,
   loading: boolean,
   hadBoundSession: boolean,
+  hasBoundSession = hadBoundSession,
 ): { loading: boolean; recovering: boolean } {
   return {
     loading: state !== "attached" && loading,
-    recovering: hadBoundSession && (state === "awaiting_store" || state === "awaiting_session"),
+    recovering: hadBoundSession && (state === "awaiting_store" || (state === "awaiting_session" && hasBoundSession)),
   };
 }
 

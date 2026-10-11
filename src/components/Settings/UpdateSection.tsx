@@ -3,9 +3,13 @@ import { AlertCircle, CheckCircle2, Download, ExternalLink, RefreshCw } from "lu
 import { useUpdate } from "../../hooks/useUpdate";
 import { BusySpinner } from "../shared/BusyState";
 import { UI_BUTTON } from "../shared/design";
-import { SettingsCard, SettingsPill } from "./shared";
+import type { AppConfig } from "../../lib/types";
+import { SettingsCard, SettingsPill, Toggle } from "./shared";
 
-export function UpdateSection() {
+export function UpdateSection({ config, onUpdate }: {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+}) {
   const {
     status,
     currentVersion,
@@ -53,6 +57,10 @@ export function UpdateSection() {
       headerRight={<SettingsPill tone={statusTone}>{statusText}</SettingsPill>}
     >
       <div className="flex flex-col gap-3">
+        <Toggle label="Update provider CLIs automatically"
+          checked={config.updater?.auto_update_provider_clis ?? true}
+          onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
+        />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-sm font-medium text-[var(--ct-fg)]">

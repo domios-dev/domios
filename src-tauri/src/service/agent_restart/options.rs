@@ -64,7 +64,7 @@ impl ServiceContext {
                 );
             }
         }
-        if let Some(outcome) = self.restart_general_agent_if_target(tab_id, force, false)? {
+        if let Some(outcome) = self.restart_general_agent_if_target(tab_id, force)? {
             return outcome;
         }
         if let Some(snap) = self.failed_launch_restart_snapshot(tab_id)? {

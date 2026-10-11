@@ -6,6 +6,9 @@ import { useModelPresets } from "../../hooks/useModelPresets";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { setAgentSettings } from "../../lib/clientSettings";
 import {
+  allowedNewSessionModes,
+  choiceForSessionSection,
+  type NewSessionSection,
   defaultNewSessionChoice,
   readPersistedNewSessionChoice,
   reconcilePresetSelection,
@@ -29,6 +32,7 @@ export function NewSessionPicker({
   agentsConfig,
   agentConfig,
   initialProviderId,
+  section = "workspace",
   onClose,
 }: {
   workspaceId: string;
@@ -36,6 +40,7 @@ export function NewSessionPicker({
   agentsConfig?: AppConfig["agents"];
   agentConfig?: AppConfig["agent"];
   initialProviderId?: string;
+  section?: NewSessionSection;
   onClose: () => void;
 }) {
   const { providers } = useAgentProviders();
@@ -46,8 +51,9 @@ export function NewSessionPicker({
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
   );
+  const allowedModes = allowedNewSessionModes(section);
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
-  const [choice, setChoice] = useState<NewSessionChoice>(() => defaultNewSessionChoice(visibleProviders));
+  const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const [busy, setBusy] = useState(false);
   const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -67,7 +73,7 @@ export function NewSessionPicker({
   useEffect(() => {
     if (visibleProviders.length === 0) return;
     if (hasRestoredRef.current) {
-      setChoice((current) => resolvePersistedChoice(visibleProviders, current));
+      setChoice((current) => choiceForSessionSection(resolvePersistedChoice(visibleProviders, current), section));
       return;
     }
     const restored = readPersistedNewSessionChoice(visibleProviders);
@@ -80,10 +86,10 @@ export function NewSessionPicker({
         effortId: resolveEffort(provider, provider?.default_model),
       });
     } else {
-      setChoice(restored);
+      setChoice(choiceForSessionSection(restored, section));
     }
     hasRestoredRef.current = true;
-  }, [initialProviderId, visibleProviders]);
+  }, [initialProviderId, visibleProviders, section]);
 
   useEffect(() => {
     if (!hasRestoredRef.current) return;
@@ -187,7 +193,7 @@ export function NewSessionPicker({
     preset?: string,
   ) => {
     if (disabledProviderIds.has(providerId)) return;
-    const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
+    const targetCwd = section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd;
     await finishSpawn(() =>
       spawnAgentTab(
         workspaceId,
@@ -196,9 +202,10 @@ export function NewSessionPicker({
         modelId,
         effortId,
         preset,
+        ...(section === "general" ? ["fresh_general" as const] : []),
       ),
     );
-  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd]);
+  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
@@ -206,7 +213,7 @@ export function NewSessionPicker({
   }, [choice, runProviderSpawn]);
 
   const runPairSpawn = useCallback(() => {
-    if (choice.mode !== "pair") return;
+    if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")) return;
     if (
       disabledProviderIds.has(choice.orchestratorProviderId)
       || disabledProviderIds.has(choice.plannerProviderId)
@@ -236,7 +243,7 @@ export function NewSessionPicker({
           sticky: true,
         });
       });
-  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, workspaceId]);
+  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, workspaceId, section]);
 
   const handleStart = useCallback(() => {
     const start = async () => {
@@ -279,6 +286,7 @@ export function NewSessionPicker({
   ]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
+    if (!allowedNewSessionModes(section).includes(mode)) return;
     setChoice((prev) => {
       if (prev.mode === mode) return prev;
       if (mode === "single") {
@@ -299,7 +307,7 @@ export function NewSessionPicker({
         plannerEffortId: prev.mode === "pair" ? prev.plannerEffortId : prev.effortId,
       };
     });
-  }, []);
+  }, [section]);
 
   const canStart = choice.mode === "single"
     ? choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
@@ -344,7 +352,7 @@ export function NewSessionPicker({
         </button>
 
         <div className="relative mb-4" role="group" aria-label="Session mode">
-          <ModeCards mode={choice.mode} onSelect={handleModeSelect} />
+          <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} />
         </div>
 
         <div ref={modeFrameRef} className="picker-mode-frame relative">

@@ -207,6 +207,7 @@ pub struct ChatBackendCap {
     /// Who composes the context this backend sends. Absent ⇒ `Plugin`, today's
     /// exact behaviour; an unrecognized string fails the parse.
     pub context_owner: ContextOwner,
+    pub agent_tasks: bool,
 }
 
 impl ChatBackendCap {
@@ -249,6 +250,8 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 session_config: bool,
                 #[serde(default, rename = "contextOwner")]
                 context_owner: Option<String>,
+                #[serde(default, rename = "agentTasks")]
+                agent_tasks: bool,
             },
         }
         Ok(match Raw::deserialize(d)? {
@@ -258,12 +261,14 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 watcher: false,
                 session_config: false,
                 context_owner: ContextOwner::default(),
+                agent_tasks: false,
             },
             Raw::Obj {
                 spawnable,
                 watcher,
                 session_config,
                 context_owner,
+                agent_tasks,
             } => {
                 let context_owner = match context_owner {
                     None => ContextOwner::default(),
@@ -283,6 +288,7 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                     watcher,
                     session_config,
                     context_owner,
+                    agent_tasks,
                 }
             }
         })
@@ -297,16 +303,24 @@ impl Serialize for ChatBackendCap {
         S: serde::Serializer,
     {
         let host_context = !self.context_owner.is_plugin();
-        let declares = self.spawnable || self.watcher || self.session_config || host_context;
+        let declares = self.spawnable
+            || self.watcher
+            || self.session_config
+            || host_context
+            || self.agent_tasks;
         if self.enabled && declares {
             use serde::ser::SerializeMap;
             let len = (if self.spawnable { 1 } else { 0 })
                 + (if self.watcher { 1 } else { 0 })
                 + (if self.session_config { 1 } else { 0 })
+                + (if self.agent_tasks { 1 } else { 0 })
                 + (if host_context { 1 } else { 0 });
             let mut m = s.serialize_map(Some(len))?;
             if self.spawnable {
                 m.serialize_entry("spawnable", &true)?;
+            }
+            if self.agent_tasks {
+                m.serialize_entry("agentTasks", &true)?;
             }
             if self.watcher {
                 m.serialize_entry("watcher", &true)?;

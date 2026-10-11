@@ -15,6 +15,7 @@ pub(super) fn start(
         provider: provider_name,
         permission_bypass,
         ownership,
+        selection,
     } = target;
     let session_id = ownership.select_session(session_id);
     let general_cwd = general_dir().to_string_lossy().to_string();
@@ -24,11 +25,11 @@ pub(super) fn start(
         crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &svc.agent_registry,
             provider_name,
-            None,
+            selection.model.clone(),
             None,
         )
     });
-    let model_args = model_resolution
+    let mut model_args = model_resolution
         .as_ref()
         .and_then(|resolution| resolution.model.as_deref())
         .and_then(|model| {
@@ -36,9 +37,26 @@ pub(super) fn start(
                 .with_provider(provider_name, |provider| provider.model_launch_args(model))
         })
         .unwrap_or_default();
+    let preset_args = selection.preset_args.clone();
+    model_args.extend(selection.preset_args);
+    model_args.extend(
+        svc.reasoning_effort_launch_args_or_notice(
+            &tab_id,
+            provider_name,
+            model_resolution
+                .as_ref()
+                .and_then(|resolution| resolution.model.as_deref()),
+            selection.reasoning_effort.as_deref(),
+        ),
+    );
     if let Some(resolution) = model_resolution.as_ref() {
         if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
             crate::service::spawn::persist_model_launch_identity(tab, None, resolution);
+            crate::service::reasoning_effort::persist_launch_identity(
+                tab,
+                None,
+                selection.reasoning_effort.as_deref(),
+            );
         }
         crate::service::restored_launch::capture_tab_launch_parameters(
             mux,
@@ -46,10 +64,10 @@ pub(super) fn start(
             &svc.agent_registry,
             crate::service::restored_launch::RestorableLaunchCapture {
                 provider_id: provider_name,
-                requested_model: None,
+                requested_model: selection.model,
                 model: resolution.model.clone(),
-                reasoning_effort: None,
-                args: None,
+                reasoning_effort: selection.reasoning_effort,
+                args: (!preset_args.is_empty()).then_some(preset_args),
                 agent_name: None,
                 task: fresh_prompt.as_deref(),
                 role: Some("Manager"),

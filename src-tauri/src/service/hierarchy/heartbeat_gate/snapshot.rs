@@ -23,6 +23,14 @@ pub(super) fn plan_projection(plan: &Plan) -> BTreeMap<String, String> {
     out
 }
 
+pub(super) fn task_wake(task_id: &str, status: &TaskStatus) -> HardWake {
+    match status {
+        TaskStatus::Done | TaskStatus::Cancelled => HardWake::TaskClosed(task_id.into()),
+        TaskStatus::Blocked => HardWake::FailedGate(format!("task_blocked:{task_id}")),
+        _ => HardWake::TaskState(task_id.into()),
+    }
+}
+
 fn project_task(plan: &Plan, task: &Task, out: &mut BTreeMap<String, String>) {
     out.insert(
         format!("task:{}", task.id),
@@ -217,7 +225,7 @@ pub(crate) fn collect(
     observed.answered_choices = choices;
     for task in &plan.tasks {
         if snapshot.delta.contains_key(&format!("task:{}", task.id)) {
-            snapshot.hard.push(HardWake::TaskState(task.id.clone()));
+            snapshot.hard.push(task_wake(&task.id, &task.status));
         }
         if snapshot.delta.contains_key(&format!("review:{}", task.id)) {
             if let Some(review) = task
@@ -565,6 +573,15 @@ fn own_session_turns(
                 .with_provider(provider, |p| {
                     if p.uses_structured_chat() {
                         let delta = p.read_structured_chat(cwd, sid, cursor);
+                        if let Some(nonce) = tab.session_binding_nonce.as_deref() {
+                            crate::service::provider_signals::apply_structured(
+                                svc,
+                                &tab.id,
+                                sid,
+                                nonce,
+                                &delta.observations,
+                            );
+                        }
                         let unavailable = delta.cursor.is_none();
                         return (delta.messages, delta.cursor, unavailable);
                     }
