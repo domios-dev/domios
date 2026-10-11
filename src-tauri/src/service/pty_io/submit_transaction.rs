@@ -246,7 +246,7 @@ fn initial_submit_frames(
     capability: PasteEncodingCapability,
 ) -> Vec<Vec<u8>> {
     vec![
-        xterm_paste(text, live_mode, capability).into_bytes(),
+        encode_paste_frame(text, None, None, live_mode, capability),
         key.to_vec(),
     ]
 }
@@ -494,7 +494,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             live_bracketed_paste_mode,
             self.paste_capability,
         );
-        log::info!(
+        log::debug!(
             "[submit-audit] paste-encoding pty={} live_bracketed_paste_mode={:?} paste_capability={:?} source_bytes={} encoded_bytes={}",
             self.pty_id,
             live_bracketed_paste_mode,
@@ -971,18 +971,12 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     let output_generation_at_start = submit_cycle.output_generation();
     let turn_status_generation_at_start = status_signal.generation();
-    let provider = {
-        let mux = svc.mux.read();
-        mux.tab_id_for_pty(pty_id)
-            .and_then(|tab| mux.get_tab(&tab).and_then(|tab| tab.agent_type.clone()))
-    };
-    let declared_paste = provider.as_ref().and_then(|provider| {
-        svc.agent_registry
-            .with_provider(provider, |provider| provider.paste_capability())
-            .flatten()
-    });
-    let paste_capability =
-        PasteEncodingCapability::for_provider(&strategy, declared_paste.as_ref());
+    let (provider, paste_capability) = paste_encoding::resolve_pty_paste_capability(
+        &svc.mux,
+        &svc.agent_registry,
+        pty_id,
+        &strategy,
+    );
     let composer = provider.and_then(|provider| {
         svc.agent_registry
             .with_provider(&provider, |provider| provider.composer_cursor_position())
