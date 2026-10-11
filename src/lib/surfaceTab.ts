@@ -52,7 +52,7 @@ export function pluginViewSurface(tabId: string, backing: SurfaceTabBacking): Pl
   return { surfaceId: backing.surface_id, instanceId: backing.instance_id, tabId };
 }
 
-/** Query suffix for the view URL; the sandboxed page reads it from `location.search`. */
+/** Query suffix for the authenticated document request; the page reads `ct.surface`. */
 export function surfaceQuery(surface: PluginViewSurface | undefined): string {
   if (!surface) return "";
   const params = new URLSearchParams({ surface: surface.surfaceId, instance: surface.instanceId, tab: surface.tabId });

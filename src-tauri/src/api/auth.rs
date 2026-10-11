@@ -58,6 +58,10 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/mesh/pair/reject",
 ];
 
+fn bearer_exempt(method: &Method, path: &str) -> bool {
+    !path.starts_with("/api/") || PUBLIC_PATHS.contains(&path) || is_custom_auth(method, path)
+}
+
 fn peer_protocol_allowed(version: u16, path: &str) -> bool {
     crate::mesh::types::is_supported_relay_protocol(version)
         || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
@@ -305,15 +309,7 @@ pub async fn auth_middleware(
         }
     }
 
-    if !path.starts_with("/api/") {
-        return next.run(req).await;
-    }
-
-    if path.starts_with("/api/plugins/") && path.contains("/ui/") {
-        return next.run(req).await;
-    }
-
-    if PUBLIC_PATHS.iter().any(|p| path == *p) || is_custom_auth(&method, &path) {
+    if bearer_exempt(&method, &path) {
         return next.run(req).await;
     }
 
@@ -462,6 +458,19 @@ mod tests {
             tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/permission"),
             None,
         );
+    }
+
+    #[test]
+    fn plugin_ui_document_and_assets_require_bearer_authentication() {
+        for path in [
+            "/api/plugins/example/ui/index.html",
+            "/api/plugins/example/ui/app.js",
+            "/api/plugins/example/ui/icon.svg",
+        ] {
+            assert!(!bearer_exempt(&Method::GET, path));
+        }
+        assert!(bearer_exempt(&Method::GET, "/api/health"));
+        assert!(bearer_exempt(&Method::GET, "/frontend/index.html"));
     }
 
     #[test]

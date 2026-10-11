@@ -198,6 +198,19 @@ pub fn canonical_api_bind_addr(api: &schema::ApiConfig) -> Result<SocketAddr, St
     Ok(SocketAddr::new(host, api.port))
 }
 
+pub(crate) fn exact_cors_origin(origin: &str) -> bool {
+    if origin.contains('*') {
+        return false;
+    }
+    let Ok(url) = url::Url::parse(origin) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.origin().ascii_serialization() == origin
+}
+
 pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String> {
     let bind = canonical_api_bind_addr(api)?;
     let has_token = api
@@ -210,14 +223,14 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
             api.host
         ));
     }
-    if api.cors_allow_origins.iter().any(|origin| {
-        origin == "*"
-            || !(origin.starts_with("http://") || origin.starts_with("https://"))
-            || origin.parse::<axum::http::HeaderValue>().is_err()
-    }) {
-        return Err(
-            "api.cors_allow_origins must contain explicit HTTP(S) origins, never '*'".into(),
-        );
+    if let Some((index, _)) = api
+        .cors_allow_origins
+        .iter()
+        .enumerate()
+        .find(|(_, origin)| !exact_cors_origin(origin))
+    {
+        log::warn!("[rest-cors] refused api.cors_allow_origins entry={index}: expected an exact HTTP(S) origin");
+        return Err("api.cors_allow_origins must contain exact HTTP(S) origins, never '*'".into());
     }
     Ok(())
 }
@@ -623,6 +636,15 @@ sound = false
 
         permissive_cors.cors_allow_origins = vec!["*".into()];
         assert!(validate_api_trust_boundary(&permissive_cors).is_err());
+        for invalid in [
+            "https://*.example",
+            "https://trusted.example/path",
+            "https://user:secret@trusted.example",
+            "https://trusted.example?token=secret",
+        ] {
+            permissive_cors.cors_allow_origins = vec![invalid.into()];
+            assert!(validate_api_trust_boundary(&permissive_cors).is_err());
+        }
     }
 
     #[test]

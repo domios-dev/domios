@@ -128,3 +128,19 @@ fn frontend_shell_contract_limits_native_permissions_to_the_exact_frontend_origi
         }));
     }
 }
+
+#[test]
+fn frontend_shell_contract_cors_origins_match_declared_navigation_origins() {
+    let mut config = crate::config::schema::ApiConfig::default();
+    config.port = 7690;
+    let dev = Url::parse("http://127.0.0.1:1463/").unwrap();
+    let origins = declared_frontend_origins(&config, Some(&dev));
+    assert!(origins.contains(&fallback_origin().to_string()));
+    assert!(origins.contains(&"http://127.0.0.1:7690".into()));
+    assert_eq!(
+        origins.contains(&"http://127.0.0.1:1463".into()),
+        cfg!(debug_assertions)
+    );
+    assert!(!origins.contains(&"http://localhost:1463".into()));
+    assert!(!origins.contains(&"https://tauri.localhost".into()));
+}

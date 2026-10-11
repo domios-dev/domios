@@ -87,13 +87,12 @@ request_mode = "per_candidate"
 docs_hybrid = false
 
 [api]
+# cors_allow_origins = ["https://trusted.example"]
 enabled = true
 host = "127.0.0.1"
 port = 7685
 # Auto-generated on first load; every local control request uses Bearer auth.
 # token = "your-secret-token"
-cors = false
-# cors_allow_origins = ["https://trusted.example"]
 
 [general_agent]
 enabled = true
@@ -142,7 +141,7 @@ Plugin-defined settings live under `config.plugins.<id>` and are preserved as a 
 
 Agent-facing plugin settings use `codeterm plugin get <id>` and `codeterm plugin config <id>`. `get` reports each declared secret field as `set` or `unset` and never returns its value. It also returns the plugin's `config_help`, declared `agent_verbs`, and `agent_guide`: `null` when none is declared, otherwise its `path` with either `text` (at most 16 KiB, `truncated` when cut) or an `error` saying why the bundled file could not be read. Use `--set KEY=VALUE` for non-secret fields. For a schema-declared secret field, pipe the credential to `codeterm plugin config <id> --secret FIELD`; this reads stdin, refuses terminal input and empty input, and stores the value in that plugin's secret bucket. `--set` and `--values-json` reject secret fields with a pointer to `--secret`. Keep secret values out of command arguments, `config.yaml`, and logs. `--values-json` writes arrays and objects as nested YAML. A running plugin picks up a `plugin config` change within a few seconds without a reload, and its model list is re-read. `plugin install --from-dir` and `plugin update` keep the plugin's `config.yaml`; grants and all other files come from the new package.
 
-The API listens only on loopback by default. A non-loopback `host` requires a non-empty Bearer token. The existing Mesh switch is the only network-access control: Mesh off rejects every remote request while localhost remains available; Mesh on permits authenticated remote access. The installed app's WebView origins are always allowed to reach its local daemon. Other cross-origin clients remain closed unless `cors = true` and every allowed HTTP(S) origin is named in `cors_allow_origins`; `*` is never accepted. Authenticated `GET /api/config` redacts the token and reports both the configured address and the listener policy the process actually owns. `localhost`, `::1`, and `[::1]` are canonicalized to bindable loopback socket addresses; other hostnames are rejected in favor of an explicit numeric address.
+The API listens only on loopback by default. A non-loopback `host` requires a non-empty Bearer token. The existing Mesh switch is the only network-access control: Mesh off rejects every remote request while localhost remains available; Mesh on permits authenticated remote access. The shell's declared frontend origins are allowed to reach its local daemon: the daemon-served frontend, the configured DEV frontend and the platform's packaged fallback. Each `api.cors_allow_origins` entry adds an exact HTTP(S) origin. Wildcards, credentials, paths, query strings and fragments are refused and logged. Other cross-origin clients remain closed. Origins, methods and request headers never use `*`. Authenticated `GET /api/config` redacts the token and reports both the configured address and the listener policy the process actually owns. `localhost`, `::1`, and `[::1]` are canonicalized to bindable loopback socket addresses; other hostnames are rejected in favor of an explicit numeric address.
 
 `codeterm rest-api status` reads listener state through the local socket even when HTTP is down. It reports `phase`, `generation`, `diagnostic` and `message`; a port collision reports `bind_ownership_failed` with the bind address and OS error. Release the foreign port owner, then run `codeterm rest-api restart`. Restart waits for the listener's health proof and fails if it cannot bind. These commands are local-only and never fall back to HTTP. Native Settings → Network also offers Restart REST API. After recovery, use Retry surface lookup on an unavailable Browser surface and confirm the page renders.
 
@@ -237,4 +236,4 @@ Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `cod
 
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `codeterm plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
 
-<!-- revision: 107 -->
+<!-- revision: 108 -->
