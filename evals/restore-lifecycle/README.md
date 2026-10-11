@@ -1,3 +1,5 @@
+The same serialized run includes the [OpenCode track](OPENCODE.md).
+
 # Restore Lifecycle
 
 Proves that a Team of agent tabs survives full dev restarts (the reboot

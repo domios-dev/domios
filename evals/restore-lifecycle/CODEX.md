@@ -1,4 +1,4 @@
-# Codex spawn and restore matrix
+# Codex and OpenCode spawn and restore matrix
 
 Refs rollacode/codeterm#557 and #555. This is a live behaviour bench, not a
 source-only verdict. It restarts only `mobileqa` at port `7690`. It never
@@ -9,7 +9,7 @@ wrapper; a native entry point fails the GUI fixture prerequisite.
 ## Authorized execution
 
 Wait for the Orchestrator to supply the exact merged `release/1.14.2` SHA and
-confirm mobileqa is ready. First check `http://127.0.0.1:7690/api/health`.
+send “restart bench is yours” with that final SHA. First check `http://127.0.0.1:7690/api/health`.
 The runner checks the named instance, approved SHA and canonical checkout HEAD
 before a lifecycle operation. Every CLI command runs through `dc`; the Python
 observer receives its loopback URL and token only through `dev_run`.
@@ -86,3 +86,7 @@ pre-restart output masquerading as resumed work, shell PATH leakage, and prod
 observer routing. The preload test inspects the actual spawned fixture child.
 These checks prove the harness mechanisms; only the approved live matrix proves
 Codex restores on the release build.
+
+The same run continues with [OpenCode phases 8–11](OPENCODE.md), including
+provider-default and cheap models, visible first replies and lazy-session
+restore. Idle tabs owe zero continues; only interrupted Working tabs owe one.
