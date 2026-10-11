@@ -1,3 +1,4 @@
+import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
@@ -97,10 +98,13 @@ function AppInner() {
   useEffect(() => {
     if (!IS_WEB) {
       void (async () => {
+        frontendBootDiagnostic("ready-request");
         const generation = await invoke<number>("frontend_readiness_generation");
         const accepted = await invoke<boolean>("frontend_ready", { generation });
+        frontendBootDiagnostic(accepted ? "ready-accepted" : "ready-rejected");
         if (!accepted) throw new Error("frontend readiness generation was replaced");
       })().catch((error) => {
+        frontendBootDiagnostic("ready-failed");
         console.warn("Unable to report frontend readiness", error);
       });
     }

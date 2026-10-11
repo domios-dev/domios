@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT } from "./runtime";
 import { createFrontendSignals } from "./signals";
-import type { TransportClient } from "../transportClient";
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
+import type { StreamEnd, TransportClient } from "../transportClient";
 import type { CheckpointWrite, ClientCheckpoint } from "./checkpoint";
 
 const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "t", drafts: { t: { text: "last edit", attachmentIds: ["a"], replyTo: null } }, scroll: { t: { chat: "anchor", terminal: "42" } } };
@@ -12,6 +13,11 @@ function fixture(patch = {}) {
   let receive!: (name: string, data: unknown) => void;
   const calls: { method: string; path: string; body?: unknown }[] = [];
   const events: Event[] = [];
+  const eventTarget = new EventTarget();
+  eventTarget.addEventListener(ROOT_RENDERED_EVENT, event => events.push(event));
+  let end!: (end: StreamEnd) => void;
+  let subscriptions = 0;
+  let disposals = 0;
   const stored = new Map<string, string>();
   const navigated: string[] = [];
   const restored: ClientCheckpoint[] = [];
@@ -24,19 +30,38 @@ function fixture(patch = {}) {
       return { apiVersion: 2, pending: null, quarantined: [] } as T;
     },
     origin: () => "https://daemon.example", currentToken: () => "api-secret",
-    subscribe: (path: string, listener: typeof receive) => { expect(path).toBe("/api/events/stream"); receive = listener; return () => {}; },
+    subscribe: (path: string, listener: typeof receive, options: { onEnd: typeof end }) => { expect(path).toBe("/api/events/stream"); receive = listener; end = options.onEnd; subscriptions++; return () => { disposals++; }; },
   } as TransportClient;
   const options = { clientId: "clientA", signals, storage: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); } },
     navigate: (path: string) => { expect(stored.has("codeterm.frontend.boot")).toBe(true); navigated.push(path); },
-    events: { dispatchEvent: (event: Event) => { events.push(event); return true; } },
+    events: eventTarget,
     event: (detail: { releaseId: string; generation: number }) => new CustomEvent(ROOT_RENDERED_EVENT, { detail }),
     boot: { apiOrigin: "https://daemon.example", token: "api-secret", clientId: "clientA", ticket: { releaseId: release.releaseId, generation: 4, token: "old-health" }, attempted: [], bundled: { index: "/bundled/index.html", minApiVersion: 2, maxApiVersion: 2 } },
     bundled: { index: "/bundled/index.html", minApiVersion: 2, maxApiVersion: 2 }, onError: (error: unknown) => { throw error; },
   };
-  return { client, options, signals, calls, events, navigated, stored, restored, receive: (name: string, data: unknown) => receive(name, data) };
+  return { client, options, signals, calls, events, navigated, stored, restored, end: (reason: StreamEnd["reason"]) => end({reason}), subscriptions: () => subscriptions, disposals: () => disposals, receive: (name: string, data: unknown) => receive(name, data) };
 }
 
 describe("frontend runtime integration", () => {
+  it("reconnects a clean generation end, waits for recovery after failure, and stops on disposal", async () => {
+    const f = fixture();
+    const runtime = await initializeFrontendUpdateRuntime(f.client, f.options);
+    f.end("eof");
+    await Promise.resolve();
+    expect(f.subscriptions()).toBe(2);
+    expect(runtime.snapshot().revision).toBe(9);
+    f.end("http");
+    await Promise.resolve();
+    expect(f.subscriptions()).toBe(2);
+    f.options.events.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+    expect(f.subscriptions()).toBe(3);
+    runtime.dispose();
+    f.end("eof");
+    f.options.events.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+    await Promise.resolve();
+    expect(f.subscriptions()).toBe(3);
+    expect(f.disposals()).toBe(1);
+  });
   it("hydrates before returning the render boundary and reports only the exact committed root identity", async () => {
     const f = fixture();
     const runtime = await initializeFrontendUpdateRuntime(f.client, f.options);

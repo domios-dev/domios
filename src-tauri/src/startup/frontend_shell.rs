@@ -66,9 +66,17 @@ fn bootstrap(config: &crate::config::schema::ApiConfig) -> Result<ShellBootstrap
 }
 
 fn bootstrap_script(bootstrap: &ShellBootstrap) -> Result<String, serde_json::Error> {
-    Ok(include_str!("frontend_shell_bootstrap.js").replace(
+    let script = include_str!("frontend_shell_bootstrap.js").replace(
         "__CODETERM_SHELL_BOOTSTRAP__",
         &serde_json::to_string(bootstrap)?,
+    );
+    Ok(script.replace(
+        "__CODETERM_SHELL_DEBUG__",
+        if cfg!(debug_assertions) {
+            "true"
+        } else {
+            "false"
+        },
     ))
 }
 
@@ -143,6 +151,10 @@ pub(crate) fn create_window(
             .clone()
             .unwrap_or_else(|| bootstrap.origin.clone())
     });
+    log::debug!(
+        "[frontend-shell] window creation: frontend_origin={origin:?}, daemon_origin={:?}",
+        bootstrap.as_ref().map(|bootstrap| &bootstrap.origin)
+    );
     let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
     if let Some(bootstrap) = bootstrap {
         app.add_capability(daemon_capability(
@@ -152,14 +164,36 @@ pub(crate) fn create_window(
     }
     Ok(builder
         .on_page_load(|window, payload| {
+            log::debug!(
+                "[frontend-shell] page load {:?}: {}",
+                payload.event(),
+                navigation_identity(payload.url())
+            );
             if payload.event() == tauri::webview::PageLoadEvent::Started {
                 observe_navigation(window, payload.url().clone());
+            } else if cfg!(debug_assertions) {
+                let _ = window.eval("window.__CODETERM_SHELL_DIAGNOSTIC__?.('page-finished')");
             }
         })
         .on_navigation(move |url| {
-            navigation_allowed(url, origin.as_deref(), &unavailable, &fallback)
+            let allowed = navigation_allowed(url, origin.as_deref(), &unavailable, &fallback);
+            log::debug!(
+                "[frontend-shell] navigation allowed={allowed}: {}",
+                navigation_identity(url)
+            );
+            allowed
         })
         .build()?)
+}
+
+fn navigation_identity(url: &Url) -> String {
+    if url.scheme() == "data" {
+        return "native recovery document".into();
+    }
+    let mut identity = url.clone();
+    identity.set_query(None);
+    identity.set_fragment(None);
+    identity.to_string()
 }
 
 fn show_unavailable(window: &WebviewWindow) {
@@ -177,11 +211,13 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
     let navigation = app.state::<ShellSupervisor>().navigation.clone();
     let current_navigation = navigation.fetch_add(1, Ordering::AcqRel) + 1;
     if url.scheme() == "data" {
+        log::debug!("[frontend-shell] boot observer skipped native recovery document");
         return;
     }
     let control = app.state::<RestApiControlState>().inner().clone();
     let listener = control.status();
     if listener.phase != RestApiPhase::Listening {
+        log::debug!("[frontend-shell] boot observer skipped: listener={listener:?}");
         return;
     }
     let frontend_generation = super::observe_frontend_boot();
@@ -192,6 +228,7 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
         bundled_fallback: fallback_url().is_ok_and(|fallback| fallback == url),
     };
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    log::debug!("[frontend-shell] boot observer armed: navigation={current_navigation}, listener={}, frontend={frontend_generation}, fallback={}", listener.generation, observation.bundled_fallback);
     tauri::async_runtime::spawn(async move {
         let ready = tokio::task::spawn_blocking(move || {
             super::wait_for_frontend_ready_until(frontend_generation, deadline)
@@ -199,14 +236,17 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
         .await
         .unwrap_or(false);
         if ready {
+            log::debug!("[frontend-shell] root render acknowledged: navigation={current_navigation}, frontend={frontend_generation}");
             return;
         }
-        match boot_failure_action(
+        let action = boot_failure_action(
             observation,
             navigation.load(Ordering::Acquire),
             &control.status(),
             super::frontend_readiness_generation(),
-        ) {
+        );
+        log::debug!("[frontend-shell] boot failure decision={action:?}, navigation={current_navigation}, frontend={frontend_generation}");
+        match action {
             BootFailureAction::Ignore => {}
             BootFailureAction::BundledFallback => {
                 log::warn!("[frontend-shell] root render was not acknowledged; selecting packaged fallback");
@@ -235,6 +275,10 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
 
 async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, String> {
     if let Some(url) = &app.state::<ShellSupervisor>().development_frontend {
+        log::debug!(
+            "[frontend-shell] selecting configured development frontend: {}",
+            navigation_identity(url)
+        );
         return Ok(url.clone());
     }
     let bundles = app
@@ -259,8 +303,15 @@ async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, Strin
     .map_err(|_| "Frontend request exceeded its failure deadline".to_string())?
     .map_err(|error| error.to_string())?;
     if available {
+        log::debug!(
+            "[frontend-shell] daemon frontend acknowledged: {}",
+            navigation_identity(&target)
+        );
         Ok(target)
     } else {
+        log::debug!(
+            "[frontend-shell] daemon frontend index unavailable; selecting packaged fallback"
+        );
         fallback_url().map_err(|error| error.to_string())
     }
 }
@@ -282,6 +333,7 @@ pub(crate) fn start(app: tauri::AppHandle, control: RestApiControlState) {
                         };
                         match target {
                             Ok(url) if control.status() == observed => {
+                                log::debug!("[frontend-shell] navigating after listener acknowledgement: generation={}, url={}", observed.generation, navigation_identity(&url));
                                 if let Err(error) = window.navigate(url) {
                                     log::error!("[frontend-shell] navigation failed: {error}");
                                     show_unavailable(&window);

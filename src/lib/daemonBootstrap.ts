@@ -1,3 +1,4 @@
+import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
 import { createTransportClient, type TokenSource, type TransportClient } from "./transportClient";
 
 export interface DaemonBootstrap { origin: string; token: TokenSource; frontendOrigin?: string }
@@ -61,10 +62,13 @@ export function initializeDaemonTransport(): TransportClient | undefined {
   if (base) return base;
   if (typeof window === "undefined") return undefined;
   const injected = window.__CODETERM_DAEMON__;
+  frontendBootDiagnostic(injected ? "bootstrap-consumed" : "bootstrap-missing");
   delete window.__CODETERM_DAEMON__;
   const restored = window.sessionStorage ? readReloadCredentials(window.sessionStorage) : typeof sessionStorage === "undefined" ? undefined : readReloadCredentials(sessionStorage);
-  if (restored) return configureDaemonTransport({ origin: restored.apiOrigin, token: restored.token, frontendOrigin: injected?.frontendOrigin });
-  if (injected) return configureDaemonTransport(injected);
+  try {
+    if (restored) { frontendBootDiagnostic("bootstrap-restored"); return configureDaemonTransport({ origin: restored.apiOrigin, token: restored.token, frontendOrigin: injected?.frontendOrigin }); }
+    if (injected) return configureDaemonTransport(injected);
+  } catch (error) { frontendBootDiagnostic("bootstrap-invalid"); throw error; }
   if ("__TAURI_INTERNALS__" in window) return undefined;
   return configureDaemonTransport({
     origin: window.location.origin ?? `${window.location.protocol}//${window.location.host}`,

@@ -1,3 +1,5 @@
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import { streamRecoveryAction } from "./streamRecoveryModel";
 import { apiHost, currentToken, relayTarget } from "./webApi";
 import { onResync } from "./resync";
 import {
@@ -207,6 +209,7 @@ async function runStream(): Promise<void> {
         signal: abort.signal, raw: true,
         onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
         onEnd(end) {
+          if (streamRecoveryAction(end.reason, abort.signal.aborted) === "reconnect") forceImmediateRetry = true;
           if (end.reason === "error" || end.reason === "http") {
             const error = end.error instanceof Error ? end.error : new Error(String(end.error));
             for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
@@ -225,6 +228,7 @@ async function runStream(): Promise<void> {
 function ensureStarted(): void {
   if (started || selectedRelayTarget()) return;
   started = true;
+  window.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, forceReconnect);
   queueMicrotask(() => { if (started) void runStream(); });
 }
 
@@ -255,6 +259,7 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
     if (set!.size === 0) sinks.delete(tabId);
     if (sinks.size === 0) {
       started = false;
+      window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, forceReconnect);
       streamAbort?.abort();
       streamAbort = null;
     }

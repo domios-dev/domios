@@ -79,3 +79,27 @@ describe("explicit daemon bootstrap", () => {
     expect(client.currentToken()).toBe("login-token");
   });
 });
+
+it("boots the real native runtime graph from Vite and acknowledges readiness only over daemon HTTP", async () => {
+  const eventTarget = new EventTarget();
+  const shell = { location: { origin: "http://127.0.0.1:1463", pathname: "/" }, __TAURI_INTERNALS__: {},
+    __CODETERM_DAEMON__: { origin: "http://127.0.0.1:7690", token: "dev-fixture", frontendOrigin: "http://127.0.0.1:1463" },
+    sessionStorage: { getItem: () => null }, localStorage: { getItem: () => null },
+    CustomEvent, dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget), addEventListener: eventTarget.addEventListener.bind(eventTarget), removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+  };
+  vi.stubGlobal("window", shell);
+  const requests: { url: string; init?: RequestInit }[] = [];
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    requests.push({ url, init });
+    return new Response(JSON.stringify(url.endsWith("/bootstrap") ? { generation: 7 } : true), { headers: { "Content-Type": "application/json" } });
+  });
+  const { ensureDaemonRuntime } = await import("./daemonRuntime");
+  ensureDaemonRuntime();
+  const { invoke } = await import("./bridge");
+  const generation = await invoke<number>("frontend_readiness_generation");
+  expect(await invoke<boolean>("frontend_ready", { generation })).toBe(true);
+  expect(requests.map(({ url }) => url)).toEqual(["http://127.0.0.1:7690/api/frontend/bootstrap", "http://127.0.0.1:7690/api/frontend/ready"]);
+  expect(JSON.parse(String(requests[1].init?.body))).toEqual({ generation: 7 });
+  expect(new Headers(requests[1].init?.headers).get("Authorization")).toBe("Bearer dev-fixture");
+  expect(shell).not.toHaveProperty("__CODETERM_DAEMON__");
+});

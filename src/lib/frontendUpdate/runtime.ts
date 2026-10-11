@@ -1,3 +1,5 @@
+import { streamRecoveryAction } from "../streamRecoveryModel";
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import type { TransportClient } from "../transportClient";
 import { createFrontendUpdateClient, createSwapController, preparePageReload, type BootContext } from "./client";
 import type { ClientCheckpoint } from "./checkpoint";
@@ -24,7 +26,7 @@ export interface FrontendRuntimeOptions {
   signals: FrontendSignals;
   storage: Pick<Storage, "getItem" | "setItem">;
   navigate(path: string): void;
-  events: Pick<EventTarget, "dispatchEvent">;
+  events: Pick<EventTarget, "dispatchEvent" | "addEventListener" | "removeEventListener">;
   event(detail: { releaseId: string; generation: number }): Event;
   boot: BootContext | null;
   bundled: BootContext["bundled"];
@@ -55,14 +57,28 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
   const reconcile = () => {
     void client.localJson<FrontendStatus>("GET", "/api/frontend/status").then(next => { if (!disposed) updateStatus(next); }, options.onError);
   };
-  const stopStream = client.subscribe("/api/events/stream", (name, data) => {
+  let stopStream = () => {};
+  let waitingForRecovery = false;
+  const connect = () => {
+    if (disposed) return;
+    waitingForRecovery = false;
+    streamObserved = false;
+    stopStream = client.subscribe("/api/events/stream", (name, data) => {
     if (name === "frontend-update-ready") controller.dispatch({ type: "ready", release: data as Release });
     else if (name === "frontend-status") updateStatus(data as FrontendStatus);
     else if (name === "overflow") reconcile();
   }, {
     onActivity: () => { if (!streamObserved) { streamObserved = true; reconcile(); } },
-    onEnd: end => { if (end.reason !== "abort" && !disposed) { controller.dispatch({ type: "failed" }); options.onError(new Error(`Frontend event stream ended: ${end.reason}`)); } },
-  });
+    onEnd: end => {
+      const action = streamRecoveryAction(end.reason, disposed);
+      if (action === "reconnect") queueMicrotask(connect);
+      else if (action === "wait") waitingForRecovery = true;
+    },
+    });
+  };
+  const recovered = () => { if (waitingForRecovery) connect(); };
+  options.events.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recovered);
+  connect();
   updateStatus(status);
   let rendered = false;
   return {
@@ -73,6 +89,6 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
       const ticket = options.boot?.ticket;
       if (ticket) options.events.dispatchEvent(options.event({ releaseId: ticket.releaseId, generation: ticket.generation }));
     },
-    dispose() { disposed = true; stopStream(); stopSignals(); controller.dispose(); },
+    dispose() { disposed = true; options.events.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recovered); stopStream(); stopSignals(); controller.dispose(); },
   };
 }
