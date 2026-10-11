@@ -529,7 +529,7 @@ export const TerminalTab = memo(function TerminalTab({
             rows from the mount node's box and is blind to the parent's own padding. */}
         <div
           className={showTerminalKeyBar
-            ? "min-h-0 min-w-0 overflow-hidden"
+            ? "relative min-h-0 min-w-0 overflow-hidden"
             : "absolute inset-0 overflow-hidden"
           }
           style={{
