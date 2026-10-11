@@ -1121,3 +1121,58 @@ fn unknown_verdict_never_persists_as_a_negative() {
     );
     cleanup(id);
 }
+
+#[test]
+fn non_retryable_model_failure_removes_live_picker_choice_and_repairs_default() {
+    let id = "test-rejected-live-model";
+    cleanup(id);
+    put_live(
+        id,
+        vec![
+            model("opencode/exo-free", "Exo"),
+            model("opencode/good", "Good"),
+        ],
+        Some("opencode/exo-free".into()),
+    );
+    reject_model(id, "opencode/exo-free");
+    assert_eq!(
+        resolve_models(id)
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["opencode/good"]
+    );
+    assert_eq!(resolve_default(id).as_deref(), Some("opencode/good"));
+    reject_model(id, "opencode/good");
+    assert!(resolve_models(id).is_empty());
+    assert!(resolve_live_models(id).unwrap().is_empty());
+    cleanup(id);
+}
+
+#[tokio::test]
+async fn confirmed_empty_live_catalogue_does_not_restore_deprecated_seed() {
+    let id = "test-empty-live-confirmed";
+    cleanup(id);
+    register_catalogue_capability(
+        id,
+        &crate::provider::ModelCatalogueCapability::authoritative_live(),
+    );
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("deprecated", "Deprecated")],
+            default: Some("deprecated".into()),
+        },
+    );
+    let provider = Arc::new(DiscoverStub {
+        id: id.into(),
+        default: None,
+        discovery: Some(Vec::new()),
+    });
+    assert_eq!(
+        refresh_live(provider, Duration::from_secs(1)).await,
+        Some(Vec::new())
+    );
+    assert!(resolve_models(id).is_empty());
+    cleanup(id);
+}

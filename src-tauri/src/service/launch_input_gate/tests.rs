@@ -968,6 +968,7 @@ fn structured_chat_serves_rows_without_a_session_id() {
                 }],
                 cursor: Some("1".into()),
                 done: Some(false),
+                observations: Vec::new(),
             }
         }
     }

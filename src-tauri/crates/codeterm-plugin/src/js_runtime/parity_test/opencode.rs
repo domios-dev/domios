@@ -332,7 +332,7 @@ fn build_opencode_db(path: &std::path::Path) {
     let conn = rusqlite::Connection::open(path).unwrap();
     conn.execute_batch(
         "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_created INTEGER);
-         CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+         CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT);
          CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);",
     )
     .unwrap();
@@ -513,4 +513,67 @@ fn unsupported_structured_tool_diffs_keep_native_js_defaults_in_parity() {
         js.structured_tool_file_diffs(&part),
         native.structured_tool_file_diffs(&part)
     );
+}
+
+#[test]
+fn sqlite_assistant_api_error_is_session_scoped_and_visible() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db_dir = dir.path().join("opencode");
+    std::fs::create_dir_all(&db_dir).unwrap();
+    let path = db_dir.join("opencode.db");
+    build_opencode_db(&path);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let record = serde_json::json!({"role":"assistant","providerID":"opencode","modelID":"exo-free",
+        "error":{"name":"APIError","data":{"message":"Model exo-free has been deprecated","statusCode":410,"isRetryable":false}}});
+    conn.execute("INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?3, ?4)",
+        rusqlite::params!["failed", SES_ID, TC_PART + 100, record.to_string()]).unwrap();
+    drop(conn);
+    let _env = EnvGuard::new(&[("XDG_DATA_HOME", dir.path().to_str().unwrap())]);
+    let provider = opencode();
+    let delta = provider.read_structured_chat("/work/proj", SES_ID, None);
+    let error = delta
+        .messages
+        .iter()
+        .find(|message| message.system_subtype.as_deref() == Some("api_error"))
+        .unwrap();
+    assert_eq!(error.content, "Model exo-free has been deprecated");
+    assert_eq!(delta.observations.len(), 1);
+    assert_eq!(
+        delta.observations[0].provider_session_id.as_deref(),
+        Some(SES_ID)
+    );
+    assert_eq!(
+        delta.observations[0].provider_observations,
+        provider.parse_session_observations(&record)
+    );
+    let mut signals = codeterm_types::agent::provider_signals::ProviderSignals::default();
+    signals.observe(
+        delta.observations[0]
+            .provider_observations
+            .as_ref()
+            .unwrap(),
+    );
+    assert_eq!(
+        signals.api_error,
+        Some(codeterm_types::agent::provider_signals::ApiErrorKind::Other)
+    );
+    let foreign = provider.read_structured_chat("/work/proj", "ses_foreign", None);
+    assert!(foreign.messages.is_empty());
+    assert!(foreign.observations.is_empty());
+}
+
+#[test]
+fn unsupported_session_observations_keep_native_js_defaults_in_parity() {
+    let native = crate::agent_claude::ClaudeProvider::new();
+    let js = load_inline_js("fixture", "module.exports.default = {};");
+    let record = serde_json::json!({"role":"assistant","error":{"name":"APIError","data":{"statusCode":410}}});
+    assert_eq!(native.parse_session_observations(&record), None);
+    assert_eq!(js.parse_session_observations(&record), None);
+    assert!(js
+        .read_structured_chat("/fixture", "own", None)
+        .observations
+        .is_empty());
 }

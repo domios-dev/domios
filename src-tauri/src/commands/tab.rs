@@ -486,6 +486,15 @@ fn chat_start_inner(
                 p.read_structured_chat(&cwd, &session_id, None)
             })
             .unwrap_or_default();
+        if let Some(nonce) = session_binding_nonce.as_deref() {
+            crate::service::provider_signals::apply_structured(
+                &svc,
+                &tab_id,
+                &session_id,
+                nonce,
+                &delta.observations,
+            );
+        }
         let cursor = delta.cursor.clone();
         if !svc.chat_registry.acquire(
             &tab_id,
