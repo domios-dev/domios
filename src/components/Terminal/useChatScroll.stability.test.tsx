@@ -1,4 +1,5 @@
-import { act } from "react";
+import { act, useLayoutEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -57,6 +58,29 @@ let modeChanges: string[] = [];
 let hook: UseChatScrollResult | null = null;
 let root: Root | null = null;
 let host: HTMLElement | null = null;
+let commitStreamingHeight: ((height: number) => void) | null = null;
+let committedBottomGaps: number[] = [];
+
+function StreamingRows({ rows }: { rows: NormalizedChatMessage[] }) {
+  const [streamingHeight, setStreamingHeight] = useState<number | null>(null);
+  commitStreamingHeight = setStreamingHeight;
+  useLayoutEffect(() => {
+    hook!.handleContentLayout();
+    const el = scroll();
+    committedBottomGaps.push(el.scrollHeight - el.scrollTop - el.clientHeight);
+  });
+  return <div>{rows.map((row, index) => (
+    <div
+      key={row.id}
+      data-message-id={row.id}
+      data-source-message-id={sourceKey(row)}
+      data-height={streamingHeight != null && index === rows.length - 2
+        ? streamingHeight : heights.get(sourceKey(row)) ?? ROW_HEIGHT}
+    >
+      {row.content}
+    </div>
+  ))}</div>;
+}
 
 function sourceKey(row: NormalizedChatMessage): string {
   return row.sourceMessageId ?? row.id;
@@ -75,18 +99,7 @@ function Harness({ rows, active }: { rows: NormalizedChatMessage[]; active: bool
   });
   return (
     <div ref={hook.scrollRef} data-testid="scroll">
-      <div>
-        {rows.map((row) => (
-          <div
-            key={row.id}
-            data-message-id={row.id}
-            data-source-message-id={sourceKey(row)}
-            data-height={heights.get(sourceKey(row)) ?? ROW_HEIGHT}
-          >
-            {row.content}
-          </div>
-        ))}
-      </div>
+      <StreamingRows rows={rows} />
     </div>
   );
 }
@@ -250,6 +263,8 @@ beforeEach(() => {
   heights.clear();
   followTail.current = true;
   modeChanges = [];
+  committedBottomGaps = [];
+  commitStreamingHeight = null;
   clearPersistedChatScrollState(SESSION);
   fill(40);
 });
@@ -304,6 +319,23 @@ describe("attached tail at the history cap", () => {
 });
 
 describe("send from history", () => {
+  it("follows the optimistic insert and the streaming child's layout in their own commit", async () => {
+    await mount();
+    await act(async () => hook!.followSend());
+    optimistic = [{ id: "steering-send", type: "user", content: "while streaming" }];
+    await act(async () => {
+      flushSync(() => root!.render(<Harness rows={visibleRows()} active />));
+      expectPinnedToBottom();
+      expect(domRows()[domRows().length - 1].textContent).toBe("while streaming");
+    });
+    committedBottomGaps = [];
+    await act(async () => {
+      flushSync(() => commitStreamingHeight!(2640));
+      expectPinnedToBottom();
+      expect(committedBottomGaps).toEqual([0]);
+    });
+  });
+
   it("repairs the recorded working layout shift before resize delivery without detaching", async () => {
     await mount();
     const el = scroll();

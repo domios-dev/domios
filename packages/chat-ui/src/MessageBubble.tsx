@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useDeferredValue } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useDeferredValue, useLayoutEffect } from "react";
 import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
@@ -64,6 +64,7 @@ import {
 interface MessageBubbleProps {
   message: ChatMessage;
   streaming?: boolean;
+  onContentLayout?: () => void;
   showTimestamp?: boolean;
   userFooter?: React.ReactNode;
   item?: TimelineItem;
@@ -142,8 +143,9 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, streaming = false, showTimestamp = false, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, streaming = false, onContentLayout, showTimestamp = false, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
   const renderingStream = useDeferredValue(streaming);
+  useLayoutEffect(() => { onContentLayout?.(); });
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
