@@ -15,6 +15,7 @@ let scrollApi: UseChatScrollResult;
 let mountApi: ReturnType<typeof useMountedChatWindow>;
 type Row = { msg: { id: string; sourceMessageId: string }; height: number };
 let rows: Row[];
+let prefixHeight = 0;
 
 function extent(element: HTMLElement): number {
   if (element.dataset.height) return Number(element.dataset.height);
@@ -39,7 +40,7 @@ function Harness({ active }: { active: boolean }) {
   const contentVersion = useMemo(() => ({ rows, range: mountApi.range, revision: mountApi.revision }),
     [rows, mountApi.range.start, mountApi.range.end, mountApi.revision]);
   scrollApi = useChatScroll({ scrollRef, sessionKey: SESSION, active, loading: false,
-    messageCount: rows.length, contentVersion, prependVersion: rows[0]?.msg.id, followTailRef: followTail });
+    onViewportChange: mountApi.syncViewport, messageCount: rows.length, contentVersion, prependVersion: rows[0]?.msg.id, followTailRef: followTail });
   return <div data-testid="scroller" ref={(element) => {
     scrollRef.current = element;
     if (!element || Object.prototype.hasOwnProperty.call(element, "scrollHeight")) return;
@@ -52,6 +53,7 @@ function Harness({ active }: { active: boolean }) {
     });
   }} onScroll={scrollApi.handleScroll}>
     <div>
+      <div style={{ height: active ? prefixHeight : 0 }} />
       <div ref={mountApi.topSpacerRef} style={{ height: mountApi.range.top }} />
       {rows.slice(mountApi.range.start, mountApi.range.end).map(({ msg, height }) => <div key={msg.id} data-chat-window-row={msg.id} data-height={height}>
         <div data-message-id={msg.id} data-source-message-id={msg.sourceMessageId}>{msg.id}</div>
@@ -70,6 +72,7 @@ async function move(top: number) {
 
 beforeEach(() => {
   rows = Array.from({ length: 220 }, (_, index) => ({ msg: { id: `m${index}`, sourceMessageId: `s${index}` }, height: 100 }));
+  prefixHeight = 0;
   followTail = { current: true };
   clearPersistedChatScrollState(SESSION);
   vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function(this: HTMLElement) { return offset(this); });
@@ -109,6 +112,25 @@ describe("mounted chat wiring", () => {
     await move(scroller().scrollTop + 100);
     expect(host.querySelector('[data-message-id="m40"]')).toBe(target);
     expect(mounted().length).toBeLessThanOrEqual(60);
+  });
+  it("restores content identity after warm history changes and after complete remount", async () => {
+    prefixHeight = 300;
+    await render();
+    await move(10000);
+    const anchor = mounted().find((row) => row.offsetTop >= scroller().scrollTop)!;
+    const id = anchor.dataset.messageId!;
+    const before = anchor.offsetTop - scroller().scrollTop;
+    await render(false);
+    rows = rows.slice(8);
+    await render(false);
+    await render();
+    expect(host.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!.offsetTop - scroller().scrollTop).toBe(before);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    followTail = { current: true };
+    await render();
+    expect(followTail.current).toBe(false);
+    expect(host.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!.offsetTop - scroller().scrollTop).toBe(before);
   });
   it("holds a detached anchor through row growth, prepend and warm return", async () => {
     await render();

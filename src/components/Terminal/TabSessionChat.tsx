@@ -337,6 +337,7 @@ export function TabSessionChat({
     revealMessage,
   } = useChatScroll({
     scrollRef: sharedScrollRef,
+    onViewportChange: mountedWindow.syncViewport,
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,

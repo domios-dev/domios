@@ -49,6 +49,7 @@ export interface UseChatScrollOptions {
   contentVersion: unknown;
   prependVersion: unknown;
   followTailRef?: MutableRefObject<boolean>;
+  onViewportChange?: () => void;
   onModeChange?: (mode: ChatViewportMode) => void;
 }
 
@@ -74,6 +75,7 @@ export function useChatScroll({
   prependVersion,
   followTailRef,
   onModeChange,
+  onViewportChange,
 }: UseChatScrollOptions): UseChatScrollResult {
   const ownScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = externalScrollRef ?? ownScrollRef;
@@ -110,6 +112,7 @@ export function useChatScroll({
     setPersistedChatScrollState(sessionKeyRef.current, {
       mode: modeRef.current,
       scrollTop: el.scrollTop,
+      anchor: modeRef.current === "detached" ? contentAnchorRef.current : null,
     });
   }, []);
 
@@ -119,7 +122,8 @@ export function useChatScroll({
     el.scrollTop = value;
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (el.scrollTop !== before) hookScrollTopRef.current = el.scrollTop;
-  }, []);
+    onViewportChange?.();
+  }, [onViewportChange]);
 
   const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
     const changed = modeRef.current !== mode;
@@ -233,7 +237,7 @@ export function useChatScroll({
   // Content boxes are observed too: async image, iframe and diagram growth never re-renders the list.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!el || !active || typeof ResizeObserver === "undefined") return;
     const observed = observedRef.current;
     const observer = new ResizeObserver(() => {
       if (el.clientHeight === 0) return;
@@ -248,7 +252,7 @@ export function useChatScroll({
       observed.clear();
       observerRef.current = null;
     };
-  }, [holdContentAnchor, observeContent, scrollToBottom]);
+  }, [active, holdContentAnchor, observeContent, scrollToBottom]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -257,14 +261,16 @@ export function useChatScroll({
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || !active || loading || messageCount === 0) return;
+    if (!active) { restoredKeyRef.current = ""; return; }
+    if (!el || loading || messageCount === 0) return;
     el.style.overflowAnchor = "none";
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {
       restoredKeyRef.current = sessionKey;
       const restored = getPersistedChatScrollState(sessionKey);
       if (restored?.mode === "detached") {
-        writeScrollTop(el, restored.scrollTop);
+        const anchored = restored.anchor ? chatScrollTopForAnchor(el, restored.anchor) : null;
+        writeScrollTop(el, anchored ?? restored.scrollTop);
         setMode("detached", el);
       } else {
         scrollToBottom();

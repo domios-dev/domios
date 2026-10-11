@@ -952,7 +952,7 @@ export function CodeBlock({
                 mermaidMode={mermaidMode}
                 mermaidSvg={mermaidSvg}
                 forcePlainText={shouldUsePlainRenderer}
-          explicitHighlight={richRequested || isFullscreen}
+                explicitHighlight={richRequested || isFullscreen}
                 shouldDisplayMermaid={shouldDisplayMermaid}
                 showMermaidFallback={showMermaidFallback}
                 suppressMermaidErrorOutput={suppressMermaidErrorOutput}

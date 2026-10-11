@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { chatAnchorIdentities, resolveChatAnchorIndex, type ChatContentAnchor } from "./chatAnchorModel";
+import { getPersistedChatScrollState } from "./chatViewport";
 import { CHAT_ROW_ESTIMATE, chatRowOffsets, mountedChatWindow } from "./chatMountedWindow";
 
 interface ChatWindowRow { msg: { id: string; sourceMessageId?: string } }
@@ -12,23 +13,26 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   sessionKey: string;
 }) {
   const heights = useRef(new Map<string, number>());
+  const persisted = getPersistedChatScrollState(sessionKey);
+  const [viewport, setViewport] = useState({ key: sessionKey, top: persisted?.scrollTop ?? 0, height: 0, revision: 0 });
+  const anchorRef = useRef<ChatContentAnchor | null>(persisted?.anchor ?? null);
   const keyRef = useRef(sessionKey);
   if (keyRef.current !== sessionKey) {
     keyRef.current = sessionKey;
     heights.current.clear();
+    anchorRef.current = persisted?.anchor ?? null;
   }
-  const [viewport, setViewport] = useState({ top: 0, height: 0, revision: 0 });
-  const anchorRef = useRef<ChatContentAnchor | null>(null);
-  const [target, setTarget] = useState<string | null>(null);
+  const [target, setTarget] = useState<{ key: string; id: string } | null>(null);
   const topSpacerRef = useRef<HTMLDivElement>(null);
   const rowHeights = rows.map(({ msg }) => heights.current.get(msg.id) ?? CHAT_ROW_ESTIMATE);
   const identities = chatAnchorIdentities(rows.map(({ msg }) => msg));
   const offsets = chatRowOffsets(rowHeights);
   const anchorIndex = anchorRef.current == null ? -1 : resolveChatAnchorIndex(identities, anchorRef.current);
-  const anchoredTop = anchorIndex < 0 ? viewport.top : offsets[anchorIndex] - anchorRef.current!.offset;
-  const targetIndex = target == null ? -1 : rows.findIndex(({ msg }) => msg.id === target);
+  const anchoredTop = anchorIndex < 0 ? viewport.key === sessionKey ? viewport.top : persisted?.scrollTop ?? 0 : offsets[anchorIndex] - anchorRef.current!.offset;
+  const targetIndex = target?.key !== sessionKey ? -1 : rows.findIndex(({ msg }) => msg.id === target.id);
   const range = mountedChatWindow({ heights: rowHeights, scrollTop: anchoredTop, viewportHeight: viewport.height,
-    active, pinned: followTailRef.current, targetIndex: targetIndex < 0 ? undefined : targetIndex });
+    active, pinned: viewport.height === 0 ? persisted?.mode !== "detached" && followTailRef.current : followTailRef.current,
+    targetIndex: targetIndex >= 0 ? targetIndex : viewport.height === 0 && anchorIndex >= 0 ? anchorIndex : undefined });
   const live = useRef({ rows, identities, rowHeights, range });
   live.current = { rows, identities, rowHeights, range };
 
@@ -42,18 +46,18 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
       .find((row) => row.offsetTop >= el.scrollTop && row.offsetTop < el.scrollTop + el.clientHeight);
     const identity = wrapper && live.current.identities.find((row) => row.id === wrapper.dataset.chatWindowRow);
     anchorRef.current = identity && wrapper ? { ...identity, offset: wrapper.offsetTop - el.scrollTop } : null;
-    setViewport((previous) => previous.top === top && previous.height === el.clientHeight
-      ? previous : { ...previous, top, height: el.clientHeight });
-  }, [scrollRef]);
+    setViewport((previous) => previous.key === sessionKey && previous.top === top && previous.height === el.clientHeight
+      ? previous : { ...previous, key: sessionKey, top, height: el.clientHeight });
+  }, [scrollRef, sessionKey]);
 
   const prepareMessage = useCallback((id: string) => {
     const { rows: current, range: mounted } = live.current;
     const index = current.findIndex(({ msg }) => msg.id === id || (msg.sourceMessageId ?? msg.id) === id);
     if (index < 0 || (index >= mounted.start && index < mounted.end)) return false;
     followTailRef.current = false;
-    setTarget(current[index].msg.id);
+    setTarget({ key: sessionKey, id: current[index].msg.id });
     return true;
-  }, [followTailRef]);
+  }, [followTailRef, sessionKey]);
 
   useLayoutEffect(() => {
     if (!active) return;
@@ -91,6 +95,6 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     return () => observer?.disconnect();
   }, [active, rows, range.start, range.end, readViewport, scrollRef]);
 
-  return { range, topSpacerRef, prepareMessage, revision: viewport.revision,
+  return { range, topSpacerRef, prepareMessage, syncViewport: readViewport, revision: viewport.revision,
     offsets, identities };
 }
