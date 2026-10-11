@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.2",
-  "minCodeterm": "1.14.1",
+  "version": "1.14.3",
+  "minCodeterm": "1.14.2",
   "hostApi": 2,
   "capabilities": {
     "agentProvider": true,
@@ -138,9 +138,9 @@
     "windows": "npm install -g opencode-ai"
   },
   "updater": {
-    "macos": "opencode upgrade",
-    "linux": "opencode upgrade",
-    "windows": "opencode upgrade"
+    "macos": "opencode upgrade {version}",
+    "linux": "opencode upgrade {version}",
+    "windows": "opencode upgrade {version}"
   },
   "commands": {
     "compact": "/compact",
@@ -172,7 +172,8 @@
     },
     "network": {
       "allow": [
-        "api.deepseek.com"
+        "api.deepseek.com",
+        "registry.npmjs.org"
       ]
     }
   },

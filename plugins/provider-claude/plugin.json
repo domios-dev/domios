@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.1",
+  "version": "1.14.2",
   "minCodeterm": "1.14.1",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -248,7 +248,8 @@
     },
     "network": {
       "allow": [
-        "api.anthropic.com"
+        "api.anthropic.com",
+        "registry.npmjs.org"
       ]
     }
   },
