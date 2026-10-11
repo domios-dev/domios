@@ -9,7 +9,36 @@ impl crate::service::ServiceContext {
         submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
         client_token: Option<String>,
     ) -> Result<ChatSendStatus, String> {
+        self.start_chat_send_with_capture(tab_id, text, submit_claim, client_token, None)
+    }
+
+    pub(crate) fn start_captured_chat_send(
+        &self,
+        capture: super::super::local_recording::chat::CapturedChat,
+        text: String,
+        client_token: String,
+    ) -> Result<ChatSendStatus, String> {
+        let tab_id = capture.identity.tab_id.clone();
+        self.start_chat_send_with_capture(&tab_id, text, None, Some(client_token), Some(capture))
+    }
+
+    fn start_chat_send_with_capture(
+        &self,
+        tab_id: &str,
+        text: String,
+        submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
+        client_token: Option<String>,
+        capture: Option<super::super::local_recording::chat::CapturedChat>,
+    ) -> Result<ChatSendStatus, String> {
+        if let Some(capture) = &capture {
+            capture
+                .validate(self.captured_chat_identity(tab_id))
+                .map_err(|error| error.ledger_message())?;
+        }
         if self.tab_chat_backing(tab_id).is_none() {
+            if capture.is_some() {
+                return Err("recording_recipient_changed".into());
+            }
             drop(submit_claim);
             let reservation = self.reserve_user_send(tab_id, client_token)?;
             return self
@@ -18,6 +47,18 @@ impl crate::service::ServiceContext {
         }
         let evidence = self.chat_send_anchor(tab_id);
         let turn_evidence_text = self.chat_send_turn_evidence(tab_id, &text);
+        if let Some(capture) = &capture {
+            capture
+                .validate(self.captured_chat_identity(tab_id))
+                .map_err(|error| error.ledger_message())?;
+            if evidence.live_binding.as_ref().is_none_or(|binding| {
+                binding.session_id.as_deref() != Some(capture.identity.session_id.as_str())
+                    || binding.binding_nonce.as_deref()
+                        != Some(capture.identity.binding_nonce.as_str())
+            }) {
+                return Err("recording_recipient_evidence_changed".into());
+            }
+        }
         let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
             tab_id,
             &turn_evidence_text,
@@ -42,6 +83,9 @@ impl crate::service::ServiceContext {
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
+                if let Some(capture) = &capture {
+                    return svc.chatbackend_capture_send(capture, text);
+                }
                 // User-origin always-deliver: a transient pre-write unlink or an
                 // unconfirmed submit degrades to pending-until-link, never a refusal.
                 svc.send_chat_text_claimed(&tab_id, text, submit_claim)
@@ -54,6 +98,11 @@ impl crate::service::ServiceContext {
                         err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
                     })
             });
+            if let Some(capture) = &capture {
+                capture
+                    .active
+                    .store(false, std::sync::atomic::Ordering::Release);
+            }
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {
                 log::warn!(
@@ -114,6 +163,25 @@ impl crate::service::ServiceContext {
         original: String,
         run_stages: bool,
     ) -> Result<super::super::agent_pad::ChatSendResult, String> {
+        self.prepare_and_admit_user_send_with_capture(reservation, original, run_stages, None)
+    }
+
+    pub(crate) fn prepare_and_admit_recording_user_send(
+        &self,
+        reservation: UserReservation,
+        original: String,
+        capture: super::super::local_recording::leases::Capture,
+    ) -> Result<super::super::agent_pad::ChatSendResult, String> {
+        self.prepare_and_admit_user_send_with_capture(reservation, original, true, Some(capture))
+    }
+
+    fn prepare_and_admit_user_send_with_capture(
+        &self,
+        reservation: UserReservation,
+        original: String,
+        run_stages: bool,
+        capture: Option<super::super::local_recording::leases::Capture>,
+    ) -> Result<super::super::agent_pad::ChatSendResult, String> {
         if reservation.wait_existing()? {
             let status = self
                 .chat_send_ledger
@@ -133,9 +201,31 @@ impl crate::service::ServiceContext {
             .as_ref()
             .map(|path| self.capture_prepared_user_body(&reservation.authority.tab_id, path))
             .transpose()?;
-        let (status, owned) =
-            self.admit_prepared_user_send(reservation, &original, &prepared, body)?;
-        Ok(super::super::agent_pad::ChatSendResult::new(status, owned))
+        if let Some(capture) = &capture {
+            self.validate_recording_target(capture)?;
+            if capture.target
+                != super::super::local_recording::leases::FrozenTarget::Pty(
+                    reservation.authority.clone(),
+                )
+            {
+                return Err("recording_reservation_changed".into());
+            }
+            self.local_recordings.register_write_ticket(
+                &reservation.send_id,
+                &capture.lease_id,
+                capture.clone(),
+            )?;
+        }
+        let send_id = reservation.send_id.clone();
+        let result = self.admit_prepared_user_send(reservation, &original, &prepared, body);
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.starts_with("admission_unknown:"))
+        {
+            self.local_recordings.retire_write_ticket(&send_id);
+        }
+        result.map(|(status, owned)| super::super::agent_pad::ChatSendResult::new(status, owned))
     }
 
     fn capture_prepared_user_body(

@@ -485,6 +485,50 @@ impl ServiceContext {
         self.chatbackend_send(&plugin_id, &session_id, text)
     }
 
+    pub(crate) fn captured_chat_identity(
+        &self,
+        tab_id: &str,
+    ) -> Option<super::local_recording::chat::ChatIdentity> {
+        super::local_recording::chat::ChatIdentity::from_tab(self.mux.read().get_tab(tab_id)?)
+    }
+
+    pub(crate) fn chatbackend_capture_send(
+        &self,
+        capture: &super::local_recording::chat::CapturedChat,
+        text: &str,
+    ) -> Result<(), super::delivery_error::DeliveryError> {
+        self.require_managed_send_allowed(&capture.identity.tab_id, None)
+            .map_err(
+                |detail| super::delivery_error::DeliveryError::TabBusyRefused {
+                    tab: capture.identity.tab_id.clone(),
+                    detail,
+                },
+            )?;
+        if self.chatbackend_session_is_watcher(
+            &capture.identity.plugin_id,
+            &capture.identity.session_id,
+        ) {
+            return Err(super::delivery_error::DeliveryError::TabBusyRefused {
+                tab: capture.identity.tab_id.clone(),
+                detail: "recording recipient is read-only".into(),
+            });
+        }
+        let provider = self
+            .chatbackend_provider(&capture.identity.plugin_id)
+            .map_err(
+                |detail| super::delivery_error::DeliveryError::TabBusyRefused {
+                    tab: capture.identity.tab_id.clone(),
+                    detail,
+                },
+            )?;
+        capture.handoff(
+            self.captured_chat_identity(&capture.identity.tab_id),
+            |plugin_id, session_id| {
+                dispatch_chatbackend_send(provider.as_ref(), plugin_id, session_id, text)
+            },
+        )
+    }
+
     /// Advance an async chatBackend's in-flight work; called each poll tick, best-effort.
     pub fn chatbackend_pump(&self, plugin_id: &str, session_id: &str) -> Result<(), String> {
         self.chatbackend_provider(plugin_id)?

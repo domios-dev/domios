@@ -217,8 +217,27 @@ pub(super) fn install_handles(
         }
     });
 
+    let sb = sandbox.clone();
+    bind!("localRecordingStatus", move || -> String {
+        match sb.service() {
+            Some(svc) => svc.local_recording_status_json(sb.plugin_id()),
+            None => err("host service unavailable"),
+        }
+    });
+    let sb = sandbox.clone();
+    bind!("localRecordingSetEnabled", move |enabled: bool| -> String {
+        if enabled && !sb.local_recording_allowed() {
+            return r#"{"error":"local_recording_grant_required"}"#.into();
+        }
+        match sb.service() {
+            Some(svc) => svc.local_recording_enabled_json(sb.plugin_id(), enabled),
+            None => err("host service unavailable"),
+        }
+    });
     super::host_surface::install(host, sandbox)
 }
 
+#[cfg(test)]
+mod recording_tests;
 #[cfg(test)]
 mod tests;

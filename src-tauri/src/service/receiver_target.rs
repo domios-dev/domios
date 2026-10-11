@@ -18,6 +18,7 @@ type Bindings = BTreeMap<String, String>;
 pub struct ReceiverTargetStore {
     path: PathBuf,
     bindings: Mutex<Bindings>,
+    readable: bool,
 }
 
 impl ReceiverTargetStore {
@@ -26,15 +27,20 @@ impl ReceiverTargetStore {
     }
 
     pub fn open(path: PathBuf) -> Self {
-        let bindings = load(&path);
+        let (bindings, readable) = load(&path);
         Self {
             path,
             bindings: Mutex::new(bindings),
+            readable,
         }
     }
 
     pub fn get(&self, plugin_id: &str) -> Option<String> {
         self.bindings.lock().get(plugin_id).cloned()
+    }
+
+    pub(crate) fn readable(&self) -> bool {
+        self.readable
     }
 
     pub fn bindings(&self) -> BTreeMap<String, String> {
@@ -90,13 +96,14 @@ fn validate(raw: &str) -> Result<(), String> {
 
 /// A held file leaves every receiver on the General Agent path and refuses
 /// every binding change until it loads again.
-fn load(path: &Path) -> Bindings {
+fn load(path: &Path) -> (Bindings, bool) {
     match state_file(path).load(parse) {
         Loaded::Parsed(bindings)
         | Loaded::Recovered {
             value: bindings, ..
-        } => bindings,
-        Loaded::Missing | Loaded::Unrecoverable { .. } => Bindings::new(),
+        } => (bindings, true),
+        Loaded::Missing => (Bindings::new(), state_file(path).held().is_none()),
+        Loaded::Unrecoverable { .. } => (Bindings::new(), false),
     }
 }
 
@@ -196,6 +203,18 @@ fn persist_failed(detail: String) -> ReceiverTargetError {
 }
 
 impl ServiceContext {
+    pub(crate) fn receiver_target_eligible(&self, plugin_id: &str) -> bool {
+        self.webhook_registry.contains(plugin_id)
+            || self.local_recording_registry.contains(plugin_id)
+    }
+
+    fn receiver_target_store(&self, plugin_id: &str) -> &ReceiverTargetStore {
+        if self.local_recording_registry.contains(plugin_id) {
+            &self.local_recording_targets
+        } else {
+            &self.receiver_targets
+        }
+    }
     fn receiver_target_liveness(&self, tab_id: &str) -> TargetLiveness {
         let (pty_id, chat_backed) = {
             let mux = self.mux.read();
@@ -229,10 +248,10 @@ impl ServiceContext {
         &self,
         plugin_id: &str,
     ) -> Result<ReceiverTargetView, ReceiverTargetError> {
-        if !self.webhook_registry.contains(plugin_id) {
+        if !self.receiver_target_eligible(plugin_id) {
             return Err(ReceiverTargetError::ReceiverNotFound);
         }
-        let tab_id = self.receiver_targets.get(plugin_id);
+        let tab_id = self.receiver_target_store(plugin_id).get(plugin_id);
         let live = tab_id
             .as_deref()
             .is_some_and(|tab_id| self.receiver_target_liveness(tab_id) == TargetLiveness::Live);
@@ -248,7 +267,7 @@ impl ServiceContext {
         plugin_id: &str,
         tab_id: &str,
     ) -> Result<ReceiverTargetView, ReceiverTargetError> {
-        if !self.webhook_registry.contains(plugin_id) {
+        if !self.receiver_target_eligible(plugin_id) {
             return Err(ReceiverTargetError::ReceiverNotFound);
         }
         let tab_id = self
@@ -257,7 +276,7 @@ impl ServiceContext {
             .resolve_tab_id(tab_id)
             .ok_or(ReceiverTargetError::TabNotFound)?;
         if self
-            .receiver_targets
+            .receiver_target_store(plugin_id)
             .set(plugin_id, &tab_id)
             .map_err(persist_failed)?
         {
@@ -272,7 +291,7 @@ impl ServiceContext {
         plugin_id: &str,
     ) -> Result<ReceiverTargetView, ReceiverTargetError> {
         if self
-            .receiver_targets
+            .receiver_target_store(plugin_id)
             .clear(plugin_id)
             .map_err(persist_failed)?
         {
@@ -307,7 +326,12 @@ impl ServiceContext {
                     .read()
                     .resolve_tab_id(tab_id)
                     .ok_or(ReceiverTargetError::TabNotFound)?;
-                if self.receiver_targets.get(plugin_id).as_deref() == Some(tab_id.as_str()) {
+                if self
+                    .receiver_target_store(plugin_id)
+                    .get(plugin_id)
+                    .as_deref()
+                    == Some(tab_id.as_str())
+                {
                     self.clear_receiver_target(plugin_id)?;
                 } else {
                     self.set_receiver_target(plugin_id, &tab_id)?;
@@ -340,13 +364,16 @@ impl ServiceContext {
                     .collect::<Vec<_>>()
             })
             .collect();
+        let mut receiver_targets = self.receiver_targets.bindings();
+        receiver_targets.extend(self.local_recording_targets.bindings());
         TabMenuState {
             items,
-            receiver_targets: self.receiver_targets.bindings(),
+            receiver_targets,
         }
     }
 
     pub(crate) fn forget_receiver_targets_for_tab(&self, tab_id: &str) {
+        self.local_recordings.close_tab(tab_id);
         match self.receiver_targets.forget_tab(tab_id) {
             Ok(true) => self.publish_receiver_targets_changed(),
             Ok(false) => {}
@@ -364,5 +391,7 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod parity_tests;
+#[cfg(test)]
+mod recording_tests;
 #[cfg(test)]
 mod tests;

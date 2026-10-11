@@ -78,10 +78,14 @@ fn enrich_from_manifest_with_icon(
         "chat_backend": cap_bool("chatBackend") || cap_present("chatBackend"),
         "chat_preprocessor": cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
         "graph_nodes": cap_enabled("graphNodes"),
+        "local_recording_trigger": cap_present("localRecordingTrigger"),
     });
     // Persisted grants.yaml override wins over the manifest request. Keys are canonical snake_case, camelCase accepted as fallback.
     let grants = crate::plugin::js_runtime::grants::load_grants(dir);
     let mut granted: Vec<&str> = Vec::new();
+    if grants.permissions.get("local_recording") == Some(&true) {
+        granted.push("local_recording");
+    }
     let mut effective_network_allow: Vec<String> = m
         .get("permissions")
         .and_then(|permissions| permissions.get("network"))
