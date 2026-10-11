@@ -49,18 +49,18 @@ it("reads the 410 from a real SQLite own session, advances on message updates, a
     } });
     const delta = plugin.readStructuredChat("/work", "ses_own", '[20,[]]') as {
       messages: Array<{ type: string; content: string }>;
-      observations: Array<{ provider_session_id: string; provider_observations: { api_error: string } }>;
+      observations: Array<{ role: string; provider_session_id: string; provider_observations: { api_error: string } }>;
       cursor: string;
     };
     expect(delta.messages).toHaveLength(1);
     expect(delta.messages[0]).toMatchObject({ type: "system", systemSubtype: "api_error", content: "Model exo-free has been deprecated" });
-    expect(delta.observations[0]).toMatchObject({ provider_session_id: "ses_own", provider_observations: { api_error: "other" } });
+    expect(delta.observations[0]).toMatchObject({ role: "assistant", provider_session_id: "ses_own", provider_observations: { api_error: "other" } });
     expect(plugin.readStructuredChat("/work", "ses_foreign", null)).toMatchObject({ messages: [], observations: [] });
     expect(plugin.readStructuredChat("/work", "ses_own", delta.cursor)).toMatchObject({ messages: [], observations: [] });
     expect(plugin.discoverModels()?.map((model) => model.id)).toEqual(["opencode/good"]);
     db.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?)").run("msg_success", "ses_own", 40, 40, JSON.stringify({ role: "assistant", providerID: "opencode", modelID: "good", time: { completed: 40 } }));
     expect(plugin.readStructuredChat("/work", "ses_own", delta.cursor)).toMatchObject({
-      messages: [], observations: [{ provider_session_id: "ses_own", provider_observations: { api_error: null, clears_api_error: true } }],
+      messages: [], observations: [{ role: "assistant", provider_session_id: "ses_own", provider_observations: { api_error: null, clears_api_error: true } }],
     });
     db.prepare("DELETE FROM message WHERE session_id = ?").run("ses_own");
     db.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?)").run("msg_foreign", "ses_foreign", 50, 50, JSON.stringify(error));
