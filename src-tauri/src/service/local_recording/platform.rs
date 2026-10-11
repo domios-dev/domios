@@ -88,7 +88,7 @@ impl LocalInputAdapter for WindowsInputAdapter {
             input_id: selected.input_id.clone(),
             collection_id: selected.collection_id.clone(),
         };
-        let native_callback = Arc::new(move |event| callback(map_windows_event(event)));
+        let native_callback = move |event| callback(map_windows_event(event));
         let pending =
             windows::WindowsInputSubscription::start_pending(identity, generation, native_callback)
                 .map_err(|reason| LocalInputSetupError {

@@ -313,7 +313,7 @@ fn lark_input_macos_stale_callback_after_stop_is_inert() {
 fn lark_input_macos_queued_readiness_abandonment_stops_and_releases_once() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
-    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
 
     send_ready_run_loop(ready_tx, fake_run_loop(events.clone()));
     drop(ready_rx);
