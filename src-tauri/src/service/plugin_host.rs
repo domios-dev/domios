@@ -530,10 +530,18 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn receiver_target_clear_json(&self, plugin_id: &str) -> String {
         use crate::service::receiver_target::{host_json, ReceiverTargetError};
-        if !self.webhook_registry.contains(plugin_id) {
+        if !self.receiver_target_eligible(plugin_id) {
             return host_json(Err(ReceiverTargetError::ReceiverNotFound));
         }
         host_json(self.clear_receiver_target(plugin_id))
+    }
+
+    fn local_recording_status_json(&self, plugin_id: &str) -> String {
+        super::local_recording::host_json(self.local_recording_status(plugin_id))
+    }
+
+    fn local_recording_enabled_json(&self, plugin_id: &str, enabled: bool) -> String {
+        super::local_recording::host_json(self.local_recording_set_enabled(plugin_id, enabled))
     }
 }
 

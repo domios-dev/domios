@@ -53,6 +53,25 @@ impl ChatSendLedger {
         true
     }
 
+    pub(crate) fn clear_rpc_send_after_definite_refusal(
+        &self,
+        send_id: &str,
+        expected: &SendLiveBinding,
+    ) -> bool {
+        let mut state = self.state.lock();
+        if !state
+            .by_id
+            .get(send_id)
+            .is_some_and(|status| status.state == ChatSendState::Pending)
+            || state.rpc_by_id.get(send_id) != Some(expected)
+        {
+            return false;
+        }
+        state.rpc_by_id.remove(send_id);
+        state.live_binding_by_id.remove(send_id);
+        true
+    }
+
     pub(crate) fn mark_rpc_accepted(&self, send_id: &str) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
         if !state.rpc_by_id.contains_key(send_id) {

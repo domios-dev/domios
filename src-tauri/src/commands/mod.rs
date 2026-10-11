@@ -21,6 +21,7 @@ mod file_actions;
 mod hooks;
 pub(crate) mod html_preview;
 pub use file_actions::*;
+pub(crate) mod local_recording;
 mod model_providers;
 pub mod mux_commands;
 mod plans;

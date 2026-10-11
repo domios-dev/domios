@@ -24,6 +24,17 @@ Hidden memory workers trust their daemon-owned folder. Crons trust the folder ch
 
 Plugins declare capabilities and permissions. The host registers only capabilities it supports, and declared permissions bound access to local files, subprocesses, network hosts and secrets. A plugin update cannot supply host behavior absent from the installed app. Plugin confinement and official-channel provenance remain under the [plugin-host contract](core.md#core:plugin-host).
 
+A declared local recording trigger requires an explicit user grant. System trust,
+development access, and a manifest request do not supply it. The host owns selected
+devices and recipient selection; the plugin can inspect its own sanitized status
+and arm or disable its trigger without receiving raw input, audio, or authority to
+send to arbitrary tabs. START freezes an authenticated ready recipient and one
+capture generation. A closed explicit choice remains stale; General resolves only
+at START when no explicit choice exists. Cancellation, device loss, revocation and
+unload invalidate capture authority. Successful typed transcription enters the
+ordinary owner voice pipeline once, with exact recipient identity checked again
+before admission and handoff. Unsupported capture surfaces refuse the operation.
+
 Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. Domios changes only entries it owns and provides a reversible restore path. Only the machine-owner instance reclaims unused launch profiles, preserving provider trust first. Live profiles and unknown foreign instances are kept; a registered foreign instance is reclaimable only while its exclusive lifetime lock is held. One-time legacy cleanup matches only generated filenames, keeps live tabs and reports counts to the owner.
 
 ## Supporter classification
