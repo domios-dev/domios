@@ -9,7 +9,9 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+mod ffi;
 mod lifecycle;
+use ffi::*;
 pub(super) use lifecycle::{
     receive_completion, request_stop_wake, setup_entry_result, teardown_acknowledgement,
     SetupFailure, TeardownAcknowledgement, TeardownError, ThreadControl,
@@ -76,14 +78,6 @@ pub(super) enum WindowsInputEvent {
         generation: u64,
         reason: UnavailableReason,
     },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SetupFailure {
-    Unavailable(UnavailableReason),
-    Stopped,
-    Timeout,
-    CompletionLost,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -286,9 +280,12 @@ fn split_report_batch<'a>(
     Some(payload.chunks_exact(bytes).collect())
 }
 
-#[rustfmt::skip]
 fn unavailable_reason_for_win32(error: u32) -> UnavailableReason {
-    match error { ERROR_DEVICE_NOT_CONNECTED => UnavailableReason::Removed, ERROR_ACCESS_DENIED => UnavailableReason::AccessLost, _ => UnavailableReason::Error }
+    match error {
+        ERROR_DEVICE_NOT_CONNECTED => UnavailableReason::Removed,
+        ERROR_ACCESS_DENIED => UnavailableReason::AccessLost,
+        _ => UnavailableReason::Error,
+    }
 }
 
 struct NativeListener {
@@ -462,11 +459,14 @@ impl NativeListener {
     }
 }
 
-#[rustfmt::skip]
 impl Drop for NativeListener {
     fn drop(&mut self) {
-        if !self.release_attempted { let _ = self.release(); }
-        if !self.window.is_null() { std::mem::forget(self.context.take()); }
+        if !self.release_attempted {
+            let _ = self.release();
+        }
+        if !self.window.is_null() {
+            std::mem::forget(self.context.take());
+        }
     }
 }
 
@@ -501,7 +501,6 @@ impl AlignedPreparsedData {
     }
 }
 
-#[rustfmt::skip]
 fn run_listener(
     control: Arc<ThreadControl>,
     identity: SelectedInputIdentity,
@@ -513,29 +512,45 @@ fn run_listener(
     let error_callback = Arc::clone(&callback);
     let mut listener = NativeListener::new();
     let mut message: Msg = unsafe { std::mem::zeroed() };
-    unsafe { PeekMessageW(&mut message, null_mut(), 0, 0, PM_NOREMOVE); }
-    control.thread_id.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+    unsafe {
+        PeekMessageW(&mut message, null_mut(), 0, 0, PM_NOREMOVE);
+    }
+    control
+        .thread_id
+        .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
     let start = if control.stop_requested.load(Ordering::Acquire) {
         Err(ListenerStartError::Stopped)
     } else {
         listener.start(identity, generation, callback, &control.stop_requested)
     };
     match start {
-        Err(ListenerStartError::Stopped) => { let _ = startup.send(Err(SetupFailure::Stopped)); }
-        Err(ListenerStartError::Unavailable(reason)) => { let _ = startup.send(Err(SetupFailure::Unavailable(reason))); }
-        Ok(()) => if let Err(reason) = listener.pump(|| {
-            let _ = startup.send(setup_entry_result(control.stop_requested.load(Ordering::Acquire)));
-        }) {
-            emit(&error_callback, WindowsInputEvent::Unavailable { generation, reason });
+        Err(ListenerStartError::Stopped) => {
+            let _ = startup.send(Err(SetupFailure::Stopped));
+        }
+        Err(ListenerStartError::Unavailable(reason)) => {
+            let _ = startup.send(Err(SetupFailure::Unavailable(reason)));
+        }
+        Ok(()) => {
+            if let Err(reason) = listener.pump(|| {
+                let _ = startup.send(setup_entry_result(
+                    control.stop_requested.load(Ordering::Acquire),
+                ));
+            }) {
+                emit(
+                    &error_callback,
+                    WindowsInputEvent::Unavailable { generation, reason },
+                );
+            }
         }
     }
     let released = listener.release();
     control.thread_id.store(0, Ordering::Release);
-    if released.is_ok() { LISTENER_CLAIMED.store(false, Ordering::Release); }
+    if released.is_ok() {
+        LISTENER_CLAIMED.store(false, Ordering::Release);
+    }
     complete_teardown(|| released, completion);
 }
 
-#[rustfmt::skip]
 fn complete_teardown(
     release: impl FnOnce() -> Result<(), TeardownError>,
     completion: Sender<Result<(), TeardownError>>,
@@ -650,19 +665,38 @@ fn raw_device_preparsed_data(device: Handle) -> Result<AlignedPreparsedData, Una
     Ok(data)
 }
 
-#[rustfmt::skip]
 fn has_raw_input_registration(usage_page: u16, usage: u16) -> Result<bool, UnavailableReason> {
     let device_size = size_of::<RawInputDevice>() as u32;
     let mut count = 0u32;
     let result = unsafe { GetRegisteredRawInputDevices(null_mut(), &mut count, device_size) };
-    if result == u32::MAX { return Err(unavailable_reason_for_win32(last_error_code())); }
-    if count as usize > MAX_INPUT_DEVICES { return Err(UnavailableReason::Error); }
-    if count == 0 { return Ok(false); }
-    let mut devices = vec![RawInputDevice { usage_page: 0, usage: 0, flags: 0, target: null_mut() }; count as usize];
+    if result == u32::MAX {
+        return Err(unavailable_reason_for_win32(last_error_code()));
+    }
+    if count as usize > MAX_INPUT_DEVICES {
+        return Err(UnavailableReason::Error);
+    }
+    if count == 0 {
+        return Ok(false);
+    }
+    let mut devices = vec![
+        RawInputDevice {
+            usage_page: 0,
+            usage: 0,
+            flags: 0,
+            target: null_mut()
+        };
+        count as usize
+    ];
     let mut capacity = count;
-    let listed = unsafe { GetRegisteredRawInputDevices(devices.as_mut_ptr(), &mut capacity, device_size) };
-    if listed == u32::MAX || listed as usize > devices.len() { return Err(unavailable_reason_for_win32(last_error_code())); }
-    Ok(devices.iter().take(listed as usize).any(|device| device.usage_page == usage_page && device.usage == usage))
+    let listed =
+        unsafe { GetRegisteredRawInputDevices(devices.as_mut_ptr(), &mut capacity, device_size) };
+    if listed == u32::MAX || listed as usize > devices.len() {
+        return Err(unavailable_reason_for_win32(last_error_code()));
+    }
+    Ok(devices
+        .iter()
+        .take(listed as usize)
+        .any(|device| device.usage_page == usage_page && device.usage == usage))
 }
 
 fn descriptor_from_preparsed(data: &AlignedPreparsedData) -> Option<HidDescriptor> {
@@ -959,147 +993,3 @@ fn last_error_code() -> u32 {
 #[cfg(test)]
 #[path = "windows/tests.rs"]
 mod tests;
-
-type Handle = *mut c_void;
-type Hwnd = *mut c_void;
-type Hinstance = *mut c_void;
-type Wparam = usize;
-type Lparam = isize;
-type Lresult = isize;
-type WindowProc = unsafe extern "system" fn(Hwnd, u32, Wparam, Lparam) -> Lresult;
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RawInputDeviceList {
-    device: Handle, device_type: u32,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RawInputHeader {
-    device_type: u32, size: u32, device: Handle, wparam: Wparam,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct RawHidHeader {
-    report_bytes: u32, report_count: u32,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RawInputDevice {
-    usage_page: u16, usage: u16, flags: u32, target: Hwnd,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-struct Msg {
-    window: Hwnd, message: u32, wparam: Wparam, lparam: Lparam,
-    time: u32, point_x: i32, point_y: i32, private: u32,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-struct WndClassW {
-    style: u32, procedure: Option<WindowProc>, class_extra: i32, window_extra: i32,
-    instance: Hinstance, icon: Handle, cursor: Handle, background: Handle,
-    menu_name: *const u16, class_name: *const u16,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-struct CreateStructW {
-    parameter: *mut c_void, instance: Hinstance, menu: Handle, parent: Hwnd,
-    cy: i32, cx: i32, y: i32, x: i32, style: i32,
-    name: *const u16, class: *const u16, extended_style: u32,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct HidpCaps {
-    usage: u16, usage_page: u16, input_report_bytes: u16, output_report_bytes: u16,
-    feature_report_bytes: u16, reserved: [u16; 17],
-    link_collections: u16, input_button_caps: u16, input_value_caps: u16,
-    input_data_indices: u16, output_button_caps: u16, output_value_caps: u16,
-    output_data_indices: u16, feature_button_caps: u16, feature_value_caps: u16,
-    feature_data_indices: u16,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct HidpUsageRange {
-    usage_min: u16, usage_max: u16, string_min: u16, string_max: u16,
-    designator_min: u16, designator_max: u16, data_index_min: u16, data_index_max: u16,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct HidpUsageSingle {
-    usage: u16, reserved_1: u16, string_index: u16, reserved_2: u16,
-    designator_index: u16, reserved_3: u16, data_index: u16, reserved_4: u16,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-union HidpButtonCapsData {
-    range: HidpUsageRange,
-    not_range: HidpUsageSingle,
-}
-
-#[rustfmt::skip]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct HidpButtonCaps {
-    usage_page: u16, report_id: u8, is_alias: u8, bit_field: u16,
-    link_collection: u16, link_usage: u16, link_usage_page: u16,
-    is_range: u8, is_string_range: u8, is_designator_range: u8, is_absolute: u8,
-    report_count: u16, reserved_2: u16, reserved: [u32; 9], data: HidpButtonCapsData,
-}
-
-const HIDP_INPUT: i32 = 0;
-const HWND_MESSAGE: Hwnd = -3isize as Hwnd;
-
-#[link(name = "user32")]
-#[rustfmt::skip]
-extern "system" {
-    fn GetRawInputDeviceList(devices: *mut RawInputDeviceList, count: *mut u32, size: u32) -> u32;
-    fn GetRawInputDeviceInfoW(device: Handle, command: u32, data: *mut c_void, size: *mut u32) -> u32;
-    fn GetRawInputData(raw_input: Handle, command: u32, data: *mut c_void, size: *mut u32, header_size: u32) -> u32;
-    fn RegisterRawInputDevices(devices: *const RawInputDevice, count: u32, size: u32) -> i32;
-    fn GetRegisteredRawInputDevices(devices: *mut RawInputDevice, count: *mut u32, size: u32) -> u32;
-    fn RegisterClassW(window_class: *const WndClassW) -> u16;
-    fn CreateWindowExW(extended_style: u32, class_name: *const u16, window_name: *const u16, style: u32, x: i32, y: i32, width: i32, height: i32, parent: Hwnd, menu: Handle, instance: Hinstance, parameter: *mut c_void) -> Hwnd;
-    fn DestroyWindow(window: Hwnd) -> i32;
-    fn GetMessageW(message: *mut Msg, window: Hwnd, min: u32, max: u32) -> i32;
-    fn TranslateMessage(message: *const Msg) -> i32;
-    fn DispatchMessageW(message: *const Msg) -> Lresult;
-    fn DefWindowProcW(window: Hwnd, message: u32, wparam: Wparam, lparam: Lparam) -> Lresult;
-    fn SetWindowLongPtrW(window: Hwnd, index: i32, value: isize) -> isize;
-    fn GetWindowLongPtrW(window: Hwnd, index: i32) -> isize;
-    fn PeekMessageW(message: *mut Msg, window: Hwnd, min: u32, max: u32, remove: u32) -> i32;
-    fn PostThreadMessageW(thread_id: u32, message: u32, wparam: Wparam, lparam: Lparam) -> i32;
-    fn PostQuitMessage(exit_code: i32);
-}
-
-#[link(name = "kernel32")]
-#[rustfmt::skip]
-extern "system" {
-    fn GetCurrentThreadId() -> u32; fn GetModuleHandleW(name: *const u16) -> Hinstance;
-    fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
-}
-
-#[link(name = "hid")]
-#[rustfmt::skip]
-extern "system" {
-    fn HidP_GetCaps(preparsed: *mut c_void, caps: *mut HidpCaps) -> i32;
-    fn HidP_GetButtonCaps(report_type: i32, caps: *mut HidpButtonCaps, caps_length: *mut u16, preparsed: *mut c_void) -> i32;
-    fn HidP_GetUsages(report_type: i32, usage_page: u16, link_collection: u16, usages: *mut u16, usage_length: *mut u32, preparsed: *mut c_void, report: *mut i8, report_length: u32) -> i32;
-}
