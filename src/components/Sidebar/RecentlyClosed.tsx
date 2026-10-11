@@ -191,7 +191,7 @@ function RecentlyClosedInner({
         <span className="sidebar-structural-label truncate">RECENTLY CLOSED</span>
       </SidebarDisclosure>
       {open && (
-        <div className="mt-0.5 overflow-y-auto" style={{ maxHeight: 165 }}>
+        <div className="sidebar-recently-closed__items mt-0.5 overflow-y-auto">
           {groups.length === 0 && inventories.length === 0 && (
             <div
               data-testid="recently-closed-empty"
