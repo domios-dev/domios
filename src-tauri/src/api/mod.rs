@@ -65,6 +65,7 @@ pub mod team_routes;
 pub mod team_spend;
 pub mod theme_routes;
 pub mod transport_capabilities;
+pub mod transport_orchestration;
 pub mod transport_tabs;
 pub mod updater_routes;
 pub mod usage_routes;
