@@ -64,8 +64,16 @@ pub async fn plugin_ui(
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
 
+    Ok(plugin_ui_response(rel, bytes, &q))
+}
+
+fn plugin_ui_response(
+    rel: &str,
+    bytes: Vec<u8>,
+    context: &PluginUiQuery,
+) -> axum::response::Response {
     let mut resp = if rel.ends_with(".html") {
-        html_response(&bytes, &q)
+        html_response(&bytes, context)
     } else {
         asset_response(rel, bytes)
     };
@@ -76,7 +84,16 @@ pub async fn plugin_ui(
     };
     resp.headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    Ok(resp)
+    resp
+}
+
+fn plugin_frame_csp(nonce: &str) -> String {
+    // A style nonce suppresses unsafe-inline, blocking attributes and Git's unnonced runtime styles.
+    format!(
+        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; \
+         img-src blob: data:; font-src blob: data:; \
+         connect-src 'none'; base-uri 'none'; form-action 'none'"
+    )
 }
 
 fn html_response(bytes: &[u8], context: &PluginUiQuery) -> axum::response::Response {
@@ -93,10 +110,7 @@ fn html_response(bytes: &[u8], context: &PluginUiQuery) -> axum::response::Respo
         Some(i) => format!("{}{}{}", &raw[..i + 6], bridge, &raw[i + 6..]),
         None => format!("{bridge}{raw}"),
     };
-    let csp = format!(
-        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}' 'unsafe-inline'; \
-         img-src blob: data:; font-src blob: data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
-    );
+    let csp = plugin_frame_csp(&nonce);
     let mut response = axum::response::Response::new(axum::body::Body::from(html));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
