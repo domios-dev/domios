@@ -144,5 +144,8 @@
   "src/components/Settings/UpdateSection.test.tsx",
   "plugins/provider-shared/updateCheck.test.ts",
   "src/components/Automation/probeProgress.test.ts",
-  "src/lib/transport/orchestration.test.ts"
+  "src/lib/transport/orchestration.test.ts",
+  "src/lib/transportClient.test.ts",
+  "src/lib/nativeBridge.test.ts",
+  "src/lib/transportParity.test.ts"
 ]
