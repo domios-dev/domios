@@ -180,5 +180,6 @@
   "src/components/ProviderGlyph.test.tsx",
   "src/components/Terminal/ChatChannelLoadingStatus.test.tsx",
   "src/lib/pluginDocument.test.ts",
-  "src/lib/eventSubscriptionRegistry.test.ts"
+  "src/lib/eventSubscriptionRegistry.test.ts",
+  "src/lib/aggregateOutputRegistry.test.ts"
 ]
