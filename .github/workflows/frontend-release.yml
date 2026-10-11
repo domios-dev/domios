@@ -1,5 +1,20 @@
 name: frontend-release
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/frontend-release.yml'
+      - 'scripts/frontend-release/**'
+      - 'frontend-release-contract.json'
+      - 'src/**'
+      - 'packages/**'
+      - 'public/**'
+      - 'index.html'
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'build.sh'
   push:
     tags: ['frontend-v*']
   workflow_dispatch:
@@ -20,10 +35,10 @@ concurrency:
 jobs:
   build:
     runs-on: [self-hosted, linux-build]
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'frontend-dry-run' || 'frontend-signing' }}
+    environment: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'frontend-dry-run' || 'frontend-signing' }}
     env:
       FRONTEND_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      FRONTEND_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+      FRONTEND_DRY_RUN: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -36,6 +51,9 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+      - name: Resolve committed frontend version for pull request dry run
+        if: github.event_name == 'pull_request'
+        run: node scripts/frontend-release/release.mjs resolve-pr-tag
       - name: Validate independent frontend tag
         run: node scripts/frontend-release/release.mjs validate "$FRONTEND_TAG"
       - name: Require reviewed production tag on master
@@ -69,7 +87,7 @@ jobs:
           if-no-files-found: error
   publish:
     needs: build
-    if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
     runs-on: [self-hosted, linux-build]
     environment: frontend-publication
     env:

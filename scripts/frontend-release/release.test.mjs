@@ -10,7 +10,7 @@ import { canonicalManifest, createManifest, checksum, validateTag } from './mani
 import { deterministicArchive } from './archive.mjs';
 import { fixtureSign, verifySignature, productionSign } from './sign.mjs';
 import { publishRelease } from './publish.mjs';
-import { prepare } from './release.mjs';
+import { prepare, isDryRun } from './release.mjs';
 const fixture = fileURLToPath(new URL('./fixtures/', import.meta.url));
 const contract = JSON.parse(await readFile(new URL('../../frontend-release-contract.json', import.meta.url), 'utf8'));
 const publicKey = await readFile(path.join(fixture, 'frontend-test.pub'), 'utf8');
@@ -117,4 +117,12 @@ test('committed cross-language fixture is canonical, signed and matches archive'
   assert.deepEqual(stored,bytes);
   verifySignature(stored,await readFile(path.join(fixture,'frontend-manifest.json.minisig'),'utf8'),publicKey);
   assert.deepEqual(await readFile(path.join(fixture,'frontend-v1.0.0.tar.gz')),archive);
+});
+
+test('pull requests always force fixture dry run even when requested flag is false or missing', () => {
+  assert.equal(isDryRun('pull_request', 'false'), true);
+  assert.equal(isDryRun('pull_request', undefined), true);
+  assert.equal(isDryRun('workflow_dispatch', 'true'), true);
+  assert.equal(isDryRun('workflow_dispatch', 'false'), false);
+  assert.equal(isDryRun('push', undefined), false);
 });

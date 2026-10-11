@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, cp } from 'node:fs/promises';
+import { readFile, writeFile, appendFile, mkdir, cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -46,14 +46,24 @@ function githubRemote(repository, output) {
     },
   };
 }
+export function isDryRun(event, requested) {
+  return event === 'pull_request' || requested === 'true';
+}
 async function main() {
   const [command, tag, output = 'frontend-release-output'] = process.argv.slice(2);
   const contract = JSON.parse(await readFile('frontend-release-contract.json', 'utf8'));
+  if (command === 'resolve-pr-tag') {
+    const committedTag = `frontend-v${contract.version}`;
+    validateTag(committedTag, contract);
+    await appendFile(process.env.GITHUB_ENV, `FRONTEND_TAG=${committedTag}\n`);
+    return;
+  }
   validateTag(tag, contract);
-  const dryRun = process.env.FRONTEND_DRY_RUN === 'true';
+  const dryRun = isDryRun(process.env.GITHUB_EVENT_NAME, process.env.FRONTEND_DRY_RUN);
   if (command === 'validate') return;
   if (command === 'prepare') { await prepare({ contract, tag, dist: 'dist', output, dryRun, sourceSha: process.env.GITHUB_SHA }); return; }
   if (command !== 'publish') throw new Error('Unknown frontend release operation');
+  if (dryRun) throw new Error('Dry-run events cannot invoke publication');
   const manifest = JSON.parse(await readFile(path.join(output, 'frontend-manifest.json'), 'utf8'));
   if (manifest.releaseId !== tag || manifest.minApiVersion !== contract.minApiVersion || manifest.maxApiVersion !== contract.maxApiVersion || manifest.url !== createManifest(tag, contract, Buffer.alloc(0)).url) throw new Error('Artifact contract mismatch');
   await publishRelease({ manifest, archive: await readFile(path.join(output, `${tag}.tar.gz`)), signature: await readFile(path.join(output, 'frontend-manifest.json.minisig'), 'utf8'), publicKey: contract.publicKey, fixtureKey: await readFile(path.join(fixtureRoot, 'frontend-test.pub'), 'utf8'), dryRun }, githubRemote(contract.repository, output));
