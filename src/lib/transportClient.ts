@@ -45,14 +45,26 @@ export class TransportError extends Error {
 
 export { TransportError as WebApiError };
 
-export function decodeTransportResponse<T>(status: number, path: string, text: string, promptResponse = true): T {
-  let value: unknown = text;
-  try { value = JSON.parse(text); } catch {}
+export class InvalidJsonResponseError extends TransportError {
+  constructor(status: number, path: string, body: string, public contentType: string | null) {
+    super(status, path, body);
+    this.name = "InvalidJsonResponseError";
+    this.message = `${path} → invalid daemon JSON response (${contentType ?? "missing content type"})`;
+  }
+}
+
+export function decodeTransportResponse<T>(status: number, path: string, text: string, contentType: string | null, promptResponse = true): T {
+  let value: unknown;
+  let parsed = false;
+  try { value = JSON.parse(text); parsed = true; } catch {}
   const promptMissing = promptResponse && status === 409 && path.endsWith("/prompt/respond")
     && typeof value === "object" && value !== null
     && "ok" in value && value.ok === false
     && "reason" in value && value.reason === "prompt_not_on_screen";
   if ((status < 200 || status >= 300) && !promptMissing) throw new TransportError(status, path, text);
+  if (contentType?.split(";")[0].trim().toLowerCase() !== "application/json" || !parsed) {
+    throw new InvalidJsonResponseError(status, path, text, contentType);
+  }
   return value as T;
 }
 
@@ -112,7 +124,9 @@ export function createTransportClient(options: TransportOptions): TransportClien
         body: JSON.stringify({ target_peer_id: options.relayPeerId, method: (init.method ?? "GET").toUpperCase(), path, body }),
       });
       if (response.ok) {
-        const relay = await response.json() as { ok: boolean; status: number; data: unknown; error?: string };
+        const relay = decodeTransportResponse<{ ok: boolean; status: number; data: unknown; error?: string }>(
+          response.status, "/api/mesh/relay-to", await response.text(), response.headers.get("content-type"), false,
+        );
         response = new Response(relay.data == null ? relay.error ?? "" : JSON.stringify(relay.data), {
           status: relay.status || (relay.ok ? 200 : 502), headers: { "Content-Type": "application/json" },
         });
@@ -124,7 +138,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
   const json = async <T>(method: string, path: string, body: unknown, init: RequestInit = {}, local = false) => {
     const response = await tracked(path, { ...init, method, body: body === undefined ? undefined : JSON.stringify(body) }, local);
     const text = await response.text();
-    return decodeTransportResponse<T>(response.status, path, text, !local);
+    return decodeTransportResponse<T>(response.status, path, text, response.headers.get("content-type"), !local);
   };
   return {
     request: tracked,
@@ -139,7 +153,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     async upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T> {
       const response = await tracked(path, { method: "POST", body: form, signal: opts?.signal }, true);
       const text = await response.text();
-      return decodeTransportResponse<T>(response.status, path, text);
+      return decodeTransportResponse<T>(response.status, path, text, response.headers.get("content-type"));
     },
     subscribe(path, handler, init = {}) {
       resolvePath(path);

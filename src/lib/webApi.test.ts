@@ -109,7 +109,7 @@ describe("peer provider catalog relay", () => {
       expect(JSON.parse(String(init.body))).toEqual({
         target_peer_id: "owning-peer", method: "GET", path: "/api/agents/providers", body: null,
       });
-      return new Response(JSON.stringify({ ok: true, status: 200, data: [descriptor], error: null }));
+      return Response.json({ ok: true, status: 200, data: [descriptor], error: null });
     });
     const catalog = agentProvidersFromResponse(await webJson("GET", "/api/agents/providers"));
     syncAgentDescriptorCache(catalog, false, null);
