@@ -353,7 +353,7 @@ async fn lark_recording_contract_rpc_capture_valid_ticket_tracks_one_request() {
     assert!(matches!(outcome, GuardedSubmit::Attempted(Ok(_))));
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].0, "turn/start");
-    assert_eq!(calls[0].1["clientUserMessageId"], "capture-client");
+    assert_eq!(calls[0].1["clientUserMessageId"], send_id);
     assert_eq!(
         calls[0].1["threadId"],
         authority.session_id.as_deref().unwrap()
@@ -402,7 +402,7 @@ async fn lark_recording_contract_rpc_capture_uncertainty_never_pastes_or_replays
         GuardedSubmit::Attempted(Err(ClientError::Deadline))
     );
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].1["clientUserMessageId"], "capture-client");
+    assert_eq!(calls[0].1["clientUserMessageId"], send_id);
     assert!(fixture.service.chat_send_ledger.has_rpc_handoff(&send_id));
     let result = match outcome {
         GuardedSubmit::Attempted(result) => result,
