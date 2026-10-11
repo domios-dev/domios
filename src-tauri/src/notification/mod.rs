@@ -19,76 +19,8 @@ pub mod store;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::State;
 
-use store::{Notification, NotificationStore};
+use store::NotificationStore;
 
 /// Shared notification state, thread-safe.
 pub type NotifState = Arc<Mutex<NotificationStore>>;
-
-#[tauri::command]
-pub fn notify(
-    svc: State<'_, crate::service::ServiceState>,
-    title: String,
-    body: Option<String>,
-    severity: Option<String>,
-    tab_id: Option<String>,
-    level: Option<String>,
-    event_key: Option<String>,
-) -> Result<String, String> {
-    let _ = (svc, title, body, severity, tab_id, level, event_key);
-    Err("Bell notifications require codeterm notify send from an agent tab".into())
-}
-
-/// The push channels this build registers, and whether each one's own controls
-/// may be offered in settings. The grid's channel columns come from here, so a
-/// channel the registry gains appears without anyone editing a column list.
-#[tauri::command]
-pub fn push_channel_roster(
-    svc: State<'_, crate::service::ServiceState>,
-) -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({
-        "channels": crate::api::notification_routes::render_channel_standings(svc.inner()),
-    }))
-}
-
-/// List notifications, optionally filtered to unread only.
-#[tauri::command]
-pub fn list_notifications(
-    store: State<'_, NotifState>,
-    unread_only: Option<bool>,
-) -> Result<Vec<Notification>, String> {
-    let s = store.lock();
-    let unread = unread_only.unwrap_or(false);
-    Ok(s.list(unread).into_iter().cloned().collect())
-}
-
-/// Record the user's choice on a notification. The caller names the record and
-/// the chosen label; it cannot name a command, arguments, or a target tab.
-#[tauri::command]
-pub fn answer_notification(
-    svc: State<'_, crate::service::ServiceState>,
-    id: String,
-    label: String,
-) -> Result<serde_json::Value, String> {
-    svc.answer_owner_notification(&id, &label)
-}
-
-/// Mark a single notification as read.
-#[tauri::command]
-pub fn mark_notification_read(store: State<'_, NotifState>, id: String) -> Result<(), String> {
-    let mut s = store.lock();
-    if s.mark_read(&id) {
-        Ok(())
-    } else {
-        Err(format!("Notification not found: {}", id))
-    }
-}
-
-/// Clear one notification by ID, or all if no ID given.
-#[tauri::command]
-pub fn clear_notifications(store: State<'_, NotifState>, id: Option<String>) -> Result<(), String> {
-    let mut s = store.lock();
-    s.clear(id.as_deref());
-    Ok(())
-}

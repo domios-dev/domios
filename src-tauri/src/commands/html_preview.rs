@@ -21,14 +21,6 @@ fn extension(path: &std::path::Path) -> String {
         .to_ascii_lowercase()
 }
 
-pub fn read_html_preview_file_core(path: &str) -> Result<String, String> {
-    Ok(read_local_preview_file_core(path, "page")?.data)
-}
-
-pub fn read_local_preview_file_core(path: &str, kind: &str) -> Result<LocalPreviewFile, String> {
-    read_local_preview_file_guarded(path, kind, |_, _| Ok(()))
-}
-
 fn media(path: &std::path::Path, kind: &str) -> Result<(&'static str, u64), String> {
     let ext = extension(path);
     let result = match (kind, ext.as_str()) {
@@ -90,10 +82,6 @@ pub struct LocalPreviewFiles {
     pub home: Option<String>,
 }
 
-pub(crate) fn check_local_preview_files_core(paths: Vec<String>) -> LocalPreviewFiles {
-    check_local_preview_files_guarded(paths, |_, _| Ok(()))
-}
-
 pub(crate) fn check_local_preview_files_guarded(
     paths: Vec<String>,
     guard: impl Fn(&std::path::Path, Option<&std::path::Path>) -> Result<(), String>,
@@ -118,30 +106,6 @@ pub(crate) fn check_local_preview_files_guarded(
         paths,
         home: dirs::home_dir().map(|path| path.to_string_lossy().into_owned()),
     }
-}
-
-#[tauri::command]
-pub async fn check_local_preview_files(paths: Vec<String>) -> Result<LocalPreviewFiles, String> {
-    tokio::task::spawn_blocking(move || check_local_preview_files_core(paths))
-        .await
-        .map_err(|error| format!("Local preview inspection task failed: {error}"))
-}
-
-#[tauri::command]
-pub async fn read_html_preview_file(path: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || read_html_preview_file_core(&path))
-        .await
-        .map_err(|error| format!("HTML preview read task failed: {error}"))?
-}
-
-#[tauri::command]
-pub async fn read_local_preview_file(
-    path: String,
-    kind: String,
-) -> Result<LocalPreviewFile, String> {
-    tokio::task::spawn_blocking(move || read_local_preview_file_core(&path, &kind))
-        .await
-        .map_err(|error| format!("Local preview read task failed: {error}"))?
 }
 
 #[cfg(test)]

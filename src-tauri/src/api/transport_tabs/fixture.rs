@@ -2,7 +2,7 @@ use crate::api::routes::AppState;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
-pub(super) fn app_state(fixture: &ServiceFixture) -> AppState {
+pub(crate) fn app_state(fixture: &ServiceFixture) -> AppState {
     let mut config = crate::config::schema::AppConfig::default();
     config.api.token = Some("preview-test-token".into());
     let config = Arc::new(parking_lot::Mutex::new(config));

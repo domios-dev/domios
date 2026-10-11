@@ -7,8 +7,7 @@ use axum::{
 };
 use tower::ServiceExt;
 
-#[path = "../../transport_tabs/fixture.rs"]
-mod fixture;
+use crate::api::transport_tabs::fixture;
 
 #[test]
 fn transport_domain_registration_contract_routers_merge_without_collisions() {
@@ -165,7 +164,7 @@ async fn transport_registry_contract_owner_mutations_restore_and_persist() {
         )
         .await;
         if owner {
-            update.unwrap();
+            let _ = update.unwrap();
             assert_eq!(state.cron.lock().get(&job.id).unwrap().name, "After");
             let persisted = crate::cron::store::CronStore::new_with_path(
                 fixture.temp.path().join("crons.json"),

@@ -1,7 +1,6 @@
 use super::*;
 
-#[path = "../transport_tabs/fixture.rs"]
-mod fixture;
+use crate::api::transport_tabs::fixture;
 
 #[test]
 fn transport_bootstrap_contract_router_merges_once_with_domains() {

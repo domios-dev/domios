@@ -100,6 +100,7 @@ fn compose_task_env(
     env
 }
 
+#[cfg(test)]
 pub(crate) fn active_tab_lane_base(plan_store: &PlanStore, tab_id: &str) -> Option<String> {
     tab_task_env(plan_store, tab_id).remove("CODETERM_LANE_BASE")
 }

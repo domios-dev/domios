@@ -81,10 +81,10 @@ fn command_release_on_error_allows_sends_and_other_ptys_stay_independent() {
     let command = reserve_command_input(pty_id, Instant::now() + Duration::from_secs(2)).unwrap();
     let unrelated = claim_submit_cycle("model-command-unrelated-pty");
     assert!(unrelated.is_current());
-    let failed = (|| -> Result<(), ()> {
+    let failed: Result<(), ()> = {
         let _command = command;
         Err(())
-    })();
+    };
     assert!(failed.is_err());
     let send = claim_submit_cycle(pty_id);
     assert!(send.is_current());
@@ -110,10 +110,10 @@ fn command_failure_releases_an_awaiting_send() {
             wait.completed().await
         });
         observed.await.unwrap();
-        let failure = (|| -> Result<(), ()> {
+        let failure: Result<(), ()> = {
             let _command = command;
             Err(())
-        })();
+        };
         assert!(failure.is_err());
         assert!(task.await.unwrap());
         assert!(claim_submit_cycle(pty_id).command_wait().is_none());

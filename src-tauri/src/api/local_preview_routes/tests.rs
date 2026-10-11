@@ -55,9 +55,10 @@ async fn referenced_images_documents_and_pages_match_desktop_shape_and_headers()
         assert_eq!(response.status(), StatusCode::OK);
         assert_headers(&response);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
-        let desktop = crate::commands::html_preview::read_local_preview_file_core(
+        let desktop = crate::commands::html_preview::read_local_preview_file_guarded(
             path.to_str().unwrap(),
             kind,
+            |_, _| Ok(()),
         )
         .unwrap();
         assert_eq!(json(response).await, serde_json::to_value(desktop).unwrap());
@@ -180,11 +181,14 @@ async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals
         (&large_image, "image"),
     ] {
         fixture.reference(&fixture.owner, path);
-        assert!(crate::commands::html_preview::read_local_preview_file_core(
-            path.to_str().unwrap(),
-            kind
-        )
-        .is_err());
+        assert!(
+            crate::commands::html_preview::read_local_preview_file_guarded(
+                path.to_str().unwrap(),
+                kind,
+                |_, _| Ok(()),
+            )
+            .is_err()
+        );
         let response = fixture.read(&fixture.owner, path, kind).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_headers(&response);
