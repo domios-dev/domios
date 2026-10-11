@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "minApiVersion": 2,
+  "maxApiVersion": 2,
+  "contractVersion": 1,
+  "repository": "rollacode/codeterm-releases",
+  "publicKey": null
+}
