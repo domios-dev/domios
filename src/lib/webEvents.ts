@@ -16,7 +16,7 @@ import { apiHost, currentToken, relayTarget } from "./webApi";
 import { createTransportClient, type TransportClient } from "./transportClient";
 import { fireResync } from "./resync";
 import { createSeqGapTracker } from "./eventSeqGaps";
-import { transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
+import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 
 let eventClient: TransportClient | undefined;
@@ -78,16 +78,19 @@ function armReceiveDeadline(abort: AbortController): void {
   (receiveDeadline as unknown as { unref?: () => void }).unref?.();
 }
 
-function waitForReconnectFailure(generation: number): Promise<boolean> {
+function waitForReconnectFailure(delay: number, generation: number): Promise<boolean> {
   reconnectState = transitionWebReconnect(reconnectState, "lost").state;
   return new Promise((resolve) => {
     const finish = (event: "wake" | "deadline" | "stop") => {
+      clearTimeout(deadline);
       cancelReconnectWait = null;
       wakeReconnectWait = null;
       const next = transitionWebReconnect(reconnectState, event);
       reconnectState = next.state;
       resolve(generation === streamGeneration && next.action === "probe");
     };
+    const deadline = setTimeout(() => finish("deadline"), delay);
+    (deadline as unknown as { unref?: () => void }).unref?.();
     wakeReconnectWait = () => finish("wake");
     cancelReconnectWait = () => finish("stop");
     window.dispatchEvent(new Event("codeterm-event-stream-disconnected"));
@@ -197,6 +200,7 @@ export function webEventStreamUrl(
 
 async function runStream(): Promise<void> {
   const generation = ++streamGeneration;
+  let backoffMs = RECONNECT_FIRST_MS;
   for (;;) {
     if (generation !== streamGeneration) return;
     const abort = new AbortController();
@@ -214,6 +218,7 @@ async function runStream(): Promise<void> {
         if (!frame || typeof frame.event_type !== "string") return;
         if (!connected) {
           connected = true;
+          backoffMs = RECONNECT_FIRST_MS;
           reconnectState = transitionWebReconnect(reconnectState, "connected").state;
           if (reconnecting) {
             window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
@@ -239,7 +244,8 @@ async function runStream(): Promise<void> {
       forceImmediateRetry = false;
       continue;
     }
-    if (!await waitForReconnectFailure(generation)) return;
+    if (!await waitForReconnectFailure(reconnectDelay(backoffMs, Math.random()), generation)) return;
+    backoffMs = nextReconnectBackoff(backoffMs);
   }
 }
 
