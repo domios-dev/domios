@@ -15,7 +15,7 @@ permissions:
 jobs:
   publish:
     name: validate and publish plugin
-    runs-on: [self-hosted, codeterm-builder]
+    runs-on: [self-hosted, linux-build]
     steps:
       - uses: actions/checkout@v5
         with:
