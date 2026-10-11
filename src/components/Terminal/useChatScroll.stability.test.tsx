@@ -304,6 +304,43 @@ describe("attached tail at the history cap", () => {
 });
 
 describe("send from history", () => {
+  it("repairs the recorded working layout shift before resize delivery without detaching", async () => {
+    await mount();
+    const el = scroll();
+    let height = 9775;
+    let client = 717;
+    let top = 9058;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, get: () => height },
+      clientHeight: { configurable: true, get: () => client },
+      scrollTop: {
+        configurable: true,
+        get: () => top,
+        set: (value: number) => { top = Math.min(value, height - client); },
+      },
+    });
+    await act(async () => hook!.scrollToBottom());
+    await deliverScrollEvent();
+    height -= 26;
+    top = Math.min(top, height - client);
+    height += 34;
+    expect(top).toBe(9032);
+    await deliverScrollEvent();
+    expectPinnedToBottom();
+    expect(modeChanges).not.toContain("detached");
+    client = 699;
+    await deliverScrollEvent();
+    expectPinnedToBottom();
+    height = 12387;
+    client = 717;
+    await act(async () => {
+      for (const observer of RecordingResizeObserver.instances) observer.deliver();
+    });
+    expectPinnedToBottom();
+    await userScrollTo(top - 26);
+    expect(followTail.current).toBe(false);
+  });
+
   it("shows the sent turn at bottom through echo reconciliation and streaming until the reader scrolls up", async () => {
     await mount();
     await userScrollTo(500);
