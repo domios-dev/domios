@@ -207,6 +207,7 @@ def cmd_send_marker(deadline, tab_id, marker, prompt):
 
 def cmd_send_long_turn(deadline, tab_id, prompt, observation_path=None):
     wait = EventWait(deadline)
+    api("POST", f"/api/tabs/{tab_id}/chat-raw/start", {"subscriptionId": f"restore-lifecycle-working-{tab_id}"})
     receipt = api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
     frames = []
 

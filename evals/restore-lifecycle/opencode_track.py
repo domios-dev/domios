@@ -16,6 +16,7 @@ class OpenCodeTrack:
         self.findings = []
         self.serial = 0
         self.browser_open = False
+        self.spawn_verified = False
 
     def finding(self, tab, kind, detail, path):
         self.findings.append(dict(tab=tab, kind=kind, detail=detail, evidence=str(path)))
@@ -46,17 +47,14 @@ class OpenCodeTrack:
                              caller=self.host.orch, json_output=False)
 
     def select(self, tab):
-        row = self.host.inspect(tab)
-        self.host.cli('opencode-focus-' + tab, 'tab', 'focus', tab, json_output=False)
-        self.browser('before-select-' + tab, 'snapshot')
-        self.browser('select-' + tab, 'click', 'button', 'Open tab ' + row['title'])
+        self.host.browser_select(tab, 'opencode-browser-' + tab)
 
     def visible(self, tab, marker, label):
         self.browser(label + '-wait', 'wait', '--text', marker)
         view = self.browser(label, 'snapshot')
-        if 'Starting' in view:
+        if 'starting' in view.lower():
             self.finding(tab, 'stuck_starting', 'Chat shows Starting after own-session reply', 'opencode-browser-' + label + '.stdout')
-        oracle.require('Starting' not in view and marker in view, f'{tab}: visible Chat reply absent or still Starting')
+        oracle.require('starting' not in view.lower() and marker in view, f'{tab}: visible Chat reply absent or still Starting')
         return view
 
     def startup_ack(self, tab):
@@ -146,13 +144,17 @@ class OpenCodeTrack:
             oracle.require('first-composer' in stages, f'{tab}: first-composer timing unavailable')
             if max(times['session_binding_observed_ms'], times['agent_ready_observed_ms']) > 15000:
                 self.finding(tab, 'slow_readiness', times, 'opencode-timing-' + tab + '.json')
-            host.wait(lambda: self.startup_ack(tab), title + ' own startup ACK')
-            if worker:
-                host.wait(lambda: host.acked(tab), title + ' task ACK')
-            host.wait(lambda: any(startup in text for text in evidence.texts(self.chat(tab, 'opencode-startup-' + tab), 'assistant')), title + ' startup transcript')
+            try:
+                host.wait(lambda: self.startup_ack(tab), title + ' own startup ACK')
+                if worker:
+                    host.wait(lambda: host.acked(tab), title + ' task ACK')
+                host.wait(lambda: any(startup in text for text in evidence.texts(self.chat(tab, 'opencode-startup-' + tab), 'assistant')), title + ' startup transcript')
+            except BaseException as error:
+                self.finding(tab, 'startup_failure', str(error), 'opencode-timing-' + tab + '.json')
         before = {tab: host.inspect(tab) for tab in self.tabs}
         oracle.bindings(before, provider='opencode')
         host.write('opencode-spawn.json', before)
+        self.spawn_verified = True
         self.browser('open', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'])
         self.browser_open = True
         self.browser('ready', 'wait', '--selector', '[data-testid=sidebar]')
@@ -164,23 +166,31 @@ class OpenCodeTrack:
             actual = state.get('model') or row.get('agent_session_model')
             if actual != self.expected[tab]:
                 self.finding(tab, 'model_display_unverified', dict(expected_id=self.expected[tab], detected_display=actual), 'opencode-spawn.json')
+        oracle.require(not any(row['kind'] == 'startup_failure' for row in self.findings), 'OpenCode child startup failed; see per-child findings')
         host.pass_phase(8, 'OpenCode: two Workers default/cheap plus plain default; timings, ACK and visible startup')
 
     def first_turn(self, label='first', phase=9):
         self.host.phase = phase
         markers = {tab: 'RL-OPENCODE-' + label.upper() + '-' + tab for tab in self.tabs}
+        failures = []
         for tab, marker in markers.items():
-            self.select(tab)
-            waiter = observe.EventWait(int(os.environ.get('RL_TURN_DEADLINE', '240')))
-            self.host.send(tab, f'Reply exactly {marker}-REPLY. Do not use tools.', 'opencode-' + label + '-' + tab)
-            def replied(_):
-                self.serial += 1
-                rows = self.chat(tab, f'opencode-{label}-live-{self.serial}-{tab}')
-                return any(marker + '-REPLY' in text for text in evidence.texts(rows, 'assistant'))
-            waiter.until(replied, tab + ' own first reply')
-            self.visible(tab, marker + '-REPLY', label + '-' + tab)
+            try:
+                waiter = observe.EventWait(int(os.environ.get('RL_TURN_DEADLINE', '240')))
+                observe.api('POST', f'/api/tabs/{tab}/chat-raw/start', {'subscriptionId': 'restore-lifecycle-first-' + tab})
+                self.host.send(tab, f'Reply exactly {marker}-REPLY. Do not use tools.', 'opencode-' + label + '-' + tab)
+                def replied(_):
+                    self.serial += 1
+                    rows = self.chat(tab, f'opencode-{label}-live-{self.serial}-{tab}')
+                    return any(marker + '-REPLY' in text for text in evidence.texts(rows, 'assistant'))
+                waiter.until(replied, tab + ' own first reply')
+                self.select(tab)
+                self.visible(tab, marker + '-REPLY', label + '-' + tab)
+            except BaseException as error:
+                failures.append(f'{tab}: {error}')
+                self.finding(tab, 'first_turn_failure', str(error), 'opencode-' + label + '-' + tab + '.json')
         chats = self.chats(label + '-after')
         oracle.exact_markers({tab: evidence.texts(rows, 'user') for tab, rows in chats.items()}, markers)
+        oracle.require(not failures, '; '.join(failures))
         self.host.pass_phase(phase, f'OpenCode {label}: each marked task exactly once in own session; reply visible live')
 
     def restart(self, working):
@@ -217,14 +227,17 @@ class OpenCodeTrack:
         else:
             host.idle()
         latest = self.chats(label + '-final')
+        ui_failures = []
         for tab, rows in latest.items():
             evidence.retained(chats[tab], rows)
             evidence.continues(chats[tab], rows, int(working))
-            self.select(tab)
-            view = self.browser(label + '-' + tab, 'snapshot')
-            if 'Starting' in view:
-                self.finding(tab, 'stuck_starting', 'Chat still Starting after rebind', label)
-            oracle.require('Starting' not in view, f'{tab}: Chat Starting after restart')
+            try:
+                self.select(tab)
+                view = self.browser(label + '-' + tab, 'snapshot')
+                oracle.require('starting' not in view.lower(), f'{tab}: Chat Starting after restart')
+            except BaseException as error:
+                ui_failures.append(f'{tab}: {error}')
+                self.finding(tab, 'restart_chat_failure', str(error), label + '-' + tab)
         log = host.log_since(offset, label)
         oracle.restart_logs(log, self.tabs, idle=not working)
         other = [tab for tab in host.tabs if tab not in self.tabs]
@@ -232,17 +245,25 @@ class OpenCodeTrack:
         host.idle()
         self.first_turn(label + '-first-after-restart', host.phase)
         oracle.bindings({tab: host.inspect(tab) for tab in self.tabs}, before, provider='opencode')
+        oracle.require(not ui_failures, '; '.join(ui_failures))
         host.pass_phase(host.phase, 'OpenCode: same lazy sessions, retained rows, ' + ('one continue and resumed work each' if working else 'zero continues'))
 
     def run(self):
+        from codex_matrix import MODE, OUT
         try:
-            self.spawn()
-            self.first_turn()
-            self.restart(False)
-            self.restart(True)
-        except BaseException as error:
-            self.finding(None, 'hard_failure', str(error), 'failure.txt')
-            raise
+            for phase, action in ((8, self.spawn), (9, self.first_turn),
+                                  (10, lambda: self.restart(False)), (11, lambda: self.restart(True))):
+                self.host.phase = phase
+                try:
+                    action()
+                except BaseException as error:
+                    path = self.host.write(f'opencode-failure-phase-{phase}.txt', str(error))
+                    self.finding(None, 'hard_failure', str(error), path)
+                    self.host.results.append((phase, 'FAIL', str(error)))
+                    print(f'FAIL mode={MODE} phase={phase} {error} evidence={OUT}', flush=True)
+                    self.host.table()
+                    if phase == 8 and not self.spawn_verified:
+                        break
         finally:
             self.host.write('opencode-observation-limits.json', dict(
                 flicker='Discrete snapshots cannot exclude transient flicker; inspect screenshots and event receipts.',

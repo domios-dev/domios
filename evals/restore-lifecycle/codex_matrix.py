@@ -3,6 +3,7 @@ import concurrent.futures
 import json
 import os
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
@@ -182,6 +183,18 @@ class Matrix:
             lines.append(f'| {MODE} | {phase} | {verdict} | {detail.replace(chr(10), " ")} ({OUT}) |')
         self.write('results.md', '\n'.join(lines) + '\n')
 
+    def browser_select(self, tab, label):
+        row = self.inspect(tab)
+        self.cli(label + '-focus', 'tab', 'focus', tab, json_output=False)
+        view = self.cli(label + '-before', 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
+        name = 'Select workspace ' + row['workspace_name']
+        refs = re.findall(r'button "' + re.escape(name) + r'" \[(@e\d+)\]', view)
+        oracle.require(refs, f'{tab}: workspace selector absent from browser snapshot')
+        self.cli(label + '-workspace', 'plugin', 'browser', 'click', refs[-1], caller=self.orch, json_output=False)
+        self.cli(label + '-tab-ready', 'plugin', 'browser', 'wait', '--selector', 'button[aria-label="Open tab ' + row['title'] + '"]', caller=self.orch, json_output=False)
+        self.cli(label + '-tabs', 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
+        self.cli(label + '-select', 'plugin', 'browser', 'click', 'button', 'Open tab ' + row['title'], caller=self.orch, json_output=False)
+
     def phase_environment(self):
         self.health()
         continuation = self.cli('continue-config', 'config', 'get', 'agent.continue_after_restart')
@@ -277,9 +290,7 @@ class Matrix:
         self.cli('browser-open', 'plugin', 'browser', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, row in baseline.items():
-            self.cli('focus-' + tab, 'tab', 'focus', tab, json_output=False)
-            self.cli('browser-before-select-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
-            self.cli('browser-select-' + tab, 'plugin', 'browser', 'click', 'button', 'Open tab ' + row['title'], caller=self.orch, json_output=False)
+            self.browser_select(tab, 'browser-' + tab)
             self.cli('browser-chat-ready-' + tab, 'plugin', 'browser', 'wait', '--text', 'READY', caller=self.orch, json_output=False)
             view = self.cli('browser-chat-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
             oracle.require('starting' not in view.lower(), f'{tab}: Chat still Starting')
@@ -402,9 +413,7 @@ class Matrix:
         self.cli('idle-browser-open', 'plugin', 'browser', 'open', observe.BASE + '/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('idle-browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, marker in markers.items():
-            self.cli('idle-focus-' + tab, 'tab', 'focus', tab, json_output=False)
-            self.cli('idle-browser-before-select-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
-            self.cli('idle-browser-select-' + tab, 'plugin', 'browser', 'click', 'button', 'Open tab ' + before[tab]['title'], caller=self.orch, json_output=False)
+            self.browser_select(tab, 'idle-browser-' + tab)
             waiter = observe.EventWait(TURN_DEADLINE)
             self.send(tab, f'Reply exactly {marker}-REPLY without tools. Remain idle afterward.', 'idle-first-' + tab)
             waiter.until(lambda _, tab=tab, marker=marker: any(marker + '-REPLY' in text for text in oracle.assistant_texts(paths[tab])), tab + ' first post-restart reply')
@@ -447,7 +456,7 @@ class Matrix:
             if phase not in executed:
                 self.results.append((phase, 'FAIL', 'NOT EXECUTED: prerequisite phase failed'))
         self.table()
-        if failed:
+        if failed or any(row[1] == 'FAIL' for row in self.results):
             raise SystemExit(1)
         if self.team:
             self.cli('team-cleanup', 'team', 'close', self.team)
