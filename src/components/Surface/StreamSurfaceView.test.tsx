@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Surface/StreamSurfaceView.test.tsx
 
 import "./surfaceDomGlobals.testdata";
-import { resetCaptureOwnershipForTest } from "../Terminal/voice/larkCaptureModel";
+import { resetWarmStreamForTest } from "../Terminal/voice/useVoiceRecorder";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { BROWSER_SURFACE_CHROME, BROWSER_SURFACE_TITLE } from "./browserChrome";
@@ -452,4 +452,4 @@ suite.test("the owner tab's name labels the surface over the pushed owner", asyn
 });
 
 // The composer mic keeps a 30s warm-stream timer that would hold the process open.
-void suite.run().then(resetCaptureOwnershipForTest);
+void suite.run().then(resetWarmStreamForTest);

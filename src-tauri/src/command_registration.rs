@@ -127,8 +127,6 @@ pub(crate) fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::B
         commands::local_recording::local_recording_capture_stopped,
         commands::local_recording::local_recording_cancel,
         commands::local_recording::local_recording_manual_capture,
-        commands::local_recording::local_recording_save_clip,
-        commands::local_recording::local_recording_discard_clip,
         commands::local_recording::local_recording_commit,
         commands::delayed_send_list,
         commands::delayed_send_create,

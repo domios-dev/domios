@@ -1,59 +1,29 @@
 mod admission;
 pub(crate) mod chat;
-mod clip;
 mod completion;
 pub(crate) mod leases;
 pub(crate) mod platform;
 
-pub(crate) use admission::LocalRecordingCommitOutcome;
-pub(crate) use clip::CaptureClipDescriptor;
 pub(crate) use leases::{CaptureLeaseView, RecordingLeases};
 
 use crate::service::ServiceContext;
 use codeterm_plugin::local_recording::{
-    LocalInputSetup, LocalRecordingInvalidationReason, LocalRecordingRegistryHandle,
-    RecordingStatus, SelectedDevices,
+    LocalInputSetup, LocalRecordingRegistryHandle, RecordingStatus, SelectedDevices,
 };
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 const SETUP_DEADLINE: Duration = Duration::from_secs(10);
 const CLEANUP_DEADLINE: Duration = Duration::from_secs(5);
 
 impl ServiceContext {
-    pub(crate) fn install_local_recording_invalidation_observer(&self) -> Result<(), String> {
-        let weak = {
-            let service = self
-                .app_handle
-                .try_state::<crate::service::ServiceState>()
-                .ok_or_else(|| "recording_host_unavailable".to_string())?;
-            Arc::downgrade(service.inner())
-        };
-        self.local_recording_registry
-            .set_invalidation_observer(Arc::new(move |invalidation| {
-                let Some(service) = weak.upgrade() else {
-                    return;
-                };
-                service
-                    .local_recordings
-                    .invalidate_generation(&invalidation.plugin_id, invalidation.generation);
-                let _ = service.app_handle.emit_to(
-                    tauri::EventTarget::any(),
-                    "local-recording-capture-invalidated",
-                    &invalidation,
-                );
-            }));
-        Ok(())
-    }
-
     pub(crate) async fn local_recording_subscribe(
         &self,
         plugin_id: &str,
         adapter: Arc<dyn platform::LocalInputAdapter>,
     ) -> Result<(), String> {
-        self.install_local_recording_invalidation_observer()?;
         if !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
@@ -95,20 +65,9 @@ impl ServiceContext {
                 self.local_recording_signal(plugin_id, generation)
             }
             platform::SelectedInputEvent::Unavailable { generation, reason } => {
-                let reason = match reason {
-                    platform::InputUnavailable::Removed => {
-                        LocalRecordingInvalidationReason::DeviceRemoved
-                    }
-                    platform::InputUnavailable::AccessLost => {
-                        LocalRecordingInvalidationReason::AccessLost
-                    }
-                    platform::InputUnavailable::Error => {
-                        LocalRecordingInvalidationReason::DeviceUnavailable
-                    }
-                };
                 if !self
                     .local_recording_registry
-                    .mark_unavailable_with_reason(plugin_id, generation, reason)
+                    .mark_unavailable(plugin_id, generation)
                 {
                     return Err("subscription_stale".into());
                 }
@@ -238,7 +197,6 @@ impl ServiceContext {
         })?;
         self.require_managed_send_allowed(&tab_id, None)?;
         let target = self.freeze_recording_target(&tab_id)?;
-        self.install_local_recording_invalidation_observer()?;
         self.local_recordings.start(
             plugin_id,
             devices,
