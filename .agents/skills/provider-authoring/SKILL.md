@@ -33,6 +33,13 @@ Every claim below is transcribed from the Rust source of truth:
 
 ## The two-surface contract
 
+`spawn.paste.supportsBracketedPaste` defaults to true. Set it to false for
+plain input that cannot interpret bracketed paste; the refusal overrides live
+terminal mode, multiline TUI framing and typed prefixes. Plain frames normalize
+newlines to carriage returns, so a provider must preprocess multiline messages
+into its own input format. A paste-only declaration may omit the typed follow-up
+fields; it adds no sandbox host function.
+
 `authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
 decodes its supported JSON. `parseSessionObservations(record)` carries typed API
 errors and permission mode from the claimed transcript. Native and JS paths owe
