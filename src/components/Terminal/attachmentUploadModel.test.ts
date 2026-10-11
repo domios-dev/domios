@@ -72,3 +72,23 @@ test("voice upload returns its first path to the caller and a failed note retrie
   await controller.retry(uploads[0].id);
   assert.deepEqual(paths, [["/uploads/voice.webm"]]);
 });
+
+test("a WebKit read failure retains the original file and retries reading before upload", async () => {
+  let uploads: AttachmentUpload[] = [];
+  const attached: string[][] = [];
+  const file = new Blob(["image"], { type: "image/png" });
+  const read = file.arrayBuffer.bind(file);
+  let reads = 0;
+  file.arrayBuffer = () => ++reads === 1
+    ? Promise.reject(new DOMException("The I/O read operation failed.", "NotReadableError")) : read();
+  const controller = createAttachmentUploads({
+    publish: (next) => { uploads = next; }, attach: (paths) => attached.push(paths),
+    store: async (blob) => { assert.equal(await blob.text(), "image"); return "/uploads/image.png"; },
+  });
+  await controller.add(file, "image.png");
+  assert.equal(canRetryUpload(uploads[0]), true);
+  assert.equal(uploads[0].blob, file);
+  await controller.retry(uploads[0].id);
+  assert.equal(reads, 2);
+  assert.deepEqual(attached, [["/uploads/image.png"]]);
+});
