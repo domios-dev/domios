@@ -141,7 +141,7 @@ pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<Sup
     );
     let svc = svc.clone();
     runtime.attach_alert_sink(Arc::new(move |alert| {
-        svc.create_notification_ext(
+        svc.log_system_notice(
             alert.title,
             None,
             Some(
@@ -151,14 +151,6 @@ pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<Sup
                     "warning"
                 },
             ),
-            None,
-            None,
-            super::notification::NotificationOrigin::default(),
-            super::notification::PushIntent {
-                level: Some(alert.level),
-                event_key: Some(alert.event_key),
-            },
-            None,
         );
     }));
     runtime

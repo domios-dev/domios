@@ -123,7 +123,7 @@ impl ServiceContext {
         let title = json_str(params, "title").unwrap_or_else(|| "Notification".to_string());
         let body = json_str(params, "body");
         let severity = json_str(params, "severity");
-        let id = self.create_notification(title, body, severity.as_deref());
+        let id = self.log_system_notice(title, body, severity.as_deref());
         Ok(serde_json::json!({"ok": true, "id": id}))
     }
 

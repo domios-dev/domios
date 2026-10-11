@@ -92,23 +92,9 @@ impl ServiceContext {
         &self,
         title: String,
         body: Option<String>,
-        tab_id: Option<&str>,
+        _tab_id: Option<&str>,
     ) {
-        let origin = tab_id
-            .map(|tab_id| {
-                crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string())
-            })
-            .unwrap_or_default();
-        self.create_notification_ext(
-            title,
-            body,
-            Some("warning"),
-            None,
-            None,
-            origin,
-            crate::service::notification::PushIntent::default(),
-            None,
-        );
+        self.log_system_notice(title, body, Some("warning"));
     }
 }
 

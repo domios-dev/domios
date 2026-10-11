@@ -1,5 +1,3 @@
-use codeterm_types::notification::NotificationAction;
-
 use super::hierarchy::{resolve_report_target, ReportTarget};
 use super::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use super::messenger::MessageEnvelope;
@@ -94,15 +92,13 @@ pub(crate) fn condition_owner(mux: &MultiplexerState, tab_id: &str) -> Option<Co
 pub(crate) struct ConditionNotice {
     pub title: String,
     pub body: String,
-    pub actions: Option<Vec<NotificationAction>>,
     pub hint: Option<String>,
 }
 
 /// Where one raised condition went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ConditionRoute {
-    /// A user-facing record, or the live one this condition already holds.
-    Notified(String),
+    Logged,
     /// Reported to the owning agent tab instead of the user.
     Reported {
         to: String,
@@ -135,13 +131,13 @@ impl ServiceContext {
         let target = match owner {
             None => return ConditionRoute::TabGone,
             Some(ConditionOwner::User) => {
-                return ConditionRoute::Notified(self.create_condition_notification(
-                    tab_id,
-                    condition,
-                    notice.title,
-                    Some(notice.body),
-                    notice.actions,
-                ));
+                if self.notif.lock().observe_tab_condition(tab_id, condition)
+                    == ConditionTransition::AlreadyAnnounced
+                {
+                    return ConditionRoute::AlreadyReported;
+                }
+                self.log_system_notice(notice.title, Some(notice.body), Some("warning"));
+                return ConditionRoute::Logged;
             }
             Some(ConditionOwner::Reporter(target)) => target,
         };
@@ -213,15 +209,15 @@ impl ServiceContext {
         };
 
         if owner == Some(ConditionOwner::User) {
-            if let Some(event_key) = self.claim_pending_prompt_notice_event_key(tab_id, prompt) {
+            if self
+                .claim_pending_prompt_notice_event_key(tab_id, prompt)
+                .is_some()
+            {
                 let subject = self.prompt_notice_subject(tab_id);
-                self.create_condition_notification_with_key(
-                    tab_id,
-                    TabCondition::PendingPrompt,
+                self.log_system_notice(
                     crate::service::prompt_chain::owner_prompt_notice_title(prompt).into(),
                     Some(owner_prompt_notice_body(tab_id, &subject, prompt)),
-                    Some(crate::service::prompt_chain::owner_prompt_condition_actions()),
-                    event_key,
+                    Some("warning"),
                 );
             }
         }

@@ -713,7 +713,7 @@ fn pre_ready_exit_in_resume_auto_resumes_once() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn second_pre_ready_exit_notifies_and_stops() {
+fn second_pre_ready_exit_stops_without_a_bell_entry() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).expect("seeded tab");
     tab.pty_id = Some("pty-auto-retry".into());
@@ -762,11 +762,7 @@ fn second_pre_ready_exit_notifies_and_stops() {
     {
         let notification_store = fixture.service.notif.lock();
         let notifications = notification_store.list(false);
-        assert_eq!(notifications.len(), 1);
-        assert!(notifications[0]
-            .body
-            .as_deref()
-            .is_some_and(|body| body.contains(&recovery_command(&tab_id))));
+        assert!(notifications.is_empty());
     }
     let mux = fixture.service.mux.read();
     let shell = mux.get_tab(&tab_id).expect("the surviving shell remains");
@@ -779,7 +775,7 @@ fn second_pre_ready_exit_notifies_and_stops() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn failed_automatic_recovery_notifies_with_restart_command() {
+fn failed_automatic_recovery_stays_out_of_the_bell() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
 
@@ -792,11 +788,7 @@ fn failed_automatic_recovery_notifies_with_restart_command() {
     let notif_guard = fixture.service.notif.lock();
 
     let notifications = notif_guard.list(false);
-    assert_eq!(notifications.len(), 1);
-    assert!(notifications[0]
-        .body
-        .as_deref()
-        .is_some_and(|body| body.contains(&recovery_command(&tab_id))));
+    assert!(notifications.is_empty());
 }
 
 #[test]
@@ -1029,7 +1021,7 @@ fn launch_readiness_published_failure_stops_the_launch_thread() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn post_readiness_shell_exit_notifies_with_restart_command() {
+fn post_readiness_shell_exit_retains_status_without_a_bell_entry() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&tab_id, "pty-ready-exit-notification".into());
     {
@@ -1088,11 +1080,7 @@ fn post_readiness_shell_exit_notifies_with_restart_command() {
     let notif_guard = harness.service.notif.lock();
 
     let notifications = notif_guard.list(false);
-    assert_eq!(notifications.len(), 1);
-    assert!(notifications[0]
-        .body
-        .as_deref()
-        .is_some_and(|body| body.contains(&recovery_command(&tab_id))));
+    assert!(notifications.is_empty());
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("surviving shell remains");
     assert_eq!(tab.pty_id.as_deref(), Some(attempt.pty_id.as_str()));

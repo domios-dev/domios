@@ -434,11 +434,7 @@ fn restore_with_removed_authoritative_model_posts_notification() {
     {
         let store = fixture.service.notif.lock();
         let notifications = store.list(false);
-        assert_eq!(notifications.len(), 1);
-        assert!(notifications[0].title.contains("restored model"));
-        assert!(notifications[0].body.as_deref().is_some_and(|body| {
-            body.contains("removed-model") && body.contains("provider-default")
-        }));
+        assert!(notifications.is_empty());
     }
     crate::agent::model_catalog::unregister(provider_id);
 }

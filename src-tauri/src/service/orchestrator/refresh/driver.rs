@@ -395,7 +395,7 @@ fn alert_stranded(svc: &ServiceContext, req: &RefreshRequest, ctx: &TabCtx, reas
         req.plan_id
     );
     log::error!("[refresh] ALERT {} — {}", title, body);
-    svc.create_notification(title, Some(body), Some("error"));
+    svc.log_system_notice(title, Some(body), Some("error"));
     // Planner-routed decision gate: a tagged heartbeat learning the orchestrator
     // status surfaces — decide re-seed vs hand off.
     let _ = svc.plan_store.add_heartbeat_learning(

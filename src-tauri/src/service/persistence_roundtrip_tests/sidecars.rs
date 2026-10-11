@@ -93,19 +93,32 @@ fn delayed_send_create_update_delete_round_trip_expected_pass() {
 fn sticky_notification_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
-    let id = instance.fixture.service.create_notification_ext(
-        "persistent notification".into(),
-        Some("action-needed body".into()),
-        Some("warning"),
-        None,
-        Some(true),
-        NotificationOrigin::default(),
-        PushIntent {
-            level: Some(NotifyLevel::ActionNeeded),
-            event_key: None,
-        },
-        None,
-    );
+    let tab_id = instance.fixture.service.mux.read().list_workspaces()[0].tab_ids[0].clone();
+    instance
+        .fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_type = Some("fixture".into());
+    let (id, _) = instance
+        .fixture
+        .service
+        .create_agent_notification_reported(
+            "persistent notification".into(),
+            Some("action-needed body".into()),
+            Some("warning"),
+            None,
+            Some(true),
+            NotificationOrigin::local_tab(tab_id),
+            PushIntent {
+                level: Some(NotifyLevel::ActionNeeded),
+                event_key: None,
+            },
+            None,
+        )
+        .unwrap();
     assert!(root.path().join("notifications.json").exists());
 
     let restarted = instance.restart(root.path());

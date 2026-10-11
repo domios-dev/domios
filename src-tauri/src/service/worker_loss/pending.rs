@@ -1,12 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-use codeterm_types::notification::NotifyLevel;
 use parking_lot::Mutex;
 
 use super::{claim_report, log_loss_delivery, release_claim, WorkerLoss};
 use crate::service::message_gateway::{DeliverySeam, MessageGateway};
-use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceContext;
 
 pub(super) const WITHHELD_NO_AGENT: &str = "withheld_no_agent";
@@ -185,21 +183,9 @@ impl ServiceContext {
             })
             .collect::<Vec<_>>()
             .join("; ");
-        self.create_notification_ext(
-            "Worker losses withheld: Orchestrator has no live agent".into(),
-            Some(format!(
+        self.log_system_notice("Worker losses withheld: Orchestrator has no live agent".into(), Some(format!(
                 "Orchestrator Tab {orchestrator} has no live agent, so {} worker-loss notice(s) were withheld instead of being typed into its shell. Affected tasks: {tasks}. They are delivered once its agent is ready again; restart it with `codeterm agent restart --tab {orchestrator}`.",
                 held.len()
-            )),
-            Some("warning"),
-            None,
-            Some(true),
-            NotificationOrigin::local_tab(orchestrator.to_string()),
-            PushIntent {
-                level: Some(NotifyLevel::ActionNeeded),
-                event_key: Some(format!("worker-lost-withheld:{orchestrator}")),
-            },
-            None,
-        );
+            )), Some("warning"));
     }
 }

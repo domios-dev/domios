@@ -57,8 +57,7 @@ fn claude_signals_transcript_errors_and_plan_drift_are_typed() {
 
 #[test]
 fn provider_access_incident_transition_notifies_once_routes_roles_and_recovers() {
-    use super::incident::{incident_transition, intent, parent_target, IncidentTransition};
-    use crate::notification::push::NotifyLevel;
+    use super::incident::{incident_transition, parent_target, IncidentTransition};
     let mut signals = ProviderSignals::default();
     let mut entered = 0;
     for error in [
@@ -80,10 +79,6 @@ fn provider_access_incident_transition_notifies_once_routes_roles_and_recovers()
         );
     }
     assert_eq!(entered, 1);
-    assert_eq!(
-        intent("own", "launch").level,
-        Some(NotifyLevel::ActionNeeded)
-    );
     assert_eq!(
         parent_target(true, Some("parent".into()), Some("owner".into()), "own"),
         Some("parent".into())
@@ -123,16 +118,15 @@ fn provider_access_incident_transition_notifies_once_routes_roles_and_recovers()
 }
 
 #[test]
-fn provider_access_recovery_resolves_the_action_needed_notification() {
+fn provider_access_recovery_resolves_a_preexisting_condition() {
     use crate::notification::store::{
         Ask, NotificationProvenance, NotificationSeverity, NotificationStore, PushRequest,
     };
     let mut store = NotificationStore::new(10);
-    let intent = super::incident::intent("own", "launch");
     let request = PushRequest {
         scope: "own".into(),
-        level: intent.level.unwrap(),
-        event_key: intent.event_key.unwrap(),
+        level: crate::notification::push::NotifyLevel::ActionNeeded,
+        event_key: "condition-token".into(),
         title: "opaque".into(),
         body: None,
         severity: NotificationSeverity::Error,

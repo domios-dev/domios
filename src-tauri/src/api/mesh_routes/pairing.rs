@@ -34,18 +34,10 @@ pub async fn mesh_pair_request(
         "mesh-state-changed",
         serde_json::Value::Null,
     );
-    state.svc.create_notification_ext(
+    state.svc.log_system_notice(
         "Mesh pairing request".into(),
         Some(format!("{} is waiting for owner approval.", peer_name)),
         Some("info"),
-        None,
-        Some(true),
-        crate::service::notification::NotificationOrigin::default(),
-        crate::service::notification::PushIntent {
-            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-            event_key: Some(format!("mesh-pairing-{request_id}")),
-        },
-        None,
     );
     Ok(Json(serde_json::json!({"ok": true, "instance_id": our_id})))
 }

@@ -21,7 +21,7 @@ use crate::notification::dedupe::{
 use crate::session::lifecycle::BindingSource;
 use codeterm_types::notification::NotifyLevel;
 
-use super::notification::{NotificationOrigin, PushIntent};
+use super::notification::PushIntent;
 use super::ServiceContext;
 
 #[cfg(test)]
@@ -810,15 +810,10 @@ impl ServiceContext {
                     return;
                 }
                 record_announced(provider_id, &observed);
-                self.create_notification_ext(
+                self.log_system_notice(
                     silence.title(&display_name),
                     Some(silence.body()),
                     Some("warning"),
-                    None,
-                    None,
-                    NotificationOrigin::local_tab(tab_id.to_string()),
-                    silence.intent(),
-                    None,
                 );
             }
         }
