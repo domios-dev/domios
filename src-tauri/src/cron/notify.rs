@@ -70,10 +70,10 @@ pub fn notify_on_consecutive_failure(
 
     match decide_notification(job_id, &name, count, enabled, &tab_label) {
         Some(FailureNotification::RepeatedFailure { title, body }) => {
-            service.create_notification(title, Some(body), Some("warning"));
+            service.log_system_notice(title, Some(body), Some("warning"));
         }
         Some(FailureNotification::AutoDisabled { title, body }) => {
-            service.create_notification(title, Some(body), Some("error"));
+            service.log_system_notice(title, Some(body), Some("error"));
         }
         None => {}
     }

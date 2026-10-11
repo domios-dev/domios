@@ -159,19 +159,7 @@ fn startup_provider_sweep(service: &ServiceContext, provider_id: &str) -> Result
         return Ok(());
     };
     if migration::should_notify(&state) {
-        service.create_notification_ext(
-            "Provider profile cleanup completed".into(),
-            Some(format!("{provider_id}: removed {} unused legacy launch profiles; {} eligible profiles retained because safe removal was not confirmed. Live tabs and other files were kept.", state.removed, state.retained)),
-            Some("info"),
-            None,
-            Some(true),
-            super::notification::NotificationOrigin::default(),
-            super::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::Verbose),
-                event_key: Some(format!("legacy-launch-profiles-v1:{provider_id}")),
-            },
-            None,
-        );
+        service.log_system_notice("Provider profile cleanup completed".into(), Some(format!("{provider_id}: removed {} unused legacy launch profiles; {} eligible profiles retained because safe removal was not confirmed. Live tabs and other files were kept.", state.removed, state.retained)), Some("info"));
         state.notified = true;
         migration::save(migration_root, provider_id, &state)?;
     }

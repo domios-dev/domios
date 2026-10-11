@@ -443,12 +443,7 @@ fn untrusted_shared_lookup_stores_one_owner_prompt_and_notifies_once() {
     {
         let notification_state = fixture.service.notif.lock();
         let notices = notification_state.list(false);
-        assert_eq!(notices.len(), 1);
-        assert_eq!(notices[0].tab_id.as_deref(), Some(tab_id.as_str()));
-        assert_eq!(
-            notices[0].level,
-            Some(codeterm_types::notification::NotifyLevel::ActionNeeded)
-        );
+        assert!(notices.is_empty());
     }
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test("pty-owner-trust"),
@@ -731,16 +726,7 @@ fn refused_team_folder_trust_prompt_notifies_owner_once_with_tab_identity() {
     {
         let notification_state = fixture.service.notif.lock();
         let notices = notification_state.list(false);
-        assert_eq!(notices.len(), 1);
-        assert_eq!(notices[0].tab_id.as_deref(), Some(tab_id.as_str()));
-        assert_eq!(
-            notices[0].level,
-            Some(codeterm_types::notification::NotifyLevel::ActionNeeded)
-        );
-        assert!(notices[0]
-            .body
-            .as_deref()
-            .is_some_and(|body| body.contains(&tab_id)));
+        assert!(notices.is_empty());
     }
 
     fixture.service.route_pending_prompt(

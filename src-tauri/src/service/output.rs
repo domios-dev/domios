@@ -907,7 +907,7 @@ impl ServiceContext {
                                 ack.kind.label(),
                                 tab_id
                             );
-                            self.create_notification(
+                            self.log_system_notice(
                                 "General Agent auto-acknowledged a blocker".to_string(),
                                 Some(format!(
                                     "Main selected option {} for {}.",
