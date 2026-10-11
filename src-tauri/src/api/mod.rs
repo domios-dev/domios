@@ -2,6 +2,8 @@ pub(crate) mod access_policy;
 pub mod auth;
 pub mod automation_graph_routes;
 pub mod blueprint_portable_routes;
+#[cfg(debug_assertions)]
+mod cors_diagnostics;
 pub mod events;
 pub mod routes;
 

@@ -1,3 +1,4 @@
+import { installRequestDiagnostics } from "./lib/requestDiagnostics";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { DaemonFrontendBootstrap } from "./components/DaemonFrontendBootstrap";
 import { ensureDaemonRuntime } from "./lib/daemonRuntime";
@@ -25,6 +26,7 @@ import "./components/Canvas/missionControl/missionControlBoard.css";
 import "./components/Usage/styles.css";
 import "./components/Snake/SnakeGame.css";
 
+installRequestDiagnostics();
 frontendBootDiagnostic("module-entry");
 ensureDaemonRuntime();
 
