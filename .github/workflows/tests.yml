@@ -78,7 +78,7 @@ jobs:
   changed:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
     name: tree is new
-    runs-on: [self-hosted, codeterm-builder]
+    runs-on: [self-hosted, linux-build]
     timeout-minutes: 5
     outputs:
       run: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.host == 'true' }}
@@ -119,7 +119,7 @@ jobs:
     name: plugin release contracts
     needs: changed
     if: ${{ needs.changed.result == 'success' }}
-    runs-on: [self-hosted, codeterm-builder]
+    runs-on: [self-hosted, linux-build]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -133,7 +133,7 @@ jobs:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
-    runs-on: [self-hosted, codeterm-builder]
+    runs-on: [self-hosted, linux-build]
     strategy:
       fail-fast: false
       matrix:

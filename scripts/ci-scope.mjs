@@ -11,6 +11,7 @@ const pluginTooling = new Set([
   "scripts/tests/sync-plugin-versions-min-codeterm.test.mjs",
   ".github/workflows/plugin-release.yml", ".github/workflows/tests.yml",
   ".github/workflows/cli-source-of-truth.yml",
+  ".github/workflows/ready-for-release.yml",
 ]);
 
 export function classifyPaths(files, plugins) {
