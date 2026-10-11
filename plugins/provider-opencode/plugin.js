@@ -1922,7 +1922,7 @@ var plugin = {
       seenAtLastTs.push(id);
       const message = safeJson(rows[i].message);
       const observation = sessionObservations(message);
-      if (observation) observations.push({ provider_session_id: sessionId, provider_observations: observation });
+      if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
       const error = turnError(message);
       if (error) {
         messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });

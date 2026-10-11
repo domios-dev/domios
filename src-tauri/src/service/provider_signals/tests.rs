@@ -260,7 +260,7 @@ fn provider_access_fermi_fixture_enters_incident_once_and_recovers() {
 fn structured_sqlite_error_observations_reach_only_the_claimed_session() {
     let delta: codeterm_types::agent::chat_types::StructuredChat = serde_json::from_value(serde_json::json!({
         "messages":[{"id":"error:failed","type":"system","systemSubtype":"api_error","content":"Model exo-free has been deprecated"}],
-        "observations":[{"provider_session_id":"own","provider_observations":{"api_error":"other"}}]
+        "observations":[{"role":"assistant","provider_session_id":"own","provider_observations":{"api_error":"other"}}]
     })).unwrap();
     let mut foreign = ProviderSignals::default();
     observe_records(&mut foreign, "foreign", &delta.observations, false);
