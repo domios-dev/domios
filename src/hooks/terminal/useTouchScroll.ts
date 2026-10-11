@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { Terminal } from "@xterm/xterm";
+import { dispatchTerminalTouchScroll } from "./terminalScroll";
 
 export interface UseTouchScrollOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -7,11 +8,13 @@ export interface UseTouchScrollOptions {
   termReady: boolean;
 }
 
-// scrollable ancestor (chat behind the fallback). Translate them ourselves.
 export function useTouchScroll({ containerRef, termRef, termReady }: UseTouchScrollOptions): void {
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !termReady) return;
+
+    const previousTouchAction = el.style.touchAction;
+    el.style.touchAction = "none";
 
     let lastY: number | null = null;
     let carry = 0;
@@ -24,7 +27,7 @@ export function useTouchScroll({ containerRef, termRef, termReady }: UseTouchScr
 
     const onMove = (e: TouchEvent) => {
       const term = termRef.current;
-      if (lastY == null || e.touches.length !== 1 || !term) return;
+      if (lastY == null || e.touches.length !== 1 || !term || el.clientHeight === 0) return;
       const y = e.touches[0].clientY;
       const cell = el.clientHeight / Math.max(term.rows, 1);
       carry += (y - lastY) / cell;
@@ -32,26 +35,22 @@ export function useTouchScroll({ containerRef, termRef, termReady }: UseTouchScr
       const lines = Math.trunc(carry);
       if (lines !== 0) {
         carry -= lines;
-        if (term.buffer.active.type === "alternate") {
-          // TUIs own their scroll — mimic xterm's wheel behavior with arrows.
-          const key = lines > 0 ? "\x1b[A" : "\x1b[B";
-          term.input(key.repeat(Math.abs(lines)));
-        } else {
-          term.scrollLines(-lines);
-        }
+        dispatchTerminalTouchScroll(term, -lines, e.touches[0].clientX, y);
       }
       e.preventDefault();
+      e.stopPropagation();
     };
 
     const onEnd = () => { lastY = null; };
 
     el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchmove", onMove, { passive: false, capture: true });
     el.addEventListener("touchend", onEnd, { passive: true });
     el.addEventListener("touchcancel", onEnd, { passive: true });
     return () => {
+      el.style.touchAction = previousTouchAction;
       el.removeEventListener("touchstart", onStart);
-      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchmove", onMove, true);
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
     };
