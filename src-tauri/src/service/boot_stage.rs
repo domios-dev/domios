@@ -548,6 +548,20 @@ impl ServiceContext {
             self.finish_boot_stage_transition(tab_id, BootStage::AgentReady, None);
             return;
         }
+        let provisional = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .filter(|tab| tab.launch_session_authenticated())
+                .and_then(|tab| {
+                    Some(crate::service::ProviderSessionBinding {
+                        pty_id: tab.pty_id.clone()?,
+                        binding_nonce: tab.reported_session_binding_nonce.clone()?,
+                    })
+                })
+        };
+        if let Some(binding) = provisional {
+            self.retire_provisional_launch(tab_id, &binding);
+        }
         let binding = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)

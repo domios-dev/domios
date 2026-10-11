@@ -869,3 +869,25 @@ fn validated_rebind_failure_recovery_requires_a_materialized_session_and_pty() {
         assert!(!tab.launch_session_authenticated());
     }
 }
+
+#[test]
+fn unchanged_own_session_binding_retires_stale_provisional_launch() {
+    let mut tab = tab_with_prompt(None);
+    tab.agent_type = Some("opaque-provider".into());
+    tab.pty_id = Some("own-pty".into());
+    tab.agent_session_id = Some("own-session".into());
+    tab.session_binding_nonce = Some("own-launch".into());
+    tab.reported_session_binding_nonce = Some("own-launch".into());
+    tab.boot_stage = Some(BootStage::LaunchWritten);
+    tab.provisional_launch = provisional_launch_for(&tab, "own-pty", "own-launch", "opaque");
+    tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    tab.boot_failure_reason = Some("opaque".into());
+    assert!(apply_late_readiness(
+        &mut tab,
+        &binding("own-pty", "own-launch")
+    ));
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert!(tab.boot_failure_reason.is_none());
+    assert!(tab.provisional_launch.is_none());
+    assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
+}

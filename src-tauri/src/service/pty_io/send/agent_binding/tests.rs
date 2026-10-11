@@ -145,3 +145,41 @@ fn restored_routed_send_waits_for_its_saved_session_to_reauthenticate() {
     tab.agent_session_id = Some("replacement-session".into());
     assert!(queued_delivery_target(&tab, &payload).is_err());
 }
+
+#[test]
+fn live_resumed_launch_retains_queued_delivery_until_exact_binding() {
+    let mut tab = launching_tab();
+    tab.agent_session_id = Some("own-session".into());
+    let payload = pinned(&tab);
+    tab.agent_booting = false;
+    let attempt = crate::service::launch_readiness::LaunchAttempt {
+        tab_id: tab.id.clone(),
+        pty_id: "launch-pty".into(),
+        binding_nonce: "launch-nonce".into(),
+    };
+    tab.provisional_launch = crate::service::boot_stage::provisional_launch_for(
+        &tab,
+        &attempt.pty_id,
+        &attempt.binding_nonce,
+        "opaque-reason",
+    );
+    tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    assert!(payload_matches_binding(
+        &payload,
+        &delivery_binding(&tab).unwrap()
+    ));
+    assert!(queued_delivery_target(&tab, &payload).is_err());
+    tab.reported_session_binding_nonce = Some("launch-nonce".into());
+    let evidence = crate::service::ProviderSessionBinding {
+        pty_id: "launch-pty".into(),
+        binding_nonce: "launch-nonce".into(),
+    };
+    assert!(crate::service::boot_stage::late_readiness_retires_provisional_launch(&tab, &evidence));
+    crate::service::boot_stage::apply_boot_stage(&mut tab, BootStage::AgentReady, None);
+    assert!(queued_delivery_target(&tab, &payload).is_ok());
+    tab.session_binding_nonce = Some("foreign-launch".into());
+    assert!(!payload_matches_binding(
+        &payload,
+        &delivery_binding(&tab).unwrap()
+    ));
+}

@@ -109,6 +109,16 @@ pub(super) fn finish_unbound_relaunch(
     if !origin.relaunches_existing_agent() {
         return None;
     }
+    if svc.resumed_provider_is_live(&launch.tab_id, &launch.pty_id) {
+        if let Some(attempt) = launch.attempt() {
+            svc.record_provisional_launch(
+                &attempt,
+                BootStage::LaunchBindingUnconfirmed,
+                "live resumed provider awaits exact session evidence",
+            );
+        }
+        return Some(false);
+    }
     let Some(attempt) = launch.attempt() else {
         return Some(false);
     };

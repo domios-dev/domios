@@ -478,7 +478,11 @@ fn launch_readiness_general_agent_start_keeps_its_provisional_contract() {
 
 #[test]
 fn launch_readiness_shared_owner_is_not_duplicated() {
-    let owner = include_str!("../launch_readiness.rs");
+    let owner = [
+        include_str!("../launch_readiness.rs"),
+        include_str!("wait.rs"),
+    ]
+    .concat();
     let lifecycle = include_str!("../general_agent/lifecycle.rs");
     let launch = include_str!("../orchestrator/launch.rs");
     let startup = include_str!("../orchestrator/launch/startup_readiness.rs");

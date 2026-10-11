@@ -284,6 +284,26 @@ fn advance_consider(
     Some(result)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum DeadlineOutcome {
+    Retained,
+    Expired(Option<&'static str>),
+}
+
+fn settle_deadline(
+    mux: &MuxState,
+    tab_id: &str,
+    wave: &Wave,
+    provider_live: bool,
+) -> DeadlineOutcome {
+    if provider_live {
+        return DeadlineOutcome::Retained;
+    }
+    let reason = expire(mux, tab_id, wave.start_epoch);
+    wave.finish(tab_id);
+    DeadlineOutcome::Expired(reason)
+}
+
 static WAVE: std::sync::OnceLock<Wave> = std::sync::OnceLock::new();
 
 /// Arm this start's wave after unconditional tab restore.
@@ -304,7 +324,7 @@ pub(crate) fn arm(svc: &ServiceContext) {
         },
         || crate::update::post_update::consume().is_ok(),
     ) {
-        log::warn!("[turn-resume] tab={tab_id} skipped: {reason}");
+        log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason={reason}");
         svc.schedule_session_persist_debounced();
     }
     let owed = owed_tab_ids(&svc.mux, start_epoch);
@@ -342,10 +362,16 @@ pub(crate) fn arm(svc: &ServiceContext) {
                 return;
             }
             for tab_id in expired {
-                if let Some(reason) = expire(&service.mux, &tab_id, wave.start_epoch) {
-                    log::warn!("[turn-resume] tab={tab_id} skipped: {reason}");
+                let pty_id = service.mux.read().get_tab(&tab_id).and_then(|tab| tab.pty_id.clone());
+                let provider_live = pty_id.is_some_and(|pty| service.resumed_provider_is_live(&tab_id, &pty));
+                match settle_deadline(&service.mux, &tab_id, wave, provider_live) {
+                    DeadlineOutcome::Retained => {
+                        log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason=live_binding_pending owed_continue=retained");
+                    }
+                    DeadlineOutcome::Expired(reason) => {
+                        log::warn!("[turn-resume] tab={tab_id} outcome=expired reason={}", reason.unwrap_or("tab_gone_or_settled"));
+                    }
                 }
-                wave.finish(&tab_id);
             }
             service.schedule_session_persist_debounced();
         });
@@ -558,9 +584,11 @@ impl ServiceContext {
         };
         match result {
             Step::Waiting => {}
-            Step::Settled => {}
+            Step::Settled => {
+                log::info!("[turn-resume] tab={tab_id} outcome=skipped reason=no_owed_continue_or_tab_gone");
+            }
             Step::Skipped(reason) => {
-                log::warn!("[turn-resume] tab={tab_id} skipped: {reason}");
+                log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason={reason}");
                 self.schedule_session_persist_debounced();
             }
             Step::Claimed(claim) => {
@@ -613,26 +641,28 @@ impl ServiceContext {
         );
         match delivery {
             Ok(()) => log::info!(
-                "[turn-resume] tab={tab_id} session={} continue handed to the post-ready send path",
+                "[turn-resume] tab={tab_id} session={} outcome=delivered evidence=write_handoff",
                 claim.session_id
             ),
             Err(DeliveryFailure::ClaimNotPersisted) => {
-                log::warn!("[turn-resume] tab={tab_id} skipped: {CLAIM_NOT_PERSISTED}");
+                log::warn!(
+                    "[turn-resume] tab={tab_id} outcome=skipped reason={CLAIM_NOT_PERSISTED}"
+                );
                 self.withdraw_turn_resume(tab_id, start_epoch, CLAIM_NOT_PERSISTED);
             }
             Err(DeliveryFailure::SessionChanged) => {
-                log::warn!("[turn-resume] tab={tab_id} skipped: {SESSION_CHANGED}");
+                log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason={SESSION_CHANGED}");
                 self.withdraw_turn_resume(tab_id, start_epoch, SESSION_CHANGED);
             }
             Err(DeliveryFailure::SendRefused(error)) => {
                 if crate::service::pty_io::delivery_is_unknown(&error) {
                     log::warn!(
-                        "[turn-resume] tab={tab_id} session={} continue outcome unknown after write: {error}",
+                        "[turn-resume] tab={tab_id} session={} outcome=skipped reason=submit_unconfirmed error={error}",
                         claim.session_id
                     );
                 } else {
                     log::warn!(
-                        "[turn-resume] tab={tab_id} session={} continue refused before any write: {error}",
+                        "[turn-resume] tab={tab_id} session={} outcome=skipped reason=send_refused error={error}",
                         claim.session_id
                     );
                     self.withdraw_turn_resume(tab_id, start_epoch, SEND_REFUSED);
