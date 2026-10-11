@@ -1012,6 +1012,8 @@ pub fn create_router_with_frontend(
         super::local_preview_routes::secure_headers,
     ));
     let router = router.layer(cors_layer(api_config.cors, &api_config.cors_allow_origins));
+    #[cfg(debug_assertions)]
+    let router = router.layer(middleware::from_fn(super::cors_diagnostics::record));
     router
         .layer(CatchPanicLayer::new())
         .layer(middleware::from_fn(
