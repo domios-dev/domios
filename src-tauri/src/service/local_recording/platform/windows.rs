@@ -9,7 +9,9 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+#[path = "windows/ffi.rs"]
 mod ffi;
+#[path = "windows/lifecycle.rs"]
 mod lifecycle;
 use ffi::*;
 pub(super) use lifecycle::{
