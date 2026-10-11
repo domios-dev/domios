@@ -130,7 +130,7 @@ Claimed or uncertain records remain held and are never replayed.
 - A send with no evidence after the recovery deadline remains `submit_unconfirmed`.
   Anchored sends can still reconcile from later transcript evidence; a send
   whose session or bounded window cannot be identified remains honestly
-  live-evidence-only. Chat shows one bubble per send: sending for written or
+  live-evidence-only. Chat shows one bubble per send: sending for written input, a quiet uncertain mark without Retry for
   unconfirmed input, queued while held, normal when delivered, and a quiet
   not-delivered mark with Retry for proven refusal or failed never-written input.
   Retry reuses the bubble with a fresh correlation token and transaction; it never

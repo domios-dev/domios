@@ -481,6 +481,10 @@ impl ServiceContext {
             let _ = self.pty.lock().rearm_guarded_input(&pty_id);
             crate::service::boot_wait::notify_boot_changed();
             self.reconcile_boot_stage_with_session_binding(tab_id);
+            if let Ok(authority) = self.user_send_authority(tab_id) {
+                self.latch_user_authority_ready(&authority);
+            }
+            self.wake_parked_user_send(tab_id);
             self.wake_agent_deliveries_on_state_change(tab_id);
         }
     }
