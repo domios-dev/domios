@@ -81,9 +81,11 @@ zero-write refusal retains that send as held; possible handoff becomes
 Programmatic agent/mesh sends keep the existing honest typed split. Immediate CLI
 sends exit 1 when `ok:false` or `bytes_written:false`, even for retained input;
 JSON errors retain the daemon receipt in `data`. Inspect retained status and exact
-own-session evidence without replaying the send. A queued record whose exact launch authority is
-from an ended launch is settled as `failed` with `launch_ended_before_write`;
-its never-written payload is removed and it never enters the next launch.
+own-session evidence without replaying the send. A held, never-written queued
+record follows the next launch of the same tab, provider and known bound session,
+including across a daemon restart; identity and admission order are conserved.
+A changed session or provider ends that authority and settles it as `failed`
+with `launch_ended_before_write`. Missing session identity stays held.
 Claimed or uncertain records remain held and are never replayed.
 
 ## The Chat send ledger reconciles by exact evidence
@@ -123,7 +125,11 @@ Claimed or uncertain records remain held and are never replayed.
   distinct turn to every confirmed same-payload send, and confirms oldest-first. Pre-send
   history, another/latest session, and already-consumed turns can never
   confirm.
-- Daemon restart: the ledger is in-memory, so the frontend shows a failure
+- Daemon restart restores queued records and bounded settlement receipts into
+  the ledger before status reconciliation. Claimed and uncertain records restore
+  as uncertainty and never replay. Missing held statuses become uncertainty,
+  not a fabricated zero-write failure; a durable failure receipt allows Retry.
+  The frontend shows a failure
   only while the CURRENT ledger vouches for it — a reconcile response that no
   longer contains a tracked failed send removes the record (no false Retry is
   preserved, and no fabricated `sent` replaces it; the durable transcript is
@@ -163,4 +169,4 @@ Claimed or uncertain records remain held and are never replayed.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

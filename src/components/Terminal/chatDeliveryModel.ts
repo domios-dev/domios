@@ -31,6 +31,15 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
   return { ...send, status, requestFailed: false };
 }
 
+export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
+  if (!send.status || deliveryState(send) === "delivered"
+    || statuses.some((status) => status.send_id === send.status?.send_id)) return send;
+  if (send.status.state === "held") {
+    return { ...send, status: { ...send.status, state: "submit_unconfirmed", pending_reason: undefined } };
+  }
+  return send.status.state === "failed" ? { ...send, status: undefined } : send;
+}
+
 export function sendForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend | undefined {
   if (row.type !== "user" && row.type !== "local_command") return;
   return sends.find((send) => send.id === row.id || (row.correlationId != null && send.correlationId === row.correlationId))

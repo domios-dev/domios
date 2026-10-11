@@ -81,6 +81,7 @@ impl crate::service::ServiceContext {
         client_token: Option<String>,
         replay_only: bool,
     ) -> Result<UserReservation, String> {
+        self.restore_durable_user_statuses(tab_id)?;
         let authority = self.user_send_authority(tab_id)?;
         if let Some(service) = self.app_handle.try_state::<super::super::ServiceState>() {
             let weak = Arc::downgrade(service.inner());
