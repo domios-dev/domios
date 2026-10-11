@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { open } from "@tauri-apps/plugin-dialog";
+import { nativeFolderDialog as open } from "../../lib/nativeBridge";
 import { IS_WEB } from "../../lib/webApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { isPhoneViewport } from "../../hooks/useSidebarViewport";

@@ -207,6 +207,12 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 If the failure is caused by the dev-run procedure itself, fix the procedure as
 well as the immediate environment before declaring recovery complete.
 
+### Desktop bootstrap and packaged fallback (all platforms)
+
+- **2026-10-11: Vite loads but the desktop root never acknowledges readiness** — the resize owner uses `client:<id>`, while frontend checkpoint scopes reject colons. The frontend uses a distinct filename-safe checkpoint ID. Optional update initialization failures carry a closed reason and HTTP status to the DEV log and render App with swapping disabled.
+- **2026-10-11: fallback logs `AssetNotFound("index.html")` with no module entry** — Tauri generates an empty asset provider in debug builds with `devUrl`. The shell supplies a snapshot of the prepared `dist/` to that provider; release continues to use generated embedded assets. Rebuilding `dist/` alone cannot repair the empty provider.
+- **Recovery** — integrate the repair and let the instance owner restart DEV through its existing scoped launcher. Verify `prepared development fallback assets installed`, the exact Vite navigation URL, frontend initialization or its typed refusal, and `ready-accepted`. Verify the packaged fallback also reaches module entry and readiness, and confirm Vite hot reload still works. Workers leave DEV lifecycle control with the owner.
+
 ### DEV browser terminal diagnostics (all platforms)
 
 - **2026-10-10: `Cannot arm missing DEV xterm` or `DEV xterm instance unavailable`

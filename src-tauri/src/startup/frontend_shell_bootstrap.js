@@ -7,11 +7,13 @@
   if (__CODETERM_SHELL_DEBUG__) {
     const diagnostic = (stage, failure) => {
       const name = failure?.name;
-      const errorName = ["Error", "ReferenceError", "TypeError", "SyntaxError", "SecurityError"].includes(name) ? name : undefined;
+      const errorName = ["Error", "ReferenceError", "TypeError", "SyntaxError", "SecurityError", "FrontendUpdateError"].includes(name) ? name : undefined;
+      const reason = ["invalid-client", "checkpoint-unavailable", "status-unavailable", "api-incompatible", "storage-unavailable", "boot-context-invalid", "unexpected"].includes(failure?.reason) ? failure.reason : undefined;
+      const httpStatus = Number.isInteger(failure?.httpStatus) && failure.httpStatus >= 100 && failure.httpStatus <= 599 ? failure.httpStatus : undefined;
       const source = String(failure?.filename ?? "").split("/").pop().split("?")[0].split("#")[0];
       void fetch(bootstrap.origin + "/api/frontend/diagnostic", {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + bootstrap.token },
-        body: JSON.stringify({ stage, errorName, source: /^[a-zA-Z0-9_.-]{1,100}$/.test(source) ? source : undefined,
+        body: JSON.stringify({ stage, errorName, reason, httpStatus, source: /^[a-zA-Z0-9_.-]{1,100}$/.test(source) ? source : undefined,
           line: failure?.lineno, column: failure?.colno,
           native: "__TAURI_INTERNALS__" in window, injected: !!window.__CODETERM_DAEMON__, mounted: document.documentElement?.dataset.codetermMounted === "true" }),
       }).catch(() => {});

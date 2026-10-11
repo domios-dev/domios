@@ -147,3 +147,9 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
 }
 
 export const nativeBridge: NativeBridge = createNativeBridge();
+
+export async function nativeFolderDialog(options: { directory: true; multiple: false; title: string }): Promise<string | null> {
+  if (!nativeBridge.dialogs) throw new NativeCapabilityUnavailable("folder picker");
+  const folder = await nativeBridge.dialogs.open(options);
+  return typeof folder === "string" ? folder : null;
+}

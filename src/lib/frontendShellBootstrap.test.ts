@@ -64,3 +64,20 @@ it("records document-start failures without placing credentials or exception con
   expect(JSON.parse(String(calls[1].body))).toMatchObject({ stage: "script-error", errorName: "ReferenceError", source: "index.js", line: 7, column: 9 });
   for (const call of calls) expect(String(call.body)).not.toContain(bootstrap.token);
 });
+
+
+it("records only closed update failure reasons and HTTP status codes", () => {
+  const calls: RequestInit[] = [];
+  const window: Record<string, unknown> = { location: { origin: bootstrap.origin, href: bootstrap.origin + "/bundled/index.html" }, addEventListener: () => {} };
+  window.top = window;
+  const debugScript = readFileSync("src-tauri/src/startup/frontend_shell_bootstrap.js", "utf8")
+    .replace("__CODETERM_SHELL_BOOTSTRAP__", JSON.stringify(bootstrap)).replace("__CODETERM_SHELL_DEBUG__", "true");
+  runInNewContext(debugScript, { window, document: { documentElement: { dataset: {} } },
+    fetch: (_url: string, init: RequestInit) => { calls.push(init); return Promise.resolve(); } });
+  const diagnostic = window.__CODETERM_SHELL_DIAGNOSTIC__ as (stage: string, error: unknown) => void;
+  diagnostic("frontend-initialize-failed", { name: "FrontendUpdateError", reason: "checkpoint-unavailable", httpStatus: 404, message: bootstrap.token });
+  expect(JSON.parse(String(calls[1].body))).toMatchObject({ errorName: "FrontendUpdateError", reason: "checkpoint-unavailable", httpStatus: 404 });
+  diagnostic("frontend-initialize-failed", { name: bootstrap.token, reason: bootstrap.token, httpStatus: bootstrap.token });
+  expect(JSON.parse(String(calls[2].body))).not.toHaveProperty("reason");
+  for (const call of calls) expect(String(call.body)).not.toContain(bootstrap.token);
+});

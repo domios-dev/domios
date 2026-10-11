@@ -1,8 +1,10 @@
 // Run: npx tsx src/lib/bridge.buildMismatch.test.ts
 
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { invoke, __setInvokeForTest } from "./bridge";
 import {
   getMismatch,
+  checkBuildMismatch,
   onMismatch,
   __resetForTest,
   __setFrontendHashForTest,
@@ -23,19 +25,16 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-function mockFetch(build: string, status = 200) {
-  (globalThis as unknown as Record<string, unknown>).fetch = async () => ({
-    ok: status < 400,
-    status,
-    json: async () => ({ status: "ok", build }),
-  });
+function mockFetch(apiVersion: number) {
+  globalThis.fetch = async () => new Response(JSON.stringify({ status: "ok", build: "independent-daemon", apiVersion }));
 }
 
 async function main() {
-  await test("command-not-found error with mismatch → mismatch is detected (not raw throw only)", async () => {
+  configureDaemonTransport({ origin: "http://127.0.0.1:7686", token: "fixture-token" });
+  await test("command-not-found with incompatible API reports incompatibility and preserves the error", async () => {
     __resetForTest();
     __setFrontendHashForTest("aabbcc");
-    mockFetch("112233");
+    mockFetch(1);
 
     let mismatchFired = false;
     const unlisten = onMismatch((m) => { mismatchFired = !!m; });
@@ -51,7 +50,7 @@ async function main() {
       threw = true;
     }
 
-    await new Promise((r) => setTimeout(r, 0));
+    await checkBuildMismatch();
 
     assert(threw, "invoke should still throw");
     assert(mismatchFired, "mismatch subscriber should have fired");
@@ -61,10 +60,10 @@ async function main() {
     __setInvokeForTest(null);
   });
 
-  await test("command-not-found with matching hashes → error thrown, no mismatch", async () => {
+  await test("command-not-found with compatible API preserves the error without a mismatch", async () => {
     __resetForTest();
     __setFrontendHashForTest("aabbcc");
-    mockFetch("aabbcc");
+    mockFetch(2);
 
     let mismatchFired = false;
     const unlisten = onMismatch(() => { mismatchFired = true; });
@@ -80,10 +79,10 @@ async function main() {
       threw = true;
     }
 
-    await new Promise((r) => setTimeout(r, 0));
+    await checkBuildMismatch();
 
     assert(threw, "invoke should still throw");
-    assert(!mismatchFired, "no mismatch when hashes match");
+    assert(!mismatchFired, "no mismatch for a compatible API");
 
     unlisten();
     __setInvokeForTest(null);
@@ -107,7 +106,6 @@ async function main() {
     } catch {
     }
 
-    await new Promise((r) => setTimeout(r, 0));
 
     assert(!fetchCalled, "health should not be fetched for non-command-not-found errors");
 
@@ -126,7 +124,6 @@ async function main() {
     __setInvokeForTest(async <T,>() => ({ tabs: {}, workspaces: [] } as T));
 
     await invoke("mux_get_state", {});
-    await new Promise((r) => setTimeout(r, 0));
 
     assert(!fetchCalled, "health should not be fetched on successful invoke");
 
