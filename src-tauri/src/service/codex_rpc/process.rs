@@ -104,7 +104,8 @@ pub async fn spawn(
     if let Some(problem) = crate::service::spawn_cwd::cwd_problem(cwd) {
         return Err(format!("Sidecar cwd {cwd:?}: {problem}"));
     }
-    let mut command = tokio::process::Command::new(binary);
+    let mut command =
+        tokio::process::Command::from(codeterm_plugin::provider_command::command(binary)?);
     #[cfg(windows)]
     crate::process_util::no_window_tokio_suspended(&mut command);
     for key in codeterm_pty::pty::manager::INHERITED_ORCHESTRATION_ENV {

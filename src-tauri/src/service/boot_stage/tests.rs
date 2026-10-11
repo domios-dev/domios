@@ -838,3 +838,34 @@ fn stage_serializes_snake_case() {
         "launch_binding_unconfirmed"
     );
 }
+
+#[test]
+fn validated_rebind_failure_recovery_requires_a_materialized_session_and_pty() {
+    for (stage, pty, session, recovered) in [
+        (BootStage::SpawnFailed, true, true, true),
+        (BootStage::SpawnFailed, false, true, false),
+        (BootStage::SpawnFailed, true, false, false),
+        (BootStage::AgentReady, true, true, false),
+    ] {
+        let mut tab = tab_with_prompt(None);
+        tab.boot_stage = Some(stage);
+        tab.boot_failure_reason = Some("failure".into());
+        tab.pty_id = pty.then(|| "pty".into());
+        tab.agent_session_id = session.then(|| "session".into());
+        tab.agent_booting = true;
+        tab.session_binding_nonce = Some("unverified-launch".into());
+        assert_eq!(reconcile_validated_rebind_failure(&mut tab), recovered);
+        assert_eq!(tab.agent_booting, !recovered);
+        assert_eq!(tab.reported_session_binding_nonce, None);
+        assert_eq!(
+            tab.boot_stage,
+            Some(if recovered {
+                BootStage::PtyReattached
+            } else {
+                stage
+            })
+        );
+        assert_eq!(tab.boot_failure_reason.is_none(), recovered);
+        assert!(!tab.launch_session_authenticated());
+    }
+}

@@ -6,7 +6,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use std::process::Command;
+use std::process::{Child, Stdio};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
@@ -123,7 +125,10 @@ pub(super) fn run_with_host_env(
             },
             None => (Stdio::null(), Stdio::null()),
         };
-        let mut command = Command::new(&resolved);
+        let mut command = match crate::provider_command::command(&resolved) {
+            Ok(command) => command,
+            Err(error) => return err(&error),
+        };
         codeterm_util::process_util::no_window_std(&mut command);
         return match command
             .args(&opts.args)
@@ -139,7 +144,10 @@ pub(super) fn run_with_host_env(
         };
     }
 
-    let mut command = Command::new(&resolved);
+    let mut command = match crate::provider_command::command(&resolved) {
+        Ok(command) => command,
+        Err(error) => return err(&error),
+    };
     codeterm_util::process_util::no_window_std(&mut command);
     // Own process group so a timeout kill reaps descendants too — a grandchild
     // inheriting stdout/stderr would otherwise keep the reader threads blocked.
@@ -239,7 +247,10 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
     }
 
     let resolved = resolve_bin(&opts.bin, &well_known_bin_dirs());
-    let mut command = Command::new(&resolved);
+    let mut command = match crate::provider_command::command(&resolved) {
+        Ok(command) => command,
+        Err(error) => return err(&error),
+    };
     codeterm_util::process_util::no_window_std(&mut command);
     #[cfg(unix)]
     {
