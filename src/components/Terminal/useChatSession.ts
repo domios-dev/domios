@@ -42,8 +42,8 @@ import {
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
-import type { ChatSendStatus } from "./chatSendStatus";
-import { chatSendAt, observeDeliveryStatus, reconcileDeliveryStatuses } from "./chatSendStore";
+import { reconcileTrackedChatMessages, type ChatSendStatus } from "./chatSendStatus";
+import { chatSendAt, observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -248,8 +248,7 @@ export function useChatSession({
     try {
       do {
         sendStatusQueuedRef.current = false;
-        const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
-        reconcileDeliveryStatuses(tabId, statuses);
+        const statuses = await reconcileTrackedChatMessages(tabId);
         for (const status of statuses) {
           trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
           stampConfirmedTranscriptRow(windowKeyRef.current, status);

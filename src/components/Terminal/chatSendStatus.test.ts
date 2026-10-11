@@ -3,7 +3,8 @@ import { test } from "vitest";
 
 import { applyDeliveryStatus, deliveryState, type DeliverySend } from "./chatDeliveryModel";
 import { __setInvokeForTest } from "../../lib/bridge";
-import { isProvenAdmissionRefusal, sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { isProvenAdmissionRefusal, reconcileTrackedChatMessages, sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, observeDeliveryStatus, readChatSends } from "./chatSendStore";
 
 function heldStatus(): ChatSendStatus {
   return {
@@ -17,6 +18,42 @@ function heldStatus(): ChatSendStatus {
     correlationId: "message-1",
   };
 }
+
+test("restart reconciliation wires durable states onto each persisted held bubble without resubmitting", async () => {
+  for (const state of ["held", "failed", "delivered", "submit_unconfirmed"] as const) {
+    const tabId = `restart-${state}`;
+    const prior = { ...heldStatus(), tab_id: tabId };
+    addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });
+    observeDeliveryStatus(prior);
+    forgetChatSendsInMemory();
+    const restored = { ...prior, ledger_id: "new-daemon", state };
+    const calls: unknown[] = [];
+    __setInvokeForTest(async <T>(command: string, args?: unknown) => {
+      calls.push({ command, args });
+      return [restored] as T;
+    });
+    await reconcileTrackedChatMessages(tabId);
+    forgetChatSendsInMemory();
+    const sends = readChatSends(tabId);
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].id, "bubble");
+    assert.equal(sends[0].status?.state, state);
+    assert.equal(sends[0].status?.ledger_id, "new-daemon");
+    assert.deepEqual(calls, [{ command: "chat_send_status", args: { tabId } }]);
+    assert.equal(beginChatSendRetry(tabId, "bubble") !== undefined, state === "failed");
+  }
+});
+
+test("an absent receipt clears stale held state to uncertainty without inventing Retry", async () => {
+  const tabId = "missing-restart-receipt";
+  addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });
+  observeDeliveryStatus({ ...heldStatus(), tab_id: tabId });
+  forgetChatSendsInMemory();
+  __setInvokeForTest(async <T>() => [] as T);
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+  assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
+});
 
 test("held send enters the backend ledger once", async () => {
   const calls: Array<{ command: string; args: unknown }> = [];
