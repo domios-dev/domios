@@ -1,7 +1,7 @@
+import { chatRevealIndex } from "./chatAnchorModel";
 import type { TimelineItem } from "@codeterm/chat-core";
 
-/** The UI renders at most 220 rows; the retained source bound lives with the
- * transcript reducer, which evicts the oldest rows under byte-range authority. */
+/** Logical history projection; the mounted viewport is bounded independently. */
 export const CHAT_WINDOW_SIZE = 220;
 export const CHAT_WINDOW_STEP = 160;
 
@@ -10,10 +10,8 @@ export function timelineItemKey(item: TimelineItem): string {
 }
 
 export function chatMessageAnchor(items: readonly TimelineItem[], sourceMessageId: string): string | null {
-  const item = items.find((candidate) => {
-    const message = candidate.kind === "message" ? candidate.message : candidate.event.message;
-    return (message.sourceMessageId ?? message.id) === sourceMessageId;
-  });
+  const index = chatRevealIndex(items.map((candidate) => candidate.kind === "message" ? candidate.message : candidate.event.message), sourceMessageId);
+  const item = items[index];
   return item ? timelineItemKey(item) : null;
 }
 
@@ -24,6 +22,7 @@ export interface ChatWindowRange {
 
 export interface ChatWindowProjection {
   items: TimelineItem[];
+  newerCount: number;
 }
 
 export function chatWindowProjection(
@@ -33,11 +32,11 @@ export function chatWindowProjection(
 ): ChatWindowProjection {
   const tailRange = chatWindowRange(items, null, size);
   const tail = items.slice(tailRange.start, tailRange.end);
-  if (anchorKey == null) return { items: tail };
+  if (anchorKey == null) return { items: tail, newerCount: 0 };
 
   const anchorIndex = items.findIndex((item) => timelineItemKey(item) === anchorKey);
-  if (anchorIndex < 0) return { items: tail };
-  return { items: items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1) };
+  if (anchorIndex < 0) return { items: tail, newerCount: 0 };
+  return { items: items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1), newerCount: items.length - anchorIndex - 1 };
 }
 
 /** Anchor `null` = follow the tail. An anchor names the LAST visible item, so
@@ -109,4 +108,14 @@ export function slideChatWindowOlder(
   if (start <= 0) return anchorKey;
   const newEnd = Math.max(1, end - Math.min(step, start));
   return timelineItemKey(items[newEnd - 1]);
+}
+
+export function chatReadingWindowAnchor(
+  items: readonly TimelineItem[],
+  anchorKey: string | null,
+  followTail: boolean,
+  previousTail: ChatWindowAnchorIdentity | null,
+): string | null {
+  if (anchorKey != null || followTail || previousTail == null) return anchorKey;
+  return rekeyedChatWindowAnchor(items, previousTail);
 }

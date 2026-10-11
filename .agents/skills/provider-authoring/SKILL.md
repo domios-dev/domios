@@ -33,12 +33,31 @@ Every claim below is transcribed from the Rust source of truth:
 
 ## The two-surface contract
 
+`spawn.paste.supportsBracketedPaste` defaults to true. Set it to false for
+plain input that cannot interpret bracketed paste; the refusal overrides live
+terminal mode, multiline TUI framing and typed prefixes. Declare
+`spawn.paste.multiline: "tagged_block"` for plain readers supporting
+`{tag` and `tag}` lines. Core wraps the entire input frame with a collision-free
+tag at the shared PTY submit seam, including typed envelopes. Chat, CLI, reports
+and launch input all use this declaration; do not duplicate transport wrapping
+in a chat preprocessor. Plain frames otherwise normalize newlines to carriage
+returns. A paste-only declaration may omit the typed follow-up
+fields; it adds no sandbox host function.
+
 `authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
 decodes its supported JSON. `parseSessionObservations(record)` carries typed API
 errors and permission mode from the claimed transcript. Native and JS paths owe
 parity fixtures. The host runs probes on a worker thread and consumes observations
 only when the provider's `structured_signals` setting is enabled (default false).
 No new sandbox host function is exposed by these capabilities.
+
+`readStructuredChat` may return `observations` alongside its Chat rows: session-scoped
+RichMessages carrying `provider_observations`. The host consumes them on initial
+Chat reads, live deltas, provider error events and heartbeat reads. An exact own
+session is required; `unavailable_model` removes a confirmed non-retryable model
+failure from the cached catalogue. Assistant API errors render as `system` rows
+with `systemSubtype: "api_error"`. A successful completed assistant clears the
+API error. No new sandbox host function is needed.
 
 `modelCatalogueSeed()` decorates the manifest seed once at provider registration;
 it must be pure and must not probe a binary or network. Per-model effort launch
@@ -104,6 +123,13 @@ PATH precedence without mutating the caller's environment.
 
 ### CLI status and management
 
+`checkForUpdate()` exports `{ currentVersion, latestVersion }` or null through
+its existing provider capability. Declare the probe binary in `subprocess.allow`
+and metadata host in `network.allow`; there is no manifest `checkForUpdate` key.
+Providers with breaking ranges select the newest supported non-breaking target
+and use `{version}` in their manifest updater. The host validates and substitutes
+that exact version for both automatic updates and `agent cli update`.
+
 The host's shared CLI status service uses `cliBinary`, falling back to
 `binaryName` and then the manifest id. Spawn preflight checks the actual launch
 binary. Status includes the resolver verdict and path plus `installer` and
@@ -155,9 +181,9 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 |---|---|---|
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
-| `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and opts sqlite reads into fail-closed version enforcement. |
+| `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and gates read-only SQLite access: known breaking, invalid and undetected versions are refused; detected undeclared versions retain an unknown verdict and use best-effort SQL/JSON shape checks. Settings shows unverified compatibility quietly. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
-| `updater` | map platform→string | Per-OS update command run automatically in a bounded utility process by the provider coordinator; working tabs keep running. |
+| `updater` | map platform→string | Per-OS update command run silently by the coordinator. `{version}` pins the checked target; required when compatibility declares breaking ranges. Running agents keep running. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, Domios preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
@@ -167,6 +193,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `defaultReasoningEffort` | string? | Default effort id. |
 | `spawn` | object | Spawn semantics — table below. Defaults apply when the whole block is absent. |
 | `sessions` | object? | Session-file layout — table below. |
+| `directoryTrustRecord` | `{format: "toml_folders", path: string}`? | Host-owned folder pre-trust: sets `folders.<canonical launch cwd>.trusted` and `decided_at` in TOML. The absolute/expanded file must sit directly in the declared sessions root's parent. No filesystem access is granted to plugin JS; require the first host version supporting this declaration. |
 | `commands` | object | Command/key templates — table below. |
 | `integration` | object? | Hook integration declaration — table below. |
 | `rule` | object? | One field, `path`: where the codeterm-rule markdown file lives (e.g. `~/.claude/CLAUDE.md` sibling). Drives the manifest fallback of `installBridgeRule` / `uninstallBridgeRule`. |

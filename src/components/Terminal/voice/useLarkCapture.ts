@@ -7,15 +7,13 @@ import { addChatSend, observeDeliveryStatus, removeChatSend } from "../chatSendS
 import type { ChatSendStatus } from "../chatSendStatus";
 import {
   MIN_VOICE_BYTES,
+  createVoiceRecorder,
   microphoneErrorMessage,
-  pickAudioMime,
   storeLarkCaptureClip,
   discardLarkCaptureClip,
 } from "./audio";
 import {
   claimCaptureOwnership,
-  exactMicrophoneConstraints,
-  hasExactLiveMicrophone,
   initialLarkCaptureState,
   larkCaptureTransition,
   releaseCaptureOwnership,
@@ -25,6 +23,8 @@ import {
   type LarkCaptureState,
   type LarkRecordingStatus,
 } from "./larkCaptureModel";
+
+import { composerRecording, type ComposerRecording, type RecordedVoiceClip } from "./composerRecording";
 
 const MAX_CAPTURE_MS = 120_000;
 
@@ -56,15 +56,6 @@ type LocalRecordingCommitOutcome =
   | { kind: "tracked"; status: ChatSendStatus }
   | { kind: "preHandoffFailure"; message: string }
   | { kind: "possibleHandoff"; message: string };
-
-function defaultRecorder(stream: MediaStream, mime: string | undefined): MediaRecorder {
-  if (!mime) return new MediaRecorder(stream);
-  try {
-    return new MediaRecorder(stream, { mimeType: mime });
-  } catch {
-    return new MediaRecorder(stream);
-  }
-}
 
 function defaultDeadline(callback: () => void, ms: number): () => void {
   const id = window.setTimeout(callback, ms);
@@ -126,6 +117,7 @@ function microphoneFailureReason(error: unknown): LarkCaptureInvalidation["reaso
 
 export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptureOptions) {
   const [state, setState] = useState<LarkCaptureState>(initialLarkCaptureState);
+  const [setupPluginId, setSetupPluginId] = useState<string | null>(null);
   const listenerReadyRef = useRef<Promise<void> | null>(null);
   const resolveListenerReadyRef = useRef<(() => void) | null>(null);
   if (!listenerReadyRef.current) {
@@ -140,7 +132,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     listen,
     invoke,
     getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
-    createRecorder: defaultRecorder,
+    createRecorder: createVoiceRecorder,
     storeClip: storeLarkCaptureClip,
     discardClip: discardLarkCaptureClip,
     scheduleDeadline: defaultDeadline,
@@ -155,7 +147,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     listen,
     invoke,
     getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
-    createRecorder: defaultRecorder,
+    createRecorder: createVoiceRecorder,
     storeClip: storeLarkCaptureClip,
     discardClip: discardLarkCaptureClip,
     scheduleDeadline: defaultDeadline,
@@ -165,14 +157,12 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   };
 
   const mountedRef = useRef(false);
-  const streamRef = useRef<{ operation: number; stream: MediaStream } | null>(null);
-  const recorderRef = useRef<{ operation: number; recorder: MediaRecorder } | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const mimeRef = useRef("audio/webm");
+  const recorderRef = useRef<{ operation: number; recorder: ComposerRecording } | null>(null);
+  const clipsRef = useRef(new Map<number, RecordedVoiceClip | null>());
   const deadlineStopRef = useRef<(() => void) | null>(null);
   const pendingMediaRef = useRef(new Set<number>());
+  const startupRequestsRef = useRef(new Map<number, Promise<boolean>>());
   const stopRequestedRef = useRef(new Set<number>());
-  const startedRecorderOpsRef = useRef(new Set<number>());
   const completeAfterHostStopRef = useRef<((operation: number, capture: LarkCaptureLease) => void) | null>(null);
   const cancelRequestsRef = useRef(new Map<string, Promise<void>>());
   const captureStoppedRequestsRef = useRef(new Set<number>());
@@ -216,63 +206,34 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     deadlineStopRef.current = null;
   }, []);
 
-  const stopTracks = useCallback((operation: number): boolean => {
-    const current = streamRef.current;
-    if (!current || current.operation !== operation) return true;
-    for (const track of current.stream.getTracks()) {
-      if (track.readyState === "ended") continue;
-      try {
-        track.stop();
-      } catch {
-        track.addEventListener("ended", () => {
-          const active = streamRef.current;
-          if (active?.operation === operation
-            && active.stream.getTracks().every((item) => item.readyState === "ended")) {
-            transition({ type: "TRACKS_RELEASED", operation });
-            const current = stateRef.current;
-            if (current.operation === operation && current.phase === "stopping"
-              && current.recorderStopped && current.stopIntent === "send" && !current.invalidation
-              && current.capture) {
-              completeAfterHostStopRef.current?.(operation, current.capture);
-            }
-          }
-        }, { once: true });
-      }
-    }
-    return current.stream.getTracks().every((track) => track.readyState === "ended");
-  }, [transition]);
-
-  const cleanupStream = useCallback((operation: number) => {
-    if (stopTracks(operation)) {
-      transition({ type: "TRACKS_RELEASED", operation });
-      streamRef.current = null;
-    }
-  }, [stopTracks, transition]);
-
   const requestRecorderStop = useCallback((operation: number) => {
-    const active = recorderRef.current;
-    if (!active || active.operation !== operation) {
-      if (!pendingMediaRef.current.has(operation)) {
-        transition({ type: "RECORDER_STOPPED", operation });
-        cleanupStream(operation);
-      }
+    if (pendingMediaRef.current.has(operation)) {
+      void recorderRef.current?.recorder.stop(true);
       return;
     }
-    clearDeadline();
-    cleanupStream(operation);
     if (stopRequestedRef.current.has(operation)) return;
     stopRequestedRef.current.add(operation);
-    if (active.recorder.state !== "inactive") {
-      try {
-        active.recorder.stop();
-      } catch (error) {
-        transition({ type: "FAILED", operation, message: errorText(error) });
-      }
-    } else if (!startedRecorderOpsRef.current.has(operation)) {
+    clearDeadline();
+    const active = recorderRef.current;
+    const discard = stateRef.current.stopIntent !== "send" || !!stateRef.current.invalidation;
+    const stopped = active?.operation === operation ? active.recorder.stop(discard) : Promise.resolve(null);
+    void stopped.then((clip) => {
+      if (stateRef.current.operation !== operation) return;
+      clipsRef.current.set(operation, clip);
       transition({ type: "RECORDER_STOPPED", operation });
-      cleanupStream(operation);
-    }
-  }, [clearDeadline, cleanupStream, transition]);
+      transition({ type: "TRACKS_RELEASED", operation });
+      const current = stateRef.current;
+      if (current.phase === "stopping" && current.stopIntent === "send" && !current.invalidation && current.capture) {
+        completeAfterHostStopRef.current?.(operation, current.capture);
+      } else {
+        clipsRef.current.delete(operation);
+        recorderRef.current = null;
+        releaseOwner();
+      }
+    }).catch((error) => {
+      transition({ type: "FAILED", operation, message: errorText(error) });
+    });
+  }, [clearDeadline, releaseOwner, transition]);
 
   const cancelCapture = useCallback((message = "Voice recording cancelled.", reason?: LarkCaptureInvalidation["reason"]) => {
     const current = stateRef.current;
@@ -282,12 +243,11 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     const next = transition({ type: "CANCEL", operation: current.operation, message, reason });
     cancelHostLease(capture, current.operation);
     if (next.phase === "error") {
-      cleanupStream(current.operation);
-      releaseOwner();
+      requestRecorderStop(current.operation);
       return;
     }
     requestRecorderStop(current.operation);
-  }, [cancelHostLease, clearDeadline, cleanupStream, releaseOwner, requestRecorderStop, transition]);
+  }, [cancelHostLease, clearDeadline, requestRecorderStop, transition]);
 
   const completeCapture = useCallback(async (
     operation: number,
@@ -404,18 +364,20 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     void runtimeRef.current.invoke<void>("local_recording_capture_stopped", { lease: capture.lease }).then(() => {
       const next = transition({ type: "CAPTURE_STOP_ACK", operation });
       if (next.phase === "transcribing" && next.capture) {
-        const blob = new Blob(chunksRef.current, { type: mimeRef.current });
-        chunksRef.current = [];
+        const clip = clipsRef.current.get(operation);
+        clipsRef.current.delete(operation);
         recorderRef.current = null;
-        streamRef.current = null;
         releaseOwner();
-        void completeCapture(operation, capture, blob, mimeRef.current);
+        if (clip) void completeCapture(operation, capture, clip.blob, clip.mime);
+        else {
+          cancelHostLease(capture);
+          transition({ type: "FAILED", operation, message: "Voice recording produced no usable audio." });
+        }
         return;
       }
       if (next.phase !== "stopping") {
-        chunksRef.current = [];
+        clipsRef.current.delete(operation);
         recorderRef.current = null;
-        streamRef.current = null;
         bindingByLeaseRef.current.delete(capture.lease);
         releaseOwner();
       }
@@ -426,33 +388,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   }, [cancelHostLease, completeCapture, operationIs, releaseOwner, transition]);
   completeAfterHostStopRef.current = completeAfterHostStop;
 
-  const finishRecorderStop = useCallback((operation: number, capture: LarkCaptureLease) => {
-    const current = stateRef.current;
-    if (current.operation !== operation) return;
-    if (current.phase !== "stopping") {
-      transition({ type: "CANCEL", operation, message: "Voice capture stopped unexpectedly." });
-      cancelHostLease(capture, operation);
-    }
-    cleanupStream(operation);
-    transition({ type: "RECORDER_STOPPED", operation });
-    const released = streamRef.current == null
-      || streamRef.current.stream.getTracks().every((track) => track.readyState === "ended");
-    if (released) transition({ type: "TRACKS_RELEASED", operation });
-    const settled = stateRef.current;
-    if (settled.phase === "stopping" && settled.recorderStopped && settled.tracksReleased
-      && settled.stopIntent === "send" && !settled.invalidation) {
-      completeAfterHostStop(operation, capture);
-      return;
-    }
-    if (settled.phase === "error" || settled.phase === "armed") {
-      chunksRef.current = [];
-      recorderRef.current = null;
-      streamRef.current = null;
-      bindingByLeaseRef.current.delete(capture.lease);
-      releaseOwner();
-    }
-  }, [cancelHostLease, cleanupStream, completeAfterHostStop, releaseOwner, transition]);
-
   const startCapture = useCallback(async (capture: LarkCaptureLease) => {
     const before = stateRef.current;
     const started = transition({ type: "START", capture });
@@ -461,105 +396,61 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
       return;
     }
     const operation = started.operation;
-    if (!claimCaptureOwnership("lark")) {
-      transition({ type: "CANCEL", operation, message: "Another voice capture is already active." });
-      cancelHostLease(capture, operation);
-      transition({ type: "RECORDER_STOPPED", operation });
-      cleanupStream(operation);
-      return;
-    }
+    const recorder = composerRecording(capture.tabId);
     const binding = tabBinding(tabsRef.current[capture.tabId]);
-    if (!binding) {
-      transition({ type: "CANCEL", operation, message: "The captured recipient is no longer open." });
-      cancelHostLease(capture, operation);
+    if (!recorder || !binding || !claimCaptureOwnership("lark")) {
+      transition({ type: "CANCEL", operation, message: "The recipient recorder is unavailable or another voice capture is active." });
+      cancelHostLease(capture);
       transition({ type: "RECORDER_STOPPED", operation });
-      cleanupStream(operation);
+      transition({ type: "TRACKS_RELEASED", operation });
       return;
     }
     bindingByLeaseRef.current.set(capture.lease, binding);
+    recorderRef.current = { operation, recorder };
     pendingMediaRef.current.add(operation);
-    try {
-      const stream = await runtimeRef.current.getUserMedia(exactMicrophoneConstraints(capture.microphoneId));
-      pendingMediaRef.current.delete(operation);
-      if (!operationIs(operation, "starting")) {
-        stream.getTracks().forEach((track) => track.stop());
-        transition({ type: "RECORDER_STOPPED", operation });
-        const settled = transition({ type: "TRACKS_RELEASED", operation });
-        if (settled.phase !== "stopping") {
-          chunksRef.current = [];
-          recorderRef.current = null;
-          bindingByLeaseRef.current.delete(capture.lease);
-          releaseOwner();
+    const cancel = () => cancelCapture();
+    const stop = () => {
+      transition({ type: "STOP", operation, intent: "send" });
+      requestRecorderStop(operation);
+    };
+    const runtime = {
+      getUserMedia: async (constraints: MediaStreamConstraints) => {
+        const stream = await runtimeRef.current.getUserMedia(constraints);
+        for (const track of stream.getAudioTracks()) {
+          track.addEventListener("ended", () => cancelCapture("The selected microphone became unavailable.", "deviceUnavailable"), { once: true });
         }
+        return stream;
+      },
+      createRecorder: runtimeRef.current.createRecorder,
+    };
+    try {
+      const startup = recorder.start(capture.microphoneId, runtime, cancel, stop);
+      startupRequestsRef.current.set(operation, startup);
+      const ready = await startup;
+      startupRequestsRef.current.delete(operation);
+      pendingMediaRef.current.delete(operation);
+      if (!ready) {
+        transition({ type: "CANCEL", operation, message: "The existing voice recorder could not start." });
+        cancelHostLease(capture);
+        requestRecorderStop(operation);
         return;
       }
-      if (!hasExactLiveMicrophone(stream, capture.microphoneId)
-        || stream.getTracks().some((track) => track.kind !== "audio")) {
-        stream.getTracks().forEach((track) => track.stop());
-        throw new Error("The browser did not return the selected live microphone.");
+      if (!operationIs(operation, "starting")) {
+        requestRecorderStop(operation);
+        return;
       }
-      streamRef.current = { operation, stream };
-      const mime = pickAudioMime();
-      mimeRef.current = mime ?? "audio/webm";
-      chunksRef.current = [];
-      const recorder = runtimeRef.current.createRecorder(stream, mime);
-      mimeRef.current = recorder.mimeType || mimeRef.current;
-      recorderRef.current = { operation, recorder };
-      const onTrackEnded = () => {
-        const current = stateRef.current;
-        if (current.operation !== operation || !current.capture) return;
-        cancelCapture("The selected microphone became unavailable during recording.", "deviceUnavailable");
-      };
-      for (const track of stream.getAudioTracks()) track.addEventListener("ended", onTrackEnded, { once: true });
-      recorder.ondataavailable = (event) => {
-        const current = stateRef.current;
-        if (current.operation !== operation || current.invalidation || current.stopIntent === "discard") return;
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-      recorder.onstart = () => {
-        if (operationIs(operation, "starting") && stream.getAudioTracks().every((track) => track.readyState === "live")) {
-          startedRecorderOpsRef.current.add(operation);
-          transition({ type: "RECORDER_STARTED", operation });
-          deadlineStopRef.current = runtimeRef.current.scheduleDeadline(
-            () => cancelCapture("The two minute recording limit was reached. The clip was discarded."),
-            MAX_CAPTURE_MS,
-          );
-          return;
-        }
-        if (operationIs(operation, "stopping") && recorder.state !== "inactive") requestRecorderStop(operation);
-      };
-      recorder.onerror = () => {
-        cancelCapture("The browser recorder failed during hardware voice capture.", "deviceUnavailable");
-      };
-      recorder.onstop = () => finishRecorderStop(operation, capture);
-      recorder.start();
-      if (recorder.state === "recording" && operationIs(operation, "stopping")) requestRecorderStop(operation);
+      transition({ type: "RECORDER_STARTED", operation });
+      deadlineStopRef.current = runtimeRef.current.scheduleDeadline(
+        () => cancelCapture("The two minute recording limit was reached. The clip was discarded."), MAX_CAPTURE_MS,
+      );
     } catch (error) {
+      startupRequestsRef.current.delete(operation);
       pendingMediaRef.current.delete(operation);
-      if (operationIs(operation, "stopping")) {
-        transition({ type: "RECORDER_STOPPED", operation });
-        cleanupStream(operation);
-        const settled = stateRef.current;
-        if (settled.phase !== "stopping") {
-          chunksRef.current = [];
-          recorderRef.current = null;
-          bindingByLeaseRef.current.delete(capture.lease);
-          releaseOwner();
-        }
-      } else if (operationIs(operation, "starting")) {
-        const message = microphoneErrorMessage(error);
-        transition({ type: "CANCEL", operation, message, reason: microphoneFailureReason(error) });
-        cancelHostLease(capture, operation);
-        if (!recorderRef.current || recorderRef.current.recorder.state === "inactive") {
-          transition({ type: "RECORDER_STOPPED", operation });
-        } else {
-          requestRecorderStop(operation);
-        }
-        streamRef.current?.stream.getTracks().forEach((track) => track.stop());
-        cleanupStream(operation);
-      }
+      transition({ type: "CANCEL", operation, message: microphoneErrorMessage(error), reason: microphoneFailureReason(error) });
+      cancelHostLease(capture);
+      requestRecorderStop(operation);
     }
-  }, [cancelCapture, cancelHostLease, cleanupStream, finishRecorderStop, operationIs, releaseOwner, requestRecorderStop, transition]);
+  }, [cancelCapture, cancelHostLease, operationIs, requestRecorderStop, transition]);
 
   const stopCapture = useCallback((lease: string) => {
     const current = stateRef.current;
@@ -594,13 +485,10 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
       const capture = stateRef.current.capture;
       if (capture) cancelHostLease(capture);
       const recorder = recorderRef.current?.recorder;
-      if (recorder && recorder.state !== "inactive") {
-        try { recorder.stop(); } catch { }
-      }
-      streamRef.current?.stream.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      chunksRef.current = [];
-      releaseOwner();
+      const startup = startupRequestsRef.current.get(stateRef.current.operation);
+      if (recorder) void Promise.all([startup?.catch(() => false), recorder.stop(true)]).finally(releaseOwner);
+      else releaseOwner();
+      clipsRef.current.clear();
       stateRef.current = { ...initialLarkCaptureState(), operation: stateRef.current.operation + 1 };
     };
   }, [cancelHostLease, clearDeadline, releaseOwner]);
@@ -614,7 +502,10 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     const unlisten: UnlistenFn[] = [];
     void Promise.all([
       runtimeRef.current.listen<LarkRecordingStatus>("local-recording-status", ({ payload }) => {
-        if (statusPayload(payload)) transition({ type: "STATUS", status: payload });
+        if (!statusPayload(payload)) return;
+        transition({ type: "STATUS", status: payload });
+        if (payload.granted && payload.enabled && payload.devicesSelected === false) setSetupPluginId(payload.pluginId);
+        else if (payload.devicesSelected || !payload.enabled) setSetupPluginId(null);
       }),
       runtimeRef.current.listen<CaptureEvent>("local-recording-capture", ({ payload }) => {
         if (!captureEvent(payload)) return;
@@ -649,5 +540,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     }
   }, [cancelCapture, tabs]);
 
-  return { state, cancel: () => cancelCapture(), ready: listenerReadyRef.current };
+  return { state, cancel: () => cancelCapture(), ready: listenerReadyRef.current,
+    setupPluginId, closeSetup: () => setSetupPluginId(null) };
 }

@@ -3,7 +3,6 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use axum::http::HeaderMap;
-use codeterm_types::notification::NotificationAction;
 use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -206,27 +205,10 @@ fn notify(
     prompt: &PendingPrompt,
     id: &str,
 ) -> String {
-    let identity = PromptIdentity::new(PromptKind::Structured, prompt);
-    let actions = prompt
-        .options
-        .iter()
-        .map(|option| NotificationAction::RespondPromptOption {
-            label: option.label.clone(),
-            value: option.value.clone(),
-            identity: identity.clone(),
-        })
-        .collect();
-    svc.create_prompt_notification_ext(
+    svc.log_system_notice(
         format!("{title} needs permission"),
-        Some(prompt.question.clone()),
+        Some(format!("Tab {tab_id}, request {id}: {}", prompt.question)),
         Some("warning"),
-        Some(actions),
-        Some(true),
-        crate::service::notification::NotificationOrigin::local_tab(tab_id.into()),
-        crate::service::notification::PushIntent {
-            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-            event_key: Some(format!("permission-hook:{tab_id}:{id}")),
-        },
     )
 }
 

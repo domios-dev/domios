@@ -1,5 +1,5 @@
 # API transport protocols
-Output cursors, streaming, examples, and the socket JSON-RPC protocol.
+Output cursors, streaming and socket JSON-RPC.
 
 ### Output Cursor Pattern
 
@@ -88,11 +88,7 @@ same field and returns the same typed error, which the mesh relay forwards
 untranslated. A newer client against an older daemon passes this gate; a method the old daemon
 lacks still fails as `-32601`, which the CLI enriches with both app versions.
 
-**1.10.0 release note:** pre-1.10 CLIs and mesh peers send no
-`protocol_version`, so a 1.10+ daemon hard-refuses every pre-1.10 `codeterm`
-binary (including a mesh peer's relayed `agent report`) on every socket and mesh
-dispatch. No grace mode: update CLIs on all mesh peers with the daemon
-(`recovery` carries the exact command).
+Missing `protocol_version` is refused, including relayed reports. Update peer CLIs with their daemon using the error's `recovery` command.
 
 ### Methods
 
@@ -100,6 +96,8 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 |--------|--------|-------------|
 | `system.identify` | — | Version, platform, features |
 | `system.capabilities` | — | List all methods. Socket-only, not over mesh relay. |
+| `rest_api.status` | — | Local listener state and bind error; works while HTTP is down. |
+| `rest_api.restart` | — | Local restart; health-proven state or RPC error with failed state in data. |
 | `workspace.list` | — | List workspaces |
 | `workspace.create` | `{name}` | Create workspace |
 | `workspace.focus` | `{workspace_id}` | Focus workspace |
@@ -237,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->

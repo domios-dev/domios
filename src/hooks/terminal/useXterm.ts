@@ -1,3 +1,4 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -62,7 +63,7 @@ export function useXterm({
 
   useEffect(() => {
     if (navigator.platform.startsWith("Win")) {
-      invoke<number>("get_windows_build_number").then(setWinBuildNumber).catch(() => {});
+      nativeBridge.windowsBuildNumber().then(setWinBuildNumber).catch(() => {});
     }
   }, []);
 
@@ -101,7 +102,7 @@ export function useXterm({
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.loadAddon(new WebLinksAddon((_event, uri) => {
-        invoke("open_url", { url: uri }).catch(() => {
+        nativeBridge.openUrl(uri).catch(() => {
           window.open(uri, "_blank");
         });
       }));

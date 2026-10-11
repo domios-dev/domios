@@ -144,7 +144,7 @@ fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
         .output_buf
         .lock()
         .append("pty-update", snapshot.screen_text.as_bytes());
-    let tab_title = fixture
+    let _tab_title = fixture
         .service
         .mux
         .read()
@@ -175,11 +175,7 @@ fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
     {
         let notif = fixture.service.notif.lock();
         let notifications = notif.list(false);
-        assert_eq!(notifications.len(), 1);
-        assert_eq!(
-            notifications[0].title,
-            format!("{tab_title}: update skipped")
-        );
+        assert!(notifications.is_empty());
     }
 
     let second_render = resolve_classified_manual_update_prompt(
@@ -189,7 +185,7 @@ fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
         Some("2".into()),
     );
     assert_eq!(second_render, None);
-    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    assert!(fixture.service.notif.lock().list(false).is_empty());
     assert!(!claim_manual_update_occurrence(&tab_id, &occurrence));
     clear_manual_update_occurrence(&tab_id);
     assert!(claim_manual_update_occurrence(&tab_id, &occurrence));

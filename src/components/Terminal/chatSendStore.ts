@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { ChatSend, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, deliveryState, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, reconcileDeliveryStatusesModel, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 
@@ -97,6 +97,12 @@ export function removeChatSend(tabId: string, id: string): void {
 }
 
 export function observeDeliveryStatus(status: ChatSendStatus): void {
+  if (status.system_send && status.correlationId) {
+    addChatSend(status.tab_id, {
+      id: status.send_id, correlationId: status.correlationId,
+      content: status.system_send.content, sentAtMs: status.system_send.sent_at_ms,
+    });
+  }
   const current = readChatSends(status.tab_id);
   const next = current.map((send) => applyDeliveryStatus(send, status));
   if (next.some((send, index) => send !== current[index])) publish(status.tab_id, next);
@@ -107,18 +113,21 @@ export function failChatSendRequest(tabId: string, id: string): void {
     ? { ...send, requestFailed: true } : send));
 }
 
-export function reconcileDeliveryStatuses(tabId: string, statuses: readonly ChatSendStatus[]): void {
-  for (const status of statuses) observeDeliveryStatus(status);
+export function reconcileDeliveryStatuses(
+  tabId: string, statuses: readonly ChatSendStatus[], requested?: readonly DeliverySend[],
+): void {
+  for (const status of statuses) {
+    if (status.system_send && status.correlationId) observeDeliveryStatus(status);
+  }
   const current = readChatSends(tabId);
-  const missing = current.some((send) => send.status?.state === "failed" && !statuses.some((status) => status.send_id === send.status?.send_id));
-  if (missing) publish(tabId, current.map((send) => send.status?.state === "failed" && !statuses.some((status) => status.send_id === send.status?.send_id)
-    ? { ...send, status: undefined } : send));
+  const next = reconcileDeliveryStatusesModel(current, statuses, requested);
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
 export function beginChatSendRetry(tabId: string, id: string): DeliverySend | undefined {
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
-  if (!send || deliveryState(send) !== "failed") return;
+  if (!send || send.status?.system_send || deliveryState(send) !== "failed") return;
   const next = { ...send, requestFailed: false, status: undefined,
     correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
@@ -142,7 +151,7 @@ export function recordChatSendEchoes(tabId: string, echoes: ReadonlyMap<string, 
   if (!current.some((send) => send.echo == null && echoes.has(send.id))) return;
   publish(tabId, current.map((send) => {
     const echo = echoes.get(send.id);
-    return send.echo != null || echo == null ? send : { ...send, echo };
+    return send.echo != null || echo == null || deliveryState(send) === "failed" ? send : { ...send, echo };
   }));
 }
 

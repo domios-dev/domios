@@ -1,5 +1,7 @@
 # CLI and environment API
 
+Immediate `codeterm send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. With `--json`, the error envelope preserves the daemon receipt in `data`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
+
 CLI identity rules, environment variables, agent integration, and desktop behavior.
 
 ## CLI
@@ -27,6 +29,8 @@ Message and pad file options accept `-` as UTF-8 stdin, including `plan task rem
 `codeterm plugin list` shows `update=<reason>` and `channel_version=<version>`. With `--json`, each installed row includes `update.available`, `update.reason`, `update.channel`, `update.remote_version`, and `update.basis` (`channel_cache`). Listing is offline: refresh a named channel with `codeterm plugin channel refresh <name>` to check its current offer. `codeterm plugin update <id>` refreshes the recorded channel and installs only a newer compatible semantic version whose channel and plugin manifests agree. Bulk update skips plugins that are not updatable.
 
 Same-version manifest hash drift remains a diagnostic in `plugin channel diff`; it does not produce an UPDATE badge or count. Local directory installs and source tree plugins have no channel update. Reinstall local changes with `codeterm plugin install --from-dir <path>`. Unknown install provenance or a missing channel cannot authorize an update. `plugin update-system` remains the explicit system synchronization and same-version repair operation; it preserves newer installed versions.
+
+Official system plugins have independent release versions. Their `minCodeterm` declares the required host version, so a compatible plugin can update without updating the app. The embedded copy is an offline fallback and never replaces a newer channel release. Use `codeterm plugin update-system <id>` to install an official system release even when an embedded install has no channel provenance yet. Channel installation is explicit; publishing a plugin does not itself update running installations automatically.
 
 ### CLI JSON ID Contract
 
@@ -134,4 +138,4 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 
 Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or Team-authority base, overriding a builtin kind, or asking to own a contract without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 34 -->
+<!-- revision: 36 -->

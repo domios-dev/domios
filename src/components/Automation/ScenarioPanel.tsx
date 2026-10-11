@@ -12,7 +12,8 @@ import { RunDivider } from "./RunDivider";
 import { RunLog } from "./RunLog";
 import { graphRuns } from "./blueprintRunModel";
 import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
-import { automationState, scopedAutomationGraph } from "./model";
+import { probeStateLabel } from "./probeProgress";
+import { scopedAutomationGraph } from "./model";
 import { blueprintTitle } from "./scenarios";
 import { AUTOMATION_TONE, AUTOMATION_TOOL, stateTone } from "./styles";
 import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationIdentity, type AutomationScenario, type AutomationScope } from "./types";
@@ -115,7 +116,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     writeLogHeight(storage(), next);
   };
   const Heading = headingLevel === 3 ? "h3" : "h2";
-  const state_ = root ? automationState(root) : null;
+  const state_ = root ? probeStateLabel(root) : null;
   const cadence = root?.schedule ?? (root?.cadence_ms ? `every ${root.cadence_ms / 1000} s` : null);
   const replayBar = replay && frame && replayRow ? <div className="ml-auto flex min-w-[12rem] items-center gap-2.5" role="group" aria-label="Replay">
     <BlueprintReplayStatus done={frame.done} at={replayRow.at} outcome={outcome} />

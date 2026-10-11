@@ -201,7 +201,7 @@ fn structured_prompt_notification_answer_records_tab_respond_metadata() {
         codeterm_types::pty::PromptKind::Structured,
         &prompt,
     );
-    let notification_id = fixture.service.create_prompt_notification_ext(
+    let notification_id = fixture.seed_prompt_notification(
         "Prompt".into(),
         Some("structured prompt".into()),
         Some("warning"),

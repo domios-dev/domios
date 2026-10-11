@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { editFrontendDraft } from "./frontendUpdate/appState";
 import { COMPOSER_DRAFT_PREFIX } from "./composerDraftGc";
 
 const PREFIX = COMPOSER_DRAFT_PREFIX;
@@ -70,5 +71,9 @@ export function usePersistentDraft(scope: string): [string, (value: string) => v
     };
   }, [flushDraft]);
 
-  return [value, setValue];
+  const edit = useCallback((next: string) => {
+    editFrontendDraft(scope, next);
+    setValue(next);
+  }, [scope]);
+  return [value, edit];
 }

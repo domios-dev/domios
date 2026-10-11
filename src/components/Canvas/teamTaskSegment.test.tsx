@@ -1,3 +1,6 @@
+import { beforeEach as beforeDaemonCase } from "vitest";
+import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
+beforeDaemonCase(() => configureDaemonFixture());
 import { act, useCallback, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -127,7 +130,7 @@ function sidePanel(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-testid="plan-side-panel"]');
 }
 
-function sidePanelControl(name: "full" | "close"): HTMLButtonElement {
+function sidePanelControl(name: "full" | "back"): HTMLButtonElement {
   const control = document.querySelector<HTMLButtonElement>(`[data-testid="plan-side-panel-${name}"]`);
   if (!control) throw new Error(`no side panel ${name} control`);
   return control;
@@ -182,12 +185,12 @@ describe("composer plan return navigation", () => {
     const host = await render(<PlanSidePanelLayer plans={[TEAM_PLAN]} tabs={{}} onOpenPlanTarget={() => {}} onReturnTo={activate} />);
     await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, returnTo: origin }, context()); });
     const target = planSidePanelStore.get()!.target;
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close plan"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[data-testid="plan-side-panel-back"]')!.click());
     expect(activate).toHaveBeenCalledExactlyOnceWith(origin);
     expect(target.returnTo).toBeUndefined();
     expect(planSidePanelStore.get()).toBeNull();
     await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id }, context()); });
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close plan"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[data-testid="plan-side-panel-back"]')!.click());
     expect(activate).toHaveBeenCalledTimes(1);
   });
 
@@ -282,7 +285,7 @@ describe("shared task side panel", () => {
     expect(header.firstElementChild?.getAttribute("data-testid")).toBe("plan-side-panel-key");
     expect(panel.querySelector('[data-testid="canvas-detail-content"] [data-testid="status-chip"]')).not.toBeNull();
     expect(sidePanelControl("full").getAttribute("aria-label")).toBe("Open Task CT-7 in full view");
-    expect(sidePanelControl("close").getAttribute("aria-label")).toBe("Close Task CT-7");
+    expect(sidePanelControl("back").getAttribute("aria-label")).toBe("Back to originating view");
     expect(host.querySelector('[data-testid="plan-task-segment"]')).toBeNull();
   });
 
@@ -300,7 +303,7 @@ describe("shared task side panel", () => {
     const host = await render(<TeamView />);
     const card = await openFromTasksBoard(host, KEYED);
 
-    await act(async () => sidePanelControl("close").click());
+    await act(async () => sidePanelControl("back").click());
     expect(sidePanel()).toBeNull();
     expect(document.activeElement).toBe(card);
   });
@@ -345,7 +348,7 @@ describe("shared task side panel", () => {
     expect(panel.querySelector('[data-testid="canvas-detail-content"]')).not.toBeNull();
     expect(shellMode(host)).toBe("board");
     expect(sidePanelControl("full").getAttribute("aria-label")).toBe("Open plan in full view");
-    expect(sidePanelControl("close").getAttribute("aria-label")).toBe("Close plan");
+    expect(sidePanelControl("back").getAttribute("aria-label")).toBe("Back to originating view");
 
     await act(async () => sidePanelControl("full").click());
     expect(sidePanel()).toBeNull();

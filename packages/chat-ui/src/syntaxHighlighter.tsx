@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { PrismLight } from "react-syntax-highlighter";
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
 import c from "react-syntax-highlighter/dist/esm/languages/prism/c";
@@ -24,6 +24,9 @@ import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
 import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
 import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 
+import { createElement } from "react-syntax-highlighter";
+import { BudgetedHighlightRows, useHighlightVisibility } from "./ChatHighlightBudget";
+import { highlightSourceEligible } from "./highlightBudget";
 export { createElement } from "react-syntax-highlighter";
 
 type Grammar = { displayName: string; aliases?: readonly string[] };
@@ -63,8 +66,12 @@ function needsGrammar(language: string | undefined): language is string {
 
 type PrismLightProps = React.ComponentProps<typeof PrismLight>;
 
-export function SyntaxHighlighter(props: PrismLightProps) {
-  const { language } = props;
+export function SyntaxHighlighter({ explicitHighlight = false, ...props }: PrismLightProps & { explicitHighlight?: boolean }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const visible = useHighlightVisibility(hostRef, explicitHighlight);
+  const source = Array.isArray(props.children) ? props.children.join("") : props.children;
+  const enabled = visible && highlightSourceEligible(source, explicitHighlight);
+  const language = enabled ? props.language : "text";
   const [, setLoaded] = useState(0);
   useEffect(() => {
     if (!needsGrammar(language)) return;
@@ -74,5 +81,20 @@ export function SyntaxHighlighter(props: PrismLightProps) {
     });
     return () => { live = false; };
   }, [language]);
-  return <PrismLight {...props} />;
+  return <div ref={hostRef} style={{ display: "contents" }}><PrismLight {...props} language={language}
+    wrapLines={props.renderer ? props.wrapLines : props.wrapLines ?? false}
+    renderer={(arguments_) => <BudgetedHighlightRows rows={arguments_.rows} enabled={enabled}
+      plain={() => props.renderer
+        ? props.renderer({ ...arguments_, rows: arguments_.rows.map((row) => ({ ...row, children: [{ type: "text", value: plainHighlightText(row) }] })) })
+        : source}
+      render={() => props.renderer ? props.renderer(arguments_) : arguments_.rows.map((node, index) => createElement({
+        node, stylesheet: arguments_.stylesheet, useInlineStyles: arguments_.useInlineStyles, key: index,
+      }))} />} /></div>;
+}
+
+interface PlainHighlightNode { value?: string | number; children?: readonly PlainHighlightNode[] }
+
+function plainHighlightText(node: PlainHighlightNode): string {
+  if (node.value != null) return String(node.value);
+  return (node.children ?? []).map(plainHighlightText).join("");
 }

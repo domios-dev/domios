@@ -341,8 +341,8 @@ fn insert_runtime(
         .transpose()?;
     cx.write(
         "INSERT INTO blueprint_runtime (blueprint_id, generation, next_run, expires_at, paused, \
-         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json, runs_since_transition, last_probe_at, probe_state) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             id,
             to_sql_u64("generation", runtime.generation)?,
@@ -358,7 +358,10 @@ fn insert_runtime(
             run.map(|run| run.tab_id.as_str()),
             bound_at,
             runtime.run_transitions,
-            runtime.causal_run_json
+            runtime.causal_run_json,
+            to_sql_u64("probe count", runtime.runs_since_transition)?,
+            runtime.last_probe_at.map(|at| to_sql_u64("last probe", at)).transpose()?,
+            runtime.probe_state
         ],
     )?;
     Ok(())
@@ -371,7 +374,7 @@ fn write_outcome(
 ) -> Result<(), StorageError> {
     cx.write(
         "UPDATE blueprint_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
-         last_reason = ?5, held = ?6, run_transitions = ?7 WHERE blueprint_id = ?1",
+         last_reason = ?5, held = ?6, run_transitions = ?7, runs_since_transition = ?8, last_probe_at = ?9, probe_state = ?10 WHERE blueprint_id = ?1",
         params![
             id,
             outcome.last_hash,
@@ -379,7 +382,10 @@ fn write_outcome(
             outcome.stopped,
             outcome.last_reason,
             outcome.held,
-            outcome.run_transitions
+            outcome.run_transitions,
+            to_sql_u64("probe count", outcome.runs_since_transition)?,
+            outcome.last_probe_at.map(|at| to_sql_u64("last probe", at)).transpose()?,
+            outcome.probe_state
         ],
     )?;
     Ok(())
@@ -774,7 +780,7 @@ pub(super) fn set_run_binding(
     let changed = cx.write(
         "UPDATE blueprint_runtime SET generation = ?2, next_run = ?3, last_hash = NULL, \
          last_bucket = NULL, last_reason = ?4, held = NULL, run_id = ?5, run_tab_id = ?6, \
-         run_bound_at = ?7, run_transitions = 0 WHERE blueprint_id = ?1 AND generation = ?8",
+         run_bound_at = ?7, run_transitions = 0, runs_since_transition = 0, last_probe_at = NULL, probe_state = NULL WHERE blueprint_id = ?1 AND generation = ?8",
         params![
             id,
             to_sql_u64("run generation", generation)?,

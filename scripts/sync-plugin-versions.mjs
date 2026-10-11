@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { channelPlugins } from "./plugin-release-metadata.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -16,7 +17,6 @@ if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
   process.exit(1);
 }
 
-const providers = ["claude", "codex", "opencode"];
 const workspacePackages = [
   "packages/chat-core",
   "packages/chat-ui",
@@ -24,44 +24,17 @@ const workspacePackages = [
   "packages/plugin-sdk",
 ];
 
+channelPlugins(repoRoot);
+
 updateJsonVersion(rootPackagePath);
 updateJsonVersion(path.join(repoRoot, "src-tauri", "tauri.conf.json"));
 
 updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "Cargo.toml"));
 updateTomlPackageVersion(path.join(repoRoot, "cli", "Cargo.toml"));
 
-for (const id of providers) {
-  updateJson(path.join(repoRoot, "plugins", `provider-${id}`, "plugin.json"), (json) => {
-    json.version = version;
-    // codeterm-releases#62: minCodeterm must track this plugin's own version,
-    // not sit frozen at whatever it was first set to. These three providers
-    // ship version-locked to the app (see AGENTS.md #5), so an app older than
-    // this build can never correctly run this build's plugin bundle.
-    json.minCodeterm = version;
-    return json;
-  });
-  updateJson(path.join(repoRoot, "plugins", `provider-${id}`, "package.json"), (json) => {
-    json.version = version;
-    return json;
-  });
-}
-
 for (const packageDir of workspacePackages) {
-  updateJson(path.join(repoRoot, packageDir, "package.json"), (json) => {
-    json.version = version;
-    return json;
-  });
+  updateJsonVersion(path.join(repoRoot, packageDir, "package.json"));
 }
-
-updateJson(path.join(repoRoot, "plugins", "channel.json"), (json) => {
-  for (const plugin of json.plugins ?? []) {
-    if (providers.includes(plugin.id)) {
-      plugin.version = version;
-      plugin.minCodeterm = version;
-    }
-  }
-  return json;
-});
 
 if (check) {
   if (changed.length > 0) {
@@ -95,7 +68,7 @@ function updateJsonVersion(file) {
       /("version"\s*:\s*")[^"]+(")/,
       (_match, prefix, suffix) => `${prefix}${version}${suffix}`,
     );
-    if (next === text && !text.includes(`"version": "${version}"`)) {
+    if (next === text && JSON.parse(text).version !== version) {
       throw new Error(`Could not find version field in ${path.relative(repoRoot, file)}`);
     }
     return next;
@@ -104,13 +77,6 @@ function updateJsonVersion(file) {
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
-}
-
-function updateJson(file, mutate) {
-  updateText(file, (current) => {
-    const json = mutate(JSON.parse(current));
-    return withOriginalEol(`${JSON.stringify(json, null, 2)}\n`, current);
-  });
 }
 
 function updateText(file, mutate) {
@@ -122,10 +88,6 @@ function updateText(file, mutate) {
       fs.writeFileSync(file, next);
     }
   }
-}
-
-function withOriginalEol(text, original) {
-  return original.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text;
 }
 
 function normalizeEol(text) {

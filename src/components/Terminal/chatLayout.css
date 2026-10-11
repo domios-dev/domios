@@ -1,0 +1,78 @@
+.ct-chat-shell, .ct-chat-surface, .ct-chat-surface > div {
+  min-width: 0;
+  max-width: 100%;
+}
+.ct-chat-surface {
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+}
+:where(.ct-chat-surface) :where(div, pre, blockquote, button, a, figure, details, header) {
+  min-width: 0;
+  max-width: 100%;
+}
+.ct-chat-surface :is(.ct-user-bubble, .ct-card__body, .ct-chat-message-row--agent .ct-chat-message-column > div, [data-testid="chat-tool-inline"]) {
+  overflow-x: auto;
+}
+.ct-chat-surface :where(button, header) {
+  flex-wrap: wrap;
+}
+.ct-chat-surface :where(pre, table) {
+  overflow-x: auto;
+}
+.ct-chat-surface table {
+  display: block;
+  max-width: 100%;
+}
+.ct-chat-surface :where(img, video, iframe, canvas, svg) {
+  max-width: 100%;
+}
+.ct-chat-surface [data-ref-kind] {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ct-chat-surface [data-ref-kind] > span {
+  min-width: 0;
+}
+
+.ct-delayed-modal__scrim, .new-session-picker {
+  top: var(--ct-visual-top, 0px);
+  bottom: auto;
+  height: var(--ct-visual-height, 100%);
+}
+.ct-delayed-modal {
+  max-height: 100%;
+  overflow: hidden;
+}
+.ct-delayed-modal__head, .ct-delayed-modal__foot { flex-shrink: 0; }
+.ct-delayed-modal__foot, .ct-delayed-modal__when { flex-wrap: wrap; }
+.ct-delayed-modal__body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ct-delayed-modal__body textarea {
+  min-height: min(13rem, 30vh, calc(var(--ct-visual-height, 100dvh) * 0.3));
+  flex-shrink: 0;
+}
+.new-session-picker-card {
+  max-height: 100%;
+  overflow-y: auto;
+}
+.ct-msg-sheet-wrap {
+  bottom: calc(var(--ct-visual-bottom, 0px) + max(12px, var(--ct-keyboard-safe-bottom, env(safe-area-inset-bottom))));
+}
+.ct-msg-sheet-wrap .ct-msg-menu {
+  max-height: calc(var(--ct-visual-height, 100dvh) - 24px);
+}
+.ct-menu.ct-model-picker {
+  max-width: calc(100vw - 16px);
+  max-height: min(440px, calc(var(--ct-visual-height, 100vh) - 16px));
+  overflow-y: auto;
+}
+@media (max-width: 640px) {
+  .ct-chat-fullscreen {
+    top: var(--ct-visual-top, 0px) !important;
+    bottom: auto !important;
+    height: var(--ct-visual-height, 100dvh) !important;
+  }
+}

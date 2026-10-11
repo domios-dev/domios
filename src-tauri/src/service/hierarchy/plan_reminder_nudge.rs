@@ -709,7 +709,7 @@ impl ServiceContext {
             })
     }
 
-    fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice) {
+    fn notify_blocked(&self, _owner_tab: &str, notice: &BlockedNotice) {
         let tasks = if notice.task_ids.is_empty() {
             String::new()
         } else {
@@ -720,18 +720,10 @@ impl ServiceContext {
         } else {
             ""
         };
-        self.create_notification_ext(
+        self.log_system_notice(
             format!("Plan {} is blocked", notice.plan_id),
             Some(format!("{}{tasks}.{pause_proposal}", notice.summary)),
             Some("warning"),
-            Some(notice.actions.clone()),
-            Some(true),
-            crate::service::notification::NotificationOrigin::local_tab(owner_tab.into()),
-            crate::service::notification::PushIntent {
-                level: Some(codeterm_types::notification::NotifyLevel::ActionNeeded),
-                event_key: Some(notice.event_key.clone()),
-            },
-            None,
         );
     }
 }

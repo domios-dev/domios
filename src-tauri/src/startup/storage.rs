@@ -102,6 +102,7 @@ pub(crate) fn open_instance_storage_at(root: impl AsRef<Path>) -> StorageAuthori
 }
 
 fn unavailable(storage: Option<Storage>, reason: String) -> StorageAuthority {
+    log::error!("[storage] unavailable at startup: {reason}");
     StorageAuthority::Unavailable { storage, reason }
 }
 

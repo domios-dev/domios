@@ -85,6 +85,26 @@ A generated artifact is produced from a source of truth and is never hand-edited
 
 A lane Worker runs isolated checks only. When a generator needs the checkout's built CLI (`essence-map` also refuses a linked worktree), list the exact regeneration and verification commands under `GATES REQUESTED` for the Orchestrator's canonical wave batch.
 
+## Build timing and warm reuse
+
+`release-inputs` (also used by `build` and `install-local`) records Cargo HTML
+timings for CLI and app/embed preparation under the operation’s target
+`cargo-timings/` directory. App preparation enables `tauri/custom-protocol`,
+matching Tauri packaging so its dependency graph can be reused. Preserve that
+feature when changing release preparation.
+
+If packaging recompiles native dependencies, Tauri and the app after preparation,
+compare `release/.fingerprint/*/run-*.json` environment records. Tauri CLI sets
+`MACOSX_DEPLOYMENT_TARGET` from `bundle.macOS.minimumSystemVersion`; a transition
+from unset to that value invalidates native build scripts and their dependents.
+`prepare_release_bundle_inputs` exports the same config value before either Cargo
+build. Keep this environment shared through packaging; do not hardcode a second
+minimum version or change the tuned profiles to hide the rebuild.
+
+CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
+do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
+SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
+
 ## Cache retention and troubleshooting
 
 Gateway acquisition triggers retention at most once per hour; there are no timers or background sweep jobs. `cache-retention.json` in the machine gateway records the last completed run. Exceptional targets carry `.codeterm-cache.json` with their physical checkout path, last-use timestamp, measured byte count, and live build-owner PIDs. Preparation refreshes the marker even for exceptional commands that run outside the gateway.
@@ -214,8 +234,10 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Release preparation and Tauri packaging compile Tauri and the app dependency graph twice | Preparation omitted `tauri/custom-protocol`, which packaging enables | Keep the packaging feature in `prepare_release_bundle_inputs`; inspect its Cargo timings and the gateway log after a serialized canonical build. |
 | `build.ps1 cli` builds and writes the manifest, then fails copying the installed CLI with `Device or resource busy` | Windows has the active dev CLI executable open | Do not kill unrelated callers. For artifact verification, run `cli/target/release/codeterm.exe cli-manifest --write` from that checkout, then run the focused CLI manifest gate. Report the install failure separately; the owner can reinstall when its callers release the executable. |
 | `check-tests` fails to mmap `libcodeterm_lib.rlib` with Windows error 1455, followed by missing-crate or macro-resolution errors | The machine exhausted its paging-file commitment during concurrent Rust compilation | Let the owning compile finish; report the resource failure rather than changing source for secondary diagnostics. Run the next authorized focused selector through the gateway. Retry `check-tests` only after the owner has serialized compilation or restored memory capacity. |
+| Authenticated configured frontend crashes at `config.font.size` | The static frontend returned SPA HTML for daemon routes and JSON transport accepted it as config. | Use the static server that proxies `/api`, `/frontend`, and `/bundled` to `CODETERM_API_PORT`; JSON transport rejects non-JSON responses. Restart only the owning instance through its named dev operation, then verify stable authenticated DOM. |
 | `test-one app` in a fresh canonical checkout fails with `glob pattern bundled-cli/* path not found or didn't match any files` | The focused app operation skipped the compile-only frontend and CLI/embed resource preparation already used by `test` and `check` | Use the focused app operation with `prepare_dev_frontend_dist` and `prepare_bundle_stubs` before compilation. These existing placeholders satisfy Tauri metadata only; the authority test runs in-process and never executes them. Production bundling still replaces the placeholders with real signed binaries. |
 | A focused authority test cannot access the private `service::agent_transition` module | The regression was placed outside the service module that owns the recovery helper | Keep the fixture regression under `service::plan_authority::tests`; preserve production visibility, then rerun its focused app filter. |
 | Local production build reports `TS2304: Cannot find name 'RefreshCw'` in the mesh peer panel | The shared busy spinner consumed the icon without importing it | Import the existing `RefreshCw` icon from `lucide-react`; rerun the owning production build before self-install. |
@@ -253,6 +275,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same focused test. Do not substitute a frontend build. |
+| Direct `bash scripts/clippy-gate.sh` fails in a fresh lane with a missing `bundled-embed/codeterm-embed-<target>` resource | The direct gate assumes Tauri's ignored compile resources are staged. | Run authorized `./build.sh check-tests` first; its resource preflight prepares frontend, CLI and embed stubs. Then rerun the direct clippy gate. |
 | macOS `local-install-cache.test.mjs` refuses ordinary fixtures under `/var` as redirected | `realpath` expands macOS's standard `/var` alias to `/private/var`, so comparing the whole lexical target to its real path mistakes an ancestor alias for a redirected cache leaf | Compare the real target with the real parent plus the expected cache basename, retain an explicit redirected-leaf refusal test, then rerun the focused Node test and `release-preflight`. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
 | Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
@@ -517,4 +540,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 15 -->
+<!-- revision: 17 -->

@@ -270,37 +270,10 @@ mod no_inference {
         "update/failure_report.rs",
     ];
 
-    /// Reviewed production callers; new paths need an explicit notice source.
-    const EXPLICIT_CREATORS: [&str; 29] = [
-        "api/mesh_routes/introduction.rs",
-        "api/mesh_routes/pairing.rs",
+    const EXPLICIT_CREATORS: [&str; 3] = [
         "api/notification_routes.rs",
-        "commands/hooks.rs",
-        "notification/mod.rs",
-        "service/agent_restart/model_switch/staging.rs",
-        "service/codex_rpc/recovery.rs",
-        "service/launch_artifacts.rs",
-        "service/provider_cli_actions.rs",
-        "service/provider_signals.rs",
-        "service/provider_signals/incident.rs",
-        "service/structured_prompt/subscriber.rs",
-        "service/worker_loss/pending.rs",
-        "service/directory_trust.rs",
-        "service/hierarchy/plan_reminder_nudge.rs",
-        "service/integration_silence.rs",
-        "service/model_defaults/mod.rs",
         "service/notification.rs",
-        "service/orchestrator/launch/cwd_guard.rs",
-        "service/output/manual_update.rs",
-        "service/prompt_chain.rs",
-        "sentinel/routes.rs",
-        "service/provider_update.rs",
-        "service/session_model.rs",
-        "service/spawn_model.rs",
-        "service/supporter.rs",
-        "service/supporter_notify.rs",
         "socket/server/notification.rs",
-        "startup/state_incidents.rs",
     ];
 
     fn src_root() -> PathBuf {
@@ -378,7 +351,7 @@ mod no_inference {
         let mut allowed: Vec<String> = EXPLICIT_CREATORS.iter().map(|f| f.to_string()).collect();
         allowed.sort();
         assert_eq!(
-            callers_of("create_notification_ext"),
+            callers_of("create_agent_notification_reported"),
             allowed,
             "an explicit notification is opened by the notify verb's transports only"
         );

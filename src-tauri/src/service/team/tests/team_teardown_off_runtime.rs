@@ -47,6 +47,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
                 timeout: Some("1h".into()),
                 paused: true,
                 handlers: None,
+                model_classification: false,
                 escalation_timeout_ms: None,
                 max_transitions: None,
                 max_actions: None,

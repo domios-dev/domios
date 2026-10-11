@@ -253,13 +253,6 @@ impl ServiceContext {
         self.spawn_tab_atomic_origin(params, false)
     }
 
-    pub(crate) fn spawn_tab_atomic_from_ui(
-        &self,
-        params: AtomicSpawnParams,
-    ) -> Result<AtomicSpawn, String> {
-        self.spawn_tab_atomic_origin(params, true)
-    }
-
     fn spawn_tab_atomic_origin(
         &self,
         mut params: AtomicSpawnParams,

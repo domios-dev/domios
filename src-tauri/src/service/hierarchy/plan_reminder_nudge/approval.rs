@@ -207,6 +207,11 @@ fn admit_claimed(
         criteria: heartbeat_gate::criteria_version(),
         ..scope.clone()
     };
+    if scope.kind == ReminderKind::Owner {
+        if let Err(reason) = gate.admit_judgement(key, &snapshot, now, host.interval()) {
+            return suppress(gate, claim, reason);
+        }
+    }
     let decided = gate.decide_with_interval(
         key,
         &snapshot,
@@ -220,7 +225,9 @@ fn admit_claimed(
     };
     decision.adapter = Some(model.id().to_string());
     decision.model = model.model_id();
-    heartbeat_gate::journal(&supporter.runtime, &decision, &plan.id, now);
+    if !matches!(decision.reason, "same_snapshot" | "healthy_snapshot") {
+        heartbeat_gate::journal(&supporter.runtime, &decision, &plan.id, now);
+    }
     let current = |plan_id: &str| match resolve(host, request, Some(plan_id)) {
         Ok((plan, fresh)) if fresh == scope && connected_as(host, &supporter, &adapter) => {
             Some(plan)

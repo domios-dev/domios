@@ -147,6 +147,30 @@ impl LaunchGeneration {
     }
 
     pub(super) fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
+        if matches!(failure, LaunchFailure::SessionBindingNotObserved(_))
+            && self.await_provider_ack(std::time::Duration::ZERO)
+            && svc
+                .observe_provider_process_tree(&self.tab_id, &self.pty_id)
+                .is_some_and(|tree| {
+                    tree.state() == crate::service::process_tree::ProviderTreeState::Present
+                })
+        {
+            return self.commit_if_current(|| {
+                svc.emit_boot_stage(&self.tab_id, BootStage::AgentReady, None)
+            });
+        }
+        if matches!(failure, LaunchFailure::SessionBindingNotObserved(_))
+            && svc.resumed_provider_is_live(&self.tab_id, &self.pty_id)
+        {
+            if let Some(attempt) = self.attempt() {
+                svc.record_provisional_launch(
+                    &attempt,
+                    BootStage::LaunchBindingUnconfirmed,
+                    &failure.reason(),
+                );
+                return true;
+            }
+        }
         if let Some(nonce) = self.binding_nonce.as_deref() {
             if crate::service::codex_rpc::recovery::recovering(&self.tab_id, nonce) {
                 return true;

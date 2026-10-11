@@ -19,6 +19,38 @@ pub(crate) enum InputUnavailable {
 use codeterm_plugin::local_recording::{LocalRecordingTrigger, SelectedDevices};
 use std::sync::Arc;
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingInputDevice {
+    pub input_id: String,
+    pub collection_id: String,
+}
+
+pub(crate) fn input_devices(
+    trigger: &LocalRecordingTrigger,
+) -> Result<Vec<RecordingInputDevice>, String> {
+    #[cfg(windows)]
+    {
+        if !windows::supports_trigger(trigger) {
+            return Ok(Vec::new());
+        }
+        return windows::selectable_inputs().map(|inputs| {
+            inputs
+                .into_iter()
+                .map(|input| RecordingInputDevice {
+                    input_id: input.input_id,
+                    collection_id: input.collection_id,
+                })
+                .collect()
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = trigger;
+        Ok(Vec::new())
+    }
+}
+
 pub(crate) fn supported() -> bool {
     cfg!(any(windows, target_os = "macos"))
 }
@@ -79,11 +111,17 @@ struct WindowsInputSubscription(Option<windows::WindowsInputSubscription>);
 impl LocalInputAdapter for WindowsInputAdapter {
     fn subscribe(
         &self,
-        _: &LocalRecordingTrigger,
+        trigger: &LocalRecordingTrigger,
         selected: &SelectedDevices,
         generation: u64,
         callback: Arc<dyn Fn(SelectedInputEvent) + Send + Sync>,
     ) -> Result<Box<dyn LocalInputSubscription>, LocalInputSetupError> {
+        if !windows::supports_trigger(trigger) {
+            return Err(LocalInputSetupError {
+                reason: "local_input_descriptor_unsupported".into(),
+                teardown: None,
+            });
+        }
         let identity = windows::SelectedInputIdentity {
             input_id: selected.input_id.clone(),
             collection_id: selected.collection_id.clone(),

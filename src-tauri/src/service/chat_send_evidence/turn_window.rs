@@ -24,6 +24,15 @@ pub(super) fn structured_user_turns(
             provider.read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
         })
         .map(|chat| {
+            log::debug!(
+                "[session-turn-evidence] structured-read provider={} session={} boundary={:?} next_cursor={:?} rows={} user_rows={}",
+                anchor.provider_id,
+                anchor.session_id,
+                cursor,
+                chat.cursor,
+                chat.messages.len(),
+                chat.messages.iter().filter(|message| message.kind == "user").count(),
+            );
             chat.messages
                 .into_iter()
                 .filter(|message| message.kind == "user")

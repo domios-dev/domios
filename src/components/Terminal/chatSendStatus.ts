@@ -1,5 +1,5 @@
 import { invoke } from "../../lib/bridge";
-import { failChatSendRequest, observeDeliveryStatus } from "./chatSendStore";
+import { failChatSendRequest, observeDeliveryStatus, reconcileDeliveryStatuses, readChatSends } from "./chatSendStore";
 
 export type ChatSendStatus = {
   send_id: string;
@@ -12,7 +12,15 @@ export type ChatSendStatus = {
   correlationId?: string;
   pending_reason?: string;
   pad_file?: string;
+  system_send?: { content: string; sent_at_ms: number };
 };
+
+export async function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
+  const requested = readChatSends(tabId);
+  const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
+  reconcileDeliveryStatuses(tabId, statuses, requested);
+  return statuses;
+}
 
 export async function sendTrackedChatMessage(
   tabId: string,
@@ -29,8 +37,7 @@ export async function sendTrackedChatMessage(
     return status;
   } catch (error) {
     if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId);
-    else void invoke<ChatSendStatus[]>("chat_send_status", { tabId })
-      .then((statuses) => statuses.forEach(observeDeliveryStatus)).catch(() => {});
+    else void reconcileTrackedChatMessages(tabId).catch(() => {});
     console.warn("[chat-send] optimistic send request failed", {
       tabId,
       messageId,

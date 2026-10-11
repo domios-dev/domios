@@ -1,6 +1,3 @@
-#[cfg(debug_assertions)]
-use std::sync::Mutex;
-
 use axum::{
     body::Body,
     http::{header, Method, Request},
@@ -10,37 +7,35 @@ use axum::{
 use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
 
-#[cfg(debug_assertions)]
-static VITE_PORT_ENV_LOCK: Mutex<()> = Mutex::new(());
+mod frontend_registration;
+mod transport_registration;
 
-#[cfg(debug_assertions)]
-fn vite_port_for_instance(instance_name: &str) -> u16 {
-    1420 + (instance_name.bytes().map(u16::from).sum::<u16>() % 200) + 1
-}
-
-#[cfg(debug_assertions)]
-fn app_for_vite_port(vite_port: u16) -> Router {
-    let _guard = VITE_PORT_ENV_LOCK.lock().unwrap();
-    let previous = std::env::var_os("CODETERM_VITE_PORT");
-    unsafe { std::env::set_var("CODETERM_VITE_PORT", vite_port.to_string()) };
-    let app = Router::new()
+fn cors_app() -> Router {
+    Router::new()
         .route("/", get(|| async { "ok" }))
-        .layer(super::cors_layer(false, &[]));
-    match previous {
-        Some(value) => unsafe { std::env::set_var("CODETERM_VITE_PORT", value) },
-        None => unsafe { std::env::remove_var("CODETERM_VITE_PORT") },
-    }
-    app
+        .layer(super::cors_layer(
+            &["http://127.0.0.1:1463".into(), "tauri://localhost".into()],
+            &[],
+        ))
 }
 
-#[cfg(debug_assertions)]
-async fn preflight(app: Router, origin: &str) -> axum::http::Response<axum::body::Body> {
+async fn preflight(origin: &str, method: &str, headers: &str) -> axum::response::Response {
+    preflight_on(cors_app(), origin, method, headers).await
+}
+
+async fn preflight_on(
+    app: Router,
+    origin: &str,
+    method: &str,
+    headers: &str,
+) -> axum::response::Response {
     app.oneshot(
         Request::builder()
             .method(Method::OPTIONS)
             .uri("/")
             .header(header::ORIGIN, origin)
-            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, method)
+            .header(header::ACCESS_CONTROL_REQUEST_HEADERS, headers)
             .body(Body::empty())
             .unwrap(),
     )
@@ -48,32 +43,64 @@ async fn preflight(app: Router, origin: &str) -> axum::http::Response<axum::body
     .unwrap()
 }
 
-fn allowed_origin(response: &axum::http::Response<axum::body::Body>) -> Option<&str> {
+fn allowed_origin(response: &axum::response::Response) -> Option<&str> {
     response
         .headers()
         .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
         .and_then(|value| value.to_str().ok())
 }
 
-#[test]
-fn cors_origins_always_include_the_app_webview() {
-    let configured = ["https://example.test"]
-        .into_iter()
-        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-        .collect::<Vec<_>>();
-    let origins = super::with_app_webview_origins(configured);
-    for expected in super::APP_WEBVIEW_ORIGINS {
-        assert!(
-            origins.iter().any(|origin| origin == expected),
-            "{expected} must be allowed: the app window is cross-origin to its own daemon, so without it every raw fetch from the UI is rejected",
-        );
+#[tokio::test]
+async fn frontend_cors_authorization_and_binding_preflight_passes_without_wildcards() {
+    for origin in ["http://127.0.0.1:1463", "tauri://localhost"] {
+        for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
+            let response = preflight(
+                origin,
+                method,
+                "authorization,content-type,x-codeterm-tab-id,x-codeterm-binding-nonce",
+            )
+            .await;
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            assert_eq!(allowed_origin(&response), Some(origin));
+            let headers = response.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS]
+                .to_str()
+                .unwrap();
+            for expected in super::FRONTEND_REQUEST_HEADERS {
+                assert!(headers.split(',').any(|value| value.trim() == expected));
+            }
+            let methods = response.headers()[header::ACCESS_CONTROL_ALLOW_METHODS]
+                .to_str()
+                .unwrap();
+            assert!(methods.split(',').any(|value| value.trim() == method));
+            assert!(!headers.contains('*'));
+            assert!(!methods.contains('*'));
+        }
     }
-    assert!(
-        origins
-            .iter()
-            .any(|origin| origin == "https://example.test"),
-        "configured origins must survive the append",
-    );
+}
+
+#[tokio::test]
+async fn frontend_cors_foreign_origin_is_refused() {
+    for origin in [
+        "http://127.0.0.1:1464",
+        "http://localhost:1463",
+        "https://foreign.example",
+    ] {
+        let response = preflight(origin, "GET", "authorization,content-type").await;
+        assert!(allowed_origin(&response).is_none());
+    }
+}
+
+#[tokio::test]
+async fn frontend_cors_undeclared_method_and_header_are_refused() {
+    let response = preflight("http://127.0.0.1:1463", "TRACE", "x-foreign").await;
+    let headers = response.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS]
+        .to_str()
+        .unwrap();
+    assert!(!headers.split(',').any(|value| value.trim() == "x-foreign"));
+    let methods = response.headers()[header::ACCESS_CONTROL_ALLOW_METHODS]
+        .to_str()
+        .unwrap();
+    assert!(!methods.split(',').any(|value| value.trim() == "TRACE"));
 }
 
 #[tokio::test]
@@ -117,63 +144,55 @@ async fn catch_panic_layer_keeps_router_responsive_after_handler_panic() {
     assert_eq!(health_response.status(), axum::http::StatusCode::OK);
 }
 
-#[tokio::test]
-#[cfg(debug_assertions)]
-async fn derived_origin_admitted_for_playwright_instance() {
-    let vite_port = vite_port_for_instance("playwright");
-    let origin = format!("http://127.0.0.1:{vite_port}");
-    let response = preflight(app_for_vite_port(vite_port), &origin).await;
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
-    assert_eq!(allowed_origin(&response), Some(origin.as_str()));
+#[test]
+fn frontend_cors_configured_entries_require_exact_http_origins() {
+    assert!(super::configured_origin("https://trusted.example").is_some());
+    assert!(super::configured_origin("http://127.0.0.1:1463").is_some());
+    for entry in [
+        "*",
+        "https://*.example",
+        "https://trusted.example/",
+        "https://trusted.example/path",
+        "https://trusted.example?token=secret",
+        "https://trusted.example#secret",
+        "https://user:secret@trusted.example",
+        "tauri://localhost",
+        "null",
+        " https://trusted.example",
+    ] {
+        assert!(
+            super::configured_origin(entry).is_none(),
+            "non-origin entry admitted"
+        );
+    }
 }
 
 #[tokio::test]
-#[cfg(debug_assertions)]
-async fn derived_origin_admitted_for_differently_named_instance() {
-    let instance_name = "remote-render";
-    let vite_port = vite_port_for_instance(instance_name);
-    let origin = format!("http://127.0.0.1:{vite_port}");
-    let response = preflight(app_for_vite_port(vite_port), &origin).await;
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
-    assert_eq!(allowed_origin(&response), Some(origin.as_str()));
-}
-
-#[tokio::test]
-#[cfg(debug_assertions)]
-async fn derived_origin_admitted_refuses_an_unrelated_origin() {
-    let vite_port = vite_port_for_instance("playwright");
-    let unrelated_origin = format!("http://127.0.0.1:{}", vite_port + 1);
-    let response = preflight(app_for_vite_port(vite_port), &unrelated_origin).await;
-    assert!(allowed_origin(&response).is_none());
-}
-
-#[tokio::test]
-async fn derived_origin_admitted_keeps_release_webview_policy_unchanged() {
+async fn frontend_cors_configured_origin_is_exact_and_invalid_entries_never_become_wildcards() {
     let app = Router::new()
         .route("/", get(|| async { "ok" }))
-        .layer(super::cors_layer(false, &[]));
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/")
-                .header(header::ORIGIN, "http://tauri.localhost")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(allowed_origin(&response), Some("http://tauri.localhost"));
-
-    let denied = app
-        .oneshot(
-            Request::builder()
-                .uri("/")
-                .header(header::ORIGIN, "https://configured.example")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert!(allowed_origin(&denied).is_none());
+        .layer(super::cors_layer(
+            &["http://127.0.0.1:1463".into()],
+            &[
+                "https://trusted.example".into(),
+                "*".into(),
+                "https://foreign.example/path".into(),
+            ],
+        ));
+    let allowed = preflight_on(
+        app.clone(),
+        "https://trusted.example",
+        "GET",
+        "authorization,content-type",
+    )
+    .await;
+    assert_eq!(allowed_origin(&allowed), Some("https://trusted.example"));
+    for origin in [
+        "https://foreign.example",
+        "https://sub.trusted.example",
+        "http://trusted.example",
+    ] {
+        let denied = preflight_on(app.clone(), origin, "GET", "authorization,content-type").await;
+        assert!(allowed_origin(&denied).is_none());
+    }
 }

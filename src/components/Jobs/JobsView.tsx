@@ -17,7 +17,7 @@ import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
 import { BlueprintExportButton } from "../Automation/BlueprintExportButton";
 import { BlueprintImportForm } from "./BlueprintImportForm";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
-import { cronMeta, JobRow, sentinelRowText } from "./JobRow";
+import { cronMeta, JobRow, sentinelRowText, sentinelStateLabel } from "./JobRow";
 import { JobsFilterBar } from "./JobsFilterBar";
 import { jobsLayout, type JobsEmptyScope, type JobsWorkspace } from "./jobsLayout";
 import { useCronJobs } from "./useCronJobs";
@@ -268,7 +268,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
         if (job.kind === "blueprint") return <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} meta={job.blueprint.pipeline.nodes[0]?.summary ?? ""} type="Blueprint" tone="blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "blueprint", id: job.blueprint.pipeline.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
         return job.kind === "cron"
           ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type="Cron" tone="cron" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
-          : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
+          : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" state={sentinelStateLabel(job.sentinel)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
     {confirmation && <JobConfirmationDialog

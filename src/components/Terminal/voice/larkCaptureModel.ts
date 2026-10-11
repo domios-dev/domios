@@ -37,6 +37,7 @@ export interface LarkRecordingStatus {
   enabled: boolean;
   available: boolean;
   generation: number;
+  devicesSelected?: boolean;
 }
 
 export interface LarkCaptureState {

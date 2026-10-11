@@ -92,9 +92,10 @@ async fn mesh_tailnet_production_runtime_binds_serves_and_publishes_both_listene
     control
         .listeners
         .configure(Some("127.0.0.1:0".parse().unwrap()), Arc::new(|_| {}));
+    let primary = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
-    let server = spawn(control.clone(), "127.0.0.1:0".into(), health_router());
-    wait_for_status(&control, &mut status, |s| {
+    let server = spawn(control.clone(), primary.to_string(), health_router());
+    let initial = wait_for_status(&control, &mut status, |s| {
         s.phase == RestApiPhase::Listening
     })
     .await;
@@ -104,6 +105,28 @@ async fn mesh_tailnet_production_runtime_binds_serves_and_publishes_both_listene
     assert_ne!(addresses[0], addresses[1]);
     tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for address in &addresses {
+            let response = client
+                .get(format!("http://{address}/api/health"))
+                .header(reqwest::header::CONNECTION, "close")
+                .send()
+                .await
+                .unwrap();
+            assert!(response.status().is_success());
+            assert_eq!(response.text().await.unwrap(), "ok");
+        }
+        control
+            .listeners
+            .configure(Some(addresses[1]), Arc::new(|_| {}));
+        let restarted = control.restart_and_wait().await.unwrap();
+        assert_eq!(
+            restarted.phase,
+            RestApiPhase::Listening,
+            "{:?}",
+            restarted.message
+        );
+        assert_eq!(restarted.generation, initial.generation + 1);
+        assert_eq!(control.listeners.ready(), addresses);
         for address in &addresses {
             let response = client
                 .get(format!("http://{address}/api/health"))
@@ -610,4 +633,114 @@ async fn pending_bind_is_silent_without_a_bound_listener() {
         None,
         "with no listener owned there is no live bind to contradict"
     );
+}
+
+#[tokio::test]
+async fn socket_restart_recovers_after_foreign_port_owner_is_released() {
+    let occupier = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = occupier.local_addr().unwrap();
+    let control = Arc::new(RestApiControl::new());
+    let mut status = control.subscribe_status();
+    let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
+    wait_for_status(&control, &mut status, |status| {
+        status.phase == RestApiPhase::Failed
+    })
+    .await;
+    let failed = crate::socket::server::rest_api::execute("rest_api.status", &control)
+        .await
+        .unwrap();
+    assert_eq!(failed["phase"], "failed");
+    assert_eq!(failed["diagnostic"], "bind_ownership_failed");
+    assert!(failed["message"]
+        .as_str()
+        .unwrap()
+        .contains(&address.to_string()));
+    let still_occupied = crate::socket::server::rest_api::execute("rest_api.restart", &control)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        still_occupied.data.unwrap()["diagnostic"],
+        "bind_ownership_failed"
+    );
+    drop(occupier);
+    let recovered = crate::socket::server::rest_api::execute("rest_api.restart", &control)
+        .await
+        .unwrap();
+    assert_eq!(recovered["phase"], "listening");
+    assert!(recovered["generation"].as_u64().unwrap() > failed["generation"].as_u64().unwrap());
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!("http://{address}/api/health"))
+        .header(reqwest::header::CONNECTION, "close")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.text().await.unwrap(), "ok");
+    control.shutdown_and_wait().await.unwrap();
+    task.await.unwrap();
+}
+
+#[tokio::test]
+async fn listener_restart_contract_response_ack_drains_sse_then_health_proves_reserved_generation()
+{
+    use futures_util::StreamExt;
+    let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
+    let mut status = control.subscribe_status();
+    let router = health_router().route(
+        "/events",
+        axum::routing::get(|| async {
+            axum::response::sse::Sse::new(
+                futures_util::stream::once(async {
+                    Ok::<_, std::convert::Infallible>(
+                        axum::response::sse::Event::default().data("connected"),
+                    )
+                })
+                .chain(futures_util::stream::pending()),
+            )
+        }),
+    );
+    let task = tokio::spawn(start(control.clone(), address.to_string(), router));
+    let initial = wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
+    let response = reqwest::get(format!("http://{address}/events"))
+        .await
+        .unwrap();
+    let mut stream = response.bytes_stream();
+    assert!(stream.next().await.unwrap().is_ok());
+    let accepted = control.prepare_http_restart().await.unwrap();
+    assert_eq!(accepted.generation, initial.generation + 1);
+    assert_eq!(control.status(), initial);
+    assert!(control.prepare_http_restart().await.is_err());
+    accepted.response_complete.send(()).unwrap();
+    assert!(tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, stream.next())
+        .await
+        .unwrap()
+        .is_none());
+    let next = wait_for_status(&control, &mut status, |s| {
+        s.generation == accepted.generation && s.phase == RestApiPhase::Listening
+    })
+    .await;
+    assert_eq!(next.diagnostic, None);
+    assert_eq!(
+        reqwest::get(format!("http://{address}/api/health"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap(),
+        "ok"
+    );
+    let response = reqwest::get(format!("http://{address}/events"))
+        .await
+        .unwrap();
+    let mut reconnected = response.bytes_stream();
+    assert!(reconnected.next().await.unwrap().is_ok());
+    drop(reconnected);
+    control.shutdown_and_wait().await.unwrap();
+    task.await.unwrap();
 }

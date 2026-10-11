@@ -71,12 +71,19 @@ impl JsProvider {
         cursor: Option<&str>,
     ) -> codeterm_types::agent::chat_types::StructuredChat {
         if self.has_js("readStructuredChat") {
-            return self
-                .try_call(
-                    "readStructuredChat",
-                    &[json!(cwd), json!(session_id), json!(cursor)],
-                )
-                .unwrap_or_default();
+            let result = self.try_call::<codeterm_types::agent::chat_types::StructuredChat>(
+                "readStructuredChat",
+                &[json!(cwd), json!(session_id), json!(cursor)],
+            );
+            log::debug!(
+                "[session-turn-evidence] plugin-read session={} input_cursor={:?} decoded={} rows={} output_cursor={:?}",
+                session_id,
+                cursor,
+                result.is_some(),
+                result.as_ref().map_or(0, |chat| chat.messages.len()),
+                result.as_ref().and_then(|chat| chat.cursor.as_deref()),
+            );
+            return result.unwrap_or_default();
         }
         match self.native() {
             Some(n) => n.read_structured_chat(cwd, session_id, cursor),

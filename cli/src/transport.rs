@@ -91,6 +91,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::ModelProvider { .. } => socket_unsupported(
             "model provider secrets and configuration are local-only; run on the target machine",
         ),
+        Commands::RestApi { .. } => socket_unsupported("REST listener recovery is local-only; run it on the target machine"),
         Commands::Capabilities => {
             socket_unsupported("capabilities is socket-only; run it on the target machine")
         }

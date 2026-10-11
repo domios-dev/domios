@@ -19,3 +19,21 @@ export function clampFloatingPosition(
   const top = Math.max(margin, Math.min(y, viewportHeight - fittedHeight - margin));
   return { top, left, maxHeight: Math.max(0, viewportHeight - top - margin) };
 }
+
+export function anchoredFloatingPosition(
+  rect: { left: number; right: number; bottom: number },
+  width: number,
+  height: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  align: "left" | "right",
+): FloatingPosition {
+  return clampFloatingPosition(
+    align === "left" ? rect.left : rect.right - width,
+    rect.bottom + 4,
+    width,
+    height,
+    viewportWidth,
+    viewportHeight,
+  );
+}

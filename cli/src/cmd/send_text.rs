@@ -59,25 +59,34 @@ pub enum SendTextOutcome {
 }
 
 pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome {
-    if let Some(err) = value.get("error") {
-        if err
+    if value.get("ok").and_then(serde_json::Value::as_bool) == Some(false)
+        || value
             .get("bytes_written")
             .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-        {
-            return SendTextOutcome::Pending {
-                message: "OK (pending)".to_string(),
-                bytes_written: true,
-            };
-        }
-        let message = err
-            .as_str()
-            .or_else(|| err.get("message").and_then(serde_json::Value::as_str))
-            .or_else(|| err.get("code").and_then(serde_json::Value::as_str))
-            .unwrap_or("send was refused before the payload was written");
+            == Some(false)
+        || value.get("error").is_some_and(|error| !error.is_null())
+    {
+        let error = value.get("error");
+        let reason = error
+            .and_then(|error| {
+                error
+                    .as_str()
+                    .or_else(|| error.get("message").and_then(serde_json::Value::as_str))
+                    .or_else(|| error.get("code").and_then(serde_json::Value::as_str))
+            })
+            .unwrap_or("send has not been written; inspect its retained status before resending");
+        let detail = value.get("detail").and_then(serde_json::Value::as_str);
+        let message = detail.map_or_else(
+            || reason.to_string(),
+            |detail| format!("{reason}: {detail}"),
+        );
+        let message = value
+            .get("send_id")
+            .and_then(serde_json::Value::as_str)
+            .map_or_else(|| message.clone(), |id| format!("send_id={id}: {message}"));
         return SendTextOutcome::Error {
-            msg: message.to_string(),
-            exit_code: 2,
+            msg: message,
+            exit_code: crate::cmd::print::CLI_ERROR_EXIT_CODE,
         };
     }
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -95,6 +104,41 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
     SendTextOutcome::Other
 }
 
+fn write_send_text_failure(
+    json: bool,
+    value: &serde_json::Value,
+    message: &str,
+    out: &mut impl std::io::Write,
+    err: &mut impl std::io::Write,
+) {
+    let mut data = value.clone();
+    if value.get("send_id").is_some()
+        || value.get("delivery").and_then(serde_json::Value::as_str) == Some("pending")
+        || value
+            .get("error")
+            .and_then(|error| error.get("bytes_written"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        || value
+            .get("bytes_written")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    {
+        data["hint"] = serde_json::json!(
+            "inspect retained status or exact own-session evidence; do not replay this send"
+        );
+    }
+    let error = crate::cmd::print::CliError {
+        message: message.to_string(),
+        code: None,
+        data: Some(data),
+    };
+    crate::cmd::print::write_cli_error(json, &error, out, err);
+    if json {
+        let _ = writeln!(err, "Error: {message}");
+    }
+}
+
 fn pad_file_path(value: &serde_json::Value) -> Option<&str> {
     value.get("pad_file").and_then(serde_json::Value::as_str)
 }
@@ -106,12 +150,23 @@ pub fn handle_send_text_result(
 ) {
     match result {
         Ok(value) => {
+            let outcome = analyze_send_text_response(&value);
+            if let SendTextOutcome::Error { msg, exit_code } = &outcome {
+                write_send_text_failure(
+                    json,
+                    &value,
+                    msg,
+                    &mut std::io::stdout(),
+                    &mut std::io::stderr(),
+                );
+                std::process::exit(*exit_code);
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 return;
             }
             let pad_file = pad_file_path(&value);
-            match analyze_send_text_response(&value) {
+            match outcome {
                 SendTextOutcome::Success(msg) => {
                     println!("{}", msg);
                     if let Some(path) = pad_file {
@@ -408,9 +463,6 @@ fn send_text_to_targets(
                 println!("Pad file {tab}: {path}");
             }
         }
-        for (tab_id, err) in &failures {
-            eprintln!("Error {tab_id}: {err}");
-        }
         println!(
             "{} sent, {} pending, {} refused of {} target(s)",
             delivered.len(),
@@ -423,7 +475,10 @@ fn send_text_to_targets(
         }
     }
     if !failures.is_empty() {
-        std::process::exit(2);
+        for (tab_id, err) in &failures {
+            eprintln!("Error {tab_id}: {err}");
+        }
+        std::process::exit(crate::cmd::print::CLI_ERROR_EXIT_CODE);
     }
 }
 

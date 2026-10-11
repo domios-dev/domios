@@ -38,6 +38,7 @@ fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> 
 enum WorkspaceCloseCaller<'a> {
     LocalTab(&'a str),
     AuthenticatedMeshPeer(&'a str),
+    #[cfg(test)]
     Human,
     HumanConfirmedHeaderless,
     Unattributed,
@@ -48,6 +49,7 @@ impl WorkspaceCloseCaller<'_> {
         match self {
             Self::LocalTab(_) => "AgentTab",
             Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
+            #[cfg(test)]
             Self::Human => "Human",
             Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
             Self::Unattributed => "Unattributed",
@@ -60,6 +62,7 @@ impl WorkspaceCloseCaller<'_> {
             Self::AuthenticatedMeshPeer(peer_id) => {
                 TeamMutationCaller::AuthenticatedMeshPeer(peer_id.to_string())
             }
+            #[cfg(test)]
             Self::Human => TeamMutationCaller::Human,
             Self::HumanConfirmedHeaderless => TeamMutationCaller::HumanConfirmedHeaderless,
             Self::Unattributed => TeamMutationCaller::Unattributed,
@@ -240,6 +243,7 @@ impl ServiceContext {
             .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn close_workspace_as_human(
         &self,
         workspace_id: &str,
@@ -335,6 +339,7 @@ impl ServiceContext {
                 log::info!("workspace close authorized for mesh peer {peer_id}");
                 false
             }
+            #[cfg(test)]
             WorkspaceCloseCaller::Human => false,
             WorkspaceCloseCaller::HumanConfirmedHeaderless => false,
             // An empty workspace holds nothing a confirmation would protect.

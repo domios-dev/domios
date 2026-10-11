@@ -224,4 +224,15 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
   assert(duplicateRelease.busy, "duplicate release cannot clear the pending finish");
 }
 
+{
+  const starting = voiceReducer(initVoiceState(), { type: "HANDS_FREE_START" });
+  assertEqual(starting.phase, "starting", "hardware start waits for recorder readiness");
+  assertEqual(voiceReducer(starting, { type: "HANDS_FREE_START" }), starting, "duplicate start is inert");
+  const active = voiceReducer(starting, { type: "HANDS_FREE_READY" });
+  assertEqual(active.phase, "locked", "actual recorder readiness enters hands-free recording");
+  assertEqual(voiceReducer(active, { type: "HANDS_FREE_START" }), active, "active recorder cannot restart");
+  const stopped = voiceReducer(voiceReducer(active, { type: "BUSY_START" }), { type: "BUSY_END_IDLE" });
+  assertEqual(stopped.phase, "idle", "stopped controller allows a fresh recording");
+}
+
 console.log("voiceFsm: all tests passed");

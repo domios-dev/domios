@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, listen } from "../../lib/bridge";
+import { orchestrationTransport, listenOrchestration as listen } from "../../lib/transport/orchestrationRuntime";
 import type { CronJob } from "../../lib/types";
 
 export interface CronJobsState {
@@ -16,7 +16,7 @@ export function useCronJobs(workspaceId: string | null) {
   const refresh = useCallback(async () => {
     const read = ++sequence.current;
     try {
-      const next = await invoke<CronJob[]>("cron_list", workspaceId === null ? {} : { workspaceId });
+      const next = await orchestrationTransport().cron_list(workspaceId === null ? {} : { workspaceId });
       if (!active.current || read !== sequence.current) return;
       setState(Array.isArray(next) ? { jobs: next, failed: false } : (current) => ({ jobs: current.jobs, failed: true }));
     } catch {

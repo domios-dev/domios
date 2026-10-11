@@ -413,6 +413,7 @@ export interface Host {
   writeFile(path: string, contents: string): boolean;
   writeFileAtomic(path: string, contents: string): boolean;
   canonicalPath(path: string): string | null;
+  projectWriteAllowed(root: string): boolean;
   jsonBooleanRecord(path: string, keysJson: string, grant: boolean): string;
   lockFile(path: string): string | null;
   unlockFile(id: string): boolean;

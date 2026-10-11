@@ -126,6 +126,7 @@ function lease(leaseId: string, generation: number): LarkCaptureLease {
 async function main() {
   const bridge = await import("../../../lib/bridge");
   const { useLarkCapture } = await import("./useLarkCapture");
+  const { useComposerVoice } = await import("./useComposerVoice");
   const { LarkCaptureStatus } = await import("./LarkCaptureStatus");
   const { readChatSends, forgetChatSendsInMemory } = await import("../chatSendStore");
   resetCaptureOwnershipForTest();
@@ -227,11 +228,17 @@ async function main() {
   });
 
   let latest: ReturnType<typeof useLarkCapture> | null = null;
+  let composer: ReturnType<typeof useComposerVoice> | null = null;
   const current = () => {
     assert(latest, "hook rendered");
     return latest;
   };
   function Harness({ tabs }: { tabs: Record<string, Tab> }) {
+    composer = useComposerVoice({
+      tabId: "A", hasText: false, onSend: () => {}, onAttach: () => {},
+      onSendWithAttachments: () => { throw new Error("Hardware completion must retain frozen lease admission."); },
+      onError: () => {},
+    });
     latest = useLarkCapture({ tabs, runtime });
     return React.createElement(LarkCaptureStatus, { state: current().state, onCancel: current().cancel });
   }
@@ -491,7 +498,37 @@ async function main() {
     assert.equal(discardedClips.length, 1, "possible handoff keeps its clip; only the cancelled stale upload was discarded");
     assert.equal(invokeCount("local_recording_commit"), 4, "uncertain admission is never replayed");
     assert.equal(invokeCount("chat_send_status"), 1, "possible handoff queries tracked status once");
-    console.log("useLarkCapture: 11 wiring fixtures passed");
+    await act(async () => emit("local-recording-status", recordingStatus(22)));
+    await startCapture(lease("lease-before-start", 22));
+    await act(async () => current().cancel());
+    await stopRecorder(9);
+    assert.equal(current().state.phase, "error", "stop before start acknowledgement settles startup");
+    assert.equal(currentCaptureOwner(), null);
+    assert.equal(streams[9].track.stopCalls, 1);
+
+    await act(async () => emit("local-recording-status", recordingStatus(23)));
+    await startCapture(lease("lease-recorder-error", 23));
+    await emitRecorderStarted(10);
+    recorders[10].state = "inactive";
+    await act(async () => recorders[10].onerror?.(new Event("error")));
+    assert.equal(currentCaptureOwner(), "lark", "inactive error still waits for the actual stop event");
+    await stopRecorder(10);
+    assert.equal(current().state.phase, "error", "active recorder failure cancels through the same controller");
+    assert.equal(currentCaptureOwner(), null);
+    assert.equal(streams[10].track.stopCalls, 1);
+    assert.equal(invokeCount("local_recording_commit"), 4);
+
+    await act(async () => emit("local-recording-status", recordingStatus(24)));
+    await startCapture(lease("lease-composer-stop", 24));
+    await emitRecorderStarted(11);
+    assert(composer);
+    await act(async () => composer!.stopToPreview());
+    assert.equal(recorders[11].stopCalls, 1, "ordinary composer stop controls the hardware-started recorder");
+    await act(async () => current().cancel());
+    await stopRecorder(11);
+    assert.equal(currentCaptureOwner(), null);
+    assert.equal(invokeCount("local_recording_commit"), 4);
+    console.log("useLarkCapture: 14 wiring fixtures passed");
   } finally {
     await act(async () => root.unmount());
     hookWindow.happyDOM.abort();

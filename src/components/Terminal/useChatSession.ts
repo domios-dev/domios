@@ -42,8 +42,8 @@ import {
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
-import type { ChatSendStatus } from "./chatSendStatus";
-import { chatSendAt, observeDeliveryStatus, reconcileDeliveryStatuses } from "./chatSendStore";
+import { reconcileTrackedChatMessages, type ChatSendStatus } from "./chatSendStatus";
+import { chatSendAt, observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -180,6 +180,28 @@ export function useChatSession({
     rows: ChatMessage[],
   ) => commitTranscriptBatch(windowKeyRef.current, { kind, authority, range, rows }), []);
 
+  const reconcileSendStatuses = useCallback(async () => {
+    if (sendStatusInFlightRef.current) {
+      sendStatusQueuedRef.current = true;
+      return;
+    }
+    sendStatusInFlightRef.current = true;
+    try {
+      do {
+        sendStatusQueuedRef.current = false;
+        const statuses = await reconcileTrackedChatMessages(tabId);
+        for (const status of statuses) {
+          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
+          stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        }
+      } while (sendStatusQueuedRef.current);
+    } catch {
+      return;
+    } finally {
+      sendStatusInFlightRef.current = false;
+    }
+  }, [tabId]);
+
   const requestAttach = useCallback((preserveViewport = false) => {
     pendingLiveEventsRef.current = [];
     preserveSnapshotAnchorRef.current = preserveViewport;
@@ -197,7 +219,8 @@ export function useChatSession({
     attachmentStateRef.current = "attaching";
     setAttachmentState("attaching");
     beginAttach();
-  }, [beginAttach]);
+    void reconcileSendStatuses();
+  }, [beginAttach, reconcileSendStatuses]);
 
   /** Coalesce recovery to one re-attach per tick; the trigger is always an
    *  observed outcome, never elapsed time. */
@@ -238,29 +261,6 @@ export function useChatSession({
       preserveSnapshotAnchorRef.current,
     );
   }, [commitBatch, tabId]);
-
-  const reconcileSendStatuses = useCallback(async () => {
-    if (sendStatusInFlightRef.current) {
-      sendStatusQueuedRef.current = true;
-      return;
-    }
-    sendStatusInFlightRef.current = true;
-    try {
-      do {
-        sendStatusQueuedRef.current = false;
-        const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
-        reconcileDeliveryStatuses(tabId, statuses);
-        for (const status of statuses) {
-          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
-          stampConfirmedTranscriptRow(windowKeyRef.current, status);
-        }
-      } while (sendStatusQueuedRef.current);
-    } catch {
-      return;
-    } finally {
-      sendStatusInFlightRef.current = false;
-    }
-  }, [tabId]);
 
   const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
     observeDeliveryStatus(status);
@@ -641,7 +641,7 @@ export function useChatSession({
   }, [committedRows, emitDiagnostic, tabId, transcript]);
 
   return {
-    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current),
+    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
     error,
     attachmentState,
     /** Set = the wait is over and it failed; the view reports it rather than
@@ -652,6 +652,7 @@ export function useChatSession({
     allMessages: view.allMessages,
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
+    newerMessageCount: view.newerMessageCount,
     canBackfillOlder: view.canBackfillOlder,
     backfillLoading: view.backfillLoading,
     loadOlder: view.loadOlder,

@@ -136,7 +136,7 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
         .task;
     assert_eq!(task.kind, "unplanned");
     assert!(task.tags.iter().any(|tag| tag == "unplanned"));
-    assert_eq!(task.name, "unplanned: urgent probe");
+    assert_eq!(task.name, "urgent probe");
     assert_eq!(task.body, "Run the urgent probe.");
     assert_eq!(task.acceptance_criteria, vec!["Run the urgent probe."]);
     assert_eq!(task.correctness.as_deref(), Some("Run the urgent probe."));

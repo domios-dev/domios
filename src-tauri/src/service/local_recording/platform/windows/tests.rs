@@ -2,6 +2,38 @@ use super::*;
 use std::cell::Cell;
 use std::time::Duration;
 
+#[test]
+fn lark_input_windows_inventory_requires_exact_trigger_capability() {
+    use codeterm_plugin::local_recording::LocalRecordingTrigger;
+    let approved = LocalRecordingTrigger {
+        vendor_id: 0x3547,
+        product_id: 8,
+        usage_page: CONSUMER_CONTROL_PAGE,
+        usage: CONSUMER_CONTROL_USAGE,
+    };
+    assert!(supports_trigger(&approved));
+    for foreign in [
+        LocalRecordingTrigger {
+            vendor_id: 0,
+            ..approved.clone()
+        },
+        LocalRecordingTrigger {
+            product_id: 0,
+            ..approved.clone()
+        },
+        LocalRecordingTrigger {
+            usage_page: 0x000B,
+            ..approved.clone()
+        },
+        LocalRecordingTrigger {
+            usage: 0x00E9,
+            ..approved.clone()
+        },
+    ] {
+        assert!(!supports_trigger(&foreign));
+    }
+}
+
 fn identity() -> SelectedInputIdentity {
     SelectedInputIdentity {
         input_id:

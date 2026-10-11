@@ -88,7 +88,10 @@ pub enum BlueprintAction {
         /// End the blueprint after this duration
         #[arg(long)]
         timeout: Option<String>,
-        /// Deterministic fallback when no Choice adapter is connected: bucket=regex
+        /// Opt in to Supporter model classification when no patterns are declared
+        #[arg(long, conflicts_with = "matches")]
+        model_classification: bool,
+        /// Deterministic classification: unmatched output never calls the model; bucket=regex
         #[arg(long = "match", value_parser = parse_assignment)]
         matches: Vec<String>,
         /// Validate and print the resulting graph without creating it
@@ -751,6 +754,49 @@ mod tests {
             "--limit",
             "201"
         ])
+        .is_err());
+    }
+    #[test]
+    fn blueprint_model_classification_is_explicit_and_conflicts_with_patterns() {
+        let base = [
+            "codeterm",
+            "blueprint",
+            "create",
+            "--name",
+            "model-watch",
+            "--probe",
+            "status",
+            "--question",
+            "state?",
+            "--buckets",
+            "ready",
+        ];
+        let parsed =
+            Cli::try_parse_from(base.into_iter().chain(["--model-classification"])).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Blueprint {
+                action: BlueprintAction::Create {
+                    model_classification: true,
+                    ..
+                }
+            }
+        ));
+        let parsed = Cli::try_parse_from(base).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Blueprint {
+                action: BlueprintAction::Create {
+                    model_classification: false,
+                    ..
+                }
+            }
+        ));
+        assert!(Cli::try_parse_from(base.into_iter().chain([
+            "--model-classification",
+            "--match",
+            "ready=^ready$"
+        ]))
         .is_err());
     }
 }

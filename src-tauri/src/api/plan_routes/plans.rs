@@ -173,16 +173,9 @@ pub async fn list(
         None
     };
     let mut entries = state.svc.plan_store.list_index();
-    if let Some(want) = &want {
-        entries.retain(|e| {
-            state
-                .svc
-                .plan_store
-                .get(&e.plan_id)
-                .map(|p| p.project_path == *want)
-                .unwrap_or(false)
-        });
-    }
+    filter_plan_project(&mut entries, want.as_deref(), |id| {
+        state.svc.plan_store.get(id)
+    });
     if let Some(status) = &q.status {
         entries.retain(|e| match status.as_str() {
             "active" => e.status == PlanStatus::Active,
@@ -199,14 +192,38 @@ pub async fn list(
                 || e.owner.session_id.as_deref() == Some(orch.as_str())
         });
     }
-    if q.full == Some(true) {
+    Ok(Json(plan_list_response(
+        &entries,
+        q.full == Some(true),
+        |id| state.svc.plan_store.get(id),
+    )))
+}
+
+pub(crate) fn filter_plan_project(
+    entries: &mut Vec<IndexEntry>,
+    project: Option<&str>,
+    get: impl Fn(&str) -> Option<crate::plan::Plan>,
+) {
+    if let Some(project) = project {
+        entries
+            .retain(|entry| get(&entry.plan_id).is_some_and(|plan| plan.project_path == project));
+    }
+}
+
+pub(crate) fn plan_list_response(
+    entries: &[IndexEntry],
+    full: bool,
+    get: impl Fn(&str) -> Option<crate::plan::Plan>,
+) -> Value {
+    if full {
         let plans: Vec<_> = entries
             .iter()
-            .filter_map(|e| state.svc.plan_store.get(&e.plan_id))
+            .filter_map(|entry| get(&entry.plan_id))
             .collect();
-        return Ok(Json(serde_json::json!({ "plans": plans })));
+        serde_json::json!({ "plans": plans })
+    } else {
+        serde_json::json!({ "plans": entries })
     }
-    Ok(Json(serde_json::json!({ "plans": entries })))
 }
 
 #[derive(Deserialize)]

@@ -161,6 +161,31 @@ impl ChatSendLedger {
         position: TurnPosition,
         provenance: &LiveProvenance,
     ) -> Vec<ChatSendStatus> {
+        self.confirm_owned_live_turns_with(
+            tab_id,
+            (session_id, nonce),
+            message,
+            position,
+            provenance,
+            |authority, session, nonce| {
+                let owner = self.owner.lock().as_ref().and_then(Weak::upgrade);
+                owner.is_some_and(|owner| {
+                    owner.user_authority_is_current_session(authority, session, nonce)
+                })
+            },
+        )
+    }
+
+    pub(super) fn confirm_owned_live_turns_with(
+        &self,
+        tab_id: &str,
+        source: (&str, Option<&str>),
+        message: &crate::agent::chat_types::ChatMsg,
+        position: TurnPosition,
+        provenance: &LiveProvenance,
+        authority_is_current: impl Fn(&super::UserSendAuthority, &str, &str) -> bool,
+    ) -> Vec<ChatSendStatus> {
+        let (session_id, nonce) = source;
         let Some(nonce) = nonce else {
             return Vec::new();
         };
@@ -278,18 +303,14 @@ impl ChatSendLedger {
         if matching_ids.is_empty() {
             return Vec::new();
         }
-        let owner = self.owner.lock().as_ref().and_then(Weak::upgrade);
-        let Some(owner) = owner else {
-            return Vec::new();
-        };
         let authorities = candidates
             .iter()
             .filter(|(send_id, _, _, _)| matching_ids.contains(send_id))
             .collect::<Vec<_>>();
         if authorities.len() != matching_ids.len()
-            || authorities.iter().any(|(_, _, _, authority)| {
-                !owner.user_authority_is_current_session(authority, session_id, nonce)
-            })
+            || authorities
+                .iter()
+                .any(|(_, _, _, authority)| !authority_is_current(authority, session_id, nonce))
         {
             return Vec::new();
         }

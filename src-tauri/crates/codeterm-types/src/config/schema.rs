@@ -117,12 +117,7 @@ impl Default for KpiConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct UpdaterConfig {
-    pub channel: crate::update::Channel,
-    pub allow_provider_updates_in_non_prod: bool,
-}
+pub use super::updater::UpdaterConfig;
 
 /// Per-provider settings owned by an agent plugin.
 /// Plugins declare which of these fields they use through `settings_schema()`.

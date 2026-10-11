@@ -142,7 +142,7 @@ fn claude_permission_hook_identity_is_request_specific_and_cleanup_is_scoped() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
-fn claude_permission_hook_concurrent_notifications_answer_independently() {
+fn claude_permission_hook_concurrent_requests_answer_independently_without_bell_entries() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
     let (mux, tab_id) = MultiplexerState::new();
@@ -171,61 +171,31 @@ fn claude_permission_hook_concurrent_notifications_answer_independently() {
     let (second, mut second_receiver, second_prompt, second_notice) = pending.pop().unwrap();
     let (first, mut first_receiver, first_prompt, first_notice) = pending.pop().unwrap();
     assert_ne!(first_notice, second_notice);
-    assert!(
-        !fixture
-            .service
-            .notif
-            .lock()
-            .notification(&first_notice)
-            .unwrap()
-            .resolved
-    );
-    assert!(
-        !fixture
-            .service
-            .notif
-            .lock()
-            .notification(&second_notice)
-            .unwrap()
-            .resolved
-    );
-    let response = fixture
-        .service
-        .answer_notification(&second_notice, &second_prompt.options[1].label)
-        .unwrap();
-    assert_eq!(response["delivered"], true);
+    assert!(fixture.service.notif.lock().list(false).is_empty());
+    assert!(respond_with_identity(
+        &fixture.service,
+        &tab_id,
+        &second_prompt.options[1].value,
+        Some(&PromptIdentity::new(PromptKind::Structured, &second_prompt))
+    )
+    .unwrap()
+    .is_ok());
     assert_eq!(second_receiver.try_recv().unwrap(), Answer::Deny);
     assert!(first_receiver.try_recv().is_err());
     drop(second);
     assert_eq!(pending_for_tab(&tab_id), Some(first_prompt.clone()));
-    assert!(
-        !fixture
-            .service
-            .notif
-            .lock()
-            .notification(&first_notice)
-            .unwrap()
-            .resolved
-    );
-    let response = fixture
-        .service
-        .answer_notification(&first_notice, &first_prompt.options[0].label)
-        .unwrap();
-    assert_eq!(response["delivered"], true);
+    assert!(respond_with_identity(
+        &fixture.service,
+        &tab_id,
+        &first_prompt.options[0].value,
+        Some(&PromptIdentity::new(PromptKind::Structured, &first_prompt))
+    )
+    .unwrap()
+    .is_ok());
     assert_eq!(first_receiver.try_recv().unwrap(), Answer::Allow);
     drop(first);
     assert!(pending_for_tab(&tab_id).is_none());
-    for notice in [first_notice, second_notice] {
-        assert!(
-            fixture
-                .service
-                .notif
-                .lock()
-                .notification(&notice)
-                .unwrap()
-                .resolved
-        );
-    }
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 }
 
 #[test]
@@ -243,7 +213,7 @@ fn claude_permission_hook_unknown_or_ambiguous_capability_is_unsupported() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
-fn claude_permission_hook_notification_answer_uses_structured_route_without_a_pty() {
+fn claude_permission_hook_tab_answer_uses_structured_route_without_a_bell_entry() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
     let (mux, tab_id) = MultiplexerState::new();
@@ -268,11 +238,14 @@ fn claude_permission_hook_notification_answer_uses_structured_route_without_a_pt
         .service
         .push_structured_prompt(&tab_id, Some(prompt.clone()));
     let notification_id = notify(&fixture.service, &tab_id, "opaque", &prompt, "routed");
-    let result = fixture
-        .service
-        .answer_notification(&notification_id, &prompt.options[0].label)
-        .unwrap();
-    assert_eq!(result.get("delivered"), Some(&json!(true)));
+    assert!(respond_with_identity(
+        &fixture.service,
+        &tab_id,
+        &prompt.options[0].value,
+        Some(&identity)
+    )
+    .unwrap()
+    .is_ok());
     assert_eq!(receiver.try_recv().unwrap(), Answer::Allow);
     drop(_guard);
     assert!(fixture
@@ -283,18 +256,18 @@ fn claude_permission_hook_notification_answer_uses_structured_route_without_a_pt
         .unwrap()
         .pending_prompt
         .is_none());
-    let notifications = fixture.service.notif.lock();
-    let record = notifications.notification(&notification_id).unwrap();
-    assert_eq!(
-        record.level,
-        Some(crate::notification::push::NotifyLevel::ActionNeeded)
-    );
-    assert!(record.resolved);
+    assert!(fixture
+        .service
+        .notif
+        .lock()
+        .notification(&notification_id)
+        .is_none());
 }
 
 #[tokio::test]
 #[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
-async fn claude_permission_hook_timeout_and_provider_clear_retire_notification_without_decision() {
+async fn claude_permission_hook_timeout_and_provider_clear_retire_request_without_decision_or_bell_entry(
+) {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
 
@@ -332,15 +305,12 @@ async fn claude_permission_hook_timeout_and_provider_clear_retire_notification_w
             .unwrap()
             .pending_prompt
             .is_none());
-        assert!(
-            fixture
-                .service
-                .notif
-                .lock()
-                .notification(&notification_id)
-                .unwrap()
-                .resolved
-        );
+        assert!(fixture
+            .service
+            .notif
+            .lock()
+            .notification(&notification_id)
+            .is_none());
     }
 }
 

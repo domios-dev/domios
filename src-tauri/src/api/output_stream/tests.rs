@@ -329,11 +329,13 @@ fn dirty_untracked_tab_output_before_mux_event_is_seeded_and_emitted() {
     assert_eq!(starts.len(), 1);
     assert_eq!(starts[0].tab_id, tab_id);
     assert_eq!(starts[0].resume_offset, Some(0));
-    assert!(frames.contains(&serde_json::json!({
-        "tab_id": tab_id,
-        "output": "first",
-        "offset": 5
-    })));
+    assert!(frames.contains(&output_bytes_frame(
+        &tab_id,
+        "pty-new",
+        service.events.boot_id(),
+        b"first",
+        5
+    )));
     assert_eq!(
         tracked.get(&tab_id).map(|state| state.pty_id.as_str()),
         Some("pty-new")
@@ -377,11 +379,13 @@ fn replacement_pty_output_before_mux_event_starts_at_zero() {
     assert_eq!(starts.len(), 1);
     assert_eq!(starts[0].pty_id.as_deref(), Some("pty-new"));
     assert_eq!(starts[0].resume_offset, Some(0));
-    assert!(frames.contains(&serde_json::json!({
-        "tab_id": tab_id,
-        "output": "fresh",
-        "offset": 5
-    })));
+    assert!(frames.contains(&output_bytes_frame(
+        &tab_id,
+        "pty-new",
+        service.events.boot_id(),
+        b"fresh",
+        5
+    )));
     assert!(!frames.iter().any(|frame| frame.get("truncated").is_some()));
     assert_eq!(
         tracked.get(&tab_id).map(|state| state.pty_id.as_str()),

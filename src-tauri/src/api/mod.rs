@@ -2,6 +2,8 @@ pub(crate) mod access_policy;
 pub mod auth;
 pub mod automation_graph_routes;
 pub mod blueprint_portable_routes;
+#[cfg(debug_assertions)]
+mod cors_diagnostics;
 pub mod events;
 pub mod routes;
 
@@ -22,6 +24,8 @@ pub mod delayed_send_routes;
 #[cfg(debug_assertions)]
 pub mod dev_cast_routes;
 pub(crate) mod essence_map_routes;
+pub mod frontend_bundle_routes;
+pub mod frontend_shell_routes;
 pub mod fs_routes;
 mod general_session_routes;
 pub mod health_routes;
@@ -64,6 +68,9 @@ pub mod team_mission_control_routes;
 pub mod team_routes;
 pub mod team_spend;
 pub mod theme_routes;
+pub mod transport_capabilities;
+pub mod transport_orchestration;
+pub mod transport_tabs;
 pub mod updater_routes;
 pub mod usage_routes;
 pub mod web_plugin_routes;

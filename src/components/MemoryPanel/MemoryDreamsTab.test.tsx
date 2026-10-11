@@ -12,6 +12,7 @@ function assert(condition: unknown, message: string): asserts condition {
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/" });
+  Object.assign(window, { __CODETERM_DAEMON__: { origin: /^https?:/.test(window.location.origin) ? window.location.origin : "http://127.0.0.1:7686", token: "test-token" } });
   for (const key of ["window", "document", "HTMLElement", "SVGElement", "Element", "Node", "Event"] as const) {
     Object.defineProperty(globalThis, key, { value: (window as never as Record<string, unknown>)[key], configurable: true });
   }

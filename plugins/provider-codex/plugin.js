@@ -631,11 +631,11 @@ function joinWrappedLabel(label, row2) {
 function parseActiveTerminalChoice(screen) {
   const lines = normalizeLines(screen);
   const options = activeMenuOptions(screen);
-  if (options.length < 2 || !options.some((option) => option.highlighted)) return null;
+  if (options.length < 2 || options.filter((option) => option.highlighted).length !== 1) return null;
   const lastOptionLine = options[options.length - 1].line;
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (isActiveChoiceEnterFooter(lines[i])) {
+    if (isActiveChoiceFooter(lines[i])) {
       footerLine = i;
       break;
     }
@@ -693,17 +693,24 @@ function activeMenuOptions(screen) {
 function promptFooterNear(lines, lastLine) {
   for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
     const t = lines[i].toLowerCase();
-    if (isActiveChoiceEnterFooter(t)) return true;
+    if (isActiveChoiceFooter(t)) return true;
     if ((t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) && (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 || t.indexOf("cancel") !== -1 || t.indexOf("continue") !== -1)) return true;
   }
   return false;
 }
 function isPromptFooter(line) {
   const text5 = line.toLowerCase();
-  return isActiveChoiceEnterFooter(text5) || (text5.includes("esc") || text5.includes("enter")) && (text5.includes("confirm") || text5.includes("cancel") || text5.includes("continue"));
+  return isActiveChoiceFooter(text5) || (text5.includes("esc") || text5.includes("enter")) && (text5.includes("confirm") || text5.includes("cancel") || text5.includes("continue"));
 }
 function leadingIndent(line) {
   return /^\s*/.exec(line)?.[0].length ?? 0;
+}
+function isActiveChoiceFooter(line) {
+  if (isActiveChoiceEnterFooter(line)) return true;
+  const bindings = line.trim().split(/\s+[·•]\s+/);
+  if (bindings.length < 2) return false;
+  const keys = bindings.map((binding) => /^(enter|esc|[a-z])\s+\S.*$/i.exec(binding)?.[1]?.toLowerCase());
+  return keys.every((key) => key !== void 0) && keys.includes("enter") && keys.includes("esc");
 }
 function isActiveChoiceEnterFooter(line) {
   return /\benter\b.{0,40}\b(?:confirm|continue|select|authenticate)\b/i.test(line) || /\benter\b.{0,32}\bopen\b.{0,24}\bbrowser\b/i.test(line);
