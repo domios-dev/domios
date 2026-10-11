@@ -216,6 +216,9 @@ class OpenCodeTrack:
             host.write(label + '-working.json', states)
             oracle.require(all((row or {}).get('status', '').lower() == 'working' for row in states.values()), 'OpenCode tabs must all be Working at restart')
         offset = host.restart(label)
+        self.browser(label + '-open', 'open', observe.BASE + '/#token=' + os.environ['CODETERM_API_TOKEN'])
+        self.browser(label + '-ready', 'wait', '--selector', '[data-testid=sidebar]')
+        self.select(self.tabs[0])
         after = {tab: host.inspect(tab) for tab in self.tabs}
         oracle.bindings(after, before, provider='opencode')
         host.write(label + '-bindings.json', after)
