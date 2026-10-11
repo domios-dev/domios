@@ -210,10 +210,22 @@ impl crate::service::ServiceContext {
             {
                 return Err("recording_reservation_changed".into());
             }
+            self.local_recordings.register_write_ticket(
+                &reservation.send_id,
+                &capture.lease_id,
+                capture.clone(),
+            )?;
         }
-        let (status, owned) =
-            self.admit_prepared_user_send(reservation, &original, &prepared, body)?;
-        Ok(super::super::agent_pad::ChatSendResult::new(status, owned))
+        let send_id = reservation.send_id.clone();
+        let result = self.admit_prepared_user_send(reservation, &original, &prepared, body);
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.starts_with("admission_unknown:"))
+        {
+            self.local_recordings.retire_write_ticket(&send_id);
+        }
+        result.map(|(status, owned)| super::super::agent_pad::ChatSendResult::new(status, owned))
     }
 
     fn capture_prepared_user_body(

@@ -85,9 +85,6 @@ impl ServiceContext {
         .await;
         if result.is_err() {
             self.local_recordings.cancel(lease);
-        } else if matches!(capture.target, FrozenTarget::Pty(_)) {
-            capture.active.store(false, Ordering::Release);
-            self.local_recordings.finish(lease);
         }
         result
     }
@@ -117,7 +114,7 @@ impl ServiceContext {
                     CapturedChat {
                         identity: identity.clone(),
                         active: capture.active.clone(),
-                        expires_at: capture.expires_at,
+                        expires_at: *capture.expires_at.lock(),
                     },
                     text,
                     client_token,
