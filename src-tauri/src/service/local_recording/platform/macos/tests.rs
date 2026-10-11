@@ -11,11 +11,15 @@ fn collection_id(cookie: u32, usage_page: u16, usage: u16) -> String {
 fn selection() -> MacSelection {
     MacSelection {
         input_id: device_id(0x1234, 0x123456789abcdef0),
-        collection_id: collection_id(7, 0xff00, 1),
+        collection_id: collection_id(7, 0x000c, 1),
         vendor_id: 0x1234,
         product_id: 0x5678,
-        usage_page: 0xff00,
-        usage: 0x20,
+        collection_usage_page: 0x000c,
+        collection_usage: 0x0001,
+        approved_element_usage: Some(MacElementUsage {
+            usage_page: 0xff00,
+            usage: 0x20,
+        }),
     }
 }
 
@@ -33,7 +37,7 @@ fn descriptor() -> ElementDescriptor {
         is_relative: false,
         application_collections: vec![CollectionIdentity {
             cookie: 7,
-            usage_page: 0xff00,
+            usage_page: 0x000c,
             usage: 1,
         }],
     }
@@ -140,6 +144,58 @@ fn lark_input_macos_nonbinary_or_ambiguous_descriptor_fails_closed() {
         approve_descriptor(&selected, &selected.input_id, &[descriptor(), descriptor()]),
         Err(DescriptorError::AmbiguousElement)
     );
+}
+
+#[test]
+fn lark_input_macos_missing_approved_element_mapping_fails_setup_closed() {
+    let mut selected = selection();
+    selected.approved_element_usage = None;
+    assert_eq!(
+        setup_validation_error(&selected),
+        Some("macos_hid_element_mapping_unavailable")
+    );
+    assert_eq!(
+        approve_descriptor(&selected, &selected.input_id, &[descriptor()]),
+        Err(DescriptorError::MissingApprovedMapping)
+    );
+}
+
+#[test]
+fn lark_input_macos_collection_declaration_is_separate_from_element_mapping() {
+    let selected = selection();
+    assert_eq!(
+        approve_descriptor(&selected, &selected.input_id, &[descriptor()]),
+        Ok(ApprovedElement { cookie: 19 })
+    );
+    let mut mismatched = selected.clone();
+    mismatched.collection_usage = 2;
+    assert_eq!(
+        approve_descriptor(&mismatched, &mismatched.input_id, &[descriptor()]),
+        Err(DescriptorError::WrongCollection)
+    );
+}
+
+#[test]
+fn lark_input_macos_teardown_wait_requires_reservation_until_release() {
+    let (_sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let pending = classify_teardown_wait(receiver.recv_timeout(std::time::Duration::ZERO));
+    assert_eq!(pending, TeardownWaitOutcome::Pending);
+    assert!(teardown_reservation_required(&pending));
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    drop(sender);
+    let disconnected = classify_teardown_wait(receiver.recv_timeout(std::time::Duration::ZERO));
+    assert!(teardown_reservation_required(&disconnected));
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    sender.send(Err("close failed".into())).unwrap();
+    let failed = classify_teardown_wait(receiver.recv_timeout(std::time::Duration::ZERO));
+    assert!(teardown_reservation_required(&failed));
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    sender.send(Ok(())).unwrap();
+    let released = classify_teardown_wait(receiver.recv_timeout(std::time::Duration::ZERO));
+    assert!(!teardown_reservation_required(&released));
 }
 
 #[test]
