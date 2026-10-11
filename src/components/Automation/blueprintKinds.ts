@@ -55,6 +55,7 @@ export function actionTitle(kind: string, target: string | null, label: string |
 }
 
 export const blueprintSteps = {
+  agent: { type: "agent", icon: Bot, label: "Agent" },
   command: { type: "source", icon: SquareTerminal, label: "Command" },
   convert: { type: "source", icon: Workflow, label: "Convert" },
   ask: { type: "agent", icon: Bot, label: "Ask" },
