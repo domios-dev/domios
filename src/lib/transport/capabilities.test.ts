@@ -19,9 +19,9 @@ function fixture(result: unknown = {}) {
 }
 
 describe("capabilities HTTP transport", () => {
-  it("has all 93 lane commands and rejects unregistered schema commands", async () => {
+  it("has all 95 lane commands and rejects unregistered schema commands", async () => {
     const { transport, calls } = fixture();
-    expect(Object.keys(transport)).toHaveLength(93);
+    expect(Object.keys(transport)).toHaveLength(95);
     await expect(invokeCapability(transport, "arbitrary_rust_command")).rejects.toThrow("No audited HTTP route");
     await expect(invokeCapability(transport, "toString")).rejects.toThrow("No audited HTTP route");
     expect(calls).toEqual([]);
@@ -36,12 +36,29 @@ describe("capabilities HTTP transport", () => {
 
   it("requires explicit integration consent and preserves provider identity", async () => {
     const { transport, calls } = fixture();
-    await expect(transport.install_provider_integration({ providerId: "drop-in" })).rejects.toThrow("requires consent");
-    await transport.install_provider_integration({ providerId: "drop-in", consent: true });
-    await transport.uninstall_provider_integration({ providerId: "drop-in" });
+    await expect(transport.install_provider_integration({ provider_id: "drop-in" })).rejects.toThrow("requires consent");
+    await transport.install_provider_integration({ provider_id: "drop-in", consent: true });
+    await transport.uninstall_provider_integration({ provider_id: "drop-in" });
     expect(calls).toEqual([
       ["POST", "/api/setup/hooks/install?provider=drop-in", { consent: true, provider: "drop-in" }],
       ["POST", "/api/setup/hooks/uninstall?provider=drop-in", { provider: "drop-in" }],
+    ]);
+  });
+
+  it("forwards schema provider arguments through every integration and rule capability", async () => {
+    const { transport, calls } = fixture();
+    const args = { provider_id: "fixture/a & b", consent: true };
+    for (const command of [
+      "check_provider_integration", "install_provider_integration", "uninstall_provider_integration",
+      "restore_provider_integration", "check_provider_rule", "install_provider_rule",
+    ]) await invokeCapability(transport, command, args);
+    expect(calls).toEqual([
+      ["GET", "/api/setup/hooks?provider=fixture%2Fa%20%26%20b", undefined],
+      ["POST", "/api/setup/hooks/install?provider=fixture%2Fa%20%26%20b", { consent: true, provider: "fixture/a & b" }],
+      ["POST", "/api/setup/hooks/uninstall?provider=fixture%2Fa%20%26%20b", { provider: "fixture/a & b" }],
+      ["POST", "/api/setup/hooks/restore?provider=fixture%2Fa%20%26%20b", undefined],
+      ["GET", "/api/setup/rules?provider=fixture%2Fa%20%26%20b", undefined],
+      ["POST", "/api/setup/rules/install?provider=fixture%2Fa%20%26%20b", undefined],
     ]);
   });
 

@@ -269,7 +269,7 @@ async function testBridgeWrappersUseRegisteredCommands() {
       "check_provider_integration,install_provider_integration,install_provider_integration,uninstall_provider_integration",
     "bridge wrappers must call the registered provider integration commands",
   );
-  assert(calls.every((call) => call.args?.providerId === "provider-beta"), "wrappers must forward the selected provider id");
+  assert(calls.every((call) => call.args?.provider_id === "provider-beta"), "wrappers must forward the selected provider id");
   assert(calls[1]?.args?.consent === true, "the user-triggered install wrapper must record explicit consent");
   assert(!("precompactMemoryExport" in (calls[1]?.args ?? {})), "install has no raw export option");
   assert(calls[2]?.args?.precompactMemoryExport === undefined, "an omitted choice stays omitted through the bridge");
