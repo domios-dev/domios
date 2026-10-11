@@ -316,7 +316,12 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             web_dist: resolve_web_dist(app.path().resource_dir().ok()),
             snapshot_bound: api::snapshot_bound::SnapshotBound::new(),
         };
-        let router = api::routes::create_router(api_state);
+        let bundles = super::frontend_bundles::open(&states.event_broadcaster);
+        if let Some(bundles) = &bundles {
+            app.manage(bundles.clone());
+            super::frontend_bundles::check(bundles.clone());
+        }
+        let router = api::routes::create_router_with_frontend(api_state, bundles);
         app.manage(api::routes::LocalApiRouter(router.clone()));
         if let Err(e) = socket::server::SocketServer::start(
             states.mux.clone(),

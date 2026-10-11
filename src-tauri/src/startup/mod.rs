@@ -8,6 +8,7 @@ mod bridge;
 mod cli_install;
 mod cli_shim;
 mod conpty_host;
+pub(crate) mod frontend_bundles;
 mod frontend_ready;
 mod logging;
 pub(crate) mod model_catalogue;

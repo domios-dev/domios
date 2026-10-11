@@ -120,6 +120,13 @@ async fn legacy_web_route_gone() -> StatusCode {
 }
 
 pub fn create_router(state: AppState) -> Router {
+    create_router_with_frontend(state, None)
+}
+
+pub fn create_router_with_frontend(
+    state: AppState,
+    bundles: Option<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>,
+) -> Router {
     let preview_admission = super::local_preview_routes::admission();
     let router = Router::new()
         .route(
@@ -979,6 +986,7 @@ pub fn create_router(state: AppState) -> Router {
             axum::http::HeaderValue::from_static("no-cache"),
         );
         router
+            .merge(bundled_frontend_routes(dist))
             .route("/manifest.webmanifest", get(web_routes::web_manifest))
             .route(
                 "/manifest-bootstrap",
@@ -987,6 +995,17 @@ pub fn create_router(state: AppState) -> Router {
             .route("/web", get(legacy_web_route_gone))
             .route("/web/{*path}", get(legacy_web_route_gone))
             .fallback_service(root_serve)
+    } else {
+        router
+    };
+
+    let router = if let Some(bundles) = bundles {
+        router
+            .merge(super::frontend_bundle_routes::router(
+                state.clone(),
+                bundles.clone(),
+            ))
+            .layer(axum::Extension(bundles))
     } else {
         router
     };
@@ -1006,6 +1025,15 @@ pub fn create_router(state: AppState) -> Router {
             mem_routes::decision::supporter_error_envelope,
         ))
         .with_state(state)
+}
+
+fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(dist: &std::path::Path) -> Router<S> {
+    let files = tower_http::set_header::SetResponseHeader::overriding(
+        tower_http::services::ServeDir::new(dist),
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Router::new().nest_service("/bundled", files)
 }
 
 fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {

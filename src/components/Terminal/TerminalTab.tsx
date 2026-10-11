@@ -1,3 +1,4 @@
+import { attachFrontendTerminalViewport } from "../../lib/frontendUpdate/terminal";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
@@ -176,6 +177,12 @@ export const TerminalTab = memo(function TerminalTab({
     onHistoryReplayStateChange: setHistoryReplaying,
     onConnectionStateChange: setTerminalIoReady,
   });
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !termReady || !terminalIoReady) return;
+    return attachFrontendTerminalViewport(term, tabId);
+  }, [termRef, termReady, terminalIoReady, tabId]);
 
   const activateTerminal = useTerminalActivationResize({
     active: isVisible && terminalVisible,
