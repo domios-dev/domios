@@ -1,19 +1,21 @@
 import { createTransportClient, type TokenSource, type TransportClient } from "./transportClient";
 
-export interface DaemonBootstrap { origin: string; token: TokenSource }
+export interface DaemonBootstrap { origin: string; token: TokenSource; frontendOrigin?: string }
 export interface ReloadCredentials { apiOrigin: string; token: string }
 export const FRONTEND_BOOT_KEY = "codeterm.frontend.boot";
 export const DAEMON_TOKEN_PREFIX = "codeterm-web-token:";
 declare global { interface Window { __CODETERM_DAEMON__?: DaemonBootstrap } }
 
-export function validateDaemonOrigin(origin: string, pageOrigin?: string, native = false): string {
+export function validateDaemonOrigin(origin: string, pageOrigin?: string, native = false, frontendOrigin?: string): string {
   const url = new URL(origin);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
     || url.pathname !== "/" || url.search || url.hash) throw new Error("Explicit daemon HTTP origin required");
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
   if (native && !loopback) throw new Error("Native daemon origin must be loopback");
+  const nativeFrontend = native && frontendOrigin !== undefined
+    && validateDaemonOrigin(frontendOrigin, undefined, true) === pageOrigin;
   if (pageOrigin && /^https?:/.test(pageOrigin) && pageOrigin !== url.origin
-    && !(native && ["http://tauri.localhost", "https://tauri.localhost"].includes(pageOrigin))) {
+    && !nativeFrontend && !(native && ["http://tauri.localhost", "https://tauri.localhost"].includes(pageOrigin))) {
     throw new Error("Daemon credentials belong to another origin");
   }
   return url.origin;
@@ -45,7 +47,8 @@ function gateway(available: boolean): void {
 export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredentials): TransportClient {
   const origin = validateDaemonOrigin("origin" in input ? input.origin : input.apiOrigin,
     typeof window === "undefined" ? undefined : window.location.origin,
-    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window);
+    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window,
+    "frontendOrigin" in input ? input.frontendOrigin : undefined);
   if (typeof input.token === "string" && !input.token) throw new Error("Daemon bearer token required");
   bootstrap = { origin, token: input.token };
   base = createTransportClient({ ...bootstrap, onGatewayState: gateway });
@@ -60,7 +63,7 @@ export function initializeDaemonTransport(): TransportClient | undefined {
   const injected = window.__CODETERM_DAEMON__;
   delete window.__CODETERM_DAEMON__;
   const restored = window.sessionStorage ? readReloadCredentials(window.sessionStorage) : typeof sessionStorage === "undefined" ? undefined : readReloadCredentials(sessionStorage);
-  if (restored) return configureDaemonTransport(restored);
+  if (restored) return configureDaemonTransport({ origin: restored.apiOrigin, token: restored.token, frontendOrigin: injected?.frontendOrigin });
   if (injected) return configureDaemonTransport(injected);
   if ("__TAURI_INTERNALS__" in window) return undefined;
   return configureDaemonTransport({

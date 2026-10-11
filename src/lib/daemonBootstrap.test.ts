@@ -3,6 +3,20 @@ import { readReloadCredentials, validateDaemonOrigin } from "./daemonBootstrap";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 describe("explicit daemon bootstrap", () => {
+  it("allows only the injected exact native development origin", async () => {
+    const origin = "http://127.0.0.1:7690";
+    const frontendOrigin = "http://127.0.0.1:1421";
+    expect(validateDaemonOrigin(origin, frontendOrigin, true, frontendOrigin)).toBe(origin);
+    expect(() => validateDaemonOrigin(origin, "http://127.0.0.1:1422", true, frontendOrigin)).toThrow();
+    expect(() => validateDaemonOrigin(origin, frontendOrigin, false, frontendOrigin)).toThrow();
+    expect(() => validateDaemonOrigin(origin, "https://foreign.example", true, "https://foreign.example")).toThrow();
+    const shell = { location: { origin: frontendOrigin }, __TAURI_INTERNALS__: {},
+      __CODETERM_DAEMON__: { origin, token: "dev-token", frontendOrigin } };
+    vi.stubGlobal("window", shell);
+    const { initializeDaemonTransport } = await import("./daemonBootstrap");
+    expect(initializeDaemonTransport()!.origin()).toBe(origin);
+    expect(shell).not.toHaveProperty("__CODETERM_DAEMON__");
+  });
   it("requires an HTTP origin and scopes shell credentials to loopback and the page origin", () => {
     for (const origin of ["tauri://localhost", "http://127.0.0.1/path", "http://user:secret@127.0.0.1", "https://127.0.0.1/?token=x"]) expect(() => validateDaemonOrigin(origin)).toThrow();
     expect(() => validateDaemonOrigin("https://remote.example", undefined, true)).toThrow("loopback");
