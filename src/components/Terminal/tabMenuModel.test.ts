@@ -110,6 +110,14 @@ function child(parent: TabMenuSubmenuEntry | undefined, id: string): TabMenuLeaf
   return parent?.entries.find((entry) => entry.id === id);
 }
 
+it("the session header carries the tab name alongside its copyable session", () => {
+  const namedTab = tab({ title: "Chat", agent_session_id: "fixture-uuid" });
+  for (const surface of SURFACES) {
+    const header = buildTabMenu(input(surface, { tab: namedTab })).find(entry => entry.kind === "header");
+    expect(header).toEqual({ kind: "header", id: "session", title: namedTab.title, testId: "tab-menu-copy-session-id", sessionId: namedTab.agent_session_id, copyAction: { type: "copySessionId", sessionId: namedTab.agent_session_id } });
+  }
+});
+
 describe("tab menu model", () => {
   it("lists the same actions on both surfaces except the header-only auto-confirm toggle", () => {
     const sidebar = shape(buildTabMenu(input("sidebar")));

@@ -15,6 +15,7 @@ import { ModelDefaultsCard } from "./ModelDefaultsCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { AgentIcon } from "../AgentIcon";
 
 export function AgentsOverview({
@@ -135,7 +136,7 @@ export function AgentProviderScreen({
     return <div className="text-[10px] text-[var(--ct-red)]">Failed to load agent providers: {error}</div>;
   }
   if (loading && !provider) {
-    return <div className="text-[10px] text-[var(--ct-muted-fg)]">Loading provider…</div>;
+    return <TabLoadingIndicator label="Loading provider" />;
   }
   if (!provider) {
     // Transient: the pop effect above will unmount us on the next tick.

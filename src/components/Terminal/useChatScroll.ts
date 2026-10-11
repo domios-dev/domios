@@ -71,6 +71,7 @@ export interface UseChatScrollResult {
   followSend: () => void;
   prepareForHistoryPrepend: () => void;
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
+  handleContentLayout: () => void;
   /** Scrolls to the row whose `data-source-message-id` equals this id exactly; false when no such row is rendered. */
   revealMessage: (messageId: string) => boolean;
 }
@@ -177,6 +178,10 @@ export function useChatScroll({
   const followSend = useCallback(() => {
     scrollToBottom();
   }, [scrollToBottom]);
+
+  const handleContentLayout = useCallback(() => {
+    if (active && !loading && modeRef.current === "pinned") scrollToBottom();
+  }, [active, loading, scrollToBottom]);
 
   const prepareForHistoryPrepend = useCallback(() => {
     const el = scrollRef.current;
@@ -330,6 +335,7 @@ export function useChatScroll({
     followSend,
     prepareForHistoryPrepend,
     handleScroll,
+    handleContentLayout,
     revealMessage,
   };
 }

@@ -84,6 +84,7 @@ interface TabMenuEntryBase {
 
 export interface TabMenuHeaderEntry extends TabMenuEntryBase {
   kind: "header";
+  title: string;
   sessionId: string | null;
   copyAction: TabMenuAction | null;
 }
@@ -326,6 +327,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
     entries.push({
       kind: "header",
       id: "session",
+      title: tab.title,
       testId: "tab-menu-copy-session-id",
       sessionId: session.sessionId,
       copyAction: session.sessionId ? { type: "copySessionId", sessionId: session.sessionId } : null,
