@@ -31,16 +31,16 @@ pub struct HealthClaim {
 }
 
 impl Activation {
-    pub fn stage(&mut self, verified: &VerifiedManifest) -> Result<(), String> {
+    pub fn stage(&mut self, verified: &VerifiedManifest) -> Result<bool, String> {
         let manifest = verified.manifest();
         if self.loading.is_some() || self.quarantined.contains(&manifest.release_id) {
             return Err("Release loading or quarantined".into());
         }
-        if self.active.as_ref() == Some(manifest) {
-            return Ok(());
+        if self.active.as_ref() == Some(manifest) || self.pending.as_ref() == Some(manifest) {
+            return Ok(false);
         }
         self.pending = Some(manifest.clone());
-        Ok(())
+        Ok(true)
     }
 
     pub fn begin(
