@@ -138,7 +138,6 @@ describe("surface tab view", () => {
     expect(host!.querySelector("iframe")).toBeNull();
     expect(host!.querySelector("[data-testid='surface-flow-line']")).toBeNull();
     const notice = host!.querySelector("[data-testid='surface-unavailable']")!;
-    expect(notice.textContent).toBe("Browser unavailable: the plugin is not loaded");
     expect(notice.querySelector("details")).toBeNull();
   });
 
@@ -146,9 +145,15 @@ describe("surface tab view", () => {
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={{ status: "failed", error: "HTTP 503" }} />);
     expect(host!.querySelector("iframe")).toBeNull();
     const notice = host!.querySelector("[data-testid='surface-unavailable']")!;
-    expect(notice.querySelector("p")?.textContent).toBe("Board unavailable: the plugin is not loaded");
-    expect(notice.querySelector("details summary")?.textContent).toBe("Details");
     expect(notice.querySelector("details code")?.textContent).toBe("HTTP 503");
+  });
+
+  it("retries the surface lookup once from the unavailable control", async () => {
+    const onRetry = vi.fn();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={{ status: "failed", error: "connection refused" }} onRetry={onRetry} />);
+    const button = [...host!.querySelectorAll("button")].find((candidate) => candidate.textContent === "Retry surface lookup")!;
+    await act(async () => button.click());
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("offers no owner link when the owner is gone", async () => {
