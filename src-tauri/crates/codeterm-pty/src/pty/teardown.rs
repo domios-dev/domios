@@ -9,6 +9,7 @@ use super::manager::PtySession;
 struct PtyTeardownState {
     child_exited: bool,
     reader_finished: bool,
+    console_closed: bool,
     failure: Option<String>,
 }
 
@@ -23,6 +24,7 @@ impl Default for PtyTeardownSignal {
             state: Mutex::new(PtyTeardownState {
                 child_exited: false,
                 reader_finished: true,
+                console_closed: true,
                 failure: None,
             }),
             changed: Condvar::new(),
@@ -52,12 +54,20 @@ impl PtyTeardownSignal {
     }
 
     pub fn wait_for_completion(&self, deadline: Instant) -> Result<(), String> {
+        self.wait_for_boundary(deadline, true)
+    }
+
+    fn wait_for_boundary(&self, deadline: Instant, require_cleanup: bool) -> Result<(), String> {
         let mut state = self.state.lock();
         loop {
             if let Some(error) = state.failure.as_ref() {
                 return Err(error.clone());
             }
-            if state.child_exited && state.reader_finished {
+            if teardown_boundary_reached(
+                state.child_exited,
+                state.reader_finished && state.console_closed,
+                require_cleanup,
+            ) {
                 return Ok(());
             }
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -68,6 +78,14 @@ impl PtyTeardownSignal {
             }
         }
     }
+}
+
+fn teardown_boundary_reached(
+    child_exited: bool,
+    reader_finished: bool,
+    require_cleanup: bool,
+) -> bool {
+    child_exited && (!require_cleanup || reader_finished)
 }
 
 pub struct PtyReaper {
@@ -82,6 +100,18 @@ impl PtyReaper {
     }
 
     pub fn wait_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
+        self.wait_at_boundary(timeout, true)
+    }
+
+    pub fn wait_for_termination_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
+        self.wait_at_boundary(timeout, false)
+    }
+
+    fn wait_at_boundary(
+        self,
+        timeout: std::time::Duration,
+        require_cleanup: bool,
+    ) -> Result<(), String> {
         self.observe_exit();
         if let Some(error) = self.kill_error.as_ref() {
             return Err(format!(
@@ -91,7 +121,7 @@ impl PtyReaper {
         }
         self.session
             .teardown
-            .wait_for_completion(Instant::now() + timeout)
+            .wait_for_boundary(Instant::now() + timeout, require_cleanup)
             .map_err(|error| format!("PTY {} reap failed: {error}", self.pty_id))
     }
 
@@ -100,14 +130,10 @@ impl PtyReaper {
     }
 
     fn observe_exit(&self) {
+        self.session.teardown.state.lock().console_closed = false;
         let session = self.session.clone();
         let pty_id = self.pty_id.clone();
         std::thread::spawn(move || {
-            // ClosePseudoConsole can deadlock inside the in-box conhost; off the
-            // foreground thread that degrades to the bounded wait below.
-            if let Ok(mut pair) = session.pair.lock() {
-                let _ = pair.take();
-            }
             let result = match session.child.lock() {
                 Ok(mut child) => child.wait().map_err(|error| error.to_string()),
                 Err(error) => Err(format!("child mutex poisoned: {error}")),
@@ -120,5 +146,18 @@ impl PtyReaper {
                 Err(error) => session.teardown.mark_child_failed(error),
             }
         });
+        let session = self.session.clone();
+        std::thread::spawn(move || {
+            // ConPTY close must not hide observed termination of the killed process tree.
+            if let Ok(mut pair) = session.pair.lock() {
+                let _ = pair.take();
+                let mut state = session.teardown.state.lock();
+                state.console_closed = true;
+                session.teardown.changed.notify_all();
+            }
+        });
     }
 }
+
+#[cfg(test)]
+mod tests;

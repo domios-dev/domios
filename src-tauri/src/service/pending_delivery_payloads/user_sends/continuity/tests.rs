@@ -251,3 +251,105 @@ fn completed_payload_receipts_restore_uncertainty_and_late_delivery_without_repl
         ChatSendState::Sent
     );
 }
+
+#[test]
+fn fresh_restart_settles_two_held_sends_durably_and_never_carries_them_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let first = admit(&store, 1);
+    let second = admit(&store, 2);
+    let late = store
+        .reserve(authority(), Some("late".into()), || {
+            (uuid::Uuid::new_v4().to_string(), 3)
+        })
+        .unwrap();
+    let ended = store
+        .end_held_for_fresh_restart("tab", Some("old-nonce".into()), &[])
+        .unwrap();
+    assert_eq!(
+        ended
+            .iter()
+            .map(|record| record.send_id.as_str())
+            .collect::<Vec<_>>(),
+        [first.send_id.as_str(), second.send_id.as_str()]
+    );
+    assert!(!store.claim(&first, "session").unwrap());
+    assert!(!store.claim(&second, "session").unwrap());
+    assert!(store.admit(&late, "late", "late", None).is_err());
+    drop(late);
+    drop(store);
+    let reopened = UserSendStore::open(dir.path()).unwrap();
+    assert!(reopened.queued("tab").unwrap().is_empty());
+    let ledger = ChatSendLedger::default();
+    let receipts = reopened.receipts("tab").unwrap();
+    assert_eq!(receipts.len(), 2);
+    for receipt in receipts {
+        ledger.restore_user_receipt(&receipt);
+        let status = ledger.status(&receipt.send_id).unwrap();
+        assert_eq!(status.state, ChatSendState::Failed);
+        assert_eq!(status.error.as_deref(), Some("launch_ended_before_write"));
+        assert!(status.correlation_id.is_some());
+    }
+    assert!(reopened
+        .carry_held_send(&first, next_launch())
+        .unwrap()
+        .is_none());
+    assert!(reopened
+        .carry_held_send(&second, next_launch())
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn fresh_settlement_never_classifies_claimed_written_or_uncertain_input_as_zero_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let queued = admit(&store, 1);
+    let mut index = UserIndex::default();
+    for (sequence, state) in [
+        UserSendState::Queued,
+        UserSendState::Claimed,
+        UserSendState::Uncertain,
+        UserSendState::BodyLease,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        index.records.push(UserSendRecord {
+            send_id: format!("state-{sequence}"),
+            state,
+            ..queued.clone()
+        });
+    }
+    index.records.push(UserSendRecord {
+        send_id: "possible-write".into(),
+        ..queued.clone()
+    });
+    index.records.push(UserSendRecord {
+        send_id: "possible-handoff".into(),
+        handoff_session: Some("session".into()),
+        ..queued
+    });
+    let ended = settle_fresh_launch(&mut index, &["possible-write".into()]);
+    assert_eq!(ended.len(), 1);
+    assert_eq!(ended[0].send_id, "state-0");
+    assert_eq!(index.records.len(), 5);
+    assert_eq!(index.receipts.len(), 1);
+    assert_eq!(index.receipts[0].state, ReceiptState::Failed);
+}
+
+#[test]
+fn fresh_restart_does_not_publish_zero_write_receipts_when_persistence_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let record = admit(&store, 1);
+    store.set_persistence_boundary(Some(Arc::new(|_| {
+        Err("injected persistence failure".into())
+    })));
+    assert!(store
+        .end_held_for_fresh_restart("tab", Some("old-nonce".into()), &[])
+        .is_err());
+    let reopened = UserSendStore::open(dir.path()).unwrap();
+    assert!(reopened.receipts("tab").unwrap().is_empty());
+    assert_eq!(reopened.queued("tab").unwrap()[0].send_id, record.send_id);
+}

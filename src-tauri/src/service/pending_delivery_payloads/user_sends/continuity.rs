@@ -64,7 +64,61 @@ pub(super) fn validate_receipts(index: &UserIndex, tab_id: &str) -> Result<(), S
     Ok(())
 }
 
+fn settle_fresh_launch(index: &mut UserIndex, possibly_written: &[String]) -> Vec<UserSendRecord> {
+    let ended = index
+        .records
+        .iter()
+        .filter(|record| {
+            record.state == UserSendState::Queued
+                && record.handoff_session.is_none()
+                && !possibly_written.contains(&record.send_id)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for record in &ended {
+        index.records.retain(|item| item.send_id != record.send_id);
+        retain_receipt(index, record, ReceiptState::Failed);
+    }
+    ended
+}
+
 impl UserSendStore {
+    pub(crate) fn end_held_for_fresh_restart(
+        &self,
+        tab_id: &str,
+        binding_nonce: Option<String>,
+        possibly_written: &[String],
+    ) -> Result<Vec<UserSendRecord>, String> {
+        let tab = self.tab(tab_id);
+        let mut data = tab.data.lock();
+        let loaded = self.load(&tab, &mut data)?;
+        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
+            return Err("fresh restart user owner is held or revoked".into());
+        }
+        let mut next = loaded.index.clone();
+        let ended = settle_fresh_launch(&mut next, possibly_written);
+        self.persist(&tab, &next)?;
+        loaded.index = next;
+        *tab.ended_launch_nonce.lock() = binding_nonce;
+        tab.unsettled
+            .store(unsettled_count(&loaded.index), Ordering::Release);
+        drop(data);
+        for record in &ended {
+            for suffix in ["original", "prepared", "body"] {
+                let path = tab.payload_path(&record.send_id, suffix)?;
+                if let Err(error) = fs::remove_file(path) {
+                    if error.kind() != std::io::ErrorKind::NotFound {
+                        log::warn!("[chat-send] fresh restart payload cleanup failed: {error}");
+                    }
+                }
+            }
+        }
+        if let Err(error) = sync_directory(&tab.dir) {
+            log::warn!("[chat-send] fresh restart payload cleanup sync failed: {error}");
+        }
+        Ok(ended)
+    }
+
     pub(crate) fn carry_held_send(
         &self,
         record: &UserSendRecord,

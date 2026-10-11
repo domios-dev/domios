@@ -640,7 +640,7 @@ export function useChatSession({
   }, [committedRows, emitDiagnostic, tabId, transcript]);
 
   return {
-    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current),
+    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
     error,
     attachmentState,
     /** Set = the wait is over and it failed; the view reports it rather than

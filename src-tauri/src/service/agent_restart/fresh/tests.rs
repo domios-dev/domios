@@ -37,6 +37,12 @@ fn fresh_restart_clears_binding_and_preserves_tab_identity() {
     tab.restorable_launch.captured = true;
     tab.restorable_launch.model = Some("fixture-model".into());
     tab.restorable_launch.requested_reasoning_effort = Some("fixture-effort".into());
+    tab.prior_session_binding_nonces
+        .push(crate::multiplexer::types::PriorBindingNonce {
+            session_id: Some("dead-session".into()),
+            resume_target_session_id: Some("dead-session".into()),
+            nonce: "prior-nonce".into(),
+        });
     tab.restored_from_snapshot = true;
     tab.close_restore = Some(CloseRestoreTabState {
         exact_session: true,
@@ -55,6 +61,7 @@ fn fresh_restart_clears_binding_and_preserves_tab_identity() {
     assert!(tab.reported_session_binding_nonce.is_none());
     assert!(!tab.close_restore.as_ref().unwrap().exact_session);
     assert!(!tab.restored_from_snapshot);
+    assert!(tab.prior_session_binding_nonces.is_empty());
 }
 
 #[test]
