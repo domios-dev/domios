@@ -207,6 +207,7 @@ fn sentinel_escalate_resolve_clears_hash_and_re_evaluates_once() {
         &store,
         &lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -361,6 +362,7 @@ fn sentinel_escalate_cause_cooldown_refuses_and_journals_until_five_minutes() {
         &store,
         &limited_lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -417,6 +419,7 @@ fn sentinel_escalate_cause_cooldown_refuses_and_journals_until_five_minutes() {
         &store,
         &allowed_lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -464,6 +467,7 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
 
     let job = create_escalating(&mut store);
     let update = super::amend::Update {
+        model_classification: false,
         name: Some("escalation-watch".into()),
         question: job.question.clone(),
         buckets: job.buckets.clone(),

@@ -33,6 +33,8 @@ pub struct DefinitionSnapshot {
     pub routes: BTreeMap<String, Vec<Handler>>,
     pub matches: BTreeMap<String, String>,
     #[serde(default)]
+    pub model_classification: bool,
+    #[serde(default)]
     pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
     pub max_transitions: u16,
@@ -104,6 +106,8 @@ pub struct Update {
     pub routes: BTreeMap<String, String>,
     #[serde(default)]
     pub matches: BTreeMap<String, String>,
+    #[serde(default)]
+    pub model_classification: bool,
     #[serde(default)]
     pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
@@ -192,6 +196,7 @@ impl DefinitionSnapshot {
             buckets: job.buckets.clone(),
             routes: job.routes.clone(),
             matches: job.matches.clone(),
+            model_classification: job.model_classification,
             rearm_on_change: job.rearm_on_change.clone(),
             until: job.until.clone(),
             max_transitions: job.max_transitions,
@@ -222,7 +227,12 @@ impl Update {
             None if current.input().is_some() => current.interval_ms,
             None => return Err("every is required for a scheduled blueprint".into()),
         };
-        machine::validate(&self.buckets, &self.matches, connected, interval_ms)?;
+        machine::validate(
+            &self.buckets,
+            &self.matches,
+            connected || !self.model_classification,
+            interval_ms,
+        )?;
         if self
             .rearm_on_change
             .iter()
@@ -284,6 +294,7 @@ impl Update {
         job.interval_ms = interval_ms;
         job.routes = routes;
         job.matches = self.matches;
+        job.model_classification = self.model_classification;
         job.rearm_on_change = self.rearm_on_change;
         job.until = self.until;
         job.set_input(input);
@@ -361,6 +372,7 @@ impl Store {
         next.interval_ms = update.job.interval_ms;
         next.routes = update.job.routes;
         next.matches = update.job.matches;
+        next.model_classification = update.job.model_classification;
         next.rearm_on_change = update.job.rearm_on_change;
         next.until = update.job.until;
         next.max_transitions = update.job.max_transitions;

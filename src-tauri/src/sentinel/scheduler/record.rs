@@ -30,6 +30,9 @@ pub fn record(
             "blueprint route stage requires a confident transition",
         ));
     }
+    if !job.model_classification {
+        return Ok(());
+    }
     let action = match stage {
         Stage::Decision => "decision",
         Stage::RouteClaim => "route_claim",
@@ -106,6 +109,9 @@ pub(super) fn record_failure(
     stored_reason: Option<String>,
 ) {
     let mut job = lease.job.clone();
+    job.progress
+        .record(handle.store.lock().clock.now_ms(), Some("error"), false);
+    job.machine.last_hash = None;
     let removed_tab = failure.reason() == "blueprint_observation_tab_removed";
     job.last_reason = Some(if removed_tab {
         "observed_tab_removed".into()
@@ -173,6 +179,12 @@ pub(crate) fn record_unconfirmed_failure_with(
     mut write_journal: impl FnMut(&Sentinel, &machine::Outcome, Stage) -> std::io::Result<()>,
 ) -> UnconfirmedRecordResult {
     let reason = failure.reason();
+    let mut failed = job.clone();
+    failed
+        .progress
+        .record(store.lock().clock.now_ms(), Some("error"), false);
+    failed.last_reason = Some(reason.clone());
+    let _ = storage::commit(store, |current| current.stage_finish(&failed));
     let (stopped, persistence_error) =
         match storage::commit(store, |current| current.stage_stop(&job.id, &reason)) {
             Ok(stopped) => (Some(stopped), None),

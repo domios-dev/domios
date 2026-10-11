@@ -86,6 +86,7 @@ fn execute(
         store,
         lease,
         &super::probe::Output {
+            success: true,
             bytes: text.as_bytes().to_vec(),
             text: text.into(),
             ..Default::default()
@@ -280,6 +281,7 @@ fn sentinel_scheduler_graph_weak_other_and_unchanged_never_activate() {
             &store,
             &lease,
             &super::probe::Output {
+                success: true,
                 bytes: b"same".to_vec(),
                 text: "same".into(),
                 ..Default::default()
@@ -405,6 +407,7 @@ fn sentinel_scheduler_graph_revision_change_during_classification_refuses_batch(
         &store,
         &lease,
         &super::probe::Output {
+            success: true,
             bytes: b"done".to_vec(),
             text: "done".into(),
             ..Default::default()
@@ -440,6 +443,7 @@ fn sentinel_scheduler_graph_stop_after_claim_leaves_unconfirmed_and_skips_tail()
         &store,
         &lease,
         &super::probe::Output {
+            success: true,
             bytes: b"done".to_vec(),
             text: "done".into(),
             ..Default::default()
@@ -571,6 +575,7 @@ fn blueprint_delivery_route_claim_journal_failure_finishes_failed_without_replay
         &store,
         &lease,
         &super::probe::Output {
+            success: true,
             bytes: b"done".to_vec(),
             text: "done".into(),
             ..Default::default()
@@ -601,6 +606,7 @@ fn blueprint_delivery_route_claim_journal_failure_finishes_failed_without_replay
         &restored,
         &due,
         &super::probe::Output {
+            success: true,
             bytes: b"done".to_vec(),
             text: "done".into(),
             ..Default::default()
@@ -636,6 +642,7 @@ fn blueprint_delivery_ambiguous_route_claim_journal_error_stays_unconfirmed() {
         &store,
         &lease,
         &super::probe::Output {
+            success: true,
             bytes: b"done".to_vec(),
             text: "done".into(),
             ..Default::default()
@@ -701,6 +708,7 @@ fn blueprint_delivery_rearm_on_change_claims_executes_and_completes() {
             &store,
             &lease,
             &super::probe::Output {
+                success: true,
                 bytes: output.as_bytes().to_vec(),
                 text: output.into(),
                 ..Default::default()

@@ -55,6 +55,7 @@ fn definition(job: &Sentinel) -> Value {
             "every": format!("{}s", job.interval_ms / 1000),
             "handlers": handlers,
             "matches": job.matches,
+            "model_classification": job.model_classification,
             "rearm_on_change": job.rearm_on_change,
             "until": job.until,
             "max_transitions": job.max_transitions,

@@ -161,8 +161,10 @@ fn connected_adapter_does_not_replace_pattern_provenance() {
 }
 
 #[test]
-fn unmatched_pattern_records_adapter_and_incomplete_history_is_unknown() {
+fn explicit_model_records_adapter_and_incomplete_history_is_unknown() {
     let mut job = job();
+    job.matches.clear();
+    job.model_classification = true;
     let decision = evaluate(&mut job, "ambiguous", || {
         let mut classification = Classification::adapter(Ok(Verdict {
             bucket: "done".into(),

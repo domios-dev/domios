@@ -39,17 +39,26 @@ pub(crate) fn advance(
         job.machine.last_bucket = None;
     }
     let scope = Scope::from(&job);
-    let outcome = machine::evaluate_with_other_rearm(
+    let outcome = super::super::progress::evaluate_probe(
         &mut job.machine,
-        &output.bytes,
-        &job.buckets,
-        &job.routes,
-        &job.rearm_on_change,
-        &job.on_other,
-        job.until.as_deref(),
+        output,
         scope,
-        classify,
+        |machine, scope| {
+            machine::evaluate_with_other_rearm(
+                machine,
+                &output.bytes,
+                &job.buckets,
+                &job.routes,
+                &job.rearm_on_change,
+                &job.on_other,
+                job.until.as_deref(),
+                scope,
+                classify,
+            )
+        },
     );
+    let now = store.lock().clock.now_ms();
+    job.progress.record_outcome(now, &outcome);
     job.last_reason = Some(outcome.reason.into());
     let transition_bucket = match outcome.reason {
         "transition" | "rearm_on_change" => outcome
