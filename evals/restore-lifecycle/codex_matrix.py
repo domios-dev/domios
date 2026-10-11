@@ -211,6 +211,7 @@ class Matrix:
         self.orch = pair['orchestrator_tab_id']
         self.tabs = [self.orch, pair['planner_tab_id']]
         observe.cmd_wait_bound(DEADLINE, self.tabs)
+        self.wait(lambda: all(self.inspect(t).get('boot_stage') == 'agent_ready' for t in self.tabs), 'pair agent_ready before first fixture message')
         for tab in self.tabs:
             self.send(tab, 'This is a read-only automated restore bench. Do not edit files, create or modify plans, dispatch agents, or coordinate the fixture Workers. Reply READY ACK and remain idle until the bench gives you another explicit message.', 'pair-fixture-' + tab)
         self.team = self.inspect(self.orch)['team_id']
