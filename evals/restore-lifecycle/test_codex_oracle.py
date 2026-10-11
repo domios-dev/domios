@@ -9,6 +9,14 @@ import codex_oracle as oracle
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_cli_dispatch_envelope_and_direct_payload(self):
+        dispatch = {'tab_id': 'own', 'state': 'awaiting_worker_ack'}
+        self.assertEqual(oracle.cli_data({'ok': True, 'kind': 'task', 'data': dispatch}), dispatch)
+        self.assertEqual(oracle.cli_data(dispatch), dispatch)
+        self.assertEqual(oracle.cli_data([dispatch]), [dispatch])
+        with self.assertRaisesRegex(AssertionError, 'refused'):
+            oracle.cli_data({'ok': False, 'kind': 'error', 'data': None})
+
     def row(self, sid='own'):
         return dict(agent_type='codex', agent_session_id=sid, session_binding_nonce='n',
                     reported_session_binding_nonce='n', boot_stage='agent_ready', structured_control_active=True)

@@ -66,7 +66,7 @@ class Matrix:
         if json_output:
             value = json.loads(result.stdout)
             self.write(label + '.json', value)
-            return value
+            return oracle.cli_data(value)
         return stdout
 
     def inspect(self, tab):
