@@ -382,6 +382,21 @@ class Matrix:
         for tab, path in paths.items():
             oracle.require(oracle.user_texts(path) == texts[tab], f'{tab}: idle restart sent or lost a user turn')
         self.pass_phase(7, 'all idle sessions preserved; no continue or queued turn sent')
+        markers = {tab: f'RL-IDLE-FIRST-{RUN}-{tab}' for tab in self.workers}
+        self.cli('idle-browser-open', 'plugin', 'browser', 'open', observe.BASE + '/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
+        self.cli('idle-browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
+        for tab, marker in markers.items():
+            self.cli('idle-browser-select-' + tab, 'plugin', 'browser', 'click', 'button', 'Open tab ' + before[tab]['title'], caller=self.orch, json_output=False)
+            waiter = observe.EventWait(TURN_DEADLINE)
+            self.send(tab, f'Reply exactly {marker}-REPLY without tools. Remain idle afterward.', 'idle-first-' + tab)
+            waiter.until(lambda _, tab=tab, marker=marker: any(marker + '-REPLY' in text for text in oracle.assistant_texts(paths[tab])), tab + ' first post-restart reply')
+            self.cli('idle-browser-reply-' + tab, 'plugin', 'browser', 'wait', '--text', marker + '-REPLY', caller=self.orch, json_output=False)
+            view = self.cli('idle-browser-chat-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
+            oracle.require('Starting' not in view and marker + '-REPLY' in view, f'{tab}: first post-restart reply absent or Starting')
+        oracle.exact_markers({tab: oracle.user_texts(path) for tab, path in paths.items()}, markers)
+        oracle.bindings(self.snapshot('idle-first-after'), before)
+        self.cli('idle-browser-close', 'plugin', 'browser', 'close', caller=self.orch, json_output=False)
+        self.pass_phase(7, 'each Worker first post-restart message delivered exactly once in same session; live reply, no Starting')
 
     def run(self):
         try:

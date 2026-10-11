@@ -164,22 +164,22 @@ class OpenCodeTrack:
                 self.finding(tab, 'model_display_unverified', dict(expected_id=self.expected[tab], detected_display=actual), 'opencode-spawn.json')
         host.pass_phase(8, 'OpenCode: two Workers default/cheap plus plain default; timings, ACK and visible startup')
 
-    def first_turn(self):
-        self.host.phase = 9
-        markers = {tab: 'RL-OPENCODE-FIRST-' + tab for tab in self.tabs}
+    def first_turn(self, label='first', phase=9):
+        self.host.phase = phase
+        markers = {tab: 'RL-OPENCODE-' + label.upper() + '-' + tab for tab in self.tabs}
         for tab, marker in markers.items():
             self.select(tab)
             waiter = observe.EventWait(int(os.environ.get('RL_TURN_DEADLINE', '240')))
-            self.host.send(tab, f'Reply exactly {marker}-REPLY. Do not use tools.', 'opencode-first-' + tab)
+            self.host.send(tab, f'Reply exactly {marker}-REPLY. Do not use tools.', 'opencode-' + label + '-' + tab)
             def replied(_):
                 self.serial += 1
-                rows = self.chat(tab, f'opencode-live-{self.serial}-{tab}')
+                rows = self.chat(tab, f'opencode-{label}-live-{self.serial}-{tab}')
                 return any(marker + '-REPLY' in text for text in evidence.texts(rows, 'assistant'))
             waiter.until(replied, tab + ' own first reply')
-            self.visible(tab, marker + '-REPLY', 'first-' + tab)
-        chats = self.chats('first-after')
+            self.visible(tab, marker + '-REPLY', label + '-' + tab)
+        chats = self.chats(label + '-after')
         oracle.exact_markers({tab: evidence.texts(rows, 'user') for tab, rows in chats.items()}, markers)
-        self.host.pass_phase(9, 'OpenCode: each marked first task exactly once in own session; reply visible live')
+        self.host.pass_phase(phase, f'OpenCode {label}: each marked task exactly once in own session; reply visible live')
 
     def restart(self, working):
         host = self.host
@@ -227,6 +227,9 @@ class OpenCodeTrack:
         oracle.restart_logs(log, self.tabs, idle=not working)
         other = [tab for tab in host.tabs if tab not in self.tabs]
         oracle.restart_logs(log, other, idle=True)
+        host.idle()
+        self.first_turn(label + '-first-after-restart', host.phase)
+        oracle.bindings({tab: host.inspect(tab) for tab in self.tabs}, before, provider='opencode')
         host.pass_phase(host.phase, 'OpenCode: same lazy sessions, retained rows, ' + ('one continue and resumed work each' if working else 'zero continues'))
 
     def run(self):
