@@ -58,6 +58,15 @@ static WINDOW_CLASS: OnceLock<Result<(), u32>> = OnceLock::new();
 static WINDOW_CLASS_NAME: OnceLock<Vec<u16>> = OnceLock::new();
 static CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
+pub(super) fn supports_trigger(
+    trigger: &codeterm_plugin::local_recording::LocalRecordingTrigger,
+) -> bool {
+    trigger.vendor_id == 0x3547
+        && trigger.product_id == 0x0008
+        && trigger.usage_page == CONSUMER_CONTROL_PAGE
+        && trigger.usage == CONSUMER_CONTROL_USAGE
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct SelectedInputIdentity {
     pub input_id: String,
@@ -567,33 +576,9 @@ fn emit(callback: &Arc<dyn Fn(WindowsInputEvent) + Send + Sync>, event: WindowsI
 fn find_selected_collection(
     identity: &SelectedInputIdentity,
 ) -> Result<SelectedCollection, UnavailableReason> {
-    let mut device_count = 0u32;
-    let device_size = size_of::<RawInputDeviceList>() as u32;
-    let count_result = unsafe { GetRawInputDeviceList(null_mut(), &mut device_count, device_size) };
-    if count_result == u32::MAX {
-        return Err(unavailable_reason_for_win32(last_error_code()));
-    }
-    if device_count == 0 {
-        return Err(UnavailableReason::Removed);
-    }
-    if device_count as usize > MAX_INPUT_DEVICES {
-        return Err(UnavailableReason::Error);
-    }
-    let mut devices = vec![
-        RawInputDeviceList {
-            device: null_mut(),
-            device_type: 0,
-        };
-        device_count as usize
-    ];
-    let listed =
-        unsafe { GetRawInputDeviceList(devices.as_mut_ptr(), &mut device_count, device_size) };
-    if listed == u32::MAX || listed as usize > devices.len() {
-        return Err(unavailable_reason_for_win32(last_error_code()));
-    }
-
+    let devices = raw_input_devices()?;
     let mut selected = None;
-    for device in devices.iter().take(listed as usize) {
+    for device in &devices {
         if device.device_type != RIM_TYPE_HID {
             continue;
         }
@@ -613,6 +598,68 @@ fn find_selected_collection(
         });
     }
     selected.ok_or(UnavailableReason::Removed)
+}
+
+fn raw_input_devices() -> Result<Vec<RawInputDeviceList>, UnavailableReason> {
+    let mut device_count = 0u32;
+    let device_size = size_of::<RawInputDeviceList>() as u32;
+    let count_result = unsafe { GetRawInputDeviceList(null_mut(), &mut device_count, device_size) };
+    if count_result == u32::MAX {
+        return Err(unavailable_reason_for_win32(last_error_code()));
+    }
+    if device_count == 0 {
+        return Ok(Vec::new());
+    }
+    if device_count as usize > MAX_INPUT_DEVICES {
+        return Err(UnavailableReason::Error);
+    }
+    let mut devices = vec![
+        RawInputDeviceList {
+            device: null_mut(),
+            device_type: 0,
+        };
+        device_count as usize
+    ];
+    let listed =
+        unsafe { GetRawInputDeviceList(devices.as_mut_ptr(), &mut device_count, device_size) };
+    if listed == u32::MAX || listed as usize > devices.len() {
+        return Err(unavailable_reason_for_win32(last_error_code()));
+    }
+
+    devices.truncate(listed as usize);
+    Ok(devices)
+}
+
+pub(super) fn selectable_inputs() -> Result<Vec<SelectedInputIdentity>, String> {
+    let devices =
+        raw_input_devices().map_err(|_| "local_input_inventory_unavailable".to_string())?;
+    let mut inputs = Vec::new();
+    for device in devices {
+        if device.device_type != RIM_TYPE_HID {
+            continue;
+        }
+        let Ok(Some(path)) = raw_device_name(device.device) else {
+            continue;
+        };
+        let identity = SelectedInputIdentity {
+            input_id: path,
+            collection_id: COLLECTION_ID.into(),
+        };
+        if !identity.is_supported_collection() {
+            continue;
+        }
+        let Ok(preparsed) = raw_device_preparsed_data(device.device) else {
+            continue;
+        };
+        let Some(descriptor) = descriptor_from_preparsed(&preparsed) else {
+            continue;
+        };
+        if descriptor != HidDescriptor::supported() {
+            continue;
+        }
+        inputs.push(identity);
+    }
+    Ok(inputs)
 }
 
 fn raw_device_name(device: Handle) -> Result<Option<String>, UnavailableReason> {

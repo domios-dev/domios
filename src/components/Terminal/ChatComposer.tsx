@@ -524,6 +524,7 @@ function ChatComposerImpl({
       {promptDock}
       <div data-testid="composer-row" className="relative">
         <ComposerActions
+          tabId={tabId}
           onAttach={addAttachments}
           onSend={() => void send()}
           onSchedule={openScheduleModal}

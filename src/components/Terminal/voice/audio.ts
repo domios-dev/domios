@@ -87,6 +87,7 @@ function createTestMediaRecorder(): typeof MediaRecorder {
     readonly mimeType: string;
     state: RecordingState = "inactive";
     ondataavailable: ((event: BlobEvent) => void) | null = null;
+    onstart: ((event: Event) => void) | null = null;
     onstop: ((event: Event) => void) | null = null;
     onerror: ((event: Event) => void) | null = null;
     private timer: number | null = null;
@@ -103,6 +104,7 @@ function createTestMediaRecorder(): typeof MediaRecorder {
       }
       window.__codetermTestAudio!.recorderStarts += 1;
       this.state = "recording";
+      queueMicrotask(() => this.onstart?.(new Event("start")));
       if (timeslice && timeslice > 0) {
         this.timer = window.setInterval(() => {
           if (this.state === "recording") emitRecorderEvent(this);
@@ -183,6 +185,15 @@ export function pickAudioMime(): string | undefined {
     ? ["audio/mp4", "audio/aac", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
     : ["audio/ogg;codecs=opus", "audio/ogg", "audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
   return candidates.find((m) => MediaRecorder.isTypeSupported(m));
+}
+
+export function createVoiceRecorder(stream: MediaStream, mime: string | undefined): MediaRecorder {
+  if (!mime) return new MediaRecorder(stream);
+  try {
+    return new MediaRecorder(stream, { mimeType: mime });
+  } catch {
+    return new MediaRecorder(stream);
+  }
 }
 
 export function audioExt(mime: string): string {

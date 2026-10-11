@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { IS_WEB } from "../../../lib/webApi";
+import { DEV_BUILD } from "../../../lib/devBuild";
 import {
   MIN_VOICE_BYTES,
   microphoneErrorMessage,
   pickAudioMime,
+  createVoiceRecorder,
   storeVoiceBlob,
 } from "./audio";
-import { claimCaptureOwnership, releaseCaptureOwnership } from "./larkCaptureModel";
+import { claimCaptureOwnership, releaseCaptureOwnership, exactMicrophoneConstraints, hasExactLiveMicrophone } from "./larkCaptureModel";
+import type { RecordedVoiceClip, RecordingRuntime } from "./composerRecording";
 
 export interface VoicePreviewData {
   url: string;
@@ -44,7 +47,8 @@ function buildWaveform(raw: number[]): number[] {
   return bars.map((b) => Math.max(0.12, b / max));
 }
 
-type StopKind = "send" | "discard" | "preview";
+type StopKind = "send" | "discard" | "preview" | "clip";
+type StopResult = string[] | boolean | RecordedVoiceClip | null;
 
 /**
  * Telegram-style voice capture. `stop()` uploads and returns the attachment
@@ -62,8 +66,8 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const stopResolveRef = useRef<((result: string[] | boolean) => void) | null>(null);
-  const stopPromiseRef = useRef<Promise<string[] | boolean> | null>(null);
+  const stopResolveRef = useRef<((result: StopResult) => void) | null>(null);
+  const stopPromiseRef = useRef<Promise<StopResult> | null>(null);
   const stopKindRef = useRef<StopKind>("send");
   const ownsCaptureRef = useRef(false);
   const startGenerationRef = useRef(0);
@@ -160,7 +164,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     const mime = recRef.current?.mimeType || mimeRef.current || "audio/webm";
     const blob = new Blob(chunksRef.current, { type: mime });
     const debug = recDebugRef.current;
-    console.info("[voice] recorder finalized", {
+    if (DEV_BUILD) console.debug("[voice] recorder finalized", {
       mime,
       blobBytes: blob.size,
       chunkCount: debug.chunks,
@@ -197,29 +201,16 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     }
   }
 
-  function createRecorder(stream: MediaStream, preferredMime: string | undefined): MediaRecorder {
-    if (!preferredMime) return new MediaRecorder(stream);
-    try {
-      return new MediaRecorder(stream, { mimeType: preferredMime });
-    } catch (e) {
-      console.warn("[voice] preferred recorder mime failed, falling back to browser default", {
-        preferredMime,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      mimeRef.current = undefined;
-      return new MediaRecorder(stream);
-    }
-  }
-
-  async function start(): Promise<boolean> {
-    if (ownsCaptureRef.current || !claimCaptureOwnership("manual")) {
+  async function start(options?: { microphoneId: string; runtime: RecordingRuntime }): Promise<boolean> {
+    if (pendingStartRef.current || recRef.current || ownsCaptureRef.current
+      || (!options && !claimCaptureOwnership("manual"))) {
       onError("Another voice capture is already active.");
       return false;
     }
-    ownsCaptureRef.current = true;
+    ownsCaptureRef.current = !options;
     const operation = ++startGenerationRef.current;
     pendingStartRef.current = true;
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (!options && !navigator.mediaDevices?.getUserMedia) {
       pendingStartRef.current = false;
       releaseManualCapture();
       onError(
@@ -251,17 +242,23 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = options
+        ? await options.runtime.getUserMedia(exactMicrophoneConstraints(options.microphoneId))
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
       pendingStartRef.current = false;
-      if (operation !== startGenerationRef.current || !ownsCaptureRef.current) {
+      if (operation !== startGenerationRef.current || (!options && !ownsCaptureRef.current)) {
         stream.getTracks().forEach((track) => track.stop());
         releaseManualCapture();
         return false;
       }
       streamRef.current = stream;
+      if (options && (!hasExactLiveMicrophone(stream, options.microphoneId)
+        || stream.getTracks().some((track) => track.kind !== "audio"))) {
+        throw new Error("The browser did not return the selected live microphone.");
+      }
       const mime = pickAudioMime();
       mimeRef.current = mime;
-      const rec = createRecorder(stream, mime);
+      const rec = options ? options.runtime.createRecorder(stream, mime) : createVoiceRecorder(stream, mime);
       chunksRef.current = [];
       recDebugRef.current = { chunks: 0, bytes: 0, lastChunkBytes: 0, lastChunkAt: 0 };
       setLivePeaks(quietLiveWaveform());
@@ -274,7 +271,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
           lastChunkBytes: e.data.size,
           lastChunkAt: performance.now(),
         };
-        console.debug("[voice] recorder chunk", {
+        if (DEV_BUILD) console.debug("[voice] recorder chunk", {
           bytes: e.data.size,
           type: e.data.type,
           state: rec.state,
@@ -282,14 +279,22 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
         });
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
+      let startSettled = false;
+      let rejectStart: (error: unknown) => void = () => {};
       rec.onstop = () => {
+        if (!startSettled) {
+          startSettled = true;
+          rejectStart(new Error("Microphone recording stopped before it became active."));
+        }
         const kind = stopKindRef.current;
         recRef.current = null;
         setRecording(false);
         const durationSec = Math.max(0, (performance.now() - startedAtRef.current) / 1000);
         const peaks = buildWaveform(peaksRef.current);
         teardownAnalyser();
-        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current?.getTracks().forEach((track) => {
+          if (track.readyState !== "ended") track.stop();
+        });
         streamRef.current = null;
 
         if (kind === "discard") {
@@ -304,7 +309,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
         const finalized = finalizeBlob();
         if (!finalized) {
           reportEmptyRecording(kind, durationSec);
-          stopResolveRef.current?.(kind === "preview" ? false : []);
+          stopResolveRef.current?.(kind === "preview" ? false : kind === "clip" ? null : []);
           stopResolveRef.current = null;
           stopPromiseRef.current = null;
           releaseManualCapture();
@@ -325,6 +330,13 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
           return;
         }
 
+        if (kind === "clip") {
+          stopResolveRef.current?.(finalized);
+          stopResolveRef.current = null;
+          stopPromiseRef.current = null;
+          return;
+        }
+
         void uploadBlob(finalized.blob, finalized.mime)
           .then((paths) => stopResolveRef.current?.(paths))
           .catch((e) => {
@@ -338,8 +350,8 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
           });
       };
       recRef.current = rec;
-      let startSettled = false;
       const started = new Promise<void>((resolve, reject) => {
+        rejectStart = reject;
         rec.onstart = () => {
           if (startSettled) return;
           startSettled = true;
@@ -351,7 +363,8 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
             reject(e);
             return;
           }
-          console.error("[voice] recorder error:", e);
+          void stopWith("discard");
+          onError(microphoneErrorMessage(e));
         };
       });
       rec.start(250);
@@ -386,7 +399,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     return storeVoiceBlob(blob, mime);
   }
 
-  function stopWith(kind: StopKind): Promise<string[] | boolean> {
+  function stopWith(kind: StopKind): Promise<StopResult> {
     if (stopPromiseRef.current) return stopPromiseRef.current;
     const rec = recRef.current;
     if (!rec || rec.state === "inactive") {
@@ -396,21 +409,24 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       } else if (kind !== "preview") {
         releaseManualCapture();
       }
-      return Promise.resolve(kind === "preview" ? false : []);
+      return Promise.resolve(kind === "preview" ? false : kind === "clip" ? null : []);
     }
-    let resolveStop!: (result: string[] | boolean) => void;
-    const result = new Promise<string[] | boolean>((resolve) => { resolveStop = resolve; });
+    let resolveStop!: (result: StopResult) => void;
+    const result = new Promise<StopResult>((resolve) => { resolveStop = resolve; });
     stopKindRef.current = kind;
     stopResolveRef.current = resolveStop;
     stopPromiseRef.current = result;
     setLivePeaks(quietLiveWaveform());
     try {
+      streamRef.current?.getTracks().forEach((track) => {
+        if (track.readyState !== "ended") track.stop();
+      });
       rec.stop();
     } catch (error) {
       stopResolveRef.current = null;
       stopPromiseRef.current = null;
       releaseManualCapture();
-      resolveStop(kind === "preview" ? false : []);
+      resolveStop(kind === "preview" ? false : kind === "clip" ? null : []);
       onError(microphoneErrorMessage(error));
     }
     return result;
@@ -423,6 +439,11 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   /** Stop and hold the clip locally for review; resolves true if a usable clip was captured. */
   function stopForPreview(): Promise<boolean> {
     return stopWith("preview") as Promise<boolean>;
+  }
+
+  async function stopClip(discard: boolean): Promise<RecordedVoiceClip | null> {
+    const result = await stopWith(discard ? "discard" : "clip");
+    return result && typeof result === "object" && "blob" in result ? result : null;
   }
 
   async function commitPreview(): Promise<string[]> {
@@ -448,5 +469,5 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     });
   }
 
-  return { recording, elapsed, preview, livePeaks, start, stop, stopForPreview, commitPreview, discardPreview };
+  return { recording, elapsed, preview, livePeaks, start, stop, stopClip, stopForPreview, commitPreview, discardPreview };
 }
