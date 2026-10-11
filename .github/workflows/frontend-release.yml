@@ -104,5 +104,5 @@ jobs:
           path: frontend-release-output/
       - name: Verify, upload immutable assets, then update frontend discovery
         env:
-          GH_TOKEN: ${{ secrets.FRONTEND_PUBLICATION_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: node scripts/frontend-release/release.mjs publish "$FRONTEND_TAG"
