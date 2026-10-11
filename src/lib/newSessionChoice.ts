@@ -71,7 +71,7 @@ export function resolveProviderModel(
   provider: Pick<ProviderDescriptor, "available_models" | "default_model"> | undefined,
   selectedModelId?: string,
 ): string | undefined {
-  const models = provider?.available_models ?? [];
+  const models = (provider?.available_models ?? []).filter((model) => model.available !== false);
   if (models.some((model) => model.id === selectedModelId)) return selectedModelId;
   if (models.some((model) => model.id === provider?.default_model)) return provider?.default_model;
   return models[0]?.id;

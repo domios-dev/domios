@@ -1041,8 +1041,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn default_model(&self) -> Option<String> {
-        crate::model_catalog::resolve_default(&self.manifest.id)
-            .or_else(|| self.manifest.default_model.clone())
+        crate::model_catalog::resolve_default(&self.manifest.id).or_else(|| {
+            (!self.manifest.model_catalogue.live_discovery_required)
+                .then(|| self.manifest.default_model.clone())
+                .flatten()
+        })
     }
 
     fn model_groups(&self) -> Vec<ModelGroup> {

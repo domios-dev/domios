@@ -286,8 +286,13 @@ export function discoverOpencodeModels(): ModelInfo[] | null {
   }));
   const result = safeJson(raw) as { code?: number; stdout?: string } | null;
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const lines = result.stdout.split("\n");
-  const variants = parseModelVariants(result.stdout);
+  return parseOpencodeModels(result.stdout);
+}
+
+export function parseOpencodeModels(stdout: string): ModelInfo[] | null {
+  if (stdout.length > 1_048_576) return null;
+  const lines = stdout.split("\n");
+  const variants = parseModelVariants(stdout);
   const models: ModelInfo[] = [];
   for (let i = 0; i < lines.length; i++) {
     const id = lines[i].trim();
@@ -832,10 +837,8 @@ export function scanMessagesForModel(db: string, sql: string, params: unknown[])
     const raw = rows[i].data;
     if (!raw) continue;
     try {
-      const v = JSON.parse(raw) as { role?: string; modelID?: string };
-      if (v && v.role === "assistant" && typeof v.modelID === "string" && v.modelID) {
-        return v.modelID;
-      }
+      const model = sessionModelIdentity(JSON.parse(raw));
+      if (model) return model;
     } catch (_) {
     }
   }
@@ -854,14 +857,8 @@ export function scanMessagesForQualifiedModel(db: string, sessionId: string): st
       const raw = rows[i].data;
       if (!raw) continue;
       try {
-        const value = JSON.parse(raw) as { role?: string; providerID?: string; modelID?: string };
-        if (
-          value.role === "assistant" &&
-          typeof value.providerID === "string" && value.providerID &&
-          typeof value.modelID === "string" && value.modelID
-        ) {
-          return `${value.providerID}/${value.modelID}`;
-        }
+        const model = sessionModelIdentity(JSON.parse(raw));
+        if (model) return model;
       } catch (_) {
       }
     }
@@ -884,4 +881,15 @@ export function scanSessionDirectory(db: string, sessionId: string): string | nu
   } catch (_) {
     return null;
   }
+}
+
+export function sessionModelIdentity(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const message = value as { role?: string; providerID?: unknown; modelID?: unknown };
+  if (message.role !== "assistant" || typeof message.modelID !== "string") return null;
+  const provider = typeof message.providerID === "string" ? message.providerID.trim() : "";
+  const model = message.modelID.trim();
+  if (!model) return null;
+  if (isModelId(model)) return model;
+  return provider && isModelId(`${provider}/${model}`) ? `${provider}/${model}` : null;
 }
