@@ -12,6 +12,7 @@ export type ChatSendStatus = {
   correlationId?: string;
   pending_reason?: string;
   pad_file?: string;
+  system_send?: { content: string; sent_at_ms: number };
 };
 
 export async function sendTrackedChatMessage(

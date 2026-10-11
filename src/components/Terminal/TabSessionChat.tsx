@@ -857,7 +857,7 @@ export function TabSessionChat({
                 onContentLayout={handleContentLayout}
                 streaming={msg.id === streamingId}
                 userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
-                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />
+                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}

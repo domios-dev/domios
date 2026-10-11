@@ -42,6 +42,16 @@
   --ct-delivery-duration: 2.4s;
 }
 
+.ct-delivery[data-state="uncertain"] .ct-delivery__dot {
+  --ct-delivery-fill: var(--ct-muted-fg);
+  animation: none;
+}
+
+.ct-delivery[data-state="uncertain"] .ct-delivery__dot::before {
+  animation: none;
+  opacity: 0;
+}
+
 .ct-delivery[data-state="failed"] .ct-delivery__dot {
   --ct-delivery-fill: var(--ct-err);
   animation: none;

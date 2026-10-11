@@ -641,3 +641,71 @@ fn pre_ready_uncertainty_does_not_stall_writes_or_replay_after_rebind() {
         .unwrap()
         .is_empty());
 }
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
+fn exact_binding_after_agent_ready_releases_held_user_send_once() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        tab.reported_session_binding_nonce = None;
+    }
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let service = fixture.service.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, text| {
+            service.mark_user_send_written(record);
+            writes_tx.send(text.to_string()).unwrap();
+            Ok(())
+        }),
+    );
+    let accepted = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "binding-wake");
+    fixture.service.drain_user_owner(&tab).unwrap();
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Pending
+    );
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    }
+    fixture.service.reconcile_authenticated_agent_input(&tab);
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        FIRST_PAYLOAD.replace("\r\n", "\n")
+    );
+    fixture.service.reconcile_authenticated_agent_input(&tab);
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+}
