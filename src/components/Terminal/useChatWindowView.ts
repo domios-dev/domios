@@ -102,14 +102,14 @@ export function useChatWindowView({
   );
   const windowAnchorIsLoaded = anchorKey == null || loadedAnchorKey != null;
 
-  const projectedTimelineItems = useMemo(
-    () => chatWindowProjection(allTimelineItems, loadedAnchorKey).items,
+  const windowProjection = useMemo(
+    () => chatWindowProjection(allTimelineItems, loadedAnchorKey),
     [allTimelineItems, loadedAnchorKey],
   );
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(
-    () => enrichTimelineItems(projectedTimelineItems, enrichmentCacheRef.current),
-    [projectedTimelineItems],
+    () => enrichTimelineItems(windowProjection.items, enrichmentCacheRef.current),
+    [windowProjection],
   );
 
   const hiddenMessageCount = transcript.evictedOlder + windowRange.start;
@@ -201,6 +201,7 @@ export function useChatWindowView({
     committedRows,
     enrichedMessages,
     hiddenMessageCount,
+    newerMessageCount: windowProjection.newerCount,
     loadOlder,
     setHistoryReading,
     showLatest,

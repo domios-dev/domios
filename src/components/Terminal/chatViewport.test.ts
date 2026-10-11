@@ -34,8 +34,8 @@ assert(
   "a viewport resize cannot detach a pinned live tail",
 );
 assert(
-  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599.9, clientHeight: 400 }) === "detached",
-  "any fractional upward movement releases the live tail",
+  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599.9, clientHeight: 400 }) === "pinned",
+  "fractional bottom rounding keeps the live tail pinned",
 );
 assert(
   chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599, clientHeight: 400 }) === "detached",
@@ -78,4 +78,4 @@ assert(getPersistedChatScrollState(key) === null, "clearing removes persisted st
 console.log("chat viewport geometry checks passed");
 
 assert(chatViewportModeAfterScroll("detached", 7999, { scrollHeight: 8400, scrollTop: 8000, clientHeight: 400 }) === "pinned", "returning to the bottom reattaches");
-assert(chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599.999, clientHeight: 400 }) === "detached", "even a tiny upward scroll at the bottom detaches");
+assert(chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599.999, clientHeight: 400 }) === "pinned", "bottom rounding cannot detach the live tail");

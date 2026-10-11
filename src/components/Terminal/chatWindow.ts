@@ -24,6 +24,7 @@ export interface ChatWindowRange {
 
 export interface ChatWindowProjection {
   items: TimelineItem[];
+  newerCount: number;
 }
 
 export function chatWindowProjection(
@@ -33,11 +34,11 @@ export function chatWindowProjection(
 ): ChatWindowProjection {
   const tailRange = chatWindowRange(items, null, size);
   const tail = items.slice(tailRange.start, tailRange.end);
-  if (anchorKey == null) return { items: tail };
+  if (anchorKey == null) return { items: tail, newerCount: 0 };
 
   const anchorIndex = items.findIndex((item) => timelineItemKey(item) === anchorKey);
-  if (anchorIndex < 0) return { items: tail };
-  return { items: items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1) };
+  if (anchorIndex < 0) return { items: tail, newerCount: 0 };
+  return { items: items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1), newerCount: items.length - anchorIndex - 1 };
 }
 
 /** Anchor `null` = follow the tail. An anchor names the LAST visible item, so

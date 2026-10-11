@@ -652,6 +652,7 @@ export function useChatSession({
     allMessages: view.allMessages,
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
+    newerMessageCount: view.newerMessageCount,
     canBackfillOlder: view.canBackfillOlder,
     backfillLoading: view.backfillLoading,
     loadOlder: view.loadOlder,
