@@ -1,5 +1,5 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 import { useCallback, useEffect } from "react";
-import { invoke } from "../../lib/bridge";
 import { Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
 import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
 import type { HelpSectionId } from "../../help/types";
@@ -93,7 +93,7 @@ export function AgentsOverview({
       >
         <button
           type="button"
-          onClick={() => invoke("open_folder", { path: "~/.codeterm/skills" }).catch(() => {})}
+          onClick={() => nativeBridge.openFolder("~/.codeterm/skills").catch(() => {})}
           className="ct-bar-pill ct-settings-link"
         >
           Open skills folder
