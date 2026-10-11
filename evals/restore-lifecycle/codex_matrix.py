@@ -142,9 +142,9 @@ class Matrix:
                     sent.result()
         if self.tabs:
             observe.cmd_wait_bound(DEADLINE, self.tabs)
-        from restore_report import assert_settled
-        assert_settled([str(DEADLINE), str(since), *self.tabs], observe.EventWait, observe.fail)
         if self.tabs:
+            from restore_report import assert_settled
+            assert_settled([str(DEADLINE), str(since), *self.tabs], observe.EventWait, observe.fail)
             self.wait(lambda: all(self.inspect(t).get('boot_stage') == 'agent_ready' for t in self.tabs), label + ' agent_ready')
         return before_size
 
