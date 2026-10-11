@@ -1127,21 +1127,6 @@ button,
   opacity: 0;
 }
 
-/* Row kebab lives in its own right-edge lane, so it never covers the row's badges. */
-.sidebar-tab-kebab {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  opacity: 0;
-  transform: translateX(3px);
-  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
-}
-
 /* Plan view modes: Board in its own capsule, the plan views in another, one thumb gliding across both. */
 .plan-view-modes {
   position: relative;
