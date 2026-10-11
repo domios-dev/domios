@@ -302,3 +302,13 @@ fn supporter_feed_tab_title_is_scrubbed_capped_and_optional() {
         "supplied-title second-line"
     );
 }
+
+#[test]
+fn supporter_feed_retains_tab_identity_for_grouping_same_titles() {
+    let mut value = record(json!([]));
+    value["tab"] = json!("tab-a");
+    value["tab_title"] = json!("Shared");
+    assert_eq!(entry(&value).unwrap()["tab_id"], "tab-a");
+    value["tab"] = json!("tab-b");
+    assert_eq!(entry(&value).unwrap()["tab_id"], "tab-b");
+}

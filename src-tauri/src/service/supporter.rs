@@ -14,11 +14,13 @@ use crate::api::mem_routes::decision::SupporterRegistry;
 use crate::mem::decision::token_store::TokenStore;
 
 mod activity;
+mod backoff;
 pub(crate) mod connections;
 mod feed;
 mod journal;
 mod narrative;
 mod physical;
+pub(crate) mod rerank;
 mod spend;
 mod storage;
 
@@ -26,8 +28,7 @@ pub(crate) use activity::SupporterRuntime;
 pub(crate) use journal::{Action, ActionRecord, VerdictKind};
 pub(crate) use narrative::sentinel as sentinel_questions;
 pub(crate) use narrative::{
-    provider_update as update_questions, recovery as recovery_questions,
-    rerank as rerank_questions, tab_state as tab_questions,
+    provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
 pub(crate) use narrative::{ActivityContext, QuestionAnswer};
 
@@ -176,7 +177,7 @@ pub(crate) fn budgeted_model_with_activity(
         kind,
         tab,
         criteria_version,
-        physical_limit: matches!(kind, VerdictKind::TabState).then_some(1),
+        physical_limit: matches!(kind, VerdictKind::TabState | VerdictKind::Rerank).then_some(1),
         activity_context,
     })
 }
@@ -239,6 +240,7 @@ impl DecisionModel for BudgetedModel {
             .admit_adapter(self.model.id())
             .inspect_err(|error| {
                 self.runtime.failure_with_activity(
+                    Some(self.model.id()),
                     self.kind,
                     self.tab.as_deref(),
                     error,
@@ -249,6 +251,7 @@ impl DecisionModel for BudgetedModel {
             .admit_request_budget(self.cap)
             .inspect_err(|error| {
                 self.runtime.failure_with_activity(
+                    Some(self.model.id()),
                     self.kind,
                     self.tab.as_deref(),
                     error,
@@ -287,6 +290,7 @@ impl DecisionModel for BudgetedModel {
             .record_spend(self.model.id(), price.as_ref(), &response);
         let response = response.inspect_err(|error| {
             self.runtime.failure_with_activity(
+                Some(self.model.id()),
                 self.kind,
                 self.tab.as_deref(),
                 error,

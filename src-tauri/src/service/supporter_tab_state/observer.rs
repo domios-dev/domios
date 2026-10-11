@@ -277,7 +277,10 @@ pub(super) fn observe_user_delivery_readiness(
 }
 
 pub(super) fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapter: &str) -> bool {
-    if config.active_id() != Some(adapter) || host.supporter_models().get(adapter).is_none() {
+    if config.active_id() != Some(adapter)
+        || host.supporter_models().get(adapter).is_none()
+        || !host.supporter_runtime().adapter_available(adapter)
+    {
         return false;
     }
     supporter::supporter_connected(
@@ -805,6 +808,22 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
     if local != host.local_identity(tab_id) {
         return Err("stale capture".into());
     }
+    let structural = &metadata.context["structural_verdict"]["classification"];
+    if super::admission::structurally_decisive(
+        trigger,
+        structural["state"].as_str().unwrap_or("unknown"),
+        structural["confidence"].as_f64().unwrap_or(0.0),
+        metadata.context["structural_verdict"]["agent_state"]["state"]
+            .as_str()
+            .unwrap_or("unknown"),
+        metadata
+            .tab_snapshot
+            .as_ref()
+            .is_some_and(|tab| tab.pending_prompt.is_some()),
+    ) {
+        capture.pending = false;
+        return Err("structural adapter already confident".into());
+    }
     let frame_hash = frame_hash(&screen.to_string());
     if parent_observation_id.is_none()
         && !matches!(
@@ -814,7 +833,12 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
                 | ObservationTrigger::PromptConfirmation
                 | ObservationTrigger::SentinelRequest
         )
-        && !super::admission::claim(tab_id, &metadata.session_key, frame_hash, trigger)
+        && !super::admission::claim(
+            tab_id,
+            &metadata.session_key,
+            super::frame_hash(text),
+            trigger,
+        )
     {
         capture.pending = false;
         return Err("unchanged frame or per-tab classification rate bound".into());

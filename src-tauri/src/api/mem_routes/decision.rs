@@ -307,6 +307,10 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         .enumerate()
         .map(|(index, hit)| candidate(index, hit))
         .collect();
+    let mut scores: Vec<_> = hits
+        .iter()
+        .map(|hit| hit["score"].as_f64().unwrap_or(0.0))
+        .collect();
     let docs = if docs_on {
         crate::mem::docs_source::search_with_hybrid(&p.q, cfg.sources.docs, cfg.docs_hybrid)
     } else {
@@ -314,6 +318,7 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     };
     let docs_count = docs.len();
     for doc in docs {
+        scores.push(doc.relevance);
         hits.push(doc_hit_value(&doc));
         candidates.push(doc_candidate(&doc));
     }
@@ -332,8 +337,46 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     };
     let sessions_count = sessions.len();
     for session in sessions {
+        scores.push(session.hit["score"].as_f64().unwrap_or(0.0));
         hits.push(session.hit);
         candidates.push(session.candidate);
+    }
+    let skip = crate::service::supporter::rerank::skip_reason(&scores);
+    let selected = crate::service::supporter::rerank::selection(&scores);
+    let mut selected_hits = Vec::new();
+    let mut selected_candidates = Vec::new();
+    for index in selected {
+        let mut hit = hits[index].clone();
+        if graph_on || docs_on || sessions_on {
+            let via = if index < recall_count {
+                "recall"
+            } else if index < recall_count + graph_count {
+                "graph"
+            } else if index < recall_count + graph_count + docs_count {
+                "docs"
+            } else {
+                "sessions"
+            };
+            hit["via"] = json!(via);
+        }
+        selected_hits.push(hit);
+        selected_candidates.push(candidates[index].clone());
+    }
+    hits = selected_hits;
+    candidates = selected_candidates;
+    if let Some(reason) = skip {
+        hits.truncate(limit);
+        output["hits"] = json!(hits);
+        insert_envelope(
+            &mut output,
+            json!({ "status": "skipped", "reason": reason,
+            "sources": { "recall": recall_count, "graph": graph_count, "docs": docs_count, "sessions": sessions_count } }),
+        );
+        record_returned(backend, &output);
+        return Ok(output);
+    }
+    if !model.supports_question_batch() {
+        return fallback(backend, p, FallbackReason::Unsupported);
     }
     let model = crate::service::supporter::budgeted_model_with_activity(
         model,
@@ -369,18 +412,6 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                     let mut hit = slots.get_mut(index)?.take()?;
                     if let Some(object) = hit.as_object_mut() {
                         object.insert("relevance".into(), json!(score));
-                        if graph_on || docs_on || sessions_on {
-                            let via = if index < recall_count {
-                                "recall"
-                            } else if index < recall_count + graph_count {
-                                "graph"
-                            } else if index < recall_count + graph_count + docs_count {
-                                "docs"
-                            } else {
-                                "sessions"
-                            };
-                            object.insert("via".into(), json!(via));
-                        }
                     }
                     Some(hit)
                 })
@@ -411,24 +442,6 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                 envelope["sources"] = json!({ "recall": recall_count, "graph": graph_count });
             }
             insert_envelope(&mut output, envelope);
-            backend
-                .supporter_runtime()
-                .action(crate::service::supporter::ActionRecord {
-                    kind: crate::service::supporter::VerdictKind::Rerank,
-                    tab: p.caller_tab_id.as_deref(),
-                    label: "ranked",
-                    confidence: max_relevance,
-                    action: crate::service::supporter::Action::Rerank,
-                    reason: "all_candidates_scored",
-                    asked: Some(crate::service::supporter::rerank_questions(
-                        &p.q,
-                        order
-                            .first()
-                            .and_then(|index| candidates.get(*index))
-                            .map(|candidate| candidate.title.as_str()),
-                        order.len(),
-                    )),
-                });
             Ok(output)
         }
         StageOutcome::Fallback { reason } => fallback(backend, p, reason),
@@ -483,7 +496,7 @@ fn fallback<B: DecisionBackend + ?Sized>(
 
 fn stage_config(cfg: &MemoryRerankConfig, deadline_ms: u64) -> StageConfig {
     StageConfig {
-        request_mode: cfg.request_mode,
+        request_mode: codeterm_types::config::RerankRequestMode::SharedState,
         max_concurrency: cfg.max_concurrency,
         deadline: Duration::from_millis(deadline_ms),
         low_confidence_threshold: cfg.low_confidence_threshold,
