@@ -21,6 +21,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
         )
         .route(
+            "/api/tabs/{id}/chat-send/admissions",
+            post(tab_routes::chat_send_admissions),
+        )
+        .route(
             "/api/tabs/{id}/attachments",
             post(super::mesh_attachment::ingest).layer(axum::extract::DefaultBodyLimit::max(
                 super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,

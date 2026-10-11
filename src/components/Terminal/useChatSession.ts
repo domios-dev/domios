@@ -19,6 +19,8 @@ import {
   canAdoptTranscriptAuthority,
   attachmentActivity,
   attachmentStateForSnapshot,
+  needsTranscriptAttachment,
+  type TranscriptAuthority,
   type ChatAttachmentState,
   type ChatBackfillResult,
   type ChatMsgEvent,
@@ -117,10 +119,7 @@ export function useChatSession({
   const allowUnboundAuthorityRef = useRef(allowUnboundAuthority);
   const attachmentStateRef = useRef(attachmentState);
   const windowKeyRef = useRef(windowKey);
-  const previousAuthorityRef = useRef({
-    sessionId: agentSessionId,
-    sessionBindingNonce: sessionBindingNonce ?? null,
-  });
+  const requestedAuthorityRef = useRef<TranscriptAuthority | null>(null);
   const adoptedAuthorityRef = useRef<{
     sourceSessionId: string | null;
     sessionBindingNonce: string | null;
@@ -135,7 +134,6 @@ export function useChatSession({
   const hadBoundSessionRef = useRef(agentSessionId != null);
   const internalFollowTailRef = useRef(true);
   const followTailRef = suppliedFollowTailRef ?? internalFollowTailRef;
-  const rotationQueuedRef = useRef(false);
   const recoveryQueuedRef = useRef(false);
   const pendingLiveEventsRef = useRef<ChatMsgEvent[]>([]);
   const preserveSnapshotAnchorRef = useRef(false);
@@ -218,6 +216,10 @@ export function useChatSession({
     setTranscriptUnavailable(null);
     attachmentStateRef.current = "attaching";
     setAttachmentState("attaching");
+    requestedAuthorityRef.current = {
+      source_session_id: agentSessionIdRef.current,
+      session_binding_nonce: sessionBindingNonceRef.current ?? null,
+    };
     beginAttach();
     void reconcileSendStatuses();
   }, [beginAttach, reconcileSendStatuses]);
@@ -431,6 +433,18 @@ export function useChatSession({
   ]);
 
   useEffect(() => {
+    if (!needsTranscriptAttachment(
+      requestedAuthorityRef.current, agentSessionId, sessionBindingNonce, active, listenerReady,
+    )) return;
+    const adopted = adoptedAuthorityRef.current;
+    if (adopted.sourceSessionId !== agentSessionId
+      || adopted.sessionBindingNonce !== (sessionBindingNonce ?? null)) {
+      attachmentRef.current.adopt(null);
+    }
+    requestAttach();
+  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
+
+  useEffect(() => {
     if (!active || !listenerReady) return;
     const owner = attachmentRef.current;
     const generationAtRequest = generation;
@@ -576,37 +590,6 @@ export function useChatSession({
     requestRecoveryAttach,
     tabId,
   ]);
-
-  useEffect(() => {
-    const previous = previousAuthorityRef.current;
-    const next = {
-      sessionId: agentSessionId,
-      sessionBindingNonce: sessionBindingNonce ?? null,
-    };
-    previousAuthorityRef.current = next;
-    if (
-      (
-        previous.sessionId === next.sessionId
-        && previous.sessionBindingNonce === next.sessionBindingNonce
-      )
-      || !active
-      || !listenerReady
-    ) return;
-    if (rotationQueuedRef.current) return;
-    rotationQueuedRef.current = true;
-    queueMicrotask(() => {
-      rotationQueuedRef.current = false;
-      if (!activeRef.current) return;
-      const adopted = adoptedAuthorityRef.current;
-      if (
-        adopted.sourceSessionId !== agentSessionIdRef.current
-        || adopted.sessionBindingNonce !== (sessionBindingNonceRef.current ?? null)
-      ) {
-        attachmentRef.current.adopt(null);
-      }
-      requestAttach();
-    });
-  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
   const retry = useCallback(() => requestRecoveryAttach(), [requestRecoveryAttach]);
 

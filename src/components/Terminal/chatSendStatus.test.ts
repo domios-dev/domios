@@ -100,6 +100,39 @@ test("only proven pre-admission refusal allows Retry", () => {
   assert.equal(isProvenAdmissionRefusal(new Error("connection reset")), false);
 });
 
+test("reconnect resolves a response-less refused admission using durable absence proof", async () => {
+  const tabId = "offline-admission";
+  addChatSend(tabId, { id: "offline-bubble", correlationId: "offline-token", content: "opaque", sentAtMs: 1 });
+  const calls: string[] = [];
+  __setInvokeForTest(async <T>(command: string) => {
+    calls.push(command);
+    if (command === "chat_send_text") throw new TypeError("opaque-network-failure");
+    if (command === "chat_send_status") return [] as T;
+    if (command === "chat_send_admissions") return [{ correlationId: "offline-token", evidence: "absent" }] as T;
+    throw new Error(command);
+  });
+  await assert.rejects(sendTrackedChatMessage(tabId, "offline-token", "opaque"));
+  await reconcileTrackedChatMessages(tabId);
+  forgetChatSendsInMemory();
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
+  assert.equal(calls.filter((command) => command === "chat_send_text").length, 1);
+  assert.notEqual(beginChatSendRetry(tabId, "offline-bubble"), undefined);
+});
+
+test("reconnect leaves an ambiguous response uncertain even when no admission is retained", async () => {
+  const tabId = "ambiguous-admission";
+  addChatSend(tabId, { id: "ambiguous-bubble", correlationId: "ambiguous-token", content: "opaque", sentAtMs: 1 });
+  __setInvokeForTest(async <T>(command: string) => {
+    if (command === "chat_send_text") throw new Error("opaque-ambiguous-response");
+    if (command === "chat_send_status") return [] as T;
+    return [{ correlationId: "ambiguous-token", evidence: "absent" }] as T;
+  });
+  await assert.rejects(sendTrackedChatMessage(tabId, "ambiguous-token", "opaque"));
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+  assert.equal(beginChatSendRetry(tabId, "ambiguous-bubble"), undefined);
+});
+
 
 test("model command hold shows queued, then sending and delivered on the same bubble", async () => {
   let submissions = 0;
