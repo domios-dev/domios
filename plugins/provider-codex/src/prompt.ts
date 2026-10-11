@@ -190,12 +190,12 @@ function joinWrappedLabel(label: string, row: string): string {
 export function parseActiveTerminalChoice(screen: string): ActiveTerminalChoice | null {
   const lines = normalizeLines(screen);
   const options = activeMenuOptions(screen);
-  if (options.length < 2 || !options.some((option) => option.highlighted)) return null;
+  if (options.length < 2 || options.filter((option) => option.highlighted).length !== 1) return null;
 
   const lastOptionLine = options[options.length - 1].line;
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (isActiveChoiceEnterFooter(lines[i])) {
+    if (isActiveChoiceFooter(lines[i])) {
       footerLine = i;
       break;
     }
@@ -261,7 +261,7 @@ function activeMenuOptions(screen: string): MenuOption[] {
 function promptFooterNear(lines: string[], lastLine: number): boolean {
   for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
     const t = lines[i].toLowerCase();
-    if (isActiveChoiceEnterFooter(t)) return true;
+    if (isActiveChoiceFooter(t)) return true;
     if (
       (t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) &&
       (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 ||
@@ -273,13 +273,21 @@ function promptFooterNear(lines: string[], lastLine: number): boolean {
 
 function isPromptFooter(line: string): boolean {
   const text = line.toLowerCase();
-  return isActiveChoiceEnterFooter(text)
+  return isActiveChoiceFooter(text)
     || ((text.includes("esc") || text.includes("enter")) &&
       (text.includes("confirm") || text.includes("cancel") || text.includes("continue")));
 }
 
 function leadingIndent(line: string): number {
   return /^\s*/.exec(line)?.[0].length ?? 0;
+}
+
+function isActiveChoiceFooter(line: string): boolean {
+  if (isActiveChoiceEnterFooter(line)) return true;
+  const bindings = line.trim().split(/\s+[·•]\s+/);
+  if (bindings.length < 2) return false;
+  const keys = bindings.map((binding) => /^(enter|esc|[a-z])\s+\S.*$/i.exec(binding)?.[1]?.toLowerCase());
+  return keys.every((key) => key !== undefined) && keys.includes("enter") && keys.includes("esc");
 }
 
 function isActiveChoiceEnterFooter(line: string): boolean {
