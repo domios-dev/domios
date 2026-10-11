@@ -23,10 +23,11 @@ describe("fresh General transport adapters", () => {
         ...await importOriginal<typeof import("./webApi")>(), IS_WEB: web, webJson: http,
       }));
       const { spawnFreshGeneralSession } = await import("./generalSession");
-      const actual = await spawnFreshGeneralSession("general", "configured-provider", "/instance/general");
+      const actual = await spawnFreshGeneralSession("general", "configured-provider", "/instance/general", undefined, { model: "chosen-model", reasoningEffort: "high", preset: "demo" });
       const params = {
         workspaceId: "general", providerId: "configured-provider", cwd: "/instance/general",
         role: "general_agent", intent: "fresh_general",
+        model: "chosen-model", reasoningEffort: "high", preset: "demo",
       };
       expect(actual).toEqual(result);
       if (web) {

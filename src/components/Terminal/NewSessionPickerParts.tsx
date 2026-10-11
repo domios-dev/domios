@@ -34,9 +34,11 @@ function ModeCard({ selected, label, description, glyphs, onSelect, ...rest }: M
 
 export function ModeCards({
   mode,
+  allowedModes,
   onSelect,
 }: {
   mode: NewSessionMode;
+  allowedModes: readonly NewSessionMode[];
   onSelect: (mode: NewSessionMode) => void;
 }) {
   return (
@@ -53,7 +55,7 @@ export function ModeCards({
           </span>
         }
       />
-      <ModeCard
+      {allowedModes.includes("pair") && <ModeCard
         selected={mode === "pair"}
         label="Team"
         description="Orchestrator + Planner"
@@ -64,7 +66,7 @@ export function ModeCards({
             <Users size={18} strokeWidth={1.75} />
           </span>
         }
-      />
+      />}
     </div>
   );
 }

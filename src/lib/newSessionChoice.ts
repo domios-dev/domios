@@ -7,6 +7,7 @@ export interface OpenNewSessionDetail {
   workspaceId: string;
   workspaceCwd: string | null;
   initialProviderId?: string;
+  section?: NewSessionSection;
 }
 
 export function openNewSessionPicker(detail: OpenNewSessionDetail): void {
@@ -14,6 +15,21 @@ export function openNewSessionPicker(detail: OpenNewSessionDetail): void {
 }
 
 export type NewSessionMode = "single" | "pair";
+export type NewSessionSection = "general" | "workspace";
+
+export function allowedNewSessionModes(section: NewSessionSection): readonly NewSessionMode[] {
+  return section === "general" ? ["single"] : ["single", "pair"];
+}
+
+export function choiceForSessionSection(choice: NewSessionChoice, section: NewSessionSection): NewSessionChoice {
+  if (allowedNewSessionModes(section).includes(choice.mode) || choice.mode === "single") return choice;
+  return {
+    mode: "single",
+    providerId: choice.orchestratorProviderId,
+    modelId: choice.orchestratorModelId,
+    effortId: choice.orchestratorEffortId,
+  };
+}
 
 export interface SingleSessionChoice {
   mode: "single";
