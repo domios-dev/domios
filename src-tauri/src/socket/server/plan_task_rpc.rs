@@ -16,9 +16,7 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::{
-    persist_attempt_executor_identity, respawn_title_provenance, verify_worker_lane, ServiceState,
-};
+use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
@@ -992,24 +990,24 @@ pub(super) fn dispatch(
             let lane_protection = crate::service::LaneProtection::for_dispatch_intent(
                 &task.interruption.execution_intent,
             );
-            let provenance = verify_worker_lane(
+            let provenance = crate::service::plan::respawn_lane::verify_respawn_lane(
                 &canonical_cwd,
-                &draft.cwd,
-                task.lane.branch.as_deref(),
-                task.lane.base.as_deref(),
-                lane_protection,
+                task,
+                &draft,
             )
             .map_err(|error| JsonRpcError {
                 code: -32603,
                 message: format!("respawn lane verification failed: {error}"),
                 data: None,
             })?;
-            super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
-                &plan,
-                &tid,
-                &provenance.worktree_path,
-                task.interruption.execution_intent.clone(),
-            )?;
+            if let Some(provenance) = provenance.as_ref() {
+                super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
+                    &plan,
+                    &tid,
+                    &provenance.worktree_path,
+                    task.interruption.execution_intent.clone(),
+                )?;
+            }
             let parent_tab_id = draft
                 .parent_tab_id
                 .clone()
@@ -1089,7 +1087,7 @@ pub(super) fn dispatch(
                 original_plan_mode,
                 lane_for_commit: task.lane.clone(),
                 canonical_project_path: canonical_cwd.clone(),
-                provenance: Some(provenance),
+                provenance,
                 provisioned_lane: None,
                 lane_protection,
                 spawn_command: format!(
