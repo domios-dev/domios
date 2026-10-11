@@ -1,10 +1,12 @@
 #[cfg(any(test, target_os = "windows", target_os = "macos"))]
 mod relaunch_env {
-    pub(super) const CODETERM_RELAUNCH_PREFIX: &str = "CODETERM_";
+    pub(super) const CODETERM_RELAUNCH_KEY: &str = "CODETERM";
 
     fn is_codeterm_relaunch_key(key: &str) -> bool {
-        key.len() >= CODETERM_RELAUNCH_PREFIX.len()
-            && key[..CODETERM_RELAUNCH_PREFIX.len()].eq_ignore_ascii_case(CODETERM_RELAUNCH_PREFIX)
+        let stem = CODETERM_RELAUNCH_KEY;
+        key.len() >= stem.len()
+            && key[..stem.len()].eq_ignore_ascii_case(stem)
+            && (key.len() == stem.len() || key[stem.len()..].starts_with('_'))
     }
 
     pub(super) fn filter_relaunch_env<I, K, V>(env: I) -> Vec<(K, V)>
@@ -27,7 +29,7 @@ mod relaunch_env {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use relaunch_env::apply_relaunch_env;
 #[cfg(target_os = "windows")]
-use relaunch_env::CODETERM_RELAUNCH_PREFIX;
+use relaunch_env::CODETERM_RELAUNCH_KEY;
 
 // Detached NSIS install helper keeps running after CLI exits.
 #[cfg(target_os = "windows")]
@@ -38,7 +40,7 @@ fn windows_runtime_env_scrub_block() -> String {
         set \"CARGO_INCREMENTAL=\"\r\n\
         set \"RUSTC_WRAPPER=\"\r\n\
         set \"SCCACHE_BASEDIRS=\"\r\n",
-        prefix = CODETERM_RELAUNCH_PREFIX,
+        prefix = CODETERM_RELAUNCH_KEY,
     )
 }
 
@@ -254,6 +256,7 @@ mod relaunch_env_tests {
             ("USER", "andrey"),
             ("TMPDIR", "/tmp"),
             ("CARGO_TARGET_DIR", "/tmp/target"),
+            ("CODETERM", "1"),
             ("CODETERM_INSTANCE", "aiderqa"),
             ("CODETERM_API_PORT", "7697"),
             ("CODETERM_API_URL", "http://127.0.0.1:7697"),
@@ -283,6 +286,7 @@ mod relaunch_env_tests {
         let filtered = filter_relaunch_env([
             ("HOME", "/home/andrey"),
             ("PATH", "/bin"),
+            ("CODETERM", "1"),
             ("CODETERM_INSTANCE", "aiderqa"),
             ("CODETERM_DEV_IDENTIFIER", "com.codeterm.dev.aiderqa"),
             ("CODETERM_DATA_DIR", "/home/andrey/.codeterm-dev-aiderqa"),
@@ -291,9 +295,10 @@ mod relaunch_env_tests {
         ]);
         let keys: Vec<&str> = filtered.iter().map(|(key, _)| *key).collect();
         assert_eq!(keys, vec!["HOME", "PATH"]);
-        assert!(filtered
-            .iter()
-            .all(|(key, _)| !key.to_ascii_uppercase().starts_with("CODETERM_")));
+        assert!(filtered.iter().all(|(key, _)| {
+            let upper = key.to_ascii_uppercase();
+            upper != "CODETERM" && !upper.starts_with("CODETERM_")
+        }));
     }
 
     #[test]
@@ -301,6 +306,7 @@ mod relaunch_env_tests {
         let filtered = filter_relaunch_env([
             ("Path", "/bin"),
             ("Home", "/home/andrey"),
+            ("codeterm", "1"),
             ("codeterm_instance", "aiderqa"),
             ("CodeTerm_API_PORT", "7686"),
             ("CODETERM_tab_id", "tab-1"),
@@ -312,15 +318,16 @@ mod relaunch_env_tests {
     fn filter_relaunch_env_keeps_unrelated_and_short_keys() {
         let filtered = filter_relaunch_env([
             ("C", "1"),
-            ("CODETERM", "keep"),
+            ("CODETERM", "1"),
             ("CODETERM_", ""),
+            ("CODETERMINAL", "x"),
             ("NOT_CODETERM_INSTANCE", "keep"),
         ]);
         assert_eq!(
             filtered,
             vec![
                 ("C", "1"),
-                ("CODETERM", "keep"),
+                ("CODETERMINAL", "x"),
                 ("NOT_CODETERM_INSTANCE", "keep")
             ]
         );
@@ -361,7 +368,7 @@ mod tests {
     fn installed_daemon_launch_scrubs_dev_and_build_environment() {
         let script = install_script();
 
-        let scrub = script.find("set CODETERM_").unwrap();
+        let scrub = script.find("set CODETERM ").unwrap();
         let launch = script.find("start \"\" \"codeterm.exe\"").unwrap();
         assert!(scrub < launch);
         for variable in [
