@@ -16,3 +16,4 @@ pub mod task_files;
 pub mod terminal;
 pub mod test_env;
 pub mod windows_env;
+pub mod windows_powershell;
