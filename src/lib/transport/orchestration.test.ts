@@ -90,12 +90,12 @@ describe("orchestration transport", () => {
 });
 
 it("ends old requests and ignores old SSE after a client replacement", async () => {
-  const { configureOrchestrationTransport, orchestrationTransport, listenOrchestration } = await import("./orchestrationRuntime");
+  const { bindOrchestrationTransport, orchestrationTransport, listenOrchestration } = await import("./orchestrationRuntime");
   const { orchestrationTestClient } = await import("./orchestration.testdata");
   let oldEvent!: (name: string, data: unknown) => void;
   let oldSignal: AbortSignal | undefined;
   let closed = 0;
-  configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, _path: string, _body?: unknown, opts?: { signal?: AbortSignal }) => {
+  bindOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, _path: string, _body?: unknown, opts?: { signal?: AbortSignal }) => {
     oldSignal = opts?.signal;
     return [] as T;
   }, (_stream, onEvent) => {
@@ -107,10 +107,31 @@ it("ends old requests and ignores old SSE after a client replacement", async () 
   const stop = await listenOrchestration("cron-run-finished", ({ payload }) => seen.push(payload));
   oldEvent("other", "ignored");
   oldEvent("cron-run-finished", "first");
-  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  bindOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
   oldEvent("cron-run-finished", "late");
   stop();
   expect(oldSignal?.aborted).toBe(true);
   expect(closed).toBe(1);
   expect(seen).toEqual(["first"]);
+});
+
+it("forwards the exact claim on all guarded team commands and refuses missing caller nonce", async () => {
+  const { calls, transport } = fixture();
+  const claim = { callerTabId: "selected", sessionBindingNonce: "selected-current-nonce" };
+  await transport.mux_rename_team({ teamId: "team", name: "Name", ...claim });
+  await transport.mux_close_team({ teamId: "team", ...claim });
+  await transport.mux_add_team_member({ teamId: "team", provider: "provider", role: "worker", ...claim });
+  await transport.mux_make_orchestrator({ tabId: "selected", ...claim });
+  await transport.mux_make_planner({ tabId: "selected", planId: "plan", ...claim });
+  await transport.mux_create_orchestration_pair({ params: { workspace_id: "workspace" }, ...claim });
+  expect(calls).toHaveLength(6);
+  for (const call of calls) expect(call.body).toMatchObject({ caller_tab_id: "selected", session_binding_nonce: "selected-current-nonce" });
+  const missing = { callerTabId: "missing" };
+  expect(() => transport.mux_rename_team({ teamId: "team", name: "Name", ...missing })).toThrow();
+  expect(() => transport.mux_close_team({ teamId: "team", ...missing })).toThrow();
+  expect(() => transport.mux_add_team_member({ teamId: "team", provider: "p", role: "worker", ...missing })).toThrow();
+  expect(() => transport.mux_make_orchestrator({ tabId: "missing", ...missing })).toThrow();
+  expect(() => transport.mux_make_planner({ tabId: "missing", planId: "p", ...missing })).toThrow();
+  expect(() => transport.mux_create_orchestration_pair({ params: {}, ...missing })).toThrow();
+  expect(calls).toHaveLength(6);
 });

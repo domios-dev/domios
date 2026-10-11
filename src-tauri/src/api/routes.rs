@@ -16,8 +16,8 @@ use super::{
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
     pty_routes, services_routes, session_routes, surface_routes, tab_agent_routes, tab_routes,
-    task_routes, team_mission_control_routes, team_routes, team_spend, theme_routes,
-    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    task_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -197,15 +197,6 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/essence-source",
             get(essence_map_routes::read_essence_source),
-        )
-        .route(
-            "/api/teams/{team_id}/rename",
-            post(team_routes::rename_team),
-        )
-        .route("/api/teams/{team_id}/close", post(team_routes::close_team))
-        .route(
-            "/api/teams/{team_id}/members",
-            post(team_routes::add_team_member),
         )
         .route(
             "/api/teams/{team_id}/mission-control/spend",
@@ -654,10 +645,6 @@ pub fn create_router(state: AppState) -> Router {
             post(ai_helper_routes::spawn_ai_helper),
         )
         .route("/api/agents/done", get(agent_done_routes::list_done))
-        .route(
-            "/api/orchestration/new",
-            post(agent_routes::create_orchestration_pair),
-        )
         .route("/api/batch", post(agent_routes::batch_commands))
         .route(
             "/api/crons",
@@ -1012,6 +999,7 @@ fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
     router
         .merge(super::transport_tabs::router())
         .merge(super::transport_capabilities::router())
+        .merge(super::transport_orchestration::router())
 }
 
 #[cfg(test)]
