@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { invoke, IS_WEB } from "../../lib/bridge";
 import { useTauriFileDrop, materializeDroppedPaths } from "../../hooks/terminal";
 import { classifyAttachmentPaths, useWebFileDrop } from "./composerFiles";
 import type { InlineAttachment, InlineAttachmentSink } from "./useComposerCapsules";
@@ -20,13 +20,9 @@ function imageExt(mime: string): string {
   return IMAGE_EXT[mime] ?? (mime.split("/")[1]?.split(";")[0] || "png");
 }
 
-/**
- * Read a pasted image as a Blob. The synchronous paste event omits clipboard
- * image DATA (screenshots) on WebView2 (Windows) / WKWebView (macOS), so prefer
- * the async Clipboard API — which the terminal already uses successfully — and
- * fall back to the sync File captured during the event dispatch (#152).
- */
+// Native WebViews can omit screenshot data from the paste event.
 async function readClipboardImage(syncFile: File | null): Promise<{ blob: Blob; ext: string } | null> {
+  if (syncFile) return { blob: syncFile, ext: imageExt(syncFile.type) };
   try {
     if (navigator.clipboard && "read" in navigator.clipboard) {
       const items = await navigator.clipboard.read();
@@ -36,9 +32,8 @@ async function readClipboardImage(syncFile: File | null): Promise<{ blob: Blob; 
       }
     }
   } catch {
-    // Permission denied / unsupported — fall back to the sync file.
+    // Unsupported native clipboard readers leave the draft untouched.
   }
-  if (syncFile) return { blob: syncFile, ext: imageExt(syncFile.type) };
   return null;
 }
 
@@ -95,10 +90,22 @@ export function useAttachments({
     if (handledPastes.has(e)) return;
     handledPastes.add(e);
     const cd = e.clipboardData;
-    // synchronous event dispatch; the async reads below would see it emptied.
-    const syncImageFile = cd
-      ? (Array.from(cd.items).find((it) => it.kind === "file" && it.type.startsWith("image/"))?.getAsFile() ?? null)
-      : null;
+    const files = Array.from(cd?.files ?? []);
+    if (!files.length) {
+      files.push(...Array.from(cd?.items ?? [])
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null));
+    }
+    if (IS_WEB) {
+      if (files.length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        await uploads.addFiles(files);
+      }
+      return;
+    }
+    const syncImageFile = files.find((file) => file.type.startsWith("image/")) ?? null;
     if (syncImageFile) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -125,7 +132,7 @@ export function useAttachments({
         onError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [deliver, deliverPaths, onError]);
+  }, [deliverPaths, onError, uploads.addFiles, uploads.add]);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {

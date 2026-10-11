@@ -139,3 +139,32 @@ test("confirmation reads first new assistant model in the claimed SQLite session
   assert.equal(detect(), "vendor/target");
   db.close();
 });
+
+test("captured SQLite stores render owned text and tool history through the built reader", () => {
+  for (const version of ["1.18.35", "1.19.0"]) {
+    const db = new DatabaseSync(":memory:");
+    db.exec(fs.readFileSync(new URL(`./fixtures/sqlite-${version}.sql`, import.meta.url), "utf8"));
+    const context = {
+      host: { platform: () => "linux", envGet: () => null, expandHome: (p: string) => p,
+        fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, args: unknown[]) => {
+          const statement = db.prepare(sql);
+          statement.setAllowBareNamedParameters(true);
+          return statement.all(Object.fromEntries(args.map((value, index) => [String(index + 1), value])));
+        } },
+      },
+      module: { exports: {} as { default?: {
+        readStructuredChat: (cwd: string, sid: string, cursor?: string) => { messages: Array<{type: string; content: string}>; cursor: string };
+      } } }, exports: {},
+    };
+    new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
+    const plugin = context.module.exports.default!;
+    const chat = plugin.readStructuredChat("/fixture", "ses_fixture_owned");
+    assert.deepEqual(Array.from(chat.messages, message => [message.type, message.content]).filter(([kind]) => kind === "user" || kind === "assistant").sort(), [
+      ["assistant", "opaque-assistant-turn"], ["user", "opaque-user-turn"],
+    ]);
+    assert.equal(chat.messages.length, version === "1.19.0" ? 3 : 2);
+    assert.equal(plugin.readStructuredChat("/fixture", "ses_fixture_owned", chat.cursor).messages.length, 0);
+    assert.equal(plugin.readStructuredChat("/fixture", "ses_missing").messages.length, 0);
+    db.close();
+  }
+});

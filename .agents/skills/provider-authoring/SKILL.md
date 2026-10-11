@@ -35,9 +35,13 @@ Every claim below is transcribed from the Rust source of truth:
 
 `spawn.paste.supportsBracketedPaste` defaults to true. Set it to false for
 plain input that cannot interpret bracketed paste; the refusal overrides live
-terminal mode, multiline TUI framing and typed prefixes. Plain frames normalize
-newlines to carriage returns, so a provider must preprocess multiline messages
-into its own input format. A paste-only declaration may omit the typed follow-up
+terminal mode, multiline TUI framing and typed prefixes. Declare
+`spawn.paste.multiline: "tagged_block"` for plain readers supporting
+`{tag` and `tag}` lines. Core wraps the entire input frame with a collision-free
+tag at the shared PTY submit seam, including typed envelopes. Chat, CLI, reports
+and launch input all use this declaration; do not duplicate transport wrapping
+in a chat preprocessor. Plain frames otherwise normalize newlines to carriage
+returns. A paste-only declaration may omit the typed follow-up
 fields; it adds no sandbox host function.
 
 `authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
@@ -162,7 +166,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 |---|---|---|
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
-| `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and opts sqlite reads into fail-closed version enforcement. |
+| `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and gates read-only SQLite access: known breaking, invalid and undetected versions are refused; detected undeclared versions retain an unknown verdict and use best-effort SQL/JSON shape checks. Settings shows unverified compatibility quietly. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command run automatically in a bounded utility process by the provider coordinator; working tabs keep running. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |

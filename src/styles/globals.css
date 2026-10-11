@@ -5618,3 +5618,9 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
 @keyframes ct-toast-countdown { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 1; } }
 .ct-toast-countdown { opacity: .28; animation: ct-toast-countdown linear forwards; }
 @media (prefers-reduced-motion: reduce) { .ct-toast-countdown { animation: none; } }
+
+@media (max-width: 768px), (pointer: coarse) {
+  .ct-markdown-ordered-list {
+    padding-inline-start: max(1.25rem, var(--ct-list-marker-gutter));
+  }
+}

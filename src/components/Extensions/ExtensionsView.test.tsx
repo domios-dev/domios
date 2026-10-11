@@ -218,7 +218,7 @@ test("selecting a plugin opens its detail view and back returns to the list", as
 
   const layout = host.querySelector("[data-narrow-view]");
   assert(layout?.getAttribute("data-narrow-view") === "detail", "selection should open the narrow detail view");
-  assert(host.querySelector('[data-testid="extensions-detail-back"]'), "detail view should provide a back control");
+  assert(host.querySelector('button[aria-label="Back to Plugins"]'), "detail view provides a named return control");
 
   await act(async () => {
     button(host, '[data-testid="extensions-detail-back"]').click();

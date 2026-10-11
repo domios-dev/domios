@@ -53,7 +53,7 @@ import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
 import { capsuleSegments, hasCapsuleTokens } from "./composerCapsules";
-import { useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
+import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
@@ -670,6 +670,13 @@ function ChatComposerImpl({
               }}
               onPaste={(e) => {
                 if (capsules.handlePaste(e)) return;
+                const data = e.clipboardData;
+                const hasFiles = data.files?.length || Array.from(data.items ?? []).some((item) => item.kind === "file");
+                if (hasFiles) {
+                  const text = data.getData("text/plain");
+                  e.preventDefault();
+                  if (text) replaceTextareaRange(e.currentTarget, e.currentTarget.selectionStart, e.currentTarget.selectionEnd, text);
+                }
                 void handlePasteEvent(e.nativeEvent);
               }}
               onCopy={(e) => capsules.handleCopy(e, false)}

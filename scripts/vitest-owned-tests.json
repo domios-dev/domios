@@ -125,5 +125,15 @@
   "src/components/Sidebar/GeneralWorkspaceTabs.test.tsx",
   "src/lib/newSessionSection.test.ts",
   "packages/chat-ui/src/messageRowTime.test.ts",
-  "packages/chat-ui/src/MessageBubble.time.test.tsx"
+  "packages/chat-ui/src/MessageBubble.time.test.tsx",
+  "src/lib/bridge.phoneShell.test.ts",
+  "src/components/Settings/AgentsTab.loading.test.tsx",
+  "src/components/shared/viewportSurfaces.test.ts",
+  "src/components/shared/RemoteFolderPicker.portal.test.tsx",
+  "src/components/MemoryPanel/memoryDetailModel.test.ts",
+  "src/components/MemoryPanel/MemoryPanel.detail.test.tsx",
+  "packages/chat-ui/src/orderedListGutter.test.ts",
+  "src/components/WebGate/installHintLayout.test.ts",
+  "src/components/WebGate/useInstallHintLayout.test.tsx",
+  "src/components/Terminal/ChatComposer.paste.test.tsx"
 ]
