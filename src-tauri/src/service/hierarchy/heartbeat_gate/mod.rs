@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod admission;
 mod decision;
 #[cfg(test)]
 mod replay_tests;
@@ -120,6 +121,7 @@ pub(crate) enum HardWake {
     UndeliveredReport(String),
     NewReport(String),
     TaskState(String),
+    TaskClosed(String),
     FailedGate(String),
     OwnerMessage(String),
     ChoiceAnswer(String),
@@ -130,7 +132,7 @@ pub(crate) enum HardWake {
 impl HardWake {
     fn next_step(&self, plan: &str) -> String {
         match self {
-            Self::TaskState(id) => format!("inspect the changed task {id} with codeterm plan state {plan} and reconcile its review or dispatch"),
+            Self::TaskState(id) | Self::TaskClosed(id) => format!("inspect the changed task {id} with codeterm plan state {plan} and reconcile its review or dispatch"),
             Self::NewReport(id) => format!("read the new report {id} in {plan} and review its task"),
             Self::UndeliveredReport(id) => format!("retrieve persisted report {id} with codeterm orchestrator inspect --plan {plan} --json and review its task; investigate the undelivered report"),
             Self::FailedGate(id) => format!("inspect failed gate {id} in {plan} and assign its repair before advancing"),
