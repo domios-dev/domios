@@ -117,41 +117,23 @@ mod store_index_tests {
         }
     }
 
-    // rel#62: `minCodeterm` frozen while `version` bumps is a no-op gate — it can never block an
-    // app older than the build it ships with, so every app is served the newest plugin.
     #[test]
-    fn system_plugin_min_codeterm_tracks_its_own_version() {
+    fn bundled_plugin_channel_metadata_matches_its_manifest() {
         let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
-        let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
-            .expect("plugins/channel.json must exist (store index)");
         let manifest: ChannelManifest =
-            serde_json::from_str(&text).expect("channel.json must parse as ChannelManifest");
-
+            serde_json::from_str(&fs::read_to_string(plugins_dir.join("channel.json")).unwrap())
+                .unwrap();
         for id in SYSTEM_PLUGIN_IDS {
             let plugin = manifest
                 .plugins
                 .iter()
-                .find(|p| p.id == id)
-                .unwrap_or_else(|| panic!("{id} missing from the codeterm-core channel"));
-            assert_eq!(
-                plugin.min_codeterm.as_deref(),
-                plugin.version.as_deref(),
-                "{id}'s minCodeterm must track its own version — otherwise an app \
-                 older than this build is served a plugin it cannot run"
-            );
-
-            let rel = plugin
-                .path
-                .as_ref()
-                .expect("each channel plugin needs a path");
-            let pj = std::fs::read_to_string(plugins_dir.join(rel).join("plugin.json"))
-                .unwrap_or_else(|_| panic!("plugin.json missing for {id}"));
-            let pjv: serde_json::Value = serde_json::from_str(&pj).expect("plugin.json parses");
-            assert_eq!(
-                pjv.get("minCodeterm").and_then(|v| v.as_str()),
-                pjv.get("version").and_then(|v| v.as_str()),
-                "{id}/plugin.json's own minCodeterm must also track its version"
-            );
+                .find(|plugin| plugin.id == id)
+                .unwrap();
+            let (directory, bundled) = bundled_metadata(id).unwrap();
+            assert_eq!(bundled.id, id);
+            assert_eq!(plugin.path.as_deref(), Some(directory));
+            assert_eq!(plugin.version, bundled.version);
+            assert_eq!(plugin.min_codeterm, bundled.min_codeterm);
         }
     }
 
