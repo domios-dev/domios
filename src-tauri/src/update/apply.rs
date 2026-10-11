@@ -280,6 +280,7 @@ fn restart_after_plugin_install(_: &tauri::AppHandle) -> Result<ApplyResult, Str
 
 #[cfg(not(windows))]
 fn restart_after_plugin_install(app: &tauri::AppHandle) -> Result<ApplyResult, String> {
+    crate::startup::restart_stdio::detach_for_restart();
     app.restart()
 }
 
@@ -407,6 +408,7 @@ pub(super) async fn install_staged_deb_and_restart(
     }
 
     log::info!("[updater] Debian package installed; restarting application");
+    crate::startup::restart_stdio::detach_for_restart();
     app.restart()
 }
 

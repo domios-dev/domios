@@ -1,5 +1,5 @@
 import { invoke } from "../../lib/bridge";
-import { failChatSendRequest, observeDeliveryStatus, reconcileDeliveryStatuses } from "./chatSendStore";
+import { failChatSendRequest, observeDeliveryStatus, reconcileDeliveryStatuses, readChatSends } from "./chatSendStore";
 
 export type ChatSendStatus = {
   send_id: string;
@@ -16,8 +16,9 @@ export type ChatSendStatus = {
 };
 
 export async function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
+  const requested = readChatSends(tabId);
   const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
-  reconcileDeliveryStatuses(tabId, statuses);
+  reconcileDeliveryStatuses(tabId, statuses, requested);
   return statuses;
 }
 

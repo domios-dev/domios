@@ -1,5 +1,7 @@
 use crate::frontend_bundle::FrontendBundles;
-use crate::frontend_bundle_api_version::{API_VERSION, FRONTEND_PUBLIC_KEY};
+use crate::frontend_bundle_api_version::{
+    API_VERSION, BUNDLED_FRONTEND_VERSION, FRONTEND_PUBLIC_KEY,
+};
 use std::sync::Arc;
 
 const DISCOVERY_URL: &str = "https://github.com/rollacode/codeterm-releases/releases/download/frontend-latest/frontend-manifest.json";
@@ -9,12 +11,20 @@ pub(crate) fn open(
     events: &crate::api::events::EventBroadcasterState,
 ) -> Option<Arc<FrontendBundles>> {
     let events = events.clone();
+    let (discovery, public_key, loopback) = dev_discovery_override().unwrap_or_else(|| {
+        (
+            DISCOVERY_URL.into(),
+            FRONTEND_PUBLIC_KEY.map(str::to_owned),
+            false,
+        )
+    });
     match FrontendBundles::open(
         &crate::paths::data_dir().join("frontend-bundles"),
         API_VERSION,
-        FRONTEND_PUBLIC_KEY.map(str::to_owned),
-        DISCOVERY_URL.into(),
-        false,
+        BUNDLED_FRONTEND_VERSION,
+        public_key,
+        discovery,
+        loopback,
         Arc::new(move |name, data| events.publish_generic(name, data)),
     ) {
         Ok(bundles) => Some(Arc::new(bundles)),
@@ -23,6 +33,20 @@ pub(crate) fn open(
             None
         }
     }
+}
+
+// DEV-only frontend swap drill (evals/frontend-swap): a loopback discovery URL and a test key.
+#[cfg(debug_assertions)]
+fn dev_discovery_override() -> Option<(String, Option<String>, bool)> {
+    let discovery = std::env::var("CODETERM_DEV_FRONTEND_DISCOVERY_URL").ok()?;
+    let public_key = std::env::var("CODETERM_DEV_FRONTEND_PUBLIC_KEY").ok()?;
+    log::warn!("[frontend-bundle] DEV discovery override: {discovery}");
+    Some((discovery, Some(public_key), true))
+}
+
+#[cfg(not(debug_assertions))]
+fn dev_discovery_override() -> Option<(String, Option<String>, bool)> {
+    None
 }
 
 pub(crate) fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
@@ -61,6 +85,7 @@ mod signing_tests {
         let bundles = FrontendBundles::open(
             root.path(),
             API_VERSION,
+            "0.0.0",
             None,
             DISCOVERY_URL.into(),
             false,

@@ -20,6 +20,7 @@ pub struct FrontendBundles {
     inner: Mutex<(Store, Activation)>,
     check_job: update::CheckJob,
     pub api_version: u32,
+    bundled_version: semver::Version,
     public_key: Option<String>,
     discovery_url: String,
     allow_loopback: bool,
@@ -30,6 +31,7 @@ impl FrontendBundles {
     pub fn open(
         root: &Path,
         api_version: u32,
+        bundled_version: &str,
         public_key: Option<String>,
         discovery_url: String,
         allow_loopback: bool,
@@ -38,9 +40,11 @@ impl FrontendBundles {
         if allow_loopback && !cfg!(debug_assertions) {
             return Err("DEV loopback forbidden in release".into());
         }
+        let bundled_version = semver::Version::parse(bundled_version).map_err(|e| e.to_string())?;
         let mut store = Store::open(root)?;
         let mut state = store.load()?;
         state.recover(api_version);
+        state.retire_not_newer(&bundled_version);
         for manifest in [
             state.active.clone(),
             state.previous.clone(),
@@ -70,6 +74,7 @@ impl FrontendBundles {
             inner: Mutex::new((store, state)),
             check_job: update::CheckJob::default(),
             api_version,
+            bundled_version,
             public_key,
             discovery_url,
             allow_loopback,
@@ -92,9 +97,11 @@ impl FrontendBundles {
             .as_deref()
             .ok_or("Frontend signing identity not provisioned")?;
         let store = Store::open(&self.root)?;
+        let floor = self.version_floor();
         let verified = update::download_and_stage(
             &store,
             &self.discovery_url,
+            &floor,
             key,
             self.api_version,
             self.allow_loopback,
@@ -110,6 +117,19 @@ impl FrontendBundles {
             (self.emit)("frontend-update-ready", event);
         }
         Ok(self.status())
+    }
+
+    fn version_floor(&self) -> semver::Version {
+        let active = self
+            .inner
+            .lock()
+            .1
+            .active
+            .as_ref()
+            .and_then(|m| semver::Version::parse(&m.version).ok());
+        active
+            .filter(|v| v > &self.bundled_version)
+            .unwrap_or_else(|| self.bundled_version.clone())
     }
 
     pub fn activate(
