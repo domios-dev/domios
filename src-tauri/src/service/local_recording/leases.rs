@@ -189,11 +189,21 @@ impl RecordingLeases {
         self.write_tickets.lock().contains_key(send_id)
     }
 
-    pub(crate) fn write_ticket_current(&self, send_id: &str) -> Option<bool> {
+    pub(crate) fn write_ticket_matches_authority(
+        &self,
+        send_id: &str,
+        authority: &UserSendAuthority,
+    ) -> bool {
         self.write_tickets
             .lock()
             .get(send_id)
-            .map(|ticket| ticket.capture.validate().is_ok())
+            .is_some_and(|ticket| {
+                ticket.capture.validate().is_ok()
+                    && matches!(
+                        &ticket.capture.target,
+                        FrozenTarget::Pty(expected) if expected == authority
+                    )
+            })
     }
 
     pub(crate) fn retire_write_ticket(&self, send_id: &str) {
