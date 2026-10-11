@@ -1,3 +1,4 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
 import type { AppConfig, Tab, Team } from "../../lib/types";
@@ -121,7 +122,7 @@ export function SettingsPanel({
   useEffect(() => {
     refreshThemes();
     invoke<string>("get_themes_dir").then(setThemesDir).catch(() => {});
-    invoke<boolean>("get_autostart_enabled")
+    nativeBridge.autostart?.get()
       .then(setAutostartEnabled)
       .catch(() => setAutostartEnabled(false));
   }, []);
@@ -129,11 +130,11 @@ export function SettingsPanel({
   const handleAutostartToggle = useCallback(async (v: boolean) => {
     setAutostartEnabled(v);
     try {
-      await invoke("set_autostart_enabled", { enabled: v });
+      await nativeBridge.autostart?.set(v);
     } catch (e) {
       console.error("set_autostart_enabled failed", e);
       // Re-read actual state so the toggle reflects truth on failure.
-      invoke<boolean>("get_autostart_enabled")
+      nativeBridge.autostart?.get()
         .then(setAutostartEnabled)
         .catch(() => {});
     }
@@ -227,11 +228,11 @@ export function SettingsPanel({
                   title="Startup"
                   description="Resume the daemon, mesh and crons without opening the app."
                 >
-                  <Toggle
+                  {nativeBridge.autostart && <Toggle
                     label="Launch Domios on system start"
                     checked={autostartEnabled ?? false}
                     onChange={handleAutostartToggle}
-                  />
+                  />}
                   <Toggle
                     label="Enable Librarian (background skill vectorizer)"
                     checked={localConfig.memory?.librarian_enabled ?? true}
@@ -283,11 +284,11 @@ export function SettingsPanel({
                         />
                       ))}
                     </div>
-                    {themesDir && (
+                    {themesDir && nativeBridge.window && (
                       <button
                         type="button"
                         data-testid="settings-open-themes-folder"
-                        onClick={() => invoke("open_folder", { path: themesDir })}
+                        onClick={() => nativeBridge.openFolder(themesDir)}
                         className="ct-bar-pill ct-settings-link"
                         title={`Open ${themesDir}`}
                       >

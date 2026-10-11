@@ -1,10 +1,11 @@
+import { daemonFetch } from "../../lib/webApi";
 import { memoryListControlsVisible } from "./memoryDetailModel";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatAge } from "../../lib/timeLabels";
 import type { ApiConfig } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
-import { baseUrl, authHeaders } from "./memoryApi";
+import { authHeaders } from "./memoryApi";
 import { MemoryItemEditor } from "./MemoryItemEditor";
 
 interface Props {
@@ -50,7 +51,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, onDetailOp
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ q: search, limit: "50", supporter: "false" });
-        const res = await fetch(`${baseUrl(api)}/api/mem/search?${params}`, {
+        const res = await daemonFetch(api, `/api/mem/search?${params}`, {
           headers: authHeaders(api),
           signal: ctrl.signal,
         });
