@@ -449,6 +449,13 @@ async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_ca
     registry.set_enabled("trigger", true).unwrap();
     let generation = crate::service::local_recording::arm_registry_fixture(registry, "trigger");
     service.local_recordings.set_manual_capture(true).unwrap();
+    assert_eq!(
+        service
+            .local_recordings
+            .invalidate_generation("trigger", generation.saturating_sub(1)),
+        0,
+        "stale generation retirement leaves unrelated manual ownership alone"
+    );
     assert!(service
         .local_recording_input_event(
             "trigger",

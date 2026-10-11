@@ -50,7 +50,7 @@ export interface LarkCaptureState {
   recorderStarted: boolean;
   recorderStopped: boolean;
   tracksReleased: boolean;
-  hostCleanupAcknowledged: boolean;
+  captureStoppedAcknowledged: boolean;
   error?: string;
 }
 
@@ -61,7 +61,7 @@ export type LarkCaptureAction =
   | { type: "STOP"; operation: number; intent: "send" | "discard"; error?: string }
   | { type: "CANCEL"; operation: number; message: string; reason?: LarkInvalidationReason }
   | { type: "INVALIDATED"; event: LarkCaptureInvalidation }
-  | { type: "HOST_CLEANUP_ACK"; operation: number }
+  | { type: "CAPTURE_STOP_ACK"; operation: number }
   | { type: "RECORDER_STOPPED"; operation: number }
   | { type: "TRACKS_RELEASED"; operation: number }
   | { type: "COMMIT_SUCCEEDED"; operation: number }
@@ -75,26 +75,31 @@ export function initialLarkCaptureState(): LarkCaptureState {
     recorderStarted: false,
     recorderStopped: false,
     tracksReleased: false,
-    hostCleanupAcknowledged: false,
+    captureStoppedAcknowledged: false,
   };
 }
 
 function settleStop(state: LarkCaptureState): LarkCaptureState {
-  if (state.phase !== "stopping" || !state.recorderStopped || !state.tracksReleased || !state.hostCleanupAcknowledged) return state;
+  if (state.phase !== "stopping" || !state.recorderStopped || !state.tracksReleased) return state;
   if (state.invalidation) {
     return { ...state, phase: "error", capture: undefined, error: invalidationMessage(state.invalidation) };
   }
   if (state.error) {
     return { ...state, phase: "error", capture: undefined };
   }
-  if (state.stopIntent === "send" && state.recorderStarted) {
+  if (state.stopIntent === "send" && state.recorderStarted && state.captureStoppedAcknowledged) {
     return { ...state, phase: "transcribing" };
   }
+  if (state.stopIntent === "send" && state.recorderStarted) return state;
   return {
     ...state,
     phase: state.pluginId ? "armed" : "disabled",
     capture: undefined,
     stopIntent: undefined,
+    recorderStarted: false,
+    recorderStopped: false,
+    tracksReleased: false,
+    captureStoppedAcknowledged: false,
   };
 }
 
@@ -146,7 +151,7 @@ export function larkCaptureTransition(
         recorderStarted: false,
         recorderStopped: false,
         tracksReleased: false,
-        hostCleanupAcknowledged: false,
+        captureStoppedAcknowledged: false,
       };
     }
     case "RECORDER_STARTED":
@@ -183,9 +188,9 @@ export function larkCaptureTransition(
     case "INVALIDATED":
       if (!matchesCaptureInvalidation(state, action.event)) return state;
       return invalidateState(state, action.event);
-    case "HOST_CLEANUP_ACK":
+    case "CAPTURE_STOP_ACK":
       if (action.operation !== state.operation || state.phase !== "stopping") return state;
-      return settleStop({ ...state, hostCleanupAcknowledged: true });
+      return settleStop({ ...state, captureStoppedAcknowledged: true });
     case "RECORDER_STOPPED":
       if (action.operation !== state.operation || state.phase !== "stopping") return state;
       return settleStop({ ...state, recorderStopped: true });
@@ -202,6 +207,7 @@ export function larkCaptureTransition(
         recorderStarted: false,
         recorderStopped: false,
         tracksReleased: false,
+        captureStoppedAcknowledged: false,
       };
     case "FAILED":
       if (action.operation !== state.operation) return state;
@@ -219,7 +225,6 @@ function invalidateState(state: LarkCaptureState, event: LarkCaptureInvalidation
       ...state,
       phase: "error",
       capture: undefined,
-      hostCleanupAcknowledged: true,
       invalidation: event.reason,
       error: invalidationMessage(event.reason),
     };
@@ -229,7 +234,6 @@ function invalidateState(state: LarkCaptureState, event: LarkCaptureInvalidation
     ...state,
     phase: "stopping",
     stopIntent: "discard",
-    hostCleanupAcknowledged: true,
     invalidation: event.reason,
     error: invalidationMessage(event.reason),
   };
