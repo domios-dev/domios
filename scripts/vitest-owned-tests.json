@@ -1,4 +1,6 @@
 [
+  "src/components/Sidebar/sidebarDrawerLayout.test.ts",
+  "src/components/Sidebar/SidebarDrawer.test.tsx",
   "src/components/Terminal/useMessageActionHint.test.tsx",
   "src/components/Terminal/messageActionHint.hover.test.ts",
   "src/components/AgentRun/codexStructuredTools.test.tsx",
@@ -112,5 +114,9 @@
   "src/components/Surface/surfaceIcon.test.ts",
   "src/components/CrashReportToast.test.tsx",
   "src/lib/generalSession.adapter.test.ts",
-  "src/hooks/terminal/terminalScroll.test.ts"
+  "src/components/Terminal/ComposerActions.uploads.test.tsx",
+  "src/components/Terminal/ChatComposer.uploads.test.tsx",
+  "src/hooks/terminal/terminalScroll.test.ts",
+  "src/components/Notifications/attentionSurfaceModel.test.ts",
+  "src/components/Terminal/TabAttentionBanner.test.tsx"
 ]

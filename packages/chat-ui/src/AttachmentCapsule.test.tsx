@@ -162,3 +162,9 @@ describe("context capsules", () => {
     expect(host.textContent).not.toContain("q1-quote-notes.md");
   });
 });
+
+it("renders a loaded image inside the sent inline capsule", async () => {
+  const host = await render(formatAttachmentMarker(SHOT, "image", "image1"));
+  const [button] = capsules(host);
+  expect(button.querySelector("img")?.getAttribute("src")).toBe(PNG);
+});

@@ -387,7 +387,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, stream
       <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
         <div className="ct-chat-message-column w-full max-w-4xl min-w-0 mx-auto">
           <div className={`group flex w-full min-w-0 ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
-            <div className="relative min-w-0 max-w-[75%] sm:max-w-[75%]">
+            <div className="relative min-w-0 w-full max-w-full sm:w-auto sm:max-w-[75%]">
               {showUserTime && <MessageTime timestamp={message.timestamp} side="right" />}
               {originHeader}
               {showUserBubble && <div

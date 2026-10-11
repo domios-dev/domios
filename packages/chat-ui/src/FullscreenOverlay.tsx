@@ -70,7 +70,7 @@ export function FullscreenOverlay({ panelRef, label, style, onClose, children }:
   onClose: () => void;
   children: ReactNode;
 }) {
-  return <div ref={panelRef} className="fixed z-[60] bg-black/85 backdrop-blur-sm" style={style ?? { inset: "0px" }} onClick={onClose} role="dialog" aria-modal="true" aria-label={label}>
+  return <div ref={panelRef} className="ct-chat-fullscreen fixed z-[60] bg-black/85 backdrop-blur-sm" style={style ?? { inset: "0px" }} onClick={onClose} role="dialog" aria-modal="true" aria-label={label}>
     <div className="mx-auto flex h-full w-full flex-col border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 shadow-2xl" onClick={(event) => event.stopPropagation()}>{children}</div>
   </div>;
 }

@@ -7,6 +7,7 @@ import { tabChatCapable } from "./lib/chatUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
+import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
@@ -659,13 +660,7 @@ function AppInner() {
               aria-hidden={!sidebarShown}
               style={{ pointerEvents: sidebarOpen ? "auto" : "none" }}
             />
-            {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
-            <div
-              data-testid="sidebar-drawer"
-              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} shell-narrow:fixed shell-narrow:inset-y-0 shell-narrow:left-0 shell-narrow:z-40 shell-narrow:pt-[var(--ct-safe-top,0px)] shell-narrow:pb-[var(--ct-safe-bottom,0px)] flex min-h-0 overflow-visible`}
-              aria-hidden={!sidebarShown}
-              inert={!sidebarShown || undefined}
-            >
+            <SidebarDrawer phone={phoneViewport} shown={sidebarShown}>
               <Sidebar
                 onCollapse={closeSidebar}
                 onCollapsedChange={setSidebarRailCollapsed}
@@ -682,7 +677,7 @@ function AppInner() {
                 onOpenWorkspaceAutomation={openWorkspaceAutomation}
                 teamActions={teamActions}
               />
-            </div>
+            </SidebarDrawer>
           </>
         )}
 

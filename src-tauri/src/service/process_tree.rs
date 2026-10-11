@@ -17,6 +17,7 @@ struct ProcessEntry {
     parent_pid: u32,
     image_name: String,
     argv0_basename: Option<String>,
+    script_basename: Option<String>,
 }
 
 /// Descendants of `root` (itself included), shallowest first.
@@ -325,6 +326,10 @@ fn process_name_matches(entry: &ProcessEntry, expected: &str) -> bool {
             .argv0_basename
             .as_deref()
             .is_some_and(|name| executable_names_match(name, expected))
+        || entry
+            .script_basename
+            .as_deref()
+            .is_some_and(|name| executable_names_match(name, expected))
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
@@ -409,6 +414,7 @@ mod platform {
                 pid: entry.th32ProcessID,
                 parent_pid: entry.th32ParentProcessID,
                 argv0_basename: None,
+                script_basename: None,
                 image_name: {
                     let end = entry
                         .szExeFile
@@ -458,12 +464,14 @@ mod platform {
             .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
             .filter_map(|pid| {
                 let (parent_pid, _) = stat_fields(pid)?;
+                let names = std::fs::read(format!("/proc/{pid}/cmdline"))
+                    .ok()
+                    .and_then(|bytes| super::argv0::names_from_cmdline(&bytes));
                 Some(ProcessEntry {
                     pid,
                     parent_pid,
-                    argv0_basename: std::fs::read(format!("/proc/{pid}/cmdline"))
-                        .ok()
-                        .and_then(|bytes| super::argv0::from_cmdline(&bytes)),
+                    argv0_basename: names.as_ref().map(|names| names.argv0_basename.clone()),
+                    script_basename: names.and_then(|names| names.script_basename),
                     image_name: std::fs::read_to_string(format!("/proc/{pid}/comm"))
                         .ok()
                         .map(|name| name.trim().to_string())
@@ -506,10 +514,12 @@ mod platform {
             .filter(|pid| *pid > 0)
             .filter_map(|pid| {
                 let info = bsd_info(pid as u32)?;
+                let names = process_names(pid, &mut args);
                 Some(ProcessEntry {
                     pid: pid as u32,
                     parent_pid: info.pbi_ppid,
-                    argv0_basename: argv0_basename(pid, &mut args),
+                    argv0_basename: names.as_ref().map(|names| names.argv0_basename.clone()),
+                    script_basename: names.and_then(|names| names.script_basename),
                     image_name: String::from_utf8_lossy(
                         &info
                             .pbi_name
@@ -550,7 +560,7 @@ mod platform {
             .then_some(capacity as usize)
     }
 
-    fn argv0_basename(pid: libc::pid_t, args: &mut [u8]) -> Option<String> {
+    fn process_names(pid: libc::pid_t, args: &mut [u8]) -> Option<super::argv0::ProcessNames> {
         if args.is_empty() {
             return None;
         }
@@ -569,7 +579,7 @@ mod platform {
         if result != 0 {
             return None;
         }
-        super::argv0::from_procargs(args.get(..size)?)
+        super::argv0::names_from_procargs(args.get(..size)?)
     }
 
     fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {

@@ -3,7 +3,7 @@ import { invoke } from "../../lib/bridge";
 import { useTauriFileDrop, materializeDroppedPaths } from "../../hooks/terminal";
 import { classifyAttachmentPaths, useWebFileDrop } from "./composerFiles";
 import type { InlineAttachment, InlineAttachmentSink } from "./useComposerCapsules";
-import { storeBlob } from "./voice/audio";
+import { useAttachmentUploads } from "./useAttachmentUploads";
 
 const IMAGE_EXT: Record<string, string> = {
   "image/png": "png",
@@ -89,6 +89,8 @@ export function useAttachments({
     if (clean.length) deliver(await classifyAttachmentPaths(clean));
   }, [deliver]);
 
+  const uploads = useAttachmentUploads((paths) => void deliverPaths(paths));
+
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     if (handledPastes.has(e)) return;
     handledPastes.add(e);
@@ -118,8 +120,7 @@ export function useAttachments({
     if (image) {
       e.preventDefault();
       try {
-        const path = await storeBlob(image.blob, `pasted-image-${Date.now()}.${image.ext}`);
-        if (path.trim()) deliver([{ path, kind: "image" }]);
+        await uploads.add(image.blob, `pasted-image-${Date.now()}.${image.ext}`);
       } catch (err) {
         onError(err instanceof Error ? err.message : String(err));
       }
@@ -150,9 +151,11 @@ export function useAttachments({
   const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
     (paths) => void deliverPaths(paths),
     onError,
+    uploads.addFiles,
   );
 
   return {
+    uploadStatus: uploads.status,
     attachments,
     addAttachments,
     removeAttachment,

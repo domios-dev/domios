@@ -764,7 +764,7 @@ export function Sidebar({
         >
           {(!isSidebarCollapsed || isPeeking) && (
             <>
-            <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+            <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
               {isCompact && (
                 <SidebarCompactRail
                   groups={compactGroups}
