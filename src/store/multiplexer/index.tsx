@@ -37,6 +37,7 @@ import type {
 } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
+import { acceptsPageFocus } from "./pageSelection";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -163,7 +164,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
-    dispatch({ type: "SET_STATE", state: guarded });
+    dispatch({ type: "SET_STATE", state: guarded, pageOwnedSelection: IS_WEB });
     const remoteTabs = Object.fromEntries(
       Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
     );
@@ -541,20 +542,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("codeterm-web-boot-changed", onBootChanged);
     unlisteners.push(() => window.removeEventListener("codeterm-web-boot-changed", onBootChanged));
 
-    // Backend owns `focused_tab_id`; background events don't emit `tab-focused`.
-    // Focus updates come only from CLI/REST or service fallback when the tab closes.
     listen<{ tab_id: string }>("tab-focused", (event) => {
       const tabId = event.payload.tab_id;
-      if (stateRef.current.tabs[tabId]) {
-        dispatch({ type: "SET_FOCUSED_TAB", tabId });
-      } else {
-        // Focus may arrive before full state merge; retry once after a short delay.
-        setTimeout(() => {
-          if (stateRef.current.tabs[tabId]) {
-            dispatch({ type: "SET_FOCUSED_TAB", tabId });
-          }
-        }, 100);
-      }
+      if (!acceptsPageFocus(stateRef.current, tabId, IS_WEB)) return;
+      if (stateRef.current.tabs[tabId]) dispatch({ type: "SET_FOCUSED_TAB", tabId });
+      else void refreshFromBackend();
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<unknown>(SURFACE_ACTIVITY_EVENT, (event) => recordSurfaceActivity(event.payload))
@@ -910,6 +902,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
+    if (IS_WEB) dispatch({ type: "SET_FOCUSED_TAB", tabId });
   }, [guardedInvoke, refreshFromBackend]);
 
   // Select + focus a just-spawned tab by resolving its owning tab; a fresh

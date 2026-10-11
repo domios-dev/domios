@@ -1,4 +1,5 @@
 [
+  "src/store/multiplexer/pageSelection.test.ts",
   "src/components/Sidebar/TabItem.hover.test.tsx",
   "src/components/Terminal/ChatComposer.submission-keys.test.ts",
   "src/components/Sidebar/sidebarDrawerLayout.test.ts",
