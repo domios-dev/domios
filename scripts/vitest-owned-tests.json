@@ -130,5 +130,9 @@
   "src/components/shared/viewportSurfaces.test.ts",
   "src/components/shared/RemoteFolderPicker.portal.test.tsx",
   "src/components/MemoryPanel/memoryDetailModel.test.ts",
-  "src/components/MemoryPanel/MemoryPanel.detail.test.tsx"
+  "src/components/MemoryPanel/MemoryPanel.detail.test.tsx",
+  "packages/chat-ui/src/orderedListGutter.test.ts",
+  "src/components/WebGate/installHintLayout.test.ts",
+  "src/components/WebGate/useInstallHintLayout.test.tsx",
+  "src/components/Terminal/ChatComposer.paste.test.tsx"
 ]

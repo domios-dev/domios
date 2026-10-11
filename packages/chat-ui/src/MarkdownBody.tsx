@@ -24,6 +24,7 @@ export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolPa
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 import { parseAttachedDiscussionDoc } from "./discussionDoc";
 import { decodeCliMessageText } from "./codeterm/messageText";
+import { orderedListGutterCh } from "./orderedListGutter";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 
@@ -249,7 +250,15 @@ export function RichMarkdown({
           return <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</p>;
         },
         ul: ({ node: _node, ...props }) => <ul className="my-1.5 list-disc pl-5 marker:text-[var(--ct-muted-fg)]" {...props} />,
-        ol: ({ node: _node, ...props }) => <ol className="my-1.5 list-decimal pl-5 marker:text-[var(--ct-muted-fg)]" {...props} />,
+        ol: ({ node, ...props }) => {
+          const count = node?.children.filter((child) => child.type === "element" && child.tagName === "li").length ?? 0;
+          const gutter = orderedListGutterCh(props.start ?? 1, count, props.reversed);
+          return <ol
+            className="ct-markdown-ordered-list my-1.5 list-decimal pl-5 marker:text-[var(--ct-muted-fg)]"
+            {...props}
+            style={{ ...props.style, "--ct-list-marker-gutter": `${gutter}ch` } as React.CSSProperties}
+          />;
+        },
         li: ({ node: _node, children, ...props }) => (
           <li className="my-1 pl-0.5" {...props}>{children}</li>
         ),
