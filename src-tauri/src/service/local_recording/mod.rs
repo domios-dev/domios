@@ -264,7 +264,7 @@ pub(crate) fn arm_registry_fixture(
     struct ReadySubscription;
 
     impl platform::LocalInputSubscription for ReadySubscription {
-        fn request_stop(&mut self) -> SubscriptionTeardown {
+        fn request_stop(&mut self) -> platform::SubscriptionTeardown {
             let (sender, receiver) = std::sync::mpsc::channel();
             sender.send(Ok(())).unwrap();
             platform::SubscriptionTeardown::new(receiver)
