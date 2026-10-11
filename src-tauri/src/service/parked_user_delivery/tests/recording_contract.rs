@@ -1,18 +1,6 @@
 use super::*;
-use crate::service::local_recording::leases::{Capture, CapturePhase, FrozenTarget};
+use crate::service::local_recording::leases::{Capture, FrozenTarget};
 use codeterm_plugin::local_recording::{LocalRecordingTrigger, SelectedDevices};
-use std::sync::atomic::AtomicBool;
-
-fn capture(target: FrozenTarget) -> Capture {
-    Capture {
-        lease_id: "fixture-lease".into(),
-        plugin_id: "trigger".into(),
-        target,
-        active: Arc::new(AtomicBool::new(true)),
-        expires_at: Arc::new(parking_lot::Mutex::new(Instant::now() + TEST_DEADLINE)),
-        phase: CapturePhase::Transcribing,
-    }
-}
 
 fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
     fixture.service.local_recording_registry.register(
@@ -319,10 +307,10 @@ fn lark_recording_contract_possible_handoff_remains_uncertain_and_never_replays(
 fn lark_recording_contract_pty_freeze_reservation_rebind_is_zero_admission() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
-    let frozen = fixture.service.freeze_recording_target(&tab).unwrap();
+    let (capture, _) = armed_capture(&fixture, &tab);
     fixture.service.rotate_session_binding_nonce(&tab);
     let result = fixture.service.admit_recording_voice(
-        capture(frozen),
+        capture,
         "voice-token".into(),
         "recording-client".into(),
     );
@@ -335,7 +323,7 @@ fn lark_recording_contract_pty_freeze_reservation_rebind_is_zero_admission() {
 fn lark_recording_contract_pty_after_admission_before_write_reuses_existing_guard() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
-    let frozen = fixture.service.freeze_recording_target(&tab).unwrap();
+    let (capture, _) = armed_capture(&fixture, &tab);
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
     let _write = UserSubmitBoundary::install(
@@ -357,11 +345,7 @@ fn lark_recording_contract_pty_after_admission_before_write_reuses_existing_guar
     );
     let accepted = fixture
         .service
-        .admit_recording_voice(
-            capture(frozen),
-            "voice-token".into(),
-            "recording-client".into(),
-        )
+        .admit_recording_voice(capture, "voice-token".into(), "recording-client".into())
         .unwrap();
     guard_rx.recv_timeout(TEST_DEADLINE).unwrap();
     await_owner_idle(&fixture, &tab);
@@ -379,7 +363,8 @@ fn lark_recording_contract_pty_after_admission_before_write_reuses_existing_guar
 fn lark_recording_contract_pty_valid_ordinary_tracked_voice_once() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
-    let frozen = fixture.service.freeze_recording_target(&tab).unwrap();
+    let (capture, _) = armed_capture(&fixture, &tab);
+    let frozen = capture.target.clone();
     let (write_tx, write_rx) = mpsc::channel();
     let _write = UserSubmitBoundary::install(
         &tab,
@@ -398,11 +383,7 @@ fn lark_recording_contract_pty_valid_ordinary_tracked_voice_once() {
         .0;
     let accepted = fixture
         .service
-        .admit_recording_voice(
-            capture(frozen.clone()),
-            marker.clone(),
-            "recording-client".into(),
-        )
+        .admit_recording_voice(capture, marker.clone(), "recording-client".into())
         .unwrap();
     let (authority, payload) = write_rx.recv_timeout(TEST_DEADLINE).unwrap();
     assert_eq!(FrozenTarget::Pty(authority), frozen);
