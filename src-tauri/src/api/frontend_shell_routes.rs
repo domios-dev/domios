@@ -16,9 +16,76 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/frontend/bootstrap", get(bootstrap))
         .route("/api/frontend/ready", post(ready))
+        .route("/api/frontend/diagnostic", post(diagnostic))
         .route("/api/desktop/recovery", get(recovery))
         .route("/api/listener/status", get(listener_status))
         .route("/api/listener/restart", post(listener_restart))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum DiagnosticStage {
+    BootstrapInjected,
+    BootstrapConsumed,
+    BootstrapMissing,
+    BootstrapRestored,
+    BootstrapInvalid,
+    RuntimeBound,
+    ModuleEntry,
+    PageFinished,
+    FrontendInitialize,
+    FrontendInitialized,
+    FrontendInitializeFailed,
+    ReadyRequest,
+    ReadyAccepted,
+    ReadyRejected,
+    ReadyFailed,
+    ScriptError,
+    PromiseError,
+}
+
+#[derive(Debug, Deserialize)]
+enum DiagnosticError {
+    Error,
+    ReferenceError,
+    TypeError,
+    SyntaxError,
+    SecurityError,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BootDiagnostic {
+    stage: DiagnosticStage,
+    error_name: Option<DiagnosticError>,
+    source: Option<String>,
+    line: Option<u32>,
+    column: Option<u32>,
+    native: bool,
+    injected: bool,
+    mounted: bool,
+}
+
+async fn diagnostic(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<BootDiagnostic>,
+) -> Result<StatusCode, ApiError> {
+    owner(&state, &headers)?;
+    if !cfg!(debug_assertions) {
+        return Err((
+            StatusCode::CONFLICT,
+            "Frontend diagnostics require a debug build".into(),
+        ));
+    }
+    let source = body.source.as_deref().filter(|source| {
+        source.len() <= 100
+            && source
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
+    });
+    log::debug!("[frontend-shell/page] stage={:?}, native={}, injected={}, mounted={}, error={:?}, source={source:?}, line={:?}, column={:?}", body.stage, body.native, body.injected, body.mounted, body.error_name, body.line, body.column);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn owner(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {

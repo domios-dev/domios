@@ -92,3 +92,17 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
     );
     assert_eq!(capability["windows"], serde_json::json!(["main"]));
 }
+
+#[test]
+fn frontend_shell_contract_navigation_diagnostics_omit_query_secrets_and_recovery_html() {
+    let secret = "opaque-fixture";
+    let url = Url::parse(&format!(
+        "http://127.0.0.1:1463/index.html?token={secret}#{secret}"
+    ))
+    .unwrap();
+    assert_eq!(
+        navigation_identity(&url),
+        "http://127.0.0.1:1463/index.html"
+    );
+    assert!(!navigation_identity(&unavailable_url().unwrap()).contains("html"));
+}

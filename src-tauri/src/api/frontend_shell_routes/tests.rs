@@ -144,3 +144,17 @@ async fn listener_restart_contract_body_completion_and_cancellation() {
     drop(restart_response(Bytes::new(), completed));
     assert!(completion.await.is_err());
 }
+
+#[test]
+fn frontend_shell_contract_boot_diagnostics_accept_only_structured_metadata() {
+    let value =
+        json!({"stage":"bootstrap-consumed", "native":true, "injected":false, "mounted":false});
+    assert!(serde_json::from_value::<BootDiagnostic>(value.clone()).is_ok());
+    let mut unsafe_value = value;
+    unsafe_value["token"] = json!("opaque-fixture");
+    assert!(serde_json::from_value::<BootDiagnostic>(unsafe_value).is_err());
+    assert!(serde_json::from_value::<BootDiagnostic>(
+        json!({"stage":"arbitrary", "native":true, "injected":false, "mounted":false})
+    )
+    .is_err());
+}

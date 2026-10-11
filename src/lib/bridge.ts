@@ -36,7 +36,10 @@ export interface ProviderIntegrationHealth {
 type Args = Record<string, unknown>;
 const webPtyOffsets = new Map<string, number>();
 const webPtyTruncations = new Map<string, number>();
-const commandRegistry = createCommandRegistry(selectedDaemonTransport, { offsets: webPtyOffsets, truncations: webPtyTruncations });
+let commandRegistry: ReturnType<typeof createCommandRegistry> | undefined;
+function commands(): ReturnType<typeof createCommandRegistry> {
+  return commandRegistry ??= createCommandRegistry(selectedDaemonTransport, { offsets: webPtyOffsets, truncations: webPtyTruncations });
+}
 let invokeForTest: (<T>(cmd: string, args?: Args) => Promise<T>) | null = null;
 let listenForTest:
   | (<T>(event: string, handler: (e: { payload: T }) => void) => Promise<UnlistenFn>)
@@ -91,7 +94,7 @@ export type WebCapability =
 
 /** Whether a Tauri IPC command is reachable from the web mirror. */
 export function webCapability(cmd: string): WebCapability {
-  if (Object.prototype.hasOwnProperty.call(commandRegistry, cmd) || Object.prototype.hasOwnProperty.call(CANNED_COMMANDS, cmd)) return { supported: true };
+  if (Object.prototype.hasOwnProperty.call(commands(), cmd) || Object.prototype.hasOwnProperty.call(CANNED_COMMANDS, cmd)) return { supported: true };
   if (cmd === "open_url" || cmd === "read_clipboard_text") return { supported: true };
   if (Object.prototype.hasOwnProperty.call(NATIVE_COMMANDS, cmd)) return IS_WEB
     ? { supported: false, reason: WEB_UNSUPPORTED[cmd] ?? "Native shell capability required" }
@@ -104,15 +107,15 @@ export function isWebUnsupportedError(err: unknown): err is WebUnsupportedError 
 }
 
 async function invokeRaw<T>(cmd: string, args: Args = {}): Promise<T> {
-  if (Object.prototype.hasOwnProperty.call(commandRegistry, cmd)) {
+  if (Object.prototype.hasOwnProperty.call(commands(), cmd)) {
     ensureDaemonRuntime();
-    return dispatchCommand<T>(commandRegistry, cmd, args);
+    return dispatchCommand<T>(commands(), cmd, args);
   }
   const native = nativeCommand(cmd, args);
   if (native) return await native as T;
   if (Object.prototype.hasOwnProperty.call(CANNED_COMMANDS, cmd)) return CANNED_COMMANDS[cmd as keyof typeof CANNED_COMMANDS] as T;
   ensureDaemonRuntime();
-  return dispatchCommand<T>(commandRegistry, cmd, args);
+  return dispatchCommand<T>(commands(), cmd, args);
 }
 
 const IPC_SLOW_MS = 300;
