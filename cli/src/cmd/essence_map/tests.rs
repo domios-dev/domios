@@ -276,7 +276,7 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
     assert_eq!(summary.nodes, 64);
-    assert_eq!(summary.edges, 179);
+    assert_eq!(summary.edges, 178);
 }
 
 #[test]

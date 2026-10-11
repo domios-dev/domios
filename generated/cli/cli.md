@@ -250,9 +250,10 @@ Classify a bounded probe or same-Team agent observation
 - `--input-file` — Absolute or caller-cwd-relative path of the input data file
 - `--input-text` — Inline input text (only for --input text)
 - `--input-url` — http or https URL of the input data
-- `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
+- `--match` — Deterministic classification: unmatched output never calls the model; bucket=regex
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
+- `--model-classification` — Opt in to Supporter model classification when no patterns are declared
 - `--name` — Short meaningful name describing what is watched and what happens
 - `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
 - `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
