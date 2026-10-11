@@ -140,21 +140,19 @@ fn bundled_providers_advertise_only_efforts_they_can_launch() {
             .unwrap(),
         ),
     );
-    crate::model_catalog::replace(
+    crate::model_catalog::put_live(
         fixture.id(),
-        crate::model_catalog::RegisteredDefaults {
-            models: vec![ModelInfo {
-                id: "fixture/model".into(),
-                display_name: "Fixture".into(),
-                reasoning_efforts: Some(vec![ReasoningEffortInfo {
-                    id: "high".into(),
-                    display_name: "High".into(),
-                    ..Default::default()
-                }]),
+        vec![ModelInfo {
+            id: "fixture/model".into(),
+            display_name: "Fixture".into(),
+            reasoning_efforts: Some(vec![ReasoningEffortInfo {
+                id: "high".into(),
+                display_name: "High".into(),
                 ..Default::default()
-            }],
-            default: Some("fixture/model".into()),
-        },
+            }]),
+            ..Default::default()
+        }],
+        Some("fixture/model".into()),
     );
     let efforts = fixture.reasoning_efforts_for_model(Some("fixture/model"));
     assert_eq!(
