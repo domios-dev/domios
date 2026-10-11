@@ -71,7 +71,7 @@ fn store_agent_state_and_record_turn_resume_edge(
     start_epoch: Option<&str>,
     shutting_down: bool,
 ) -> (bool, bool) {
-    if tab.agent_state.as_ref() == Some(&new_state) {
+    if tab.structured_control_active || tab.agent_state.as_ref() == Some(&new_state) {
         return (false, false);
     }
     tab.agent_state = Some(new_state);

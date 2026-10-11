@@ -236,9 +236,12 @@ pub fn try_send(
     if origin == Origin::User {
         if let Ok(reply) = &result {
             if let Some(turn) = reply.pointer("/turn/id").and_then(Value::as_str) {
-                let mut control = sidecar.control.lock();
-                if control.started(&thread, turn) {
-                    sidecar.busy.store(true, Ordering::Release);
+                let started = sidecar.control.lock().started(&thread, turn);
+                log::debug!(
+                    "[rpc/status] tab={tab} thread={thread} accepted_turn={turn} started={started}"
+                );
+                if started {
+                    super::status::observe(svc, tab, &thread, &sidecar, "turn/started");
                 }
             }
         }

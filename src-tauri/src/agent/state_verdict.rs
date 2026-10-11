@@ -73,8 +73,16 @@ pub fn observe_declared_event(
         .agent_registry
         .with_provider(&provider_id, |provider| provider.hook_event_roster())
         .unwrap_or_default();
-    let verdict = declared_state_verdict(&roster, event)?;
-    apply(&svc.mux, tab_id, session_id, verdict).then(|| {
+    let verdict = declared_state_verdict(&roster, event);
+    log::debug!(
+        "[agent-state-event] tab={tab_id} session={session_id} event={event} declared={verdict:?}"
+    );
+    let verdict = verdict?;
+    let changed = apply(&svc.mux, tab_id, session_id, verdict);
+    log::debug!(
+        "[agent-state-event] tab={tab_id} session={session_id} event={event} changed={changed}"
+    );
+    changed.then(|| {
         svc.emit_state_changed();
         svc.record_turn_resume_edge(tab_id);
         verdict
