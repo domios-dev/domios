@@ -1,3 +1,4 @@
+import { createEventSubscriptionRegistry, eventStreamKey, shareEventSubscriptions } from "./eventSubscriptionRegistry";
 import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
 import { createTransportClient, type TokenSource, type TransportClient } from "./transportClient";
 
@@ -35,6 +36,7 @@ export function readReloadCredentials(storage: Pick<Storage, "getItem">): Reload
 
 let bootstrap: DaemonBootstrap | undefined;
 let base: TransportClient | undefined;
+let eventSubscriptions: ReturnType<typeof createEventSubscriptionRegistry> | undefined;
 const peers = new Map<string, TransportClient>();
 const listeners = new Set<(client: TransportClient) => void>();
 
@@ -53,7 +55,10 @@ export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredenti
   if (typeof input.token === "string" && !input.token) throw new Error("Daemon bearer token required");
   if (base && bootstrap?.origin === origin && bootstrap.token === input.token) return base;
   bootstrap = { origin, token: input.token };
-  base = createTransportClient({ ...bootstrap, onGatewayState: gateway });
+  const client = createTransportClient({ ...bootstrap, onGatewayState: gateway });
+  if (eventSubscriptions) eventSubscriptions.replace(client.subscribe);
+  else eventSubscriptions = createEventSubscriptionRegistry(client.subscribe);
+  base = shareEventSubscriptions(client, eventSubscriptions);
   peers.clear();
   for (const listener of listeners) listener(base);
   return base;
@@ -86,7 +91,19 @@ export function baseDaemonTransport(): TransportClient {
 export function daemonTransportForPeer(peerId?: string): TransportClient {
   const client = baseDaemonTransport();
   if (!peerId) return client;
-  if (!peers.has(peerId)) peers.set(peerId, createTransportClient({ ...bootstrap!, relayPeerId: peerId, onGatewayState: gateway }));
+  if (!peers.has(peerId)) {
+    const peer = createTransportClient({ ...bootstrap!, relayPeerId: peerId, onGatewayState: gateway });
+    peers.set(peerId, { ...peer, subscribe(path, listener, options) {
+      if (eventStreamKey(path)?.startsWith("/api/events/stream")) {
+        const url = new URL(path, client.origin());
+        const params = new URLSearchParams({ peer: peerId, path: url.pathname });
+        const since = url.searchParams.get("since");
+        if (since) params.set("since", since);
+        return client.subscribe(`/api/mesh/relay-stream?${params}`, listener, options);
+      }
+      return peer.subscribe(path, listener, options);
+    } });
+  }
   return peers.get(peerId)!;
 }
 
