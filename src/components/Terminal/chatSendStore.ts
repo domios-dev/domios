@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { ChatSend, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, deliveryState, reconcileDeliverySnapshot, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, reconcileDeliveryStatusesModel, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 
@@ -107,10 +107,14 @@ export function failChatSendRequest(tabId: string, id: string): void {
     ? { ...send, requestFailed: true } : send));
 }
 
-export function reconcileDeliveryStatuses(tabId: string, statuses: readonly ChatSendStatus[]): void {
-  for (const status of statuses) observeDeliveryStatus(status);
+export function reconcileDeliveryStatuses(
+  tabId: string, statuses: readonly ChatSendStatus[], requested?: readonly DeliverySend[],
+): void {
+  for (const status of statuses) {
+    if (status.system_send && status.correlationId) observeDeliveryStatus(status);
+  }
   const current = readChatSends(tabId);
-  const next = current.map((send) => reconcileDeliverySnapshot(send, statuses));
+  const next = reconcileDeliveryStatusesModel(current, statuses, requested);
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
@@ -141,7 +145,7 @@ export function recordChatSendEchoes(tabId: string, echoes: ReadonlyMap<string, 
   if (!current.some((send) => send.echo == null && echoes.has(send.id))) return;
   publish(tabId, current.map((send) => {
     const echo = echoes.get(send.id);
-    return send.echo != null || echo == null ? send : { ...send, echo };
+    return send.echo != null || echo == null || deliveryState(send) === "failed" ? send : { ...send, echo };
   }));
 }
 
