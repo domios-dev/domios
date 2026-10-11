@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 fn capture() -> Capture {
     Capture {
+        lease_id: "fixture-lease".into(),
         plugin_id: "trigger".into(),
         target: FrozenTarget::Chat(ChatIdentity {
             tab_id: "A".into(),
@@ -16,7 +17,9 @@ fn capture() -> Capture {
             binding_nonce: "N".into(),
         }),
         active: Arc::new(AtomicBool::new(true)),
-        expires_at: Instant::now() + Duration::from_secs(600),
+        expires_at: Arc::new(parking_lot::Mutex::new(
+            Instant::now() + Duration::from_secs(600),
+        )),
         phase: CapturePhase::Transcribing,
     }
 }
@@ -129,7 +132,7 @@ async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_hand
     let chat = CapturedChat {
         identity: identity.clone(),
         active: capture.active.clone(),
-        expires_at: capture.expires_at,
+        expires_at: *capture.expires_at.lock(),
     };
     let ledger = ChatSendLedger::default();
     let writes = Cell::new(0);

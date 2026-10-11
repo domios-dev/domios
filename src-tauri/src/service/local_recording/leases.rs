@@ -10,6 +10,8 @@ use serde::Serialize;
 use super::chat::ChatIdentity;
 use crate::service::pending_delivery_payloads::user_sends::UserSendAuthority;
 
+const MAX_CAPTURE_WRITE_TICKETS: usize = 32;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FrozenTarget {
     Pty(UserSendAuthority),
@@ -27,10 +29,11 @@ impl FrozenTarget {
 
 #[derive(Clone)]
 pub(crate) struct Capture {
+    pub(crate) lease_id: String,
     pub(crate) plugin_id: String,
     pub(crate) target: FrozenTarget,
     pub(crate) active: Arc<AtomicBool>,
-    pub(crate) expires_at: Instant,
+    pub(crate) expires_at: Arc<Mutex<Instant>>,
     pub(crate) phase: CapturePhase,
 }
 
@@ -54,6 +57,12 @@ pub(crate) struct CaptureLeaseView {
 #[derive(Default)]
 pub(crate) struct RecordingLeases {
     state: Mutex<LeaseState>,
+    write_tickets: Mutex<HashMap<String, WriteTicket>>,
+}
+
+struct WriteTicket {
+    lease: String,
+    capture: Capture,
 }
 
 #[derive(Default)]
@@ -110,12 +119,13 @@ impl RecordingLeases {
             generation,
         };
         state.captures.insert(
-            lease,
+            lease.clone(),
             Capture {
+                lease_id: lease,
                 plugin_id: plugin_id.into(),
                 target,
                 active,
-                expires_at: Instant::now() + Duration::from_secs(600),
+                expires_at: Arc::new(Mutex::new(Instant::now() + Duration::from_secs(600))),
                 phase: CapturePhase::Recording,
             },
         );
@@ -151,6 +161,56 @@ impl RecordingLeases {
         self.state.lock().captures.remove(lease);
     }
 
+    pub(crate) fn register_write_ticket(
+        &self,
+        send_id: &str,
+        lease: &str,
+        capture: Capture,
+    ) -> Result<(), String> {
+        if capture.lease_id != lease {
+            return Err("recording_write_ticket_lease_mismatch".into());
+        }
+        capture.validate()?;
+        let mut tickets = self.write_tickets.lock();
+        if tickets.contains_key(send_id) || tickets.len() >= MAX_CAPTURE_WRITE_TICKETS {
+            return Err("recording_write_ticket_capacity".into());
+        }
+        tickets.insert(
+            send_id.into(),
+            WriteTicket {
+                lease: lease.into(),
+                capture,
+            },
+        );
+        Ok(())
+    }
+
+    pub(crate) fn has_write_ticket(&self, send_id: &str) -> bool {
+        self.write_tickets.lock().contains_key(send_id)
+    }
+
+    pub(crate) fn write_ticket_current(&self, send_id: &str) -> Option<bool> {
+        self.write_tickets
+            .lock()
+            .get(send_id)
+            .map(|ticket| ticket.capture.validate().is_ok())
+    }
+
+    pub(crate) fn retire_write_ticket(&self, send_id: &str) {
+        let ticket = self.write_tickets.lock().remove(send_id);
+        if let Some(ticket) = ticket {
+            ticket.capture.active.store(false, Ordering::Release);
+            self.finish(&ticket.lease);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire_write_ticket(&self, send_id: &str) {
+        if let Some(ticket) = self.write_tickets.lock().get_mut(send_id) {
+            *ticket.capture.expires_at.lock() = Instant::now() - Duration::from_secs(1);
+        }
+    }
+
     pub(crate) fn request_stop(&self, plugin_id: &str) -> Option<Result<String, ()>> {
         let mut state = self.state.lock();
         let (lease, capture) = state.captures.iter_mut().find(|(_, capture)| {
@@ -183,7 +243,7 @@ impl RecordingLeases {
 
 impl Capture {
     pub(crate) fn is_current(&self, now: Instant) -> bool {
-        self.active.load(Ordering::Acquire) && now < self.expires_at
+        self.active.load(Ordering::Acquire) && now < *self.expires_at.lock()
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {

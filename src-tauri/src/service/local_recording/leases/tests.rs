@@ -97,13 +97,14 @@ fn lark_recording_contract_close_during_capture_revoke_unload_and_expiry() {
         assert!(capture.validate().is_err());
     }
     let capture = Capture {
+        lease_id: "expired".into(),
         plugin_id: "trigger".into(),
         target: target(),
         active: Arc::new(AtomicBool::new(true)),
-        expires_at: Instant::now(),
+        expires_at: Arc::new(parking_lot::Mutex::new(Instant::now())),
         phase: CapturePhase::Stopped,
     };
-    assert!(!capture.is_current(capture.expires_at));
+    assert!(!capture.is_current(Instant::now()));
 }
 
 #[test]
