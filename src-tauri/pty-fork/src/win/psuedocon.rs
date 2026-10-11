@@ -82,7 +82,7 @@ fn sideloaded_conpty() -> Option<ConPtyFuncs> {
         let dll = dir.join("conpty.dll");
         if dll.exists() {
             if let Ok(funcs) = ConPtyFuncs::open(&dll) {
-                eprintln!("[conpty] sideloaded host: {}", dll.display());
+                log::debug!("[conpty] sideloaded host: {}", dll.display());
                 return Some(funcs);
             }
         }
@@ -98,7 +98,7 @@ fn load_conpty() -> ConPtyFuncs {
     match sideloaded_conpty() {
         Some(funcs) => funcs,
         None => {
-            eprintln!("[conpty] in-box conhost (no sideloaded conpty.dll found)");
+            log::debug!("[conpty] in-box conhost (no sideloaded conpty.dll found)");
             kernel
         }
     }
@@ -136,7 +136,7 @@ impl PsuedoCon {
                 &mut con,
             )
         };
-        eprintln!(
+        log::debug!(
             "[conpty] CreatePseudoConsole flags=0x{:x} HRESULT=0x{:08x}",
             base_flags, result as u32,
         );

@@ -19,6 +19,7 @@ mod plan_restore;
 mod progress;
 mod rest_api;
 mod restore_complete;
+pub(crate) mod restart_stdio;
 mod servers;
 #[cfg(test)]
 mod stall_tests;

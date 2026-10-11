@@ -105,7 +105,25 @@ impl ChatSendLedger {
 
     pub(crate) fn restore_user_receipt(&self, receipt: &UserSendReceipt) {
         let mut state = self.state.lock();
-        if state.by_id.contains_key(&receipt.send_id) {
+        if let Some(current) = state.by_id.get(&receipt.send_id) {
+            let active = state
+                .owned
+                .get(&receipt.send_id)
+                .is_some_and(|(_, active)| *active);
+            if receipt_ends_held_status(&current.state, active, receipt.state) {
+                let Some(status) = state.by_id.get_mut(&receipt.send_id) else {
+                    return;
+                };
+                status.state = ChatSendState::Failed;
+                status.error = Some("launch_ended_before_write".into());
+                status.pending_reason = None;
+                state.owned.remove(&receipt.send_id);
+                state.held_before_readiness_by_id.remove(&receipt.send_id);
+                state.terminal_failures.insert(receipt.send_id.clone());
+                state
+                    .latest_failure_by_tab
+                    .insert(receipt.tab_id.clone(), receipt.send_id.clone());
+            }
             return;
         }
         let (send_state, error) = match receipt.state {
@@ -157,3 +175,10 @@ impl ChatSendLedger {
         Self::prune_terminal(&mut state);
     }
 }
+
+fn receipt_ends_held_status(current: &ChatSendState, active: bool, receipt: ReceiptState) -> bool {
+    *current == ChatSendState::Pending && !active && receipt == ReceiptState::Failed
+}
+
+#[cfg(test)]
+mod tests;

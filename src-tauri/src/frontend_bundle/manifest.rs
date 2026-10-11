@@ -80,6 +80,10 @@ pub fn verify(
     Ok(VerifiedManifest(manifest))
 }
 
+pub fn newer_than(version: &str, floor: &semver::Version) -> bool {
+    semver::Version::parse(version).is_ok_and(|version| &version > floor)
+}
+
 pub fn verify_metadata(
     metadata: &[u8],
     signature: &str,
