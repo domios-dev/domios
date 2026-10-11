@@ -2,6 +2,7 @@ import { webkit, devices } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { paintedGapSamples } from './chat-scroll-criteria.mjs';
 
 const api = process.env.CODETERM_API_URL;
 const token = process.env.CODETERM_API_TOKEN;
@@ -201,8 +202,7 @@ try {
           await page.screenshot({ path: `${out}/${label}.png` });
         }
         result.samples = await page.evaluate(() => window.chatScrollQA.samples);
-        const sendIndex = result.samples.findIndex((sample) => sample.edge === 'optimistic');
-        const jumps = result.samples.slice(sendIndex >= 0 ? sendIndex : result.samples.findIndex((sample) => sample.edge === 'before-send') + 1).filter((sample) => sample.gap > 1);
+        const jumps = paintedGapSamples(result.samples, { afterSend: true });
         if (jumps.length) result.errors.push(`${jumps.length} painted samples outside bottom`);
         console.log(JSON.stringify({ label, errors: result.errors, samples: result.samples.length }));
         if (result.errors.length) report.failures.push(label);
