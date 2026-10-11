@@ -57,18 +57,8 @@ pub(crate) fn advance(
             )
         },
     );
-    let state = if !output.success || (outcome.verdict.is_none() && outcome.reason != "unchanged") {
-        Some("error")
-    } else {
-        outcome
-            .verdict
-            .as_ref()
-            .map(|verdict| verdict.bucket.as_str())
-    };
-    let transition = matches!(outcome.reason, "transition" | "rearm_on_change")
-        || (matches!(outcome.reason, "other" | "low_confidence") && !outcome.handlers.is_empty());
     let now = store.lock().clock.now_ms();
-    job.progress.record(now, state, transition);
+    job.progress.record_outcome(now, &outcome);
     job.last_reason = Some(outcome.reason.into());
     let transition_bucket = match outcome.reason {
         "transition" | "rearm_on_change" => outcome
