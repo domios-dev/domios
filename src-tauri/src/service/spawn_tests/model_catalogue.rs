@@ -643,3 +643,28 @@ fn invalid_model_error_lists_every_valid_id_in_a_stable_order() {
     assert_eq!(near, ids);
     assert_eq!(far, near);
 }
+
+#[test]
+fn authoritative_live_provider_refuses_removed_seed_model_before_launch() {
+    let provider_id = "required-live-spawn-564";
+    let registry = registry_with(
+        ModelProvider::new(provider_id, &["router/removed"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative_live(),
+        ),
+    );
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![crate::agent::provider::ModelInfo {
+            id: "router/working".into(),
+            display_name: "Working".into(),
+            ..Default::default()
+        }],
+        None,
+    );
+    let error = validate_agent_model(&registry, provider_id, Some("router/removed"))
+        .expect_err("static seeds cannot authorize a removed live model");
+    assert_eq!(error.requested_model, "router/removed");
+    assert_eq!(error.valid_model_ids, vec!["router/working"]);
+    assert!(validate_agent_model(&registry, provider_id, Some("router/working")).is_ok());
+    crate::agent::model_catalog::unregister(provider_id);
+}

@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.1",
-  "minCodeterm": "1.14.1",
+  "version": "1.14.2",
+  "minCodeterm": "1.14.2",
   "hostApi": 2,
   "capabilities": {
     "agentProvider": true,
@@ -126,11 +126,12 @@
   ],
   "defaultModel": "anthropic/claude-opus-4-8",
   "modelCatalogue": {
-    "authority": "free_form",
+    "authority": "authoritative",
     "configFiles": [
       "~/.config/opencode/opencode.json",
       "~/.config/opencode/opencode.jsonc"
-    ]
+    ],
+    "liveDiscoveryRequired": true
   },
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",
