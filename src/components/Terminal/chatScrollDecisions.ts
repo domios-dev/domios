@@ -13,7 +13,3 @@ export function shouldCaptureChatAnchor(before: ChatViewportGeometry, after: Cha
 export function chatLayoutScrollTarget(mode: ChatViewportMode, viewport: ChatViewportGeometry, anchorTop: number | null): number {
   return mode === "pinned" ? viewport.scrollHeight : anchorTop ?? viewport.scrollTop;
 }
-
-export function chatViewportModeBeforeCommit(mode: ChatViewportMode, before: ChatViewportGeometry, current: ChatViewportGeometry): ChatViewportMode {
-  return mode === "pinned" && shouldCaptureChatAnchor(before, current) ? "detached" : mode;
-}

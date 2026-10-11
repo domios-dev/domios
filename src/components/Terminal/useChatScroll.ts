@@ -24,9 +24,7 @@ import {
   type ChatContentAnchor,
 } from "./chatScrollAnchor";
 
-import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
-import { useChatPaintRepair } from "./useChatPaintRepair";
-import { chatLayoutScrollTarget, chatViewportModeBeforeCommit, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { chatLayoutScrollTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
 import { chatRevealIndex } from "./chatAnchorModel";
 
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
@@ -93,13 +91,11 @@ export function useChatScroll({
   const lastViewportRef = useRef<ChatViewportGeometry>({
     scrollTop: persisted?.scrollTop ?? 0, scrollHeight: 0, clientHeight: 0,
   });
-  const pendingDetachRef = useRef<(() => void) | null>(null);
   const contentAnchorRef = useRef<ChatContentAnchor | null>(null);
   const hookScrollTopRef = useRef<number | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const observedRef = useRef(new Set<Element>());
   const onModeChangeRef = useRef(onModeChange);
-  const previousModeChange = onModeChangeRef.current;
   onModeChangeRef.current = onModeChange;
   const [showScrollDown, setShowScrollDown] = useState(false);
 
@@ -111,16 +107,6 @@ export function useChatScroll({
     prependSnapshotRef.current = null;
     contentAnchorRef.current = null;
     hookScrollTopRef.current = null;
-    pendingDetachRef.current = null;
-  }
-  const beforeCommit = scrollRef.current;
-  if (beforeCommit && active && !loading && restoredKeyRef.current === sessionKey
-    && chatViewportModeBeforeCommit(modeRef.current, lastViewportRef.current, beforeCommit) === "detached"
-    && modeRef.current === "pinned") {
-    modeRef.current = "detached";
-    contentAnchorRef.current = captureChatContentAnchor(beforeCommit);
-    hookScrollTopRef.current = null;
-    pendingDetachRef.current = () => previousModeChange?.("detached");
   }
   if (followTailRef) followTailRef.current = modeRef.current === "pinned";
 
@@ -135,9 +121,7 @@ export function useChatScroll({
   // The scroll event a write produces must not read as the user moving the view.
   const writeScrollTop = useCallback((el: HTMLDivElement, value: number) => {
     const before = el.scrollTop;
-    const clientBefore = lastViewportRef.current.clientHeight;
     el.scrollTop = value;
-    if (clientBefore !== el.clientHeight) chatScrollDiagnostic(sessionKeyRef.current, "repair", { mode: modeRef.current, before, requestedTop: value, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, clientBefore });
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (el.scrollTop !== before) hookScrollTopRef.current = el.scrollTop;
     onViewportChange?.();
@@ -146,13 +130,10 @@ export function useChatScroll({
   const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
     const changed = modeRef.current !== mode;
     modeRef.current = mode;
-    if (el.style.overflowAnchor !== "none") el.style.overflowAnchor = "none";
+    el.style.overflowAnchor = "none";
     contentAnchorRef.current = mode === "detached" ? captureChatContentAnchor(el) : null;
     if (followTailRef) followTailRef.current = mode === "pinned";
-    if (changed) {
-      chatScrollDiagnostic(sessionKeyRef.current, "mode", { mode, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
-      onModeChangeRef.current?.(mode);
-    }
+    if (changed) onModeChangeRef.current?.(mode);
     persist(el);
   }, [followTailRef, persist]);
 
@@ -193,12 +174,8 @@ export function useChatScroll({
   }, [scrollToBottom]);
 
   const handleContentLayout = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || !active || loading || el.clientHeight === 0) return;
-    if (chatViewportModeBeforeCommit(modeRef.current, lastViewportRef.current, el) === "detached"
-      && modeRef.current === "pinned") setMode("detached", el);
-    if (modeRef.current === "pinned") scrollToBottom();
-  }, [active, loading, scrollToBottom, setMode]);
+    if (active && !loading && modeRef.current === "pinned") scrollToBottom();
+  }, [active, loading, scrollToBottom]);
 
   const prepareForHistoryPrepend = useCallback(() => {
     const el = scrollRef.current;
@@ -260,21 +237,6 @@ export function useChatScroll({
     }
   }, []);
 
-  useLayoutEffect(() => {
-    const notify = pendingDetachRef.current;
-    if (!notify) return;
-    pendingDetachRef.current = null;
-    const el = scrollRef.current;
-    if (!el) return;
-    chatScrollDiagnostic(sessionKeyRef.current, "pending-reader-scroll", { mode: "detached", scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
-    notify();
-    holdContentAnchor(el);
-    persist(el);
-    updateScrollDown(el);
-  });
-
-  useChatPaintRepair(scrollRef, active && !loading, sessionKey, handleContentLayout);
-
   // Content boxes are observed too: async image, iframe and diagram growth never re-renders the list.
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -282,7 +244,7 @@ export function useChatScroll({
     const observed = observedRef.current;
     const observer = new ResizeObserver(() => {
       if (el.clientHeight === 0) return;
-      if (modeRef.current === "pinned") handleContentLayout();
+      if (modeRef.current === "pinned") scrollToBottom();
       else if (!prependSnapshotRef.current) holdContentAnchor(el);
     });
     observerRef.current = observer;
@@ -293,7 +255,7 @@ export function useChatScroll({
       observed.clear();
       observerRef.current = null;
     };
-  }, [active, handleContentLayout, holdContentAnchor, observeContent]);
+  }, [active, holdContentAnchor, observeContent, scrollToBottom]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -304,7 +266,7 @@ export function useChatScroll({
     const el = scrollRef.current;
     if (!active) { restoredKeyRef.current = ""; return; }
     if (!el || loading || messageCount === 0) return;
-    if (el.style.overflowAnchor !== "none") el.style.overflowAnchor = "none";
+    el.style.overflowAnchor = "none";
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {
       restoredKeyRef.current = sessionKey;
@@ -340,7 +302,7 @@ export function useChatScroll({
     }
 
     if (modeRef.current === "pinned") {
-      handleContentLayout();
+      scrollToBottom();
       return;
     }
     holdContentAnchor(el);
@@ -354,7 +316,6 @@ export function useChatScroll({
   }, [
     active,
     contentVersion,
-    handleContentLayout,
     holdContentAnchor,
     loading,
     messageCount,

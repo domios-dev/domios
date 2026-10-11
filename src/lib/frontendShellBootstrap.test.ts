@@ -85,8 +85,5 @@ it("records only closed update failure reasons and HTTP status codes", () => {
   expect(JSON.parse(String(calls[1].body))).toMatchObject({ errorName: "FrontendUpdateError", reason: "checkpoint-unavailable", httpStatus: 404 });
   diagnostic("frontend-initialize-failed", { name: bootstrap.token, reason: bootstrap.token, httpStatus: bootstrap.token });
   expect(JSON.parse(String(calls[2].body))).not.toHaveProperty("reason");
-  const chat = { scope: "tab:session", edge: "inset", at: 15, state: { inset: 42, clientHeight: 586 } };
-  diagnostic("chat-scroll", { chat });
-  expect(JSON.parse(String(calls[3].body)).chat).toEqual(chat);
   for (const call of calls) expect(String(call.body)).not.toContain(bootstrap.token);
 });
