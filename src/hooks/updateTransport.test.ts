@@ -1,4 +1,5 @@
-import { __setInvokeForTest } from "../lib/bridge";
+import { nativeBridge } from "../lib/nativeBridge";
+import { configureDaemonTransport } from "../lib/daemonBootstrap";
 import { checkForUpdate, getUpdateStatus, installAppUpdate, requestUpdateChannel } from "./updateTransport";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -8,10 +9,11 @@ function assert(condition: unknown, message: string): asserts condition {
 const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
 const response = { fixture: "opaque" };
 
-__setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
-  calls.push({ command, args });
-  return response as T;
-});
+nativeBridge.updater = {
+  check: async (force) => { calls.push({ command: "check_for_update", args: { force } }); return response; },
+  status: async () => { calls.push({ command: "get_update_status" }); return response; },
+  install: async () => { calls.push({ command: "install_app_update" }); return { status: "already_running" }; },
+};
 
 async function main() {
   const previousFetch = globalThis.fetch;
@@ -30,6 +32,7 @@ async function main() {
       return new Response("{}");
     };
     const api = { host: "0.0.0.0", port: 7697, token: "daemon-token" };
+    configureDaemonTransport({origin: "http://127.0.0.1:7697", token: "daemon-token"});
     await requestUpdateChannel(api);
     await requestUpdateChannel(api, "rc");
     assert(requests.every((request) => request.url === "http://127.0.0.1:7697/api/update/channel"),
@@ -40,7 +43,7 @@ async function main() {
       "channel changes preserve the requested value");
   } finally {
     globalThis.fetch = previousFetch;
-    __setInvokeForTest(null);
+    nativeBridge.updater = undefined;
   }
 }
 

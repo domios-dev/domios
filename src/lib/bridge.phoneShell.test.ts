@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const native = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => native);
 
+vi.mock("./webEvents", () => ({ webListen: vi.fn(), bindWebEventsTransport: vi.fn() }));
+vi.mock("./outputStream", () => ({ bindOutputStreamTransport: vi.fn() }));
+vi.mock("./remoteTabEvents", () => ({ subscribeRemoteTabEvent: () => null, bindRemoteTabEventsTransport: vi.fn() }));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock("./webApi");
@@ -15,9 +18,11 @@ describe("phone shell transport contracts", () => {
     const fetch = vi.fn().mockResolvedValue(Response.json(files));
     vi.stubGlobal("fetch", fetch);
     const { invoke } = await import("./bridge");
+    const { configureDaemonTransport } = await import("./daemonBootstrap");
+    configureDaemonTransport({origin: window.location.origin, token: "fixture-token"});
     const paths = ["/opaque/one & two", "C:/opaque/three"];
     expect(await invoke("read_workspace_essence_maps", { projectPaths: paths })).toEqual(files);
-    const [url, init] = fetch.mock.calls[0];
+    const [url, init] = fetch.mock.calls.find(([url]) => new URL(url).pathname === "/api/essence-maps")!;
     expect(new URL(url).pathname).toBe("/api/essence-maps");
     expect(new URL(url).search).toBe("");
     expect(init.method).toBe("POST");
@@ -47,6 +52,8 @@ describe("phone shell transport contracts", () => {
   it("keeps request diagnostics out of the map failure returned to the screen", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("opaque private path", { status: 400 })));
     const { invoke } = await import("./bridge");
+    const { configureDaemonTransport } = await import("./daemonBootstrap");
+    configureDaemonTransport({origin: window.location.origin, token: "fixture-token"});
     const error = await invoke("read_workspace_essence_maps", { projectPaths: ["/opaque/private"] }).catch(value => value);
     expect(error).toBeInstanceOf(Error);
     if (!(error instanceof Error)) throw error;
@@ -55,13 +62,15 @@ describe("phone shell transport contracts", () => {
     expect(error.message).not.toContain("/api/");
   });
 
-  it("preserves desktop Tauri commands and arguments", async () => {
-    vi.doMock("./webApi", async () => ({ ...await vi.importActual<object>("./webApi"), IS_WEB: false }));
-    const { invoke, checkProviderIntegration } = await import("./bridge");
-    native.invoke.mockResolvedValue({ opaque: true });
-    await invoke("read_workspace_essence_maps", { projectPaths: ["/opaque/project"] });
-    expect(native.invoke).toHaveBeenLastCalledWith("read_workspace_essence_maps", { projectPaths: ["/opaque/project"] });
-    expect(await checkProviderIntegration("opaque-provider")).toEqual({ opaque: true });
-    expect(native.invoke).toHaveBeenLastCalledWith("check_provider_integration", { providerId: "opaque-provider" });
+  it("uses the same HTTP adapter when native shell capabilities are present", async () => {
+    vi.stubGlobal("window", { ...window, location: { origin: "http://127.0.0.1:7686" }, dispatchEvent: vi.fn(), CustomEvent: window.CustomEvent, __TAURI_INTERNALS__: {} });
+    const fetch = vi.fn().mockResolvedValue(Response.json({ integration_state: "installed" }));
+    vi.stubGlobal("fetch", fetch);
+    const { configureDaemonTransport } = await import("./daemonBootstrap");
+    configureDaemonTransport({origin: "http://127.0.0.1:7686", token: "desktop-token"});
+    const { checkProviderIntegration } = await import("./bridge");
+    await checkProviderIntegration("provider");
+    expect(fetch.mock.calls.find(([url]) => new URL(url).pathname === "/api/setup/hooks")![0]).toBe("http://127.0.0.1:7686/api/setup/hooks?provider=provider");
+    expect(native.invoke).not.toHaveBeenCalled();
   });
 });

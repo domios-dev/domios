@@ -21,15 +21,15 @@ async function main() {
     const brief = 'opaque-owner-data\n`$()`\n{"mode":"refresh"}';
     const result = await requestTeamMember(invoke, {
       teamId: "fixture-team", role: "cartographer", providerId: "fixture-provider",
-      managerTabId: "fixture-manager", model: "fixture-model", brief,
+      managerTabId: "fixture-manager", model: "fixture-model", brief, sessionBindingNonce: "fixture-nonce",
     });
     assert.deepEqual(result, response);
     assert.equal(calls.length, 1);
     assert.equal(new URL(calls[0].url).pathname, "/api/teams/fixture-team/members");
     assert.equal(calls[0].init?.method, "POST");
-    assert.equal(new Headers(calls[0].init?.headers).get("X-CodeTerm-Tab-Id"), "fixture-manager");
+    assert.equal(new Headers(calls[0].init?.headers).get("X-CodeTerm-Tab-Id"), null);
     assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
-      provider: "fixture-provider", role: "cartographer", model: "fixture-model", brief,
+      provider: "fixture-provider", role: "cartographer", model: "fixture-model", task: brief, caller_tab_id: "fixture-manager", session_binding_nonce: "fixture-nonce", sessionBindingNonce: "fixture-nonce",
     });
   } finally {
     globalThis.fetch = previousFetch;

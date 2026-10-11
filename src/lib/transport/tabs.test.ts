@@ -111,6 +111,22 @@ describe("tab command HTTP contract", () => {
     expect(calls.map(({ path }) => path)).toEqual(["/api/pty/pty/read?offset=0", "/api/pty/pty/read?offset=9"]);
   });
 
+  it("shares reset and truncation cursors with bridge consumers", async () => {
+    const offsets = new Map<string, number>([['pty', 8]]);
+    const truncations = new Map<string, number>();
+    const paths: string[] = [];
+    const transport = createTabsTransport({ json: async <T>(_method: HttpMethod, path: string) => {
+      paths.push(path);
+      return { data: [], offset: 12, truncated_from: 10 } as T;
+    } }, { offsets, truncations });
+    await transport.read_pty({ ptyId: 'pty' });
+    expect(offsets.get('pty')).toBe(12);
+    expect(truncations.get('pty')).toBe(10);
+    offsets.delete('pty');
+    await transport.read_pty({ ptyId: 'pty' });
+    expect(paths).toEqual(['/api/pty/pty/read?offset=8', '/api/pty/pty/read?offset=0']);
+  });
+
   it("does not resize without an owner and uses raw escape only for PTY interrupt", async () => {
     const { transport, calls } = fixture();
     expect(await transport.resize_pty({ ptyId: "pty", cols: 80, rows: 24 })).toEqual({ ok: true, ignored: true });

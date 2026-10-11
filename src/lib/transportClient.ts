@@ -25,6 +25,7 @@ export interface StreamEnd {
 }
 
 export interface TransportClient {
+  request?(path: string, init?: RequestInit, local?: boolean): Promise<Response>;
   json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; callerTabId?: string }): Promise<T>;
   localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; callerTabId?: string }): Promise<T>;
   upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T>;
@@ -74,7 +75,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
     || url.pathname !== "/" || url.search || url.hash) throw new Error("Explicit daemon HTTP origin required");
   const origin = url.origin;
-  const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const fetcher: typeof fetch = (input, init) => (options.fetch ?? globalThis.fetch)(input, init);
   const resolvePath = (path: string) => {
     if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
       throw new Error("Daemon path must be origin-relative");
@@ -109,8 +110,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
         body: JSON.stringify({ target_peer_id: options.relayPeerId, method: (init.method ?? "GET").toUpperCase(), path, body }),
       });
       if (response.ok) {
-        const relay = await response.json() as { ok: boolean; status: number; data: unknown };
-        response = new Response(relay.data == null ? "" : JSON.stringify(relay.data), {
+        const relay = await response.json() as { ok: boolean; status: number; data: unknown; error?: string };
+        response = new Response(relay.data == null ? relay.error ?? "" : JSON.stringify(relay.data), {
           status: relay.status || (relay.ok ? 200 : 502), headers: { "Content-Type": "application/json" },
         });
       }
@@ -124,6 +125,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     return decodeTransportResponse<T>(response.status, path, text, !local);
   };
   return {
+    request: tracked,
     origin: () => origin,
     currentToken: () => typeof options.token === "function" ? options.token() : options.token,
     json: (method, path, body, opts) => {

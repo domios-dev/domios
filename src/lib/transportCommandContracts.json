@@ -1,0 +1,1196 @@
+{
+  "args": {
+    "parentTabId": "parent",
+    "themeId": "theme",
+    "instanceId": "peer",
+    "action": "trigger",
+    "tabId": "tab",
+    "workspaceId": "workspace",
+    "teamId": "team",
+    "planId": "plan",
+    "groupId": "group",
+    "id": "item",
+    "provider": "provider",
+    "providerId": "provider",
+    "pluginId": "plugin",
+    "peerId": "peer",
+    "ordinaryTabId": "mesh:peer/tab",
+    "ptyId": "pty",
+    "clientId": "client",
+    "sessionId": "session",
+    "accountId": "account",
+    "path": "/file",
+    "paths": [
+      "/file"
+    ],
+    "projectPaths": [
+      "/project"
+    ],
+    "projectPath": "/project",
+    "sourcePath": "/source",
+    "consent": true,
+    "enabled": true,
+    "clientToken": "client-token",
+    "state": "loaded",
+    "name": "name",
+    "suffix": "/inspect",
+    "method": "GET",
+    "params": {
+      "workspaceId": "workspace",
+      "agentId": "provider"
+    },
+    "identity": {
+      "id": "node",
+      "workspace_id": "workspace",
+      "kind": "blueprint"
+    },
+    "config": {},
+    "request": {},
+    "input": {},
+    "patch": {},
+    "url": "url",
+    "role": "worker",
+    "title": "title",
+    "recipe": {},
+    "assignments": [],
+    "cwd": "/cwd",
+    "provider_id": "provider",
+    "fresh": true
+  },
+  "commands": {
+    "mux_get_state": [
+      [
+        "GET",
+        "/api/mux/state"
+      ]
+    ],
+    "session_binding_state": [
+      [
+        "GET",
+        "/api/tabs/tab/session/binding-state"
+      ]
+    ],
+    "rebind_tab_session": [
+      [
+        "POST",
+        "/api/tabs/tab/session/rebind"
+      ]
+    ],
+    "mux_set_active_workspace": [
+      [
+        "POST",
+        "/api/workspaces/workspace/focus"
+      ]
+    ],
+    "mux_create_workspace": [
+      [
+        "POST",
+        "/api/workspaces"
+      ]
+    ],
+    "mux_close_workspace": [
+      [
+        "POST",
+        "/api/workspaces/workspace/close"
+      ]
+    ],
+    "mux_rename_workspace": [
+      [
+        "POST",
+        "/api/workspaces/workspace/rename"
+      ]
+    ],
+    "shell_profiles": [
+      [
+        "GET",
+        "/api/shells?refresh=false"
+      ]
+    ],
+    "mux_create_tab": [
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs"
+      ]
+    ],
+    "mux_set_active_tab": [
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs/tab/focus"
+      ]
+    ],
+    "mux_set_active_tab_and_workspace": [
+      [
+        "POST",
+        "/api/workspaces/workspace/focus"
+      ],
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs/tab/focus"
+      ]
+    ],
+    "mux_close_tab": [
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs/tab/close"
+      ]
+    ],
+    "mux_reopen_closed_tab": [
+      [
+        "POST",
+        "/api/workspaces/workspace/reopen-closed"
+      ]
+    ],
+    "mux_reopen_closed_group": [
+      [
+        "POST",
+        "/api/closed-groups/group/reopen"
+      ]
+    ],
+    "mux_rerun_restored_shell": [
+      [
+        "POST",
+        "/api/tabs/tab/rerun-restored-shell"
+      ]
+    ],
+    "mux_restore_orphaned_tab": [
+      [
+        "POST",
+        "/api/mux/restore-orphaned"
+      ]
+    ],
+    "mux_rename_tab": [
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs/tab/rename"
+      ]
+    ],
+    "mux_move_tab": [
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs/tab/move"
+      ]
+    ],
+    "mux_reorder_tab": [
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs/reorder"
+      ]
+    ],
+    "mux_reorder_child": [
+      [
+        "POST",
+        "/api/tabs/parent/children/reorder"
+      ]
+    ],
+    "mux_reorder_display": [
+      [
+        "POST",
+        "/api/workspaces/workspace/tabs/display-order"
+      ]
+    ],
+    "mux_reorder_workspace": [
+      [
+        "POST",
+        "/api/workspaces/reorder"
+      ]
+    ],
+    "mux_set_focused_tab": [
+      [
+        "POST",
+        "/api/tabs/tab/focus"
+      ]
+    ],
+    "mux_respond_prompt": [
+      [
+        "POST",
+        "/api/tabs/tab/prompt/respond"
+      ]
+    ],
+    "mux_set_permission_auto_confirm": [
+      [
+        "POST",
+        "/api/tabs/tab/permission-auto-confirm"
+      ]
+    ],
+    "mux_set_tab_agent_type": [
+      [
+        "POST",
+        "/api/tabs/tab/agent-type"
+      ]
+    ],
+    "get_tab_text": [
+      [
+        "GET",
+        "/api/tabs/tab/text?formatted=false"
+      ]
+    ],
+    "shell_command_snapshot": [
+      [
+        "GET",
+        "/api/tabs/tab/shell-commands"
+      ]
+    ],
+    "chat_start": [
+      [
+        "POST",
+        "/api/tabs/tab/chat-raw/start"
+      ]
+    ],
+    "chat_stop": [
+      [
+        "POST",
+        "/api/tabs/tab/chat-raw/stop"
+      ]
+    ],
+    "chat_backfill": [
+      [
+        "POST",
+        "/api/tabs/tab/chat-raw/backfill"
+      ]
+    ],
+    "chat_send_text": [
+      [
+        "POST",
+        "/api/tabs/tab/chat-send"
+      ]
+    ],
+    "chat_send_status": [
+      [
+        "GET",
+        "/api/tabs/tab/chat-send"
+      ]
+    ],
+    "ordinary_tabs_list": [
+      [
+        "GET",
+        "/api/tabs"
+      ]
+    ],
+    "mesh_peer_tabs_list": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ],
+      [
+        "GET",
+        "/api/mesh/peers"
+      ]
+    ],
+    "mesh_remote_tab_action": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
+    "spawn_pty": [
+      [
+        "POST",
+        "/api/pty/spawn"
+      ]
+    ],
+    "read_pty": [
+      [
+        "GET",
+        "/api/pty/pty/read?offset=0"
+      ]
+    ],
+    "write_pty_string": [
+      [
+        "POST",
+        "/api/pty/pty/write"
+      ]
+    ],
+    "interrupt_agent": [
+      [
+        "POST",
+        "/api/tabs/tab/stop"
+      ]
+    ],
+    "resize_pty": [
+      [
+        "POST",
+        "/api/pty/pty/resize"
+      ]
+    ],
+    "claim_resize_owner": [
+      [
+        "POST",
+        "/api/tabs/tab/resize-owner"
+      ]
+    ],
+    "save_session": [
+      [
+        "POST",
+        "/api/session/save"
+      ]
+    ],
+    "restart_general_agent": [
+      [
+        "POST",
+        "/api/agents/general/restart"
+      ]
+    ],
+    "spawn_general_agent_session": [
+      [
+        "POST",
+        "/api/agents/general/sessions"
+      ]
+    ],
+    "restart_agent_tab": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/restart"
+      ]
+    ],
+    "refresh_provider_capabilities": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/capabilities/refresh"
+      ]
+    ],
+    "fork_agent_tab": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/fork"
+      ]
+    ],
+    "switch_agent_model": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/model"
+      ]
+    ],
+    "complete_general_agent_first_run": [
+      [
+        "POST",
+        "/api/agents/general/complete-first-run"
+      ]
+    ],
+    "mux_link_pty": [
+      [
+        "POST",
+        "/api/tabs/tab/link-pty"
+      ]
+    ],
+    "write_pty_launch_command": [
+      [
+        "POST",
+        "/api/pty/pty/launch-command"
+      ]
+    ],
+    "mux_update_tab_cwd": [
+      [
+        "POST",
+        "/api/tabs/tab/cwd"
+      ]
+    ],
+    "get_tab_history_raw": [
+      [
+        "GET",
+        "/api/tabs/tab/history"
+      ]
+    ],
+    "mux_spawn_tab": [
+      [
+        "POST",
+        "/api/agents/spawn"
+      ],
+      [
+        "GET",
+        "/api/mux/state"
+      ]
+    ],
+    "answer_notification": [
+      [
+        "POST",
+        "/api/notifications/item/answer"
+      ]
+    ],
+    "chatbackend_session_info": [
+      [
+        "POST",
+        "/api/plugins/chatbackend/session-info"
+      ]
+    ],
+    "chatbackend_switch_model": [
+      [
+        "POST",
+        "/api/plugins/chatbackend/switch-model"
+      ]
+    ],
+    "check_local_preview_files": [
+      [
+        "POST",
+        "/api/tabs/tab/preview/check"
+      ]
+    ],
+    "check_provider_integration": [
+      [
+        "GET",
+        "/api/setup/hooks?provider=provider"
+      ]
+    ],
+    "clear_notifications": [
+      [
+        "DELETE",
+        "/api/notifications/item"
+      ]
+    ],
+    "delayed_send_create": [
+      [
+        "POST",
+        "/api/tabs/tab/delayed-messages"
+      ]
+    ],
+    "delayed_send_delete": [
+      [
+        "DELETE",
+        "/api/delayed-messages/item"
+      ]
+    ],
+    "delayed_send_list": [
+      [
+        "GET",
+        "/api/tabs/tab/delayed-messages"
+      ]
+    ],
+    "delayed_send_send_now": [
+      [
+        "POST",
+        "/api/delayed-messages/item/send-now"
+      ]
+    ],
+    "delayed_send_update": [
+      [
+        "PATCH",
+        "/api/delayed-messages/item"
+      ]
+    ],
+    "delete_custom_theme": [
+      [
+        "DELETE",
+        "/api/themes/theme"
+      ]
+    ],
+    "disable_web_access": [
+      [
+        "POST",
+        "/api/network/serve/disable"
+      ]
+    ],
+    "enable_web_access": [
+      [
+        "POST",
+        "/api/network/serve/enable"
+      ]
+    ],
+    "fs_list_dir": [
+      [
+        "GET",
+        "/api/fs/list-dir?path=%2Ffile&show_hidden=false"
+      ]
+    ],
+    "fs_mkdir": [
+      [
+        "POST",
+        "/api/fs/mkdir"
+      ]
+    ],
+    "get_config": [
+      [
+        "GET",
+        "/api/config"
+      ]
+    ],
+    "get_network_info": [
+      [
+        "GET",
+        "/api/network"
+      ]
+    ],
+    "get_serve_status": [
+      [
+        "GET",
+        "/api/network/serve/status"
+      ]
+    ],
+    "install_provider_in_tab": [
+      [
+        "POST",
+        "/api/agents/providers/provider/install-in-tab"
+      ]
+    ],
+    "keepawake_start": [
+      [
+        "POST",
+        "/api/keepawake/start"
+      ]
+    ],
+    "keepawake_status": [
+      [
+        "GET",
+        "/api/keepawake"
+      ]
+    ],
+    "keepawake_stop": [
+      [
+        "POST",
+        "/api/keepawake/stop"
+      ]
+    ],
+    "list_agent_providers": [
+      [
+        "GET",
+        "/api/agents/providers"
+      ]
+    ],
+    "list_notifications": [
+      [
+        "GET",
+        "/api/notifications"
+      ]
+    ],
+    "list_themes": [
+      [
+        "GET",
+        "/api/themes"
+      ]
+    ],
+    "mark_notification_read": [
+      [
+        "POST",
+        "/api/notifications/item/read"
+      ]
+    ],
+    "mesh_add_manual": [
+      [
+        "POST",
+        "/api/mesh/peers/add-manual"
+      ]
+    ],
+    "mesh_approve_pairing": [
+      [
+        "POST",
+        "/api/mesh/approve"
+      ]
+    ],
+    "mesh_connect": [
+      [
+        "POST",
+        "/api/mesh/connect"
+      ]
+    ],
+    "mesh_disconnect": [
+      [
+        "POST",
+        "/api/mesh/peers/disconnect/peer"
+      ]
+    ],
+    "mesh_exit": [
+      [
+        "POST",
+        "/api/mesh/exit"
+      ]
+    ],
+    "mesh_get_status": [
+      [
+        "GET",
+        "/api/mesh/status"
+      ]
+    ],
+    "mesh_inventory_list": [
+      [
+        "GET",
+        "/api/mesh/inventory"
+      ]
+    ],
+    "mesh_list_peers": [
+      [
+        "GET",
+        "/api/mesh/peers"
+      ]
+    ],
+    "mesh_peer_cron_action": [
+      [
+        "POST",
+        "/api/mesh/peers/peer/crons/item/trigger"
+      ]
+    ],
+    "mesh_peer_cron_delete": [
+      [
+        "DELETE",
+        "/api/mesh/peers/peer/crons/item"
+      ]
+    ],
+    "mesh_peer_cron_get": [
+      [
+        "GET",
+        "/api/mesh/peers/peer/crons/item"
+      ]
+    ],
+    "mesh_peer_cron_history": [
+      [
+        "GET",
+        "/api/mesh/peers/peer/crons/item/history"
+      ]
+    ],
+    "mesh_peer_cron_update": [
+      [
+        "PUT",
+        "/api/mesh/peers/peer/crons/item"
+      ]
+    ],
+    "mesh_peer_service_delete": [
+      [
+        "DELETE",
+        "/api/mesh/peers/peer/services/item"
+      ]
+    ],
+    "mesh_peer_services_list": [
+      [
+        "GET",
+        "/api/mesh/peers/peer/services"
+      ]
+    ],
+    "mesh_reject_pairing": [
+      [
+        "POST",
+        "/api/mesh/reject"
+      ]
+    ],
+    "mesh_scan_peers": [
+      [
+        "POST",
+        "/api/mesh/discover"
+      ]
+    ],
+    "mesh_set_access": [
+      [
+        "POST",
+        "/api/mesh/peers/peer/access"
+      ]
+    ],
+    "mesh_set_enabled": [
+      [
+        "POST",
+        "/api/mesh/enabled"
+      ]
+    ],
+    "mesh_start_broadcast": [
+      [
+        "POST",
+        "/api/mesh/broadcast/start"
+      ]
+    ],
+    "mesh_stop_broadcast": [
+      [
+        "POST",
+        "/api/mesh/broadcast/stop"
+      ]
+    ],
+    "mesh_transfer_attachment": [
+      [
+        "POST",
+        "/api/mesh/attachments/transfer"
+      ]
+    ],
+    "model_provider_manage": [
+      [
+        "POST",
+        "/api/model-providers?provider=provider"
+      ]
+    ],
+    "open_chat_backend_tab": [
+      [
+        "POST",
+        "/api/plugins/chatbackend/open"
+      ]
+    ],
+    "plugin_bubble": [
+      [
+        "POST",
+        "/api/plugins/bubble"
+      ]
+    ],
+    "plugin_glance": [
+      [
+        "POST",
+        "/api/plugins/glance"
+      ]
+    ],
+    "plugin_manager_action": [
+      [
+        "POST",
+        "/api/plugins/action"
+      ]
+    ],
+    "plugin_manager_snapshot": [
+      [
+        "GET",
+        "/api/plugins/snapshot"
+      ]
+    ],
+    "plugin_tab_menu": [
+      [
+        "GET",
+        "/api/plugins/tab-menu"
+      ]
+    ],
+    "plugin_tab_menu_action": [
+      [
+        "POST",
+        "/api/plugins/tab-menu/action"
+      ]
+    ],
+    "plugin_view_call": [
+      [
+        "POST",
+        "/api/plugins/view-call"
+      ]
+    ],
+    "provider_cli_status": [
+      [
+        "GET",
+        "/api/agents/providers/provider/cli"
+      ]
+    ],
+    "push_channel_roster": [
+      [
+        "GET",
+        "/api/notifications/channels"
+      ]
+    ],
+    "read_html_preview_file": [
+      [
+        "POST",
+        "/api/tabs/tab/preview/read"
+      ]
+    ],
+    "read_local_preview_file": [
+      [
+        "POST",
+        "/api/tabs/tab/preview/read"
+      ]
+    ],
+    "read_workspace_essence_maps": [
+      [
+        "POST",
+        "/api/essence-maps"
+      ]
+    ],
+    "read_workspace_essence_source": [
+      [
+        "GET",
+        "/api/essence-source?project=%2Fproject&path=%2Fsource"
+      ]
+    ],
+    "refresh_provider_models": [
+      [
+        "POST",
+        "/api/agents/providers/refresh"
+      ]
+    ],
+    "repo_watch_subscribe": [
+      [
+        "POST",
+        "/api/repo-watch/subscribe"
+      ]
+    ],
+    "repo_watch_unsubscribe": [
+      [
+        "POST",
+        "/api/repo-watch/unsubscribe"
+      ]
+    ],
+    "save_clipboard_file": [
+      [
+        "POST",
+        "/api/attachments/clipboard-file"
+      ]
+    ],
+    "save_clipboard_image": [
+      [
+        "POST",
+        "/api/attachments/clipboard-image"
+      ]
+    ],
+    "save_temp_file": [
+      [
+        "POST",
+        "/api/attachments/temp-file"
+      ]
+    ],
+    "services_create": [
+      [
+        "POST",
+        "/api/services"
+      ]
+    ],
+    "services_delete": [
+      [
+        "DELETE",
+        "/api/services/item"
+      ]
+    ],
+    "services_list": [
+      [
+        "GET",
+        "/api/services"
+      ]
+    ],
+    "services_regenerate_token": [
+      [
+        "POST",
+        "/api/services/item/regenerate-token"
+      ]
+    ],
+    "services_smart_add_inspect": [
+      [
+        "POST",
+        "/api/services/smart-add-inspect"
+      ]
+    ],
+    "services_update": [
+      [
+        "PATCH",
+        "/api/services/item"
+      ]
+    ],
+    "session_transcript": [
+      [
+        "GET",
+        "/api/sessions/transcript?provider=provider&cwd=%2Fcwd&session_id=session"
+      ]
+    ],
+    "transcribe_voice_attachment": [
+      [
+        "POST",
+        "/api/transcribe-voice"
+      ]
+    ],
+    "update_config": [
+      [
+        "PATCH",
+        "/api/config"
+      ]
+    ],
+    "usage_history": [
+      [
+        "GET",
+        "/api/usage/history?provider=provider&since=undefined&account_id=account"
+      ]
+    ],
+    "usage_latest": [
+      [
+        "GET",
+        "/api/usage/latest?provider=provider&account_id=account"
+      ]
+    ],
+    "usage_projection": [
+      [
+        "GET",
+        "/api/usage/projection?provider=provider&account_id=account"
+      ]
+    ],
+    "usage_refresh": [
+      [
+        "POST",
+        "/api/usage/refresh"
+      ]
+    ],
+    "install_provider_integration": [
+      [
+        "POST",
+        "/api/setup/hooks/install?provider=provider"
+      ]
+    ],
+    "uninstall_provider_integration": [
+      [
+        "POST",
+        "/api/setup/hooks/uninstall?provider=provider"
+      ]
+    ],
+    "provider_model_usage": [
+      [
+        "GET",
+        "/api/agents/providers/provider/model-usage"
+      ]
+    ],
+    "get_default_cwd": [
+      [
+        "GET",
+        "/api/system/default-cwd"
+      ]
+    ],
+    "get_shell_diagnostics": [
+      [
+        "GET",
+        "/api/system/shell-diagnostics"
+      ]
+    ],
+    "suggest_install_pwsh": [
+      [
+        "POST",
+        "/api/system/install-pwsh"
+      ]
+    ],
+    "get_themes_dir": [
+      [
+        "GET",
+        "/api/themes/location"
+      ]
+    ],
+    "attachment_path_kinds": [
+      [
+        "POST",
+        "/api/attachments/path-kinds"
+      ]
+    ],
+    "report_webgl_status": [
+      [
+        "POST",
+        "/api/diagnostics/webgl"
+      ]
+    ],
+    "get_plan_full": [
+      [
+        "GET",
+        "/api/plans/plan"
+      ]
+    ],
+    "list_plan_index": [
+      [
+        "GET",
+        "/api/plans"
+      ]
+    ],
+    "list_plans_full": [
+      [
+        "GET",
+        "/api/plans?full=1"
+      ]
+    ],
+    "automation_graph_snapshot": [
+      [
+        "GET",
+        "/api/automation/graph?workspace_id=workspace&team_id=team"
+      ]
+    ],
+    "automation_graph_workspace_snapshot": [
+      [
+        "GET",
+        "/api/automation/graph/workspace?workspace_id=workspace"
+      ]
+    ],
+    "automation_graph_stop_blueprint": [
+      [
+        "POST",
+        "/api/automation/blueprints/item/stop"
+      ]
+    ],
+    "automation_graph_delete_blueprint": [
+      [
+        "DELETE",
+        "/api/automation/blueprints/item"
+      ]
+    ],
+    "automation_node_files": [
+      [
+        "POST",
+        "/api/automation/node-files"
+      ]
+    ],
+    "blueprint_export_file": [
+      [
+        "POST",
+        "/api/automation/blueprints/export"
+      ]
+    ],
+    "blueprint_import_file": [
+      [
+        "POST",
+        "/api/automation/blueprints/import"
+      ]
+    ],
+    "bridge_thread_state": [
+      [
+        "GET",
+        "/api/tabs/tab/bridge/thread"
+      ]
+    ],
+    "bridge_thread_open": [
+      [
+        "POST",
+        "/api/tabs/tab/bridge/thread"
+      ]
+    ],
+    "bridge_thread_close": [
+      [
+        "DELETE",
+        "/api/tabs/tab/bridge/thread"
+      ]
+    ],
+    "activity_list": [
+      [
+        "GET",
+        "/api/activity"
+      ]
+    ],
+    "cron_list": [
+      [
+        "GET",
+        "/api/crons?workspace_id=workspace"
+      ]
+    ],
+    "cron_get": [
+      [
+        "GET",
+        "/api/crons/item"
+      ]
+    ],
+    "cron_history": [
+      [
+        "GET",
+        "/api/crons/item/history"
+      ]
+    ],
+    "cron_delete": [
+      [
+        "DELETE",
+        "/api/crons/item"
+      ]
+    ],
+    "cron_trigger": [
+      [
+        "POST",
+        "/api/crons/item/trigger"
+      ]
+    ],
+    "cron_cancel": [
+      [
+        "POST",
+        "/api/crons/item/cancel"
+      ]
+    ],
+    "cron_toggle": [
+      [
+        "POST",
+        "/api/crons/item/enable"
+      ]
+    ],
+    "cron_update": [
+      [
+        "PATCH",
+        "/api/crons/item"
+      ]
+    ],
+    "mux_rename_team": [
+      [
+        "POST",
+        "/api/teams/team/rename"
+      ]
+    ],
+    "mux_close_team": [
+      [
+        "POST",
+        "/api/teams/team/close"
+      ]
+    ],
+    "mux_add_team_member": [
+      [
+        "POST",
+        "/api/teams/team/members"
+      ]
+    ],
+    "mux_make_orchestrator": [
+      [
+        "POST",
+        "/api/tabs/tab/make-orchestrator"
+      ]
+    ],
+    "mux_make_planner": [
+      [
+        "POST",
+        "/api/tabs/tab/make-planner"
+      ]
+    ],
+    "mux_create_orchestration_pair": [
+      [
+        "POST",
+        "/api/orchestration/new"
+      ]
+    ],
+    "notify": [
+      [
+        "POST",
+        "/api/notifications"
+      ]
+    ],
+    "mux_clear_tab_role": [
+      [
+        "DELETE",
+        "/api/tabs/tab/role"
+      ]
+    ],
+    "get_tab_output": [
+      [
+        "GET",
+        "/api/tabs/tab/output"
+      ]
+    ],
+    "get_remote_workers": [
+      [
+        "GET",
+        "/api/remote-workers"
+      ]
+    ],
+    "restart_general_agent_tab": [
+      [
+        "POST",
+        "/api/agents/general/tab/restart"
+      ]
+    ],
+    "copy_image_to_clipboard": [
+      [
+        "POST",
+        "/api/clipboard/copy-image"
+      ]
+    ],
+    "restart_app": [
+      [
+        "POST",
+        "/api/app/restart"
+      ]
+    ],
+    "frontend_readiness_generation": [
+      [
+        "GET",
+        "/api/frontend/bootstrap"
+      ]
+    ],
+    "frontend_ready": [
+      [
+        "POST",
+        "/api/frontend/ready"
+      ]
+    ],
+    "get_recovery_state": [
+      [
+        "GET",
+        "/api/desktop/recovery"
+      ]
+    ],
+    "get_rest_api_status": [
+      [
+        "GET",
+        "/api/listener/status"
+      ]
+    ],
+    "restart_rest_api": [
+      [
+        "POST",
+        "/api/listener/restart"
+      ]
+    ]
+  }
+}
