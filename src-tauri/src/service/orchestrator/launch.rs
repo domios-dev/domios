@@ -11,11 +11,8 @@ pub(crate) fn skip_local_worker_role(
 }
 
 pub(crate) use crate::agent::registry::AgentRegistry;
-#[derive(Default)]
-pub(crate) struct LaunchRegistry {
-    next_generation: u64,
-    tabs: std::collections::HashMap<String, RegisteredLaunch>,
-}
+mod generation_registry;
+use generation_registry::LaunchRegistry;
 #[path = "launch/backend_reader.rs"]
 mod backend_reader;
 #[path = "launch/bootstrap.rs"]
@@ -66,95 +63,6 @@ struct ProviderAck {
     ready: parking_lot::Mutex<bool>,
     changed: parking_lot::Condvar,
 }
-impl LaunchRegistry {
-    pub(crate) fn begin(&mut self, tab_id: &str, pty_id: String) -> LaunchGeneration {
-        self.next_generation = self.next_generation.wrapping_add(1).max(1);
-        let launch = LaunchGeneration {
-            tab_id: tab_id.into(),
-            pty_id,
-            generation: self.next_generation,
-            stage: BootStage::PtySpawned,
-            reused: false,
-            provider_ack: std::sync::Arc::new(ProviderAck::default()),
-            binding_nonce: None,
-        };
-        self.tabs.insert(
-            launch.tab_id.clone(),
-            RegisteredLaunch {
-                pty_id: launch.pty_id.clone(),
-                generation: launch.generation,
-                provider_ack: launch.provider_ack.clone(),
-                binding_nonce: None,
-            },
-        );
-        launch
-    }
-
-    fn owns(&self, launch: &LaunchGeneration) -> bool {
-        self.tabs.get(&launch.tab_id).is_some_and(|registered| {
-            registered.pty_id == launch.pty_id && registered.generation == launch.generation
-        })
-    }
-
-    fn finish(&mut self, launch: &LaunchGeneration) -> bool {
-        if !self.owns(launch) {
-            return false;
-        }
-        self.tabs.remove(&launch.tab_id);
-        true
-    }
-
-    pub(crate) fn bind_provider_session(
-        &mut self,
-        launch: &LaunchGeneration,
-        binding_nonce: String,
-    ) -> bool {
-        let Some(registered) = self.tabs.get_mut(&launch.tab_id) else {
-            return false;
-        };
-        if registered.pty_id != launch.pty_id || registered.generation != launch.generation {
-            return false;
-        }
-        registered.binding_nonce = Some(binding_nonce);
-        true
-    }
-
-    fn record_provider_session(&self, tab_id: &str, binding: &ProviderSessionBinding) -> bool {
-        let Some(ack) = self
-            .tabs
-            .get(tab_id)
-            .filter(|launch| {
-                launch.pty_id == binding.pty_id
-                    && launch.binding_nonce.as_deref() == Some(&binding.binding_nonce)
-            })
-            .map(|launch| launch.provider_ack.clone())
-        else {
-            return false;
-        };
-        *ack.ready.lock() = true;
-        ack.changed.notify_all();
-        crate::service::agent_restart::timing::stage(tab_id, &binding.pty_id, "session-bound");
-        true
-    }
-
-    fn take_for_pty(&mut self, pty_id: &str) -> Option<LaunchGeneration> {
-        let tab_id = self
-            .tabs
-            .iter()
-            .find(|(_, registered)| registered.pty_id == pty_id)
-            .map(|(tab_id, _)| tab_id.clone())?;
-        let registered = self.tabs.remove(&tab_id)?;
-        Some(LaunchGeneration {
-            tab_id,
-            pty_id: registered.pty_id,
-            generation: registered.generation,
-            stage: BootStage::PtySpawned,
-            reused: false,
-            provider_ack: registered.provider_ack,
-            binding_nonce: registered.binding_nonce,
-        })
-    }
-}
 
 static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
     std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
@@ -176,9 +84,13 @@ pub(crate) struct ProviderSessionBinding {
 }
 
 pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
-    LAUNCH_REGISTRY
+    let recorded = LAUNCH_REGISTRY
         .lock()
-        .record_provider_session(tab_id, binding)
+        .record_provider_session(tab_id, binding);
+    if recorded {
+        crate::service::agent_restart::timing::stage(tab_id, &binding.pty_id, "session-bound");
+    }
+    recorded
 }
 #[cfg(test)]
 pub(crate) fn arm_provider_session_for_test(
@@ -209,6 +121,11 @@ fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) 
     } else {
         false
     }
+}
+
+pub(crate) fn supersede_tab_launch(tab_id: &str) {
+    LAUNCH_REGISTRY.lock().supersede(tab_id);
+    log::debug!("[launch] tab={tab_id} superseded before restart teardown");
 }
 
 fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
@@ -462,16 +379,17 @@ pub(crate) fn launch_agent_in_background_with_env(
         .then(|| generation::reserve_binding_nonce(&svc, &tab_id, resume_session_id.as_deref()));
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
+    let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
     std::thread::spawn(move || {
+        let pty_claim = svc.pty_ownership.acquire(&tab_id);
         crate::service::agent_restart::timing::stage(&tab_id, "pending", "relaunch-worker");
         let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
-        let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
         let preparation = preparation::start(&svc, &tab_id, &agent_cmd, launch_cmd);
-        let set_booting = |value: bool| {
+        let set_booting = |launch: &LaunchGeneration, value: bool| {
             if !value
                 && crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some_and(|sidecar| {
                     crate::service::codex_rpc::recovery::recovering(&tab_id, &sidecar.launch_nonce)
@@ -479,12 +397,13 @@ pub(crate) fn launch_agent_in_background_with_env(
             {
                 return;
             }
-            if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
-                p.agent_booting = value;
-            }
+            launch.commit_if_current(|| {
+                if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
+                    p.agent_booting = value;
+                }
+            });
             crate::service::boot_wait::notify_boot_changed();
         };
-        let pty_claim = svc.pty_ownership.acquire(&tab_id);
         let existing_pty = existing_live_pty(&svc, &tab_id);
         let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd)
             || crate::service::codex_rpc::launch::requested(&svc, &agent_cmd);
@@ -495,7 +414,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 Err(failure) => {
                     let error = failure.reason();
                     launch.fail(&svc, failure);
-                    set_booting(false);
+                    set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
                     }
@@ -513,7 +432,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                     );
                     launch.fail(&svc, failure);
                     let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
-                    set_booting(false);
+                    set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
                     }
@@ -532,11 +451,10 @@ pub(crate) fn launch_agent_in_background_with_env(
             existing_pty.as_deref(),
             fresh_pty,
         );
-        drop(pty_claim);
         if !selection.linked {
             let error = LaunchFailure::TabClosed.reason();
             launch.fail(&svc, LaunchFailure::TabClosed);
-            set_booting(false);
+            set_booting(&launch, false);
             let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
@@ -544,7 +462,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         let mut pty_id = selection.pty_id;
-        launch.replace(pty_id.clone());
+        if !launch.replace(pty_id.clone()) {
+            return;
+        }
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
@@ -558,7 +478,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             Err(failure) => {
                 let error = failure.reason();
                 launch.fail(&svc, failure);
-                set_booting(false);
+                set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -573,7 +493,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             Ok(command) => command,
             Err(reason) => {
                 launch.fail(&svc, LaunchFailure::LaunchWrite(reason.clone()));
-                set_booting(false);
+                set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(reason));
                 }
@@ -667,7 +587,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 );
                 let error = failure.reason();
                 launch.fail(&svc, failure);
-                set_booting(false);
+                set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -681,7 +601,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             ) {
                 let failure = LaunchFailure::StartupSupervision(error.clone());
                 launch.fail(&svc, failure);
-                set_booting(false);
+                set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -694,14 +614,14 @@ pub(crate) fn launch_agent_in_background_with_env(
                 );
                 let error = failure.reason();
                 launch.fail(&svc, failure);
-                set_booting(false);
+                set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
                 return;
             }
+            set_booting(&launch, false);
             LAUNCH_REGISTRY.lock().finish(&launch);
-            set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Ok(()));
             }
@@ -718,12 +638,13 @@ pub(crate) fn launch_agent_in_background_with_env(
         ) {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
-            set_booting(false);
+            set_booting(&launch, false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
             return;
         }
+        drop(pty_claim);
         let mut wrapped_launch_cmd = command_with_binding_nonce(
             &launch_cmd,
             launch
@@ -753,7 +674,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         {
             let error = LaunchFailure::ShellReadyTimeout.reason();
             launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
-            set_booting(false);
+            set_booting(&launch, false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
@@ -777,7 +698,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         if reader_monitor.closed() {
             let error = LaunchFailure::PtyEof.reason();
             launch.fail(&svc, LaunchFailure::PtyEof);
-            set_booting(false);
+            set_booting(&launch, false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
@@ -804,12 +725,16 @@ pub(crate) fn launch_agent_in_background_with_env(
                             tab_id, replacement, pty_id
                         );
                         pty_id = replacement;
+                        let replacement_claim = svc.pty_ownership.acquire(&tab_id);
+                        if !launch.replace(pty_id.clone()) {
+                            return;
+                        }
                         let replacement_reader = match start_backend_reader(&svc, &pty_id) {
                             Ok(reader) => reader,
                             Err(failure) => {
                                 let error = failure.reason();
                                 launch.fail(&svc, failure);
-                                set_booting(false);
+                                set_booting(&launch, false);
                                 if let Some(tx) = ready_tx {
                                     let _ = tx.send(Err(error));
                                 }
@@ -822,14 +747,13 @@ pub(crate) fn launch_agent_in_background_with_env(
                                 Err(failure) => {
                                     let error = failure.reason();
                                     launch.fail(&svc, failure);
-                                    set_booting(false);
+                                    set_booting(&launch, false);
                                     if let Some(tx) = ready_tx {
                                         let _ = tx.send(Err(error));
                                     }
                                     return;
                                 }
                             };
-                        launch.replace(pty_id.clone());
                         if let Err(error) = launch.capture_binding_nonce(
                             &svc,
                             task_identity.as_ref(),
@@ -840,12 +764,13 @@ pub(crate) fn launch_agent_in_background_with_env(
                         ) {
                             let failure = LaunchFailure::StartupSupervision(error.clone());
                             launch.fail(&svc, failure);
-                            set_booting(false);
+                            set_booting(&launch, false);
                             if let Some(tx) = ready_tx {
                                 let _ = tx.send(Err(error));
                             }
                             return;
                         }
+                        drop(replacement_claim);
                         wrapped_launch_cmd = command_with_binding_nonce(
                             &launch_cmd,
                             launch
@@ -864,7 +789,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                         {
                             let error = LaunchFailure::ShellReadyTimeout.reason();
                             launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
-                            set_booting(false);
+                            set_booting(&launch, false);
                             if let Some(tx) = ready_tx {
                                 let _ = tx.send(Err(error));
                             }
@@ -897,7 +822,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             let failure = LaunchFailure::LaunchWrite(e.to_string());
             let error = failure.reason();
             launch.fail(&svc, failure);
-            set_booting(false);
+            set_booting(&launch, false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
@@ -912,7 +837,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         if !launch.await_remote_attachment(&svc) {
-            set_booting(false);
+            set_booting(&launch, false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(
                     "remote TUI attachment failed; sidecar retained for reattachment".into(),
@@ -938,7 +863,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         if reader_monitor.closed() {
             let error = LaunchFailure::PtyEof.reason();
             launch.fail(&svc, LaunchFailure::PtyEof);
-            set_booting(false);
+            set_booting(&launch, false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
@@ -1007,7 +932,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 Err(refusal) => {
                     let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
                     launch.fail(&svc, failure.clone());
-                    set_booting(false);
+                    set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(failure.reason()));
                     }
@@ -1031,14 +956,14 @@ pub(crate) fn launch_agent_in_background_with_env(
                 "provider composer evidence was not observed before the readiness deadline".into(),
             );
             launch.fail(&svc, failure.clone());
-            set_booting(false);
+            set_booting(&launch, false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(failure.reason()));
             }
             return;
         }
         if session_starts_on_first_turn {
-            set_booting(false);
+            set_booting(&launch, false);
             if !launch.emit_first_turn_input_ready(&svc) {
                 return;
             }
@@ -1051,7 +976,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         let mut bootstrap_consumed = fallback_spec.is_none();
         let bootstrap_draft = fallback_spec.as_ref().map(|spec| spec.payload.clone());
         if let Some(spec) = fallback_spec {
-            set_booting(false);
+            set_booting(&launch, false);
             let delivery_error = match bootstrap::consume(
                 &svc,
                 &readiness_attempt,
@@ -1077,7 +1002,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                     e
                 );
                 launch.fail(&svc, LaunchFailure::TaskDelivery(e.to_string()));
-                set_booting(false);
+                set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(format!("task delivery failed: {}", e)));
                 }
@@ -1089,7 +1014,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
         }
 
-        set_booting(false);
+        set_booting(&launch, false);
         let readiness = if structured {
             crate::service::launch_readiness::LaunchSettlement::Ready
         } else {

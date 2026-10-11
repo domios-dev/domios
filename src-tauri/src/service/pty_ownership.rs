@@ -127,6 +127,10 @@ impl PtyOwnership {
 }
 
 impl TabPtyClaim {
+    pub(crate) fn tab_id(&self) -> &str {
+        &self.tab_id
+    }
+
     pub fn settle(
         &self,
         candidate_pty_id: String,

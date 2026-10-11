@@ -41,42 +41,19 @@ pub async fn spawn_pty_core(
         if let Some(existing) = existing {
             let alive = state.lock().get_session(&existing).is_some();
             if alive {
-                let selected = svc.link_pty_with_claim(
-                    pty_claim.as_ref().expect("Tab claim"),
-                    pid,
-                    existing,
-                    false,
-                );
-                if !selected.linked {
-                    return Err(format!("Tab {} closed before PTY link", pid));
-                }
-                log::info!(
-                    "[spawn_pty] Tab {} already has live pty {} — reusing",
-                    pid,
-                    selected.pty_id,
-                );
                 let restored = mux_state
                     .read()
                     .get_tab(pid)
                     .is_some_and(|tab| tab.restored_from_snapshot && !tab.protected);
-                if restored {
-                    let restore_service = svc.clone();
-                    let restore_tab = pid.clone();
-                    match tokio::task::spawn_blocking(move || {
-                        restore_service.materialize_restored_agent_for_send(&restore_tab)
-                    })
-                    .await
-                    {
-                        Ok(Ok(())) => {}
-                        Ok(Err(error)) => log::error!(
-                            "[spawn_pty] restored launch materialization failed for Tab {pid}: {error}"
-                        ),
-                        Err(error) => log::error!(
-                            "[spawn_pty] restored launch materialization task failed for Tab {pid}: {error}"
-                        ),
-                    }
-                }
-                return Ok(selected.pty_id);
+                let restore_service = svc.clone();
+                return reuse_live_pty_with_claim(
+                    pty_claim.take().expect("Tab claim"),
+                    existing,
+                    restored,
+                    |claim, existing| svc.link_pty_with_claim(claim, pid, existing, false),
+                    move |claim| restore_service.materialize_restored_agent_with_claim(claim),
+                )
+                .await;
             }
         }
         if is_protected {
@@ -183,12 +160,11 @@ pub async fn spawn_pty_core(
         });
         if exact_restore {
             let restore_service = svc.clone();
-            let restore_tab = pid.clone();
-            tokio::task::spawn_blocking(move || {
-                restore_service.materialize_restored_agent_for_send(&restore_tab)
+            let claim = pty_claim.take().expect("Tab claim");
+            materialize_restored_pty_with_claim(claim, move |claim| {
+                restore_service.materialize_restored_agent_with_claim(claim)
             })
-            .await
-            .map_err(|error| error.to_string())??;
+            .await?;
             return Ok(pty_id);
         }
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
@@ -341,6 +317,48 @@ pub async fn spawn_pty_core(
     }
 
     Ok(pty_id)
+}
+
+async fn reuse_live_pty_with_claim(
+    claim: crate::service::pty_ownership::TabPtyClaim,
+    existing: String,
+    restored: bool,
+    link: impl FnOnce(
+        &crate::service::pty_ownership::TabPtyClaim,
+        String,
+    ) -> crate::service::pty_ownership::PtySelection,
+    materialize: impl FnOnce(&crate::service::pty_ownership::TabPtyClaim) -> Result<(), String>
+        + Send
+        + 'static,
+) -> Result<String, String> {
+    let tab_id = claim.tab_id().to_string();
+    let selected = link(&claim, existing);
+    if !selected.linked {
+        return Err(format!("Tab {tab_id} closed before PTY link"));
+    }
+    log::info!(
+        "[spawn_pty] Tab {tab_id} already has live pty {} — reusing",
+        selected.pty_id,
+    );
+    if restored {
+        if let Err(error) = materialize_restored_pty_with_claim(claim, materialize).await {
+            log::error!(
+                "[spawn_pty] restored launch materialization failed for Tab {tab_id}: {error}"
+            );
+        }
+    }
+    Ok(selected.pty_id)
+}
+
+async fn materialize_restored_pty_with_claim(
+    claim: crate::service::pty_ownership::TabPtyClaim,
+    materialize: impl FnOnce(&crate::service::pty_ownership::TabPtyClaim) -> Result<(), String>
+        + Send
+        + 'static,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || materialize(&claim))
+        .await
+        .map_err(|error| format!("restore materialization task failed: {error}"))?
 }
 
 fn dispatch_restored_snapshot_launch(
