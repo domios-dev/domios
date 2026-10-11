@@ -32,6 +32,7 @@ fn claude_signals_auth_overrides_scrape_only_when_available() {
 fn claude_signals_transcript_errors_and_plan_drift_are_typed() {
     let mut signals = ProviderSignals::default();
     signals.observe(&SessionObservations {
+        unavailable_model: None,
         api_error: Some(ApiErrorKind::RateLimit),
         permission_mode: Some(PermissionMode::Plan),
         clears_api_error: false,
@@ -42,6 +43,7 @@ fn claude_signals_transcript_errors_and_plan_drift_are_typed() {
         TabState::RateLimited
     );
     signals.observe(&SessionObservations {
+        unavailable_model: None,
         api_error: None,
         permission_mode: None,
         clears_api_error: true,
@@ -251,5 +253,23 @@ fn provider_access_fermi_fixture_enters_incident_once_and_recovers() {
     assert_eq!(
         incident_transition(before, signals.access_lost()),
         IncidentTransition::Recover
+    );
+}
+
+#[test]
+fn structured_sqlite_error_observations_reach_only_the_claimed_session() {
+    let delta: codeterm_types::agent::chat_types::StructuredChat = serde_json::from_value(serde_json::json!({
+        "messages":[{"id":"error:failed","type":"system","systemSubtype":"api_error","content":"Model exo-free has been deprecated"}],
+        "observations":[{"provider_session_id":"own","provider_observations":{"api_error":"other"}}]
+    })).unwrap();
+    let mut foreign = ProviderSignals::default();
+    observe_records(&mut foreign, "foreign", &delta.observations, false);
+    assert_eq!(foreign.api_error, None);
+    let mut own = ProviderSignals::default();
+    observe_records(&mut own, "own", &delta.observations, false);
+    assert_eq!(own.api_error, Some(ApiErrorKind::Other));
+    assert_eq!(
+        delta.messages[0].system_subtype.as_deref(),
+        Some("api_error")
     );
 }

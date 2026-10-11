@@ -51,6 +51,14 @@ parity fixtures. The host runs probes on a worker thread and consumes observatio
 only when the provider's `structured_signals` setting is enabled (default false).
 No new sandbox host function is exposed by these capabilities.
 
+`readStructuredChat` may return `observations` alongside its Chat rows: session-scoped
+RichMessages carrying `provider_observations`. The host consumes them on initial
+Chat reads, live deltas, provider error events and heartbeat reads. An exact own
+session is required; `unavailable_model` removes a confirmed non-retryable model
+failure from the cached catalogue. Assistant API errors render as `system` rows
+with `systemSubtype: "api_error"`. A successful completed assistant clears the
+API error. No new sandbox host function is needed.
+
 `modelCatalogueSeed()` decorates the manifest seed once at provider registration;
 it must be pure and must not probe a binary or network. Per-model effort launch
 mapping uses `reasoningEffortLaunchArgsForModel(model, effort)` with native parity.

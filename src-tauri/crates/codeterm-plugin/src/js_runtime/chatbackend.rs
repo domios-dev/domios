@@ -347,6 +347,7 @@ impl ChatBackendProvider for JsChatBackend {
                     cursor: None,
                     // Legacy list pollers do not advertise busy state, so watcher arming is host-gated only.
                     done: None,
+                    ..Default::default()
                 }
             }
             PollOut::Wrapped {
@@ -359,6 +360,7 @@ impl ChatBackendProvider for JsChatBackend {
                     messages,
                     cursor,
                     done,
+                    ..Default::default()
                 }
             }
         })

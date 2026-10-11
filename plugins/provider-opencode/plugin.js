@@ -24,6 +24,63 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-opencode/src/turnErrors.ts
+function turnError(value) {
+  if (!value || typeof value !== "object") return null;
+  const message = value;
+  return message.role === "assistant" && message.error?.name === "APIError" ? message.error : null;
+}
+function sessionObservations(value) {
+  const error = turnError(value);
+  if (!error) {
+    const message2 = value;
+    return message2?.role === "assistant" && !message2.error && typeof message2.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
+  }
+  const status = error.data?.statusCode;
+  const message = value;
+  const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
+  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+}
+function unavailableModelError(value) {
+  const error = turnError(value);
+  return error?.data?.isRetryable === false && (error.data.statusCode === 410 || /\bmodel\b.*\b(deprecated|unavailable|not found|does not exist|not supported)\b/i.test(error.data.message ?? ""));
+}
+function modelMetadata(stdout) {
+  const metadata = /* @__PURE__ */ new Map();
+  let id = null;
+  let lines2 = [];
+  const finish = () => {
+    if (!id) return;
+    try {
+      const value = JSON.parse(lines2.join("\n"));
+      if (value && typeof value === "object" && !Array.isArray(value)) metadata.set(id, value);
+    } catch {
+    }
+  };
+  for (const line of stdout.split("\n")) {
+    if (/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(line.trim())) {
+      finish();
+      id = line.trim();
+      lines2 = [];
+    } else if (id) lines2.push(line);
+  }
+  finish();
+  return metadata;
+}
+function modelUnavailable(metadata) {
+  return metadata?.status === "deprecated" || metadata?.status === "unavailable" || metadata?.deprecated === true || metadata?.available === false;
+}
+function rejectedModelIds(rows) {
+  const seen = /* @__PURE__ */ new Set();
+  const rejected = /* @__PURE__ */ new Set();
+  for (const { model, message } of rows) {
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    if (unavailableModelError(message)) rejected.add(model);
+  }
+  return rejected;
+}
+
 // plugins/provider-shared/updateCheck.ts
 function record(raw) {
   if (typeof raw !== "string") return null;
@@ -378,7 +435,7 @@ function opencodeFileDiffs(path, edits, metadata) {
 }
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v8";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v9";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -566,17 +623,30 @@ function discoverOpencodeModels() {
   }));
   const result = safeJson(raw);
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  return parseOpencodeModels(result.stdout);
+  const models2 = parseOpencodeModels(result.stdout);
+  const db = opencodeDbPath();
+  if (!models2 || !db || !host.fs.fileExists(db)) return models2;
+  const rows = host.fs.sqliteQuery(
+    db,
+    "SELECT data FROM message WHERE octet_length(data) <= ?1 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY time_updated DESC LIMIT 1000",
+    [ASSISTANT_MESSAGE_MAX_BYTES]
+  );
+  const rejected = rejectedModelIds(rows.map((row) => {
+    const message = safeJson(row.data);
+    return { model: sessionModelIdentity(message), message };
+  }));
+  return models2.filter((model) => !rejected.has(model.id));
 }
 function parseOpencodeModels(stdout) {
   if (stdout.length > 1048576) return null;
   const lines2 = stdout.split("\n");
   const variants = parseModelVariants(stdout);
+  const metadata = modelMetadata(stdout);
   const models2 = [];
   for (let i = 0; i < lines2.length; i++) {
     const id = lines2[i].trim();
     if (!isModelId(id)) continue;
-    if (isNonChatModel(id)) continue;
+    if (isNonChatModel(id) || modelUnavailable(metadata.get(id))) continue;
     const efforts = variants.get(id);
     models2.push({
       id,
@@ -585,7 +655,7 @@ function parseOpencodeModels(stdout) {
       ...efforts ? { reasoningEfforts: efforts, ...efforts.length ? { defaultReasoningEffort: "default" } : {} } : {}
     });
   }
-  return models2.length ? models2 : null;
+  return models2.length || metadata.size ? models2 : null;
 }
 function groupFromModelId(id) {
   const slash = id.split("/");
@@ -1007,7 +1077,7 @@ function opencodeBindingPluginSource() {
     "",
     "async function reportProviderEvent(event, directory) {",
     "  const sessionID = eventSessionID(event);",
-    "  if (!(await report(sessionID, event.type, eventDirectory(event, directory)))) return;",
+    "  if (sessionID !== lastReported) return;",
     '  const url = endpoint("provider_event");',
     "  if (!url) return;",
     "  await fetch(url, {",
@@ -1034,7 +1104,7 @@ function opencodeBindingPluginSource() {
     "  return {",
     "    async event({ event }) {",
     "      await startupBinding;",
-    '      if (event?.type === "session.error" || event?.type === "session.idle" || (event?.type === "session.status" && event?.properties?.status?.type === "busy")) {',
+    '      if ((event?.type === "message.updated" && event?.properties?.info?.role === "assistant" && event?.properties?.info?.error?.name === "APIError") || event?.type === "session.error" || event?.type === "session.idle" || (event?.type === "session.status" && event?.properties?.status?.type === "busy")) {',
     "        await reportProviderEvent(event, directory);",
     "        return;",
     "      }",
@@ -1532,7 +1602,7 @@ var plugin = {
     const events = [];
     try {
       const event = JSON.parse(t);
-      if (event?.type === "session.error") events.push("turn_error");
+      if (event?.type === "session.error" || event?.type === "message.updated" && turnError(event.properties?.info)) events.push("turn_error");
       if (event?.type === "session.idle") events.push("task_complete");
       if (event?.type === "session.status" && event.properties?.status?.type === "busy") {
         events.push("turn_started");
@@ -1821,6 +1891,7 @@ var plugin = {
     if (!part || typeof part !== "object" || part.state?.status !== "completed") return null;
     return toolFileDiffs(part);
   },
+  parseSessionObservations: sessionObservations,
   usesStructuredChat() {
     return true;
   },
@@ -1832,10 +1903,11 @@ var plugin = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC",
       [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
     );
     const messages = [];
+    const observations = [];
     let lastTs = sinceMs;
     let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
@@ -1848,6 +1920,14 @@ var plugin = {
       }
       if (seenAtLastTs.indexOf(id) !== -1) continue;
       seenAtLastTs.push(id);
+      const message = safeJson(rows[i].message);
+      const observation = sessionObservations(message);
+      if (observation) observations.push({ provider_session_id: sessionId, provider_observations: observation });
+      const error = turnError(message);
+      if (error) {
+        messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+        continue;
+      }
       const part = safeJson(rows[i].part);
       if (!part) continue;
       const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
@@ -1855,7 +1935,7 @@ var plugin = {
       if (cm) messages.push(cm);
     }
     seenAtLastTs.sort();
-    return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+    return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
 function resumeLaunchArgs(args, sessionId) {
