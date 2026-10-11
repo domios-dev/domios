@@ -2959,6 +2959,18 @@ Validate a plugin directory without installing it: strict manifest parse (the da
 
 - `<dir>` — Path to the plugin directory (the folder containing plugin.json)
 
+#### `codeterm rest-api`
+
+Inspect and recover the local REST listener through the socket
+
+#### `codeterm rest-api restart`
+
+Restart the REST listener and wait for readiness or a reported failure
+
+#### `codeterm rest-api status`
+
+Show listener phase and the last bind or runtime error over the local socket
+
 #### `codeterm send`
 
 Send text to a tab (default: current tab)

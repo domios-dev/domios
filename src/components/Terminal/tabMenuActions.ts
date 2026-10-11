@@ -15,6 +15,7 @@ import {
 import { closeTelegramThread, openTelegramThread } from "./telegramThreadActions";
 
 export interface TabMenuSurfaceHandlers {
+  sessionBindingNonce?: string | null;
   rename?: () => void;
   close?: () => void;
 }
@@ -32,9 +33,9 @@ export async function performTabMenuAction(
       handlers.close?.();
       return;
     case "makeOrchestrator":
-      return makeOrchestrator(tabId);
+      return makeOrchestrator(tabId, handlers.sessionBindingNonce ?? undefined);
     case "makePlanner":
-      return makePlanner(tabId, action.planId);
+      return makePlanner(tabId, action.planId, handlers.sessionBindingNonce ?? undefined);
     case "switchModel":
       return switchTabModel(action.view, action.modelId);
     case "switchProvider":

@@ -41,7 +41,8 @@ fn transport_tabs_contract_attach_replay_and_truncation() {
     output.append("pty", b"first");
     output.append("pty", &[0x1b, 0xff, 0x82, 0xac]);
     let (bytes, offset) = output.read_since("pty", 0);
-    assert_eq!(bytes, vec![0x1b, 0xff, 0x82, 0xac]);
+    assert_eq!(output.get("pty"), Some(&[0x1b, 0xff, 0x82, 0xac][..]));
+    assert_eq!(bytes, b"first\x1b\xff\x82\xac");
     assert_eq!(offset, 9);
     for _client in ["desktop", "browser"] {
         let (replay, next) = output.read_since("pty", 0);
@@ -57,6 +58,30 @@ fn transport_tabs_contract_attach_replay_and_truncation() {
             "output": String::from_utf8_lossy(&bytes), "data": bytes, "offset": 9
         })
     );
+
+    const FULL_HISTORY_LIMIT: usize = 2 * 1024 * 1024;
+    let mut written = vec![b'x'; FULL_HISTORY_LIMIT + 5];
+    let tail = written.len() - 4;
+    written[tail..].copy_from_slice(&[0x1b, 0xff, 0x82, 0xac]);
+    output.append("truncated-pty", &written);
+    let expected_retained = &written[5..];
+    for _client in ["desktop", "browser"] {
+        let (replay, next) = output.read_since("truncated-pty", 0);
+        assert_eq!(replay, expected_retained);
+        assert_eq!(replay.len(), FULL_HISTORY_LIMIT);
+        assert_eq!(next, written.len() as u64);
+        assert_eq!(next - replay.len() as u64, 5);
+        assert_eq!(
+            output.read_since("truncated-pty", 4),
+            (replay.clone(), next)
+        );
+        assert_eq!(output.read_since("truncated-pty", 5), (replay, next));
+        assert_eq!(
+            output.read_since("truncated-pty", next - 4).0,
+            [0x1b, 0xff, 0x82, 0xac]
+        );
+        assert!(output.read_since("truncated-pty", next).0.is_empty());
+    }
 }
 
 #[test]
@@ -153,9 +178,13 @@ async fn transport_tabs_contract_cwd_persistence_envelopes_and_status() {
         json!({ "ok": true })
     );
     let snapshot = fixture.service.mux.read().to_session_snapshot();
-    let storage =
-        crate::session::store::StorageDeskAdapter::open(fixture.temp.path().join("persisted-desk"))
-            .unwrap();
+    let storage = crate::session::store::StorageDeskAdapter::from_storage(
+        crate::storage::Storage::open(
+            fixture.temp.path().join("persisted-desk"),
+            crate::storage::StorageConfig::default(),
+        )
+        .unwrap(),
+    );
     storage.import_snapshot(&snapshot, Vec::new()).unwrap();
     let restored = MultiplexerState::from_session_snapshot(&storage.snapshot().unwrap());
     assert_eq!(

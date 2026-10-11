@@ -84,7 +84,7 @@ export function useAttachments({
     if (clean.length) deliver(await classifyAttachmentPaths(clean));
   }, [deliver]);
 
-  const uploads = useAttachmentUploads((paths) => void deliverPaths(paths));
+  const uploads = useAttachmentUploads(deliverPaths);
 
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     if (handledPastes.has(e)) return;

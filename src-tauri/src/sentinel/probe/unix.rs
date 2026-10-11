@@ -13,7 +13,7 @@ use super::cancellation::{
 use super::capture::{self, CaptureData};
 use super::environment::Environment;
 use super::owner::{ProbeResourceOwner, Reservation, RetainedResources, Settlement};
-use super::process::{cancellation_target, Deadlines, LeaderOwnership, ProbeFailure, ResourceKind};
+use super::process::{Deadlines, LeaderOwnership, ProbeFailure, ResourceKind};
 use super::Output;
 use wait_timeout::ChildExt;
 
@@ -140,7 +140,6 @@ struct UnixRun {
     ownership: LeaderOwnership,
     group_registered: bool,
     group_retired: bool,
-    group_observed: bool,
     group_unconfirmed: bool,
     stdout: Stream,
     stderr: Stream,
@@ -168,7 +167,6 @@ impl UnixRun {
             ownership: LeaderOwnership::Unspawned,
             group_registered: false,
             group_retired: false,
-            group_observed: false,
             group_unconfirmed: false,
             stdout: Stream::default(),
             stderr: Stream::default(),
@@ -506,10 +504,9 @@ impl UnixRun {
     }
 
     fn observe_final_group(&mut self) {
-        if self.group_retired || self.group_observed {
+        if self.group_retired {
             return;
         }
-        self.group_observed = true;
         if self.ownership == LeaderOwnership::Lost
             || self.child_id <= 1
             || self.child_id > i32::MAX as u32
@@ -524,10 +521,10 @@ impl UnixRun {
             self.mark_unconfirmed(ResourceKind::ProcessGroup);
             return;
         }
-        let result = unsafe { libc::kill(-(self.child_id as i32), 0) };
-        let error = io::Error::last_os_error();
-        if result == -1 && error.raw_os_error() == Some(libc::ESRCH) {
+        let observation = super::group_retirement::observe_retired(self.ownership, self.child_id);
+        if matches!(observation, Ok(true)) {
             self.group_retired = true;
+            self.group_unconfirmed = false;
             if let Some(reservation) = self.reservation.as_mut() {
                 reservation.release_process_admission();
             }
@@ -537,8 +534,8 @@ impl UnixRun {
             self.group_unconfirmed = true;
             self.set_failure("probe_group_completion_unconfirmed");
             self.mark_unconfirmed(ResourceKind::ProcessGroup);
-            if result == -1 {
-                self.add_cleanup_error(error.to_string());
+            if let Err(error) = observation {
+                self.add_cleanup_error(error);
             }
         }
     }
@@ -555,7 +552,7 @@ impl UnixRun {
             .hard
             .max(Instant::now() + super::PROBE_RUNTIME);
         if self.ownership == LeaderOwnership::Retained(self.child_id) {
-            self.request_cancel(failure);
+            self.cancel_attempted = true;
             match super::group_retirement::retire(
                 self.ownership,
                 self.child_id,
@@ -598,10 +595,6 @@ impl UnixRun {
                     break;
                 }
             }
-            if self.owner_is_closing() && self.ownership == LeaderOwnership::Retained(self.child_id)
-            {
-                self.request_cancel(failure);
-            }
         }
         if !self.has_open_streams()
             && self.group_retired
@@ -633,25 +626,6 @@ impl UnixRun {
             for resource in cleanup_failure.unconfirmed {
                 failure.unconfirmed(resource);
             }
-        }
-    }
-
-    fn request_cancel(&mut self, failure: &mut ProbeFailure) {
-        if self.cancel_attempted {
-            return;
-        }
-        self.cancel_attempted = true;
-        let target = cancellation_target(self.ownership, self.child_id);
-        let pgid = match target {
-            Ok(pgid) => pgid,
-            Err(error) => {
-                failure.cleanup_error(error);
-                self.mark_unconfirmed(ResourceKind::ProcessGroup);
-                return;
-            }
-        };
-        if unsafe { libc::kill(-pgid, libc::SIGKILL) } != 0 {
-            failure.cleanup_error(io::Error::last_os_error().to_string());
         }
     }
 
@@ -976,9 +950,9 @@ impl RetainedResources for UnixPending {
             return false;
         }
         if !self.run.group_retired {
-            let result = unsafe { libc::kill(-(self.run.child_id as i32), 0) };
             self.run.group_retired =
-                result == -1 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+                super::group_retirement::observe_retired(self.run.ownership, self.run.child_id)
+                    .unwrap_or(false);
         }
         self.run.group_retired
     }
@@ -993,9 +967,9 @@ impl RetainedResources for UnixPending {
     }
 
     fn request_cancel(&mut self) -> Vec<String> {
-        let mut failure = ProbeFailure::new("probe_cleanup");
-        self.run.request_cancel(&mut failure);
-        failure.cleanup_errors
+        // wait_events must arm exit observation before sending destructive signals.
+        self.run.cancel_attempted = true;
+        Vec::new()
     }
 
     fn wait_for_settlement(&mut self) -> Settlement {

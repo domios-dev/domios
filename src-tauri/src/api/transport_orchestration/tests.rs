@@ -256,7 +256,11 @@ fn transport_orchestration_contract_plan_envelopes_and_project_scope() {
     use crate::api::plan_routes::plans::{filter_plan_project, plan_list_response, ListPlansQuery};
     use crate::plan::{OrchestratorRef, Plan, PlanStatus};
     use crate::service::plan::IndexEntry;
-    let query: ListPlansQuery = serde_urlencoded::from_str("full=1&project=%2Frepo%2Fa").unwrap();
+    let query: ListPlansQuery = axum::extract::Query::try_from_uri(
+        &"/api/plans?full=1&project=%2Frepo%2Fa".parse().unwrap(),
+    )
+    .unwrap()
+    .0;
     assert_eq!(query.full, Some(true));
     assert_eq!(query.project.as_deref(), Some("/repo/a"));
     let mut first = Plan::new("First".into(), "/repo/a".into(), OrchestratorRef::default());

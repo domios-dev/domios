@@ -92,3 +92,21 @@ test("a WebKit read failure retains the original file and retries reading before
   assert.equal(reads, 2);
   assert.deepEqual(attached, [["/uploads/image.png"]]);
 });
+
+test("upload remains pending until its attachment is committed to the draft", async () => {
+  let uploads: AttachmentUpload[] = [];
+  let finishAttach!: () => void;
+  let attachStarted!: () => void;
+  const started = new Promise<void>(resolve => { attachStarted = resolve; });
+  const controller = createAttachmentUploads({
+    store: async () => "/uploads/file.txt",
+    attach: () => new Promise<void>(resolve => { finishAttach = resolve; attachStarted(); }),
+    publish: next => { uploads = next; },
+  });
+  const pending = controller.add(new Blob(["draft attachment"]), "file.txt");
+  await started;
+  assert.equal(uploads[0].state, "uploading");
+  finishAttach();
+  await pending;
+  assert.deepEqual(uploads, []);
+});
