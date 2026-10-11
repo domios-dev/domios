@@ -12,7 +12,9 @@ import { fixtureSign, verifySignature, productionSign } from './sign.mjs';
 import { publishRelease } from './publish.mjs';
 import { prepare, isDryRun } from './release.mjs';
 const fixture = fileURLToPath(new URL('./fixtures/', import.meta.url));
-const contract = JSON.parse(await readFile(new URL('../../frontend-release-contract.json', import.meta.url), 'utf8'));
+const releaseContract = JSON.parse(await readFile(new URL('../../frontend-release-contract.json', import.meta.url), 'utf8'));
+// Fixtures are signed for 1.0.0; the shipped contract version moves independently of them.
+const contract = { ...releaseContract, version: '1.0.0' };
 const publicKey = await readFile(path.join(fixture, 'frontend-test.pub'), 'utf8');
 const privateKey = await readFile(path.join(fixture, 'frontend-test.pem'), 'utf8');
 const archive = await deterministicArchive(path.join(fixture, 'dist'));
@@ -125,4 +127,7 @@ test('pull requests always force fixture dry run even when requested flag is fal
   assert.equal(isDryRun('workflow_dispatch', 'true'), true);
   assert.equal(isDryRun('workflow_dispatch', 'false'), false);
   assert.equal(isDryRun('push', undefined), false);
+});
+test('the shipped contract version is a valid frontend tag version', () => {
+  assert.equal(validateTag(`frontend-v${releaseContract.version}`, releaseContract), releaseContract.version);
 });
