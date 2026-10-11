@@ -16,12 +16,12 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
   return {
     answer_notification: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/answer`, { label: s(a, "label") }),
-    chatbackend_describe_model_switch: (a) =>
-      webJson("POST", "/api/plugins/chatbackend/describe-model-switch", {
-        pluginId: s(a, "pluginId"),
-        sessionId: s(a, "sessionId"),
-        model: s(a, "model"),
-      }),
+    restore_provider_integration: (a) =>
+      webJson("POST", `/api/setup/hooks/restore?provider=${enc(s(a, "providerId"))}`),
+    check_provider_rule: (a) =>
+      webJson("GET", `/api/setup/rules?provider=${enc(s(a, "providerId"))}`),
+    install_provider_rule: (a) =>
+      webJson("POST", `/api/setup/rules/install?provider=${enc(s(a, "providerId"))}`),
     chatbackend_session_info: (a) =>
       webJson("POST", "/api/plugins/chatbackend/session-info", {
         pluginId: s(a, "pluginId"),

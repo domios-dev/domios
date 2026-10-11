@@ -110,15 +110,14 @@ describe("audited command registry", () => {
     await dispatchCommand(registry, "mesh_remote_tab_action", { peerId: "peer", ordinaryTabId: "mesh:peer/tab", suffix: "/inspect", method: "GET" });
     expect(localCalls).toEqual(["/api/mesh/relay-to", "/api/mesh/peers", "/api/mesh/relay-to"]);
   });
-  it("covers native Settings schema commands with audited routes or explicit refusal", async () => {
+  it("covers native Settings schema commands with audited routes", async () => {
     const source = readFileSync("src-tauri/crates/codeterm-plugin/src/agent_claude/provider/schemas.rs", "utf8");
     const names = [...source.matchAll(/(?:query_command|command):\s*"([a-z_]+)"/g)].map(match => match[1]);
-    const refused = ["restore_provider_integration", "check_provider_rule", "install_provider_rule"];
     const { client, calls } = fixture();
     const registry = createCommandRegistry(client);
     for (const name of names) {
       if (Object.prototype.hasOwnProperty.call(registry, name)) expect(Object.prototype.hasOwnProperty.call(fixtures.commands, name)).toBe(true);
-      else { expect(refused).toContain(name); await expect(dispatchCommand(registry, name)).rejects.toThrow("No audited HTTP route"); }
+      else throw new Error(`Missing schema route: ${name}`);
     }
     for (const name of ["toString", "constructor", "__proto__", "arbitrary_rust_command"]) await expect(dispatchCommand(registry, name)).rejects.toThrow("No audited HTTP route");
     expect(calls).toEqual([]);
