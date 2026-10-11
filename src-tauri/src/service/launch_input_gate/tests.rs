@@ -5,6 +5,9 @@ use crate::agent::test_provider::MockProvider;
 #[path = "tests/reserved_nonce.rs"]
 mod reserved_nonce;
 
+#[path = "tests/restored_continue.rs"]
+mod restored_continue;
+
 #[test]
 fn trust_frame_is_never_composer_evidence() {
     let input = codeterm_pty::pty::screen_state::ComposerInputState {
