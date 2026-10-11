@@ -99,10 +99,16 @@ impl FrontendBundles {
             self.api_version,
             self.allow_loopback,
         )?;
-        self.change(|state| state.stage(&verified))?;
+        let mut newly_pending = false;
+        self.change(|state| {
+            newly_pending = state.stage(&verified)?;
+            Ok(())
+        })?;
         let manifest = verified.manifest();
         let event = serde_json::json!({"releaseId": manifest.release_id, "version": manifest.version, "minApiVersion": manifest.min_api_version, "maxApiVersion": manifest.max_api_version});
-        (self.emit)("frontend-update-ready", event);
+        if newly_pending {
+            (self.emit)("frontend-update-ready", event);
+        }
         Ok(self.status())
     }
 

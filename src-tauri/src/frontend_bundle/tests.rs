@@ -517,3 +517,23 @@ async fn frontend_bundle_routes_contract_verified_activation_assets_health_and_r
     assert!(status["active"].is_null());
     assert_eq!(status["quarantined"][0], "frontend-v1.0.0");
 }
+
+#[test]
+fn frontend_bundle_activation_duplicate_checks_do_not_request_repeated_swaps() {
+    let mut state = Activation::default();
+    assert!(state.stage(&verified()).unwrap());
+    assert!(!state.stage(&verified()).unwrap());
+    state
+        .begin(
+            &fixture().release_id,
+            BTreeMap::from([("client-a".into(), "token-a".into())]),
+            100,
+            2,
+        )
+        .unwrap();
+    state
+        .healthy(&fixture().release_id, 1, "client-a", "token-a")
+        .unwrap();
+    assert!(!state.stage(&verified()).unwrap());
+    assert!(state.pending.is_none());
+}
