@@ -28,6 +28,16 @@ impl FrontendReadySignal {
         self.state.lock().generation
     }
 
+    fn observe_boot(&self) -> u64 {
+        let mut state = self.state.lock();
+        if state.ready_generation == Some(state.generation) {
+            state.generation = state.generation.wrapping_add(1);
+            state.ready_generation = None;
+            self.changed.notify_all();
+        }
+        state.generation
+    }
+
     fn mark_ready(&self, generation: u64) -> bool {
         let mut state = self.state.lock();
         if state.generation == generation && state.ready_generation != Some(generation) {
@@ -73,6 +83,10 @@ pub(crate) fn frontend_readiness_generation() -> u64 {
     frontend_ready_signal().generation()
 }
 
+pub(crate) fn observe_frontend_boot() -> u64 {
+    frontend_ready_signal().observe_boot()
+}
+
 pub(crate) fn mark_frontend_ready(generation: u64) -> bool {
     frontend_ready_signal().mark_ready(generation)
 }
@@ -86,6 +100,21 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
     use std::time::Duration;
+
+    #[test]
+    fn frontend_shell_contract_reload_requires_a_new_committed_root() {
+        let signal = FrontendReadySignal::default();
+        let initial = signal.arm();
+        assert_eq!(signal.observe_boot(), initial);
+        assert!(signal.mark_ready(initial));
+        let replacement = signal.observe_boot();
+        assert_ne!(replacement, initial);
+        assert!(!signal.mark_ready(initial));
+        assert!(!signal.wait_until(replacement, Instant::now()));
+        assert_eq!(signal.observe_boot(), replacement);
+        assert!(signal.mark_ready(replacement));
+        assert!(signal.wait_until(replacement, Instant::now()));
+    }
 
     #[test]
     fn transport_bootstrap_contract_frontend_ready_event_wakes_armed_waiter() {
