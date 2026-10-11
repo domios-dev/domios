@@ -1,3 +1,5 @@
+import type { ChatContentAnchor } from "./chatAnchorModel";
+
 const VIEWPORT_TOLERANCE_PX = 0.5;
 
 export interface ChatViewportGeometry {
@@ -63,6 +65,7 @@ export function shouldRestoreChatViewport(
 }
 
 export interface ChatScrollState {
+  anchor?: ChatContentAnchor | null;
   mode: ChatViewportMode;
   scrollTop: number;
 }
