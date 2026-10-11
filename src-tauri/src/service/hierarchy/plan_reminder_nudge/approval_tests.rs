@@ -1146,3 +1146,4 @@ fn plan_reminder_choice_bounded_claim_cleanup_and_failure() {
 }
 
 mod blocked;
+mod cadence;
