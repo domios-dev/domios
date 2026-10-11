@@ -189,12 +189,11 @@ pub struct NotificationStore {
     push_slots: HashMap<(String, NotifyLevel), PushSlot>,
     /// Lifetime push count per scope. A count, so no clock can advance it.
     push_counts: HashMap<String, u32>,
+    question_slots: HashMap<(String, String), String>,
     /// Live identities of unread records: the same message twice opens one.
     deliveries: DeliveryLedger,
     /// Standing conditions already announced, so re-observation stays quiet.
     conditions: ConditionLedger,
-    /// Condition records a newer notice of the same condition replaced; the
-    /// service drains these to tell every surface they resolved.
     superseded: Vec<String>,
     persistence: Option<Persistence>,
 }
@@ -206,6 +205,7 @@ impl NotificationStore {
             max_notifications: max,
             push_slots: HashMap::new(),
             push_counts: HashMap::new(),
+            question_slots: HashMap::new(),
             deliveries: DeliveryLedger::default(),
             conditions: ConditionLedger::default(),
             superseded: Vec::new(),
@@ -310,6 +310,8 @@ impl NotificationStore {
         while self.notifications.len() > self.max_notifications {
             let evicted = self.notifications.remove(0);
             self.close_push_slot_for(&evicted.id);
+            self.question_slots
+                .retain(|_, id| id.as_str() != evicted.id.as_str());
             self.deliveries.release(&evicted.id);
         }
 
@@ -343,7 +345,6 @@ impl NotificationStore {
         None
     }
 
-    /// Records resolved because a newer notice of their condition replaced them.
     pub fn take_superseded(&mut self) -> Vec<String> {
         std::mem::take(&mut self.superseded)
     }
@@ -462,9 +463,47 @@ impl NotificationStore {
         self.conditions.observe_absent(scope, condition);
     }
 
+    pub(crate) fn supersede_question(&mut self, scope: &str, event_key: &str) {
+        let Some(id) = self
+            .question_slots
+            .remove(&(scope.to_string(), event_key.to_string()))
+        else {
+            return;
+        };
+        let unanswered = self.notification(&id).is_some_and(|record| {
+            !record.resolved
+                && record
+                    .answer
+                    .as_ref()
+                    .is_some_and(|slot| slot.answered.is_none())
+        });
+        if unanswered && self.resolve_id(&id) {
+            self.superseded.push(id.clone());
+        }
+        self.close_push_slot_for(&id);
+        self.deliveries.release(&id);
+    }
+
+    pub(crate) fn remember_question(&mut self, scope: String, event_key: String, id: &str) {
+        if self
+            .notification(id)
+            .is_some_and(|record| record.condition.is_none() && record.answer.is_some())
+        {
+            self.question_slots.insert((scope, event_key), id.into());
+        }
+    }
+
     /// Admit a push-eligible notification. Dedup and coalescing are decided
     /// here so no caller can opt out of them.
     pub fn add_push(&mut self, request: PushRequest) -> PushAdmission {
+        let asks_question = answer::slot_for(
+            request.ask.actions.as_deref(),
+            request.provenance.tab_id.as_deref(),
+        )
+        .is_some();
+        if request.ask.condition.is_none() {
+            self.supersede_question(&request.scope, &request.event_key);
+        }
         if let Some(id) = self.admit_condition(
             &request.provenance,
             request.ask.condition,
@@ -482,7 +521,9 @@ impl NotificationStore {
         });
 
         if let Some((true, id)) = &open {
-            return PushAdmission::Duplicate(id.clone());
+            if !asks_question || request.ask.condition.is_some() {
+                return PushAdmission::Duplicate(id.clone());
+            }
         }
 
         let PushRequest {
@@ -500,7 +541,8 @@ impl NotificationStore {
         // Questions cannot be coalesced because rewriting one under the user's finger could make a tap answer a different record.
         // A condition record resolves on its own event, so it never absorbs or becomes another notice.
         let reused = open.and_then(|(_, id)| {
-            (!self.offers_choice(&id)
+            (!asks_question
+                && !self.offers_choice(&id)
                 && ask.condition.is_none()
                 && self
                     .notification(&id)
@@ -521,6 +563,7 @@ impl NotificationStore {
             None => self.add_ext(title, body, severity, provenance, ask, None, Some(level)),
         };
 
+        self.remember_question(scope.clone(), event_key.clone(), &id);
         self.push_slots.insert(
             slot_key,
             PushSlot {
@@ -588,6 +631,7 @@ impl NotificationStore {
         self.push_slots
             .retain(|(slot_scope, _), _| slot_scope != scope);
         self.push_counts.remove(scope);
+        self.question_slots.retain(|(asker, _), _| asker != scope);
         self.deliveries.release_scope(scope);
         self.conditions.close_scope(scope);
     }
@@ -682,11 +726,14 @@ impl NotificationStore {
         match id {
             Some(id) => {
                 self.notifications.retain(|n| n.id != id);
+                self.question_slots
+                    .retain(|_, question_id| question_id.as_str() != id);
                 self.close_push_slot_for(id);
                 self.deliveries.release(id);
             }
             None => {
                 self.notifications.clear();
+                self.question_slots.clear();
                 self.push_slots.clear();
                 self.deliveries.clear();
             }
