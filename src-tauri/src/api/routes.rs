@@ -822,6 +822,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/peers/{id}/access",
             post(mesh_routes::mesh_set_access),
         );
+    let router = domain_transport_routes(router);
     let router = super::memory_router::memory_routes(router);
     let router = router
         .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
@@ -1005,6 +1006,12 @@ pub fn create_router(state: AppState) -> Router {
             mem_routes::decision::supporter_error_envelope,
         ))
         .with_state(state)
+}
+
+fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
+    router
+        .merge(super::transport_tabs::router())
+        .merge(super::transport_capabilities::router())
 }
 
 #[cfg(test)]
