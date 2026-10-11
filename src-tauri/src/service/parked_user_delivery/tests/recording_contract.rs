@@ -391,6 +391,11 @@ fn lark_recording_contract_pty_valid_ordinary_tracked_voice_once() {
         }),
     );
     let marker = codeterm_types::message_markers::voice("owned-audio", Some("speech-token"), None);
+    let expected = fixture
+        .service
+        .prepare_chat_send_text(&tab, marker.clone(), true)
+        .unwrap()
+        .0;
     let accepted = fixture
         .service
         .admit_recording_voice(
@@ -401,7 +406,7 @@ fn lark_recording_contract_pty_valid_ordinary_tracked_voice_once() {
         .unwrap();
     let (authority, payload) = write_rx.recv_timeout(TEST_DEADLINE).unwrap();
     assert_eq!(FrozenTarget::Pty(authority), frozen);
-    assert_eq!(payload, format!("\n\n{marker}"));
+    assert_eq!(payload, expected);
     await_owner_idle(&fixture, &tab);
     assert!(write_rx.try_recv().is_err());
     assert_eq!(
