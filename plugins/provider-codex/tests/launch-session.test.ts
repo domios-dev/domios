@@ -5,6 +5,7 @@
  * Run: node node_modules/tsx/dist/cli.mjs plugins/provider-codex/tests/launch-session.test.ts
  */
 
+import { readFileSync } from "node:fs";
 import { detectCodexLaunchSession, withLaunchMarker } from "../src/launchSession";
 import plugin from "../src/plugin";
 
@@ -93,6 +94,19 @@ eq(
   null,
   "a rollout whose session_meta names another thread names nothing",
 );
+
+// Captured 0.160.0 metadata/developer records, with identity and instruction text redacted.
+const fixture = readFileSync(new URL("./fixtures/launch-session-0.160.0.jsonl", import.meta.url), "utf8");
+threads.length = 0;
+for (const [id, marker] of [["launch-a", MARKER], ["launch-b", OTHER_MARKER]]) {
+  addThread(id, 1_789_000_010, "unused");
+  files[`/codex/sessions/rollout-${id}.jsonl`] = fixture
+    .replaceAll("fixture-session-0.160.0", id).replaceAll(MARKER, marker);
+}
+eq(detectCodexLaunchSession(evidence(MARKER)), { sessionId: "launch-a", source: "launch_marker" },
+  "simultaneous 0.160.0 launch A binds its own rollout in the shared cwd");
+eq(detectCodexLaunchSession(evidence(OTHER_MARKER)), { sessionId: "launch-b", source: "launch_marker" },
+  "simultaneous 0.160.0 launch B binds its own rollout in the shared cwd");
 
 addThread("thread-duplicate", 1_789_000_040, withLaunchMarker("assigned task", MARKER));
 eq(detectCodexLaunchSession(evidence(MARKER)), null, "two threads carrying one marker are ambiguous, not a guess");
