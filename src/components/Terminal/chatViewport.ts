@@ -1,3 +1,4 @@
+import { chatViewportLayoutChanged } from "./chatScrollDecisions";
 import { editFrontendScroll } from "../../lib/frontendUpdate/appState";
 import type { ChatContentAnchor } from "./chatAnchorModel";
 
@@ -35,9 +36,9 @@ export function chatViewportModeAfterScroll(
   previous: ChatViewportGeometry,
   viewport: ChatViewportGeometry,
 ): ChatViewportMode {
-  const layoutChanged = previous.scrollHeight !== viewport.scrollHeight
-    || previous.clientHeight !== viewport.clientHeight;
-  if (currentMode === "pinned" && (layoutChanged || isChatViewportAtBottom(viewport))) return "pinned";
+  const layoutChanged = chatViewportLayoutChanged(previous, viewport);
+  if (layoutChanged) return currentMode;
+  if (currentMode === "pinned" && isChatViewportAtBottom(viewport)) return "pinned";
   if (viewport.scrollTop < previous.scrollTop) return "detached";
   if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 0) return "pinned";
   return currentMode;

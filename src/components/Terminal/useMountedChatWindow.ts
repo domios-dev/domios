@@ -36,7 +36,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   const live = useRef({ rows, identities, rowHeights, range });
   live.current = { rows, identities, rowHeights, range };
 
-  const readViewport = useCallback(() => {
+  const readViewport = useCallback((captureAnchor = true) => {
     const el = scrollRef.current;
     const spacer = topSpacerRef.current;
     if (!el || !spacer || el.clientHeight === 0) return;
@@ -45,7 +45,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     const wrapper = Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"))
       .find((row) => row.offsetTop >= el.scrollTop && row.offsetTop < el.scrollTop + el.clientHeight);
     const identity = wrapper && live.current.identities.find((row) => row.id === wrapper.dataset.chatWindowRow);
-    anchorRef.current = identity && wrapper ? { ...identity, offset: wrapper.offsetTop - el.scrollTop } : null;
+    if (captureAnchor) anchorRef.current = identity && wrapper ? { ...identity, offset: wrapper.offsetTop - el.scrollTop } : null;
     setViewport((previous) => previous.key === sessionKey && previous.top === top && previous.height === el.clientHeight
       ? previous : { ...previous, key: sessionKey, top, height: el.clientHeight });
   }, [scrollRef, sessionKey]);
@@ -84,7 +84,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
         changed = true;
       }
       if (changed) setViewport((previous) => ({ ...previous, revision: previous.revision + 1 }));
-      readViewport();
+      readViewport(false);
     };
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);

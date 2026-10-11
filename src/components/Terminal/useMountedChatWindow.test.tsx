@@ -16,6 +16,8 @@ let mountApi: ReturnType<typeof useMountedChatWindow>;
 type Row = { msg: { id: string; sourceMessageId: string }; height: number };
 let rows: Row[];
 let prefixHeight = 0;
+let bottomInset = 0;
+let viewportHeight = VIEWPORT;
 
 function extent(element: HTMLElement): number {
   if (element.dataset.height) return Number(element.dataset.height);
@@ -45,9 +47,9 @@ function Harness({ active }: { active: boolean }) {
     scrollRef.current = element;
     if (!element || Object.prototype.hasOwnProperty.call(element, "scrollHeight")) return;
     let top = 0;
-    const max = () => Math.max(0, extent(element) - VIEWPORT);
+    const max = () => Math.max(0, extent(element) - viewportHeight);
     Object.defineProperties(element, {
-      clientHeight: { configurable: true, get: () => VIEWPORT },
+      clientHeight: { configurable: true, get: () => viewportHeight },
       scrollHeight: { configurable: true, get: () => extent(element) },
       scrollTop: { configurable: true, get: () => Math.min(top, max()), set: (value: number) => { top = Math.max(0, Math.min(value, max())); } },
     });
@@ -59,6 +61,7 @@ function Harness({ active }: { active: boolean }) {
         <div data-message-id={msg.id} data-source-message-id={msg.sourceMessageId}>{msg.id}</div>
       </div>)}
       <div style={{ height: mountApi.range.bottom }} />
+      <div style={{ height: bottomInset }} />
     </div>
   </div>;
 }
@@ -73,6 +76,8 @@ async function move(top: number) {
 beforeEach(() => {
   rows = Array.from({ length: 220 }, (_, index) => ({ msg: { id: `m${index}`, sourceMessageId: `s${index}` }, height: 100 }));
   prefixHeight = 0;
+  bottomInset = 0;
+  viewportHeight = VIEWPORT;
   followTail = { current: true };
   clearPersistedChatScrollState(SESSION);
   vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function(this: HTMLElement) { return offset(this); });
@@ -87,6 +92,31 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); clearPersistedChatScrollState(SESSION); });
 
 describe("mounted chat wiring", () => {
+  it("repairs inset-only and composer-height commits before observer delivery", async () => {
+    await render();
+    bottomInset = 42;
+    await render();
+    expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
+    viewportHeight = 422;
+    await render();
+    expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
+    expect(followTail.current).toBe(true);
+  });
+  it("retains detached mode and content through an extent clamp and delayed append", async () => {
+    await render();
+    await move(scroller().scrollTop - 300);
+    const anchor = mounted().find((row) => row.offsetTop >= scroller().scrollTop) ?? mounted()[mounted().length - 1];
+    const id = anchor.dataset.messageId!;
+    const before = anchor.offsetTop - scroller().scrollTop;
+    rows = rows.map((row) => row.msg.id === "m219" ? { ...row, height: 20 } : row);
+    await render();
+    expect(followTail.current).toBe(false);
+    rows = [...rows, { msg: { id: "arrival", sourceMessageId: "reminder" }, height: 432 }];
+    await render();
+    expect(followTail.current).toBe(false);
+    expect(host.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!.offsetTop - scroller().scrollTop).toBe(before);
+    expect(scrollApi.showScrollDown).toBe(true);
+  });
   it("bounds a 220-row tail, follows streamed growth, and releases warm rows", async () => {
     await render();
     expect(mounted().length).toBeLessThanOrEqual(60);
