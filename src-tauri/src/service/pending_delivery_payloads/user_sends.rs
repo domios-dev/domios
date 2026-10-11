@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 mod admission_tokens;
+pub(crate) mod continuity;
 mod reservations;
 use admission_tokens::{AdmissionTokens, TokenEntry};
 
@@ -80,6 +81,8 @@ struct UserIndex {
     version: u8,
     next_sequence: u64,
     records: Vec<UserSendRecord>,
+    #[serde(default)]
+    receipts: Vec<continuity::UserSendReceipt>,
 }
 
 impl Default for UserIndex {
@@ -88,6 +91,7 @@ impl Default for UserIndex {
             version: 1,
             next_sequence: 1,
             records: Vec::new(),
+            receipts: Vec::new(),
         }
     }
 }
@@ -569,6 +573,9 @@ impl UserSendStore {
         } else {
             UserSendState::Uncertain
         };
+        if proven_zero_write {
+            current.handoff_session = None;
+        }
         self.persist(&tab, &next)?;
         loaded.index = next;
         Ok(())
@@ -600,6 +607,7 @@ impl UserSendStore {
         }
         let mut next = loaded.index.clone();
         next.records.retain(|item| item.send_id != record.send_id);
+        continuity::retain_receipt(&mut next, record, continuity::ReceiptState::Failed);
         self.persist(&tab, &next)?;
         loaded.index = next;
         tab.unsettled
@@ -655,6 +663,7 @@ impl UserSendStore {
             return Ok(false);
         }
         let mut next = loaded.index.clone();
+        continuity::retain_receipt(&mut next, record, continuity::ReceiptState::Uncertain);
         if record.body_digest.is_some() {
             let leases = next
                 .records
@@ -882,6 +891,7 @@ impl UserTab {
 }
 
 fn validate_index(index: &UserIndex, tab_id: &str) -> Result<(), String> {
+    continuity::validate_receipts(index, tab_id)?;
     if index.next_sequence == 0 {
         return Err("user index sequence is invalid".into());
     }
