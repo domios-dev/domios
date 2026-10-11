@@ -1,0 +1,12 @@
+  >_ OpenAI Codex (v0.160.0)
+     ~/.codeterm-dev-mobileqa/provisioned-workspaces/mobileqa-92e9369c4655
+  permissions: YOLO mode
+  A new prompt awakens.
+  Tip: Use the desktop app. Run codex app to open it. It installs automatically if needed.
+  Select Reasoning Level for GPT-6.1-Sol
+  1. Low (default)     Fast responses with lighter reasoning
+› 2. Medium (current)  Balances speed and reasoning depth for everyday tasks                                            
+  3. High              Greater reasoning depth for complex problems
+  4. Extra high        Extra high reasoning depth for complex problems
+  5. More reasoning…   Max and Ultra consume usage limits faster
+  enter default · s session · esc back                                                                                  
