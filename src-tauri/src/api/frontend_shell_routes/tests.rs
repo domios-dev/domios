@@ -37,6 +37,7 @@ async fn transport_bootstrap_contract_auth_status_and_stale_readiness() {
         ("POST", "/api/frontend/ready"),
         ("GET", "/api/desktop/recovery"),
         ("GET", "/api/listener/status"),
+        ("POST", "/api/listener/restart"),
     ] {
         let response = router
             .clone()
@@ -127,4 +128,19 @@ async fn transport_bootstrap_contract_auth_status_and_stale_readiness() {
         serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap()).unwrap();
     assert!(recovery["current"]["pid"].is_u64());
     assert!(recovery["crash_presentation"].is_string());
+}
+
+#[tokio::test]
+async fn listener_restart_contract_body_completion_and_cancellation() {
+    use futures_util::StreamExt;
+    let (completed, mut completion) = tokio::sync::oneshot::channel();
+    let response = restart_response(Bytes::from_static(b"accepted"), completed);
+    tokio::pin!(response);
+    assert_eq!(response.next().await.unwrap().unwrap(), "accepted");
+    assert!(completion.try_recv().is_err());
+    assert!(response.next().await.is_none());
+    assert!(completion.await.is_ok());
+    let (completed, completion) = tokio::sync::oneshot::channel();
+    drop(restart_response(Bytes::new(), completed));
+    assert!(completion.await.is_err());
 }

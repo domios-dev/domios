@@ -99,10 +99,18 @@ async function main(): Promise<void> {
     browser.dispatchEvent(new Event("online"));
     await rejected;
     assert.equal(reconnects, 2);
+    refusal = false;
+    const eofReady = requested();
+    browser.dispatchEvent(new Event("online"));
+    await eofReady;
+    const eofConnection = requested();
+    streams[3].close();
+    await eofConnection;
+    assert.equal(streams.length, 5, "clean EOF reconnects without a timer or a frame");
     events.__resetWebEventsForTest();
     assert.equal(deadlines.size, 0);
     browser.dispatchEvent(new Event("online"));
-    assert.equal(streams.length, 3);
+    assert.equal(streams.length, 5);
     console.log("Reconnect runtime event barriers passed");
   } finally {
     stop();

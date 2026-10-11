@@ -10,6 +10,35 @@ function pending<T>() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
+  it("reconnects idle output on EOF and resumes after the event stream proves recovery", async () => {
+    vi.resetModules();
+    const output = await import("./outputStream");
+    const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("./terminalViewerEvents");
+    let connected = pending<void>();
+    let ends!: (end: import("./transportClient").StreamEnd) => void;
+    let receive!: (name: string, data: unknown) => void;
+    let subscriptions = 0;
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler, options) => {
+      receive = handler; ends = options!.onEnd!; subscriptions++; connected.resolve(); return () => {};
+    } } as import("./transportClient").TransportClient);
+    const bytes: number[] = [];
+    const detach = output.subscribeTabOutput("idle", { onOutput() {}, onBytes(chunk) { bytes.push(...chunk); }, onTruncated() {}, onEnded() {} });
+    try {
+      await connected.promise;
+      connected = pending<void>();
+      ends({ reason: "eof" });
+      await connected.promise;
+      expect(subscriptions).toBe(2);
+      ends({ reason: "http", status: 503 });
+      await Promise.resolve();
+      connected = pending<void>();
+      window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+      await connected.promise;
+      expect(subscriptions).toBe(3);
+      receive("message", { tab_id: "idle", pty_id: "idle", boot: "next", offset: 1, output: "A", data: [65] });
+      expect(bytes).toEqual([65]);
+    } finally { detach(); output.resetOutputStream(); }
+  });
   it("replays a new terminal and resumes a retained terminal without duplicate bytes or PTY mutations", async () => {
     vi.resetModules();
     sessionStorage.setItem("codeterm-web-output-boot", "boot");
