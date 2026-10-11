@@ -10,6 +10,8 @@ use axum::{
 use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
 
+mod transport_registration;
+
 #[cfg(debug_assertions)]
 static VITE_PORT_ENV_LOCK: Mutex<()> = Mutex::new(());
 

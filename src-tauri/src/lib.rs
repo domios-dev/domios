@@ -20,6 +20,7 @@ pub mod delayed_send;
 pub mod dispatch;
 mod fdlimit;
 mod flow_trace;
+pub mod frontend_bundle_api_version;
 pub mod glance;
 mod instance_lifetime;
 mod keepawake;
