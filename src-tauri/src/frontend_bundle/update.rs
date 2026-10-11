@@ -27,6 +27,7 @@ impl Drop for CheckLease<'_> {
 pub fn download_and_stage(
     store: &Store,
     discovery: &str,
+    floor: &semver::Version,
     key: &str,
     api: u32,
     allow_loopback: bool,
@@ -49,6 +50,9 @@ pub fn download_and_stage(
     let signature = String::from_utf8(download(&client, &format!("{discovery}.minisig"), 16384)?)
         .map_err(|e| e.to_string())?;
     let manifest = manifest::verify_metadata(&metadata, &signature, key, api, allow_loopback)?;
+    if !manifest::newer_than(&manifest.version, floor) {
+        return Err("Frontend release is not newer than the running frontend".into());
+    }
     if !manifest.compatible(api) {
         return Err("Incompatible frontend API".into());
     }

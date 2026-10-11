@@ -56,6 +56,7 @@ async fn frontend_bundle_routes_contract_central_bearer_registration() {
         FrontendBundles::open(
             root.path(),
             2,
+            "0.0.0",
             None,
             "https://example.test/frontend-manifest.json".into(),
             false,
