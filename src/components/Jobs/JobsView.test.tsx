@@ -1,3 +1,5 @@
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Jobs/JobsView.test.tsx
 import assert from "node:assert/strict";
 import { pipelineContractGolden } from "../Automation/blueprintContract.testdata";
@@ -51,6 +53,11 @@ async function main() {
   }
 
   let cronList: () => Promise<CronJob[]> = async () => [teamCron, unteamedCron, otherTeamCron];
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, path: string) => {
+    if (path.split("?")[0] === "/api/crons") return await cronList() as T;
+    if (path.startsWith("/api/crons/")) return teamCron as T;
+    throw new Error(`Unexpected HTTP path: ${path}`);
+  }));
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "cron_list") return await cronList() as T;
     if (command === "cron_get") return teamCron as T;

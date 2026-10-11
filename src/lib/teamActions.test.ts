@@ -107,11 +107,12 @@ async function run() {
   const briefCalls: Array<{ command: string; args: Record<string, unknown> }> = [];
   await requestTeamMember(async (command, args) => {
     briefCalls.push({ command, args });
-  }, { teamId: "team-brief", role: "cartographer", providerId: "fixture-provider", managerTabId: "fixture-manager", brief });
+  }, { teamId: "team-brief", role: "cartographer", providerId: "fixture-provider", managerTabId: "fixture-manager", brief, sessionBindingNonce: "fixture-nonce" });
   assert(briefCalls.length === 1, "Cartographer brief uses the staffing action once");
   assert(briefCalls[0].command === "mux_add_team_member", "brief shares the Team member command");
   assert(briefCalls[0].args.brief === brief, "owner brief is transported opaquely");
 
+  assert(briefCalls[0].args.sessionBindingNonce === "fixture-nonce", "staffing preserves exact caller binding nonce");
   console.log("team actions tests passed");
 }
 
