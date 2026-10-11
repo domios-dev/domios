@@ -234,7 +234,10 @@ pub(crate) fn nudge_unbound_launch_draft(
             _ => "pty_not_owned",
         });
     }
-    let _claim = super::claim_submit_cycle(pty_id);
+    let claim = super::claim_submit_cycle(pty_id);
+    if claim.command_wait().is_some() {
+        return Err("model_command_in_flight");
+    }
     svc.pty
         .lock()
         .write_and_flush(pty_id, submit_key, std::time::Duration::from_secs(2))
