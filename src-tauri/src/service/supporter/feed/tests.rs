@@ -306,9 +306,27 @@ fn supporter_feed_tab_title_is_scrubbed_capped_and_optional() {
 #[test]
 fn supporter_feed_retains_tab_identity_for_grouping_same_titles() {
     let mut value = record(json!([]));
-    value["tab"] = json!("tab-a");
+    value["tab"] = json!("aabbccdd");
     value["tab_title"] = json!("Shared");
-    assert_eq!(entry(&value).unwrap()["tab_id"], "tab-a");
-    value["tab"] = json!("tab-b");
-    assert_eq!(entry(&value).unwrap()["tab_id"], "tab-b");
+    assert_eq!(entry(&value).unwrap()["tab_id"], "aabbccdd");
+    value["tab"] = json!("11223344");
+    assert_eq!(entry(&value).unwrap()["tab_id"], "11223344");
+}
+
+#[test]
+fn supporter_feed_rejects_untrusted_tab_identity_in_single_verdict() {
+    for tab in [
+        json!("sk-private-token"),
+        json!("private shell output"),
+        json!("aabbccdd-private"),
+        json!(42),
+        Value::Null,
+    ] {
+        let mut value = record(json!([]));
+        value["action"] = json!("verdict");
+        value["tab"] = tab.clone();
+        let projected = entry(&value).unwrap();
+        assert_eq!(projected["tab_id"], Value::Null);
+        assert!(projected.get("tab").is_none());
+    }
 }

@@ -318,7 +318,7 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     };
     let docs_count = docs.len();
     for doc in docs {
-        scores.push(doc.relevance);
+        scores.push(-doc.relevance);
         hits.push(doc_hit_value(&doc));
         candidates.push(doc_candidate(&doc));
     }
@@ -365,14 +365,18 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     hits = selected_hits;
     candidates = selected_candidates;
     if let Some(reason) = skip {
-        hits.truncate(limit);
-        output["hits"] = json!(hits);
+        if graph_count == 0 && docs_count == 0 && sessions_count == 0 {
+            output = served_baseline(backend, p)?;
+        } else {
+            hits.truncate(limit);
+            output["hits"] = json!(hits);
+            record_returned(backend, &output);
+        }
         insert_envelope(
             &mut output,
             json!({ "status": "skipped", "reason": reason,
             "sources": { "recall": recall_count, "graph": graph_count, "docs": docs_count, "sessions": sessions_count } }),
         );
-        record_returned(backend, &output);
         return Ok(output);
     }
     if !model.supports_question_batch() {
