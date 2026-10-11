@@ -12,6 +12,8 @@ vi.mock("../../lib/webApi", () => ({
   daemonHttpBase: () => "http://127.0.0.1:7686",
   daemonAuthToken: () => "token",
 }));
+const pluginDocument = vi.hoisted(() => vi.fn((_path: string) => ({ html: "<html></html>", error: null })));
+vi.mock("../Extensions/usePluginDocument", () => ({ usePluginDocument: pluginDocument }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
 import { invoke } from "../../lib/bridge";
@@ -34,6 +36,7 @@ afterEach(async () => {
   host?.remove();
   root = null;
   host = null;
+  pluginDocument.mockClear();
   surfaceActivityStore.reset();
   surfaceControlStore.reset();
   vi.useRealTimers();
@@ -83,7 +86,9 @@ describe("surface tab view", () => {
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={viewDecl} />);
     const frame = host!.querySelector("iframe");
     expect(frame?.getAttribute("data-plugin-id")).toBe("dash");
-    const query = new URL(frame!.getAttribute("src")!).searchParams;
+    const query = new URL(pluginDocument.mock.calls[pluginDocument.mock.calls.length - 1][0], "http://127.0.0.1:7686").searchParams;
+    expect(query.has("token")).toBe(false);
+    expect(frame!.getAttribute("src")).toBeNull();
     expect(query.get("surface")).toBe("board");
     expect(query.get("instance")).toBe("inst-1");
     expect(query.get("tab")).toBe("surface-tab");

@@ -178,5 +178,6 @@
   "src/lib/requestDiagnostics.test.ts",
   "src/components/providerLogoModel.test.ts",
   "src/components/ProviderGlyph.test.tsx",
-  "src/components/Terminal/ChatChannelLoadingStatus.test.tsx"
+  "src/components/Terminal/ChatChannelLoadingStatus.test.tsx",
+  "src/lib/pluginDocument.test.ts"
 ]

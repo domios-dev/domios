@@ -23,6 +23,7 @@ describe("transportClient", () => {
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe(`${origin}/api/tabs`);
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer secret");
+    expect(init?.credentials).toBe("omit");
     expect(init?.body).toBe('{"nonce":"binding"}');
   });
   it("sends caller identity as a routing header and refreshes tokens", async () => {

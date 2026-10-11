@@ -48,8 +48,8 @@ the browser runtime reloads its last http(s) or file page in the same profile,
 falling back to the clean profile when that profile is gone. `placeholder` and
 `none` keep the tab and start the runtime fresh.
 
-The view page receives `surface`, `instance` and `tab` in its query string
-(`location.search`) and talks to the plugin through `ct.invoke`, exactly like
+The view page receives `surface`, `instance` and `tab` through `ct.surface`
+and talks to the plugin through `ct.invoke`, exactly like
 the panel view. One plugin view can serve several surfaces by reading
 `surface`, and several open copies of one surface by reading `instance`.
 
@@ -185,4 +185,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

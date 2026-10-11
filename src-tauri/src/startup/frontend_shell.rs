@@ -107,13 +107,30 @@ fn bootstrap_script(bootstrap: &ShellBootstrap) -> Result<String, serde_json::Er
     ))
 }
 
-fn fallback_url() -> Result<Url, url::ParseError> {
-    let origin = if cfg!(any(windows, target_os = "android")) {
+fn fallback_origin() -> &'static str {
+    if cfg!(any(windows, target_os = "android")) {
         "http://tauri.localhost"
     } else {
         "tauri://localhost"
-    };
-    Url::parse(&format!("{origin}/index.html"))
+    }
+}
+
+pub(crate) fn declared_frontend_origins(
+    config: &crate::config::schema::ApiConfig,
+    dev_url: Option<&Url>,
+) -> Vec<String> {
+    let mut origins = vec![fallback_origin().to_string()];
+    if let Ok(origin) = crate::config::canonical_api_bind_addr(config).and_then(loopback_origin) {
+        origins.push(origin);
+    }
+    if let Ok(Some(url)) = development_frontend(cfg!(debug_assertions), dev_url) {
+        origins.push(url.origin().ascii_serialization());
+    }
+    origins
+}
+
+fn fallback_url() -> Result<Url, url::ParseError> {
+    Url::parse(&format!("{}/index.html", fallback_origin()))
 }
 
 fn unavailable_url() -> Result<Url, url::ParseError> {
