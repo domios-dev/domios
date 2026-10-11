@@ -1191,6 +1191,24 @@
         "POST",
         "/api/listener/restart"
       ]
+    ],
+    "restore_provider_integration": [
+      [
+        "POST",
+        "/api/setup/hooks/restore?provider=provider"
+      ]
+    ],
+    "check_provider_rule": [
+      [
+        "GET",
+        "/api/setup/rules?provider=provider"
+      ]
+    ],
+    "install_provider_rule": [
+      [
+        "POST",
+        "/api/setup/rules/install?provider=provider"
+      ]
     ]
   }
 }

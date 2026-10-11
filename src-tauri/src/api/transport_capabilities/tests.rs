@@ -216,6 +216,124 @@ mod http {
 
     #[tokio::test]
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    async fn provider_settings_contract_owner_routes() {
+        let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::empty());
+        fixture.service.agent_registry.register_provider(Box::new(
+            crate::api::theme_routes::tests::SettingsProbe {
+                path: fixture.temp.path().join("settings-result"),
+            },
+        ));
+        let result_path = fixture.temp.path().join("settings-result");
+        std::fs::write(result_path.with_extension("backup"), b"original").unwrap();
+        let state = state(&fixture);
+        let app = Router::new()
+            .route(
+                "/api/setup/rules",
+                get(crate::api::theme_routes::check_rules_api),
+            )
+            .route(
+                "/api/setup/rules/install",
+                post(crate::api::theme_routes::install_rules_api),
+            )
+            .route(
+                "/api/setup/hooks/restore",
+                post(crate::api::theme_routes::restore_hooks_api),
+            );
+        let direct = app.clone().with_state(state.clone());
+        let app = app
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                crate::api::auth::auth_middleware,
+            ))
+            .with_state(state);
+        for (method, path) in [
+            ("GET", "/api/setup/rules"),
+            ("POST", "/api/setup/rules/install"),
+            ("POST", "/api/setup/hooks/restore"),
+        ] {
+            assert_eq!(
+                request(
+                    &direct,
+                    method,
+                    &format!("{path}?provider=fixture"),
+                    None,
+                    serde_json::Value::Null
+                )
+                .await
+                .status(),
+                StatusCode::FORBIDDEN
+            );
+            assert_eq!(
+                request(
+                    &app,
+                    method,
+                    &format!("{path}?provider=fixture"),
+                    None,
+                    serde_json::Value::Null
+                )
+                .await
+                .status(),
+                StatusCode::UNAUTHORIZED
+            );
+            assert_eq!(
+                request(
+                    &app,
+                    method,
+                    &format!("{path}?provider=unknown"),
+                    Some("capabilities-owner"),
+                    serde_json::Value::Null
+                )
+                .await
+                .status(),
+                StatusCode::NOT_FOUND
+            );
+            let response = request(
+                &app,
+                method,
+                &format!("{path}?provider=fixture"),
+                Some("capabilities-owner"),
+                serde_json::Value::Null,
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                    .unwrap();
+            if method == "GET" {
+                assert_eq!(
+                    body,
+                    serde_json::json!({"installed": false, "update_available": false})
+                );
+            } else {
+                assert_eq!(body, serde_json::json!({"ok": true}));
+                assert_eq!(
+                    std::fs::read(&result_path).unwrap(),
+                    if path.ends_with("restore") {
+                        b"original".as_slice()
+                    } else {
+                        b"rule".as_slice()
+                    }
+                );
+            }
+        }
+        std::fs::remove_file(result_path.with_extension("backup")).unwrap();
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                "/api/setup/hooks/restore?provider=fixture",
+                Some("capabilities-owner"),
+                serde_json::Value::Null
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(std::fs::read(result_path).unwrap(), b"original");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn transport_capabilities_contract_new_routes_auth_results_and_errors() {
         let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::empty());
         let state = state(&fixture);

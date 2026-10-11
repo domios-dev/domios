@@ -216,9 +216,16 @@ pub fn restore_provider_integration(
     svc: State<'_, ServiceState>,
     provider_id: String,
 ) -> Result<(), String> {
-    svc.agent_registry
-        .with_provider(&provider_id, restore_integration_for_provider)
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+    restore_provider_integration_core(&svc.agent_registry, &provider_id)
+}
+
+pub fn restore_provider_integration_core(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) -> Result<(), String> {
+    registry
+        .with_provider(provider_id, restore_integration_for_provider)
+        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
 }
 
 fn restore_integration_for_provider(
