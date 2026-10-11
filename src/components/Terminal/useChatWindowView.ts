@@ -28,6 +28,7 @@ import {
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
+import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
 
 /** Viewport projection over the committed transcript and the tab's sends: window anchor
@@ -106,6 +107,11 @@ export function useChatWindowView({
     () => chatWindowProjection(allTimelineItems, loadedAnchorKey),
     [allTimelineItems, loadedAnchorKey],
   );
+  const diagnosticTail = allTimelineItems.length > 0 ? timelineItemKey(allTimelineItems[allTimelineItems.length - 1]) : null;
+  useLayoutEffect(() => {
+    chatScrollDiagnostic(windowKey, "window", { anchorKey, loadedAnchorKey, newerCount: windowProjection.newerCount,
+      followTail: followTailRef.current, tail: diagnosticTail });
+  }, [anchorKey, loadedAnchorKey, windowProjection.newerCount, diagnosticTail, followTailRef, windowKey]);
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(
     () => enrichTimelineItems(windowProjection.items, enrichmentCacheRef.current),
