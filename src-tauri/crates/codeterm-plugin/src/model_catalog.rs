@@ -317,6 +317,26 @@ pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
     change
 }
 
+pub fn reject_model(provider: &str, model: &str) {
+    let snapshot = {
+        let mut registry = registry().write();
+        let Some(snapshot) = registry.get_mut(provider) else {
+            return;
+        };
+        let before = snapshot.models.len();
+        snapshot
+            .models
+            .retain(|entry| !entry.id.eq_ignore_ascii_case(model));
+        if snapshot.models.len() == before {
+            return;
+        }
+        snapshot.default = resolve_live_default(&snapshot.models, snapshot.default.clone());
+        snapshot.clone()
+    };
+    persist_cache(provider, &snapshot);
+    invalidate(provider);
+}
+
 /// Plugin entry point: register the built-in catalog for `provider_id`.
 /// Idempotent — calling twice replaces the prior registration (handy for
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
@@ -656,11 +676,9 @@ pub async fn refresh_live(
         // A refresh must observe current filesystem and PATH state before live discovery.
         crate::js_runtime::forget_resolved_bins();
         let models = futures_executor::block_on(provider.discover_models())?;
+        let was_empty = models.is_empty();
         let models = sanitize_live(models);
-        if models.is_empty() {
-            log::warn!(
-                "[model_catalog] {provider_id} discovery returned no usable models — keeping seed"
-            );
+        if !was_empty && models.is_empty() {
             return None;
         }
         let default = resolve_live_default(&models, default);

@@ -180,5 +180,7 @@
   "src/components/ProviderGlyph.test.tsx",
   "src/components/Terminal/ChatChannelLoadingStatus.test.tsx",
   "src/lib/pluginDocument.test.ts",
-  "src/lib/eventSubscriptionRegistry.test.ts"
+  "src/lib/eventSubscriptionRegistry.test.ts",
+  "plugins/provider-opencode/tests/turnErrors.test.ts",
+  "packages/chat-ui/src/MessageBubble.api-error.test.tsx"
 ]
