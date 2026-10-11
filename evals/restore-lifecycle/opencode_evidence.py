@@ -62,3 +62,7 @@ def repeated_text(rows):
             counts[key] = counts.get(key, 0) + 1
     return [dict(type=kind, content=content, count=count)
             for (kind, content), count in counts.items() if count > 1]
+
+
+def spawn_cases(default, cheap, default_only=False):
+    return [('Delta', default, True)] + ([] if default_only else [('Epsilon', cheap, True)]) + [('Zeta', default, False)]

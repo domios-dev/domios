@@ -106,3 +106,5 @@ complete reply marker is absent from the user prompt, so a user-row echo cannot
 satisfy the browser reply check.
 
 The fixture cwd remains a non-repository directory so phase 5 exercises non-repository task respawn directly.
+
+For the owner-authorized provider-outage rerun, use `RL_PHASES=1,2,3,4,8,10,11 RL_OC_RESTORE_DEFAULT_ONLY=1`. Phase 8 creates only the default-model Worker and plain agent; the cheap-model child is omitted from these restore checks. The original cheap-model outage remains in the earlier evidence.
