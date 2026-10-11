@@ -226,7 +226,7 @@ class Matrix:
         observe.cmd_wait_bound(DEADLINE, self.tabs)
         self.wait(lambda: all(self.inspect(t).get('boot_stage') == 'agent_ready' for t in self.tabs), 'pair agent_ready before first fixture message')
         for tab in self.tabs:
-            self.send(tab, 'This is a read-only automated restore bench. Do not edit files, create or modify plans, dispatch agents, or coordinate the fixture Workers. Reply with READY followed by ACK, separated by one space, and remain idle until the bench gives you another explicit message.', 'pair-fixture-' + tab)
+            self.send(tab, 'This is a read-only automated restore bench. Do not edit files, create or modify plans, dispatch agents, or coordinate the fixture Workers. Reply with READY followed by ACK, separated by one space, as your final Chat reply. End this turn after replying; do not send it with codeterm send and do not call sleep or wait tools. The bench will send further tasks.', 'pair-fixture-' + tab)
         self.team = self.inspect(self.orch)['team_id']
         model = os.environ.get('RL_CODEX_MODEL')
         if not model:
@@ -241,7 +241,7 @@ class Matrix:
         self.cli('plan-approve', 'plan', 'mode', self.plan, 'approved', caller=self.orch)
         self.cli('plan-mode', 'plan', 'mode', self.plan, 'execution', caller=self.orch)
         for index, title in enumerate(('Alpha', 'Beta', 'Gamma')):
-            body = 'Run codeterm agent ack immediately. This is a read-only restore probe. Do not edit files, spawn agents, report completion, or change plan state. After ACK, reply with READY followed by ACK, separated by one space. Then execute every follow-up work task the bench sends, including counting to N, replying to marked messages, and running the read-only scratch helper. Remain idle only between tasks.'
+            body = 'Run codeterm agent ack immediately. This is a read-only restore probe. Do not edit files, spawn agents, report completion, or change plan state. After ACK, reply with READY followed by ACK, separated by one space, as your final Chat reply. End each turn after replying; do not use codeterm send for replies, and do not call sleep or wait tools. Then execute every follow-up work task the bench sends, including counting to N, replying to marked messages, and running the read-only scratch helper. Remain idle only between tasks.'
             body_path = PAD / f'rl-{RUN}-{title}.md'
             body_path.write_text(body)
             task = self.cli('task-add-' + title, 'plan', 'task', 'add', self.plan, '--name', title,
