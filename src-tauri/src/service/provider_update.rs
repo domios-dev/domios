@@ -5,10 +5,7 @@ use std::sync::{Arc, LazyLock};
 use codeterm_plugin::provider::{AgentProvider, ProviderUpdateAvailability};
 use parking_lot::Mutex;
 
-use super::{
-    notification::{NotificationOrigin, PushIntent},
-    ServiceContext,
-};
+use super::ServiceContext;
 use state::Admission;
 
 mod command;
@@ -317,27 +314,15 @@ fn journal(
 
 fn notify_owner(
     service: &ServiceContext,
-    key: &str,
+    _key: &str,
     title: String,
     body: String,
     failed: bool,
 ) -> String {
-    service.create_notification_ext(
+    service.log_system_notice(
         title,
         Some(body),
         Some(if failed { "warning" } else { "info" }),
-        None,
-        Some(true),
-        NotificationOrigin::default(),
-        PushIntent {
-            level: Some(if failed {
-                crate::notification::push::NotifyLevel::Failure
-            } else {
-                crate::notification::push::NotifyLevel::Verbose
-            }),
-            event_key: Some(format!("provider-update:{key}")),
-        },
-        None,
     )
 }
 

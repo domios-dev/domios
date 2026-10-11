@@ -250,3 +250,24 @@ fn an_unreadable_store_is_kept_aside_not_overwritten() {
         1
     );
 }
+
+#[test]
+fn persisted_entries_without_agent_notify_send_source_never_enter_the_bell() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join(persist::FILE_NAME);
+    {
+        let mut store = NotificationStore::open_persisted(path.clone(), 10);
+        sticky_prompt(&mut store, "tab-a");
+    }
+    let mut records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    records[0].as_object_mut().unwrap().remove("source");
+    let original = serde_json::to_vec(&records).unwrap();
+    std::fs::write(&path, &original).unwrap();
+    let restored = NotificationStore::open_persisted(path.clone(), 10);
+    assert!(restored.list(false).is_empty());
+    assert_eq!(
+        std::fs::read(path.with_extension("json.unreadable")).unwrap(),
+        original
+    );
+}

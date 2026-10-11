@@ -1,6 +1,8 @@
 //! Notification creation with OS toast support.
 
-use codeterm_types::notification::{adopt_caller_actions, CallerAction, NotificationAction};
+#[cfg(test)]
+use codeterm_types::notification::NotificationAction;
+use codeterm_types::notification::{adopt_caller_actions, CallerAction};
 
 use super::ServiceContext;
 use crate::notification::{
@@ -83,17 +85,14 @@ impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
 /// into `PushDispatch` — the push opt-in clears its own intent when nobody is
 /// subscribed, while the declared level still governs the toast.
 ///
-/// The panel is not represented here. It is the complete log and takes every
-/// record unconditionally, so there is no policy for it to consult.
+/// The panel receives every admitted agent record.
 pub struct SurfaceDispatch {
     pub declared: Option<NotifyLevel>,
     pub desktop: DesktopPolicy,
 }
 
 impl SurfaceDispatch {
-    /// Routes that raise no toast at all: internal diagnostics and the in-app
-    /// provider-update prompt. They still reach the panel, which is where they
-    /// have always landed — silence is about interrupting, not about recording.
+    /// Disables desktop delivery without changing admission.
     pub fn silent() -> Self {
         Self {
             declared: None,
@@ -155,10 +154,13 @@ fn resolve_origin(
 #[cfg(test)]
 mod notify_gate_tests;
 
+mod admission;
+use admission::{destination, NoticeDestination, NoticeSource};
+
 #[derive(Debug)]
 pub(crate) enum NotificationAdmission {
     Diagnostic,
-    /// Explicitly requested (CLI/REST/frontend): stored, emitted, native best-effort.
+    /// Admitted through the agent notify-send boundary.
     Explicit,
 }
 
@@ -186,7 +188,15 @@ pub(crate) fn create_notification_with_delivery(
     surfaces: SurfaceDispatch,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
-    if matches!(admission, NotificationAdmission::Diagnostic) {
+    let source = match admission {
+        NotificationAdmission::Diagnostic => NoticeSource::System,
+        NotificationAdmission::Explicit => NoticeSource::AgentNotifySend,
+    };
+    if destination(source, true) == NoticeDestination::Log {
+        log::debug!(
+            "[system-notice] severity={severity:?} {title}: {}",
+            body.as_deref().unwrap_or_default()
+        );
         return uuid::Uuid::new_v4().to_string();
     }
     let actions = ask.actions.clone();
@@ -397,8 +407,7 @@ impl ServiceContext {
         })
     }
 
-    /// Internal diagnostic sink: fire-and-forget, never enters the user inbox.
-    pub fn create_notification(
+    pub fn log_system_notice(
         &self,
         title: String,
         body: Option<String>,
@@ -421,30 +430,11 @@ impl ServiceContext {
         )
     }
 
-    /// Explicitly requested notification (CLI/REST/frontend surfaces).
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_notification_ext(
-        &self,
-        title: String,
-        body: Option<String>,
-        severity: Option<&str>,
-        actions: Option<Vec<CallerAction>>,
-        sticky: Option<bool>,
-        origin: NotificationOrigin,
-        intent: PushIntent,
-        offer: Option<SurfaceOffer>,
-    ) -> String {
-        self.create_notification_ext_reported(
-            title, body, severity, actions, sticky, origin, intent, offer,
-        )
-        .0
-    }
-
     /// The same explicit notification, plus the honest answer to "will anyone
     /// see this". The record is opened either way — the report is information
     /// for the caller, never a refusal.
     #[allow(clippy::too_many_arguments)]
-    pub fn create_notification_ext_reported(
+    pub fn create_agent_notification_reported(
         &self,
         title: String,
         body: Option<String>,
@@ -454,10 +444,23 @@ impl ServiceContext {
         origin: NotificationOrigin,
         intent: PushIntent,
         offer: Option<SurfaceOffer>,
-    ) -> (String, Option<Unseen>) {
+    ) -> Result<(String, Option<Unseen>), String> {
+        let live_agent_caller = origin.peer_name.is_none()
+            && origin.caller_tab_id.as_deref().is_some_and(|id| {
+                self.mux
+                    .read()
+                    .get_tab(id)
+                    .is_some_and(|tab| tab.agent_type.is_some())
+            });
+        if destination(NoticeSource::AgentNotifySend, live_agent_caller) != NoticeDestination::Bell
+        {
+            return Err(
+                "Bell notifications require notify send from a live agent caller tab".into(),
+            );
+        }
         // The provenance seam: a caller-supplied set becomes stored actions
         // here, through a conversion with no invoke arm to reach.
-        self.create_notification_actions_reported(
+        Ok(self.create_notification_actions_reported(
             title,
             body,
             severity,
@@ -469,74 +472,7 @@ impl ServiceContext {
             sticky,
             origin,
             intent,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn create_prompt_notification_ext(
-        &self,
-        title: String,
-        body: Option<String>,
-        severity: Option<&str>,
-        actions: Option<Vec<NotificationAction>>,
-        sticky: Option<bool>,
-        origin: NotificationOrigin,
-        intent: PushIntent,
-    ) -> String {
-        self.create_notification_actions_reported(
-            title,
-            body,
-            severity,
-            Ask::offering(actions),
-            sticky,
-            origin,
-            intent,
-        )
-        .0
-    }
-
-    /// A sticky action-needed notice keyed to one standing condition of one
-    /// tab: one live record per tab and condition, resolved when it ends.
-    pub(crate) fn create_condition_notification(
-        &self,
-        tab_id: &str,
-        condition: TabCondition,
-        title: String,
-        body: Option<String>,
-        actions: Option<Vec<NotificationAction>>,
-    ) -> String {
-        self.create_condition_notification_with_key(
-            tab_id,
-            condition,
-            title,
-            body,
-            actions,
-            condition.key(tab_id),
-        )
-    }
-
-    pub(crate) fn create_condition_notification_with_key(
-        &self,
-        tab_id: &str,
-        condition: TabCondition,
-        title: String,
-        body: Option<String>,
-        actions: Option<Vec<NotificationAction>>,
-        event_key: String,
-    ) -> String {
-        self.create_notification_actions_reported(
-            title,
-            body,
-            Some("warning"),
-            Ask::about(condition, actions),
-            Some(true),
-            NotificationOrigin::local_tab(tab_id.to_string()),
-            PushIntent {
-                level: Some(NotifyLevel::ActionNeeded),
-                event_key: Some(event_key),
-            },
-        )
-        .0
+        ))
     }
 
     /// Tell every surface these records resolved: channels stop offering

@@ -21,17 +21,8 @@ pub(super) fn refuse_launch_without_cwd(svc: &ServiceContext, tab_id: &str) -> O
         tab.agent_booting = false;
     }
     svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason.as_str()));
-    svc.create_notification_ext(
-        "Agent not launched: working directory missing".into(),
-        Some(format!(
+    svc.log_system_notice("Agent not launched: working directory missing".into(), Some(format!(
             "{reason}. Restore the directory, then run `codeterm agent restart --tab {tab_id}`, or close the Tab."
-        )),
-        Some("error"),
-        None,
-        None,
-        crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
-        crate::service::notification::PushIntent::default(),
-        None,
-    );
+        )), Some("error"));
     Some(reason)
 }

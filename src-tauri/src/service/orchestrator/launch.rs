@@ -1072,7 +1072,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             };
             if let Some(e) = delivery_error {
                 let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
-                svc.create_notification(title, Some(body), Some("error"));
+                svc.log_system_notice(title, Some(body), Some("error"));
                 log::error!(
                     "launch_agent: task delivery failed for Tab {} (pty {}): {}",
                     tab_id,

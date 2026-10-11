@@ -11,11 +11,9 @@
 //! `AgentRegistry` to the right provider implementation. Adding a new
 //! provider requires zero changes here.
 
-use codeterm_types::notification::NotifyLevel;
 use serde_json::Value as Json;
 use tauri::State;
 
-use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceState;
 
 fn runtime_api_port() -> Result<u16, String> {
@@ -545,21 +543,9 @@ fn notify_reconciliation_owner(
         }
         _ => "provider integration consent is missing",
     };
-    service.create_notification_ext(
-        format!("{provider_name} integration needs attention"),
-        Some(format!(
+    service.log_system_notice(format!("{provider_name} integration needs attention"), Some(format!(
             "{detail}. Open Settings > Integrations and approve the provider repair, or run `codeterm integration install --provider {provider_id} --json` after consent."
-        )),
-        Some("warning"),
-        None,
-        Some(true),
-        NotificationOrigin::default(),
-        PushIntent {
-            level: Some(NotifyLevel::ActionNeeded),
-            event_key: Some(format!("provider-integration-repair:{provider_id}")),
-        },
-        None,
-    );
+        )), Some("warning"));
 }
 
 fn repair_integration_on_startup(

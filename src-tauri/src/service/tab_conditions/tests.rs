@@ -52,11 +52,16 @@ fn open_records_for(fixture: &ServiceFixture, tab_id: &str) -> Vec<String> {
 }
 
 fn seed_prompt_condition(fixture: &ServiceFixture, tab_id: &str) -> String {
-    fixture.service.create_condition_notification(
-        tab_id,
-        TabCondition::PendingPrompt,
+    fixture.service.notif.lock().add_ext(
         "opaque condition".into(),
         Some("opaque body".into()),
+        crate::notification::store::NotificationSeverity::Warning,
+        crate::notification::store::NotificationProvenance {
+            tab_id: Some(tab_id.into()),
+            ..Default::default()
+        },
+        crate::notification::store::Ask::about(TabCondition::PendingPrompt, None),
+        None,
         None,
     )
 }
@@ -178,7 +183,7 @@ fn non_user_facing_tab_routes_prompt_to_parent() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn user_audience_prompt_notifies_owner_and_routes_parsed_options_once() {
+fn user_audience_prompt_stays_out_of_bell_and_routes_parsed_options_once() {
     let (mut mux, owner, child) = two_tabs();
     {
         let tab = mux.get_tab_mut(&child).unwrap();
@@ -208,27 +213,7 @@ fn user_audience_prompt_notifies_owner_and_routes_parsed_options_once() {
         None
     );
 
-    let records = records_for(&fixture, &child);
-    assert_eq!(records.len(), 1);
-    let notice = fixture
-        .service
-        .notif
-        .lock()
-        .notification(&records[0].0)
-        .unwrap()
-        .clone();
-    assert_eq!(
-        notice.level,
-        Some(crate::notification::push::NotifyLevel::ActionNeeded)
-    );
-    assert_eq!(notice.title, "Agent prompt needs your attention");
-    assert!(notice
-        .body
-        .as_deref()
-        .unwrap()
-        .contains("opaque trust question"));
-    assert!(notice.body.as_deref().unwrap().contains(child.as_str()));
-    assert_eq!(notice.actions.as_ref().map(Vec::len), Some(2));
+    assert!(records_for(&fixture, &child).is_empty());
     let report = super::parent_prompt_report_body(&child, &asked);
     assert!(report.contains("1. Trust once (value: 1)"));
     assert!(report.contains("2. Trust always (value: trust_always)"));
@@ -239,7 +224,7 @@ fn user_audience_prompt_notifies_owner_and_routes_parsed_options_once() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn owner_launched_prompt_gets_one_owner_notice_without_parent_route() {
+fn owner_launched_prompt_stays_out_of_bell_without_parent_route() {
     let (mux, _, tab_id) = two_tabs();
     let fixture = ServiceFixture::new(mux);
     let asked = prompt("Trust once");
@@ -254,20 +239,7 @@ fn owner_launched_prompt_gets_one_owner_notice_without_parent_route() {
         );
     }
 
-    let records = records_for(&fixture, &tab_id);
-    assert_eq!(records.len(), 1);
-    let notice = fixture
-        .service
-        .notif
-        .lock()
-        .notification(&records[0].0)
-        .unwrap()
-        .clone();
-    assert_eq!(
-        notice.level,
-        Some(crate::notification::push::NotifyLevel::ActionNeeded)
-    );
-    assert_eq!(notice.actions.as_ref().map(Vec::len), Some(2));
+    assert!(records_for(&fixture, &tab_id).is_empty());
 }
 
 #[test]
@@ -298,7 +270,7 @@ fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn user_owned_cron_prompt_notifies_owner_and_tracks_waiting_state() {
+fn user_owned_cron_prompt_stays_out_of_bell_and_tracks_waiting_state() {
     let (mut mux, _, child) = two_tabs();
     {
         let tab = mux.get_tab_mut(&child).unwrap();
@@ -372,32 +344,7 @@ fn user_owned_cron_prompt_notifies_owner_and_tracks_waiting_state() {
             .route_pending_prompt(&child, &asked, PromptKind::Provider),
         None
     );
-    let records = records_for(&fixture, &child);
-    assert_eq!(records.len(), 1);
-    let notice = fixture
-        .service
-        .notif
-        .lock()
-        .notification(&records[0].0)
-        .unwrap()
-        .clone();
-    assert_eq!(
-        notice.level,
-        Some(crate::notification::push::NotifyLevel::ActionNeeded)
-    );
-    assert_eq!(notice.title, "Agent prompt needs your attention");
-    assert!(notice
-        .body
-        .as_deref()
-        .unwrap()
-        .contains("cron:owner-prompt"));
-    let generated_title = fixture.service.mux.read().display_label_for_tab(&child);
-    assert!(!notice
-        .body
-        .as_deref()
-        .unwrap()
-        .contains(generated_title.as_str()));
-    assert!(notice.body.as_deref().unwrap().contains("opaque question"));
+    assert!(records_for(&fixture, &child).is_empty());
     assert_eq!(
         cron.lock().get_history(&job_id)[0].status,
         crate::cron::store::CronRunStatus::AwaitingOwnerPrompt
@@ -420,7 +367,7 @@ fn user_owned_cron_prompt_notifies_owner_and_tracks_waiting_state() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn restart_resolves_exit_notification() {
+fn restart_and_later_exit_keep_the_bell_empty() {
     let (mux, _owner, child) = two_tabs();
     let fixture = ServiceFixture::new(mux);
 
@@ -430,14 +377,7 @@ fn restart_resolves_exit_notification() {
     fixture
         .service
         .notify_surviving_shell_restart_required(&child, "pty-1");
-    let open = open_records_for(&fixture, &child);
-    assert_eq!(open.len(), 1, "one exit is one notice: {open:?}");
-    {
-        let store = fixture.service.notif.lock();
-        let record = store.notification(&open[0]).unwrap();
-        assert_eq!(record.condition, Some(TabCondition::AgentExited));
-        assert_eq!(record.sticky, Some(true));
-    }
+    assert!(open_records_for(&fixture, &child).is_empty());
 
     fixture
         .service
@@ -457,8 +397,8 @@ fn restart_resolves_exit_notification() {
         .notify_surviving_shell_restart_required(&child, "pty-2");
     assert_eq!(
         open_records_for(&fixture, &child).len(),
-        1,
-        "a later exit is news again"
+        0,
+        "a later exit remains outside the bell"
     );
 }
 
@@ -498,7 +438,7 @@ fn tab_close_resolves_exit_and_preexisting_prompt_condition() {
         .service
         .notify_surviving_shell_restart_required(&child, "pty-1");
     seed_prompt_condition(&fixture, &child);
-    assert_eq!(open_records_for(&fixture, &child).len(), 2);
+    assert_eq!(open_records_for(&fixture, &child).len(), 1);
 
     fixture.service.close_tab(&child).unwrap();
 

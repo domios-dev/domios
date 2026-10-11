@@ -1054,7 +1054,6 @@ impl ServiceContext {
             crate::service::tab_conditions::ConditionNotice {
                 title: title.to_string(),
                 body,
-                actions: None,
                 hint: None,
             },
         );

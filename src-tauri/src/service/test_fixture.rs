@@ -351,3 +351,30 @@ impl Drop for ServiceFixture {
         }
     }
 }
+
+impl ServiceFixture {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn seed_prompt_notification(
+        &self,
+        title: String,
+        body: Option<String>,
+        _severity: Option<&str>,
+        actions: Option<Vec<codeterm_types::notification::NotificationAction>>,
+        sticky: Option<bool>,
+        origin: super::notification::NotificationOrigin,
+        intent: super::notification::PushIntent,
+    ) -> String {
+        self.service.notif.lock().add_ext(
+            title,
+            body,
+            crate::notification::store::NotificationSeverity::Warning,
+            crate::notification::store::NotificationProvenance {
+                tab_id: origin.caller_tab_id,
+                ..Default::default()
+            },
+            crate::notification::store::Ask::offering(actions),
+            sticky,
+            intent.level,
+        )
+    }
+}

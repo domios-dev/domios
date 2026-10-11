@@ -633,19 +633,7 @@ impl ServiceContext {
                 mismatch.requested_model, mismatch.actual_model
             );
             let body = "Provider runtime session metadata reported a different model than the launch request.";
-            self.create_notification_ext(
-                title,
-                Some(body.to_string()),
-                Some("info"),
-                None,
-                None,
-                crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
-                crate::service::notification::PushIntent {
-                    level: Some(crate::notification::push::NotifyLevel::Verbose),
-                    event_key: Some(format!("session-model:{tab_id}:{session_id}")),
-                },
-                None,
-            );
+            self.log_system_notice(title, Some(body.to_string()), Some("info"));
         }
         log::info!(
             "[session-model] tab={} requested_model={} actual_model={} severity=info fallback_reason=runtime_session_model_mismatch",
