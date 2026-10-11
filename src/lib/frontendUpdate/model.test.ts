@@ -68,6 +68,15 @@ describe("frontend swap safety", () => {
     expect(observeBoot(healthy.state, { type: "deadline", nowMs: 100 }).report).toBeNull();
     expect(observeBoot(healthy.state, { type: "exception", nowMs: 101 }).report).toBe("rollback");
   });
+  it("requires root evidence independently for each enrolled client", () => {
+    const first = { ticket, deadlineMs: 100, rendered: false, failed: false };
+    const second = { ...first, ticket: { ...ticket, token: "second-health-token" } };
+    const rendered = observeBoot(first, { type: "rootRendered", nowMs: 99 });
+    expect(rendered.report).toBe("healthy");
+    expect(observeBoot(rendered.state, { type: "deadline", nowMs: 100 }).report).toBeNull();
+    expect(observeBoot(second, { type: "deadline", nowMs: 100 }).report).toBe("rollback");
+    expect(second.rendered).toBe(false);
+  });
   it("bounds rollback chains and requires compatible recovery", () => {
     const bundled = { ...release, releaseId: "bundled" };
     expect(recoveryTarget(release, bundled, 2, [release.releaseId])).toEqual(bundled);
