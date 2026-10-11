@@ -314,7 +314,7 @@ fn cli_pty_send_resolves_multiline_declaration_without_chat_preprocessors() {
     )
     .unwrap();
     let registry = AgentRegistry::new();
-    registry.register_provider(Arc::new(JsProvider::new(manifest, Arc::new(vm))));
+    registry.register_provider(Box::new(JsProvider::new(manifest, Arc::new(vm))));
     let (mut mux, tab) = MultiplexerState::new();
     mux.link_pty(&tab, "cli-target-pty".into());
     mux.get_tab_mut(&tab).unwrap().agent_type = Some("plain-reader".into());
