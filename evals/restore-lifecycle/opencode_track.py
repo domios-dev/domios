@@ -184,7 +184,7 @@ class OpenCodeTrack:
                     self.finding(tab, 'browser_selection_failure', str(error), 'opencode-browser-' + tab + '-before.stdout')
                 waiter = observe.EventWait(int(os.environ.get('RL_TURN_DEADLINE', '240')))
                 observe.api('POST', f'/api/tabs/{tab}/chat-raw/start', {'subscriptionId': 'restore-lifecycle-first-' + tab})
-                self.host.send(tab, f'Reply exactly {marker}-REPLY. Do not use tools.', 'opencode-' + label + '-' + tab)
+                self.host.send(tab, f'Reply with {marker} immediately followed by -REPLY, with no spaces. Do not use tools.', 'opencode-' + label + '-' + tab)
                 def replied(_):
                     self.serial += 1
                     rows = self.chat(tab, f'opencode-{label}-live-{self.serial}-{tab}')

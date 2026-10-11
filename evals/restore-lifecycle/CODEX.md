@@ -100,3 +100,9 @@ transitions, total event count and last 1000 received events.
 Select 3 and 4 together, and 8 through 11 together. The default runs all phases.
 `RL_BROWSER_CHECKS=0` defers Codex browser checks while preserving backend
 receipts; deferred visible checks remain FAIL and never become a full PASS.
+
+Visible-reply probes ask the model to join two separate text fragments. The
+complete reply marker is absent from the user prompt, so a user-row echo cannot
+satisfy the browser reply check.
+
+The fixture cwd remains a non-repository directory so phase 5 exercises non-repository task respawn directly.
