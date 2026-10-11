@@ -33,6 +33,8 @@ mod model_catalogue;
 mod model_providers;
 #[path = "parity_test/model_switch.rs"]
 mod model_switch;
+#[path = "parity_test/paste_capability.rs"]
+mod paste_capability;
 #[path = "parity_test/provider_compat.rs"]
 mod provider_compat;
 #[path = "parity_test/sqlite_fixture.rs"]

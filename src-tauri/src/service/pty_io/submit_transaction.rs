@@ -15,6 +15,11 @@ mod evidence_watcher;
 #[cfg(test)]
 mod exit_tests;
 mod line_mode;
+mod paste_encoding;
+pub(crate) use paste_encoding::live_command_input;
+use paste_encoding::{encode_paste_frame, PasteEncodingCapability};
+#[cfg(test)]
+use paste_encoding::{xterm_paste, BRACKETED_PASTE_END, BRACKETED_PASTE_START};
 mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
@@ -37,8 +42,6 @@ use runner::run_with_submit_key_and_frame;
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
-const BRACKETED_PASTE_START: &str = "\x1b[200~";
-const BRACKETED_PASTE_END: &str = "\x1b[201~";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeferredSubmitWait {
     Ready,
@@ -233,44 +236,6 @@ struct PtySubmitTransport<'a> {
     /// successful submit-key enqueue. Signal only — never gates delivery.
     turn_signaled: std::cell::Cell<bool>,
     recovery_refusal: Cell<Option<&'static str>>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PasteEncodingCapability {
-    LiveModeOnly,
-    MultilineTui,
-}
-
-impl PasteEncodingCapability {
-    fn for_strategy(strategy: &VerifySubmitStrategy) -> Self {
-        if matches!(strategy, VerifySubmitStrategy::TuiInputDrained { .. }) {
-            Self::MultilineTui
-        } else {
-            Self::LiveModeOnly
-        }
-    }
-
-    fn bracketed(self, text: &str, live_mode: Option<bool>) -> bool {
-        live_mode.unwrap_or_else(|| {
-            self == Self::MultilineTui && (text.contains('\r') || text.contains('\n'))
-        })
-    }
-}
-
-fn xterm_paste(text: &str, live_mode: Option<bool>, capability: PasteEncodingCapability) -> String {
-    if capability.bracketed(text, live_mode) {
-        let normalized = text.replace("\r\n", "\n");
-        format!("{BRACKETED_PASTE_START}{normalized}{BRACKETED_PASTE_END}")
-    } else {
-        text.replace("\r\n", "\r").replace('\n', "\r")
-    }
-}
-
-pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8> {
-    let mut input =
-        xterm_paste(text, live_mode, PasteEncodingCapability::LiveModeOnly).into_bytes();
-    input.push(b'\r');
-    input
 }
 
 #[cfg(test)]
@@ -860,24 +825,6 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     )
 }
 
-fn encode_paste_frame(
-    text: &str,
-    typed_prefix: Option<&str>,
-    typed_suffix: Option<&str>,
-    live_mode: Option<bool>,
-    capability: PasteEncodingCapability,
-) -> Vec<u8> {
-    let paste = xterm_paste(
-        text,
-        typed_prefix.is_some().then_some(true).or(live_mode),
-        capability,
-    );
-    let mut input = typed_prefix.unwrap_or_default().as_bytes().to_vec();
-    input.extend_from_slice(paste.as_bytes());
-    input.extend_from_slice(typed_suffix.unwrap_or_default().as_bytes());
-    input
-}
-
 pub(crate) fn submit_text_with_key_claimed_and_frame(
     svc: &ServiceContext,
     pty_id: &str,
@@ -1022,7 +969,6 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         enter,
     );
     let submit_generation = claim.generation;
-    let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
     submit_cycle.install_waiter(submit_generation, wake_tx.clone());
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
@@ -1034,6 +980,13 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         mux.tab_id_for_pty(pty_id)
             .and_then(|tab| mux.get_tab(&tab).and_then(|tab| tab.agent_type.clone()))
     };
+    let declared_paste = provider.as_ref().and_then(|provider| {
+        svc.agent_registry
+            .with_provider(provider, |provider| provider.paste_capability())
+            .flatten()
+    });
+    let paste_capability =
+        PasteEncodingCapability::for_provider(&strategy, declared_paste.as_ref());
     let composer = provider.and_then(|provider| {
         svc.agent_registry
             .with_provider(&provider, |provider| provider.composer_cursor_position())
