@@ -14,7 +14,7 @@ minisign-verify = "0.2"
 flate2 = "1"
 tar = "0.4"
 tempfile = "3"
-tauri = { version = "2", features = ["tray-icon", "test"] }
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
 # here when called from headless / background Rust code paths). Features chosen to keep
 # binary size minimal — no parallel/multi-context, no async, just the
