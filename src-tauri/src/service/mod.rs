@@ -154,6 +154,7 @@ pub(crate) mod startup_lease;
 pub(crate) mod startup_nudge;
 mod status_reconciliation;
 pub(crate) mod stop_execution;
+mod tab_status_events;
 pub(crate) mod tab_stop;
 pub(crate) mod turn_resume;
 mod utility_tabs;
@@ -402,6 +403,8 @@ pub struct ServiceContext {
     pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
+    pub(crate) published_tab_statuses:
+        Arc<parking_lot::Mutex<HashMap<String, crate::agent::status::TabStatus>>>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).
     pub mux_emit_stats: Arc<MuxEmitStats>,
     pub(crate) output_stream_activity:
@@ -694,6 +697,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed_after_bus_publish(&self) {
+        self.publish_authoritative_tab_statuses();
         self.output_stream_mux_changed();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
