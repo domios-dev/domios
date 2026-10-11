@@ -253,7 +253,7 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
   assert(providerA.querySelector("svg#provider-a-icon"), "provider SVG comes from its descriptor");
   const providerB = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
     .find((button) => button.textContent?.includes("Provider B")) as HTMLButtonElement;
-  assert(providerB.querySelector(".agent-icon")?.textContent === "B", "provider hint is the descriptor icon fallback");
+  assert(providerB.querySelector('[role="img"][aria-label="Provider B default agent icon"]'), "provider row without a logo exposes the accessible default agent icon");
   assert(!document.querySelector('[data-testid="team-menu"]')?.textContent?.includes("Unsupported provider"), "non-spawn-capable providers are absent");
   await act(async () => providerA.click());
   const defaultModel = document.querySelector('[data-testid="team-picker-model-model-one"]') as HTMLButtonElement;

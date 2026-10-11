@@ -69,7 +69,7 @@ import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
-import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
@@ -948,13 +948,14 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      {chatChannelLoading && setupView.kind === "none" && <TabLoadingIndicator label={`${provider?.displayName ?? tabProvider} loading chat`} />}
       <div ref={setContextSlot} className="ct-ctx-slot" />
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
           showActivity={setupView.kind === "none" && !chatChannelLoading}
+          channelLoadingLabel={chatChannelLoadingRow(chatChannelLoading, setupView) === "model"
+            ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
