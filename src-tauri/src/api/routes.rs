@@ -192,7 +192,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
         .route(
             "/api/essence-maps",
-            get(essence_map_routes::list_essence_maps),
+            post(essence_map_routes::list_essence_maps),
         )
         .route(
             "/api/essence-source",

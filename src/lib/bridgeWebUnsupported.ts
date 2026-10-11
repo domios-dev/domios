@@ -34,8 +34,6 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Per-group model usage is read from a provider-owned store on the daemon host; the web mirror renders the picker without it",
   restart_rest_api:
     "An HTTP client cannot restart the listener carrying its own request",
-  check_provider_integration:
-    "Provider integration health reads native host configuration",
   install_provider_integration:
     "Provider integration repair changes native host configuration",
   uninstall_provider_integration:

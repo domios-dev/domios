@@ -1,3 +1,4 @@
+import { DEV_BUILD } from "./devBuild";
 import { BLUEPRINT_API_BASE } from "./blueprintApi";
 /**
  * Tauri ↔ HTTP bridge — the web mirror's IPC layer.
@@ -684,14 +685,15 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
   read_workspace_essence_maps: (a) => {
     const paths = Array.isArray(a.projectPaths) ? a.projectPaths : [];
-    const query = paths.map((path) => `path=${enc(String(path))}`).join("&");
-    return webJson("GET", `/api/essence-maps${query ? `?${query}` : ""}`);
+    return webJson("POST", "/api/essence-maps", { path: paths });
   },
   read_workspace_essence_source: (a) =>
     webJson(
       "GET",
       `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
     ),
+  check_provider_integration: (a) =>
+    webJson("GET", `/api/setup/hooks?provider=${enc(s(a, "providerId"))}`),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   refresh_provider_models: (a) =>
     webJson("POST", "/api/agents/providers/refresh", { provider_id: s(a, "providerId") ?? s(a, "provider_id") }),
@@ -919,6 +921,10 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
   } catch (err) {
     if (isCommandNotFoundError(err)) {
       checkBuildMismatch().catch(() => {});
+    }
+    if (cmd === "read_workspace_essence_maps") {
+      if (DEV_BUILD) console.warn("Workspace map request failed", err);
+      throw new Error("Could not load project maps. Try again.");
     }
     throw err;
   } finally {
