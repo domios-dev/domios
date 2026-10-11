@@ -46,7 +46,19 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
 
 /// Answers analytics with the query it received and a missing total, and receiver
 /// targets with the plugin id it was asked for; every other host surface is inert.
-struct AnalyticsHost;
+#[derive(Default)]
+pub(super) struct AnalyticsHost {
+    pub(super) recordings: crate::local_recording::LocalRecordingRegistry,
+}
+
+fn recording_reply(
+    result: Result<crate::local_recording::RecordingStatus, &'static str>,
+) -> String {
+    match result {
+        Ok(status) => serde_json::to_string(&status).unwrap(),
+        Err(error) => json!({ "error": error }).to_string(),
+    }
+}
 
 impl PluginHostCtx for AnalyticsHost {
     fn mem_search_json(&self, _: &str) -> String {
@@ -121,6 +133,12 @@ impl PluginHostCtx for AnalyticsHost {
     fn receiver_target_clear_json(&self, plugin_id: &str) -> String {
         json!({ "pluginId": plugin_id, "tabId": null, "live": false }).to_string()
     }
+    fn local_recording_status_json(&self, plugin_id: &str) -> String {
+        recording_reply(self.recordings.status(plugin_id))
+    }
+    fn local_recording_enabled_json(&self, plugin_id: &str, enabled: bool) -> String {
+        recording_reply(self.recordings.set_enabled(plugin_id, enabled))
+    }
     fn surface_call_json(&self, plugin_id: &str, caller: &str, verb: &str, args: &str) -> String {
         json!({ "result": format!("{plugin_id}|{caller}|{verb}|{args}") }).to_string()
     }
@@ -134,7 +152,7 @@ const RECEIVER_PROBE_PLUGIN: &str = r#"module.exports.default = {
 
 #[test]
 fn pebble_receiver_target_host_binding_is_scoped_to_the_calling_plugin() {
-    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost);
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
     let sandbox = Arc::new(
         PluginSandbox::restricted(vec![], vec![])
             .with_identity_and_perms("receiver-probe", &PermissionsConfig::default()),
@@ -186,7 +204,7 @@ fn probe_vm(perms: &PermissionsConfig, host: &Arc<dyn PluginHostCtx>) -> PluginV
 
 #[test]
 fn analytics_host_query_needs_the_analytics_grant_and_keeps_nulls() {
-    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost);
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
     let query = json!({ "group_by": "workspace" });
 
     let denied = probe_vm(&PermissionsConfig::default(), &host);
@@ -246,7 +264,7 @@ fn surface_probe(surfaces: bool) -> Arc<PluginVm> {
 #[test]
 fn surface_call_acts_for_the_core_stamped_agent_caller() {
     use crate::agent_commands::AgentCommandProvider;
-    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost);
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
     let vm = surface_probe(true);
     assert!(vm.set_service(Arc::downgrade(&host)));
     let handler = crate::js_runtime::JsAgentCommandHandler::new(vm.clone(), "surface-probe", true);
@@ -264,7 +282,7 @@ fn surface_call_acts_for_the_core_stamped_agent_caller() {
 #[test]
 fn surface_call_needs_the_surfaces_grant() {
     use crate::agent_commands::AgentCommandProvider;
-    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost);
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
     let vm = surface_probe(false);
     assert!(vm.set_service(Arc::downgrade(&host)));
     let handler = crate::js_runtime::JsAgentCommandHandler::new(vm, "surface-probe", true);

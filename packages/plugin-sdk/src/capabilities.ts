@@ -889,6 +889,13 @@ export interface ChatPreprocessor {
 
 // Declared in plugin.json as `capabilities.webhookReceiver`. `audio: true` lets the
 // host accept one bounded `audio/*` part and transcribe it with the installed Transcriber.
+export interface LocalRecordingTriggerCapability {
+  vendorId: number;
+  productId: number;
+  usagePage: number;
+  usage: number;
+}
+
 export interface WebhookReceiverCapability {
   kind: "pebble";
   audio?: boolean;
@@ -920,7 +927,7 @@ export interface WebhookReceiver {
 
 // ── tabMenu (plugin.json `capabilities.tabMenu`; no export runs on click) ──
 
-// Closed set of host-owned actions. `receiverTarget` requires `webhookReceiver`.
+// `receiverTarget` requires webhookReceiver or localRecordingTrigger.
 export type TabMenuAction = "receiverTarget";
 
 export interface TabMenuContribution {

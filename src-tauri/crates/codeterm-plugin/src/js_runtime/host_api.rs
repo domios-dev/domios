@@ -143,6 +143,7 @@ pub(super) struct PluginSandbox {
     /// Whether `host.analytics` is permitted (`analytics` grant).
     analytics_allowed: bool,
     graph_events_allowed: bool,
+    local_recording_allowed: bool,
     /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
     /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
     settings_json: parking_lot::Mutex<String>,
@@ -172,6 +173,7 @@ impl PluginSandbox {
             spawn_agents_allowed: true,
             analytics_allowed: true,
             graph_events_allowed: true,
+            local_recording_allowed: false,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -197,6 +199,7 @@ impl PluginSandbox {
             spawn_agents_allowed: false,
             analytics_allowed: false,
             graph_events_allowed: false,
+            local_recording_allowed: false,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -219,6 +222,7 @@ impl PluginSandbox {
         self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
         self.analytics_allowed = self.unrestricted || perms.analytics;
         self.graph_events_allowed = self.unrestricted || perms.graph_events;
+        self.local_recording_allowed = perms.local_recording;
         self
     }
 
@@ -320,6 +324,10 @@ impl PluginSandbox {
 
     pub(super) fn graph_events_allowed(&self) -> bool {
         self.graph_events_allowed
+    }
+
+    pub(super) fn local_recording_allowed(&self) -> bool {
+        self.local_recording_allowed
     }
 
     /// Attach the plugin's settings blob (`config.yaml` → JSON) at load.

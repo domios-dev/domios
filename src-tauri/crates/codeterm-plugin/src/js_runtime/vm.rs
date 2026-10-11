@@ -103,6 +103,10 @@ const PLUGIN_PREAMBLE: &str = r#"
     get:   function () { return parseJson(host.receiverTargetGet()); },
     clear: function () { return parseJson(host.receiverTargetClear()); },
   };
+  host.localRecording = {
+    status: function () { return parseJson(host.localRecordingStatus()); },
+    setEnabled: function (enabled) { return parseJson(host.localRecordingSetEnabled(enabled === true)); },
+  };
   host.workspace = {
     ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
     tabs: function (workspaceId) { return parseJson(host.workspaceTabs(workspaceId)) || []; },
@@ -465,6 +469,10 @@ impl PluginVm {
 
     pub fn graph_events_allowed(&self) -> bool {
         self.sandbox.graph_events_allowed()
+    }
+
+    pub fn local_recording_allowed(&self) -> bool {
+        self.sandbox.local_recording_allowed()
     }
 
     /// How many sandbox capabilities this plugin has been denied. Snapshot it
