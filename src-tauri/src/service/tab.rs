@@ -811,8 +811,10 @@ impl ServiceContext {
             return Ok(RespondPromptOutcome::NoPty);
         };
         let screen = {
-            let buf = self.output_buf.lock();
-            buf.get_text(&pty_id).unwrap_or_default()
+            self.screen_state
+                .lock()
+                .get_screen_text(&pty_id)
+                .unwrap_or_default()
         };
         let clean = crate::pty::ansi::clean_terminal_output(&screen);
         let agent_type = tab.agent_type.clone();
@@ -840,15 +842,10 @@ impl ServiceContext {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
-        let generic_option_count = crate::agent::detector::parse_permission_prompt(&clean)
-            .map(|(_, options)| options.len());
         let option_count = provider_prompt
             .as_ref()
-            .map(|(prompt, _)| prompt.options.len())
-            .or(generic_option_count);
-        let prompt_on_screen = provider_prompt.is_some()
-            || generic_option_count.is_some()
-            || crate::agent::detector::detect_interactive_prompt(&clean);
+            .map(|(prompt, _)| prompt.options.len());
+        let prompt_on_screen = provider_prompt.is_some();
 
         if prompt_on_screen {
             let Some(option_count) = option_count else {

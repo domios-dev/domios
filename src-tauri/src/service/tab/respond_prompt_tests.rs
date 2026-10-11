@@ -52,6 +52,11 @@ fn fixture_with_screen(
         .append(&pty_id, screen.as_bytes());
     fixture
         .service
+        .screen_state
+        .lock()
+        .process(&pty_id, screen.as_bytes());
+    fixture
+        .service
         .pty
         .lock()
         .spawn_with_id(Some(pty_id.clone()), None, None, 80, 24, Default::default())
@@ -312,6 +317,36 @@ async fn respond_prompt_reports_not_on_screen_instead_of_ok() {
         .lock()
         .active_prompt(&tab_id)
         .is_some());
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
+#[test]
+fn respond_prompt_rejects_transcript_menu_after_live_screen_clears() {
+    let screen = "opaque-question?\r\n❯ 1. opaque-first\r\n  2. opaque-second\r\nEnter to confirm · Esc to cancel";
+    let (fixture, tab_id, pty_id) = fixture_with_screen(screen);
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(&pty_id, b"\x1b[2J\x1b[H");
+    let capture = crate::pty::capture::CaptureRegistry::global();
+    capture
+        .start(
+            &pty_id,
+            fixture.temp.path().join("stale-menu.cast"),
+            80,
+            24,
+            0,
+            Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(
+        fixture.service.respond_prompt(&tab_id, "1"),
+        Ok(RespondPromptOutcome::PromptNotOnScreen)
+    );
+    let cast = capture.stop(&pty_id).unwrap();
+    let _ = fixture.service.pty.lock().kill(&pty_id);
+    assert!(!has_input_events(cast));
 }
 
 #[tokio::test]
