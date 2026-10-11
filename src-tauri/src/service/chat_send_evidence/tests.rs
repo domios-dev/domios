@@ -689,6 +689,7 @@ impl AgentProvider for StructuredStoreProvider {
             cursor: Some(all.len().to_string()),
             messages: all.into_iter().skip(from).collect(),
             done: None,
+            observations: Vec::new(),
         }
     }
 }
@@ -821,6 +822,7 @@ fn cursorless_nonempty_structured_store_mints_no_boundary() {
         cursor: None,
         messages: vec![crate::agent::chat_types::ChatMsg::default()],
         done: None,
+        observations: Vec::new(),
     };
     assert_eq!(structured_boundary(&populated), None);
 

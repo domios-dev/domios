@@ -425,6 +425,9 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   }
 
   if (message.type === "system" || message.type === "local_command") {
+    if (message.systemSubtype === "api_error") {
+      return <div role="alert" aria-label="Provider API error" className="mb-2 w-full max-w-4xl mx-auto rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}>{message.content}</div>;
+    }
     if (message.systemSubtype === "context_epoch_boundary") {
       return (
         <div

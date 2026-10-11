@@ -573,6 +573,15 @@ fn own_session_turns(
                 .with_provider(provider, |p| {
                     if p.uses_structured_chat() {
                         let delta = p.read_structured_chat(cwd, sid, cursor);
+                        if let Some(nonce) = tab.session_binding_nonce.as_deref() {
+                            crate::service::provider_signals::apply_structured(
+                                svc,
+                                &tab.id,
+                                sid,
+                                nonce,
+                                &delta.observations,
+                            );
+                        }
                         let unavailable = delta.cursor.is_none();
                         return (delta.messages, delta.cursor, unavailable);
                     }

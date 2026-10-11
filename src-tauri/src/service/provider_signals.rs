@@ -149,6 +149,20 @@ pub(crate) fn apply(
             },
         )
     };
+    if let Some(provider) = &provider {
+        for record in records
+            .iter()
+            .filter(|record| record.provider_session_id.as_deref() == Some(session))
+        {
+            if let Some(model) = record
+                .provider_observations
+                .as_ref()
+                .and_then(|observation| observation.unavailable_model.as_deref())
+            {
+                crate::agent::model_catalog::reject_model(provider, model);
+            }
+        }
+    }
     if transition != IncidentTransition::Unchanged {
         incident(svc, tab_id, session, nonce, transition);
     }
@@ -190,6 +204,33 @@ fn observe_records(
             }
             signals.observe(&observation);
         }
+    }
+}
+
+pub(crate) fn apply_structured(
+    svc: &ServiceContext,
+    tab: &str,
+    session: &str,
+    nonce: &str,
+    records: &[crate::agent::chat_types::RichMessage],
+) {
+    apply(svc, tab, session, nonce, records);
+    let current = svc.mux.read().get_tab(tab).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(session)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+    });
+    if current
+        && records
+            .iter()
+            .rev()
+            .find(|record| {
+                record.provider_session_id.as_deref() == Some(session)
+                    && record.provider_observations.is_some()
+            })
+            .and_then(|record| record.provider_observations.as_ref())
+            .is_some_and(|observation| observation.api_error.is_some())
+    {
+        svc.mark_agent_turn_error(tab);
     }
 }
 
