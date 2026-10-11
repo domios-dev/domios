@@ -220,15 +220,13 @@ class Matrix:
     def phase_spawn(self):
         ws = self.cli('workspace-create', 'workspace', 'create', f'Restore{RUN}', '--provision')
         self.workspace = ws['id']
-        subprocess.run(['git', 'init', '--quiet', ws['cwd']], check=True)
-        subprocess.run(['git', '-C', ws['cwd'], '-c', 'user.name=Restore bench', '-c', 'user.email=restore-bench@localhost', 'commit', '--quiet', '--allow-empty', '-m', 'Initialize restore fixture'], check=True)
         pair = self.cli('team-pair', 'team', 'pair', '--orchestrator', 'codex', '--planner', 'codex', '--workspace', self.workspace, '--title', f'Restore{RUN}')
         self.orch = pair['orchestrator_tab_id']
         self.tabs = [self.orch, pair['planner_tab_id']]
         observe.cmd_wait_bound(DEADLINE, self.tabs)
         self.wait(lambda: all(self.inspect(t).get('boot_stage') == 'agent_ready' for t in self.tabs), 'pair agent_ready before first fixture message')
         for tab in self.tabs:
-            self.send(tab, 'This is a read-only automated restore bench. Do not edit files, create or modify plans, dispatch agents, or coordinate the fixture Workers. Reply READY ACK and remain idle until the bench gives you another explicit message.', 'pair-fixture-' + tab)
+            self.send(tab, 'This is a read-only automated restore bench. Do not edit files, create or modify plans, dispatch agents, or coordinate the fixture Workers. Reply with READY followed by ACK, separated by one space, and remain idle until the bench gives you another explicit message.', 'pair-fixture-' + tab)
         self.team = self.inspect(self.orch)['team_id']
         model = os.environ.get('RL_CODEX_MODEL')
         if not model:
@@ -243,7 +241,7 @@ class Matrix:
         self.cli('plan-approve', 'plan', 'mode', self.plan, 'approved', caller=self.orch)
         self.cli('plan-mode', 'plan', 'mode', self.plan, 'execution', caller=self.orch)
         for index, title in enumerate(('Alpha', 'Beta', 'Gamma')):
-            body = 'Run codeterm agent ack immediately. This is a read-only restore probe. Do not edit files, spawn agents, report completion, or change plan state. Reply READY after ACK. Then execute every follow-up work task the bench sends, including counting to N, replying to marked messages, and running the read-only scratch helper. Remain idle only between tasks.'
+            body = 'Run codeterm agent ack immediately. This is a read-only restore probe. Do not edit files, spawn agents, report completion, or change plan state. After ACK, reply with READY followed by ACK, separated by one space. Then execute every follow-up work task the bench sends, including counting to N, replying to marked messages, and running the read-only scratch helper. Remain idle only between tasks.'
             body_path = PAD / f'rl-{RUN}-{title}.md'
             body_path.write_text(body)
             task = self.cli('task-add-' + title, 'plan', 'task', 'add', self.plan, '--name', title,
@@ -293,10 +291,10 @@ class Matrix:
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, row in baseline.items():
             self.browser_select(tab, 'browser-' + tab)
-            self.cli('browser-chat-ready-' + tab, 'plugin', 'browser', 'wait', '--text', 'READY', caller=self.orch, json_output=False)
+            self.cli('browser-chat-ready-' + tab, 'plugin', 'browser', 'wait', '--text', 'READY ACK', caller=self.orch, json_output=False)
             view = self.cli('browser-chat-' + tab, 'plugin', 'browser', 'snapshot', caller=self.orch, json_output=False)
             oracle.require('starting' not in view.lower(), f'{tab}: Chat still Starting')
-            oracle.require(row['title'] in view and ('READY' in view or 'acknowledged' in view.lower()), f'{tab}: Chat transcript not visibly initialized')
+            oracle.require(row['title'] in view and 'READY ACK' in view, f'{tab}: Chat transcript not visibly initialized')
         self.cli('browser-close', 'plugin', 'browser', 'close', caller=self.orch, json_output=False)
         self.pass_phase(2, 'five distinct nonce-bound agent_ready sessions, ACKs and visible Chat')
 
@@ -427,7 +425,7 @@ class Matrix:
                         selected = False
                         failures.append(f'{tab}: browser selection: {error}')
                 waiter = observe.EventWait(TURN_DEADLINE)
-                self.send(tab, f'Reply exactly {marker}-REPLY without tools. Remain idle afterward.', 'idle-first-' + tab)
+                self.send(tab, f'Reply with {marker} immediately followed by -REPLY, with no spaces and without tools. Remain idle afterward.', 'idle-first-' + tab)
                 waiter.until(lambda _, tab=tab, marker=marker: any(marker + '-REPLY' in text for text in oracle.assistant_texts(paths[tab])), tab + ' first post-restart reply')
                 if selected:
                     self.cli('idle-browser-reply-' + tab, 'plugin', 'browser', 'wait', '--text', marker + '-REPLY', caller=self.orch, json_output=False)
