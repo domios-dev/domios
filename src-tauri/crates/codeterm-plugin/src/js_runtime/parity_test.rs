@@ -51,6 +51,8 @@ mod account_home;
 
 #[path = "parity_test/access_errors.rs"]
 mod access_errors;
+#[path = "parity_test/agent_tasks.rs"]
+mod agent_tasks;
 #[path = "parity_test/project_files.rs"]
 mod project_files;
 

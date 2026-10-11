@@ -528,6 +528,7 @@ fn chat_backend_round_trips_symmetrically() {
         watcher: false,
         session_config: false,
         context_owner: ContextOwner::Plugin,
+        agent_tasks: false,
     };
     let v = serde_json::to_value(&spawnable).unwrap();
     assert_eq!(v, serde_json::json!({ "spawnable": true }));
@@ -540,6 +541,7 @@ fn chat_backend_round_trips_symmetrically() {
         watcher: true,
         session_config: false,
         context_owner: ContextOwner::Plugin,
+        agent_tasks: false,
     };
     let v = serde_json::to_value(&watcher).unwrap();
     assert_eq!(v, serde_json::json!({ "watcher": true }));
@@ -552,6 +554,7 @@ fn chat_backend_round_trips_symmetrically() {
         watcher: false,
         session_config: true,
         context_owner: ContextOwner::Plugin,
+        agent_tasks: false,
     };
     let v = serde_json::to_value(&session_config).unwrap();
     assert_eq!(v, serde_json::json!({ "sessionConfig": true }));
@@ -564,6 +567,7 @@ fn chat_backend_round_trips_symmetrically() {
         watcher: false,
         session_config: false,
         context_owner: ContextOwner::Host,
+        agent_tasks: false,
     };
     let v = serde_json::to_value(&host_context).unwrap();
     assert_eq!(v, serde_json::json!({ "contextOwner": "host" }));

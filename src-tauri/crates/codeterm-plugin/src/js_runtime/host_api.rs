@@ -441,7 +441,11 @@ impl PluginSandbox {
                 codeterm_util::project_roots::canonical_target(denied).as_ref() == Some(target)
             })
         });
-        let project = Self::path_under(&self.project_read_roots, path);
+        let project = self
+            .project_read_roots
+            .iter()
+            .any(|root| Path::new(path).starts_with(root))
+            || Self::path_under(&self.project_read_roots, path);
         let allowed = !denied
             && if project {
                 Self::path_under(&self.project_write_roots, path)
@@ -452,6 +456,12 @@ impl PluginSandbox {
             self.record_denial();
         }
         allowed
+    }
+
+    pub(super) fn project_write_allowed(&self, root: &str) -> bool {
+        codeterm_util::project_roots::canonical_root(root)
+            .ok()
+            .is_some_and(|root| self.project_write_roots.contains(&root))
     }
 
     /// `envGet` policy: unrestricted plugins read anything; confined ones can't
@@ -647,6 +657,10 @@ pub(super) fn install(
         std::fs::canonicalize(&path)
             .ok()
             .map(|path| codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+    });
+    let sb = sandbox.clone();
+    bind!("projectWriteAllowed", move |root: String| -> bool {
+        sb.project_write_allowed(&root)
     });
     let sb = sandbox.clone();
     bind!("jsonBooleanRecord", move |path: String,

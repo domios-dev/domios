@@ -186,4 +186,10 @@ codeterm blueprint create --recipe echo --set message=ready
 codeterm blueprint log BLUEPRINT_ID
 ```
 
-<!-- revision: 26 -->
+## Bounded Agent steps
+
+A typed pipeline may include `{"kind":"agent","provider":"<capable-provider>","profile":"<profile>","task":"<instruction>","deadline_ms":300000,"max_tokens":64000,"max_turns":24}` as a step's `kind`. Input and output are text. Discover providers and their profiles through `codeterm blueprint nodes`; the provider must declare bounded Agent tasks. Rotterdom implements this capability through its configured profiles. An unsupported provider is refused before creation and checked again before execution.
+
+The task and preceding output reach the provider unchanged, with token, turn and deadline ceilings. The provider returns structured JSON `{status, output, error?}`, with status `done`, `failed`, `cancelled` or `deadline_exceeded`. The step routes `done` or `failed`. A graph stop aborts the active task; its step log closes as failed. Results, including abort status, persist in `blueprint-agent-results/` and the step log exposes their `body_ref`. Claimed steps never replay after restart, and an unfinished tool effect remains unconfirmed. Agent steps do not turn model output into a shell command.
+
+<!-- revision: 27 -->
