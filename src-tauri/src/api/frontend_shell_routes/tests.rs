@@ -158,3 +158,13 @@ fn frontend_shell_contract_boot_diagnostics_accept_only_structured_metadata() {
     )
     .is_err());
 }
+
+#[test]
+fn frontend_shell_contract_chat_scroll_diagnostic_metadata() {
+    let value = json!({"stage":"chat-scroll", "native":false, "injected":true, "mounted":true,
+        "chat":{"scope":"tab:session", "edge":"window", "at":42,
+            "state":{"newerCount":2, "followTail":false}}});
+    let body = serde_json::from_value::<BootDiagnostic>(value).unwrap();
+    assert!(matches!(body.stage, DiagnosticStage::ChatScroll));
+    assert_eq!(body.chat.unwrap()["state"]["newerCount"], 2);
+}
