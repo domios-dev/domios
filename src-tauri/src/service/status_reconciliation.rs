@@ -53,13 +53,12 @@ pub(super) fn try_reconciled_tab_statuses(
     let mux = mux.try_read()?;
     let tracker = tracker.try_lock()?;
     Some(
-        mux.tabs
-            .iter()
-            .filter_map(|(tab_id, tab)| {
+        mux.all_tabs()
+            .filter_map(|tab| {
                 crate::multiplexer::state::resolved_tab_status(tab, &tracker, |tab, raw| {
                     reconcile_tab_status(registry, tab, raw)
                 })
-                .map(|status| (tab_id.clone(), status))
+                .map(|status| (tab.id.clone(), status))
             })
             .collect(),
     )
