@@ -610,6 +610,14 @@ fn sqlite_resume_binds_only_the_claimed_session_without_a_session_file() {
         fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
             None
         }
+        fn detect_session_id(
+            &self,
+            _: &str,
+            _: &[String],
+            _: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
         fn session_exists(&self, _: &str, id: &str) -> Option<bool> {
             self.0
                 .lock()
