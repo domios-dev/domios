@@ -16,6 +16,33 @@ fn compose_routed_suffix(suffix: &str, requires_instruction: bool) -> String {
     typed_suffix
 }
 
+struct RoutedInput {
+    body: String,
+    typed_prefix: Option<String>,
+    typed_suffix: Option<String>,
+}
+
+fn prepare_routed_input(
+    frame: &codeterm_types::domios::DomiosFrame,
+    requires_typed_instruction: bool,
+) -> RoutedInput {
+    let body = sanitize_agent_prompt_input(&frame.body);
+    let suffix = compose_routed_suffix(&frame.suffix, requires_typed_instruction);
+    if requires_typed_instruction {
+        RoutedInput {
+            body,
+            typed_prefix: Some(frame.opening_tag.clone()),
+            typed_suffix: Some(suffix),
+        }
+    } else {
+        RoutedInput {
+            body: format!("{}{body}{suffix}", frame.opening_tag),
+            typed_prefix: None,
+            typed_suffix: None,
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) use readiness::provider_or_generic_tui;
 #[cfg(test)]
@@ -486,8 +513,16 @@ impl ServiceContext {
                         provider.verify_submit_strategy()
                     })
                     .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let suffix = self.routed_frame_suffix(&delivery.provider_id, &frame.suffix)?;
-                let body = sanitize_agent_prompt_input(&frame.body);
+                let requires_typed_instruction = self
+                    .agent_registry
+                    .with_provider(&delivery.provider_id, |provider| {
+                        provider.paste_capability().is_some_and(|capability| {
+                            capability.requires_typed_instruction_for_routed_messages
+                        })
+                    })
+                    .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
+                let input = prepare_routed_input(&frame, requires_typed_instruction);
+                let body = input.body;
                 let track_exact_session_turn = !body.is_empty()
                     && matches!(
                         &strategy,
@@ -498,8 +533,8 @@ impl ServiceContext {
                     self,
                     &delivery.pty_id,
                     &body,
-                    Some(&frame.opening_tag),
-                    Some(&suffix),
+                    input.typed_prefix.as_deref(),
+                    input.typed_suffix.as_deref(),
                     true,
                     b"\r",
                     strategy,
@@ -704,18 +739,6 @@ impl ServiceContext {
             ),
             None => (None, None),
         }
-    }
-
-    fn routed_frame_suffix(&self, provider_id: &str, suffix: &str) -> Result<String, String> {
-        let requires_instruction = self
-            .agent_registry
-            .with_provider(provider_id, |provider| {
-                provider.paste_capability().is_some_and(|capability| {
-                    capability.requires_typed_instruction_for_routed_messages
-                })
-            })
-            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-        Ok(compose_routed_suffix(suffix, requires_instruction))
     }
 
     fn typed_follow_up_for_agent(&self, provider_id: Option<&str>, text: &str) -> Option<String> {
