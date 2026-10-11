@@ -1,6 +1,8 @@
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 
+pub(crate) use super::{LocalInputAdapter, LocalInputSubscription};
+
 const MAX_DESCRIPTOR_ELEMENTS: usize = 512;
 const MAX_COLLECTION_DEPTH: usize = 32;
 const DEVICE_ID_PREFIX: &str = "macos-hid-v1:";

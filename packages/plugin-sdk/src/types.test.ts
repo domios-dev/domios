@@ -22,8 +22,31 @@ import type {
   WebhookReceiveContext,
   WebhookReceiverCapability,
   WebhookReceiver,
+  LocalRecordingTriggerCapability,
 } from "./capabilities";
 import type { Host, Backend, TabRef, UsageSnapshot } from "./host";
+
+const localTrigger: LocalRecordingTriggerCapability = {
+  vendorId: 1, productId: 2, usagePage: 3, usage: 4,
+};
+void localTrigger;
+
+function localRecordingConformance(host: Host) {
+  const status = host.localRecording.status();
+  if (status && !("error" in status)) {
+    const granted: boolean = status.granted;
+    const generation: number = status.generation;
+    void [granted, generation];
+  }
+  host.localRecording.setEnabled(true);
+  // @ts-expect-error START is host-owned.
+  host.localRecording.start();
+  // @ts-expect-error A plugin cannot select arbitrary devices.
+  host.localRecording.selectDevices("arbitrary-device");
+  // @ts-expect-error A plugin cannot commit a transcript or choose a recipient.
+  host.localRecording.commit("tab-B", "injected-text");
+}
+void localRecordingConformance;
 
 const backend: ChatBackend = {
   openSession: (ctx) => ({ sessionId: ctx.tabId }),
