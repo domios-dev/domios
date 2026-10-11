@@ -23,6 +23,8 @@ Use a Blueprint to watch publication and stop it at completion or failure. Do no
 
 If plugin-only CI stays queued at `tree is new`, check the required runner label and runner status. An offline Mac runner once blocked all platform-independent plugin checks. Scope detection, metadata, plugin verification, issue metadata and plugin publication use `linux-build`; restore that runner rather than waiting for Mac or running an app release.
 
+If a plugin check reports "Vitest failed to access its internal state", its Vitest tests were run through a standalone TypeScript runner. `check-plugin.mjs` selects Vitest-owned files from `scripts/vitest-owned-tests.json`, including owned UI tests, and runs only those files through Vitest; standalone tests use tsx.
+
 ## Application release
 
 **Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
