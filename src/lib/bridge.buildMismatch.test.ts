@@ -26,7 +26,9 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 function mockFetch(apiVersion: number) {
-  globalThis.fetch = async () => new Response(JSON.stringify({ status: "ok", build: "independent-daemon", apiVersion }));
+  globalThis.fetch = async () => new Response(JSON.stringify({ status: "ok", build: "independent-daemon", apiVersion }), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 async function main() {
