@@ -151,12 +151,22 @@ pub fn try_send(
     };
     let attachment_ready = super::lifecycle::startup_attachment_ready(tab);
     let binding_verified = binding.is_some();
-    let gate = SendGate::classify(capability, state, available, binding_verified);
+    let first_readiness_reached = svc
+        .user_send_authority(tab)
+        .ok()
+        .is_some_and(|authority| svc.user_authority_is_ready(&authority));
+    let gate = SendGate::classify(
+        capability,
+        state,
+        available,
+        binding_verified,
+        first_readiness_reached,
+    );
     log::debug!("[rpc/send] tab={tab} provider={provider:?} capability={capability:?} gate={gate:?} runtime_entered={}", tokio::runtime::Handle::try_current().is_ok());
     let (sidecar, thread, nonce) = match (gate, sidecar, thread, binding) {
         (SendGate::Pty, _, _, _) => return None,
-        (SendGate::Hold(reason), _, _, _) => {
-            log::info!("[codex-rpc-send] tab={tab} state=held reason={reason:?} delivery_state={state:?} origin={origin:?} capability={capability:?} endpoint_present={endpoint_present} client_alive={client_alive} process_alive={process_alive} server_verified={server_verified} launch_authenticated={authenticated} thread_matches={thread_matches} nonce_present={nonce_present} nonce_matches={nonce_matches} binding_verified={binding_verified} attachment_ready={attachment_ready} bootstrap_pending={bootstrap_pending}");
+        (SendGate::Refuse(reason), _, _, _) => {
+            log::info!("[codex-rpc-send] tab={tab} state=refused reason={reason:?} delivery_state={state:?} origin={origin:?} capability={capability:?} endpoint_present={endpoint_present} client_alive={client_alive} process_alive={process_alive} server_verified={server_verified} launch_authenticated={authenticated} thread_matches={thread_matches} nonce_present={nonce_present} nonce_matches={nonce_matches} binding_verified={binding_verified} attachment_ready={attachment_ready} bootstrap_pending={bootstrap_pending}");
             return Some(Err(DeliveryError::TabBusyRefused {
                 tab: tab.into(),
                 detail: reason.into(),
