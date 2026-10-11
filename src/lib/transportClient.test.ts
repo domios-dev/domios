@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createTransportClient, decodeTransportResponse, parseSseFrame, TransportError } from "./transportClient";
+import { createTransportClient, decodeTransportResponse, parseSseFrame, TransportError, InvalidJsonResponseError } from "./transportClient";
 
 const origin = "http://127.0.0.1:7686";
 function clientWith(response: Response) {
@@ -10,7 +10,7 @@ function clientWith(response: Response) {
 describe("transportClient", () => {
   it("requires an explicit HTTP origin and confines credentials to it", async () => {
     expect(() => createTransportClient({ origin: "tauri://localhost", token: () => "x" })).toThrow();
-    const { client, fetch } = clientWith(new Response("{}"));
+    const { client, fetch } = clientWith(Response.json({}));
     await expect(client.json("GET", "//foreign/api")).rejects.toThrow();
     await expect(client.json("GET", "/\\foreign/api")).rejects.toThrow();
     expect(fetch).not.toHaveBeenCalled();
@@ -18,7 +18,7 @@ describe("transportClient", () => {
     expect(client.currentToken()).toBe("secret");
   });
   it("uses bearer HTTP from an explicit origin and preserves envelopes", async () => {
-    const { client, fetch } = clientWith(new Response('{"ok":true,"result":{"id":"tab"}}'));
+    const { client, fetch } = clientWith(Response.json({ ok: true, result: { id: "tab" } }));
     expect(await client.json("POST", "/api/tabs", { nonce: "binding" })).toEqual({ ok: true, result: { id: "tab" } });
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe(`${origin}/api/tabs`);
@@ -28,7 +28,7 @@ describe("transportClient", () => {
   });
   it("sends caller identity as a routing header and refreshes tokens", async () => {
     let token = "first";
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => new Response("{}"));
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({}));
     const client = createTransportClient({ origin, token: () => token, fetch });
     await client.json("GET", "/api/tabs", undefined, { callerTabId: "mesh:peer/tab" });
     token = "second";
@@ -36,12 +36,23 @@ describe("transportClient", () => {
     expect(new Headers(fetch.mock.calls[0][1]?.headers).get("X-CodeTerm-Tab-Id")).toBe("mesh:peer/tab");
     expect(new Headers(fetch.mock.calls[1][1]?.headers).get("Authorization")).toBe("Bearer second");
   });
-  it("preserves bare and text results", () => {
-    expect(decodeTransportResponse(200, "/api/value", '[1,2]')).toEqual([1, 2]);
-    expect(decodeTransportResponse(200, "/api/value", "plain")).toBe("plain");
+  it("preserves bare JSON results", () => {
+    expect(decodeTransportResponse(200, "/api/value", '[1,2]', "application/json; charset=utf-8")).toEqual([1, 2]);
+  });
+  it("rejects a static SPA response before config.font.size can be read", async () => {
+    const html = '<!doctype html><div id="root"></div>';
+    for (const [body, contentType] of [[html, "text/html"], [html, "application/json"], ['{"font":{"size":14}}', "text/plain"], ["{}", null]]) {
+      expect(() => decodeTransportResponse(200, "/api/config", body!, contentType!)).toThrow(InvalidJsonResponseError);
+    }
+    const { client } = clientWith(new Response(html, { headers: { "content-type": "text/html" } }));
+    await expect(client.json("GET", "/api/config")).rejects.toMatchObject({
+      name: "InvalidJsonResponseError", status: 200, path: "/api/config", body: html, contentType: "text/html",
+    });
+    const local = clientWith(new Response(html, { headers: { "content-type": "text/html" } })).client;
+    await expect(local.localJson("GET", "/api/config")).rejects.toBeInstanceOf(InvalidJsonResponseError);
   });
   it("retains error status, path and exact reason body", () => {
-    try { decodeTransportResponse(403, "/api/teams", '{"reason":"caller_denied"}'); }
+    try { decodeTransportResponse(403, "/api/teams", '{"reason":"caller_denied"}', "application/json"); }
     catch (error) {
       expect(error).toBeInstanceOf(TransportError);
       expect(error).toMatchObject({ status: 403, path: "/api/teams", body: '{"reason":"caller_denied"}' });
@@ -51,20 +62,20 @@ describe("transportClient", () => {
   });
   it("returns only the existing prompt-not-on-screen 409 exception", async () => {
     const body = '{"ok":false,"reason":"prompt_not_on_screen"}';
-    expect(decodeTransportResponse(409, "/api/tabs/t/prompt/respond", body)).toEqual(JSON.parse(body));
-    expect(() => decodeTransportResponse(409, "/api/other", body)).toThrow(TransportError);
-    const { client } = clientWith(new Response(body, { status: 409 }));
+    expect(decodeTransportResponse(409, "/api/tabs/t/prompt/respond", body, "application/json")).toEqual(JSON.parse(body));
+    expect(() => decodeTransportResponse(409, "/api/other", body, "application/json")).toThrow(TransportError);
+    const { client } = clientWith(new Response(body, { status: 409, headers: { "content-type": "application/json" } }));
     await expect(client.localJson("POST", "/api/tabs/t/prompt/respond")).rejects.toThrow(TransportError);
   });
   it("relays peer requests with the local token and exact inner status", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response('{"ok":false,"status":404,"data":{"reason":"missing"},"error":"missing"}'));
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ ok: false, status: 404, data: { reason: "missing" }, error: "missing" }));
     const client = createTransportClient({ origin, token: () => "local", relayPeerId: "peer", fetch });
     await expect(client.json("GET", "/api/tabs/remote")).rejects.toMatchObject({ status: 404, body: '{"reason":"missing"}' });
     expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({ target_peer_id: "peer", method: "GET", path: "/api/tabs/remote", body: null });
     expect(new Headers(fetch.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer local");
   });
   it("uploads bytes locally without assigning JSON multipart headers", async () => {
-    const { client, fetch } = clientWith(new Response('{"path":"/saved","size":3}'));
+    const { client, fetch } = clientWith(Response.json({ path: "/saved", size: 3 }));
     const form = new FormData();
     form.append("file", new Blob(["abc"]), "a.txt");
     expect(await client.upload("/api/upload", form)).toEqual({ path: "/saved", size: 3 });

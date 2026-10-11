@@ -246,9 +246,9 @@ async function main(): Promise<void> {
       const call = JSON.parse(String(init?.body));
       assert(call.target_peer_id === "owning-peer", "catalog requested from wrong peer");
       assert(call.path === "/api/agents/providers", "catalog used wrong relay route");
-      return new Response(JSON.stringify({ ok: true, status: 200, data: [descriptor], error: null }));
+      return Response.json({ ok: true, status: 200, data: [descriptor], error: null });
     }
-    return new Response("[]");
+    return Response.json([]);
   };
   function CatalogPublisher() {
     useAgentProviderCachePublisher();

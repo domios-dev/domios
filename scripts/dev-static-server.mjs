@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,12 +55,45 @@ async function waitForIndex() {
   }
 }
 
+export function isDaemonPath(url) {
+  const path = typeof url === "string" ? url.split("?")[0] : "";
+  return ["/api", "/frontend", "/bundled"].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+export function proxyDevApi(req, res, apiPort) {
+  if (!isDaemonPath(req.url)) return false;
+  const upstream = request({
+    hostname: "127.0.0.1",
+    port: apiPort,
+    path: req.url,
+    method: req.method,
+    headers: { ...req.headers, host: `127.0.0.1:${apiPort}` },
+  }, (reply) => {
+    res.writeHead(reply.statusCode ?? 502, reply.headers);
+    reply.on("error", () => res.destroy());
+    reply.pipe(res);
+  });
+  upstream.on("error", () => {
+    if (res.destroyed) return;
+    if (res.headersSent) res.destroy();
+    else {
+      res.writeHead(502, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Dev daemon is unavailable" }));
+    }
+  });
+  res.on("close", () => upstream.destroy());
+  req.on("error", () => upstream.destroy());
+  req.pipe(upstream);
+  return true;
+}
+
 export async function startServer() {
   if (!indexReady()) {
     console.log(`[dev-static] waiting for ${index}`);
     await waitForIndex();
   }
   return createServer((req, res) => {
+    if (proxyDevApi(req, res, Number(process.env.CODETERM_API_PORT) || 7686)) return;
     const file = resolveAsset(req.url);
     if (!file || !existsSync(file)) {
       res.writeHead(404, { "cache-control": "no-cache" });
