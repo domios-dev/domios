@@ -260,6 +260,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
       const mime = pickAudioMime();
       mimeRef.current = mime;
       const rec = options ? options.runtime.createRecorder(stream, mime) : createVoiceRecorder(stream, mime);
+      mimeRef.current = rec.mimeType || mime;
       chunksRef.current = [];
       recDebugRef.current = { chunks: 0, bytes: 0, lastChunkBytes: 0, lastChunkAt: 0 };
       setLivePeaks(quietLiveWaveform());
@@ -390,7 +391,10 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
       streamRef.current = null;
       teardownAnalyser();
       setLivePeaks(quietLiveWaveform());
-      if (!recorder || recorder.state === "inactive") releaseManualCapture();
+      if (!recorder || recorder.state === "inactive") {
+        recRef.current = null;
+        releaseManualCapture();
+      }
       onError(microphoneErrorMessage(e));
       return false;
     }
@@ -404,7 +408,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
   function stopWith(kind: StopKind): Promise<StopResult> {
     if (stopPromiseRef.current) return stopPromiseRef.current;
     const rec = recRef.current;
-    if (!rec || rec.state === "inactive") {
+    if (!rec) {
       setRecording(false);
       if (pendingStartRef.current) {
         startGenerationRef.current += 1;
@@ -423,7 +427,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
       streamRef.current?.getTracks().forEach((track) => {
         if (track.readyState !== "ended") track.stop();
       });
-      rec.stop();
+      if (rec.state !== "inactive") rec.stop();
     } catch (error) {
       stopResolveRef.current = null;
       stopPromiseRef.current = null;
