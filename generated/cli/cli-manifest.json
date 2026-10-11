@@ -1131,7 +1131,7 @@
               "value_name": "MATCHES",
               "possible_values": [],
               "default": null,
-              "help": "Deterministic fallback when no Choice adapter is connected: bucket=regex",
+              "help": "Deterministic classification: unmatched output never calls the model; bucket=regex",
               "aliases": []
             },
             {
@@ -1152,6 +1152,16 @@
               "possible_values": [],
               "default": null,
               "help": "Finite accepted transition budget (maximum 256)",
+              "aliases": []
+            },
+            {
+              "name": "model-classification",
+              "positional": false,
+              "required": false,
+              "value_name": "MODEL_CLASSIFICATION",
+              "possible_values": [],
+              "default": null,
+              "help": "Opt in to Supporter model classification when no patterns are declared",
               "aliases": []
             },
             {

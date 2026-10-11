@@ -281,10 +281,9 @@ fn sentinel_escalate_expiry_persists_held_release_and_preserves_hash() {
         super::provenance::Stage::EscalationExpired,
     )
     .unwrap();
-    let journal = std::fs::read_to_string(dir.path().join("supporter/journal.jsonl")).unwrap();
-    let event: serde_json::Value = serde_json::from_str(journal.lines().next().unwrap()).unwrap();
-    assert_eq!(event["reason"], "escalation_expired");
-    assert_eq!(event["stage"], "escalation_expired");
+    // A pattern-declared Blueprint is deterministic and never writes Supporter activity.
+    assert!(!job.model_classification);
+    assert!(!dir.path().join("supporter/journal.jsonl").exists());
 }
 
 #[test]
