@@ -7,7 +7,7 @@ use axum::{
 use tower_http::{
     catch_panic::CatchPanicLayer,
     compression::CompressionLayer,
-    cors::{AllowOrigin, Any, CorsLayer},
+    cors::{AllowOrigin, CorsLayer},
 };
 
 use super::{
@@ -20,68 +20,50 @@ use super::{
     usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
-/// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
-/// `tauri.localhost` on Windows/Android.
-const APP_WEBVIEW_ORIGINS: [&str; 3] = [
-    "tauri://localhost",
-    "http://tauri.localhost",
-    "https://tauri.localhost",
+const FRONTEND_REQUEST_HEADERS: [&str; 8] = [
+    "authorization",
+    "content-type",
+    "accept",
+    "x-codeterm-tab-id",
+    "x-codeterm-session-id",
+    "x-codeterm-binding-nonce",
+    "x-codeterm-session-binding-nonce",
+    "x-codeterm-plan-confirmation",
 ];
 
-/// The app's own window is a first-party client of this daemon yet cross-origin to
-/// it, so without an explicit allow every raw fetch from the UI — the remote-tab
-/// SSE streams — is rejected for a missing `Access-Control-Allow-Origin`.
-fn with_app_webview_origins(
-    mut origins: Vec<axum::http::HeaderValue>,
-) -> Vec<axum::http::HeaderValue> {
-    origins.extend(
-        APP_WEBVIEW_ORIGINS
-            .iter()
-            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok()),
-    );
-    origins
+fn configured_origin(origin: &str) -> Option<axum::http::HeaderValue> {
+    if !crate::config::exact_cors_origin(origin) {
+        return None;
+    }
+    origin.parse().ok()
 }
 
-fn cors_layer(cors_enabled: bool, configured_origins: &[String]) -> CorsLayer {
-    let origins = if cors_enabled {
-        configured_origins
-            .iter()
-            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    #[cfg(debug_assertions)]
-    let origins = if !cors_enabled {
-        origins
-            .into_iter()
-            .chain(debug_vite_origins())
-            .collect::<Vec<_>>()
-    } else {
-        origins
-    };
+fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> CorsLayer {
+    let mut origins = frontend_origins
+        .iter()
+        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+        .collect::<Vec<_>>();
+    for (index, origin) in configured_origins.iter().enumerate() {
+        if let Some(value) = configured_origin(origin) {
+            if !origins.contains(&value) {
+                origins.push(value);
+            }
+        } else {
+            log::warn!("[rest-cors] refused api.cors_allow_origins entry={index}: expected an exact HTTP(S) origin");
+        }
+    }
     CorsLayer::new()
-        .allow_origin(AllowOrigin::list(with_app_webview_origins(origins)))
-        .allow_methods(Any)
-        .allow_headers(Any)
-}
-
-#[cfg(debug_assertions)]
-fn debug_vite_origins() -> Vec<axum::http::HeaderValue> {
-    let Some(port) = std::env::var("CODETERM_VITE_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .filter(|port| *port != 0)
-    else {
-        return Vec::new();
-    };
-    [
-        format!("http://localhost:{port}"),
-        format!("http://127.0.0.1:{port}"),
-    ]
-    .into_iter()
-    .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-    .collect()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::PATCH,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers(FRONTEND_REQUEST_HEADERS.map(axum::http::HeaderName::from_static))
+        .expose_headers([axum::http::header::CONTENT_SECURITY_POLICY])
 }
 
 #[derive(Clone)]
@@ -1003,7 +985,10 @@ pub fn create_router_with_frontend(
         router
     };
 
-    let api_config = state.config.lock().api.clone();
+    let frontend_origins = crate::startup::frontend_shell::declared_frontend_origins(
+        &state.config.lock().api,
+        state.svc.app_handle.config().build.dev_url.as_ref(),
+    );
     let router = router.layer(middleware::from_fn_with_state(
         state.clone(),
         super::auth::auth_middleware,
@@ -1011,7 +996,8 @@ pub fn create_router_with_frontend(
     let router = router.layer(middleware::from_fn(
         super::local_preview_routes::secure_headers,
     ));
-    let router = router.layer(cors_layer(api_config.cors, &api_config.cors_allow_origins));
+    let configured_origins = state.config.lock().api.cors_allow_origins.clone();
+    let router = router.layer(cors_layer(&frontend_origins, &configured_origins));
     #[cfg(debug_assertions)]
     let router = router.layer(middleware::from_fn(super::cors_diagnostics::record));
     router

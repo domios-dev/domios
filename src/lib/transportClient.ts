@@ -91,7 +91,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     headers.set("Authorization", `Bearer ${token}`);
     if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
     try {
-      const response = await fetcher(target, { ...init, headers });
+      const response = await fetcher(target, { ...init, credentials: "omit", headers });
       options.onGatewayState?.(true);
       return response;
     } catch (error) {
