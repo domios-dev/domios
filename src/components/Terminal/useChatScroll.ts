@@ -29,28 +29,15 @@ const SCROLL_WRITE_TOLERANCE_PX = 1;
 
 interface PendingPrependSnapshot extends ChatPrependSnapshot {
   version: unknown;
-  anchorId: string | null;
-  anchorOffset: number;
+  anchor: ChatContentAnchor | null;
 }
 
-function capturePrependAnchor(el: HTMLDivElement): Pick<PendingPrependSnapshot, "anchorId" | "anchorOffset"> {
-  const rows = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
-  let anchor = rows[0] ?? null;
-  for (const row of rows) {
-    if (row.offsetTop > el.scrollTop) break;
-    anchor = row;
-  }
-  return {
-    anchorId: anchor?.dataset.messageId ?? null,
-    anchorOffset: anchor ? anchor.offsetTop - el.scrollTop : 0,
-  };
+function capturePrependAnchor(el: HTMLDivElement): Pick<PendingPrependSnapshot, "anchor"> {
+  return { anchor: captureChatContentAnchor(el) };
 }
 
 function resolvePrependAnchor(el: HTMLDivElement, snapshot: PendingPrependSnapshot): number | null {
-  if (!snapshot.anchorId) return null;
-  const anchor = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"))
-    .find((row) => row.dataset.messageId === snapshot.anchorId);
-  return anchor ? anchor.offsetTop - snapshot.anchorOffset : null;
+  return snapshot.anchor ? chatScrollTopForAnchor(el, snapshot.anchor) : null;
 }
 
 export interface UseChatScrollOptions {
@@ -216,8 +203,8 @@ export function useChatScroll({
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
     if (!el) return false;
-    const row = Array.from(el.querySelectorAll<HTMLElement>("[data-source-message-id]"))
-      .find((candidate) => candidate.dataset.sourceMessageId === messageId);
+    const row = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"))
+      .find((candidate) => candidate.dataset.messageId === messageId || candidate.dataset.sourceMessageId === messageId);
     if (!row) return false;
     writeScrollTop(el, row.offsetTop);
     // Detached, so a pinned tail cannot pull the revealed row back out of view.
@@ -230,7 +217,7 @@ export function useChatScroll({
     const observer = observerRef.current;
     if (!observer) return;
     const observed = observedRef.current;
-    const children = new Set<Element>(Array.from(el.children));
+    const children = new Set<Element>([...Array.from(el.children), ...Array.from(el.querySelectorAll("[data-chat-window-row]"))]);
     for (const child of observed) {
       if (children.has(child)) continue;
       observer.unobserve(child);

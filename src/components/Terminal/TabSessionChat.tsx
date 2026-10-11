@@ -88,7 +88,7 @@ import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
 import { streamingMessageId } from "./streamingMessage";
-import { jumpToMessage } from "./jumpToMessage";
+import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 import { HelperMomentCard } from "./HelperMomentCard";
 import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
 import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
@@ -577,8 +577,8 @@ export function TabSessionChat({
   };
 
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
-  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId });
-  const jumpToQuoted = useCallback((messageId: string) => { jumpToMessage(scrollRef.current, messageId); }, [scrollRef]);
+  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
+  const jumpToQuoted = useCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
 
   const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
@@ -842,9 +842,9 @@ export function TabSessionChat({
             </button>
           </div>
         )}
-        {(reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
-        {(askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
-        <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />
+        {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
+        {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
+        {isActive && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.range.top }} />
         {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
           const messageIndex = mountedWindow.range.start + mountedIndex;
@@ -857,6 +857,7 @@ export function TabSessionChat({
             <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
             <ChatMessageRow
               msg={msg}
+              sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
@@ -898,9 +899,9 @@ export function TabSessionChat({
           );
         })}
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
-        {reportPlacement.trailing.map(renderOutboundReport)}
-        {askPlacement.trailing.map(renderAsk)}
-        {generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
+        {isActive && reportPlacement.trailing.map(renderOutboundReport)}
+        {isActive && askPlacement.trailing.map(renderAsk)}
+        {isActive && generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}

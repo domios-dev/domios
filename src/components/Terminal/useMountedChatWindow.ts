@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
+import { chatAnchorIdentities, resolveChatAnchorIndex, type ChatContentAnchor } from "./chatAnchorModel";
 import { CHAT_ROW_ESTIMATE, chatRowOffsets, mountedChatWindow } from "./chatMountedWindow";
 
 interface ChatWindowRow { msg: { id: string; sourceMessageId?: string } }
@@ -17,14 +18,19 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     heights.current.clear();
   }
   const [viewport, setViewport] = useState({ top: 0, height: 0, revision: 0 });
+  const anchorRef = useRef<ChatContentAnchor | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const topSpacerRef = useRef<HTMLDivElement>(null);
   const rowHeights = rows.map(({ msg }) => heights.current.get(msg.id) ?? CHAT_ROW_ESTIMATE);
+  const identities = chatAnchorIdentities(rows.map(({ msg }) => msg));
+  const offsets = chatRowOffsets(rowHeights);
+  const anchorIndex = anchorRef.current == null ? -1 : resolveChatAnchorIndex(identities, anchorRef.current);
+  const anchoredTop = anchorIndex < 0 ? viewport.top : offsets[anchorIndex] - anchorRef.current!.offset;
   const targetIndex = target == null ? -1 : rows.findIndex(({ msg }) => msg.id === target);
-  const range = mountedChatWindow({ heights: rowHeights, scrollTop: viewport.top, viewportHeight: viewport.height,
+  const range = mountedChatWindow({ heights: rowHeights, scrollTop: anchoredTop, viewportHeight: viewport.height,
     active, pinned: followTailRef.current, targetIndex: targetIndex < 0 ? undefined : targetIndex });
-  const live = useRef({ rows, rowHeights, range });
-  live.current = { rows, rowHeights, range };
+  const live = useRef({ rows, identities, rowHeights, range });
+  live.current = { rows, identities, rowHeights, range };
 
   const readViewport = useCallback(() => {
     const el = scrollRef.current;
@@ -32,6 +38,10 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     if (!el || !spacer || el.clientHeight === 0) return;
     const origin = spacer.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
     const top = el.scrollTop - origin;
+    const wrapper = Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"))
+      .find((row) => row.offsetTop >= el.scrollTop && row.offsetTop < el.scrollTop + el.clientHeight);
+    const identity = wrapper && live.current.identities.find((row) => row.id === wrapper.dataset.chatWindowRow);
+    anchorRef.current = identity && wrapper ? { ...identity, offset: wrapper.offsetTop - el.scrollTop } : null;
     setViewport((previous) => previous.top === top && previous.height === el.clientHeight
       ? previous : { ...previous, top, height: el.clientHeight });
   }, [scrollRef]);
@@ -82,5 +92,5 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   }, [active, rows, range.start, range.end, readViewport, scrollRef]);
 
   return { range, topSpacerRef, prepareMessage, revision: viewport.revision,
-    offsets: chatRowOffsets(rowHeights) };
+    offsets, identities };
 }

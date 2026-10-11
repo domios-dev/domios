@@ -144,5 +144,7 @@
   "src/components/Settings/UpdateSection.test.tsx",
   "plugins/provider-shared/updateCheck.test.ts",
   "src/components/Automation/probeProgress.test.ts",
-  "src/components/Terminal/chatMountedWindow.test.ts"
+  "src/components/Terminal/chatMountedWindow.test.ts",
+  "src/components/Terminal/chatAnchorModel.test.ts",
+  "src/components/Terminal/useMountedChatWindow.test.tsx"
 ]
