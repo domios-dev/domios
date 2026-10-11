@@ -8,6 +8,8 @@ use axum::{
 use futures_util::StreamExt;
 use tokio::sync::watch;
 
+mod diagnostics;
+
 #[derive(Clone)]
 pub(super) struct GenerationStreams(watch::Sender<bool>);
 
@@ -22,13 +24,16 @@ impl GenerationStreams {
 
     pub(super) fn router(&self, router: Router) -> Router {
         let closed = self.0.subscribe();
+        let diagnostics = diagnostics::RequestStreams::default();
         router.layer(axum::middleware::from_fn(
             move |request: Request, next: Next| {
                 let closed = closed.clone();
+                let diagnostics = diagnostics.clone();
                 async move {
                     if *closed.borrow() {
                         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
                     }
+                    let context = diagnostics.accept(&request);
                     let response = next.run(request).await;
                     if response
                         .headers()
@@ -36,10 +41,14 @@ impl GenerationStreams {
                         .and_then(|value| value.to_str().ok())
                         .is_some_and(|value| value.split(';').next() == Some("text/event-stream"))
                     {
+                        let guard = diagnostics.open(context);
                         let (parts, body) = response.into_parts();
                         Response::from_parts(
                             parts,
-                            Body::from_stream(until_closed(body.into_data_stream(), closed)),
+                            Body::from_stream(diagnostics::track(
+                                until_closed(body.into_data_stream(), closed),
+                                guard,
+                            )),
                         )
                     } else {
                         response

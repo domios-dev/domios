@@ -1,3 +1,5 @@
+const streamClientId = crypto.randomUUID();
+
 export type Unsubscribe = () => void;
 export type TokenSource = string | (() => string | null);
 
@@ -154,7 +156,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
         try {
           const streamPath = options.relayPeerId
             ? `/api/mesh/relay-stream?${new URLSearchParams({ peer: options.relayPeerId, path })}` : path;
-          const response = await localFetch(streamPath, { headers: { Accept: "text/event-stream" }, signal: controller.signal });
+          const response = await localFetch(streamPath, { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal });
           if (!response.ok) throw new TransportError(response.status, path, await response.text());
           if (!response.body) throw new Error("Daemon SSE response has no body");
           reader = response.body.getReader();
