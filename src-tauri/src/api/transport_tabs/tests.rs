@@ -153,9 +153,13 @@ async fn transport_tabs_contract_cwd_persistence_envelopes_and_status() {
         json!({ "ok": true })
     );
     let snapshot = fixture.service.mux.read().to_session_snapshot();
-    let storage =
-        crate::session::store::StorageDeskAdapter::open(fixture.temp.path().join("persisted-desk"))
-            .unwrap();
+    let storage = crate::session::store::StorageDeskAdapter::from_storage(
+        crate::storage::Storage::open(
+            fixture.temp.path().join("persisted-desk"),
+            crate::storage::StorageConfig::default(),
+        )
+        .unwrap(),
+    );
     storage.import_snapshot(&snapshot, Vec::new()).unwrap();
     let restored = MultiplexerState::from_session_snapshot(&storage.snapshot().unwrap());
     assert_eq!(
