@@ -180,6 +180,28 @@ export function useChatSession({
     rows: ChatMessage[],
   ) => commitTranscriptBatch(windowKeyRef.current, { kind, authority, range, rows }), []);
 
+  const reconcileSendStatuses = useCallback(async () => {
+    if (sendStatusInFlightRef.current) {
+      sendStatusQueuedRef.current = true;
+      return;
+    }
+    sendStatusInFlightRef.current = true;
+    try {
+      do {
+        sendStatusQueuedRef.current = false;
+        const statuses = await reconcileTrackedChatMessages(tabId);
+        for (const status of statuses) {
+          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
+          stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        }
+      } while (sendStatusQueuedRef.current);
+    } catch {
+      return;
+    } finally {
+      sendStatusInFlightRef.current = false;
+    }
+  }, [tabId]);
+
   const requestAttach = useCallback((preserveViewport = false) => {
     pendingLiveEventsRef.current = [];
     preserveSnapshotAnchorRef.current = preserveViewport;
@@ -197,7 +219,8 @@ export function useChatSession({
     attachmentStateRef.current = "attaching";
     setAttachmentState("attaching");
     beginAttach();
-  }, [beginAttach]);
+    void reconcileSendStatuses();
+  }, [beginAttach, reconcileSendStatuses]);
 
   /** Coalesce recovery to one re-attach per tick; the trigger is always an
    *  observed outcome, never elapsed time. */
@@ -238,28 +261,6 @@ export function useChatSession({
       preserveSnapshotAnchorRef.current,
     );
   }, [commitBatch, tabId]);
-
-  const reconcileSendStatuses = useCallback(async () => {
-    if (sendStatusInFlightRef.current) {
-      sendStatusQueuedRef.current = true;
-      return;
-    }
-    sendStatusInFlightRef.current = true;
-    try {
-      do {
-        sendStatusQueuedRef.current = false;
-        const statuses = await reconcileTrackedChatMessages(tabId);
-        for (const status of statuses) {
-          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
-          stampConfirmedTranscriptRow(windowKeyRef.current, status);
-        }
-      } while (sendStatusQueuedRef.current);
-    } catch {
-      return;
-    } finally {
-      sendStatusInFlightRef.current = false;
-    }
-  }, [tabId]);
 
   const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
     observeDeliveryStatus(status);
