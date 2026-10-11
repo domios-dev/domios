@@ -356,10 +356,9 @@ async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_ca
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
         let sends = Arc::new(AtomicUsize::new(0));
         let observed_sends = sends.clone();
-        let pending_for_completion = pending.clone();
         let task = tokio::spawn(async move {
             complete_capture(
-                &pending_for_completion,
+                &pending,
                 async move {
                     let _ = entered_tx.send(());
                     transcript_rx
