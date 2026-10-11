@@ -122,6 +122,7 @@ pub(crate) struct UserTab {
     pub(crate) dispatch_generation: AtomicU64,
     pub(crate) dispatch_events: tokio::sync::watch::Sender<u64>,
     ready_launch: Mutex<Option<ReadyUserLaunch>>,
+    ended_launch_nonce: Mutex<Option<String>>,
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
@@ -211,6 +212,7 @@ impl UserSendStore {
                     dispatch_generation: AtomicU64::new(0),
                     dispatch_events,
                     ready_launch: Mutex::new(None),
+                    ended_launch_nonce: Mutex::new(None),
                     admission_wake: Mutex::new(None),
                 })
             })
@@ -316,6 +318,11 @@ impl UserSendStore {
         let loaded = self.load(tab, &mut data)?;
         if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
             return Err("user send owner is held or revoked".into());
+        }
+        if tab.ended_launch_nonce.lock().as_deref()
+            == Some(reservation.authority.binding_nonce.as_str())
+        {
+            return Err("launch_ended_before_write".into());
         }
         let body_path = tab.payload_path(&reservation.send_id, "body")?;
         let prepared = self.final_transport(reservation, prepared, body.as_ref())?;

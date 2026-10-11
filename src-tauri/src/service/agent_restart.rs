@@ -399,6 +399,10 @@ impl ServiceContext {
                 &super::background_work::running(self, &snap.tab_id),
             );
         }
+        if mode == RestartMode::Fresh {
+            self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
+                .map_err(AgentRestartError::Internal)?;
+        }
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
