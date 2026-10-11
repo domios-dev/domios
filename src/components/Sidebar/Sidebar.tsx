@@ -163,11 +163,7 @@ export function Sidebar({
     blueprints: string[];
     teams: TeamCloseResource[];
   } | null>(null);
-  const [sessionPicker, setSessionPicker] = useState<{
-    workspaceId: string;
-    workspaceCwd: string | null;
-    initialProviderId?: string;
-  } | null>(null);
+  const [sessionPicker, setSessionPicker] = useState<OpenNewSessionDetail | null>(null);
   const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
@@ -1088,6 +1084,7 @@ export function Sidebar({
           agentsConfig={agentsConfig}
           agentConfig={config?.agent}
           initialProviderId={sessionPicker.initialProviderId}
+          section={sessionPicker.section ?? (state.workspaces.find((workspace) => workspace.id === sessionPicker.workspaceId)?.protected ? "general" : "workspace")}
           onClose={() => setSessionPicker(null)}
         />
       )}
