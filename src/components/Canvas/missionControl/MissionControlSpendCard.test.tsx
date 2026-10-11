@@ -1,3 +1,6 @@
+import { beforeEach as beforeDaemonCase } from "vitest";
+import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
+beforeDaemonCase(() => configureDaemonFixture());
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
@@ -20,7 +23,8 @@ import {
   teamSpendRange,
   teamSpendTotals,
   type TeamSpend,
-  type TeamSpendDaily,} from "./teamSpend";
+  type TeamSpendDaily,
+} from "./teamSpend";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

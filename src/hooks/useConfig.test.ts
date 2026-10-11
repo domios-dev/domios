@@ -47,6 +47,7 @@ async function nativeConfigSaves() {
   const { useConfig } = await import("./useConfig");
   const { withFailureDeadline } = await import("../test/withFailureDeadline");
   const win = new Window();
+  Object.assign(win, { __CODETERM_DAEMON__: { origin: /^https?:/.test(win.location.origin) ? win.location.origin : "http://127.0.0.1:7686", token: "runtime-secret" } });
   const original = new Map<string, PropertyDescriptor | undefined>();
   for (const key of ["window", "document", "navigator", "HTMLElement", "Node"]) {
     original.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
@@ -94,6 +95,8 @@ async function nativeConfigSaves() {
     assert(current.config.api.token === "runtime-secret", "real native hook preserves a same-peer redacted token");
     await act(async () => current.updateConfig({ ...current.config, font: { ...current.config.font, size: 18 } }));
     assert(persisted().api.token === "runtime-secret" && persisted().font.size === 18, "native save persists the current peer config and token");
+    const { configureDaemonTransport } = await import("../lib/daemonBootstrap");
+    configureDaemonTransport({ origin: "http://127.0.0.1:7686", token: "rotated-secret" });
     await act(async () => emit!({ payload: rotated }));
     await act(async () => current.updateConfig({ ...current.config, font: { ...current.config.font, size: 20 } }));
     assert(persisted().api.token === "rotated-secret" && persisted().font.size === 20, "native token rotation survives a valid subsequent save");

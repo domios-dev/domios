@@ -4,7 +4,7 @@ import { bindOutputStreamTransport } from "./outputStream";
 import { bindWebEventsTransport } from "./webEvents";
 import { bindRemoteTabEventsTransport } from "./remoteTabEvents";
 import { bindNativeBridgeTransport } from "./nativeBridge";
-import { configureOrchestrationTransport } from "./transport/orchestrationRuntime";
+import { bindOrchestrationTransport } from "./transport/orchestrationRuntime";
 import type { TransportClient } from "./transportClient";
 
 export const selectedDaemonTransport: TransportClient = {
@@ -17,13 +17,19 @@ export const selectedDaemonTransport: TransportClient = {
   origin: () => baseDaemonTransport().origin(),
 };
 
-onDaemonTransport((base) => {
-  invalidateWebRequestContext();
+let runtimeClient: TransportClient | undefined;
+function bindDaemonRuntime(base: TransportClient): void {
+  if (runtimeClient && runtimeClient !== base) invalidateWebRequestContext();
+  runtimeClient = base;
   bindOutputStreamTransport(base);
   bindWebEventsTransport(base);
   bindRemoteTabEventsTransport(base);
   bindNativeBridgeTransport(base);
-  configureOrchestrationTransport(selectedDaemonTransport);
-});
+  bindOrchestrationTransport(selectedDaemonTransport);
+}
 
-export function ensureDaemonRuntime(): void { initializeDaemonTransport(); }
+let bound = false;
+export function ensureDaemonRuntime(): void {
+  if (!bound) { bound = true; onDaemonTransport(bindDaemonRuntime); }
+  initializeDaemonTransport();
+}

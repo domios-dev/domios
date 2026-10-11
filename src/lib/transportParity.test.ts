@@ -97,6 +97,19 @@ describe("audited command registry", () => {
     console.info("Pending sibling route registrations:", pending);
     if (String(mode) === "enforce") expect(pending).toEqual([]);
   });
+  it("keeps explicit peer commands on the base client when a relay is selected", async () => {
+    const { client } = fixture();
+    const localCalls: string[] = [];
+    client.json = async () => { throw new Error("Unexpected selected-peer request"); };
+    client.localJson = async <T>(_method: string, path: string) => {
+      localCalls.push(path);
+      return { ok: true, data: [], paired: [] } as T;
+    };
+    const registry = createCommandRegistry(client);
+    await dispatchCommand(registry, "mesh_peer_tabs_list", { peerId: "peer" });
+    await dispatchCommand(registry, "mesh_remote_tab_action", { peerId: "peer", ordinaryTabId: "mesh:peer/tab", suffix: "/inspect", method: "GET" });
+    expect(localCalls).toEqual(["/api/mesh/relay-to", "/api/mesh/peers", "/api/mesh/relay-to"]);
+  });
   it("covers native Settings schema commands with audited routes or explicit refusal", async () => {
     const source = readFileSync("src-tauri/crates/codeterm-plugin/src/agent_claude/provider/schemas.rs", "utf8");
     const names = [...source.matchAll(/(?:query_command|command):\s*"([a-z_]+)"/g)].map(match => match[1]);

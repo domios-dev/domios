@@ -41,6 +41,7 @@ async fn transport_domain_registration_contract_auth_methods_and_persisted_cwd()
     let routes = [
         ("POST", format!("/api/tabs/{tab}/cwd")),
         ("POST", "/api/mux/restore-orphaned".into()),
+        ("PATCH", "/api/crons/missing".into()),
         ("GET", format!("/api/tabs/{tab}/history")),
         ("GET", "/api/agents/providers/unknown/model-usage".into()),
         ("GET", "/api/system/default-cwd".into()),
@@ -67,7 +68,7 @@ async fn transport_domain_registration_contract_auth_methods_and_persisted_cwd()
             .clone()
             .oneshot(
                 Request::builder()
-                    .method("PUT")
+                    .method("TRACE")
                     .uri(&path)
                     .header("authorization", "Bearer preview-test-token")
                     .body(Body::empty())
@@ -129,10 +130,13 @@ fn transport_registry_contract_orphan_restore_body_is_explicit() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn transport_registry_contract_owner_mutations_restore_and_persist() {
     let (mut mux, tab) = MultiplexerState::new();
-    let workspace = mux.workspaces[0].id.clone();
+    let workspace = mux.list_workspaces()[0].id.clone();
     mux.rename_tab(&tab, "Restored by HTTP").unwrap();
     mux.close_workspace(&workspace).unwrap();
     let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("transport-fixture"),
+    ));
     let state = fixture::app_state(&fixture);
     let job = state
         .cron
@@ -140,7 +144,7 @@ async fn transport_registry_contract_owner_mutations_restore_and_persist() {
         .create(
             serde_json::from_value(serde_json::json!({
                 "name": "Before", "workspace_id": workspace, "schedule": "0 0 * * *",
-                "task": "opaque-task", "enabled": false
+                "task": "opaque-task", "enabled": false, "agent": "transport-fixture"
             }))
             .unwrap(),
         )
@@ -163,6 +167,10 @@ async fn transport_registry_contract_owner_mutations_restore_and_persist() {
         if owner {
             update.unwrap();
             assert_eq!(state.cron.lock().get(&job.id).unwrap().name, "After");
+            let persisted = crate::cron::store::CronStore::new_with_path(
+                fixture.temp.path().join("crons.json"),
+            );
+            assert_eq!(persisted.get(&job.id).unwrap().name, "After");
         } else {
             assert_eq!(update.unwrap_err().0, StatusCode::FORBIDDEN);
             assert_eq!(state.cron.lock().get(&job.id).unwrap().name, "Before");
