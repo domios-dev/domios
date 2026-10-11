@@ -147,7 +147,7 @@ impl Events {
         &mut self,
         child: &std::process::Child,
     ) -> Result<(), String> {
-        self.parent = Some(Descriptor::new(parent_event(child)?));
+        self.parent = Some(Descriptor::new(parent_event(child.id())?));
         Ok(())
     }
 
@@ -240,9 +240,9 @@ impl Events {
 }
 
 #[cfg(target_os = "linux")]
-fn parent_event(child: &std::process::Child) -> Result<RawFd, String> {
-    // The unreaped Child pins its identity; this descriptor observes exit and never reaps or signals.
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, child.id(), 0) };
+pub(in crate::sentinel::probe) fn parent_event(pid: u32) -> Result<RawFd, String> {
+    // The descriptor observes exit without reaping or granting signal authority.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
     if fd < 0 {
         Err(io::Error::last_os_error().to_string())
     } else {
@@ -251,7 +251,7 @@ fn parent_event(child: &std::process::Child) -> Result<RawFd, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn parent_event(child: &std::process::Child) -> Result<RawFd, String> {
+pub(in crate::sentinel::probe) fn parent_event(pid: u32) -> Result<RawFd, String> {
     let fd = unsafe { libc::kqueue() };
     if fd < 0 {
         return Err(io::Error::last_os_error().to_string());
@@ -261,7 +261,7 @@ fn parent_event(child: &std::process::Child) -> Result<RawFd, String> {
         return Err(io::Error::last_os_error().to_string());
     }
     let event = libc::kevent {
-        ident: child.id() as _,
+        ident: pid as _,
         filter: libc::EVFILT_PROC,
         flags: libc::EV_ADD | libc::EV_ONESHOT,
         fflags: libc::NOTE_EXIT,
@@ -276,7 +276,7 @@ fn parent_event(child: &std::process::Child) -> Result<RawFd, String> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn parent_event(_: &std::process::Child) -> Result<RawFd, String> {
+pub(in crate::sentinel::probe) fn parent_event(_: u32) -> Result<RawFd, String> {
     Err("probe_cancel_parent_wait_unsupported_platform".into())
 }
 
