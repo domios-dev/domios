@@ -10,7 +10,7 @@ and title. DEV only (the selected named instance or default port 7686); every CL
 ## Codex release regression matrix (#557, #555)
 
 The dedicated [Codex matrix](CODEX.md) runs all seven phases in GUI PATH and
-normal modes, scoped to mobileqa/7690, after the Orchestrator supplies the
+normal modes, scoped to restartqa/7692, after the Orchestrator supplies the
 merged release SHA. The older mixed-provider scenario below remains separate.
 
 ## Run

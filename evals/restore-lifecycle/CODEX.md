@@ -1,7 +1,7 @@
 # Codex and OpenCode spawn and restore matrix
 
 Refs rollacode/codeterm#557 and #555. This is a live behaviour bench, not a
-source-only verdict. It restarts only `mobileqa` at port `7690`. It never
+source-only verdict. It restarts only `restartqa` at port `7692`. It never
 rebuilds, changes product source, rewrites provider hooks, or changes global
 Codex executables. The configured Codex entry point must be an npm env-node
 wrapper; a native entry point fails the GUI fixture prerequisite.
@@ -9,7 +9,7 @@ wrapper; a native entry point fails the GUI fixture prerequisite.
 ## Authorized execution
 
 Wait for the Orchestrator to supply the exact merged `release/1.14.2` SHA and
-send “restart bench is yours” with that final SHA. First check `http://127.0.0.1:7690/api/health`.
+send “restart bench is yours” with that final SHA. First check `http://127.0.0.1:7692/api/health`.
 The runner checks the named instance, approved SHA and canonical checkout HEAD
 before a lifecycle operation. Every CLI command runs through `dc`; the Python
 observer receives its loopback URL and token only through `dev_run`.
@@ -20,7 +20,7 @@ run this from the bench lane, substituting the approved literal SHA:
 ```bash
 RL_PAD_DIR=/absolute/path/from/the/calling/agents/pad
 export RL_PAD_DIR
-CODETERM_INSTANCE=mobileqa CODETERM_API_PORT=7690 \
+CODETERM_INSTANCE=restartqa CODETERM_API_PORT=7692 \
 RL_EXPECTED_SHA=APPROVED_LITERAL_SHA \
 RL_PREBUILT_CWD=/Users/kandrey/Developer/codeterm \
 bash evals/restore-lifecycle/run-codex.sh
@@ -36,7 +36,7 @@ The GUI mode uses a bench-only Node preload to constrain **only** the daemon
 child launched by `build.sh dev-prebuilt`; build tooling retains Node on its
 normal PATH. The app receives exactly `/usr/bin:/bin:/usr/sbin:/sbin`, HOME,
 USER and named DEV routing variables. The preload is absent from the app's
-environment. `ps eww` of the actual process listening on 7690 proves its PATH;
+environment. `ps eww` of the actual process listening on 7692 proves its PATH;
 only non-secret environment fields are retained. A separate restricted-PATH
 version probe must reproduce the wrapper's missing Node exit 127 while the
 daemon's `agent cli status codex` detects the version.
@@ -61,7 +61,7 @@ reported as product failures. A missed restore queue window fails the harness;
 it is not evidence that queued delivery works. Fix the causal harness issue
 before running a new trial, rather than retrying blindly.
 
-The Browser uses a fresh local mobileqa token fragment and stores redacted
+The Browser uses a fresh local restartqa token fragment and stores redacted
 receipts. A missing plugin, inaccessible page, unexpected accessible tab name
 or incomplete Chat proof fails phase 2. Preserve its snapshot and correct the
 harness against the observed UI; an API status cannot substitute for that proof.
