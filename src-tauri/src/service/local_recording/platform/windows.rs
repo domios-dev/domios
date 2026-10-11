@@ -2,11 +2,20 @@ use std::collections::BTreeSet;
 use std::ffi::c_void;
 use std::mem::{align_of, size_of};
 use std::ptr::{null, null_mut};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
-use std::thread::{self, JoinHandle};
 use std::time::Instant;
+
+mod lifecycle;
+pub(super) use lifecycle::{
+    receive_completion, request_stop_wake, setup_entry_result, teardown_acknowledgement,
+    SetupFailure, TeardownAcknowledgement, TeardownError, ThreadControl,
+    WindowsInputPendingSubscription, WindowsInputSetupFailure, WindowsInputSubscription,
+    WindowsInputTeardown,
+};
 
 const SELECTED_VENDOR_PRODUCT_COLLECTION: &str = "VID_3547&PID_0008&MI_00&COL01";
 const COLLECTION_ID: &str = "Col01";
@@ -60,9 +69,6 @@ pub(super) enum UnavailableReason {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum WindowsInputEvent {
-    Armed {
-        generation: u64,
-    },
     Press {
         generation: u64,
     },
@@ -70,6 +76,14 @@ pub(super) enum WindowsInputEvent {
         generation: u64,
         reason: UnavailableReason,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SetupFailure {
+    Unavailable(UnavailableReason),
+    Stopped,
+    Timeout,
+    CompletionLost,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -272,137 +286,15 @@ fn split_report_batch<'a>(
     Some(payload.chunks_exact(bytes).collect())
 }
 
+#[rustfmt::skip]
 fn unavailable_reason_for_win32(error: u32) -> UnavailableReason {
-    match error {
-        ERROR_DEVICE_NOT_CONNECTED => UnavailableReason::Removed,
-        ERROR_ACCESS_DENIED => UnavailableReason::AccessLost,
-        _ => UnavailableReason::Error,
-    }
-}
-
-pub(super) struct WindowsInputSubscription {
-    control: Arc<ThreadControl>,
-    completion: Option<Receiver<Result<(), TeardownError>>>,
-    thread: Option<JoinHandle<()>>,
-}
-
-pub(super) struct WindowsInputTeardown {
-    completion: Option<Receiver<Result<(), TeardownError>>>,
-    thread: Option<JoinHandle<()>>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum TeardownError {
-    CompletionLost,
-    ThreadPanicked,
-    RawInputUnregister(u32),
-    WindowDestroy(u32),
-}
-
-impl WindowsInputSubscription {
-    pub(super) fn subscribe(
-        identity: SelectedInputIdentity,
-        generation: u64,
-        callback: impl Fn(WindowsInputEvent) + Send + Sync + 'static,
-    ) -> Result<Self, String> {
-        if !identity.is_supported_collection() {
-            return Err("selected input identity is not the supported LARK Col01 path".into());
-        }
-        LISTENER_CLAIMED
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| "a LARK Raw Input subscription is already active".to_string())?;
-
-        let control = Arc::new(ThreadControl::default());
-        let (completion_tx, completion_rx) = mpsc::channel();
-        let callback: Arc<dyn Fn(WindowsInputEvent) + Send + Sync> = Arc::new(callback);
-        let thread_control = Arc::clone(&control);
-        let thread = match thread::Builder::new()
-            .name("lark-selected-raw-input".into())
-            .spawn(move || {
-                let _claim = ListenerClaim;
-                run_listener(
-                    thread_control,
-                    identity,
-                    generation,
-                    callback,
-                    completion_tx,
-                );
-            }) {
-            Ok(thread) => thread,
-            Err(error) => {
-                LISTENER_CLAIMED.store(false, Ordering::Release);
-                return Err(format!("could not start LARK input thread: {error}"));
-            }
-        };
-
-        Ok(Self {
-            control,
-            completion: Some(completion_rx),
-            thread: Some(thread),
-        })
-    }
-
-    pub(super) fn request_stop(mut self) -> WindowsInputTeardown {
-        self.control.request_stop();
-        WindowsInputTeardown {
-            completion: self.completion.take(),
-            thread: self.thread.take(),
-        }
-    }
-}
-
-impl Drop for WindowsInputSubscription {
-    fn drop(&mut self) {
-        self.control.request_stop();
-    }
-}
-
-impl WindowsInputTeardown {
-    pub(super) fn wait_blocking(self) -> Result<(), TeardownError> {
-        let completion = self
-            .completion
-            .ok_or(TeardownError::CompletionLost)?
-            .recv()
-            .map_err(|_| TeardownError::CompletionLost);
-        let thread = self
-            .thread
-            .ok_or(TeardownError::ThreadPanicked)?
-            .join()
-            .map_err(|_| TeardownError::ThreadPanicked);
-        thread?;
-        completion?
-    }
-}
-
-#[derive(Default)]
-struct ThreadControl {
-    stop_requested: AtomicBool,
-    thread_id: AtomicU32,
-}
-
-impl ThreadControl {
-    fn request_stop(&self) {
-        self.stop_requested.store(true, Ordering::Release);
-        let thread_id = self.thread_id.load(Ordering::Acquire);
-        if thread_id != 0 {
-            unsafe {
-                PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
-            }
-        }
-    }
-}
-
-struct ListenerClaim;
-
-impl Drop for ListenerClaim {
-    fn drop(&mut self) {
-        LISTENER_CLAIMED.store(false, Ordering::Release);
-    }
+    match error { ERROR_DEVICE_NOT_CONNECTED => UnavailableReason::Removed, ERROR_ACCESS_DENIED => UnavailableReason::AccessLost, _ => UnavailableReason::Error }
 }
 
 struct NativeListener {
     window: Hwnd,
     registered: bool,
+    release_attempted: bool,
     context: Option<Box<ThreadContext>>,
 }
 
@@ -411,6 +303,7 @@ impl NativeListener {
         Self {
             window: null_mut(),
             registered: false,
+            release_attempted: false,
             context: None,
         }
     }
@@ -421,15 +314,23 @@ impl NativeListener {
         generation: u64,
         callback: Arc<dyn Fn(WindowsInputEvent) + Send + Sync>,
         stop_requested: &AtomicBool,
-    ) -> Result<(), UnavailableReason> {
-        let selected = find_selected_collection(&identity)?;
+    ) -> Result<(), ListenerStartError> {
+        if stop_requested.load(Ordering::Acquire) {
+            return Err(ListenerStartError::Stopped);
+        }
+        let selected =
+            find_selected_collection(&identity).map_err(ListenerStartError::Unavailable)?;
         let descriptor = descriptor_from_preparsed(&selected.preparsed)
             .filter(|descriptor| descriptor.matches_supported_schema())
-            .ok_or(UnavailableReason::Error)?;
+            .ok_or(ListenerStartError::Unavailable(UnavailableReason::Error))?;
         let decoder = SelectedReportDecoder::new(identity.clone(), descriptor.clone(), generation)
-            .ok_or(UnavailableReason::Error)?;
-        register_window_class().map_err(unavailable_reason_for_win32)?;
-
+            .ok_or(ListenerStartError::Unavailable(UnavailableReason::Error))?;
+        if stop_requested.load(Ordering::Acquire) {
+            return Err(ListenerStartError::Stopped);
+        }
+        register_window_class()
+            .map_err(unavailable_reason_for_win32)
+            .map_err(ListenerStartError::Unavailable)?;
         let mut context = Box::new(ThreadContext {
             device: selected.device,
             identity,
@@ -442,7 +343,9 @@ impl NativeListener {
         let title = wide_null("");
         let instance = unsafe { GetModuleHandleW(null()) };
         if instance.is_null() {
-            return Err(unavailable_reason_for_win32(last_error_code()));
+            return Err(ListenerStartError::Unavailable(
+                unavailable_reason_for_win32(last_error_code()),
+            ));
         }
         let window = unsafe {
             CreateWindowExW(
@@ -461,11 +364,20 @@ impl NativeListener {
             )
         };
         if window.is_null() {
-            return Err(unavailable_reason_for_win32(last_error_code()));
+            return Err(ListenerStartError::Unavailable(
+                unavailable_reason_for_win32(last_error_code()),
+            ));
         }
-
         self.window = window;
         self.context = Some(context);
+        if stop_requested.load(Ordering::Acquire) {
+            return Err(ListenerStartError::Stopped);
+        }
+        if has_raw_input_registration(CONSUMER_CONTROL_PAGE, CONSUMER_CONTROL_USAGE)
+            .map_err(ListenerStartError::Unavailable)?
+        {
+            return Err(ListenerStartError::Unavailable(UnavailableReason::Error));
+        }
         let registration = RawInputDevice {
             usage_page: CONSUMER_CONTROL_PAGE,
             usage: CONSUMER_CONTROL_USAGE,
@@ -476,21 +388,23 @@ impl NativeListener {
             RegisterRawInputDevices(&registration, 1, size_of::<RawInputDevice>() as u32)
         };
         if registration_ok == 0 {
-            return Err(unavailable_reason_for_win32(last_error_code()));
+            return Err(ListenerStartError::Unavailable(
+                unavailable_reason_for_win32(last_error_code()),
+            ));
         }
         self.registered = true;
-        if !stop_requested.load(Ordering::Acquire) {
-            if let Some(context) = self.context.as_ref() {
-                emit(&context.callback, WindowsInputEvent::Armed { generation });
-            }
-        } else {
-            unsafe { PostQuitMessage(0) };
+        if stop_requested.load(Ordering::Acquire) {
+            return Err(ListenerStartError::Stopped);
         }
         Ok(())
     }
 
-    fn pump(&mut self) -> Result<(), UnavailableReason> {
+    fn pump(&mut self, on_entry: impl FnOnce()) -> Result<(), UnavailableReason> {
         let mut message: Msg = unsafe { std::mem::zeroed() };
+        unsafe {
+            PeekMessageW(&mut message, null_mut(), 0, 0, PM_NOREMOVE);
+        }
+        on_entry();
         loop {
             let result = unsafe { GetMessageW(&mut message, null_mut(), 0, 0) };
             if result == 0 {
@@ -507,6 +421,7 @@ impl NativeListener {
     }
 
     fn release(&mut self) -> Result<(), TeardownError> {
+        self.release_attempted = true;
         let unregister_error = if self.registered {
             let registration = RawInputDevice {
                 usage_page: CONSUMER_CONTROL_PAGE,
@@ -514,22 +429,29 @@ impl NativeListener {
                 flags: RIDEV_REMOVE,
                 target: null_mut(),
             };
-            let result = unsafe {
+            if unsafe {
                 RegisterRawInputDevices(&registration, 1, size_of::<RawInputDevice>() as u32)
-            };
-            self.registered = false;
-            (result == 0).then(last_error_code)
+            } != 0
+            {
+                self.registered = false;
+                None
+            } else {
+                Some(last_error_code())
+            }
         } else {
             None
         };
         let destroy_error = if self.window.is_null() {
             None
+        } else if unsafe { DestroyWindow(self.window) } != 0 {
+            self.window = null_mut();
+            None
         } else {
-            let window = std::mem::replace(&mut self.window, null_mut());
-            let result = unsafe { DestroyWindow(window) };
-            (result == 0).then(last_error_code)
+            Some(last_error_code())
         };
-        self.context.take();
+        if self.window.is_null() {
+            self.context.take();
+        }
         if let Some(error) = unregister_error {
             return Err(TeardownError::RawInputUnregister(error));
         }
@@ -540,10 +462,18 @@ impl NativeListener {
     }
 }
 
+#[rustfmt::skip]
 impl Drop for NativeListener {
     fn drop(&mut self) {
-        let _ = self.release();
+        if !self.release_attempted { let _ = self.release(); }
+        if !self.window.is_null() { std::mem::forget(self.context.take()); }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ListenerStartError {
+    Stopped,
+    Unavailable(UnavailableReason),
 }
 
 struct ThreadContext {
@@ -571,56 +501,46 @@ impl AlignedPreparsedData {
     }
 }
 
+#[rustfmt::skip]
 fn run_listener(
     control: Arc<ThreadControl>,
     identity: SelectedInputIdentity,
     generation: u64,
     callback: Arc<dyn Fn(WindowsInputEvent) + Send + Sync>,
+    startup: Sender<Result<(), SetupFailure>>,
     completion: Sender<Result<(), TeardownError>>,
 ) {
     let error_callback = Arc::clone(&callback);
     let mut listener = NativeListener::new();
-    let setup_and_pump = start_and_pump(&mut listener, identity, generation, callback, &control);
-    if let Err(reason) = setup_and_pump {
-        emit(
-            &error_callback,
-            WindowsInputEvent::Unavailable { generation, reason },
-        );
+    let mut message: Msg = unsafe { std::mem::zeroed() };
+    unsafe { PeekMessageW(&mut message, null_mut(), 0, 0, PM_NOREMOVE); }
+    control.thread_id.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+    let start = if control.stop_requested.load(Ordering::Acquire) {
+        Err(ListenerStartError::Stopped)
+    } else {
+        listener.start(identity, generation, callback, &control.stop_requested)
+    };
+    match start {
+        Err(ListenerStartError::Stopped) => { let _ = startup.send(Err(SetupFailure::Stopped)); }
+        Err(ListenerStartError::Unavailable(reason)) => { let _ = startup.send(Err(SetupFailure::Unavailable(reason))); }
+        Ok(()) => if let Err(reason) = listener.pump(|| {
+            let _ = startup.send(setup_entry_result(control.stop_requested.load(Ordering::Acquire)));
+        }) {
+            emit(&error_callback, WindowsInputEvent::Unavailable { generation, reason });
+        }
     }
     let released = listener.release();
     control.thread_id.store(0, Ordering::Release);
+    if released.is_ok() { LISTENER_CLAIMED.store(false, Ordering::Release); }
     complete_teardown(|| released, completion);
 }
 
+#[rustfmt::skip]
 fn complete_teardown(
     release: impl FnOnce() -> Result<(), TeardownError>,
     completion: Sender<Result<(), TeardownError>>,
 ) {
-    let result = release();
-    let _ = completion.send(result);
-}
-
-fn start_and_pump(
-    listener: &mut NativeListener,
-    identity: SelectedInputIdentity,
-    generation: u64,
-    callback: Arc<dyn Fn(WindowsInputEvent) + Send + Sync>,
-    control: &ThreadControl,
-) -> Result<(), UnavailableReason> {
-    let thread_id = unsafe { GetCurrentThreadId() };
-    let mut message: Msg = unsafe { std::mem::zeroed() };
-    unsafe {
-        PeekMessageW(&mut message, null_mut(), 0, 0, PM_NOREMOVE);
-    }
-    control.thread_id.store(thread_id, Ordering::Release);
-    if control.stop_requested.load(Ordering::Acquire) {
-        return Ok(());
-    }
-    listener.start(identity, generation, callback, &control.stop_requested)?;
-    if control.stop_requested.load(Ordering::Acquire) {
-        unsafe { PostQuitMessage(0) };
-    }
-    listener.pump()
+    let _ = completion.send(release());
 }
 
 fn emit(callback: &Arc<dyn Fn(WindowsInputEvent) + Send + Sync>, event: WindowsInputEvent) {
@@ -728,6 +648,21 @@ fn raw_device_preparsed_data(device: Handle) -> Result<AlignedPreparsedData, Una
         return Err(unavailable_reason_for_win32(last_error_code()));
     }
     Ok(data)
+}
+
+#[rustfmt::skip]
+fn has_raw_input_registration(usage_page: u16, usage: u16) -> Result<bool, UnavailableReason> {
+    let device_size = size_of::<RawInputDevice>() as u32;
+    let mut count = 0u32;
+    let result = unsafe { GetRegisteredRawInputDevices(null_mut(), &mut count, device_size) };
+    if result == u32::MAX { return Err(unavailable_reason_for_win32(last_error_code())); }
+    if count as usize > MAX_INPUT_DEVICES { return Err(UnavailableReason::Error); }
+    if count == 0 { return Ok(false); }
+    let mut devices = vec![RawInputDevice { usage_page: 0, usage: 0, flags: 0, target: null_mut() }; count as usize];
+    let mut capacity = count;
+    let listed = unsafe { GetRegisteredRawInputDevices(devices.as_mut_ptr(), &mut capacity, device_size) };
+    if listed == u32::MAX || listed as usize > devices.len() { return Err(unavailable_reason_for_win32(last_error_code())); }
+    Ok(devices.iter().take(listed as usize).any(|device| device.usage_page == usage_page && device.usage == usage))
 }
 
 fn descriptor_from_preparsed(data: &AlignedPreparsedData) -> Option<HidDescriptor> {
@@ -1056,6 +991,7 @@ struct RawHidHeader {
 
 #[rustfmt::skip]
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct RawInputDevice {
     usage_page: u16, usage: u16, flags: u32, target: Hwnd,
 }
@@ -1128,7 +1064,7 @@ struct HidpButtonCaps {
     report_count: u16, reserved_2: u16, reserved: [u32; 9], data: HidpButtonCapsData,
 }
 
-const HIDP_INPUT: u16 = 0;
+const HIDP_INPUT: i32 = 0;
 const HWND_MESSAGE: Hwnd = -3isize as Hwnd;
 
 #[link(name = "user32")]
@@ -1138,6 +1074,7 @@ extern "system" {
     fn GetRawInputDeviceInfoW(device: Handle, command: u32, data: *mut c_void, size: *mut u32) -> u32;
     fn GetRawInputData(raw_input: Handle, command: u32, data: *mut c_void, size: *mut u32, header_size: u32) -> u32;
     fn RegisterRawInputDevices(devices: *const RawInputDevice, count: u32, size: u32) -> i32;
+    fn GetRegisteredRawInputDevices(devices: *mut RawInputDevice, count: *mut u32, size: u32) -> u32;
     fn RegisterClassW(window_class: *const WndClassW) -> u16;
     fn CreateWindowExW(extended_style: u32, class_name: *const u16, window_name: *const u16, style: u32, x: i32, y: i32, width: i32, height: i32, parent: Hwnd, menu: Handle, instance: Hinstance, parameter: *mut c_void) -> Hwnd;
     fn DestroyWindow(window: Hwnd) -> i32;
@@ -1156,12 +1093,13 @@ extern "system" {
 #[rustfmt::skip]
 extern "system" {
     fn GetCurrentThreadId() -> u32; fn GetModuleHandleW(name: *const u16) -> Hinstance;
+    fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
 }
 
-#[link(name = "hidparse")]
+#[link(name = "hid")]
 #[rustfmt::skip]
 extern "system" {
     fn HidP_GetCaps(preparsed: *mut c_void, caps: *mut HidpCaps) -> i32;
-    fn HidP_GetButtonCaps(report_type: u16, caps: *mut HidpButtonCaps, caps_length: *mut u16, preparsed: *mut c_void) -> i32;
-    fn HidP_GetUsages(report_type: u16, usage_page: u16, link_collection: u16, usages: *mut u16, usage_length: *mut u32, preparsed: *mut c_void, report: *mut i8, report_length: u32) -> i32;
+    fn HidP_GetButtonCaps(report_type: i32, caps: *mut HidpButtonCaps, caps_length: *mut u16, preparsed: *mut c_void) -> i32;
+    fn HidP_GetUsages(report_type: i32, usage_page: u16, link_collection: u16, usages: *mut u16, usage_length: *mut u32, preparsed: *mut c_void, report: *mut i8, report_length: u32) -> i32;
 }

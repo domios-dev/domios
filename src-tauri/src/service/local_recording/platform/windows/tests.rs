@@ -1,5 +1,6 @@
 use super::*;
 use std::cell::Cell;
+use std::time::Duration;
 
 fn identity() -> SelectedInputIdentity {
     SelectedInputIdentity {
@@ -310,6 +311,44 @@ fn lark_input_windows_access_loss_and_other_errors_are_distinct() {
 }
 
 #[test]
+fn lark_input_windows_startup_stop_is_not_ready() {
+    assert_eq!(setup_entry_result(false), Ok(()));
+    assert_eq!(setup_entry_result(true), Err(SetupFailure::Stopped));
+}
+
+#[test]
+fn lark_input_windows_failed_stop_wake_is_retained() {
+    assert_eq!(
+        request_stop_wake(0, |_| panic!("no post without a thread id")),
+        None
+    );
+    assert_eq!(request_stop_wake(17, |_| Err(5)), Some(5));
+    assert_eq!(
+        teardown_acknowledgement(Some(5), Ok(())),
+        Ok(TeardownAcknowledgement {
+            wake_error: Some(5)
+        })
+    );
+}
+
+#[test]
+fn lark_input_windows_missing_completion_times_out_without_acknowledgement() {
+    let (_sender, receiver) = mpsc::channel::<Result<(), TeardownError>>();
+    assert_eq!(
+        receive_completion(&receiver, Duration::ZERO),
+        Err(TeardownError::CompletionTimeout)
+    );
+}
+
+#[test]
+fn lark_input_windows_release_failure_is_not_acknowledged() {
+    assert_eq!(
+        teardown_acknowledgement(Some(5), Err(TeardownError::WindowDestroy(5))),
+        Err(TeardownError::WindowDestroy(5))
+    );
+}
+
+#[test]
 fn lark_input_windows_teardown_ack_follows_resource_release() {
     let released = Cell::new(false);
     let (sender, receiver) = mpsc::channel();
@@ -321,13 +360,16 @@ fn lark_input_windows_teardown_ack_follows_resource_release() {
         sender,
     );
 
-    assert_eq!(receiver.recv().unwrap(), Ok(()));
+    assert_eq!(
+        teardown_acknowledgement(None, receiver.recv().unwrap()),
+        Ok(TeardownAcknowledgement { wake_error: None })
+    );
     assert!(released.get());
 
     let (sender, receiver) = mpsc::channel();
     complete_teardown(|| Err(TeardownError::WindowDestroy(5)), sender);
     assert_eq!(
-        receiver.recv().unwrap(),
+        teardown_acknowledgement(Some(5), receiver.recv().unwrap()),
         Err(TeardownError::WindowDestroy(5))
     );
 }
