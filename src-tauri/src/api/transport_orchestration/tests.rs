@@ -250,3 +250,67 @@ async fn transport_orchestration_contract_delivered_bridge_binding_and_denial_wi
     assert!(!service.has_open_binding("target"));
     assert!(!service.menu_state("target", Some(7)).await.bound);
 }
+
+#[test]
+fn transport_orchestration_contract_plan_envelopes_and_project_scope() {
+    use crate::api::plan_routes::plans::{filter_plan_project, plan_list_response, ListPlansQuery};
+    use crate::plan::{OrchestratorRef, Plan, PlanStatus};
+    use crate::service::plan::IndexEntry;
+    let query: ListPlansQuery = serde_urlencoded::from_str("full=1&project=%2Frepo%2Fa").unwrap();
+    assert_eq!(query.full, Some(true));
+    assert_eq!(query.project.as_deref(), Some("/repo/a"));
+    let mut first = Plan::new("First".into(), "/repo/a".into(), OrchestratorRef::default());
+    first.id = "first".into();
+    let mut second = first.clone();
+    second.id = "second".into();
+    second.project_path = "/repo/b".into();
+    let entry = |id: &str| IndexEntry {
+        plan_id: id.into(),
+        file_path: std::path::PathBuf::from("fixture.json"),
+        canonical_project_path: "/repo".into(),
+        owner: OrchestratorRef::default(),
+        team_id: None,
+        title: id.into(),
+        status: PlanStatus::Active,
+        updated_at: 1,
+        assigned_tab_ids: vec![],
+        task_count: 0,
+        open_task_count: 0,
+        section_count: 0,
+        element_count: 0,
+        loop_count: 0,
+        has_goal: false,
+        orphaned: None,
+    };
+    let mut entries = vec![entry("first"), entry("second"), entry("missing")];
+    let get = |id: &str| match id {
+        "first" => Some(first.clone()),
+        "second" => Some(second.clone()),
+        _ => None,
+    };
+    filter_plan_project(&mut entries, query.project.as_deref(), get);
+    assert_eq!(entries.len(), 1);
+    let index = plan_list_response(&entries, false, get);
+    let full = plan_list_response(&entries, true, get);
+    assert_eq!(index["plans"][0]["plan_id"], "first");
+    assert_eq!(full["plans"][0]["id"], "first");
+    assert_eq!(full["plans"][0]["project_path"], "/repo/a");
+    assert_eq!(
+        plan_list_response(&entries, true, |_| None)["plans"],
+        json!([])
+    );
+}
+
+#[test]
+fn transport_orchestration_contract_node_identity_cannot_drop_scope_fields() {
+    let full = json!({"kind":"blueprint", "id":"node", "workspace_id":"workspace", "team_id":null, "owner_tab_id":null});
+    assert!(serde_json::from_value::<node_files::NodeFilesBody>(json!({"identity":full})).is_ok());
+    for field in ["kind", "id", "workspace_id", "team_id", "owner_tab_id"] {
+        let mut partial = full.clone();
+        partial.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<node_files::NodeFilesBody>(json!({"identity":partial}))
+                .is_err()
+        );
+    }
+}

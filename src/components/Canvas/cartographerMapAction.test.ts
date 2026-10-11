@@ -16,6 +16,7 @@ const orchestrator: Tab = {
   id: "orchestrator", pty_id: null, tab_type: "Terminal", title: "Fixture", cwd: "/repo/a",
   role: "Manager", role_profile: "orchestrator", can_spawn: true, team_id: team.id,
   agent_type: CARTOGRAPHER_TEST_PROVIDER.id,
+  session_binding_nonce: "cartographer-fixture-nonce",
 };
 
 function snapshot(tabs: Record<string, Tab> = { orchestrator }, teams: Team[] = [team]): MultiplexerState {
@@ -59,6 +60,7 @@ test("an existing Team uses its staffing action once and carries the opaque owne
   assert.equal(member.teamId, team.id);
   assert.equal(member.role, "cartographer");
   assert.equal(member.managerTabId, orchestrator.id);
+  assert.equal(member.sessionBindingNonce, orchestrator.session_binding_nonce);
   assert.equal(member.providerId, CARTOGRAPHER_TEST_PROVIDER.id);
   assert.equal(member.model, CARTOGRAPHER_TEST_PROVIDER.default_model);
   const brief = member.brief ?? "";

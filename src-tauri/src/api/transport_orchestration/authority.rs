@@ -47,9 +47,21 @@ pub fn validate_claim(
     claim: &CallerClaim,
 ) -> Result<Option<String>, RouteError> {
     require_owner(super::is_local_caller(state, headers))?;
-    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
-    let header_tab = header("X-CodeTerm-Tab-Id");
-    let header_nonce = header("X-CodeTerm-Binding-Nonce");
+    let header = |name: &str| -> Result<Option<&str>, RouteError> {
+        headers
+            .get(name)
+            .map(|value| {
+                value.to_str().map_err(|_| {
+                    (
+                        StatusCode::FORBIDDEN,
+                        "Invalid caller identity header".into(),
+                    )
+                })
+            })
+            .transpose()
+    };
+    let header_tab = header("X-CodeTerm-Tab-Id")?;
+    let header_nonce = header("X-CodeTerm-Binding-Nonce")?;
     if header_tab
         .zip(claim.caller_tab_id.as_deref())
         .is_some_and(|(a, b)| a != b)
