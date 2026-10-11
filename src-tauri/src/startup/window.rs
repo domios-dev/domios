@@ -52,9 +52,11 @@ pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::err
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     let show = MenuItemBuilder::with_id("show", "Show Domios").build(app)?;
+    let retry = MenuItemBuilder::with_id("retry-daemon", "Retry daemon listener").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
     let menu = MenuBuilder::new(app)
         .item(&show)
+        .item(&retry)
         .separator()
         .item(&quit)
         .build()?;
@@ -83,6 +85,7 @@ pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::err
         .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
+            "retry-daemon" => super::frontend_shell::retry(app),
             "show" => {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();

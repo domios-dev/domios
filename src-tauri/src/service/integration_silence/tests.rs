@@ -12,11 +12,12 @@ use super::*;
 use crate::agent::provider::{
     AgentLaunchParams, AgentProvider, ReadinessStrategy, SystemPromptDelivery, TaskDelivery,
 };
-use crate::notification::desktop::{self, DesktopPolicy};
+use crate::notification::desktop::DesktopPolicy;
 use crate::notification::store::NotificationStore;
 use crate::notification::NotifState;
 use crate::service::notification::{
-    create_notification_with_delivery, NotificationAdmission, PushDispatch, SurfaceDispatch,
+    create_notification_with_delivery, NotificationAdmission, NotificationOrigin, PushDispatch,
+    SurfaceDispatch,
 };
 use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
 use codeterm_types::notification::NotifyDestination;
@@ -282,12 +283,10 @@ impl Sinks {
         }
     }
 
-    /// The announcement through the same code path `create_notification_ext`
-    /// uses, with the surface policy read off a given config.
     fn announce(&self, silence: &IntegrationSilence, cfg: &NotificationConfig) -> String {
         let declared = silence.intent().level;
         create_notification_with_delivery(
-            NotificationAdmission::Explicit,
+            NotificationAdmission::Diagnostic,
             &self.store,
             |title, _| self.native.lock().push(title.to_string()),
             silence.title(FIXTURE_PROVIDER),
@@ -360,24 +359,10 @@ fn integration_silence_unconsented_provider_announces_at_launch() {
     let sinks = Sinks::new();
     let id = sinks.announce(&silence, &config_routing(silence.level, true));
 
-    let records = sinks.records();
-    assert_eq!(records.len(), 1, "the launch produced exactly one record");
-    assert_eq!(records[0].id, id);
-    assert_eq!(
-        records[0].level,
-        Some(NotifyLevel::ActionNeeded),
-        "the stored record carries the declared level"
-    );
-    assert_eq!(
-        records[0].tab_id.as_deref(),
-        Some("tab_launch"),
-        "the announcement is attributed to the tab that launched"
-    );
-    assert_eq!(
-        sinks.native.lock().len(),
-        1,
-        "the user learns it without opening anything"
-    );
+    assert!(!id.is_empty());
+    assert!(sinks.records().is_empty());
+    assert!(sinks.native.lock().is_empty());
+    assert!(sinks.emitted.lock().is_empty());
     assert_eq!(display_name, FIXTURE_PROVIDER);
 }
 
@@ -470,7 +455,7 @@ fn integration_silence_installed_integration_announces_nothing() {
 /// delivered around it — and the panel, which is the complete log, keeps it
 /// either way.
 #[test]
-fn integration_silence_announcement_routes_through_the_level_destination_matrix() {
+fn integration_silence_stays_out_of_bell_at_every_destination_setting() {
     let registry = registry_with(FixtureProvider::new(
         FIXTURE_PROVIDER,
         true,
@@ -479,41 +464,13 @@ fn integration_silence_announcement_routes_through_the_level_destination_matrix(
     let (facts, _) = read_provider_facts(&registry, FIXTURE_PROVIDER, false).unwrap();
     let silence = silence_of(evaluate(FIXTURE_PROVIDER, &facts));
 
-    let open = Sinks::new();
-    open.announce(&silence, &config_routing(silence.level, true));
-    assert_eq!(open.records().len(), 1);
-    assert_eq!(
-        open.emitted.lock().len(),
-        1,
-        "with the level's row open the panel receives it"
-    );
-    assert_eq!(open.native.lock().len(), 1);
-
-    let closed_config = config_routing(silence.level, false);
-    let closed = Sinks::new();
-    closed.announce(&silence, &closed_config);
-    assert_eq!(
-        closed.records().len(),
-        1,
-        "the record is kept: routing decides where it goes, not whether it exists"
-    );
-    assert_eq!(
-        closed.emitted.lock().len(),
-        1,
-        "and it still reaches the panel, which is the log rather than a destination"
-    );
-    assert!(
-        closed.native.lock().is_empty(),
-        "while the system notification, which can refuse, does"
-    );
-
-    assert_eq!(
-        desktop::admit(
-            Some(silence.level),
-            &DesktopPolicy::from_config(&closed_config)
-        ),
-        desktop::DesktopAdmission::LevelDisabled(silence.level),
-    );
+    for routed in [true, false] {
+        let sinks = Sinks::new();
+        sinks.announce(&silence, &config_routing(silence.level, routed));
+        assert!(sinks.records().is_empty());
+        assert!(sinks.native.lock().is_empty());
+        assert!(sinks.emitted.lock().is_empty());
+    }
 }
 
 /// A standing condition announces on transition. Ten launches under the same

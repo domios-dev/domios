@@ -8,7 +8,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
-import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib/webApi";
+import { type DaemonApiConfig } from "../../lib/webApi";
+import { usePluginDocument } from "./usePluginDocument";
 import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
@@ -28,7 +29,7 @@ function themeCss(): string {
 
 export function PluginView({
   pluginId,
-  api,
+  api: _api,
   onClose,
   embedded,
   cwd,
@@ -80,7 +81,8 @@ export function PluginView({
     };
   }, [pluginId]);
 
-  const src = `${daemonHttpBase(api)}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${encodeURIComponent(daemonAuthToken(api))}&r=${reloadNonce}${surfaceQuery(surface)}`;
+  const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
+  const { html, error: documentError } = usePluginDocument(`${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`);
 
   const onMessage = useCallback(
     async (e: MessageEvent) => {
@@ -159,12 +161,12 @@ export function PluginView({
     return () => window.removeEventListener("keydown", onKey);
   }, [active, embedded, onClose]);
 
-  const frame = (
+  const frame = documentError ? <div role="alert">{documentError}</div> : (
     <iframe
       ref={iframeRef}
       data-testid="extensions-plugin-iframe"
       data-plugin-id={pluginId}
-      src={src}
+      srcDoc={html}
       title={`${pluginId} view`}
       sandbox="allow-scripts"
       style={{ flex: 1, width: "100%", border: "none", background: "var(--ct-bg)", display: "block" }}

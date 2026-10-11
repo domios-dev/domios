@@ -1,6 +1,14 @@
 use crate::service::ServiceState;
 
 #[tauri::command]
+pub(crate) async fn local_recording_input_devices(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+) -> Result<Vec<crate::service::local_recording::platform::RecordingInputDevice>, String> {
+    svc.local_recording_input_devices(&plugin_id).await
+}
+
+#[tauri::command]
 pub(crate) fn local_recording_status(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,

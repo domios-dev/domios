@@ -153,7 +153,7 @@ mod tests {
                 identity: identity.clone(),
             })
             .collect();
-        fixture.service.create_prompt_notification_ext(
+        fixture.seed_prompt_notification(
             "opaque title".into(),
             Some("opaque body".into()),
             Some("warning"),

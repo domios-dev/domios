@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { keyboardViewportState } from "./keyboardViewport";
 import { IS_WEB } from "../lib/webApi";
 
 /**
@@ -35,11 +36,14 @@ export function useKeyboardInset(): KeyboardState {
       );
       const rootHeight =
         document.getElementById("root")?.clientHeight ?? window.innerHeight;
-      const gap = rootHeight - vv.height - vv.offsetTop;
-      setInset(Math.max(0, Math.round(gap > 100 ? gap : 0)));
-      // browser, so this detects the keyboard even when the shell-inset above reads 0 (standalone).
-      const keyboardGap = window.innerHeight - vv.height - vv.offsetTop;
-      setKeyboardOpen(keyboardGap > 100);
+      const state = keyboardViewportState({ rootHeight, layoutHeight: window.innerHeight, visualHeight: vv.height, offsetTop: vv.offsetTop });
+      setInset(state.inset);
+      setKeyboardOpen(state.keyboardOpen);
+      const style = document.documentElement.style;
+      style.setProperty("--ct-visual-height", `${state.visualHeight}px`);
+      style.setProperty("--ct-visual-top", `${state.offsetTop}px`);
+      style.setProperty("--ct-visual-bottom", `${Math.max(0, window.innerHeight - state.visualHeight - state.offsetTop)}px`);
+      style.setProperty("--ct-keyboard-safe-bottom", state.keyboardOpen ? "0px" : "var(--ct-safe-bottom, 0px)");
       // iOS scrolls the page when the keyboard opens — pin it so fixed chrome (sidebar burger) stays on-screen.
       if (vv.offsetTop > 0) window.scrollTo(0, 0);
     };

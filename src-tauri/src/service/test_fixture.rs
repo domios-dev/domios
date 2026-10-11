@@ -312,6 +312,7 @@ impl ServiceFixture {
             )),
             mux_emit_pending: Arc::new(AtomicBool::new(false)),
             mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
+            published_tab_statuses: Arc::new(Default::default()),
             output_stream_activity: super::output_stream_activity::channel(),
             session_persist_pending: Arc::new(AtomicBool::new(false)),
             services_store,
@@ -358,5 +359,32 @@ impl Drop for ServiceFixture {
         for reaper in reapers {
             reaper.reap_in_background();
         }
+    }
+}
+
+impl ServiceFixture {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn seed_prompt_notification(
+        &self,
+        title: String,
+        body: Option<String>,
+        _severity: Option<&str>,
+        actions: Option<Vec<codeterm_types::notification::NotificationAction>>,
+        sticky: Option<bool>,
+        origin: super::notification::NotificationOrigin,
+        intent: super::notification::PushIntent,
+    ) -> String {
+        self.service.notif.lock().add_ext(
+            title,
+            body,
+            crate::notification::store::NotificationSeverity::Warning,
+            crate::notification::store::NotificationProvenance {
+                tab_id: origin.caller_tab_id,
+                ..Default::default()
+            },
+            crate::notification::store::Ask::offering(actions),
+            sticky,
+            intent.level,
+        )
     }
 }

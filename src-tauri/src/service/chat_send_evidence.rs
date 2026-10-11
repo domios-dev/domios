@@ -117,8 +117,20 @@ pub(crate) fn contains_exact_user_turn_since(
         }
         EvidenceWindow::Structured { .. } => window_user_turns(registry, anchor)
             .iter()
-            .any(|turn| normalize_turn_evidence_with(turn, anchor.turn_normalization) == expected),
+            .any(|turn| {
+                let observed = normalize_turn_evidence_with(turn, anchor.turn_normalization);
+                let matched = observed == expected;
+                log::debug!(
+                    "[session-turn-evidence] structured-candidate provider={} session={} expected_bytes={} observed_bytes={} matched={}",
+                    anchor.provider_id, anchor.session_id, expected.len(), observed.len(), matched,
+                );
+                matched
+            }),
     };
+    log::debug!(
+        "[session-turn-evidence] exact-match provider={} session={} window={:?} expected_bytes={} matched={}",
+        anchor.provider_id, anchor.session_id, anchor.window, expected.len(), found,
+    );
     cursor.confirmed = found;
     found
 }
@@ -369,6 +381,10 @@ impl ServiceContext {
                     provider.read_structured_chat(&cwd, &session_id, None)
                 })
                 .unwrap_or_default();
+            log::debug!(
+                "[session-turn-evidence] structured-anchor tab={} provider={} session={} cursor={:?} rows={}",
+                tab_id, provider_id, session_id, chat.cursor, chat.messages.len(),
+            );
             (
                 chat.cursor
                     .as_ref()

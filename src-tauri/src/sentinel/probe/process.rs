@@ -154,7 +154,7 @@ pub(super) struct Deadlines {
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
-pub(super) struct DeadlineReceipt {
+pub(in crate::sentinel) struct DeadlineReceipt {
     pub admitted: Instant,
     pub operation: Instant,
     pub hard: Instant,
@@ -191,6 +191,7 @@ impl Deadlines {
         self.remaining_operation_at(Instant::now())
     }
 
+    #[cfg(windows)]
     pub(super) fn remaining_hard(&self) -> Duration {
         self.remaining_hard_at(Instant::now())
     }
@@ -199,6 +200,7 @@ impl Deadlines {
         self.operation.saturating_duration_since(now)
     }
 
+    #[cfg(any(windows, test))]
     pub(super) fn remaining_hard_at(&self, now: Instant) -> Duration {
         self.hard.saturating_duration_since(now)
     }

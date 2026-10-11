@@ -202,18 +202,10 @@ fn transport_state(svc: &ServiceContext, tab_id: &str, status: &str, detail: &st
         }),
     );
     if status == "failed" {
-        svc.create_notification_ext(
+        svc.log_system_notice(
             "Structured channel unavailable".into(),
             Some(format!("Tab {tab_id}: {detail}")),
             Some("error"),
-            None,
-            Some(true),
-            crate::service::notification::NotificationOrigin::local_tab(tab_id.into()),
-            crate::service::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::Failure),
-                event_key: Some(format!("structured-channel:{tab_id}")),
-            },
-            None,
         );
     }
 }

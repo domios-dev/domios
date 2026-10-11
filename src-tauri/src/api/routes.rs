@@ -7,7 +7,7 @@ use axum::{
 use tower_http::{
     catch_panic::CatchPanicLayer,
     compression::CompressionLayer,
-    cors::{AllowOrigin, Any, CorsLayer},
+    cors::{AllowOrigin, CorsLayer},
 };
 
 use super::{
@@ -16,72 +16,55 @@ use super::{
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
     pty_routes, services_routes, session_routes, surface_routes, tab_agent_routes, tab_routes,
-    task_routes, team_mission_control_routes, team_routes, team_spend, theme_routes,
-    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    task_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
-/// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
-/// `tauri.localhost` on Windows/Android.
-const APP_WEBVIEW_ORIGINS: [&str; 3] = [
-    "tauri://localhost",
-    "http://tauri.localhost",
-    "https://tauri.localhost",
+const FRONTEND_REQUEST_HEADERS: [&str; 9] = [
+    "authorization",
+    "content-type",
+    "accept",
+    "x-codeterm-tab-id",
+    "x-codeterm-client-id",
+    "x-codeterm-session-id",
+    "x-codeterm-binding-nonce",
+    "x-codeterm-session-binding-nonce",
+    "x-codeterm-plan-confirmation",
 ];
 
-/// The app's own window is a first-party client of this daemon yet cross-origin to
-/// it, so without an explicit allow every raw fetch from the UI — the remote-tab
-/// SSE streams — is rejected for a missing `Access-Control-Allow-Origin`.
-fn with_app_webview_origins(
-    mut origins: Vec<axum::http::HeaderValue>,
-) -> Vec<axum::http::HeaderValue> {
-    origins.extend(
-        APP_WEBVIEW_ORIGINS
-            .iter()
-            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok()),
-    );
-    origins
+fn configured_origin(origin: &str) -> Option<axum::http::HeaderValue> {
+    if !crate::config::exact_cors_origin(origin) {
+        return None;
+    }
+    origin.parse().ok()
 }
 
-fn cors_layer(cors_enabled: bool, configured_origins: &[String]) -> CorsLayer {
-    let origins = if cors_enabled {
-        configured_origins
-            .iter()
-            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    #[cfg(debug_assertions)]
-    let origins = if !cors_enabled {
-        origins
-            .into_iter()
-            .chain(debug_vite_origins())
-            .collect::<Vec<_>>()
-    } else {
-        origins
-    };
+fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> CorsLayer {
+    let mut origins = frontend_origins
+        .iter()
+        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+        .collect::<Vec<_>>();
+    for (index, origin) in configured_origins.iter().enumerate() {
+        if let Some(value) = configured_origin(origin) {
+            if !origins.contains(&value) {
+                origins.push(value);
+            }
+        } else {
+            log::warn!("[rest-cors] refused api.cors_allow_origins entry={index}: expected an exact HTTP(S) origin");
+        }
+    }
     CorsLayer::new()
-        .allow_origin(AllowOrigin::list(with_app_webview_origins(origins)))
-        .allow_methods(Any)
-        .allow_headers(Any)
-}
-
-#[cfg(debug_assertions)]
-fn debug_vite_origins() -> Vec<axum::http::HeaderValue> {
-    let Some(port) = std::env::var("CODETERM_VITE_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .filter(|port| *port != 0)
-    else {
-        return Vec::new();
-    };
-    [
-        format!("http://localhost:{port}"),
-        format!("http://127.0.0.1:{port}"),
-    ]
-    .into_iter()
-    .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-    .collect()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::PATCH,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers(FRONTEND_REQUEST_HEADERS.map(axum::http::HeaderName::from_static))
+        .expose_headers([axum::http::header::CONTENT_SECURITY_POLICY])
 }
 
 #[derive(Clone)]
@@ -119,7 +102,15 @@ async fn legacy_web_route_gone() -> StatusCode {
     StatusCode::NOT_FOUND
 }
 
+#[cfg(test)]
 pub fn create_router(state: AppState) -> Router {
+    create_router_with_frontend(state, None)
+}
+
+pub fn create_router_with_frontend(
+    state: AppState,
+    bundles: Option<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>,
+) -> Router {
     let preview_admission = super::local_preview_routes::admission();
     let router = Router::new()
         .route(
@@ -192,20 +183,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
         .route(
             "/api/essence-maps",
-            get(essence_map_routes::list_essence_maps),
+            post(essence_map_routes::list_essence_maps),
         )
         .route(
             "/api/essence-source",
             get(essence_map_routes::read_essence_source),
-        )
-        .route(
-            "/api/teams/{team_id}/rename",
-            post(team_routes::rename_team),
-        )
-        .route("/api/teams/{team_id}/close", post(team_routes::close_team))
-        .route(
-            "/api/teams/{team_id}/members",
-            post(team_routes::add_team_member),
         )
         .route(
             "/api/teams/{team_id}/mission-control/spend",
@@ -537,6 +519,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/setup/hooks/uninstall",
             post(theme_routes::uninstall_hooks_api),
         )
+        .route(
+            "/api/setup/hooks/restore",
+            post(theme_routes::restore_hooks_api),
+        )
         .route("/api/debug/clock", get(debug_routes::clock_status))
         .route(
             "/api/debug/clock/advance",
@@ -654,10 +640,6 @@ pub fn create_router(state: AppState) -> Router {
             post(ai_helper_routes::spawn_ai_helper),
         )
         .route("/api/agents/done", get(agent_done_routes::list_done))
-        .route(
-            "/api/orchestration/new",
-            post(agent_routes::create_orchestration_pair),
-        )
         .route("/api/batch", post(agent_routes::batch_commands))
         .route(
             "/api/crons",
@@ -667,6 +649,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/crons/{id}",
             get(cron_routes::cron_get)
                 .put(cron_routes::cron_update)
+                .patch(owner_cron_update)
                 .delete(cron_routes::cron_delete),
         )
         .route("/api/crons/{id}/enable", post(cron_routes::cron_enable))
@@ -822,6 +805,8 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/peers/{id}/access",
             post(mesh_routes::mesh_set_access),
         );
+    let router = router.route("/api/mux/restore-orphaned", post(restore_orphaned_tab));
+    let router = domain_transport_routes(router);
     let router = super::memory_router::memory_routes(router);
     let router = router
         .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
@@ -978,6 +963,7 @@ pub fn create_router(state: AppState) -> Router {
             axum::http::HeaderValue::from_static("no-cache"),
         );
         router
+            .merge(bundled_frontend_routes(dist))
             .route("/manifest.webmanifest", get(web_routes::web_manifest))
             .route(
                 "/manifest-bootstrap",
@@ -990,7 +976,21 @@ pub fn create_router(state: AppState) -> Router {
         router
     };
 
-    let api_config = state.config.lock().api.clone();
+    let router = if let Some(bundles) = bundles {
+        router
+            .merge(super::frontend_bundle_routes::router(
+                state.clone(),
+                bundles.clone(),
+            ))
+            .layer(axum::Extension(bundles))
+    } else {
+        router
+    };
+
+    let frontend_origins = crate::startup::frontend_shell::declared_frontend_origins(
+        &state.config.lock().api,
+        state.svc.app_handle.config().build.dev_url.as_ref(),
+    );
     let router = router.layer(middleware::from_fn_with_state(
         state.clone(),
         super::auth::auth_middleware,
@@ -998,13 +998,70 @@ pub fn create_router(state: AppState) -> Router {
     let router = router.layer(middleware::from_fn(
         super::local_preview_routes::secure_headers,
     ));
-    let router = router.layer(cors_layer(api_config.cors, &api_config.cors_allow_origins));
+    let configured_origins = state.config.lock().api.cors_allow_origins.clone();
+    let router = router.layer(cors_layer(&frontend_origins, &configured_origins));
+    #[cfg(debug_assertions)]
+    let router = router.layer(middleware::from_fn(super::cors_diagnostics::record));
     router
         .layer(CatchPanicLayer::new())
         .layer(middleware::from_fn(
             mem_routes::decision::supporter_error_envelope,
         ))
         .with_state(state)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RestoreOrphanedTab {
+    tab_id: String,
+}
+
+async fn owner_cron_update(
+    state: axum::extract::State<AppState>,
+    headers: HeaderMap,
+    id: axum::extract::Path<String>,
+    body: axum::Json<crate::cron::store::CronUpdateParams>,
+) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
+    if !super::auth::is_local_caller(&state.0, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+    }
+    cron_routes::cron_update(state, headers, id, body).await
+}
+
+async fn restore_orphaned_tab(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
+    axum::Json(body): axum::Json<RestoreOrphanedTab>,
+) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
+    if !super::auth::is_local_caller(&state, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+    }
+    let service = state.svc.clone();
+    let (workspace_id, tab_id) =
+        tokio::task::spawn_blocking(move || service.reopen_orphaned_tab(&body.tab_id))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    Ok(axum::Json(
+        serde_json::json!({ "workspace_id": workspace_id, "tab_id": tab_id }),
+    ))
+}
+
+fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(dist: &std::path::Path) -> Router<S> {
+    let files = tower_http::set_header::SetResponseHeader::overriding(
+        tower_http::services::ServeDir::new(dist),
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Router::new().nest_service("/bundled", files)
+}
+
+fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
+    router
+        .merge(super::transport_tabs::router())
+        .merge(super::transport_capabilities::router())
+        .merge(super::transport_orchestration::router())
+        .merge(super::frontend_shell_routes::router())
 }
 
 #[cfg(test)]
@@ -1028,6 +1085,3 @@ pub(crate) fn check_auth(
 ) -> Result<(), (StatusCode, &'static str)> {
     Ok(())
 }
-
-// Re-export route handlers so modules like commands/update/secrets keep stable imports.
-pub use super::network_routes::local_ip_address;

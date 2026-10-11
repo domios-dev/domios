@@ -278,7 +278,7 @@ fn sentinel_provenance_regex_and_disconnection_keep_actual_source() {
 }
 
 #[test]
-fn sentinel_provenance_journals_pattern_precedence_and_adapter_fallback() {
+fn sentinel_provenance_journals_patterns_without_model_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = SupporterRuntime::new(dir.path().join("supporter"));
     let mut job = job(dir.path());
@@ -306,7 +306,7 @@ fn sentinel_provenance_journals_pattern_precedence_and_adapter_fallback() {
 
     let rows = rows(dir.path());
     assert_eq!(rows[0]["classification_source"], "pattern");
-    assert_eq!(rows[1]["classification_source"], "adapter");
+    assert_eq!(rows[1]["classification_source"], "pattern");
 }
 
 #[test]
@@ -429,4 +429,30 @@ fn sentinel_provenance_probe_failure_has_no_observation_or_stale_hash() {
     assert!(rows[1]["label"].is_null());
     assert!(rows[1]["route"].is_null());
     assert_ne!(rows[0]["evaluation_id"], rows[1]["evaluation_id"]);
+}
+
+#[test]
+fn deterministic_probe_ticks_never_write_supporter_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().join("supporter"));
+    let mut job = job(dir.path());
+    job.model_classification = false;
+    job.matches.insert("passed".into(), "^passed$".into());
+    for tick in 0..10 {
+        let text = format!("unmatched-{tick}");
+        let classification =
+            classify::with_pattern_precedence(&job, &text, || panic!("no model calls"));
+        let scope = Scope::from(&job);
+        let outcome = machine::evaluate(
+            &mut job.machine,
+            text.as_bytes(),
+            &job.buckets,
+            &job.routes,
+            None,
+            scope,
+            || classification,
+        );
+        scheduler::record(&runtime, &job, &outcome, Stage::Decision).unwrap();
+    }
+    assert!(!dir.path().join("supporter/journal.jsonl").exists());
 }

@@ -484,15 +484,17 @@ async fn lark_recording_contract_rpc_capture_hold_does_not_fall_back_to_paste() 
             super::super::lifecycle::DeliveryState::Pending,
             true,
             true,
+            false,
         ),
         SendGate::classify(
             Some(true),
             super::super::lifecycle::DeliveryState::Ready,
             false,
             true,
+            true,
         ),
     ] {
-        assert!(matches!(gate, SendGate::Hold(_)));
+        assert!(matches!(gate, SendGate::Refuse(_)));
         let mut pastes = 0;
         let held = DeliveryError::TabBusyRefused {
             tab: "tab-a".into(),

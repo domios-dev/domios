@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { IS_WEB, selfHost, tokenFor } from "../../lib/webApi";
 import { registerServiceWorker } from "../../lib/serviceWorkerRegistration";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { useInstallHintLayout } from "./useInstallHintLayout";
 import { OfflineIndicator } from "./OfflineIndicator";
 
 const HINT_DISMISSED_KEY = "codeterm-pwa-hint-dismissed";
@@ -63,6 +65,9 @@ export function PwaSetup() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstall, setShowInstall] = useState(false);
 
+  const touch = useTouchOptimizedUi();
+  const hintLayout = useInstallHintLayout(touch, showIosHint || showInstall);
+
   useEffect(() => {
     if (!IS_WEB) return;
 
@@ -121,6 +126,7 @@ export function PwaSetup() {
       <OfflineIndicator />
       {showInstall && installPrompt && (
         <div
+          style={hintLayout}
           data-testid="pwa-chrome-install-hint"
           className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[calc(0.75rem+var(--ct-safe-bottom,0px))] pointer-events-none"
         >
@@ -155,6 +161,7 @@ export function PwaSetup() {
       )}
       {showIosHint && (
         <div
+          style={hintLayout}
           data-testid="pwa-install-hint"
           className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[calc(0.75rem+var(--ct-safe-bottom,0px))] pointer-events-none"
         >

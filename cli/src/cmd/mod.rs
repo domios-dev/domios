@@ -64,6 +64,7 @@ pub mod report_body;
 pub mod report_guard;
 pub mod report_lane;
 pub mod resolved_text;
+pub mod rest_api;
 pub mod send_text;
 pub mod service;
 pub mod sessions;

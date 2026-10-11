@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 mod admission_tokens;
+pub(crate) mod continuity;
 mod reservations;
 use admission_tokens::{AdmissionTokens, TokenEntry};
 
@@ -80,6 +81,8 @@ struct UserIndex {
     version: u8,
     next_sequence: u64,
     records: Vec<UserSendRecord>,
+    #[serde(default)]
+    receipts: Vec<continuity::UserSendReceipt>,
 }
 
 impl Default for UserIndex {
@@ -88,6 +91,7 @@ impl Default for UserIndex {
             version: 1,
             next_sequence: 1,
             records: Vec::new(),
+            receipts: Vec::new(),
         }
     }
 }
@@ -118,6 +122,7 @@ pub(crate) struct UserTab {
     pub(crate) dispatch_generation: AtomicU64,
     pub(crate) dispatch_events: tokio::sync::watch::Sender<u64>,
     ready_launch: Mutex<Option<ReadyUserLaunch>>,
+    ended_launch_nonce: Mutex<Option<String>>,
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
@@ -207,6 +212,7 @@ impl UserSendStore {
                     dispatch_generation: AtomicU64::new(0),
                     dispatch_events,
                     ready_launch: Mutex::new(None),
+                    ended_launch_nonce: Mutex::new(None),
                     admission_wake: Mutex::new(None),
                 })
             })
@@ -312,6 +318,11 @@ impl UserSendStore {
         let loaded = self.load(tab, &mut data)?;
         if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
             return Err("user send owner is held or revoked".into());
+        }
+        if tab.ended_launch_nonce.lock().as_deref()
+            == Some(reservation.authority.binding_nonce.as_str())
+        {
+            return Err("launch_ended_before_write".into());
         }
         let body_path = tab.payload_path(&reservation.send_id, "body")?;
         let prepared = self.final_transport(reservation, prepared, body.as_ref())?;
@@ -569,6 +580,9 @@ impl UserSendStore {
         } else {
             UserSendState::Uncertain
         };
+        if proven_zero_write {
+            current.handoff_session = None;
+        }
         self.persist(&tab, &next)?;
         loaded.index = next;
         Ok(())
@@ -600,6 +614,7 @@ impl UserSendStore {
         }
         let mut next = loaded.index.clone();
         next.records.retain(|item| item.send_id != record.send_id);
+        continuity::retain_receipt(&mut next, record, continuity::ReceiptState::Failed);
         self.persist(&tab, &next)?;
         loaded.index = next;
         tab.unsettled
@@ -655,6 +670,7 @@ impl UserSendStore {
             return Ok(false);
         }
         let mut next = loaded.index.clone();
+        continuity::retain_receipt(&mut next, record, continuity::ReceiptState::Uncertain);
         if record.body_digest.is_some() {
             let leases = next
                 .records
@@ -882,6 +898,7 @@ impl UserTab {
 }
 
 fn validate_index(index: &UserIndex, tab_id: &str) -> Result<(), String> {
+    continuity::validate_receipts(index, tab_id)?;
     if index.next_sequence == 0 {
         return Err("user index sequence is invalid".into());
     }

@@ -23,6 +23,8 @@ mod channel;
 mod config;
 mod install;
 mod list;
+mod provenance;
+use provenance::*;
 mod state;
 mod types;
 mod update;

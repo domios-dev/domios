@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(unix)]
+mod group_retirement;
+#[cfg(unix)]
 mod unix;
 #[cfg(windows)]
 pub(super) mod windows;

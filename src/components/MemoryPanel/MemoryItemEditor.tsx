@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { fetchItemFull, patchItem, deleteItem } from "./memoryApi";
 import { colorForKind } from "./nodeKind";
+import { BackPill } from "../shared/BackPill";
+import { memoryDetailIdentity } from "./memoryDetailModel";
 import { BusyState } from "../shared/BusyState";
 
 interface Props {
@@ -100,6 +102,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
     if (e.target === backdropRef.current) onClose();
   };
 
+  const identity = memoryDetailIdentity(item);
   const color = item ? colorForKind(item.kind) : "#888";
 
   return (
@@ -127,7 +130,10 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
                 {item.kind}
               </span>
             )}
-            <span className="text-[10px] text-[var(--ct-muted-fg)] truncate">{itemId}</span>
+            <div className="min-w-0">
+              <h2 className="text-xs font-semibold truncate" data-testid="memory-item-heading">{identity.title}</h2>
+              {identity.identifier && <span className="text-[10px] text-[var(--ct-muted-fg)] truncate block">{identity.identifier}</span>}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {dirty && (
@@ -140,13 +146,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
                 {saving ? "Saving..." : "Save"}
               </button>
             )}
-            <button
-              data-testid="memory-item-close"
-              onClick={onClose}
-              className="bg-transparent border-0 text-[var(--ct-muted-fg)] cursor-pointer text-sm px-1 hover:text-[var(--ct-fg)]"
-            >
-              ✕
-            </button>
+            <BackPill label="Memory Inspect" testId="memory-item-back" onBack={onClose} />
           </div>
         </div>
 

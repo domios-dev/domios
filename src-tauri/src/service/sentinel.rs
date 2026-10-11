@@ -224,6 +224,7 @@ impl ServiceContext {
             every: Some(format!("{}s", snapshot.interval_ms / 1000)),
             routes: Default::default(),
             matches: snapshot.matches.clone(),
+            model_classification: snapshot.model_classification,
             rearm_on_change: snapshot.rearm_on_change.clone(),
             until: snapshot.until.clone(),
             input,
@@ -235,11 +236,10 @@ impl ServiceContext {
             cause,
             note: None,
         };
-        let mut prepared = update.prepare(
-            &current,
-            &caller.tab,
-            classify::connected_model(self).is_some(),
-        )?;
+        let connected = update.model_classification
+            && update.matches.is_empty()
+            && classify::connected_model(self).is_some();
+        let mut prepared = update.prepare(&current, &caller.tab, connected)?;
         prepared.job.source = crate::sentinel::stage_source::StageSource::from_parts(
             snapshot.probe,
             snapshot.observe,
@@ -351,7 +351,9 @@ impl ServiceContext {
             .app_handle
             .try_state::<Handle>()
             .ok_or("blueprints not initialized")?;
-        let connected = classify::connected_model(self).is_some();
+        let connected = create.model_classification
+            && create.matches.is_empty()
+            && classify::connected_model(self).is_some();
         let mut job = handle.store.lock().prepare(
             create,
             crate::sentinel::store::Owner {
@@ -435,6 +437,9 @@ impl ServiceContext {
         }
         .settle(&handle.store)?;
         handle.notify();
+        if !updated.model_classification {
+            return Ok(updated);
+        }
         if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
             .sentinel_event(serde_json::json!({
                 "time": chrono::Utc::now().timestamp(),
@@ -493,7 +498,9 @@ impl ServiceContext {
         if current.definition_version != expect_version {
             return Err(amend::version_conflict(current.definition_version));
         }
-        let connected = classify::connected_model(self).is_some();
+        let connected = update.model_classification
+            && update.matches.is_empty()
+            && classify::connected_model(self).is_some();
         let mut update = update.prepare(&current, &caller.tab, connected)?;
         let resolution_source = update.job.clone();
         for handler in update
@@ -601,6 +608,9 @@ impl ServiceContext {
             .get(id)
             .cloned()
             .ok_or_else(|| format!("blueprint not found: {id}"))?;
+        if !resolved.model_classification {
+            return Ok(resolved);
+        }
         if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
             .sentinel_event(serde_json::json!({
                 "time": chrono::Utc::now().timestamp(),
@@ -776,6 +786,7 @@ mod tests {
             every: "10s".into(),
             routes: Default::default(),
             matches: Default::default(),
+            model_classification: false,
             rearm_on_change: Default::default(),
             until: None,
             timeout: None,

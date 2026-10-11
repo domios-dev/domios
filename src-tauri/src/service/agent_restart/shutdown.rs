@@ -106,7 +106,7 @@ impl ServiceContext {
             }
         };
         if let Some(reaper) = reaper {
-            reaper.wait_bounded(Duration::from_secs(5))?;
+            reaper.wait_for_termination_bounded(Duration::from_secs(5))?;
         }
         crate::service::agent_restart::timing::stage(&snap.tab_id, &snap.pty_id, "process-exit");
         self.signal_worker_interruption(

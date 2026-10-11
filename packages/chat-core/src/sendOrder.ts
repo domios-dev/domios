@@ -16,6 +16,7 @@ export interface ChatSend {
   sentAtMs: number;
   correlationId?: string;
   echo?: SendEcho;
+  echoEligible?: boolean;
 }
 
 function isUserAuthored(row: NormalizedChatMessage): boolean {
@@ -61,6 +62,10 @@ export function reconcileSends(
   const recorded = new Set<number>();
   const open: ChatSend[] = [];
   for (const send of sends) {
+    if (send.echoEligible === false) {
+      pending.push(send);
+      continue;
+    }
     if (!send.echo) {
       open.push(send);
       continue;

@@ -6,7 +6,7 @@ import type {
   LabelRow,
   SnapshotEdge,
 } from "./snapshotTypes";
-import { daemonHttpBase, daemonAuthToken } from "../../lib/webApi";
+import { daemonFetch, daemonHttpBase, daemonAuthToken } from "../../lib/webApi";
 
 export class SnapshotUnavailableError extends Error {}
 
@@ -30,7 +30,7 @@ export async function fetchGraphFull(
   api: ApiConfig,
   signal?: AbortSignal,
 ): Promise<GraphFullResponse> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/graph/full`, {
+  const res = await daemonFetch(api, `/api/mem/graph/full`, {
     headers: authHeaders(api),
     signal,
   });
@@ -42,7 +42,7 @@ export async function fetchSnapshot(
   api: ApiConfig,
   signal?: AbortSignal,
 ): Promise<GraphSnapshot> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/graph/snapshot`, {
+  const res = await daemonFetch(api, `/api/mem/graph/snapshot`, {
     headers: authHeaders(api),
     signal,
   });
@@ -57,8 +57,8 @@ export async function fetchSnapshotDelta(
   sinceSeq: number,
   signal?: AbortSignal,
 ): Promise<DeltaResponse> {
-  const url = `${baseUrl(api)}/api/mem/graph/snapshot?since_version=${sinceVersion}&since_seq=${sinceSeq}`;
-  const res = await fetch(url, { headers: authHeaders(api), signal });
+  const url = `/api/mem/graph/snapshot?since_version=${sinceVersion}&since_seq=${sinceSeq}`;
+  const res = await daemonFetch(api, url, { headers: authHeaders(api), signal });
   if (res.status === 404) throw new SnapshotUnavailableError("snapshot endpoint missing");
   if (!res.ok) throw new Error(`snapshot delta failed: ${res.status} ${await res.text()}`);
   return res.json();
@@ -71,7 +71,7 @@ export async function fetchLabels(
 ): Promise<LabelRow[]> {
   if (ids.length === 0) return [];
   const qs = encodeURIComponent(ids.join(","));
-  const res = await fetch(`${baseUrl(api)}/api/mem/graph/labels?ids=${qs}`, {
+  const res = await daemonFetch(api, `/api/mem/graph/labels?ids=${qs}`, {
     headers: authHeaders(api),
     signal,
   });
@@ -86,7 +86,7 @@ export async function fetchGraphEdges(
 ): Promise<SnapshotEdge[]> {
   if (ids.length === 0) return [];
   const qs = encodeURIComponent(ids.join(","));
-  const res = await fetch(`${baseUrl(api)}/api/mem/graph/edges?ids=${qs}`, {
+  const res = await daemonFetch(api, `/api/mem/graph/edges?ids=${qs}`, {
     headers: authHeaders(api),
     signal,
   });
@@ -100,8 +100,8 @@ export async function setPinnedPosition(
   x: number,
   y: number,
 ): Promise<void> {
-  const res = await fetch(
-    `${baseUrl(api)}/api/mem/pinned-positions/${encodeURIComponent(id)}`,
+  const res = await daemonFetch(api,
+    `/api/mem/pinned-positions/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
       headers: { ...authHeaders(api), "Content-Type": "application/json" },
@@ -112,7 +112,7 @@ export async function setPinnedPosition(
 }
 
 export async function rebuildLayout(api: ApiConfig): Promise<{ started: boolean }> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/graph/layout/rebuild`, {
+  const res = await daemonFetch(api, `/api/mem/graph/layout/rebuild`, {
     method: "POST",
     headers: authHeaders(api),
   });
@@ -122,7 +122,7 @@ export async function rebuildLayout(api: ApiConfig): Promise<{ started: boolean 
 }
 
 export async function fetchItemFull(api: ApiConfig, id: string): Promise<MemItemFull> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/items/${encodeURIComponent(id)}`, {
+  const res = await daemonFetch(api, `/api/mem/items/${encodeURIComponent(id)}`, {
     headers: authHeaders(api),
   });
   if (!res.ok) throw new Error(`get item failed: ${res.status} ${await res.text()}`);
@@ -143,7 +143,7 @@ export async function patchItem(
   id: string,
   patch: ItemPatch,
 ): Promise<{ updated: string }> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/items/${encodeURIComponent(id)}`, {
+  const res = await daemonFetch(api, `/api/mem/items/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { ...authHeaders(api), "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -153,7 +153,7 @@ export async function patchItem(
 }
 
 export async function deleteItem(api: ApiConfig, id: string): Promise<{ deleted: boolean }> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/items/${encodeURIComponent(id)}`, {
+  const res = await daemonFetch(api, `/api/mem/items/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: authHeaders(api),
   });
@@ -170,7 +170,7 @@ export interface MemStats {
 }
 
 export async function fetchWorkerLog(api: ApiConfig, workerId: string): Promise<string> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/workers/${encodeURIComponent(workerId)}/log`, {
+  const res = await daemonFetch(api, `/api/mem/workers/${encodeURIComponent(workerId)}/log`, {
     headers: authHeaders(api),
   });
   if (!res.ok) {
@@ -181,7 +181,7 @@ export async function fetchWorkerLog(api: ApiConfig, workerId: string): Promise<
 }
 
 export async function fetchStats(api: ApiConfig): Promise<MemStats> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/stats`, {
+  const res = await daemonFetch(api, `/api/mem/stats`, {
     headers: authHeaders(api),
   });
   if (!res.ok) throw new Error(`stats failed: ${res.status}`);

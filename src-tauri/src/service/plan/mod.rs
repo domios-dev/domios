@@ -19,4 +19,5 @@ mod mission_control_spend_tests;
 #[cfg(test)]
 mod mission_control_tests;
 mod relink_ext;
+pub(crate) mod respawn_lane;
 mod state_ext;

@@ -944,18 +944,14 @@ pub async fn task_respawn(
     let lane_protection = crate::service::LaneProtection::for_dispatch_intent(
         &original_task.interruption.execution_intent,
     );
-    let verify_cwd = draft.cwd.clone();
+    let verify_draft = draft.clone();
     let verify_canonical_cwd = canonical_cwd.clone();
-    let verify_branch = original_task.lane.branch.clone();
-    let verify_base = original_task.lane.base.clone();
-    let verify_protection = lane_protection;
+    let verify_task = original_task.clone();
     let provenance = tokio::task::spawn_blocking(move || {
-        crate::service::verify_worker_lane(
+        crate::service::plan::respawn_lane::verify_respawn_lane(
             &verify_canonical_cwd,
-            &verify_cwd,
-            verify_branch.as_deref(),
-            verify_base.as_deref(),
-            verify_protection,
+            &verify_task,
+            &verify_draft,
         )
     })
     .await
@@ -1050,7 +1046,7 @@ pub async fn task_respawn(
         original_plan_mode,
         lane_for_commit,
         canonical_project_path: canonical_cwd,
-        provenance: Some(provenance),
+        provenance,
         provisioned_lane: None,
         lane_protection,
         spawn_command: respawn_spawn_command(&id, &tid, &draft.source_attempt.id),

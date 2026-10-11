@@ -454,3 +454,22 @@ fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
     let restored = restore_live_planner_fixture(&restored_snapshot, &tab_id);
     assert_live_planner_identity(restored.service.mux.read().get_tab(&tab_id).unwrap());
 }
+
+#[test]
+fn pty_classifier_cannot_overwrite_structured_turn_state() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.structured_control_active = true;
+    let working = crate::agent::state_verdict::live_state_for(
+        crate::agent::provider::ProviderStateVerdict::Working,
+    );
+    tab.agent_state = Some(working.clone());
+    let idle = crate::agent::state_verdict::live_state_for(
+        crate::agent::provider::ProviderStateVerdict::Idle,
+    );
+    assert_eq!(
+        super::store_agent_state_and_record_turn_resume_edge(tab, idle, None, false,),
+        (false, false)
+    );
+    assert_eq!(tab.agent_state, Some(working));
+}

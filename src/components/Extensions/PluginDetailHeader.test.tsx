@@ -9,6 +9,7 @@ import type { CatalogEntry } from "./pluginCatalog";
 import type { ActionKind, ActionOptions } from "./PluginDetailPanel";
 
 const win = new Window({ url: "http://localhost/" });
+  Object.assign(win, { __CODETERM_DAEMON__: { origin: /^https?:/.test(win.location.origin) ? win.location.origin : "http://127.0.0.1:7686", token: "test-token" } });
 for (const key of ["window", "document", "navigator", "localStorage", "HTMLElement", "HTMLButtonElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "CustomEvent", "getComputedStyle"]) {
   const value = (win as unknown as Record<string, unknown>)[key];
   Object.defineProperty(globalThis, key, { configurable: true, value: typeof value === "function" && key === "getComputedStyle" ? value.bind(win) : value });

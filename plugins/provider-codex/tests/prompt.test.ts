@@ -68,6 +68,19 @@ function loadHostPlugin() {
   return context.module.exports.default;
 }
 
+{
+  const screen = fixtureText("tab-state/reasoning-submenu-0.160.0.txt");
+  const bundled = loadHostPlugin();
+  for (const provider of [plugin, bundled]) {
+    eq(provider.parsePrompt(screen)?.options?.length, 5, "captured submenu has five options");
+    eq(parseActiveTerminalChoice(screen)?.options.filter((option) => option.highlighted).length, 1,
+      "captured submenu has one active choice");
+    eq(provider.buildPromptResponse(1, screen), ["DQ=="], "current reasoning choice submits once");
+    eq(provider.buildPromptResponse(4, screen), ["G1tC", "G1tC", "G1tC", "DQ=="],
+      "follow-up reasoning choice navigates from current selection");
+  }
+}
+
 console.log("\n--- numbered prompts remain available to tab respond ---\n");
 {
   const bundled = loadHostPlugin();

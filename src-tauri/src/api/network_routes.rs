@@ -159,6 +159,7 @@ pub async fn restart_app(
         crate::crash::shutdown::mark_shutting_down_for(
             crate::crash::lifecycle::ShutdownReason::Restart,
         );
+        crate::startup::restart_stdio::detach_for_restart();
         app.restart();
     });
     Ok(Json(serde_json::json!({ "ok": true })))

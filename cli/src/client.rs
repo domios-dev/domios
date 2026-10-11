@@ -237,6 +237,16 @@ impl SocketClient {
         }
     }
 
+    pub fn connect_socket_only() -> Result<(Self, ResolvedSocket), String> {
+        let _ = resolve_socket_selection(
+            std::env::var("CODETERM_SOCKET_PATH").ok().as_deref(),
+            std::env::var("CODETERM_INSTANCE").ok().as_deref(),
+            std::env::var("CODETERM_API_PORT").ok().as_deref(),
+        )?;
+        let resolved = discover_socket_resolution()?;
+        Self::connect(&resolved.path).map(|client| (client, resolved))
+    }
+
     pub fn connect_local() -> Result<(Self, ResolvedSocket), String> {
         let _ = resolve_socket_selection(
             std::env::var("CODETERM_SOCKET_PATH").ok().as_deref(),

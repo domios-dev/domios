@@ -23,6 +23,22 @@ fn rotate(log_dir: &std::path::Path) {
     let _ = fs::rename(&file, log_dir.join("codeterm.log.1"));
 }
 
+/// Stderr that never fails: an app restart inherits its launcher's stderr pipe, and
+/// once that closes fern's fallback write panics and aborts the whole process.
+struct LossyStderr;
+
+impl std::io::Write for LossyStderr {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = std::io::stderr().write_all(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = std::io::stderr().flush();
+        Ok(())
+    }
+}
+
 /// A log sink that rotates itself. `fern::log_file` hands back a plain handle
 /// that never checks its own size again, so the cap has to live in the writer.
 struct RotatingLog {
@@ -95,7 +111,7 @@ pub(crate) fn setup_logging() {
         .level(level)
         .level_for("codeterm::update", log::LevelFilter::Info)
         .level_for("codeterm::api::updater_routes", log::LevelFilter::Info)
-        .chain(std::io::stderr());
+        .chain(Box::new(LossyStderr) as Box<dyn std::io::Write + Send>);
     for target in THIRD_PARTY_WARN_TARGETS {
         dispatch = dispatch.level_for(*target, log::LevelFilter::Warn);
     }

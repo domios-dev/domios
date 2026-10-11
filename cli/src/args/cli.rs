@@ -295,6 +295,12 @@ pub enum Commands {
         action: CronAction,
     },
 
+    /// Inspect and recover the local REST listener through the socket
+    RestApi {
+        #[command(subcommand)]
+        action: super::rest_api::RestApiAction,
+    },
+
     /// Manage daemon services (long-running processes monitored by codeterm)
     Service {
         #[command(subcommand)]

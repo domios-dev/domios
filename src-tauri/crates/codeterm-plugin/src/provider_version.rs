@@ -119,7 +119,7 @@ pub fn observe(binary: &str) -> VersionObservation {
         let spawned = std::thread::Builder::new()
             .name("provider-version".into())
             .spawn(move || {
-                let observed = probe(&identity.path);
+                let observed = probe(&path);
                 let unchanged = BinaryIdentity::read(&identity.path).as_ref() == Some(&identity);
                 let mut cache = CACHE.lock();
                 if unchanged {
@@ -140,8 +140,18 @@ pub fn observe(binary: &str) -> VersionObservation {
 }
 
 fn probe(path: &Path) -> VersionObservation {
+    let command = match crate::provider_command::command(path) {
+        Ok(command) => command,
+        Err(error) => {
+            log::debug!("[provider-version] {error}");
+            return VersionObservation::unknown(ProbeStatus::Failed);
+        }
+    };
+    probe_command(command)
+}
+
+fn probe_command(mut command: Command) -> VersionObservation {
     let deadline = Instant::now() + PROBE_DEADLINE;
-    let mut command = Command::new(path);
     codeterm_util::process_util::no_window_std(&mut command);
     #[cfg(unix)]
     {

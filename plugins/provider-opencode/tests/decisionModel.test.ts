@@ -61,7 +61,7 @@ test("adapter executes once and maps unavailable timeout and process errors with
       return then(result);
     },
   });
-  scope.host = { exec, fs: { readFile: () => null }, platform: () => "linux", envGet: () => null, expandHome: (path: string) => path };
+  scope.host = { exec, fs: { readFile: () => null, fileExists: () => false }, platform: () => "linux", envGet: () => null, expandHome: (path: string) => path };
   try {
     assert.deepEqual(decisionModel.decide(request, 1000), { error: "unavailable" });
     assert.equal(calls, 0);

@@ -113,7 +113,7 @@ where
         .add_task(
             &plan_id,
             crate::service::plan::NewTask {
-                name: format!("unplanned: {reason}"),
+                name: reason.to_string(),
                 kind: "unplanned".into(),
                 body: task_body,
                 executor_role: Some("Worker".into()),

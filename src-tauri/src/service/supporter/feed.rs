@@ -121,8 +121,12 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             | "budget_exhausted" | "model_deadline" | "model_failed" | "adapter_disconnected" | "invalid_answer"),
     });
     if let Some(title) = value["tab_title"].as_str() {
-        entry["tab_title"] = json!(super::narrative::scrub(title, super::narrative::MAX_NAME_CHARS));
+        entry["tab_title"] = json!(super::narrative::scrub(
+            title,
+            super::narrative::MAX_NAME_CHARS
+        ));
     }
+    entry["tab_id"] = json!(tab_identifier(&value["tab"]));
     entry["decision_point"] = json!(allowed(
         &value["decision_point"],
         &[
@@ -190,6 +194,12 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         entry["asked"] = json!(asked);
     }
     Some(entry)
+}
+
+fn tab_identifier(value: &Value) -> Option<&str> {
+    value
+        .as_str()
+        .filter(|id| id.len() == 8 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
 fn identifier(value: &Value) -> Option<&str> {

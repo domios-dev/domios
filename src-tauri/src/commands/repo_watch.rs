@@ -24,25 +24,3 @@ pub(crate) fn subscribe(registry: &RepoWatchRegistryHandle, cwd: PathBuf) -> Val
 pub(crate) fn unsubscribe(registry: &RepoWatchRegistryHandle, token: &str) -> Value {
     json!({ "released": registry.release(token) })
 }
-
-#[tauri::command]
-pub async fn repo_watch_subscribe(
-    svc: tauri::State<'_, crate::service::ServiceState>,
-    cwd: String,
-) -> Result<Value, String> {
-    let registry = svc.repo_watch.clone();
-    tokio::task::spawn_blocking(move || subscribe(&registry, PathBuf::from(cwd)))
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn repo_watch_unsubscribe(
-    svc: tauri::State<'_, crate::service::ServiceState>,
-    token: String,
-) -> Result<Value, String> {
-    let registry = svc.repo_watch.clone();
-    tokio::task::spawn_blocking(move || unsubscribe(&registry, &token))
-        .await
-        .map_err(|e| e.to_string())
-}

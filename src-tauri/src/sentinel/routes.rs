@@ -5,7 +5,6 @@ use super::store::{Sentinel, StopNotice};
 use crate::service::message_gateway::DeliveryClass;
 use crate::service::messenger::Delivery;
 use crate::service::messenger::MessageEnvelope;
-use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceContext;
 use codeterm_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec};
 
@@ -85,16 +84,7 @@ pub(super) fn notify_trigger_unavailable(svc: &ServiceContext, job: &Sentinel, r
             );
         }
     } else {
-        svc.create_notification_ext(
-            title,
-            Some(message),
-            Some("warning"),
-            None,
-            None,
-            NotificationOrigin::local_tab(recipient),
-            PushIntent::default(),
-            None,
-        );
+        svc.log_system_notice(title, Some(message), Some("warning"));
     }
 }
 
@@ -127,15 +117,10 @@ fn notify_lifecycle(svc: &ServiceContext, notice: &StopNotice, title: String) {
             );
         }
     }
-    svc.create_notification_ext(
+    svc.log_system_notice(
         title,
         Some(format!("Reason: {}", notice.reason)),
         Some("warning"),
-        None,
-        None,
-        NotificationOrigin::local_tab(notice.creator_tab_id.clone()),
-        PushIntent::default(),
-        None,
     );
 }
 
@@ -374,18 +359,10 @@ pub fn run(
                 )
                 .map(|()| None)
             } else {
-                svc.create_notification_ext(
+                svc.log_system_notice(
                     format!("Blueprint {}: {}", job.id, verdict.bucket),
                     Some(output.into()),
                     Some("info"),
-                    None,
-                    None,
-                    NotificationOrigin {
-                        caller_tab_id: Some(job.creator_tab_id.clone()),
-                        ..Default::default()
-                    },
-                    PushIntent::default(),
-                    None,
                 );
                 Ok(None)
             }
@@ -558,22 +535,17 @@ pub(super) fn notify_pipeline_result(
     path: &std::path::Path,
     body_ref: String,
 ) -> PipelineResultDelivery {
-    svc.create_notification_ext(
+    svc.log_system_notice(
         format!("Blueprint {}: {}", job.id, verdict.bucket),
         Some(format!(
             "Read the durable result in {} ({body_ref})",
             path.display()
         )),
         Some("info"),
-        None,
-        None,
-        NotificationOrigin::local_tab(job.creator_tab_id.clone()),
-        PushIntent::default(),
-        None,
     );
     PipelineResultDelivery {
         state: "delivered",
-        reason: "notification_recorded",
+        reason: "system_notice_logged",
         body_ref: Some(body_ref),
     }
 }
@@ -647,7 +619,7 @@ mod tests {
 
     #[test]
     #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-    fn sentinel_stop_notice_is_delivered_to_creator_with_reason() {
+    fn sentinel_stop_notice_stays_out_of_the_bell() {
         let (mux, creator_tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let notice = StopNotice {
@@ -661,14 +633,6 @@ mod tests {
 
         let notification_store = fixture.service.notif.lock();
         let notifications = notification_store.list(false);
-        assert_eq!(notifications.len(), 1);
-        assert_eq!(
-            notifications[0].tab_id.as_deref(),
-            Some(creator_tab_id.as_str())
-        );
-        assert_eq!(
-            notifications[0].body.as_deref(),
-            Some("Reason: transition_budget_exhausted")
-        );
+        assert!(notifications.is_empty());
     }
 }

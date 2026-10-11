@@ -1,6 +1,4 @@
-use crate::notification::push::NotifyLevel;
 use crate::persisted_state::Incident;
-use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceState;
 
 /// Loaders report while holding their own locks (the config cache among them),
@@ -49,19 +47,7 @@ fn notify_once(
     service: &ServiceState,
     title: String,
     description: Option<String>,
-    event_path: &std::path::Path,
+    _event_path: &std::path::Path,
 ) {
-    service.create_notification_ext(
-        title,
-        description,
-        Some("error"),
-        None,
-        Some(true),
-        NotificationOrigin::default(),
-        PushIntent {
-            level: Some(NotifyLevel::ActionNeeded),
-            event_key: Some(format!("persisted-state:{}", event_path.display())),
-        },
-        None,
-    );
+    service.log_system_notice(title, description, Some("error"));
 }

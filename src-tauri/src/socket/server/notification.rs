@@ -107,16 +107,18 @@ pub(super) fn dispatch(
                 message,
                 data: None,
             })?;
-            let (id, unseen) = svc.create_notification_ext_reported(
-                title,
-                body,
-                Some(severity_str),
-                actions,
-                None,
-                origin,
-                intent,
-                offer,
-            );
+            let (id, unseen) = svc
+                .create_agent_notification_reported(
+                    title,
+                    body,
+                    Some(severity_str),
+                    actions,
+                    None,
+                    origin,
+                    intent,
+                    offer,
+                )
+                .map_err(invalid)?;
 
             Ok(crate::api::notification_routes::created_result(&id, unseen))
         }

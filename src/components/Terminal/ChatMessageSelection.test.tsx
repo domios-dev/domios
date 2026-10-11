@@ -68,10 +68,21 @@ let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 let clipboard: Record<string, string>[] = [];
 let calls: { command: string; args: Record<string, unknown> }[] = [];
+let execCommandDescriptor: PropertyDescriptor | undefined;
+
+function resetSharedState() {
+  __setInvokeForTest(null); __setListenForTest(null);
+  composerInsertionStore.clear(); composerReplyStore.clear(); stored.blobs.length = 0;
+  document.getSelection()?.removeAllRanges();
+  window.localStorage.clear(); window.sessionStorage.clear();
+}
 
 beforeEach(() => {
+  vi.useRealTimers();
+  resetSharedState();
   clipboard = [];
   calls = [];
+  execCommandDescriptor = Object.getOwnPropertyDescriptor(document, "execCommand");
   document.execCommand = vi.fn((command: string) => {
     if (command !== "copy") return false;
     const written: Record<string, string> = {};
@@ -86,9 +97,10 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove(); host = null;
-  __setInvokeForTest(null); __setListenForTest(null); composerInsertionStore.clear(); composerReplyStore.clear(); stored.blobs.length = 0;
-  document.getSelection()?.removeAllRanges();
-  try { window.localStorage.clear(); } catch { /* storage may be unavailable */ }
+  resetSharedState();
+  vi.restoreAllMocks();
+  if (execCommandDescriptor) Object.defineProperty(document, "execCommand", execCommandDescriptor);
+  else Reflect.deleteProperty(document, "execCommand");
 });
 
 async function render(tabId: string, rows = ROWS) {
@@ -105,6 +117,8 @@ async function render(tabId: string, rows = ROWS) {
       removeAttachment={() => {}} clearAttachments={() => {}} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
       addOptimistic={() => "optimistic"} updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={() => {}} />
   </MuxStateStoreContext.Provider>));
+  // The composer's mount focus must finish before a row takes focus.
+  await vi.waitFor(() => expect(document.activeElement).toBe(composer()));
 }
 
 const row = (id: string) => host!.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!;
@@ -119,10 +133,18 @@ const replyBlock = () => host!.querySelector<HTMLElement>('[data-testid="reply-q
 const sends = () => calls.filter(({ command }) => /send|write_pty|submit/i.test(command) && command !== "delayed_send_list");
 const settle = () => act(async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); });
 
-async function hover(id: string) { await act(async () => row(id).focus()); }
+async function hover(id: string) {
+  await act(async () => row(id).focus());
+  return vi.waitFor(() => {
+    const trigger = dot(id);
+    expect(trigger).not.toBeNull();
+    return trigger!;
+  });
+}
 async function openMenu(id: string) {
-  await hover(id);
-  await act(async () => dot(id)!.focus());
+  const trigger = await hover(id);
+  await act(async () => trigger.focus());
+  await vi.waitFor(() => expect(menu(id)).not.toBeNull());
 }
 async function keyOn(target: Element, code: string, shiftKey = false, key = code) {
   await act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { code, key, shiftKey, bubbles: true, cancelable: true })); });
@@ -185,11 +207,11 @@ it("shows beads only in block mode and connects a selected range", async () => {
 
 it("reaches the dot by Tab from its row and opens the menu with Enter, Esc closes it", async () => {
   await render("keys-menu-tab");
-  await hover("a2");
+  const trigger = await hover("a2");
   const focusable = row("a2").querySelector<HTMLElement>('button, a[href], input, textarea, [tabindex="0"]');
-  expect(focusable).toBe(dot("a2"));
-  await keyOn(dot("a2")!, "Enter");
-  expect(menu("a2")).not.toBeNull();
+  expect(focusable).toBe(trigger);
+  await keyOn(trigger, "Enter");
+  await vi.waitFor(() => expect(menu("a2")).not.toBeNull());
   expect(document.activeElement).toBe(item("a2", "Copy"));
   await key("ArrowDown");
   expect(document.activeElement).toBe(item("a2", "Ask about this"));

@@ -296,6 +296,26 @@ impl ServiceContext {
                 tab_id: snap.tab_id.clone(),
             }
         };
+        let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
+        let completion_service = self.clone();
+        let completion_tab = snap.tab_id.clone();
+        let _input = crate::service::pty_io::submit_transaction::reserve_command_input(
+            &snap.pty_id,
+            deadline,
+        )
+        .map_err(|reason| ModelSwitchError::InputNotReady(reason.into()))?
+        .on_completion(move || {
+            completion_service.schedule_agent_delivery_flush(&completion_tab);
+            completion_service.wake_user_owner(
+                &completion_tab,
+                crate::service::parked_user_delivery::UserWake::Readiness,
+            );
+        });
+        log::debug!(
+            "[agent-model] reserved command input tab={} pty={}",
+            snap.tab_id,
+            snap.pty_id
+        );
         let commands = self
             .agent_registry
             .with_provider(&snap.provider, |provider| provider.model_switch_commands())
@@ -431,7 +451,6 @@ impl ServiceContext {
                 "the provider has no live effort command".into(),
             ));
         }
-        let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
         let readiness = readiness::CommandReadiness::from_declaration(&commands, &target)?;
         let sequence =
             sequence::CommandSequence::new(self, &target, deadline, &commands.transcript);
@@ -642,7 +661,8 @@ impl ServiceContext {
                 ready
             },
             || {
-                let _claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+                let _claim =
+                    crate::service::pty_io::submit_transaction::claim_command_submit_cycle(pty_id);
                 let (session, permit, input) = {
                     let mux = self.mux.read();
                     if !mux

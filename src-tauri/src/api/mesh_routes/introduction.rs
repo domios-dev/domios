@@ -155,21 +155,13 @@ pub async fn mesh_introduce(
             "mesh-state-changed",
             serde_json::Value::Null,
         );
-        state.svc.create_notification_ext(
+        state.svc.log_system_notice(
             "Mesh pairing request".into(),
             Some(format!(
                 "{} was introduced by {} and is waiting for owner approval.",
                 intro.instance_name, sender_id
             )),
             Some("info"),
-            None,
-            Some(true),
-            crate::service::notification::NotificationOrigin::default(),
-            crate::service::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-                event_key: Some(format!("mesh-introduction-{}", intro.instance_id)),
-            },
-            None,
         );
     }
 

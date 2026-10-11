@@ -71,7 +71,7 @@ fn store_agent_state_and_record_turn_resume_edge(
     start_epoch: Option<&str>,
     shutting_down: bool,
 ) -> (bool, bool) {
-    if tab.agent_state.as_ref() == Some(&new_state) {
+    if tab.structured_control_active || tab.agent_state.as_ref() == Some(&new_state) {
         return (false, false);
     }
     tab.agent_state = Some(new_state);
@@ -907,7 +907,7 @@ impl ServiceContext {
                                 ack.kind.label(),
                                 tab_id
                             );
-                            self.create_notification(
+                            self.log_system_notice(
                                 "General Agent auto-acknowledged a blocker".to_string(),
                                 Some(format!(
                                     "Main selected option {} for {}.",

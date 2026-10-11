@@ -8,6 +8,8 @@ pub use prerequisites::{missing_prerequisite_hint, CommandPrerequisite};
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ProviderCliStatus {
     #[serde(default)]
+    pub update_summary: Option<String>,
+    #[serde(default)]
     pub detected_version: Option<String>,
     #[serde(default)]
     pub version_probe: crate::provider_version::ProbeStatus,
@@ -66,6 +68,7 @@ pub fn status_from_probe(
         BinResolution::Unknown => (None, None),
     };
     ProviderCliStatus {
+        update_summary: None,
         detected_version: None,
         version_probe: crate::provider_version::ProbeStatus::Pending,
         compatibility: crate::provider_compat::evaluate(None, None),
@@ -84,6 +87,7 @@ pub fn status_from_probe(
 
 pub fn no_cli() -> ProviderCliStatus {
     ProviderCliStatus {
+        update_summary: None,
         detected_version: None,
         version_probe: crate::provider_version::ProbeStatus::Missing,
         compatibility: crate::provider_compat::evaluate(None, None),

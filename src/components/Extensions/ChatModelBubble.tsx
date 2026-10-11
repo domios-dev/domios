@@ -4,7 +4,6 @@ import { Check, ChevronUp } from "lucide-react";
 import type { ModelInfo } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { getChatModelBubbleApi } from "./chatModelBubbleApi";
-import { ConfirmDialog } from "./ConfirmDialog";
 
 export function ChatModelBubble({
   pluginId,
@@ -23,7 +22,6 @@ export function ChatModelBubble({
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<{ model: ModelInfo; message: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -63,27 +61,10 @@ export function ChatModelBubble({
     async (model: ModelInfo) => {
       setOpen(false);
       if (model.id === currentModel) return;
-      // The plugin decides whether the switch needs confirmation; absent hook / rejection → switch directly.
-      let desc = null;
-      try {
-        desc = (await getChatModelBubbleApi().describeModelSwitch?.(pluginId, sessionId, model.id)) ?? null;
-      } catch {
-        desc = null;
-      }
-      if (desc?.needsConfirm) {
-        setPending({ model, message: desc.message });
-        return;
-      }
       await doSwitch(model);
     },
-    [pluginId, sessionId, currentModel, doSwitch],
+    [currentModel, doSwitch],
   );
-
-  const confirmPending = useCallback(() => {
-    const model = pending?.model;
-    setPending(null);
-    if (model) void doSwitch(model);
-  }, [pending, doSwitch]);
 
   if (catalogLoading || models.length === 0) {
     const status = catalogLoading ? "Loading model catalog…" : "No models published";
@@ -187,16 +168,7 @@ export function ChatModelBubble({
           })}
         </div>
       )}
-      {pending && (
-        <ConfirmDialog
-          testId="chat-model-switch-confirm"
-          title="Switch model?"
-          message={pending.message}
-          confirmLabel="Switch"
-          onConfirm={confirmPending}
-          onCancel={() => setPending(null)}
-        />
-      )}
+
     </div>
   );
 }

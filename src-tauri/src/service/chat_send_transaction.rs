@@ -1,9 +1,12 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Weak};
 
+mod durable_restore;
 mod live_evidence;
 mod rpc_evidence;
 mod service_context;
+mod system_send;
+pub use system_send::SystemSend;
 mod turn_matching;
 mod turn_reconciliation;
 use live_evidence::{ConsumedTurnWatermark, LiveEvidenceProgress};
@@ -50,6 +53,8 @@ pub struct ChatSendStatus {
     pub correlation_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_send: Option<SystemSend>,
 }
 
 /// Capability-based append-window boundary captured at send start.
@@ -199,6 +204,7 @@ impl ChatSendLedger {
             retained_from: sequence,
             correlation_id: None,
             pending_reason: None,
+            system_send: None,
         };
         let payload = normalize_turn_evidence_with(payload, anchor.turn_normalization);
         let position = state.order.iter().position(|id| {
@@ -236,79 +242,6 @@ impl ChatSendLedger {
         let sequence = state.next_sequence;
         state.next_sequence += 1;
         (uuid::Uuid::new_v4().to_string(), sequence)
-    }
-
-    pub(crate) fn admit_user(&self, record: &UserSendRecord) -> ChatSendStatus {
-        let mut state = self.state.lock();
-        if !state.by_id.contains_key(&record.send_id) {
-            crate::flow_trace::record(
-                &record.send_id,
-                "send.started",
-                &record.authority.tab_id,
-                &record.authority.provider_id,
-                "accepted",
-                None,
-            );
-        }
-        let status = ChatSendStatus {
-            send_id: record.send_id.clone(),
-            tab_id: record.authority.tab_id.clone(),
-            state: ChatSendState::Pending,
-            error: None,
-            ledger_id: state.ledger_id.clone(),
-            sequence: record.ledger_sequence,
-            retained_from: record.ledger_sequence,
-            correlation_id: record.client_token.clone(),
-            pending_reason: None,
-        };
-        state
-            .owned
-            .insert(record.send_id.clone(), (record.authority.clone(), false));
-        if record.held_before_readiness {
-            state
-                .held_before_readiness_by_id
-                .insert(record.send_id.clone(), record.authority.clone());
-        } else {
-            state.held_before_readiness_by_id.remove(&record.send_id);
-        }
-        let latest_sequence = state
-            .latest_by_tab
-            .get(&status.tab_id)
-            .and_then(|id| state.by_id.get(id))
-            .map_or(0, |latest| latest.sequence);
-        if status.sequence >= latest_sequence {
-            state
-                .latest_by_tab
-                .insert(status.tab_id.clone(), status.send_id.clone());
-        }
-        if !state.by_id.contains_key(&status.send_id) {
-            let position = state.order.iter().position(|id| {
-                state
-                    .by_id
-                    .get(id)
-                    .is_some_and(|prior| prior.sequence > status.sequence)
-            });
-            if let Some(position) = position {
-                state.order.insert(position, status.send_id.clone());
-            } else {
-                state.order.push_back(status.send_id.clone());
-            }
-        }
-        state.anchor_by_id.remove(&status.send_id);
-        state.live_binding_by_id.remove(&status.send_id);
-        state.absence_witness_by_id.remove(&status.send_id);
-        state.sessionless_first_turn_by_id.remove(&status.send_id);
-        state.deferred_first_turn_by_id.remove(&status.send_id);
-        state.terminal_failures.remove(&status.send_id);
-        state.payload_by_id.remove(&status.send_id);
-        state.by_id.insert(status.send_id.clone(), status.clone());
-        if let Some(token) = &record.client_token {
-            state
-                .token_by_id
-                .insert(status.send_id.clone(), token.clone());
-        }
-        Self::prune_terminal(&mut state);
-        Self::with_retention_window(&state, status)
     }
 
     pub(crate) fn bind_user_pty_session_generation(
@@ -358,11 +291,9 @@ impl ChatSendLedger {
             return false;
         }
         *authority = current.clone();
-        if let Some(held_authority) = state.held_before_readiness_by_id.get_mut(send_id) {
-            if held_authority == previous {
-                *held_authority = current.clone();
-            }
-        }
+        state
+            .held_before_readiness_by_id
+            .insert(send_id.to_string(), current.clone());
         true
     }
 
@@ -606,6 +537,7 @@ impl ChatSendLedger {
             retained_from: sequence,
             correlation_id: None,
             pending_reason: None,
+            system_send: None,
         };
         state
             .latest_by_tab

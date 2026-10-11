@@ -837,7 +837,7 @@ impl ServiceContext {
                 })
             },
             |message| {
-                self.create_notification(
+                self.log_system_notice(
                     "Watcher notification".to_string(),
                     Some(message.to_string()),
                     Some("warning"),

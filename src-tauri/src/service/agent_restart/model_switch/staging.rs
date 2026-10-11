@@ -742,15 +742,10 @@ impl ServiceContext {
         if let Err(error) = result {
             log::warn!("[agent-model/completion] tab={} request={} phase=staged_refused retry={} error={error}", request.tab_id, request.id, retry);
             if warn {
-                self.create_notification_ext(
+                self.log_system_notice(
                     "Model switch pending".into(),
                     Some(format!("Tab {}: {error}", request.tab_id)),
                     Some("warning"),
-                    None,
-                    Some(false),
-                    Default::default(),
-                    Default::default(),
-                    None,
                 );
             }
         }

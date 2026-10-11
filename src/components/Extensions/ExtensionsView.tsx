@@ -1,3 +1,4 @@
+import { BackPill } from "../shared/BackPill";
 /**
  * Extensions — a VS Code-like plugin manager (list + marketplace on the left, detail
  * on the right). Catalog merge/filter logic lives in `pluginCatalog.ts` (pure, tested);
@@ -20,7 +21,7 @@ import type { ChannelRecord } from "./types";
 import type { AppConfig, PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { SELECT_EXTENSION_EVENT, takePendingExtensionSelection } from "../Titlebar/extensionsTrayLogic";
-import { ArrowLeft, Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import {
   ensurePluginSnapshot,
   runPluginSnapshotAction,
@@ -272,16 +273,9 @@ export function ExtensionsView({
             style={{ borderColor: "var(--ct-border-subtle, rgba(255,255,255,0.06))" }}
             data-testid="extensions-detail-tab"
           >
-            <button
-              type="button"
-              className="mb-3 flex w-fit items-center gap-1.5 rounded px-1 py-1 text-sm md:hidden"
-              style={{ color: "var(--ct-muted)" }}
-              data-testid="extensions-detail-back"
-              onClick={() => setNarrowDetailOpen(false)}
-            >
-              <ArrowLeft size={15} />
-              Plugins
-            </button>
+            <div className="mb-3 md:hidden">
+              <BackPill label="Plugins" testId="extensions-detail-back" onBack={() => setNarrowDetailOpen(false)} />
+            </div>
             {filter === "channels" ? (
               <ChannelDetailPanel
                 channel={selectedChannelRecord}

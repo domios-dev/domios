@@ -22,6 +22,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 - TEAM CONTAINMENT IS AUTOMATIC. From a live Team tab, ordinary `tab new` shells and `cron create` jobs inherit that Team. Use `--no-team` only when the work must deliberately outlive Team cleanup; `--team <id>` remains the explicit cross-check for a named Team.
 - `chat_backend` TABS HAVE NO SHELL. Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
 - DELAYED SEND IS NOT THE DEFAULT. `codeterm send` is immediate; `--delay`/`--at` are for user-requested future delivery. `send --every` repeats into an EXISTING tab (monitor/watcher); cron spawns a FRESH agent per scheduled run. With `--mesh`, recurring delays require the target to advertise `delayed_recurrence`; an incapable peer is refused, so update it or send a one-shot explicitly.
+- SEND RESULT: Immediate `send` exits 1 with a reason on stderr when `ok:false` or `bytes_written:false`, including retained pre-ready input. JSON failures retain the daemon receipt in `data`. A retained `send_id` or queued delivery is pending, not delivered: inspect its status or exact own-session transcript and never replay held, written or uncertain input.
 - NEVER HARDCODE MODEL IDS. Discover with `codeterm agent providers` / `codeterm agent models <provider>`, which refreshes live-discovery catalogues before listing.
 - MODEL SELECTION: `--model` is validated through each provider's catalogue capability. Authoritative catalogues refuse unknown ids before creating a tab and show close ids; free-form providers keep provider-owned ids. If a required live catalogue is unavailable, the requested id is preserved and the response carries a warning.
 - LIVE MODEL SWITCH: `codeterm agent model --tab TAB MODEL` relaunches that idle tab on its own verified session; `model_confirmation: "pending"` means no model was reported before the deadline, and the label follows the first turn.
@@ -61,6 +62,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Updates | `update check`, `update install --auto` | — |
 | Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
 | Services registry | `service --help` | `docs MESH` |
+| REST listener status/recovery while HTTP is down | `rest-api status`, `rest-api restart` through the local socket | `docs CONFIG` |
 | Essence map | `essence-map --help` | `docs ESSENCE-MAP` |
 | Provider launch leftovers | `integration sweep-profiles --provider <id>` is a dry run; only the owner adds `--confirm` | — |
 | Keep the machine awake | `keepawake start` / `stop` / `status` | — |
@@ -83,4 +85,4 @@ Use `codeterm mem taxonomy` for area counts and `codeterm mem area merge <from> 
 
 Paths: use forward slashes; the CLI normalizes them on every OS.
 
-Blueprint terminal adapters: `codeterm blueprint create --observe tab:<id> --output-settled 300 --session` watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.
+Blueprints use deterministic patterns by default; unmatched output remains `other` without a model call. Use `--model-classification` without patterns only when model judgment is wanted. Blueprint terminal adapters: `codeterm blueprint create --observe tab:<id> --output-settled 300 --session` watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.

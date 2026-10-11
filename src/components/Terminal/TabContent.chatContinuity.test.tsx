@@ -21,6 +21,7 @@ function assert(condition: unknown, label: string): asserts condition {
 
 function setupDom(): Window {
   const hookWindow = new Window({ url: "http://localhost/" });
+  Object.assign(hookWindow, { __CODETERM_DAEMON__: { origin: hookWindow.location.origin, token: "fixture-token" } });
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
     configurable: true,
     value: true,
@@ -216,6 +217,15 @@ async function flush(): Promise<void> {
   });
 }
 
+async function settleUntil(done: () => boolean, label: string): Promise<void> {
+  for (let turn = 0; turn < 50 && !done(); turn++) {
+    await act(async () => {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+  }
+  assert(done(), label);
+}
+
 async function main(): Promise<void> {
   const hookWindow = setupDom();
   const bridgeModule = await import("../../lib/bridge");
@@ -236,9 +246,9 @@ async function main(): Promise<void> {
       const call = JSON.parse(String(init?.body));
       assert(call.target_peer_id === "owning-peer", "catalog requested from wrong peer");
       assert(call.path === "/api/agents/providers", "catalog used wrong relay route");
-      return new Response(JSON.stringify({ ok: true, status: 200, data: [descriptor], error: null }));
+      return Response.json({ ok: true, status: 200, data: [descriptor], error: null });
     }
-    return new Response("[]");
+    return Response.json([]);
   };
   function CatalogPublisher() {
     useAgentProviderCachePublisher();
@@ -287,9 +297,8 @@ async function main(): Promise<void> {
   await act(async () => {
     window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind"));
   });
-  await flush();
-  assert(catalogRequests.some((url) => url.endsWith("/api/mesh/relay-to")), "peer switch did not refresh catalog");
-  assert(!host.querySelector('[data-testid="provider-capability-state"]'), "resolved descriptor retained missing state");
+  await settleUntil(() => catalogRequests.some((url) => url.endsWith("/api/mesh/relay-to")), "peer switch did not refresh catalog");
+  await settleUntil(() => !host.querySelector('[data-testid="provider-capability-state"]'), "resolved descriptor retained missing state");
   const switchBeforeRefresh = host.querySelector('[data-testid="tab-mode-switch"]');
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");
   assert(

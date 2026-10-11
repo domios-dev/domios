@@ -19,7 +19,7 @@ function ChatCardMenuButton({ label, items }: ChatCardMenuSpec) {
         onClick: item.onSelect,
         "data-testid": item.testId,
       }))}
-      trigger={<RowMenuButton label={label} />}
+      trigger={<RowMenuButton label={label} touchMode={touch} />}
     />
   );
 }

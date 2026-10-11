@@ -30,6 +30,7 @@ fn clear_fresh_session_binding(tab: &mut Tab) {
     tab.session_binding_nonce = None;
     tab.reported_session_binding_nonce = None;
     tab.restored_from_snapshot = false;
+    tab.prior_session_binding_nonces.clear();
     if let Some(restore) = tab.close_restore.as_mut() {
         restore.exact_session = false;
     }

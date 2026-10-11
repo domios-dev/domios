@@ -689,6 +689,7 @@ impl AgentProvider for StructuredStoreProvider {
             cursor: Some(all.len().to_string()),
             messages: all.into_iter().skip(from).collect(),
             done: None,
+            observations: Vec::new(),
         }
     }
 }
@@ -821,6 +822,7 @@ fn cursorless_nonempty_structured_store_mints_no_boundary() {
         cursor: None,
         messages: vec![crate::agent::chat_types::ChatMsg::default()],
         done: None,
+        observations: Vec::new(),
     };
     assert_eq!(structured_boundary(&populated), None);
 
@@ -830,4 +832,38 @@ fn cursorless_nonempty_structured_store_mints_no_boundary() {
         Some(EvidenceWindow::Structured { cursor: None }),
         "an empty store is a valid boundary: every future row is post-send"
     );
+}
+
+#[test]
+fn restored_structured_frame_confirms_only_exact_own_session_append() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
+    ))
+    .unwrap();
+    let session = fixture["session_id"].as_str().unwrap();
+    let frame = codeterm_types::domios::DomiosFrame {
+        opening_tag: fixture["opening_tag"].as_str().unwrap().into(),
+        body: fixture["body"].as_str().unwrap().into(),
+        suffix: fixture["suffix"].as_str().unwrap().into(),
+    };
+    let expected = frame.to_message();
+    let store = StructuredFixture::new();
+    store.append_user_row(session, &expected);
+    let anchor = store.anchor_now(session);
+    let mut cursor = ExactTurnCursor::for_anchor(Some(&anchor));
+    store.append_user_row("foreign-session", &expected);
+    store.append_user_row(session, fixture["persisted_content"].as_str().unwrap());
+    assert!(!contains_exact_user_turn_since(
+        &store.registry,
+        &anchor,
+        &expected,
+        &mut cursor
+    ));
+    store.append_user_row(session, &expected);
+    assert!(contains_exact_user_turn_since(
+        &store.registry,
+        &anchor,
+        &expected,
+        &mut cursor
+    ));
 }

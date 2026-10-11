@@ -29,6 +29,8 @@ async function main() {
     ? Promise.resolve(connections.shift()!)
     : new Promise<Connection>((resolve) => { awaitConnection = resolve; }), "SSE connection");
 
+  const api = await import("./webApi");
+  api.setTokenFor(api.apiHost(), "fixture-token");
   const { webListen, resetWebEvents, __resetWebEventsForTest } = await import("./webEvents");
   const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("./terminalViewerEvents");
   let reconnects = 0;
@@ -63,7 +65,7 @@ async function main() {
     assert.equal(peer.url.searchParams.get("peer"), "ubunta");
     assert.equal(peer.url.searchParams.get("path"), "/api/events/stream");
     assert.equal(peer.url.searchParams.get("since"), null, "the local cursor must never follow the browser onto a peer");
-    push(local, 999, "pl_late_local");
+    assert.throws(() => push(local, 999, "pl_late_local"));
     await deliver(peer, 20, "pl_peer");
 
     clearRelayTarget();
@@ -71,7 +73,7 @@ async function main() {
     const returned = await nextConnection();
     assert.equal(returned.url.pathname, "/api/events/stream");
     assert.equal(returned.url.searchParams.get("since"), "boot:10", "switching back resumes only the local cursor");
-    push(peer, 999, "pl_late_peer");
+    assert.throws(() => push(peer, 999, "pl_late_peer"));
     await deliver(returned, 11, "pl_local_updated");
     assert.equal(reconnects, 2, "both peer switches dispatch a DOM reconnect event");
     assert.deepEqual(received, [{ plan_id: "pl_local" }, { plan_id: "pl_peer" }, { plan_id: "pl_local_updated" }]);
@@ -81,7 +83,7 @@ async function main() {
     win.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, reconnected);
     awaitConnection = null;
     awaitFrame = null;
-    for (const connection of allConnections) connection.controller.close();
+    for (const connection of allConnections) { try { connection.controller.close(); } catch { /* canceled stream */ } }
   }
   console.log("webEvents peer isolation passed");
 }

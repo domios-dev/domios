@@ -11,8 +11,9 @@ vi.mock("../../lib/bridge", () => ({
 }));
 vi.mock("../../lib/webApi", () => ({ daemonFetch: vi.fn() }));
 
+import { listen } from "../../lib/bridge";
 import { daemonFetch } from "../../lib/webApi";
-import { nextSurfaceDeclLookup, surfaceDeclRetryDelay, useSurfaceDecl } from "./useSurfaceDecl";
+import { nextSurfaceDeclLookup, useSurfaceDecl } from "./useSurfaceDecl";
 import type { SurfaceDeclLookup } from "./surfaceRenderPlan";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -24,8 +25,8 @@ const fetchMock = vi.mocked(daemonFetch);
 let root: Root | null = null;
 let latest: SurfaceDeclLookup = { status: "loading" };
 
-function Probe() {
-  latest = useSurfaceDecl({ host: "127.0.0.1", port: 7686, token: "t" }, "browser", "browser");
+function Probe({ generation = 0 }: { generation?: number }) {
+  latest = useSurfaceDecl({ host: "127.0.0.1", port: 7686, token: "t" }, "browser", "browser", generation);
   return null;
 }
 
@@ -34,10 +35,8 @@ async function mount() {
   await act(async () => root!.render(<Probe />));
 }
 
-const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 
 beforeEach(() => {
-  vi.useFakeTimers();
   fetchMock.mockReset();
   listeners.clear();
 });
@@ -45,29 +44,29 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = null;
-  vi.useRealTimers();
 });
 
 describe("useSurfaceDecl", () => {
-  it("backs off 1s, 2s, 5s, then every 15s", () => {
-    expect([0, 1, 2, 3, 9].map(surfaceDeclRetryDelay)).toEqual([1_000, 2_000, 5_000, 15_000, 15_000]);
+  it("waits for the contribution subscription before taking its initial snapshot", async () => {
+    let subscribed!: (unlisten: () => void) => void;
+    vi.mocked(listen).mockImplementationOnce(() => new Promise((resolve) => { subscribed = resolve; }));
+    fetchMock.mockResolvedValueOnce(json([browserRow]));
+    await mount();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(latest).toEqual({ status: "loading" });
+    await act(async () => subscribed(() => undefined));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(latest.status === "ready" && latest.declared?.runtime).toBe("browser");
   });
 
-  it("retries a failed lookup and recovers when the plugin finishes loading", async () => {
-    fetchMock
-      .mockRejectedValueOnce(new Error("connection refused"))
-      .mockResolvedValueOnce(json([]))
-      .mockResolvedValueOnce(json([browserRow]));
+  it("recovers a refused HTTP lookup only on an explicit retry", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("connection refused")).mockResolvedValueOnce(json([browserRow]));
     await mount();
     expect(latest).toEqual({ status: "failed", error: "connection refused" });
-    await advance(999);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await advance(1);
-    expect(latest).toEqual({ status: "ready", declared: null });
-    await advance(2_000);
+    await act(async () => root!.render(<Probe generation={1} />));
     expect(latest.status === "ready" && latest.declared?.renderer).toBe("stream");
-    await advance(60_000);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("refetches when plugin contributions change", async () => {
@@ -87,12 +86,12 @@ describe("useSurfaceDecl", () => {
     expect(latest.status === "ready" && latest.declared?.pluginId).toBe("browser");
   });
 
-  it("stops retrying once unmounted", async () => {
+  it("unsubscribes from contribution changes when unmounted", async () => {
     fetchMock.mockRejectedValue(new Error("down"));
     await mount();
     await act(async () => root!.unmount());
     root = null;
-    await advance(60_000);
+    expect(listeners.has("contributions-changed")).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

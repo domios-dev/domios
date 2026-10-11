@@ -838,3 +838,56 @@ fn stage_serializes_snake_case() {
         "launch_binding_unconfirmed"
     );
 }
+
+#[test]
+fn validated_rebind_failure_recovery_requires_a_materialized_session_and_pty() {
+    for (stage, pty, session, recovered) in [
+        (BootStage::SpawnFailed, true, true, true),
+        (BootStage::SpawnFailed, false, true, false),
+        (BootStage::SpawnFailed, true, false, false),
+        (BootStage::AgentReady, true, true, false),
+    ] {
+        let mut tab = tab_with_prompt(None);
+        tab.boot_stage = Some(stage);
+        tab.boot_failure_reason = Some("failure".into());
+        tab.pty_id = pty.then(|| "pty".into());
+        tab.agent_session_id = session.then(|| "session".into());
+        tab.agent_booting = true;
+        tab.session_binding_nonce = Some("unverified-launch".into());
+        assert_eq!(reconcile_validated_rebind_failure(&mut tab), recovered);
+        assert_eq!(tab.agent_booting, !recovered);
+        assert_eq!(tab.reported_session_binding_nonce, None);
+        assert_eq!(
+            tab.boot_stage,
+            Some(if recovered {
+                BootStage::PtyReattached
+            } else {
+                stage
+            })
+        );
+        assert_eq!(tab.boot_failure_reason.is_none(), recovered);
+        assert!(!tab.launch_session_authenticated());
+    }
+}
+
+#[test]
+fn unchanged_own_session_binding_retires_stale_provisional_launch() {
+    let mut tab = tab_with_prompt(None);
+    tab.agent_type = Some("opaque-provider".into());
+    tab.pty_id = Some("own-pty".into());
+    tab.agent_session_id = Some("own-session".into());
+    tab.session_binding_nonce = Some("own-launch".into());
+    tab.reported_session_binding_nonce = Some("own-launch".into());
+    tab.boot_stage = Some(BootStage::LaunchWritten);
+    tab.provisional_launch = provisional_launch_for(&tab, "own-pty", "own-launch", "opaque");
+    tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    tab.boot_failure_reason = Some("opaque".into());
+    assert!(apply_late_readiness(
+        &mut tab,
+        &binding("own-pty", "own-launch")
+    ));
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert!(tab.boot_failure_reason.is_none());
+    assert!(tab.provisional_launch.is_none());
+    assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
+}

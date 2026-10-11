@@ -1,3 +1,4 @@
+import { modelMetadata, modelUnavailable, rejectedModelIds } from "./turnErrors";
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 import { parseModelVariants } from "./modelVariants";
 import { bindingModelSwitchSource } from "./bindingModelSwitch";
@@ -5,7 +6,7 @@ import { opencodeFileDiffs } from "./fileDiffs";
 import { fileDiffFromEdit, type FileDiff } from "@codeterm/chat-core";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v8";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v9";
 export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
@@ -286,19 +287,38 @@ export function discoverOpencodeModels(): ModelInfo[] | null {
   }));
   const result = safeJson(raw) as { code?: number; stdout?: string } | null;
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const lines = result.stdout.split("\n");
-  const variants = parseModelVariants(result.stdout);
+  const models = parseOpencodeModels(result.stdout);
+  const db = opencodeDbPath();
+  if (!models || !db || !host.fs.fileExists(db)) return models;
+  const rows = host.fs.sqliteQuery<{ data: string }>(db,
+    "SELECT data FROM message WHERE octet_length(data) <= ?1 AND json_valid(data) " +
+    "AND json_extract(data, '$.role') = 'assistant' " +
+    "AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
+    "ORDER BY time_updated DESC LIMIT 1000",
+    [ASSISTANT_MESSAGE_MAX_BYTES]);
+  const rejected = rejectedModelIds(rows.map((row) => {
+    const message = safeJson(row.data);
+    return { model: sessionModelIdentity(message), message };
+  }));
+  return models.filter((model) => !rejected.has(model.id));
+}
+
+export function parseOpencodeModels(stdout: string): ModelInfo[] | null {
+  if (stdout.length > 1_048_576) return null;
+  const lines = stdout.split("\n");
+  const variants = parseModelVariants(stdout);
+  const metadata = modelMetadata(stdout);
   const models: ModelInfo[] = [];
   for (let i = 0; i < lines.length; i++) {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
-    if (isNonChatModel(id)) continue;
+    if (isNonChatModel(id) || modelUnavailable(metadata.get(id))) continue;
     const efforts = variants.get(id);
     models.push({ id: id, displayName: displayNameFromId(id), group: groupFromModelId(id),
       ...(efforts ? { reasoningEfforts: efforts, ...(efforts.length ? { defaultReasoningEffort: "default" } : {}) } : {}),
     });
   }
-  return models.length ? models : null;
+  return models.length || metadata.size ? models : null;
 }
 
 export function groupFromModelId(id: string): string | undefined {
@@ -761,7 +781,7 @@ export function opencodeBindingPluginSource(): string {
     "",
     "async function reportProviderEvent(event, directory) {",
     "  const sessionID = eventSessionID(event);",
-    "  if (!(await report(sessionID, event.type, eventDirectory(event, directory)))) return;",
+    "  if (sessionID !== lastReported) return;",
     "  const url = endpoint(\"provider_event\");",
     "  if (!url) return;",
     "  await fetch(url, {",
@@ -788,7 +808,7 @@ export function opencodeBindingPluginSource(): string {
     "  return {",
     "    async event({ event }) {",
     "      await startupBinding;",
-    "      if (event?.type === \"session.error\" || event?.type === \"session.idle\" || (event?.type === \"session.status\" && event?.properties?.status?.type === \"busy\")) {",
+    "      if ((event?.type === \"message.updated\" && event?.properties?.info?.role === \"assistant\" && event?.properties?.info?.error?.name === \"APIError\") || event?.type === \"session.error\" || event?.type === \"session.idle\" || (event?.type === \"session.status\" && event?.properties?.status?.type === \"busy\")) {",
     "        await reportProviderEvent(event, directory);",
     "        return;",
     "      }",
@@ -832,10 +852,8 @@ export function scanMessagesForModel(db: string, sql: string, params: unknown[])
     const raw = rows[i].data;
     if (!raw) continue;
     try {
-      const v = JSON.parse(raw) as { role?: string; modelID?: string };
-      if (v && v.role === "assistant" && typeof v.modelID === "string" && v.modelID) {
-        return v.modelID;
-      }
+      const model = sessionModelIdentity(JSON.parse(raw));
+      if (model) return model;
     } catch (_) {
     }
   }
@@ -854,14 +872,8 @@ export function scanMessagesForQualifiedModel(db: string, sessionId: string): st
       const raw = rows[i].data;
       if (!raw) continue;
       try {
-        const value = JSON.parse(raw) as { role?: string; providerID?: string; modelID?: string };
-        if (
-          value.role === "assistant" &&
-          typeof value.providerID === "string" && value.providerID &&
-          typeof value.modelID === "string" && value.modelID
-        ) {
-          return `${value.providerID}/${value.modelID}`;
-        }
+        const model = sessionModelIdentity(JSON.parse(raw));
+        if (model) return model;
       } catch (_) {
       }
     }
@@ -884,4 +896,15 @@ export function scanSessionDirectory(db: string, sessionId: string): string | nu
   } catch (_) {
     return null;
   }
+}
+
+export function sessionModelIdentity(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const message = value as { role?: string; providerID?: unknown; modelID?: unknown };
+  if (message.role !== "assistant" || typeof message.modelID !== "string") return null;
+  const provider = typeof message.providerID === "string" ? message.providerID.trim() : "";
+  const model = message.modelID.trim();
+  if (!model) return null;
+  if (isModelId(model)) return model;
+  return provider && isModelId(`${provider}/${model}`) ? `${provider}/${model}` : null;
 }

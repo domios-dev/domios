@@ -24,6 +24,89 @@ fn opted_in_config() -> NotificationConfig {
 }
 
 #[test]
+fn question_resend_emits_resolution() {
+    for push_level in [None, Some(NotifyLevel::ActionNeeded)] {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let events = Mutex::new(Vec::new());
+        let spent_ids = Mutex::new(Vec::new());
+        let create = || {
+            create_notification_announcing_resolution(
+                &store,
+                || {
+                    create_notification_with_delivery(
+                        NotificationAdmission::Explicit,
+                        &store,
+                        |_, _| {},
+                        "opaque-title".into(),
+                        Some("opaque-body".into()),
+                        None,
+                        Ask::offering(Some(vec![NotificationAction::Answer {
+                            label: "opaque-choice".into(),
+                        }])),
+                        None,
+                        NotificationOrigin::local_tab("asker".into()),
+                        |_| {
+                            Some(NotificationProvenance {
+                                tab_id: Some("asker".into()),
+                                ..Default::default()
+                            })
+                        },
+                        PushDispatch {
+                            intent: PushIntent {
+                                level: push_level,
+                                event_key: Some("event".into()),
+                            },
+                            per_scope_limit: 10,
+                            deliver: |_| Ok(()),
+                        },
+                        declared(NotifyLevel::ActionNeeded),
+                        |payload| {
+                            events
+                                .lock()
+                                .push(("notification-created".to_string(), payload))
+                        },
+                    )
+                },
+                |ids| {
+                    announce_notification_resolution(
+                        &store,
+                        ids,
+                        |id, _| {
+                            assert!(store.try_lock().is_some());
+                            spent_ids.lock().push(id.to_string());
+                        },
+                        |name, payload| {
+                            assert!(store.try_lock().is_some());
+                            events.lock().push((name.to_string(), payload));
+                        },
+                    )
+                },
+            )
+        };
+        let first = create();
+        store
+            .lock()
+            .remember_channel_placement(&first, "telegram", "opaque-receipt");
+        assert!(store.lock().mark_read(&first));
+        let next = create();
+        assert_ne!(first, next);
+        let events = events.lock();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].1["id"], first);
+        assert_eq!(events[1].1["id"], next);
+        assert_eq!(events[1].1["answer"]["answered"], serde_json::Value::Null);
+        assert_eq!(events[2].0, "notification-resolved");
+        assert_eq!(events[2].1["id"], first);
+        assert_eq!(*spent_ids.lock(), vec![first.clone()]);
+        let guard = store.lock();
+        assert!(guard.notification(&first).unwrap().resolved);
+        assert!(guard.notification(&first).unwrap().actions.is_none());
+        assert!(guard.offers_choice(&next));
+        assert_eq!(guard.list(false).len(), 2);
+    }
+}
+
+#[test]
 fn explicit_prompt_notification_answer_routes_the_value_without_message_delivery() {
     use crate::notification::store::PromptOptionAnswer;
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
@@ -104,7 +187,7 @@ fn explicit_prompt_notification_answer_refuses_a_stale_prompt_structurally() {
             identity: identity.clone(),
         })
         .collect();
-    let id = fixture.service.create_prompt_notification_ext(
+    let id = fixture.seed_prompt_notification(
         "opaque title".into(),
         Some("opaque body".into()),
         Some("warning"),

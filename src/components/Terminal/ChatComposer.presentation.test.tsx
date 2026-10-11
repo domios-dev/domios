@@ -79,7 +79,7 @@ test("composer keeps one editor in an accessible card with a separate side actio
 test("attachments remain accessible without composer model controls", async () => {
   await withComposer(["/fixture/one.png", "/fixture/two.jpg"], (host) => {
     const card = host.querySelector('[role="group"][aria-label="Message composer"]')!;
-    assert.equal(card.querySelectorAll('[data-testid="attachment-chip"]').length, 2);
+    assert.equal(card.querySelectorAll('[data-testid="chat-inline-attachment"]').length, 2);
     assert.equal(card.querySelector('[aria-label="Model and traits"]'), null);
   });
 });
@@ -87,9 +87,7 @@ test("attachments remain accessible without composer model controls", async () =
 test("attachments retain accessible removal and the exact original path", async () => {
   const path = "C:\\fixture\\Screenshot.PNG";
   await withComposer([path], async (host, removed) => {
-    const chip = host.querySelector<HTMLElement>('[data-testid="attachment-chip"]')!;
-    assert.equal(chip.querySelector("span")?.getAttribute("title"), path);
-    const remove = chip.querySelector<HTMLButtonElement>("button")!;
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove Screenshot.PNG"]')!;
     assert.equal(remove.getAttribute("aria-label"), "Remove Screenshot.PNG");
     await act(async () => remove.click());
     assert.deepEqual(removed, [path]);

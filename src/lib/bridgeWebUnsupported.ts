@@ -1,48 +1,16 @@
 /** Native-only IPC commands — honest web degradation via webCapability(). */
 export const WEB_UNSUPPORTED: Record<string, string> = {
-  automation_node_files: "Node file inspection is available only in the desktop app",
-  reveal_file: "Revealing a file in the OS file manager is available only in the desktop app",
-  bridge_thread_state:
-    "Telegram thread menu state is a desktop Tauri command; a REST route would let a bearer token bypass caller-tab authority",
-  bridge_thread_open:
-    "Opening a Telegram thread is caller-tab authorized in the desktop shell; the web mirror hides the menu group",
-  bridge_thread_close:
-    "Closing a Telegram thread is caller-tab authorized in the desktop shell; the web mirror hides the menu group",
-  get_recovery_state:
-    "Native crash recovery state is sourced from the desktop supervisor",
-  get_tab_history_raw:
-    "Native xterm reads seeded backend history on remount; web output stream replays the backend buffer",
-  materialize_dropped_files:
-    "Native Tauri webview file-drop paths must be materialized on the host",
-  attachment_path_kinds:
-    "Folder detection stats native drop paths; browser uploads are always files",
-  read_clipboard_files:
-    "OS clipboard file paths; web uses navigator.clipboard.read()",
-  read_clipboard_text:
-    "OS clipboard text reader; web uses navigator.clipboard.readText()",
-  notify_permission_state:
-    "OS toast permission belongs to the machine running the app; the browser mirror has no such grant to read",
-  establish_notify_permission:
-    "Only the desktop host can raise the OS notification prompt for its own bundle",
-  frontend_ready:
-    "Desktop startup readiness acknowledgement has no browser equivalent",
-  frontend_readiness_generation:
-    "Desktop startup readiness generation has no browser equivalent",
-  get_rest_api_status:
-    "REST listener recovery is owned by the desktop supervisor",
-  provider_model_usage:
-    "Per-group model usage is read from a provider-owned store on the daemon host; the web mirror renders the picker without it",
-  restart_rest_api:
-    "An HTTP client cannot restart the listener carrying its own request",
-  check_provider_integration:
-    "Provider integration health reads native host configuration",
-  install_provider_integration:
-    "Provider integration repair changes native host configuration",
-  uninstall_provider_integration:
-    "Provider integration removal changes native host configuration",
+  reveal_file: "Native OS file manager required",
+  open_folder: "Native OS file manager required",
+  materialize_dropped_files: "Native OS file-drop paths required",
+  read_clipboard_files: "Browser clipboard supplies bytes rather than OS paths",
+  notify_permission_state: "Native OS notification permission required",
+  establish_notify_permission: "Native OS notification prompt required",
+  get_autostart_enabled: "Native autostart required",
+  set_autostart_enabled: "Native autostart required",
+  get_windows_build_number: "Native Windows version required",
+  check_for_update: "Native app updater required",
+  get_update_status: "Native app updater required",
+  install_app_update: "Native app installer required",
 };
-
-/** Handled in invokeRaw without HTTP_MAP / CANNED membership. */
-export const WEB_SPECIAL: Record<string, string> = {
-  open_url: "Browser tab opens via window.open in invokeRaw",
-};
+export const WEB_SPECIAL = { open_url: "Browser opens a URL through nativeBridge's browser capability" };

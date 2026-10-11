@@ -66,6 +66,7 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
 
 /// Grantable per-plugin permissions; an allowlist so a typo can't persist a bogus grant.
 const GRANTABLE_PERMS: &[&str] = &[
+    "project_write",
     "manage_workspaces",
     "spawn_agents",
     "agent_commands",
@@ -160,7 +161,7 @@ pub(super) fn config_command(
     }
 
     // Persist grant/revoke to grants.yaml; the host reads it fail-closed on next reload.
-    let granted = apply_grants(&dir, grants, revokes)?;
+    let granted = apply_grants_for_settings(&dir, grants, revokes, &text)?;
 
     if !changed.is_empty() {
         write_atomic(&yaml_path, text.as_bytes())
@@ -254,7 +255,18 @@ fn normalize_hosts(hosts: &[String]) -> Result<Vec<String>, String> {
 
 /// Merge grant/revoke into the plugin's `grants.yaml` (a flat `{ permission: bool }`
 /// map the host reads), validated against [`GRANTABLE_PERMS`]. Returns the changed names.
+#[cfg(test)]
 fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec<String>, String> {
+    let settings = fs::read_to_string(dir.join("config.yaml")).unwrap_or_default();
+    apply_grants_for_settings(dir, grants, revokes, &settings)
+}
+
+fn apply_grants_for_settings(
+    dir: &Path,
+    grants: &[String],
+    revokes: &[String],
+    settings: &str,
+) -> Result<Vec<String>, String> {
     if grants.is_empty() && revokes.is_empty() {
         return Ok(Vec::new());
     }
@@ -278,6 +290,28 @@ fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec
         }
     };
     let mut changed = Vec::new();
+    if grants.iter().any(|grant| grant == "project_write") {
+        let manifest = read_plugin_manifest_value(dir)?;
+        let selectors: Vec<String> = serde_json::from_value(
+            manifest
+                .pointer("/permissions/projectFiles")
+                .cloned()
+                .unwrap_or(Value::Null),
+        )
+        .map_err(|_| "plugin does not declare projectFiles selectors")?;
+        let settings: Value = serde_yaml::from_str(settings).map_err(|e| e.to_string())?;
+        let roots = codeterm_util::project_roots::configured(&settings, &selectors)?;
+        if roots.is_empty() {
+            return Err("configure an existing project root before granting project_write".into());
+        }
+        map.project_write_roots = roots
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+    }
+    if revokes.iter().any(|grant| grant == "project_write") {
+        map.project_write_roots.clear();
+    }
     for p in grants {
         map.permissions.insert(p.clone(), true);
         changed.push(p.clone());
@@ -805,6 +839,39 @@ mod tests {
         assert_eq!(map2.get("spawn_agents"), Some(&true));
         assert_eq!(map2.get("agent_commands"), Some(&true));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_write_grant_snapshots_configured_roots_and_revokes() {
+        let dir = temp_dir();
+        let project = temp_dir();
+        std::fs::write(
+            dir.join("plugin.json"),
+            r#"{"permissions":{"projectFiles":["/root"]}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("config.yaml"),
+            serde_yaml::to_string(&serde_json::json!({"root":project})).unwrap(),
+        )
+        .unwrap();
+        apply_grants(&dir, &["project_write".into()], &[]).unwrap();
+        let granted =
+            parse_grants(&std::fs::read_to_string(dir.join("grants.yaml")).unwrap()).unwrap();
+        assert_eq!(
+            granted.project_write_roots,
+            [project.canonicalize().unwrap().to_string_lossy()]
+        );
+        assert_eq!(granted.permissions.get("project_write"), Some(&true));
+        apply_grants(&dir, &[], &["project_write".into()]).unwrap();
+        assert!(
+            parse_grants(&std::fs::read_to_string(dir.join("grants.yaml")).unwrap())
+                .unwrap()
+                .project_write_roots
+                .is_empty()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(project);
     }
 
     #[test]

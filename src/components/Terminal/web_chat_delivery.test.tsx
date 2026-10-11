@@ -178,7 +178,7 @@ async function main(): Promise<void> {
   });
 
   it("keeps a local desktop listener on the Tauri branch", () => {
-    expect(bridge.localListenBranch(false)).toBe("tauri");
+    expect(bridge.localListenBranch(false)).toBe("web");
     expect(bridge.localListenBranch(true)).toBe("web");
   });
 

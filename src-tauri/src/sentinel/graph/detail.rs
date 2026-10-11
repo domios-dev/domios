@@ -62,7 +62,7 @@ pub(super) fn definition(job: &Sentinel) -> Value {
             }
         }
     }
-    let definition = json!({"probe":(!job.probe().is_empty()).then_some(probe),"probe_truncated":probe_truncated,"decision_kind":if job.matches.is_empty() {"agent"} else {"pattern"},"command_language":if cfg!(windows) {"powershell"} else {"bash"},"language":if cfg!(windows) {"powershell"} else {"bash"},
+    let definition = json!({"probe":(!job.probe().is_empty()).then_some(probe),"probe_truncated":probe_truncated,"model_classification":job.model_classification,"decision_kind":if job.matches.is_empty() && job.model_classification {"agent"} else {"pattern"},"command_language":if cfg!(windows) {"powershell"} else {"bash"},"language":if cfg!(windows) {"powershell"} else {"bash"},
         "question":question,"buckets":buckets,"commands":commands});
     if definition.to_string().len() > MAX_DEFINITION_BYTES {
         json!({"unavailable":"definition_exceeds_v1_bounds"})
@@ -117,6 +117,7 @@ pub(super) fn project(
             Some(crate::sentinel::source::TabBinding::CronRun(_))
         ) && job.run.is_none());
     json!({"version":1,"scope":{"workspace_id":job.workspace_id,"team_id":job.team_id,"node_id":job.id},
+        "runs_since_transition":job.progress.runs_since_transition,"last_probe_at":job.progress.last_probe_at,"probe_state":job.progress.probe_state,
         "origin":if job.agent_authored {"agent"} else {"unknown"},
         "creator":if job.creator_tab_id.is_empty() {Value::Null} else {json!({"tab_id":job.creator_tab_id,"name":creator_name})},
         "team":job.team_id.as_ref().map(|id| json!({"id":id,"name":team_name})),

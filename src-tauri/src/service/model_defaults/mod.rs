@@ -11,8 +11,6 @@ use tauri::Manager;
 
 use crate::agent::model_catalog;
 use crate::agent::provider::ModelCatalogueAuthority;
-use crate::notification::push::NotifyLevel;
-use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceState;
 use inventory::{PlannedChange, StoredDefault};
 use replacement::{replacement_for, CatalogueView};
@@ -188,17 +186,5 @@ fn notify(service: &ServiceState, applied: &[PlannedChange]) {
     } else {
         format!("{} model defaults were updated", applied.len())
     };
-    service.create_notification_ext(
-        title,
-        Some(body),
-        Some("info"),
-        None,
-        None,
-        NotificationOrigin::default(),
-        PushIntent {
-            level: Some(NotifyLevel::Verbose),
-            event_key: None,
-        },
-        None,
-    );
+    service.log_system_notice(title, Some(body), Some("info"));
 }

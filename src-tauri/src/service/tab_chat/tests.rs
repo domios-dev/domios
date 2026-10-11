@@ -43,6 +43,7 @@ impl ChatBackendProvider for SnapshotBackend {
             messages: self.messages.clone(),
             cursor: None,
             done: None,
+            ..Default::default()
         })
     }
     fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {

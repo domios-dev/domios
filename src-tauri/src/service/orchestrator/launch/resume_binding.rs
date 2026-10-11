@@ -109,6 +109,16 @@ pub(super) fn finish_unbound_relaunch(
     if !origin.relaunches_existing_agent() {
         return None;
     }
+    if svc.resumed_provider_is_live(&launch.tab_id, &launch.pty_id) {
+        if let Some(attempt) = launch.attempt() {
+            svc.record_provisional_launch(
+                &attempt,
+                BootStage::LaunchBindingUnconfirmed,
+                "live resumed provider awaits exact session evidence",
+            );
+        }
+        return Some(false);
+    }
     let Some(attempt) = launch.attempt() else {
         return Some(false);
     };
@@ -132,7 +142,7 @@ pub(super) fn finish_unbound_relaunch(
     }
     let reason = "restored agent session binding is unconfirmed; explicit recovery required";
     svc.record_provisional_launch(&attempt, BootStage::LaunchBindingUnconfirmed, reason);
-    svc.create_notification(
+    svc.log_system_notice(
         "Orchestration incident: restored agent needs recovery".into(),
         Some(format!(
             "Impact: Tab {} has no authenticated session binding and cannot act as a Team member. Cleanup: its launch was retired; written bootstrap input will not be replayed. Fallback: inspect this Tab and recover it explicitly with `codeterm agent restart --tab {}`. Cause: {reason}.",

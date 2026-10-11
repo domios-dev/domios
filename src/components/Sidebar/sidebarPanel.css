@@ -2,6 +2,27 @@
   background: var(--ct-bg);
 }
 
+.sidebar-recently-closed__items {
+  max-height: 165px;
+}
+
+@media (max-width: 640px) {
+  .ct-sidebar-panel[data-collapsed="false"] {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .ct-sidebar-panel .ct-sidebar-content {
+    overflow: visible;
+  }
+
+  .ct-sidebar-panel .sidebar-recently-closed__items {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
 @media not all and (max-width: 640px) {
   .ct-sidebar-drawer {
     position: relative;
