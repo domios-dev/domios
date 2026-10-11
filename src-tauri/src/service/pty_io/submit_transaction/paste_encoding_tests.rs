@@ -163,3 +163,53 @@ fn prompt_line_launch_brief_uses_one_frame_even_when_live_paste_mode_is_disabled
         assert!(crate::service::launch_delivery::launch_input_frame_prefix(composer).is_none());
     }
 }
+
+#[test]
+fn declared_paste_refusal_overrides_live_mode_multiline_and_typed_frames() {
+    let declaration = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": false
+    }))
+    .unwrap();
+    for strategy in [tui(), VerifySubmitStrategy::None] {
+        let capability = PasteEncodingCapability::for_provider(&strategy, Some(&declaration));
+        for live_mode in [None, Some(false), Some(true)] {
+            for (text, expected) in [
+                ("opaque", "opaque"),
+                ("a\r\nb\nc", "a\rb\rc"),
+                ("{opaque\none\ntwo\nopaque}", "{opaque\rone\rtwo\ropaque}"),
+            ] {
+                for (prefix, suffix) in [
+                    (None, None),
+                    (Some("<opaque>"), None),
+                    (None, Some("</opaque>")),
+                    (Some("<opaque>"), Some("</opaque>")),
+                ] {
+                    assert_eq!(
+                        encode_paste_frame(text, prefix, suffix, live_mode, capability),
+                        format!(
+                            "{}{expected}{}",
+                            prefix.unwrap_or_default(),
+                            suffix.unwrap_or_default()
+                        )
+                        .as_bytes()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn absent_or_supported_paste_declarations_preserve_tui_framing() {
+    let supported = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": true
+    }))
+    .unwrap();
+    for declaration in [None, Some(&supported)] {
+        let capability = PasteEncodingCapability::for_provider(&tui(), declaration);
+        assert_eq!(
+            encode_paste_frame("a\nb", Some("<opaque>"), None, Some(false), capability),
+            b"<opaque>\x1b[200~a\nb\x1b[201~"
+        );
+    }
+}
