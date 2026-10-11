@@ -382,6 +382,9 @@ fn lark_recording_contract_stale_unavailable_generation_keeps_new_capture() {
         .select_devices("trigger", devices("replacement"))
         .unwrap();
     assert!(!old_capture.load(Ordering::Acquire));
+    registry
+        .wait_for_subscription_slot("trigger", Duration::ZERO)
+        .unwrap();
     let setup = registry.begin_subscription_setup("trigger").unwrap();
     registry
         .complete_subscription_setup(&setup, completed_subscription().0)
