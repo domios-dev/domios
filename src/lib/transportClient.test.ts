@@ -96,6 +96,23 @@ describe("transportClient", () => {
     expect((fetch.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
     expect(cancel).toHaveBeenCalledOnce();
   });
+  it("identifies all streams from a page with the same client header", async () => {
+    const requests: string[] = [];
+    let resolve!: () => void;
+    const accepted = new Promise<void>((done) => { resolve = done; });
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      requests.push(new Headers(init?.headers).get("X-CodeTerm-Client-Id")!);
+      if (requests.length === 2) resolve();
+      return new Response(new ReadableStream());
+    });
+    const first = createTransportClient({ origin, token: "token", fetch });
+    const second = createTransportClient({ origin, token: "token", fetch });
+    const stops = [first.subscribe("/api/events/stream", () => {}), second.subscribe("/api/output/stream", () => {})];
+    await accepted;
+    expect(requests[0]).toMatch(/^[a-f0-9-]{36}$/);
+    expect(requests[1]).toBe(requests[0]);
+    stops.forEach((stop) => stop());
+  });
   it("parses named multiline events and ignores comments", () => {
     expect(parseSseFrame(":keepalive")).toBeNull();
     expect(parseSseFrame("event: output\nid: b:2\ndata: first\ndata: second")).toEqual({ event: "output", id: "b:2", data: "first\nsecond" });
