@@ -2,6 +2,40 @@ use super::*;
 use crate::service::chat_send_transaction::{ChatSendState, ChatSendStatus};
 
 impl super::super::ServiceContext {
+    pub(crate) fn end_held_user_sends_for_fresh_restart(&self, tab_id: &str) -> Result<(), String> {
+        let store = &self.pending_delivery_payloads.user_sends;
+        let possibly_written = store
+            .records(tab_id)?
+            .into_iter()
+            .filter(|record| {
+                self.chat_send_ledger
+                    .user_payload_may_have_been_written(&record.send_id)
+            })
+            .map(|record| record.send_id)
+            .collect::<Vec<_>>();
+        let binding_nonce = self.mux.read().get_tab(tab_id).and_then(|tab| {
+            tab.session_binding_nonce.clone().or_else(|| {
+                tab.prior_session_binding_nonces
+                    .last()
+                    .map(|prior| prior.nonce.clone())
+            })
+        });
+        for record in store.end_held_for_fresh_restart(tab_id, binding_nonce, &possibly_written)? {
+            log::debug!(
+                "[chat-send] explicit fresh restart settled held send tab={tab_id} send_id={}",
+                record.send_id
+            );
+            self.chat_send_ledger.restore_user_record(&record);
+            if let Some(status) = self
+                .chat_send_ledger
+                .expire_owned_before_write(&record.send_id, "launch_ended_before_write")
+            {
+                crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn restore_durable_user_statuses(&self, tab_id: &str) -> Result<(), String> {
         if self.tab_chat_backing(tab_id).is_some() {
             return Ok(());
