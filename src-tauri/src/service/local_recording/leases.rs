@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 
 use super::chat::ChatIdentity;
+use super::clip::CaptureClips;
 use crate::service::pending_delivery_payloads::user_sends::UserSendAuthority;
 
 const MAX_CAPTURE_WRITE_TICKETS: usize = 32;
@@ -59,6 +60,7 @@ pub(crate) struct CaptureLeaseView {
 pub(crate) struct RecordingLeases {
     state: Mutex<LeaseState>,
     write_tickets: Mutex<HashMap<String, WriteTicket>>,
+    clips: CaptureClips,
 }
 
 struct WriteTicket {
@@ -173,6 +175,130 @@ impl RecordingLeases {
         let mut state = self.state.lock();
         state.captures.remove(lease);
         state.generations.remove(lease);
+        let cleanup = self.clips.retire_lease(lease);
+        drop(state);
+        schedule_clip_cleanup(cleanup);
+    }
+
+    pub(crate) fn reserve_clip(&self, lease: &str) -> Result<String, String> {
+        let state = self.state.lock();
+        let capture = state.captures.get(lease).ok_or("capture_lease_stale")?;
+        capture.validate()?;
+        if capture.phase != CapturePhase::Stopped {
+            return Err("capture_not_stopped".into());
+        }
+        let generation = state
+            .generations
+            .get(lease)
+            .copied()
+            .ok_or("capture_lease_stale")?;
+        Ok(self.clips.reserve(lease, &capture.plugin_id, generation))
+    }
+
+    pub(crate) fn finish_clip_upload(
+        &self,
+        lease: &str,
+        handle: &str,
+        path: std::path::PathBuf,
+    ) -> Result<(), String> {
+        if let Err(path) = self.clips.finish_upload(handle, path) {
+            schedule_clip_cleanup(vec![path]);
+            return Err("capture_lease_stale".into());
+        }
+        let state = self.state.lock();
+        let generation = state.generations.get(lease).copied();
+        let current = state.captures.get(lease).is_some_and(|capture| {
+            capture.phase == CapturePhase::Stopped
+                && capture.validate().is_ok()
+                && generation.is_some_and(|generation| {
+                    self.clips
+                        .matches_generation(handle, lease, &capture.plugin_id, generation)
+                })
+        });
+        drop(state);
+        if !current {
+            let cleanup = self.clips.discard(lease, handle).into_iter().collect();
+            schedule_clip_cleanup(cleanup);
+            return Err("capture_lease_stale".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn abandon_clip_upload(&self, handle: &str) {
+        self.clips.abandon_upload(handle);
+    }
+
+    pub(crate) fn transcribing_clip(
+        &self,
+        lease: &str,
+        handle: &str,
+    ) -> Result<(Capture, std::path::PathBuf), String> {
+        let mut state = self.state.lock();
+        let generation = state
+            .generations
+            .get(lease)
+            .copied()
+            .ok_or("capture_lease_stale")?;
+        let capture = state.captures.get_mut(lease).ok_or("capture_lease_stale")?;
+        capture.validate()?;
+        if capture.phase != CapturePhase::Stopped {
+            return Err("capture_not_stopped".into());
+        }
+        if !self
+            .clips
+            .matches_generation(handle, lease, &capture.plugin_id, generation)
+        {
+            return Err("capture_clip_stale".into());
+        }
+        let path = self.clips.begin_transcription(lease, handle)?;
+        capture.phase = CapturePhase::Transcribing;
+        Ok((capture.clone(), path))
+    }
+
+    pub(crate) fn mark_clip_handoff_possible(
+        &self,
+        lease: &str,
+        handle: &str,
+    ) -> Result<(), String> {
+        let state = self.state.lock();
+        let generation = state
+            .generations
+            .get(lease)
+            .copied()
+            .ok_or("capture_lease_stale")?;
+        let capture = state.captures.get(lease).ok_or("capture_lease_stale")?;
+        capture.validate()?;
+        if capture.phase != CapturePhase::Transcribing {
+            return Err("capture_not_transcribing".into());
+        }
+        if !self
+            .clips
+            .matches_generation(handle, lease, &capture.plugin_id, generation)
+        {
+            return Err("capture_clip_stale".into());
+        }
+        self.clips.mark_handoff_possible(lease, handle)
+    }
+
+    pub(crate) fn finish_clip_pre_handoff(&self, lease: &str, handle: &str) {
+        schedule_clip_cleanup(
+            self.clips
+                .finish_pre_handoff(lease, handle)
+                .into_iter()
+                .collect(),
+        );
+    }
+
+    pub(crate) fn retain_clip_after_handoff(
+        &self,
+        lease: &str,
+        handle: &str,
+    ) -> Result<(), String> {
+        self.clips.retain_after_handoff(lease, handle)
+    }
+
+    pub(crate) fn discard_clip(&self, lease: &str, handle: &str) {
+        schedule_clip_cleanup(self.clips.discard(lease, handle).into_iter().collect());
     }
 
     pub(crate) fn register_write_ticket(
@@ -268,6 +394,9 @@ impl RecordingLeases {
         if let Some(capture) = state.captures.remove(lease) {
             capture.active.store(false, Ordering::Release);
         }
+        let cleanup = self.clips.retire_lease(lease);
+        drop(state);
+        schedule_clip_cleanup(cleanup);
     }
 
     pub(crate) fn invalidate_generation(&self, plugin_id: &str, generation: u64) -> usize {
@@ -302,6 +431,8 @@ impl RecordingLeases {
                 !matches
             });
         }
+        let cleanup = self.clips.invalidate_generation(plugin_id, generation);
+        schedule_clip_cleanup(cleanup);
         invalidated.len()
     }
 
@@ -314,12 +445,22 @@ impl RecordingLeases {
                 (capture.target.tab_id() == tab_id).then_some(lease.clone())
             })
             .collect::<Vec<_>>();
+        let mut cleanup = Vec::new();
         for lease in leases {
             if let Some(capture) = state.captures.remove(&lease) {
                 capture.active.store(false, Ordering::Release);
             }
             state.generations.remove(&lease);
+            cleanup.extend(self.clips.retire_lease(&lease));
         }
+        drop(state);
+        schedule_clip_cleanup(cleanup);
+    }
+}
+
+fn schedule_clip_cleanup(paths: Vec<std::path::PathBuf>) {
+    if !paths.is_empty() {
+        tauri::async_runtime::spawn_blocking(move || CaptureClips::cleanup(paths));
     }
 }
 

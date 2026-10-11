@@ -80,8 +80,8 @@ function assertGenerationAndStopOrdering() {
   const nativeAckOnly = larkCaptureTransition(stopping, { type: "RECORDER_STOPPED", operation: recording.operation });
   assert.equal(nativeAckOnly.phase, "stopping", "recorder stop alone does not finish track release");
   const released = larkCaptureTransition(nativeAckOnly, { type: "TRACKS_RELEASED", operation: recording.operation });
-  assert.equal(released.phase, "stopping", "browser cleanup alone waits for the host acknowledgement");
-  const transcribing = larkCaptureTransition(released, { type: "HOST_CLEANUP_ACK", operation: recording.operation });
+  assert.equal(released.phase, "stopping", "browser cleanup waits for explicit stopped-lease acknowledgement");
+  const transcribing = larkCaptureTransition(released, { type: "CAPTURE_STOP_ACK", operation: recording.operation });
   assert.equal(transcribing.phase, "transcribing");
 
   for (const reason of ["deviceRemoved", "accessLost"] as const) {
@@ -112,6 +112,29 @@ function assertGenerationAndStopOrdering() {
   assert.equal(larkCaptureTransition(lost, {
     type: "COMMIT_SUCCEEDED", operation: released.operation,
   }), lost, "late commit callback is inert after invalidation");
+
+  const newerCapture = { ...capture, lease: "lease-new", generation: 13 };
+  const newerArmed = larkCaptureTransition(armed(), {
+    type: "STATUS", status: { ...status, generation: 13 },
+  });
+  const newerStarting = larkCaptureTransition(newerArmed, { type: "START", capture: newerCapture });
+  const staleInvalidation = larkCaptureTransition(newerStarting, { type: "INVALIDATED", event: {
+    pluginId: capture.pluginId, generation: capture.generation, reason: "deviceRemoved",
+  } });
+  assert.equal(staleInvalidation, newerStarting, "the old generation cannot invalidate a replacement capture");
+
+  const cancelled = larkCaptureTransition(recording, {
+    type: "CANCEL", operation: recording.operation, message: "Voice recording cancelled.",
+  });
+  assert.equal(cancelled.phase, "stopping");
+  assert.equal(larkCaptureTransition(cancelled, {
+    type: "RECORDER_STOPPED", operation: recording.operation,
+  }).phase, "stopping", "cancel command completion is not recorder teardown acknowledgement");
+  assert.equal(larkCaptureTransition(larkCaptureTransition(cancelled, {
+    type: "RECORDER_STOPPED", operation: recording.operation,
+  }), {
+    type: "TRACKS_RELEASED", operation: recording.operation,
+  }).phase, "error", "cancel settles only after actual recorder and track release");
 }
 
 assertExactDevices();

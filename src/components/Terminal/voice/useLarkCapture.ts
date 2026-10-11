@@ -9,7 +9,8 @@ import {
   MIN_VOICE_BYTES,
   microphoneErrorMessage,
   pickAudioMime,
-  storeVoiceBlob,
+  storeLarkCaptureClip,
+  discardLarkCaptureClip,
 } from "./audio";
 import {
   claimCaptureOwnership,
@@ -39,7 +40,8 @@ export interface LarkCaptureRuntime {
   invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
   getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
   createRecorder: (stream: MediaStream, mime: string | undefined) => MediaRecorder;
-  upload: (blob: Blob, mime: string) => Promise<string[]>;
+  storeClip: (lease: string, blob: Blob, mime: string) => Promise<{ handle: string; path: string }>;
+  discardClip: (lease: string, clipHandle: string) => Promise<void>;
   scheduleDeadline: Deadline;
   now: () => number;
   createId: () => string;
@@ -49,6 +51,11 @@ export interface UseLarkCaptureOptions {
   tabs: Record<string, Tab>;
   runtime?: Partial<LarkCaptureRuntime>;
 }
+
+type LocalRecordingCommitOutcome =
+  | { kind: "tracked"; status: ChatSendStatus }
+  | { kind: "preHandoffFailure"; message: string }
+  | { kind: "possibleHandoff"; message: string };
 
 function defaultRecorder(stream: MediaStream, mime: string | undefined): MediaRecorder {
   if (!mime) return new MediaRecorder(stream);
@@ -134,7 +141,8 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     invoke,
     getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
     createRecorder: defaultRecorder,
-    upload: storeVoiceBlob,
+    storeClip: storeLarkCaptureClip,
+    discardClip: discardLarkCaptureClip,
     scheduleDeadline: defaultDeadline,
     now: Date.now,
     createId: () => crypto.randomUUID(),
@@ -148,7 +156,8 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     invoke,
     getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
     createRecorder: defaultRecorder,
-    upload: storeVoiceBlob,
+    storeClip: storeLarkCaptureClip,
+    discardClip: discardLarkCaptureClip,
     scheduleDeadline: defaultDeadline,
     now: Date.now,
     createId: () => crypto.randomUUID(),
@@ -166,7 +175,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   const startedRecorderOpsRef = useRef(new Set<number>());
   const completeAfterHostStopRef = useRef<((operation: number, capture: LarkCaptureLease) => void) | null>(null);
   const cancelRequestsRef = useRef(new Map<string, Promise<void>>());
-  const nativeStopRequestsRef = useRef(new Set<number>());
+  const captureStoppedRequestsRef = useRef(new Set<number>());
   const bindingByLeaseRef = useRef(new Map<string, string>());
   const sendIdByOperationRef = useRef(new Map<number, string>());
   const finalizedOperationsRef = useRef(new Set<number>());
@@ -185,7 +194,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     releaseCaptureOwnership("lark");
   }, []);
 
-  const cancelHostLease = useCallback((capture: LarkCaptureLease, operation?: number) => {
+  const cancelHostLease = useCallback((capture: LarkCaptureLease, _operation?: number) => {
     let request = cancelRequestsRef.current.get(capture.lease);
     if (!request) {
       request = runtimeRef.current.invoke<void>("local_recording_cancel", { lease: capture.lease });
@@ -195,20 +204,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
         () => cancelRequestsRef.current.delete(capture.lease),
       );
     }
-    void request.then(() => {
-      if (operation == null) return;
-      const next = transition({ type: "HOST_CLEANUP_ACK", operation });
-      if (next.phase !== "stopping") {
-        chunksRef.current = [];
-        recorderRef.current = null;
-        streamRef.current = null;
-        bindingByLeaseRef.current.delete(capture.lease);
-        releaseCaptureOwnership("lark");
-      }
-    }).catch((error) => {
-      if (operation != null) transition({ type: "FAILED", operation, message: errorText(error) });
-    });
-  }, [transition]);
+  }, []);
 
   const operationIs = useCallback((operation: number, ...phases: LarkCaptureState["phase"][]) => {
     const current = stateRef.current;
@@ -285,8 +281,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     clearDeadline();
     const next = transition({ type: "CANCEL", operation: current.operation, message, reason });
     cancelHostLease(capture, current.operation);
-    const sendId = sendIdByOperationRef.current.get(current.operation);
-    if (sendId) removeChatSend(capture.tabId, sendId);
     if (next.phase === "error") {
       cleanupStream(current.operation);
       releaseOwner();
@@ -303,6 +297,20 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   ) => {
     if (finalizedOperationsRef.current.has(operation)) return;
     finalizedOperationsRef.current.add(operation);
+    let clipHandle: string | undefined;
+    let clipPath: string | undefined;
+    let sendId: string | undefined;
+    let handoffAttempted = false;
+    const reconcilePossibleHandoff = async () => {
+      try {
+        const statuses = await runtimeRef.current.invoke<ChatSendStatus[]>("chat_send_status", { tabId: capture.tabId });
+        statuses
+          .filter((status) => status.tab_id === capture.tabId && status.correlationId === sendId)
+          .forEach(observeDeliveryStatus);
+      } catch {
+        return;
+      }
+    };
     try {
       if (!operationIs(operation, "transcribing")) return;
       if (blob.size < MIN_VOICE_BYTES) throw new Error("Voice recording produced no usable audio.");
@@ -310,49 +318,80 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
       if (!binding || tabBinding(tabsRef.current[capture.tabId]) !== binding) {
         throw new Error("The captured recipient closed or changed before voice delivery.");
       }
-      const paths = await runtimeRef.current.upload(blob, mime);
-      if (!operationIs(operation, "transcribing")) return;
-      if (paths.length !== 1 || !paths[0]?.trim()) throw new Error("Voice recording could not be saved.");
-      const sendId = runtimeRef.current.createId();
+      const storedClip = await runtimeRef.current.storeClip(capture.lease, blob, mime);
+      clipHandle = storedClip.handle;
+      clipPath = storedClip.path;
+      if (!operationIs(operation, "transcribing")) {
+        const staleHandle = clipHandle;
+        clipHandle = undefined;
+        await runtimeRef.current.discardClip(capture.lease, staleHandle).catch(() => {});
+        return;
+      }
+      if (!clipHandle.trim() || !clipPath.trim()) throw new Error("Voice recording could not be saved.");
+      sendId = runtimeRef.current.createId();
       sendIdByOperationRef.current.set(operation, sendId);
       addChatSend(capture.tabId, {
         id: sendId,
         correlationId: sendId,
-        content: markVoice(paths[0]),
+        content: markVoice(clipPath),
         sentAtMs: runtimeRef.current.now(),
       });
-      const status = await runtimeRef.current.invoke<ChatSendStatus>("local_recording_commit", {
+      handoffAttempted = true;
+      const outcome = await runtimeRef.current.invoke<LocalRecordingCommitOutcome>("local_recording_commit", {
         lease: capture.lease,
-        path: paths[0],
+        clipHandle,
         clientToken: sendId,
       });
-      if (!operationIs(operation, "transcribing")) {
-        removeChatSend(capture.tabId, sendId);
+      if (outcome.kind === "tracked") {
+        const { status } = outcome;
+        if (status.tab_id !== capture.tabId || status.correlationId !== sendId) {
+          throw new Error("Voice delivery returned a different frozen recipient.");
+        }
+        observeDeliveryStatus(status);
+        if (operationIs(operation, "transcribing")) transition({ type: "COMMIT_SUCCEEDED", operation });
+        bindingByLeaseRef.current.delete(capture.lease);
+        clipHandle = undefined;
         return;
       }
-      if (status.tab_id !== capture.tabId || status.correlationId !== sendId) {
-        throw new Error("Voice delivery returned a different frozen recipient.");
-      }
-      observeDeliveryStatus(status);
-      transition({ type: "COMMIT_SUCCEEDED", operation });
-      bindingByLeaseRef.current.delete(capture.lease);
-    } catch (error) {
-      if (!operationIs(operation, "transcribing")) return;
-      const message = microphoneErrorMessage(error);
-      const sendId = sendIdByOperationRef.current.get(operation);
-      if (sendId && message.includes("admission_unknown:")) {
-        try {
-          const statuses = await runtimeRef.current.invoke<ChatSendStatus[]>("chat_send_status", { tabId: capture.tabId });
-          if (!operationIs(operation, "transcribing")) return;
-          statuses.forEach(observeDeliveryStatus);
-        } catch {
-          if (!operationIs(operation, "transcribing")) return;
+      if (outcome.kind === "possibleHandoff") {
+        clipHandle = undefined;
+        if (operationIs(operation, "transcribing")) {
+          transition({ type: "FAILED", operation, message: microphoneErrorMessage(outcome.message) });
         }
-      } else if (sendId) {
-        removeChatSend(capture.tabId, sendId);
+        await reconcilePossibleHandoff();
+        bindingByLeaseRef.current.delete(capture.lease);
+        return;
       }
-      cancelHostLease(capture);
-      transition({ type: "FAILED", operation, message });
+      if (outcome.kind === "preHandoffFailure") {
+        clipHandle = undefined;
+        removeChatSend(capture.tabId, sendId);
+        if (operationIs(operation, "transcribing")) {
+          transition({ type: "FAILED", operation, message: microphoneErrorMessage(outcome.message) });
+        }
+        cancelHostLease(capture);
+        bindingByLeaseRef.current.delete(capture.lease);
+        return;
+      }
+    } catch (error) {
+      const message = microphoneErrorMessage(error);
+      if (handoffAttempted && sendId) {
+        if (operationIs(operation, "transcribing")) {
+          transition({ type: "FAILED", operation, message: "Voice delivery may have been accepted; its tracked status is being reconciled." });
+        }
+        await reconcilePossibleHandoff();
+      } else {
+        if (clipHandle) {
+          const failedHandle = clipHandle;
+          clipHandle = undefined;
+          await runtimeRef.current.discardClip(capture.lease, failedHandle).catch(() => {});
+        }
+        if (operationIs(operation, "transcribing")) {
+          const pendingSendId = sendIdByOperationRef.current.get(operation);
+          if (pendingSendId) removeChatSend(capture.tabId, pendingSendId);
+          cancelHostLease(capture);
+          transition({ type: "FAILED", operation, message });
+        }
+      }
       bindingByLeaseRef.current.delete(capture.lease);
     } finally {
       releaseOwner();
@@ -360,10 +399,10 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   }, [cancelHostLease, operationIs, releaseOwner, transition]);
 
   const completeAfterHostStop = useCallback((operation: number, capture: LarkCaptureLease) => {
-    if (!operationIs(operation, "stopping") || nativeStopRequestsRef.current.has(operation)) return;
-    nativeStopRequestsRef.current.add(operation);
+    if (!operationIs(operation, "stopping") || captureStoppedRequestsRef.current.has(operation)) return;
+    captureStoppedRequestsRef.current.add(operation);
     void runtimeRef.current.invoke<void>("local_recording_capture_stopped", { lease: capture.lease }).then(() => {
-      const next = transition({ type: "HOST_CLEANUP_ACK", operation });
+      const next = transition({ type: "CAPTURE_STOP_ACK", operation });
       if (next.phase === "transcribing" && next.capture) {
         const blob = new Blob(chunksRef.current, { type: mimeRef.current });
         chunksRef.current = [];
@@ -540,8 +579,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     const invalidated = transition({ type: "INVALIDATED", event });
     clearDeadline();
     cancelHostLease(capture);
-    const sendId = sendIdByOperationRef.current.get(current.operation);
-    if (sendId) removeChatSend(capture.tabId, sendId);
     if (current.phase === "transcribing" || invalidated.phase !== "stopping") {
       releaseOwner();
       return;

@@ -1,9 +1,12 @@
 mod admission;
 pub(crate) mod chat;
+mod clip;
 mod completion;
 pub(crate) mod leases;
 pub(crate) mod platform;
 
+pub(crate) use admission::LocalRecordingCommitOutcome;
+pub(crate) use clip::CaptureClipDescriptor;
 pub(crate) use leases::{CaptureLeaseView, RecordingLeases};
 
 use crate::service::ServiceContext;

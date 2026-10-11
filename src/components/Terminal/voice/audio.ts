@@ -234,3 +234,19 @@ export async function storeVoiceBlob(blob: Blob, mime: string): Promise<string[]
   const path = await storeBlob(blob, `voice-note-${Date.now()}.${audioExt(mime)}`);
   return path.trim() ? [path] : [];
 }
+
+export async function storeLarkCaptureClip(
+  lease: string,
+  blob: Blob,
+  mime: string,
+): Promise<{ handle: string; path: string }> {
+  return invoke<{ handle: string; path: string }>("local_recording_save_clip", {
+    lease,
+    data: await blobToBase64(blob),
+    extension: audioExt(mime),
+  });
+}
+
+export async function discardLarkCaptureClip(lease: string, clipHandle: string): Promise<void> {
+  await invoke<void>("local_recording_discard_clip", { lease, clipHandle });
+}

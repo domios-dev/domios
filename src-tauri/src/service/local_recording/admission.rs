@@ -1,10 +1,17 @@
-use std::path::Path;
-use std::sync::atomic::Ordering;
-
 use super::chat::CapturedChat;
 use super::leases::{Capture, FrozenTarget};
 use crate::service::agent_pad::ChatSendResult;
+use crate::service::chat_send_transaction::ChatSendStatus;
 use crate::service::ServiceContext;
+use serde::Serialize;
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum LocalRecordingCommitOutcome {
+    Tracked { status: ChatSendStatus },
+    PreHandoffFailure { message: String },
+    PossibleHandoff { message: String },
+}
 
 impl ServiceContext {
     pub(crate) fn freeze_recording_target(&self, tab_id: &str) -> Result<FrozenTarget, String> {
@@ -46,47 +53,106 @@ impl ServiceContext {
     pub(crate) async fn local_recording_commit(
         &self,
         lease: &str,
-        path: &Path,
+        clip_handle: &str,
         client_token: String,
-    ) -> Result<ChatSendResult, String> {
-        let capture = self.local_recordings.transcribing(lease)?;
-        let result = async {
-            let active_id = crate::config::load_config()
-                .integrations
-                .voice_transcribe
-                .active;
-            let text = super::completion::complete_capture(
-                &capture,
-                async {
-                    crate::chatpipeline::run_voice_stage(
-                        &self.transcribe_registry,
-                        &active_id,
-                        path,
-                        "",
-                    )
-                    .await
-                    .map(|transcript| transcript.text)
-                    .map_err(|error| format!("recording_transcription_failed: {error}"))
-                },
-                || self.validate_recording_target(&capture),
-                Ok,
-            )
-            .await?;
-            let path_text = path.to_str().ok_or("recording_audio_path_invalid")?;
-            let original = codeterm_types::message_markers::voice(path_text, Some(&text), None);
-            let svc = self.clone();
-            let capture = capture.clone();
-            tokio::task::spawn_blocking(move || {
-                svc.admit_recording_voice(capture, original, client_token)
-            })
-            .await
-            .map_err(|error| error.to_string())?
-        }
+    ) -> LocalRecordingCommitOutcome {
+        let (capture, path) = match self.local_recordings.transcribing_clip(lease, clip_handle) {
+            Ok(value) => value,
+            Err(error) => {
+                self.local_recordings
+                    .finish_clip_pre_handoff(lease, clip_handle);
+                self.local_recordings.cancel(lease);
+                return LocalRecordingCommitOutcome::PreHandoffFailure { message: error };
+            }
+        };
+        let active_id = crate::config::load_config()
+            .integrations
+            .voice_transcribe
+            .active;
+        let text = super::completion::complete_capture(
+            &capture,
+            async {
+                crate::chatpipeline::run_voice_stage(
+                    &self.transcribe_registry,
+                    &active_id,
+                    &path,
+                    "",
+                )
+                .await
+                .map(|transcript| transcript.text)
+                .map_err(|error| format!("recording_transcription_failed: {error}"))
+            },
+            || self.validate_recording_target(&capture),
+            Ok::<String, String>,
+        )
         .await;
-        if result.is_err() {
+        let text = match text {
+            Ok(text) => text,
+            Err(message) => {
+                self.local_recordings
+                    .finish_clip_pre_handoff(lease, clip_handle);
+                self.local_recordings.cancel(lease);
+                return LocalRecordingCommitOutcome::PreHandoffFailure { message };
+            }
+        };
+        let path_text = match path.to_str() {
+            Some(path) => path,
+            None => {
+                self.local_recordings
+                    .finish_clip_pre_handoff(lease, clip_handle);
+                self.local_recordings.cancel(lease);
+                return LocalRecordingCommitOutcome::PreHandoffFailure {
+                    message: "recording_audio_path_invalid".into(),
+                };
+            }
+        };
+        if let Err(message) = self
+            .local_recordings
+            .mark_clip_handoff_possible(lease, clip_handle)
+        {
+            self.local_recordings
+                .finish_clip_pre_handoff(lease, clip_handle);
             self.local_recordings.cancel(lease);
+            return LocalRecordingCommitOutcome::PreHandoffFailure { message };
         }
-        result
+        let original = codeterm_types::message_markers::voice(path_text, Some(&text), None);
+        let svc = self.clone();
+        let capture_for_send = capture.clone();
+        let admission = tokio::task::spawn_blocking(move || {
+            svc.admit_recording_voice(capture_for_send, original, client_token)
+        })
+        .await;
+        match admission {
+            Ok(Ok(result)) => {
+                let status = result.status;
+                let _ = self
+                    .local_recordings
+                    .retain_clip_after_handoff(lease, clip_handle);
+                self.local_recordings.finish(lease);
+                return LocalRecordingCommitOutcome::Tracked { status };
+            }
+            Ok(Err(message)) if message.starts_with("admission_unknown:") => {
+                let _ = self
+                    .local_recordings
+                    .retain_clip_after_handoff(lease, clip_handle);
+                self.local_recordings.cancel(lease);
+                return LocalRecordingCommitOutcome::PossibleHandoff { message };
+            }
+            Ok(Err(message)) => {
+                self.local_recordings
+                    .finish_clip_pre_handoff(lease, clip_handle);
+                self.local_recordings.cancel(lease);
+                LocalRecordingCommitOutcome::PreHandoffFailure { message }
+            }
+            Err(error) => {
+                let message = format!("admission_unknown: worker outcome uncertain: {error}");
+                let _ = self
+                    .local_recordings
+                    .retain_clip_after_handoff(lease, clip_handle);
+                self.local_recordings.cancel(lease);
+                LocalRecordingCommitOutcome::PossibleHandoff { message }
+            }
+        }
     }
 
     pub(crate) fn admit_recording_voice(

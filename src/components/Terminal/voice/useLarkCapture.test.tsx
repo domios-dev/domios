@@ -5,8 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Tab } from "../../../lib/types";
 import type { LarkCaptureRuntime } from "./useLarkCapture";
+import type { ChatSendStatus } from "../chatSendStatus";
 import {
   claimCaptureOwnership,
+  currentCaptureOwner,
   releaseCaptureOwnership,
   resetCaptureOwnershipForTest,
   type LarkCaptureLease,
@@ -134,19 +136,26 @@ async function main() {
   const recorders: FakeRecorder[] = [];
   const deadlines: Array<{ callback: () => void; ms: number; cancelled: boolean }> = [];
   const uploads: Array<{ blob: Blob; mime: string }> = [];
+  const storeCompletions: Array<ReturnType<typeof deferred<{ handle: string; path: string }>>> = [];
+  const discardedClips: Array<{ lease: string; handle: string }> = [];
   const acceptedStatuses: unknown[] = [];
-  const nativeStopAcks: Array<ReturnType<typeof deferred<void>>> = [];
+  const reconciledStatuses: ChatSendStatus[] = [];
+  const hostAcceptedStatuses = new Map<string, ChatSendStatus>();
+  const captureStopAcks: Array<ReturnType<typeof deferred<void>>> = [];
   const commitCompletions: Array<ReturnType<typeof deferred<{
-    send_id: string;
-    tab_id: string;
-    state: "delivered";
-    error: null;
-    ledger_id: string;
-    sequence: number;
-    retained_from: number;
-    correlationId: string;
-  }>>> = [];
-  const cancelledLeases = new Set<string>();
+    kind: "tracked";
+    status: {
+      send_id: string;
+      tab_id: string;
+      state: "delivered" | "written";
+      error: null;
+      ledger_id: string;
+      sequence: number;
+      retained_from: number;
+      correlationId: string;
+    };
+  } | { kind: "preHandoffFailure"; message: string } | { kind: "possibleHandoff"; message: string }>>> = [];
+  let deferNextStore = false;
   const runtime: Partial<LarkCaptureRuntime> = {
     isDesktop: true,
     getUserMedia: async (constraints) => {
@@ -160,10 +169,17 @@ async function main() {
       recorders.push(recorder as unknown as FakeRecorder);
       return recorder;
     },
-    upload: async (blob, mime) => {
+    storeClip: async (_leaseId, blob, mime) => {
       uploads.push({ blob, mime });
-      return [`C:/temp/voice-${uploads.length}.webm`];
+      if (deferNextStore) {
+        deferNextStore = false;
+        const completion = deferred<{ handle: string; path: string }>();
+        storeCompletions.push(completion);
+        return completion.promise;
+      }
+      return { handle: `capture-clip-${uploads.length}`, path: `C:/temp/voice-${uploads.length}.webm` };
     },
+    discardClip: async (leaseId, handle) => { discardedClips.push({ lease: leaseId, handle }); },
     scheduleDeadline: (callback, ms) => {
       const deadline = { callback, ms, cancelled: false };
       deadlines.push(deadline);
@@ -179,32 +195,34 @@ async function main() {
   bridge.__setInvokeForTest(async <T,>(command: string, args: Record<string, unknown> = {}) => {
     invocations.push({ command, args });
     if (command === "local_recording_cancel") {
-      cancelledLeases.add(String(args.lease));
       return undefined as T;
     }
     if (command === "local_recording_capture_stopped") {
       const ack = deferred<void>();
-      nativeStopAcks.push(ack);
+      captureStopAcks.push(ack);
       return ack.promise as T;
     }
     if (command === "local_recording_commit") {
       const completion = deferred<{
-        send_id: string;
-        tab_id: string;
-        state: "delivered";
-        error: null;
-        ledger_id: string;
-        sequence: number;
-        retained_from: number;
-        correlationId: string;
-      }>();
+        kind: "tracked";
+        status: {
+          send_id: string;
+          tab_id: string;
+          state: "delivered" | "written";
+          error: null;
+          ledger_id: string;
+          sequence: number;
+          retained_from: number;
+          correlationId: string;
+        };
+      } | { kind: "preHandoffFailure"; message: string } | { kind: "possibleHandoff"; message: string }>();
       commitCompletions.push(completion);
-      return completion.promise.then((status) => {
-        if (cancelledLeases.has(String(args.lease))) throw new Error("capture_lease_stale");
-        acceptedStatuses.push(status);
-        return status as T;
+      return completion.promise.then((outcome) => {
+        if (outcome.kind === "tracked") acceptedStatuses.push(outcome.status);
+        return outcome as T;
       });
     }
+    if (command === "chat_send_status") return reconciledStatuses as T;
     throw new Error(`Unexpected command ${command}`);
   });
 
@@ -252,6 +270,12 @@ async function main() {
     await act(async () => emit("local-recording-status", recordingStatus(12)));
     assert.equal(current().state.phase, "armed");
     assert.equal(mediaCalls.length, 0, "armed state captures nothing");
+    assert.equal(claimCaptureOwnership("manual"), true);
+    await act(async () => emit("local-recording-capture-invalidated", {
+      pluginId: "lark", generation: 11, reason: "deviceRemoved",
+    }));
+    assert.equal(currentCaptureOwner(), "manual", "stale foreign-generation invalidation leaves manual capture owned");
+    releaseCaptureOwnership("manual");
     await startCapture(lease("lease-valid", 12));
     assert.deepEqual(mediaCalls[0], { audio: { deviceId: { exact: "mic-A" } } });
     assert.equal(current().state.phase, "starting", "MediaRecorder start acknowledgement is still pending");
@@ -270,10 +294,10 @@ async function main() {
     assert.equal(streams[0].track.stopCalls, 1, "one active clip releases its microphone exactly once");
     assert.equal(invokeCount("local_recording_capture_stopped"), 0, "indicator waits for MediaRecorder stop event");
     await stopRecorder(0);
-    assert.equal(current().state.phase, "stopping", "real browser stop and track release still wait for typed host cleanup acknowledgement");
+    assert.equal(current().state.phase, "stopping", "recorder stop and track release still wait for capture lease state acknowledgement");
     assert.equal(invokeCount("local_recording_capture_stopped"), 1);
     assert.equal(invokeCount("local_recording_commit"), 0);
-    nativeStopAcks[0].resolve(undefined);
+    captureStopAcks[0].resolve(undefined);
     await flushAct();
     assert.equal(current().state.phase, "transcribing");
     assert.equal(invokeCount("local_recording_commit"), 1);
@@ -283,17 +307,21 @@ async function main() {
     assert.equal(readChatSends("B").length, 0, "focus changes do not retarget the clip");
     const validToken = String(invocations.find((item) => item.command === "local_recording_commit")?.args.clientToken);
     commitCompletions[0].resolve({
-      send_id: "send-valid",
-      tab_id: "A",
-      state: "delivered",
-      error: null,
-      ledger_id: "ledger-valid",
-      sequence: 1,
-      retained_from: 1,
-      correlationId: validToken,
+      kind: "tracked",
+      status: {
+        send_id: "send-valid",
+        tab_id: "A",
+        state: "delivered",
+        error: null,
+        ledger_id: "ledger-valid",
+        sequence: 1,
+        retained_from: 1,
+        correlationId: validToken,
+      },
     });
     await flushAct();
     assert.equal(acceptedStatuses.length, 1, "one returned owner status reconciles the optimistic row");
+    assert.equal(discardedClips.length, 0, "tracked success retains the capture clip under ordinary attachment policy");
     assert.equal(current().state.phase, "armed");
 
     await act(async () => emit("local-recording-status", recordingStatus(13)));
@@ -302,33 +330,47 @@ async function main() {
     await stopByHost("lease-access-loss");
     await stopRecorder(1);
     assert.equal(current().state.phase, "stopping");
-    nativeStopAcks[1].resolve(undefined);
+    captureStopAcks[1].resolve(undefined);
     await flushAct();
     assert.equal(current().state.phase, "transcribing");
     assert.equal(invokeCount("local_recording_commit"), 2);
     const staleToken = String(invocations.filter((item) => item.command === "local_recording_commit")[1].args.clientToken);
+    const admittedStatus = {
+      send_id: "send-stale",
+      tab_id: "A",
+      state: "delivered" as const,
+      error: null,
+      ledger_id: "ledger-stale",
+      sequence: 2,
+      retained_from: 1,
+      correlationId: staleToken,
+    };
+    hostAcceptedStatuses.set(staleToken, admittedStatus);
+    assert.equal(hostAcceptedStatuses.get(staleToken), admittedStatus, "host admission is recorded before response delivery");
     await act(async () => emit("local-recording-capture-invalidated", {
       pluginId: "lark", generation: 13, reason: "accessLost",
     }));
     assert.equal(current().state.phase, "error");
     assert.match(alertText(), /access was lost/i);
-    assert.equal(readChatSends("A").some((send) => send.correlationId === staleToken), false);
     commitCompletions[1].resolve({
-      send_id: "send-stale",
-      tab_id: "A",
-      state: "delivered",
-      error: null,
-      ledger_id: "ledger-stale",
-      sequence: 1,
-      retained_from: 1,
-      correlationId: staleToken,
+      kind: "tracked",
+      status: admittedStatus,
     });
     await flushAct();
-    assert.equal(acceptedStatuses.length, 1, "invalidated transcription completion cannot deliver a status");
+    assert.equal(acceptedStatuses.length, 2, "late tracked status is reconciled after invalidation");
+    const reconciled = readChatSends("A").find((send) => send.correlationId === staleToken);
+    assert(reconciled, "accepted owner row remains after invalidation");
+    assert.equal(reconciled.status?.state, "delivered", "late status updates the same retained row");
+    assert.equal(invokeCount("local_recording_commit"), 2, "late status reconciliation never retries the handoff");
 
     await act(async () => emit("local-recording-status", recordingStatus(14)));
     await startCapture(lease("lease-removal", 14));
     await emitRecorderStarted(2);
+    await act(async () => emit("local-recording-capture-invalidated", {
+      pluginId: "lark", generation: 13, reason: "deviceRemoved",
+    }));
+    assert.equal(current().state.phase, "recording", "stale old generation cannot stop a newly armed capture");
+    assert.equal(streams[2].track.readyState, "live");
     await act(async () => emit("local-recording-capture-invalidated", {
       pluginId: "lark", generation: 14, reason: "deviceRemoved",
     }));
@@ -378,15 +420,18 @@ async function main() {
     await stopByHost("lease-typed-failure");
     await stopRecorder(5);
     assert.equal(current().state.phase, "stopping");
-    nativeStopAcks[2].resolve(undefined);
+    captureStopAcks[2].resolve(undefined);
     await flushAct();
     assert.equal(invokeCount("local_recording_commit"), 3);
     const failedToken = String(invocations.filter((item) => item.command === "local_recording_commit")[2].args.clientToken);
-    commitCompletions[2].reject(new Error("recording_transcription_failed: transcriber unavailable"));
+    commitCompletions[2].resolve({
+      kind: "preHandoffFailure",
+      message: "recording_transcription_failed: transcriber unavailable",
+    });
     await flushAct();
     assert.equal(current().state.phase, "error");
     assert.equal(readChatSends("A").some((send) => send.correlationId === failedToken), false);
-    assert.equal(acceptedStatuses.length, 1, "typed transcription error removes its optimistic row without delivery");
+    assert.equal(acceptedStatuses.length, 2, "typed transcription failure removes its optimistic row without another handoff");
 
     await act(async () => emit("local-recording-status", recordingStatus(19)));
     await startCapture(lease("lease-ui-cancel", 19));
@@ -398,8 +443,55 @@ async function main() {
     await stopRecorder(6);
     assert.equal(current().state.phase, "error");
     assert.match(alertText(), /cancelled/i);
-    assert.equal(uploads.length, 3, "only clips that reach transcription are uploaded");
-    console.log("useLarkCapture: 9 wiring fixtures passed");
+
+    await act(async () => emit("local-recording-status", recordingStatus(20)));
+    deferNextStore = true;
+    await startCapture(lease("lease-late-upload", 20));
+    await emitRecorderStarted(7);
+    await stopByHost("lease-late-upload");
+    await stopRecorder(7);
+    captureStopAcks[3].resolve(undefined);
+    await flushAct();
+    assert.equal(current().state.phase, "transcribing");
+    assert.equal(storeCompletions.length, 1, "capture-owned save is still pending");
+    const commitCountBeforeLateSave = invokeCount("local_recording_commit");
+    await act(async () => current().cancel());
+    storeCompletions[0].resolve({ handle: "capture-clip-late", path: "C:/temp/voice-late.webm" });
+    await flushAct();
+    assert.deepEqual(discardedClips, [{ lease: "lease-late-upload", handle: "capture-clip-late" }]);
+    assert.equal(invokeCount("local_recording_commit"), commitCountBeforeLateSave, "late persisted upload is discarded without handoff");
+    assert.equal(acceptedStatuses.length, 2);
+    assert.equal(uploads.length, 4, "four stopped clips reached the capture-owned save seam");
+
+    await act(async () => emit("local-recording-status", recordingStatus(21)));
+    await startCapture(lease("lease-uncertain-handoff", 21));
+    await emitRecorderStarted(8);
+    await stopByHost("lease-uncertain-handoff");
+    await stopRecorder(8);
+    captureStopAcks[4].resolve(undefined);
+    await flushAct();
+    const uncertainToken = String(invocations.filter((item) => item.command === "local_recording_commit")[3].args.clientToken);
+    reconciledStatuses.push({
+      send_id: "send-uncertain",
+      tab_id: "A",
+      state: "written",
+      error: null,
+      ledger_id: "ledger-uncertain",
+      sequence: 3,
+      retained_from: 1,
+      correlationId: uncertainToken,
+    });
+    commitCompletions[3].resolve({
+      kind: "possibleHandoff",
+      message: "admission_unknown: owner admission may have completed",
+    });
+    await flushAct();
+    const uncertainSend = readChatSends("A").find((send) => send.correlationId === uncertainToken);
+    assert.equal(uncertainSend?.status?.state, "written", "possible handoff reconciles the exact ordinary owner status");
+    assert.equal(discardedClips.length, 1, "possible handoff keeps its clip; only the cancelled stale upload was discarded");
+    assert.equal(invokeCount("local_recording_commit"), 4, "uncertain admission is never replayed");
+    assert.equal(invokeCount("chat_send_status"), 1, "possible handoff queries tracked status once");
+    console.log("useLarkCapture: 11 wiring fixtures passed");
   } finally {
     await act(async () => root.unmount());
     hookWindow.happyDOM.abort();
