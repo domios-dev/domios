@@ -1,5 +1,7 @@
 use crate::frontend_bundle::FrontendBundles;
-use crate::frontend_bundle_api_version::{API_VERSION, FRONTEND_PUBLIC_KEY};
+use crate::frontend_bundle_api_version::{
+    API_VERSION, BUNDLED_FRONTEND_VERSION, FRONTEND_PUBLIC_KEY,
+};
 use std::sync::Arc;
 
 const DISCOVERY_URL: &str = "https://github.com/rollacode/codeterm-releases/releases/download/frontend-latest/frontend-manifest.json";
@@ -12,6 +14,7 @@ pub(crate) fn open(
     match FrontendBundles::open(
         &crate::paths::data_dir().join("frontend-bundles"),
         API_VERSION,
+        BUNDLED_FRONTEND_VERSION,
         FRONTEND_PUBLIC_KEY.map(str::to_owned),
         DISCOVERY_URL.into(),
         false,
@@ -61,6 +64,7 @@ mod signing_tests {
         let bundles = FrontendBundles::open(
             root.path(),
             API_VERSION,
+            "0.0.0",
             None,
             DISCOVERY_URL.into(),
             false,

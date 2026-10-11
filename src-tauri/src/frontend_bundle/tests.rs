@@ -266,6 +266,7 @@ async fn frontend_bundle_routes_contract_real_handlers_and_authority() {
         super::FrontendBundles::open(
             root.path(),
             2,
+            "0.0.0",
             None,
             "https://example.test/manifest.json".into(),
             false,
@@ -435,6 +436,7 @@ async fn frontend_bundle_routes_contract_verified_activation_assets_health_and_r
         super::FrontendBundles::open(
             root.path(),
             2,
+            "0.0.0",
             Some(PUBLIC_KEY.into()),
             "https://example.test/manifest.json".into(),
             false,
@@ -536,4 +538,37 @@ fn frontend_bundle_activation_duplicate_checks_do_not_request_repeated_swaps() {
         .unwrap();
     assert!(!state.stage(&verified()).unwrap());
     assert!(state.pending.is_none());
+}
+
+#[test]
+fn only_a_strictly_newer_release_passes_the_version_floor() {
+    let floor = semver::Version::parse("1.14.2").unwrap();
+    assert!(manifest::newer_than("1.14.3", &floor));
+    assert!(!manifest::newer_than("1.14.2", &floor));
+    assert!(!manifest::newer_than("1.14.1", &floor));
+    assert!(!manifest::newer_than("not-a-version", &floor));
+}
+
+#[test]
+fn stored_releases_not_newer_than_the_app_frontend_are_retired() {
+    let mut state = Activation {
+        active: Some(fixture()),
+        pending: Some(fixture()),
+        ..Activation::default()
+    };
+    state.retire_not_newer(&semver::Version::parse("0.9.0").unwrap());
+    assert_eq!(state.active, Some(fixture()));
+    state.retire_not_newer(&semver::Version::parse("1.0.0").unwrap());
+    assert_eq!(state.active, None);
+    assert_eq!(state.pending, None);
+}
+
+#[test]
+fn bundled_frontend_version_matches_the_release_contract() {
+    let contract: serde_json::Value =
+        serde_json::from_str(include_str!("../../../frontend-release-contract.json")).unwrap();
+    assert_eq!(
+        contract["version"].as_str(),
+        Some(crate::frontend_bundle_api_version::BUNDLED_FRONTEND_VERSION)
+    );
 }

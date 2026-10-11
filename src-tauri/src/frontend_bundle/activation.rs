@@ -208,6 +208,17 @@ impl Activation {
         }
     }
 
+    // The app's own frontend wins over any stored release that is not newer than it.
+    pub fn retire_not_newer(&mut self, floor: &semver::Version) {
+        let newer = |m: &Manifest| super::manifest::newer_than(&m.version, floor);
+        self.pending = self.pending.take().filter(newer);
+        self.previous = self.previous.take().filter(newer);
+        if self.active.as_ref().is_some_and(|m| !newer(m)) {
+            self.active_claims.clear();
+            self.active = self.previous.take();
+        }
+    }
+
     pub fn public_status(&self) -> serde_json::Value {
         serde_json::json!({
             "active": self.active, "previous": self.previous, "pending": self.pending,
