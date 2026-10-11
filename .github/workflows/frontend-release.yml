@@ -1,0 +1,87 @@
+name: frontend-release
+on:
+  push:
+    tags: ['frontend-v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Produce fixture-signed CI artifacts without public mutations
+        type: boolean
+        default: true
+      tag:
+        description: Frontend tag matching frontend-release-contract.json
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: frontend-release
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: [self-hosted, linux-build]
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'frontend-dry-run' || 'frontend-signing' }}
+    env:
+      FRONTEND_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      FRONTEND_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.22.0'
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+      - name: Validate independent frontend tag
+        run: node scripts/frontend-release/release.mjs validate "$FRONTEND_TAG"
+      - name: Require reviewed production tag on master
+        if: env.FRONTEND_DRY_RUN != 'true'
+        run: |
+          test "$(git rev-parse "$FRONTEND_TAG^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+      - run: pnpm install --frozen-lockfile
+      - name: Focused producer tests
+        run: node --test scripts/frontend-release/*.test.mjs
+      - name: Build frontend only (TypeScript and Vite)
+        run: ./build.sh frontend
+      - name: Install dedicated signer
+        if: env.FRONTEND_DRY_RUN != 'true'
+        run: command -v minisign
+      - name: Package and verify fixture signature
+        if: env.FRONTEND_DRY_RUN == 'true'
+        run: node scripts/frontend-release/release.mjs prepare "$FRONTEND_TAG"
+      - name: Package and verify dedicated frontend signature
+        if: env.FRONTEND_DRY_RUN != 'true'
+        env:
+          FRONTEND_SIGNING_PRIVATE_KEY: ${{ secrets.FRONTEND_SIGNING_PRIVATE_KEY }}
+        run: node scripts/frontend-release/release.mjs prepare "$FRONTEND_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-${{ env.FRONTEND_TAG }}
+          path: frontend-release-output/
+          if-no-files-found: error
+  publish:
+    needs: build
+    if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+    runs-on: [self-hosted, linux-build]
+    environment: frontend-publication
+    env:
+      FRONTEND_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.22.0'
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-${{ env.FRONTEND_TAG }}
+          path: frontend-release-output/
+      - name: Verify, upload immutable assets, then update frontend discovery
+        env:
+          GH_TOKEN: ${{ secrets.FRONTEND_PUBLICATION_TOKEN }}
+        run: node scripts/frontend-release/release.mjs publish "$FRONTEND_TAG"
