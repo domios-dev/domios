@@ -381,17 +381,22 @@ fn lark_recording_contract_stale_unavailable_generation_keeps_new_capture() {
     let next_generation = registry
         .select_devices("trigger", devices("replacement"))
         .unwrap();
+    assert_ne!(next_generation, old_generation);
     assert!(!old_capture.load(Ordering::Acquire));
     registry
         .wait_for_subscription_slot("trigger", Duration::ZERO)
         .unwrap();
     let setup = registry.begin_subscription_setup("trigger").unwrap();
+    assert_eq!(setup.generation, next_generation);
+    let (selected_devices, selected_generation) = registry.selected_devices("trigger").unwrap();
+    assert_eq!(selected_devices, devices("replacement"));
+    assert_eq!(selected_generation, setup.generation);
     registry
         .complete_subscription_setup(&setup, completed_subscription().0)
         .unwrap();
     let current_generation = registry.status("trigger").unwrap().generation;
     assert_ne!(current_generation, old_generation);
-    assert_ne!(current_generation, next_generation);
+    assert_eq!(current_generation, next_generation);
     let current_capture = registry
         .begin("trigger", &devices("replacement"), current_generation)
         .unwrap();

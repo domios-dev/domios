@@ -442,6 +442,9 @@ async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_ca
         assert_eq!(sends.load(Ordering::Acquire), 0);
         assert!(pending.validate().is_err());
         assert!(!service.local_recordings.has_write_ticket("pending-send"));
+        registry
+            .wait_for_subscription_slot("trigger", Duration::ZERO)
+            .unwrap();
     }
 
     let registry = &service.local_recording_registry;
