@@ -57,12 +57,31 @@ pub(crate) fn local_recording_manual_capture(
 }
 
 #[tauri::command]
+pub(crate) async fn local_recording_save_clip(
+    svc: tauri::State<'_, ServiceState>,
+    lease: String,
+    data: String,
+    extension: String,
+) -> Result<crate::service::local_recording::CaptureClipDescriptor, String> {
+    svc.local_recording_save_clip(&lease, data, extension).await
+}
+
+#[tauri::command]
+pub(crate) fn local_recording_discard_clip(
+    svc: tauri::State<'_, ServiceState>,
+    lease: String,
+    clip_handle: String,
+) {
+    svc.local_recording_discard_clip(&lease, &clip_handle);
+}
+
+#[tauri::command]
 pub(crate) async fn local_recording_commit(
     svc: tauri::State<'_, ServiceState>,
     lease: String,
-    path: String,
+    clip_handle: String,
     client_token: String,
-) -> Result<crate::service::agent_pad::ChatSendResult, String> {
-    svc.local_recording_commit(&lease, std::path::Path::new(&path), client_token)
+) -> crate::service::local_recording::LocalRecordingCommitOutcome {
+    svc.local_recording_commit(&lease, &clip_handle, client_token)
         .await
 }
