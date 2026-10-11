@@ -38,10 +38,7 @@ pub(super) fn admit(
 fn actionable_events(snapshot: &Snapshot) -> BTreeSet<String> {
     let mut events = BTreeSet::new();
     for event in &snapshot.hard {
-        let actionable = match event {
-            HardWake::TaskState(_) | HardWake::ModeChange => false,
-            _ => true,
-        };
+        let actionable = !matches!(event, HardWake::TaskState(_) | HardWake::ModeChange);
         if actionable {
             events.insert(serde_json::to_string(event).unwrap_or_default());
         }

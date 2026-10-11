@@ -208,18 +208,17 @@ impl ServiceContext {
             )
         };
 
-        if owner == Some(ConditionOwner::User) {
-            if self
+        if owner == Some(ConditionOwner::User)
+            && self
                 .claim_pending_prompt_notice_event_key(tab_id, prompt)
                 .is_some()
-            {
-                let subject = self.prompt_notice_subject(tab_id);
-                self.log_system_notice(
-                    crate::service::prompt_chain::owner_prompt_notice_title(prompt).into(),
-                    Some(owner_prompt_notice_body(tab_id, &subject, prompt)),
-                    Some("warning"),
-                );
-            }
+        {
+            let subject = self.prompt_notice_subject(tab_id);
+            self.log_system_notice(
+                crate::service::prompt_chain::owner_prompt_notice_title(prompt).into(),
+                Some(owner_prompt_notice_body(tab_id, &subject, prompt)),
+                Some("warning"),
+            );
         }
 
         let target = match owner {

@@ -12,16 +12,6 @@ fn valid_cli_binary(binary: &str) -> bool {
         })
 }
 
-/// Installation probe for the Settings card. An explicit user re-check must
-/// re-walk the ladder, so it drops that binary's memo first.
-pub(crate) fn cli_binary_on_path(binary: &str) -> bool {
-    if !valid_cli_binary(binary) {
-        return false;
-    }
-    codeterm_plugin::js_runtime::forget_resolved_bin(binary);
-    super::provider_cli::observe_cli(binary.to_owned(), None, None).installed == Some(true)
-}
-
 /// Why a launch was refused before anything was created.
 #[derive(Debug, Clone)]
 pub(crate) enum ProviderPreflightError {

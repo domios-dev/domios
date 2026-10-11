@@ -4,8 +4,7 @@ use axum::{
 };
 use tower::ServiceExt;
 
-#[path = "../../transport_tabs/fixture.rs"]
-mod fixture;
+use crate::api::transport_tabs::fixture;
 
 #[tokio::test]
 async fn frontend_bundle_routes_contract_bundled_index_and_relative_assets() {

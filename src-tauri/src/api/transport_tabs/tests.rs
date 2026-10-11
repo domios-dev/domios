@@ -97,8 +97,7 @@ fn transport_tabs_contract_resize_ownership() {
     assert!(!owners.is_owner("pty", "desktop"));
 }
 
-#[path = "fixture.rs"]
-mod fixture;
+use crate::api::transport_tabs::fixture;
 
 #[tokio::test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
