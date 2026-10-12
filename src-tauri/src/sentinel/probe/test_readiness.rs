@@ -8,16 +8,16 @@ use parking_lot::Mutex;
 use super::cancellation::Cancellation;
 use super::process::{DeadlineReceipt, Deadlines};
 
-pub(super) const SETUP_DEADLINE: Duration = Duration::from_secs(30);
+pub(in crate::sentinel) const SETUP_DEADLINE: Duration = Duration::from_secs(30);
 
-pub(super) struct Readiness {
+pub(in crate::sentinel) struct Readiness {
     address: SocketAddr,
     connection: Mutex<mpsc::Receiver<std::io::Result<TcpStream>>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Readiness {
-    pub(super) fn new() -> Arc<Self> {
+    pub(in crate::sentinel) fn new() -> Arc<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (tx, rx) = mpsc::channel();
@@ -31,11 +31,11 @@ impl Readiness {
         })
     }
 
-    pub(super) fn address(&self) -> SocketAddr {
+    pub(in crate::sentinel) fn address(&self) -> SocketAddr {
         self.address
     }
 
-    pub(super) fn signal(
+    pub(in crate::sentinel) fn signal(
         self: &Arc<Self>,
         limit: Duration,
         runtime: Duration,
@@ -71,7 +71,7 @@ impl Readiness {
         (signal, rx)
     }
 
-    pub(super) fn finite_command(&self, code: i32) -> String {
+    pub(in crate::sentinel) fn finite_command(&self, code: i32) -> String {
         let exe = std::env::current_exe().unwrap();
         let selector = "sentinel::probe::test_readiness::finite_ready_child";
         #[cfg(unix)]
@@ -90,7 +90,7 @@ impl Drop for Readiness {
     }
 }
 
-pub(super) fn child_ready(address: &str) {
+pub(in crate::sentinel) fn child_ready(address: &str) {
     let mut stream = TcpStream::connect_timeout(&address.parse().unwrap(), SETUP_DEADLINE).unwrap();
     stream.set_read_timeout(Some(SETUP_DEADLINE)).unwrap();
     stream.set_write_timeout(Some(SETUP_DEADLINE)).unwrap();
