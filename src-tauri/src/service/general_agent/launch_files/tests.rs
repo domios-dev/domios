@@ -203,3 +203,67 @@ fn restored_general_sibling_and_main_share_typed_model_rpc_admission() {
         codex_rpc::launch::clear_tab(tab);
     }
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn restored_main_plain_launch_registers_exact_resume_authority_before_binding() {
+    let (fixture, main, _) = fixture();
+    let svc = &fixture.service;
+    let provider = "plain-restored-main";
+    let session = "main-owned-session";
+    svc.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session(provider, session),
+    ));
+    let nonce = svc.rotate_session_binding_nonce(&main);
+    {
+        let mut mux = svc.mux.write();
+        let tab = mux.get_tab_mut(&main).unwrap();
+        tab.agent_type = Some(provider.into());
+        tab.agent_session_id = Some(session.into());
+    }
+    let mut params = AgentLaunchParams::default();
+    assert!(command(
+        svc,
+        &main,
+        provider,
+        "general-home",
+        &mut params,
+        Some(session)
+    )
+    .is_some());
+    assert_eq!(
+        crate::service::launch_session_detection::registered_launch_marker(&main).as_deref(),
+        Some(session),
+    );
+    assert!(svc.launch_has_resume_target(&main));
+    assert!(!svc
+        .mux
+        .read()
+        .get_tab(&main)
+        .unwrap()
+        .launch_session_authenticated());
+    let claim = crate::api::hook_routes::bind_detected_session(
+        &svc.mux,
+        &svc.agent_registry,
+        &main,
+        provider,
+        session,
+        &nonce,
+    )
+    .unwrap();
+    assert!(claim.nonce_verified);
+    assert!(svc
+        .mux
+        .read()
+        .get_tab(&main)
+        .unwrap()
+        .launch_session_authenticated());
+
+    assert!(command(svc, &main, provider, "general-home", &mut params, None).is_some());
+    assert!(!svc.launch_has_resume_target(&main));
+    assert_ne!(
+        crate::service::launch_session_detection::registered_launch_marker(&main).as_deref(),
+        Some(session),
+    );
+    crate::service::launch_session_detection::clear_launch_marker(&main);
+}
