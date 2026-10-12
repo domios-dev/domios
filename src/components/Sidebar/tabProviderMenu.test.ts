@@ -7,6 +7,8 @@ import {
   tabProviderMenuView,
   type TabProviderSwitchApi,
 } from "./tabProviderMenu";
+import { __setInvokeForTest } from "../../lib/bridge";
+import { getTabProviderApi } from "./tabProviderApi";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 
 function descriptor(id: string, transport: "pty" | "chat_backend"): ProviderDescriptor {
@@ -63,22 +65,43 @@ test("a working turn blocks the switch and says why", () => {
   assert.match(view.blockedReason, /turn/i);
 });
 
-test("switching sets the type and restarts, in that order", async () => {
-  const calls: string[] = [];
-  const api: TabProviderSwitchApi = {
-    setAgentType: (tabId, agentType) => { calls.push(`set:${tabId}:${agentType}`); },
-    restartSession: async (tabId) => { calls.push(`restart:${tabId}`); },
-  };
-  await switchTabProvider(api, "t1", "codex");
-  assert.deepEqual(calls, ["set:t1:codex", "restart:t1"], "metadata alone leaves the old agent running");
+test("protected home tabs offer the same capability-based provider choice", () => {
+  const view = tabProviderMenuView(tab({ protected: true }), CATALOG, "Idle");
+  assert.ok(view);
+  assert.equal(view.blockedReason, null);
+  assert.deepEqual(view.providers.map((provider) => provider.id), ["claude", "codex"]);
 });
 
-test("a failed type write does not restart the tab", async () => {
-  const calls: string[] = [];
+test("switching requests one provider restart without changing identity first", async () => {
+  const calls: Array<[string, string]> = [];
   const api: TabProviderSwitchApi = {
-    setAgentType: () => { throw new Error("refused"); },
-    restartSession: async (tabId) => { calls.push(`restart:${tabId}`); },
+    restartWithProvider: async (tabId, providerId) => { calls.push([tabId, providerId]); },
   };
-  await assert.rejects(switchTabProvider(api, "t1", "codex"));
-  assert.deepEqual(calls, [], "restarting after a refused switch would relaunch the old provider");
+  await switchTabProvider(api, "t1", "codex");
+  assert.deepEqual(calls, [["t1", "codex"]]);
+});
+
+test("a refused provider restart is surfaced without another operation", async () => {
+  let calls = 0;
+  const api: TabProviderSwitchApi = {
+    restartWithProvider: async () => { calls++; throw new Error("refused"); },
+  };
+  await assert.rejects(switchTabProvider(api, "t1", "codex"), /refused/);
+  assert.equal(calls, 1);
+});
+
+test("the default provider API requests the atomic lifecycle operation", async () => {
+  const calls: Array<{ command: string; args: unknown }> = [];
+  __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
+    calls.push({ command, args });
+    return undefined as T;
+  });
+  try {
+    await switchTabProvider(getTabProviderApi(), "home", "opaque-provider");
+    assert.deepEqual(calls, [{ command: "restart_agent_tab", args: {
+      tabId: "home", providerId: "opaque-provider",
+    } }]);
+  } finally {
+    __setInvokeForTest(null);
+  }
 });

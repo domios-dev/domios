@@ -51,6 +51,11 @@ pub(super) fn command_with_selection(
     selection: codex_rpc::launch::Selection,
 ) -> Option<String> {
     let resume = selection.resume.clone();
+    if let Some(session) = resume.as_deref() {
+        crate::service::launch_session_detection::register_resume_launch_marker(tab, session);
+    } else {
+        crate::service::launch_session_detection::clear_launch_marker(tab);
+    }
     if let Some(command) =
         codex_rpc::launch::selection_plan(svc, tab, provider, cwd, params, selection)
             .and_then(|plan| codex_rpc::launch::prepare_selection(svc, tab, plan))
