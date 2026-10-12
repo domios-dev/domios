@@ -28,4 +28,18 @@ Settings > Account shows the same plan, status, period end, cancellation flag an
 
 Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store and holds the queue while it is missing. Every sink shares the consent gate, the closed catalog (feature enums, counts, durations, booleans, numeric versions; never paths, prompts, names or terminal output), the persisted queue and the bounded retry policy.
 
-<!-- revision: 2 -->
+## Local API
+
+Local callers only.
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/account/status` | — | Account identity and pending flag |
+| POST | `/api/account/login` | — | Browser sign-in |
+| POST | `/api/account/logout` | — | Clear credentials and cached entitlements |
+| GET | `/api/account/plan` | — | Cached entitlement and stale marker |
+| POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
+| POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
+| POST | `/api/account/portal` | — | Open subscription management in the system browser |
+
+<!-- revision: 3 -->
