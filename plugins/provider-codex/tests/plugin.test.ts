@@ -1,3 +1,4 @@
+import "./tool-output.test";
 /**
  * Codex plugin contract + detection tests.
  * Run: npx tsx plugins/provider-codex/tests/plugin.test.ts

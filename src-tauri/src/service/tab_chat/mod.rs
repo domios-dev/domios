@@ -11,6 +11,7 @@
 //! start/stop and shuttles the bytes through.
 
 pub mod chatbackend_history;
+mod content;
 pub mod context_window;
 mod file_events;
 pub mod host_context;
@@ -42,6 +43,7 @@ mod tailer_tests;
 use crate::agent::chat_types::{
     ChatAttachment, ChatMsg, ChatTimelineMarker, InteractiveElement, RichMessage,
 };
+use content::{attachment_from_image, extract_tool_result_text};
 
 const THINKING_PREVIEW: usize = 200;
 pub const LIVE_CHAT_POLL_INTERVAL_MS: u64 = 100;
@@ -88,22 +90,6 @@ fn get_optional_string(data: &serde_json::Value, key: &str) -> Option<String> {
     data.get(key)
         .and_then(|value| value.as_str())
         .map(String::from)
-}
-
-/// A tool_result block's `content` is a string, an array of `{text}` blocks,
-/// or an arbitrary object — normalize all three to plain text.
-fn extract_tool_result_text(content: Option<&serde_json::Value>) -> String {
-    let text = match content {
-        Some(serde_json::Value::String(s)) => s.clone(),
-        Some(serde_json::Value::Array(arr)) => arr
-            .iter()
-            .map(|c| c.get("text").and_then(|v| v.as_str()).unwrap_or(""))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Some(v) => v.to_string(),
-        None => String::new(),
-    };
-    strip_ansi(&text)
 }
 
 /// Detect a single wrapping local-command XML tag, mirroring the desktop
@@ -160,31 +146,6 @@ fn strip_ansi(s: &str) -> String {
         out.push(c);
     }
     out
-}
-
-/// Build an image attachment from a JSONL image block's `source`.
-fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment {
-    let source = data.get("source");
-    let mime_type = source
-        .and_then(|s| s.get("media_type"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("image/png")
-        .to_string();
-    let b64 = source.and_then(|s| s.get("data")).and_then(|v| v.as_str());
-    ChatAttachment {
-        id,
-        mime_type,
-        // Drop oversized inline payloads (mirror the desktop 100KB cap).
-        data: b64.filter(|d| d.len() < 100_000).map(String::from),
-        url: source
-            .and_then(|s| s.get("url"))
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        path: source
-            .and_then(|s| s.get("path"))
-            .and_then(|v| v.as_str())
-            .map(String::from),
-    }
 }
 
 /// Batch position of one parsed row: `ordinal` is its `seq`; `offset` names the
