@@ -5,7 +5,7 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import type { TransportClient } from "../transportClient";
 import { createFrontendUpdateClient, createSwapController, preparePageReload, type BootContext } from "./client";
 import type { ClientCheckpoint } from "./checkpoint";
-import { initialSwapState, type Release, type Safety } from "./model";
+import { initialSwapState, type Release, type Safety, type SwapState } from "./model";
 
 export const ROOT_RENDERED_EVENT = "codeterm:frontend-root-rendered";
 export const BOOT_CONTEXT_KEY = "codeterm.frontend.boot";
@@ -33,6 +33,17 @@ export interface FrontendRuntimeOptions {
   boot: BootContext | null;
   bundled: BootContext["bundled"];
   onError(error: unknown): void;
+  onOffer?(offer: FrontendUpdateOffer | null): void;
+}
+
+export interface FrontendUpdateOffer {
+  releaseId: string;
+  version: string;
+}
+
+export function updateOffer(state: SwapState): FrontendUpdateOffer | null {
+  if (!state.pending || state.consented || state.reloading) return null;
+  return { releaseId: state.pending.releaseId, version: state.pending.version };
 }
 
 export async function initializeFrontendUpdateRuntime(client: TransportClient, options: FrontendRuntimeOptions) {
@@ -47,7 +58,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
     if (!token) { options.onError(new Error("Frontend reload requires daemon credentials")); return; }
     preparePageReload({ apiOrigin: client.origin(), token, clientId: options.clientId, ticket,
       attempted: options.boot?.attempted ?? [], bundled: options.bundled }, options.storage, options.navigate);
-  });
+  }, state => options.onOffer?.(updateOffer(state)));
   const stopSignals = options.signals.subscribe(change => {
     if (change === "checkpoint") controller.dispatch({ type: "edited", checkpoint: options.signals.checkpoint() });
     else controller.dispatch({ type: "safety", safety: options.signals.safety() });
@@ -87,6 +98,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
   let rendered = false;
   return {
     snapshot: controller.snapshot,
+    consent() { controller.dispatch({ type: "consent" }); },
     rootRendered() {
       if (rendered) return;
       rendered = true;

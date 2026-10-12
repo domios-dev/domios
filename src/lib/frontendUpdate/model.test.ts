@@ -3,7 +3,7 @@ import { initialSwapState, swapEvent, compatible, observeBoot, recoveryTarget, s
 import type { ClientCheckpoint } from "./checkpoint";
 
 const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "a", drafts: { a: { text: "draft", attachmentIds: ["attachment-1"], replyTo: null } }, scroll: { a: { terminal: "line-42", chat: "message-8" } } };
-const safe: Safety = { focused: true, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
+const safe: Safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
 const release: Release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: 2, maxApiVersion: 2 };
 const ticket = { releaseId: release.releaseId, generation: 1, token: "health-token" };
 
@@ -14,13 +14,26 @@ describe("frontend swap safety", () => {
     expect(compatible({ ...release, minApiVersion: 0 }, 2)).toBe(false);
     expect(compatible({ ...release, maxApiVersion: 1 }, 2)).toBe(false);
   });
-  it.each([{ typing: true }, { composing: true }, { modalOpen: true }, { pendingUploads: 1 }, { focused: false }, { idle: false }])("does not reload while unsafe %j", changes => {
+  it.each([{ pendingUploads: 1 }, { focused: true }])("does not reload while unsafe %j", changes => {
     const state = initialSwapState(2, checkpoint, { ...safe, ...changes });
     const pending = swapEvent(state, { type: "ready", release });
     expect(pending.effects).toEqual([]);
     const focus = swapEvent(pending.state, { type: "safety", safety: { ...pending.state.safety, focused: true } });
-    if (safeToSwap(focus.state.safety)) expect(focus.effects[0]?.type).toBe("persist");
+    if (safeToSwap(focus.state.safety, focus.state.consented)) expect(focus.effects[0]?.type).toBe("persist");
     else expect(focus.effects).toEqual([]);
+  });
+  it("swaps an unattended window at once and asks a watched one first", () => {
+    expect(safeToSwap({ ...safe, focused: false })).toBe(true);
+    expect(safeToSwap({ ...safe, focused: true })).toBe(false);
+    expect(safeToSwap({ ...safe, focused: true }, true)).toBe(true);
+    expect(safeToSwap({ ...safe, focused: false, pendingUploads: 1 }, true)).toBe(false);
+    const watched = swapEvent(initialSwapState(2, checkpoint, { ...safe, focused: true }), { type: "ready", release });
+    expect(watched.effects).toEqual([]);
+    const consented = swapEvent(watched.state, { type: "consent" });
+    expect(consented.state.consented).toBe(true);
+    expect(consented.effects[0]?.type).toBe("persist");
+    const newer = swapEvent(watched.state, { type: "ready", release: { ...release, releaseId: "frontend-v1.0.1", version: "1.0.1" } });
+    expect(newer.state.consented).toBe(false);
   });
   it("persists edits made during checkpoint and activation before reloading", () => {
     const pending = swapEvent(initialSwapState(2, checkpoint, safe), { type: "ready", release });
@@ -42,14 +55,14 @@ describe("frontend swap safety", () => {
     expect(final.state.checkpoint.scroll.a.chat).toBe("message-8");
     expect(swapEvent(final.state, { type: "safety", safety: safe }).effects).toEqual([]);
   });
-  it("rechecks modal and focus after persistence ack", () => {
+  it("rechecks who is watching after the persistence ack", () => {
     const pending = swapEvent(initialSwapState(2, checkpoint, safe), { type: "ready", release });
-    const unsafe = swapEvent(pending.state, { type: "safety", safety: { ...safe, modalOpen: true } });
-    const ack = swapEvent(unsafe.state, { type: "persisted", write: pending.state.writing! });
+    const watched = swapEvent(pending.state, { type: "safety", safety: { ...safe, focused: true } });
+    const ack = swapEvent(watched.state, { type: "persisted", write: pending.state.writing! });
     expect(ack.effects).toEqual([]);
-    const focus = swapEvent(ack.state, { type: "safety", safety: { ...safe, modalOpen: true } });
-    expect(focus.effects).toEqual([]);
-    expect(swapEvent(focus.state, { type: "safety", safety: safe }).effects[0]?.type).toBe("activate");
+    const stillWatched = swapEvent(ack.state, { type: "safety", safety: { ...safe, focused: true } });
+    expect(stillWatched.effects).toEqual([]);
+    expect(swapEvent(stillWatched.state, { type: "safety", safety: safe }).effects[0]?.type).toBe("activate");
   });
   it("ignores altered checkpoint ack and foreign activation", () => {
     const pending = swapEvent(initialSwapState(2, checkpoint, safe), { type: "ready", release });

@@ -8,7 +8,7 @@ import type { StreamEnd, TransportClient } from "../transportClient";
 import type { CheckpointWrite, ClientCheckpoint } from "./checkpoint";
 
 const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "t", drafts: { t: { text: "last edit", attachmentIds: ["a"], replyTo: null } }, scroll: { t: { chat: "anchor", terminal: "42" } } };
-const safety = { focused: true, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
+const safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
 const release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: 2, maxApiVersion: 2 };
 
 function fixture(patch = {}) {
@@ -76,7 +76,7 @@ describe("frontend runtime integration", () => {
     expect((f.events[0] as CustomEvent).detail).toEqual({ releaseId: release.releaseId, generation: 4 });
     runtime.dispose();
   });
-  for (const patch of [{ idle: false }, { typing: true }, { composing: true }, { modalOpen: true }, { focused: false }, { pendingUploads: 1 }]) {
+  for (const patch of [{ focused: true }, { pendingUploads: 1 }]) {
     it(`defers for ${Object.keys(patch)[0]} and persists the last edit before navigation`, async () => {
       const f = fixture(patch);
       const runtime = await initializeFrontendUpdateRuntime(f.client, f.options);
