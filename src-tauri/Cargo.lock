@@ -1112,6 +1112,7 @@ dependencies = [
  "codeterm-pty",
  "codeterm-storage",
  "codeterm-types",
+ "codeterm-usage",
  "codeterm-util",
  "conpty",
  "crash-context",
@@ -1467,6 +1468,18 @@ dependencies = [
  "toml 0.8.2",
  "ts-rs",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-usage"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "codeterm-types",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

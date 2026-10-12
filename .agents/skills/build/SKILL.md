@@ -71,6 +71,8 @@ installer build into a public release by uploading it manually.
 
 The isolated billing crate uses `./build.sh test-one billing <selector>`; workers defer Rust execution to canonical.
 
+The isolated usage crate uses `./build.sh test-one usage <selector> --wait-build`; it queues through the machine build gateway.
+
 The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
 
 ## Generated artifacts and the embedded-doc boundary
