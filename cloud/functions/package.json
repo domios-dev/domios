@@ -1,0 +1,27 @@
+{
+  "name": "domios-accounts-cloud",
+  "private": true,
+  "version": "1.0.0",
+  "main": "lib/functions/src/adapters/firebase/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npm run build && firebase emulators:exec --config ../firebase.json --project demo-domios --only auth,firestore,functions \"vitest run\"",
+    "dev": "npm run build && node lib/functions/src/adapters/local/server.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0",
+    "firebase": "^12.0.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "firebase-tools": "^15.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
