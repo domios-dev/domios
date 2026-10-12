@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import { inlineArtifactParts } from "./inlineArtifactParts";
+import type { AttachmentSegment } from "./attachmentMarker";
+const capsule: AttachmentSegment = { attachment: { kind: "file", path: "/work/note.txt", label: "note" } };
+assert.deepEqual(inlineArtifactParts([capsule, { text: "\n@ds-image /work/a_b.png\n" }, capsule]), [capsule, { text: "\n" }, { directive: { kind: "image", path: "/work/a_b.png" } }, capsule]);
+assert.deepEqual(inlineArtifactParts([{ text: "@ds-image /work/a.png " }, capsule]), [{ text: "@ds-image /work/a.png " }, capsule]);
+assert.deepEqual(inlineArtifactParts([capsule, { text: "@ds-image /work/a.png" }]), [capsule, { text: "@ds-image /work/a.png" }]);
+assert.deepEqual(inlineArtifactParts([{ text: "```\n" }, capsule, { text: "\n@ds-image /work/a.png\n```" }]), [{ text: "```\n" }, capsule, { text: "\n@ds-image /work/a.png\n```" }]);
+assert.deepEqual(inlineArtifactParts([{ text: "@ds-im" }, { text: "age /work/a.png" }]), [{ directive: { kind: "image", path: "/work/a.png" } }]);
+console.log("inlineArtifactParts: 5 cases passed");
