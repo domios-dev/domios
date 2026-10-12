@@ -2,7 +2,6 @@
 //! a structured failure. Pure — no I/O, no process exit.
 
 use super::MeshSpawnFailure;
-use crate::cmd::send_text::{analyze_send_text_response, SendTextOutcome};
 use codeterm_types::mesh::delivery;
 
 /// Whether repeating the identical request can ever succeed.
@@ -212,31 +211,6 @@ fn route_retry_hint(
     }
 }
 
-/// A send whose bytes reached the target PTY is reported the way the local
-/// `send` reports it — accepted, delivery pending — instead of a false failure.
-fn landed_send(
-    relayed: (&str, &str),
-    data: &serde_json::Value,
-    code: Option<&str>,
-) -> Option<serde_json::Value> {
-    if !super::is_send_relay(relayed.0, relayed.1) || data.get("error").is_none() {
-        return None;
-    }
-    match analyze_send_text_response(data) {
-        SendTextOutcome::Pending {
-            bytes_written: true,
-            ..
-        } => Some(serde_json::json!({
-            "ok": true,
-            "delivery": "pending",
-            "bytes_written": true,
-            "mesh": true,
-            "peer_code": code,
-        })),
-        _ => None,
-    }
-}
-
 fn failure_of(
     peer_name: &str,
     peer: Option<&AnsweringPeer>,
@@ -316,10 +290,6 @@ pub(crate) fn classify_relay_answer(
         .get("status")
         .and_then(|v| v.as_u64())
         .unwrap_or(status.as_u16() as u64) as u16;
-
-    if let Some(landed) = landed_send(relayed, &data, code.as_deref()) {
-        return Ok(RelayAnswer { data: landed, peer });
-    }
 
     // Relay returns 200+ok:false on auth/HTTP failures inside the envelope.
     if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
