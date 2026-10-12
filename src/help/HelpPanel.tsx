@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { AppConfig } from "../lib/types";
+import { CommunityLinks } from "../components/shared/CommunityLinks";
 import { getHelpContent } from "./content";
 import { HelpBlockView, type OpenSettingsTarget } from "./HelpBlockView";
 import type { HelpSectionContent, HelpSectionId } from "./types";
@@ -125,6 +126,7 @@ export function HelpPanel({ config, locale = "en", initialSection, focusRequest,
             </div>
           </section>
         ))}
+        <CommunityLinks />
       </div>
     </div>
   );

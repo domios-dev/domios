@@ -20,7 +20,7 @@ codeterm account upgrade pro
 codeterm account portal
 ```
 
-The titlebar control immediately left of Settings starts sign-in. When signed in, its initial opens identity, plan, Manage subscription and Sign out. Settings > Account shows the same plan, status, period end, cancellation flag and stale marker. Upgrade and Manage subscription open the system browser. The client reads only the signed-in user's server record using the in-memory ID token. Signed-out users get free. A failed fetch retains the last known entitlement marked stale. Sign-in, explicit app focus (at most once per minute), and checkout return refresh the cache; browser return alone never grants access. Returning from checkout to the app bypasses the focus throttle once. Hosted completion may also open `domios://billing/return`.
+The round avatar and chevron immediately left of Settings open the Account menu. Signed-out users can choose Sign in, Create account, Google, Facebook or email. Sign-in and account creation share the system-browser flow; the mode changes its heading. When signed in, its initial opens identity, plan, Manage subscription and Sign out. Both account states offer Community links for Telegram and Discord; the Guide offers the same links, opened in the system browser. Settings > Account shows the same plan, status, period end, cancellation flag and stale marker. Upgrade and Manage subscription open the system browser. The client reads only the signed-in user's server record using the in-memory ID token. Signed-out users get free. A failed fetch retains the last known entitlement marked stale. Sign-in, explicit app focus (at most once per minute), and checkout return refresh the cache; browser return alone never grants access. Returning from checkout to the app bypasses the focus throttle once. Hosted completion may also open `domios://billing/return`.
 
 `billing.provider` defaults to `cloud`; `billing.endpoint` overrides build-time DOMIOS_BILLING_FUNCTIONS_URL and must be an HTTPS base URL ending in `/`. Providers are selected when billing first starts. DEV also supports `local` and `fake`. Local reads `billing.entitlements` on every refresh, so a local config change plus app focus exercises the full plan display without a vendor account. Configure `plan`, `status`, `current_period_end` (Unix seconds), and `cancel_at_period_end`; missing local entitlements return free. Local checkout and portal open the loopback simulator at `billing.origin` (default `http://127.0.0.1:15100/`); run the standalone local accounts backend for its pages. Local config is the entitlement authority for this adapter; simulator payment does not change that config. Release builds refuse explicit dev providers. Without a cloud endpoint, the local fallback returns free and subscription actions report that cloud billing is unavailable.
 
@@ -35,11 +35,11 @@ Local callers only.
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/account/status` | — | Account identity, effective provider and pending flag |
-| POST | `/api/account/login` | — | Browser sign-in |
+| POST | `/api/account/login` | — | Browser sign-in; optional provider=google/facebook/email and mode=signin/signup query hints |
 | POST | `/api/account/logout` | — | Clear credentials and cached entitlements |
 | GET | `/api/account/plan` | — | Cached entitlement and stale marker |
 | POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
 | POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

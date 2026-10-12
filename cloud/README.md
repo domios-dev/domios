@@ -191,3 +191,9 @@ DOMIOS_FIREBASE_APP_CHECK_SITE_KEY is also required: the hosted adapter uses App
 DOMIOS_APPLE_ENABLED=true enables Apple sign-in after its provider is configured.
 DOMIOS_ACCOUNT_REDEEM_URL and DOMIOS_BILLING_FUNCTIONS_URL configure the desktop
 adapters with the deployed HTTPS function URL and HTTPS base URL ending in /.
+
+Hosted sign-in accepts optional provider=google|facebook|email and
+mode=signin|signup query hints. A supported social provider starts immediately;
+email focuses its link form. Unknown/disabled hints fall back to all choices.
+Mode changes only the heading, and email continuation preserves it. Firebase
+creates accounts on first sign-in; there is no separate sign-up credential flow.

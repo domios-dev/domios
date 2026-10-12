@@ -30,7 +30,11 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
     let store = fixture.service.secrets.read().await.clone();
     for (method, path, signed_in) in [
         ("GET", "/api/account/status", false),
-        ("POST", "/api/account/login", true),
+        (
+            "POST",
+            "/api/account/login?provider=email&mode=signup",
+            true,
+        ),
         ("GET", "/api/account/status", true),
         ("POST", "/api/account/logout", false),
         ("GET", "/api/account/status", false),
