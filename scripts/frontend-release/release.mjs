@@ -68,4 +68,4 @@ async function main() {
   if (manifest.releaseId !== tag || manifest.minApiVersion !== contract.minApiVersion || manifest.maxApiVersion !== contract.maxApiVersion || manifest.url !== createManifest(tag, contract, Buffer.alloc(0)).url) throw new Error('Artifact contract mismatch');
   await publishRelease({ manifest, archive: await readFile(path.join(output, `${tag}.tar.gz`)), signature: await readFile(path.join(output, 'frontend-manifest.json.minisig'), 'utf8'), publicKey: contract.publicKey, fixtureKey: await readFile(path.join(fixtureRoot, 'frontend-test.pub'), 'utf8'), dryRun }, githubRemote(contract.repository, output));
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(() => { console.error('Frontend release failed; no discovery update is authorized. Inspect the failed step and configured frontend identity.'); process.exitCode = 1; });
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(error => { console.error(`Frontend release failed; no discovery update is authorized: ${error.code ?? ''} ${error.message}`.trim()); process.exitCode = 1; });
