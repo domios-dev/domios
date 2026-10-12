@@ -47,20 +47,13 @@ export function tabProviderEntryLabel(view: TabProviderMenuView): string {
 }
 
 export interface TabProviderSwitchApi {
-  setAgentType: (tabId: string, agentType: string) => void | Promise<void>;
-  restartSession: (tabId: string) => Promise<void>;
+  restartWithProvider: (tabId: string, providerId: string) => Promise<void>;
 }
 
-/**
- * Point the tab at another provider and relaunch it. Setting the type alone is
- * metadata — the running agent is still the old one — so the restart is part of
- * the switch rather than a follow-up the caller might forget.
- */
 export async function switchTabProvider(
   api: TabProviderSwitchApi,
   tabId: string,
   providerId: string,
 ): Promise<void> {
-  await api.setAgentType(tabId, providerId);
-  await api.restartSession(tabId);
+  await api.restartWithProvider(tabId, providerId);
 }

@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import type { Notification } from "../../lib/types";
 import { NotificationBell } from "./NotificationBell";
 
-vi.mock("@codeterm/chat-ui", () => ({ RichMarkdown: ({ text }: { text: string }) => <div>{text}</div> }));
+vi.mock("@codeterm/chat-ui", () => ({ LocalArtifactScope: ({ children }: { children: React.ReactNode }) => <>{children}</>, RichMarkdown: ({ text }: { text: string }) => <div>{text}</div> }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 it("opens full details and sends the offered choice once through the bell answer handler", async () => {

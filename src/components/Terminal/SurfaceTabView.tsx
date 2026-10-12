@@ -4,6 +4,7 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import { SurfaceFlowLine } from "../Surface/SurfaceFlowLine";
 import { surfaceIconComponent } from "../Surface/surfaceIcon";
 import { createHttpSseSurfaceTransport, type HttpSseSurfaceTransportOptions } from "../Surface/httpSseSurfaceTransport";
+import { surfaceTransportTarget } from "../Surface/surfaceTransportTarget";
 import { StreamSurfaceView } from "../Surface/StreamSurfaceView";
 import type { SurfaceChromeSpec } from "../Surface/surfaceChromeModel";
 import { surfaceRenderPlan, type SurfaceDeclLookup } from "../Surface/surfaceRenderPlan";
@@ -13,7 +14,7 @@ import { useSurfaceActor } from "../../lib/surfaceActivity";
 import { pluginViewSurface, surfaceDisplayLabel } from "../../lib/surfaceTab";
 import type { ApiConfig, SurfaceTabBacking, Tab } from "../../lib/types";
 import { useTabProvider } from "../../lib/useTabProvider";
-import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
+import { daemonAuthToken, daemonHttpBase, relayTarget } from "../../lib/webApi";
 
 export type SurfaceTransportFactory = (options: HttpSseSurfaceTransportOptions) => SurfaceStreamTransport;
 
@@ -46,7 +47,8 @@ export const openInSystemBrowser = (url: string) => {
 function StreamSurfaceBody({ tab, api, ownerName, chrome, createTransport }: StreamBodyProps) {
   const baseUrl = daemonHttpBase(api);
   const token = daemonAuthToken(api);
-  const transport = useMemo(() => createTransport({ baseUrl, token, tabId: tab.id }), [createTransport, baseUrl, token, tab.id]);
+  const { tabId, peerId } = surfaceTransportTarget(tab, relayTarget()?.id ?? null);
+  const transport = useMemo(() => createTransport({ baseUrl, token, tabId, ...(peerId ? { peerId } : {}) }), [createTransport, baseUrl, token, tabId, peerId]);
   return (
     <StreamSurfaceView
       transport={transport}

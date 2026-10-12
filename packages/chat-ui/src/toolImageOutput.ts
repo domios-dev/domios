@@ -22,25 +22,31 @@ function parseDataUrl(raw: string): ExtractedToolImage | null {
   };
 }
 
-function tryParseImageUrlJson(text: string): ExtractedToolImage[] | null {
+function tryParseImageUrlJson(text: string): ParsedToolOutputImages | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) return null;
   try {
     const parsed = JSON.parse(trimmed) as unknown;
-    const items = Array.isArray(parsed) ? parsed : [parsed];
+    const items: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
     const images: ExtractedToolImage[] = [];
+    const remainder: string[] = [];
     for (const item of items) {
-      if (!item || typeof item !== "object") continue;
+      if (!item || typeof item !== "object") { remainder.push(JSON.stringify(item)); continue; }
       const record = item as Record<string, unknown>;
-      if (record.type !== "image_url") continue;
-      const imageUrl = record.image_url;
-      if (!imageUrl || typeof imageUrl !== "object") continue;
-      const url = (imageUrl as Record<string, unknown>).url;
-      if (typeof url !== "string") continue;
-      const image = parseDataUrl(url);
+      let url: string | undefined;
+      if (record.type === "image_url" || record.type === "input_image") {
+        const value = record.image_url;
+        url = typeof value === "string" ? value : value && typeof value === "object"
+          && typeof (value as Record<string, unknown>).url === "string" ? (value as { url: string }).url : undefined;
+      } else if (record.type === "image" && record.source && typeof record.source === "object") {
+        const source = record.source as Record<string, unknown>;
+        if (typeof source.media_type === "string" && typeof source.data === "string") url = `data:${source.media_type};base64,${source.data}`;
+      }
+      const image = url ? parseDataUrl(url) : null;
       if (image) images.push(image);
+      else remainder.push(typeof record.text === "string" ? record.text : JSON.stringify(item));
     }
-    return images.length > 0 ? images : null;
+    return images.length > 0 ? { images, remainder: remainder.join("\n").trim() || null } : null;
   } catch {
     return null;
   }
@@ -54,7 +60,7 @@ export interface ParsedToolOutputImages {
 export function parseToolOutputImages(text: string): ParsedToolOutputImages {
   const jsonImages = tryParseImageUrlJson(text);
   if (jsonImages) {
-    return { images: jsonImages, remainder: null };
+    return jsonImages;
   }
 
   const soleImage = parseDataUrl(text);

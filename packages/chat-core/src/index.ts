@@ -186,5 +186,7 @@ export {
   type WatcherVerdictStatus,
 } from "./watcherVerdict";
 
-export { parseLocalArtifactDirective } from "./localArtifactDirective";
+export { parseLocalArtifactDirective, localArtifactTextParts } from "./localArtifactDirective";
 export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";
+
+export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";

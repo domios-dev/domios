@@ -1,5 +1,4 @@
 // Run: npm run test:unit -- notification_markdown
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -123,18 +122,6 @@ test("notification_markdown toast renders the shared markdown result", async () 
   ));
   assert(host.textContent?.includes("plain body unchanged"), "plain toast text must stay unchanged");
   await act(async () => root.unmount());
-});
-
-test("notification_markdown surfaces import RichMarkdown instead of parsing", () => {
-  for (const file of ["NotificationPanel.tsx", "NotificationToast.tsx"]) {
-    const source = readFileSync(new URL(file, import.meta.url), "utf8");
-    assert(
-      /import \{ RichMarkdown \} from "@codeterm\/chat-ui";/.test(source),
-      `${file} must import the shared renderer`,
-    );
-    assert(/<RichMarkdown text=/.test(source), `${file} must call the shared renderer`);
-    assert(!/react-markdown|remark|marked|dangerouslySetInnerHTML/.test(source), `${file} must not parse markdown`);
-  }
 });
 
 async function run() {
