@@ -453,7 +453,7 @@ fn stale_nonce_ack_does_not_release_and_rebound_launch_expires_queued_user_owner
         fixture.service.agent_registry.as_ref(),
         &tab_id,
         "opaque-provider",
-        "opaque-session",
+        "opaque-rebound-session",
         Some("opaque-current-nonce"),
     )
     .unwrap();
