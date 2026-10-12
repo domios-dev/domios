@@ -1,3 +1,4 @@
+pub mod account;
 pub mod agent;
 pub(crate) mod agent_restart;
 mod agent_spawn;
