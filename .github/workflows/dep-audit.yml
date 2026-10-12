@@ -28,8 +28,8 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: '22', package-manager-cache: false }
       - uses: pnpm/action-setup@v4
-        with: { version: 10.32.1, run_install: false }
-      - run: pnpm install --frozen-lockfile
+        with: { version: 10.32.1, run_install: false, dest: "${{ runner.tool_cache }}/setup-pnpm" }
+      - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Run pnpm audit
         run: pnpm audit --prod
         continue-on-error: true
