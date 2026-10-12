@@ -5,7 +5,7 @@ export type UpdateKind = "app" | "frontend";
 export type TabKind = "shell" | "agent";
 export type Role = "general" | "orchestrator" | "planner" | "worker" | "manager" | "supporter" | "none" | "other";
 export type RestoreOutcome = "resumed" | "fresh_launch" | "failed";
-export type ExecutionIntent = "read_only" | "mutating";
+export type ExecutionIntent = "read_only" | "mutating" | "unspecified";
 export type AuthProvider = "local" | "fake" | "firebase";
 export type PlanKey = "free" | "pro";
 export type SubscriptionStatus = "active" | "past_due" | "canceled" | "revoked" | "incomplete" | "trialing" | "unpaid" | "paused";
@@ -106,7 +106,8 @@ export const PRODUCT_EVENT_ENUMS = {
   ],
   "ExecutionIntent": [
     "read_only",
-    "mutating"
+    "mutating",
+    "unspecified"
   ],
   "AuthProvider": [
     "local",

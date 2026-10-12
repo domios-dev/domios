@@ -1,4 +1,5 @@
 use super::ServiceContext;
+pub(crate) mod restore;
 use codeterm_analytics::{
     Config, Event, ModelFamily, Platform, ProviderId, Role, TabKind, UpdateChannel, Version, Worker,
 };
@@ -74,6 +75,22 @@ impl ServiceContext {
         self.record_product_event(event);
     }
 
+    pub(crate) fn record_product_restore_refused(&self, tab_id: &str) {
+        let event = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .filter(|tab| tab.boot_stage == Some(super::boot_stage::BootStage::SpawnFailed))
+                .and_then(|tab| tab.agent_type.as_deref())
+                .map(|provider| Event::AgentRestored {
+                    provider_id: ProviderId::from_catalog(provider).unwrap_or(ProviderId::Other),
+                    outcome: codeterm_analytics::RestoreOutcome::Failed,
+                })
+        };
+        if let Some(event) = event {
+            self.record_product_event(event);
+        }
+    }
+
     pub(crate) fn record_product_agent_spawned(&self, tab_id: &str, model: Option<&str>) {
         let event = {
             let mux = self.mux.read();
@@ -110,7 +127,7 @@ impl ServiceContext {
                     std::env::consts::OS,
                     &channel.to_string(),
                 );
-                tokio::task::spawn_blocking(move || {
+                let worker = tokio::task::spawn_blocking(move || {
                     let reader = Arc::new(move |name: &str| {
                         tauri::async_runtime::block_on(async {
                             let store = secrets.read().await;
@@ -126,17 +143,116 @@ impl ServiceContext {
                         Config::from_env()?,
                         reader,
                     )?;
+                    if crate::update::analytics::confirm(
+                        &crate::paths::data_dir().join("analytics-update.json"),
+                        env!("CARGO_PKG_VERSION"),
+                        &worker,
+                    )
+                    .is_err()
+                    {
+                        log::debug!("[analytics] update confirmation unavailable");
+                    }
                     if let Some(event) = startup {
                         let _ = worker.record_nowait(event);
                     }
                     Ok::<_, String>(worker)
                 })
                 .await
-                .map_err(|_| "analytics initialization failed".to_string())?
+                .map_err(|_| "analytics initialization failed".to_string())??;
+                self.plan_store
+                    .bind_product_observer(plan_observer(worker.clone()));
+                if let Some(mesh) = self.app_handle.try_state::<crate::mesh::MeshState>() {
+                    mesh.lock()
+                        .bind_pairing_observer(mesh_observer(worker.clone()));
+                }
+                Ok::<_, String>(worker)
             })
             .await
     }
 }
 
+pub(crate) fn plan_observer(
+    worker: Worker,
+) -> codeterm_plan::service_plan::product_events::ProductObserver {
+    Arc::new(move |event| {
+        use codeterm_plan::{
+            plan::ExecutionIntent as Intent, service_plan::product_events::ProductEvent,
+        };
+        let event = match event {
+            ProductEvent::PlanCreated => Event::PlanCreated {},
+            ProductEvent::TaskDispatched {
+                execution_intent: Intent::ReadOnly,
+            } => Event::TaskDispatched {
+                execution_intent: codeterm_analytics::ExecutionIntent::ReadOnly,
+            },
+            ProductEvent::TaskDispatched {
+                execution_intent: Intent::Mutating,
+            } => Event::TaskDispatched {
+                execution_intent: codeterm_analytics::ExecutionIntent::Mutating,
+            },
+            ProductEvent::TaskDispatched {
+                execution_intent: Intent::Unspecified,
+            } => Event::TaskDispatched {
+                execution_intent: codeterm_analytics::ExecutionIntent::Unspecified,
+            },
+        };
+        let _ = worker.record_nowait(event);
+    })
+}
+pub(crate) fn mesh_observer(worker: Worker) -> Arc<dyn Fn() + Send + Sync> {
+    Arc::new(move || {
+        let _ = worker.record_nowait(Event::MeshPeerPaired {});
+    })
+}
+pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObserver {
+    Arc::new(move |event| {
+        let event = match event {
+            codeterm_billing::ProductEvent::SubscriptionChanged { plan, status } => {
+                subscription_event(plan, status)
+            }
+            codeterm_billing::ProductEvent::CheckoutStarted { plan } => Event::CheckoutStarted {
+                plan_key: billing_plan(plan),
+            },
+        };
+        let _ = worker.record_nowait(event);
+    })
+}
+pub(crate) fn frontend_event(
+    installation: codeterm_frontend_bundle::Installation,
+) -> Option<Event> {
+    Some(Event::UpdateInstalled {
+        from_version: Version::from_release(&installation.from_version)?,
+        to_version: Version::from_release(&installation.to_version)?,
+        kind: codeterm_analytics::UpdateKind::Frontend,
+        attempt_count: installation.attempt_count,
+    })
+}
+pub(crate) fn billing_plan(plan: codeterm_billing::Plan) -> codeterm_analytics::PlanKey {
+    match plan {
+        codeterm_billing::Plan::Free => codeterm_analytics::PlanKey::Free,
+        codeterm_billing::Plan::Pro => codeterm_analytics::PlanKey::Pro,
+    }
+}
+pub(crate) fn subscription_event(
+    plan: codeterm_billing::Plan,
+    status: codeterm_billing::Status,
+) -> Event {
+    use codeterm_analytics::SubscriptionStatus as Target;
+    use codeterm_billing::Status;
+    let status = match status {
+        Status::Active => Target::Active,
+        Status::Trialing => Target::Trialing,
+        Status::PastDue => Target::PastDue,
+        Status::Canceled => Target::Canceled,
+        Status::Revoked => Target::Revoked,
+        Status::Incomplete => Target::Incomplete,
+        Status::Unpaid => Target::Unpaid,
+        Status::Paused => Target::Paused,
+    };
+    Event::SubscriptionChanged {
+        plan: billing_plan(plan),
+        status,
+    }
+}
 #[cfg(test)]
 mod tests;

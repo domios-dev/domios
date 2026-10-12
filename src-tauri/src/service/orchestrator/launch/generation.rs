@@ -64,6 +64,7 @@ impl LaunchGeneration {
         crate::service::structured_prompt::bind_launch(&self.tab_id, &nonce);
         svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
+        crate::service::analytics::restore::bind(&self.tab_id, self.generation, &nonce);
         LAUNCH_REGISTRY
             .lock()
             .bind_provider_session(self, nonce.clone());
@@ -106,6 +107,7 @@ impl LaunchGeneration {
 
     pub(super) fn adopt_authenticated_binding(&mut self, binding_nonce: String) -> bool {
         self.binding_nonce = Some(binding_nonce.clone());
+        crate::service::analytics::restore::bind(&self.tab_id, self.generation, &binding_nonce);
         let binding = ProviderSessionBinding {
             pty_id: self.pty_id.clone(),
             binding_nonce: binding_nonce.clone(),

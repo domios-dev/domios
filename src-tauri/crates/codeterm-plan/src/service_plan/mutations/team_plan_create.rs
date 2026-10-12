@@ -24,7 +24,19 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        self.create_plan_for_team_in_mode(title, project_path, owner, team_id, kinds, now_ms)
+        self.create_plan_for_team_in_mode(title, project_path, owner, team_id, kinds, now_ms, true)
+    }
+
+    pub(in crate::service_plan) fn create_plan_for_team_unobserved(
+        &self,
+        title: String,
+        project_path: String,
+        owner: OrchestratorRef,
+        team_id: String,
+        kinds: Vec<MilestoneKind>,
+        now_ms: u64,
+    ) -> Result<Plan, PlanError> {
+        self.create_plan_for_team_in_mode(title, project_path, owner, team_id, kinds, now_ms, false)
     }
 
     fn create_plan_for_team_in_mode(
@@ -35,6 +47,7 @@ impl PlanStore {
         team_id: String,
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
+        observed: bool,
     ) -> Result<Plan, PlanError> {
         crate::service_plan::text_bounds::validate_plan_label("plan title", &title)?;
         let _writer_turn = self.mutation_writer.enter();
@@ -83,6 +96,9 @@ pass an absolute path with --project, or omit --project to use the current worki
             self.plans.write().remove(&plan.id);
             self.index.write().remove(&plan.id);
             return Err(PlanError::Io(error.to_string()));
+        }
+        if observed {
+            self.publish_product_created();
         }
         Ok(plan)
     }

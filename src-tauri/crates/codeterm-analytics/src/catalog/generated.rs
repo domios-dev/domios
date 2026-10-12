@@ -129,12 +129,15 @@ pub enum ExecutionIntent {
     ReadOnly,
     #[serde(rename = "mutating")]
     Mutating,
+    #[serde(rename = "unspecified")]
+    Unspecified,
 }
 impl ExecutionIntent {
     pub fn from_catalog(value: &str) -> Option<Self> {
         match value {
             "read_only" => Some(Self::ReadOnly),
             "mutating" => Some(Self::Mutating),
+            "unspecified" => Some(Self::Unspecified),
             _ => None,
         }
     }

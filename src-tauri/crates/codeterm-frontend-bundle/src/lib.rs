@@ -6,7 +6,7 @@ pub mod update;
 pub const OBSERVER_SCRIPT: &str = include_str!("observer.js");
 
 use activation::Activation;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -16,6 +16,14 @@ use std::{
 use store::Store;
 
 pub type StatusEmitter = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
+#[derive(Clone, Debug)]
+pub struct Installation {
+    pub from_version: String,
+    pub to_version: String,
+    pub attempt_count: u32,
+}
+pub type InstallationObserver = Arc<dyn Fn(Installation) + Send + Sync>;
 
 pub struct FrontendBundles {
     root: PathBuf,
@@ -27,6 +35,7 @@ pub struct FrontendBundles {
     discovery_url: String,
     allow_loopback: bool,
     emit: StatusEmitter,
+    installation_observer: RwLock<Option<InstallationObserver>>,
 }
 
 impl FrontendBundles {
@@ -81,7 +90,12 @@ impl FrontendBundles {
             discovery_url,
             allow_loopback,
             emit,
+            installation_observer: RwLock::new(None),
         })
+    }
+
+    pub fn bind_installation_observer(&self, observer: InstallationObserver) {
+        *self.installation_observer.write() = Some(observer);
     }
 
     pub fn status(&self) -> Value {
@@ -172,10 +186,38 @@ impl FrontendBundles {
             .map_err(|e| e.to_string())?
             .as_millis() as u64;
         self.failure_deadline(now_ms)?;
-        self.change(|state| {
-            state.healthy(release, generation, client, token)?;
-            Ok(())
-        })?;
+        let installation = {
+            let mut inner = self.inner.lock();
+            let (store, state) = &mut *inner;
+            let mut next = state.clone();
+            let from_version = state
+                .active
+                .as_ref()
+                .map(|m| m.version.clone())
+                .unwrap_or_else(|| self.bundled_version.to_string());
+            let installing = state.loading.is_some();
+            next.healthy(release, generation, client, token)?;
+            store.save(&next)?;
+            let installation = if installing && next.loading.is_none() {
+                next.active.as_ref().map(|manifest| Installation {
+                    from_version,
+                    to_version: manifest.version.clone(),
+                    attempt_count: next
+                        .installation_attempts
+                        .get(release)
+                        .copied()
+                        .unwrap_or(1),
+                })
+            } else {
+                None
+            };
+            *state = next;
+            installation
+        };
+        let observer = self.installation_observer.read().clone();
+        if let (Some(installation), Some(observer)) = (installation, observer) {
+            observer(installation);
+        }
         Ok(self.status())
     }
 

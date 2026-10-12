@@ -35,7 +35,8 @@
     ],
     "ExecutionIntent": [
       "read_only",
-      "mutating"
+      "mutating",
+      "unspecified"
     ],
     "AuthProvider": [
       "local",
