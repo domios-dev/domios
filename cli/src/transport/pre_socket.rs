@@ -18,6 +18,10 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
         command,
     } = cli;
     match command {
+        Commands::Analytics { action } => {
+            cmd::analytics::handle(json, action);
+            None
+        }
         Commands::Trace { action } => {
             cmd::trace::handle(json, action);
             None

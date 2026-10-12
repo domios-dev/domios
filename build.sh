@@ -284,6 +284,7 @@ run_nextest_scope() {
   case "$scope" in
     app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
+    analytics|codeterm-analytics) package="codeterm-analytics"; targets+=(--lib) ;;
     plan|codeterm-plan) package="codeterm-plan"; targets+=(--lib) ;;
     pty|codeterm-pty) package="codeterm-pty" ;;
     types|codeterm-types) package="codeterm-types"; targets+=(--all-targets) ;;
@@ -1609,7 +1610,7 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <app|frontend-bundle|plan|pty|pty-fork|types|storage|mem|mesh|plugin|cli> NAME
+  test-one <analytics|app|frontend-bundle|plan|pty|pty-fork|types|storage|mem|mesh|plugin|cli> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
@@ -1792,7 +1793,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli}"
+    test_scope="${2:?test-one requires analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -1810,6 +1811,7 @@ EOF
         enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
         ;;
+      analytics) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
       # pty-fork is excluded from the workspace (its own Cargo.lock) but owns
@@ -1826,7 +1828,7 @@ EOF
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
     esac
     ;;
   nextest)

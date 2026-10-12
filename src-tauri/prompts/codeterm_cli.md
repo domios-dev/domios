@@ -86,3 +86,5 @@ Use `codeterm mem taxonomy` for area counts and `codeterm mem area merge <from> 
 Paths: use forward slashes; the CLI normalizes them on every OS.
 
 Blueprints use deterministic patterns by default; unmatched output remains `other` without a model call. Use `--model-classification` without patterns only when model judgment is wanted. Blueprint terminal adapters: `codeterm blueprint create --observe tab:<id> --output-settled 300 --session` watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.
+
+Opt-in product analytics is local: `codeterm analytics status`, `codeterm analytics enable`, and `codeterm analytics disable`. Disabling clears queued events and identifiers.

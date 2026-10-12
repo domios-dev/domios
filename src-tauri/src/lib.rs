@@ -603,6 +603,7 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                analytics: Arc::new(tokio::sync::OnceCell::new()),
                 agent_pad_data_dir: crate::paths::data_dir(),
                 launch_task_files: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 mux: states.mux.clone(),
@@ -712,6 +713,14 @@ pub fn run() {
             };
             crate::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
+            {
+                let service = service_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    if service.analytics_worker().await.is_err() {
+                        log::debug!("[analytics] initialization unavailable");
+                    }
+                });
+            }
             service_state.plan_store.bind_task_key_port(Arc::new(
                 crate::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
                     service_state.mux.clone(),
