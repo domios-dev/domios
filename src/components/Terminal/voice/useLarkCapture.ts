@@ -26,13 +26,9 @@ import {
 
 import { composerRecording, type ComposerRecording, type RecordedVoiceClip } from "./composerRecording";
 
-const MAX_CAPTURE_MS = 120_000;
-
 type CaptureEvent =
   | { kind: "start"; capture: LarkCaptureLease }
   | { kind: "stop"; lease: string };
-
-type Deadline = (callback: () => void, ms: number) => () => void;
 
 export interface LarkCaptureRuntime {
   isDesktop: boolean;
@@ -42,7 +38,6 @@ export interface LarkCaptureRuntime {
   createRecorder: (stream: MediaStream, mime: string | undefined) => MediaRecorder;
   storeClip: (lease: string, blob: Blob, mime: string) => Promise<{ handle: string; path: string }>;
   discardClip: (lease: string, clipHandle: string) => Promise<void>;
-  scheduleDeadline: Deadline;
   now: () => number;
   createId: () => string;
 };
@@ -56,11 +51,6 @@ type LocalRecordingCommitOutcome =
   | { kind: "tracked"; status: ChatSendStatus }
   | { kind: "preHandoffFailure"; message: string }
   | { kind: "possibleHandoff"; message: string };
-
-function defaultDeadline(callback: () => void, ms: number): () => void {
-  const id = window.setTimeout(callback, ms);
-  return () => window.clearTimeout(id);
-}
 
 function tabBinding(tab: Tab | undefined): string | null {
   if (!tab) return null;
@@ -135,7 +125,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     createRecorder: createVoiceRecorder,
     storeClip: storeLarkCaptureClip,
     discardClip: discardLarkCaptureClip,
-    scheduleDeadline: defaultDeadline,
     now: Date.now,
     createId: () => crypto.randomUUID(),
     ...runtimeOverrides,
@@ -150,7 +139,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     createRecorder: createVoiceRecorder,
     storeClip: storeLarkCaptureClip,
     discardClip: discardLarkCaptureClip,
-    scheduleDeadline: defaultDeadline,
     now: Date.now,
     createId: () => crypto.randomUUID(),
     ...runtimeOverrides,
@@ -159,7 +147,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   const mountedRef = useRef(false);
   const recorderRef = useRef<{ operation: number; recorder: ComposerRecording } | null>(null);
   const clipsRef = useRef(new Map<number, RecordedVoiceClip | null>());
-  const deadlineStopRef = useRef<(() => void) | null>(null);
   const pendingMediaRef = useRef(new Set<number>());
   const startupRequestsRef = useRef(new Map<number, Promise<boolean>>());
   const stopRequestedRef = useRef(new Set<number>());
@@ -201,11 +188,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     return current.operation === operation && (phases.length === 0 || phases.includes(current.phase));
   }, []);
 
-  const clearDeadline = useCallback(() => {
-    deadlineStopRef.current?.();
-    deadlineStopRef.current = null;
-  }, []);
-
   const requestRecorderStop = useCallback((operation: number) => {
     if (pendingMediaRef.current.has(operation)) {
       void recorderRef.current?.recorder.stop(true);
@@ -213,7 +195,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     }
     if (stopRequestedRef.current.has(operation)) return;
     stopRequestedRef.current.add(operation);
-    clearDeadline();
     const active = recorderRef.current;
     const discard = stateRef.current.stopIntent !== "send" || !!stateRef.current.invalidation;
     const stopped = active?.operation === operation ? active.recorder.stop(discard) : Promise.resolve(null);
@@ -233,13 +214,12 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     }).catch((error) => {
       transition({ type: "FAILED", operation, message: errorText(error) });
     });
-  }, [clearDeadline, releaseOwner, transition]);
+  }, [releaseOwner, transition]);
 
   const cancelCapture = useCallback((message = "Voice recording cancelled.", reason?: LarkCaptureInvalidation["reason"]) => {
     const current = stateRef.current;
     const capture = current.capture;
     if (!capture || current.phase === "disabled" || current.phase === "armed" || current.phase === "error") return;
-    clearDeadline();
     const next = transition({ type: "CANCEL", operation: current.operation, message, reason });
     cancelHostLease(capture, current.operation);
     if (next.phase === "error") {
@@ -247,7 +227,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
       return;
     }
     requestRecorderStop(current.operation);
-  }, [cancelHostLease, clearDeadline, requestRecorderStop, transition]);
+  }, [cancelHostLease, requestRecorderStop, transition]);
 
   const completeCapture = useCallback(async (
     operation: number,
@@ -440,9 +420,6 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
         return;
       }
       transition({ type: "RECORDER_STARTED", operation });
-      deadlineStopRef.current = runtimeRef.current.scheduleDeadline(
-        () => cancelCapture("The two minute recording limit was reached. The clip was discarded."), MAX_CAPTURE_MS,
-      );
     } catch (error) {
       startupRequestsRef.current.delete(operation);
       pendingMediaRef.current.delete(operation);
@@ -468,20 +445,18 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     const capture = current.capture;
     if (!capture || capture.pluginId !== event.pluginId || capture.generation !== event.generation) return;
     const invalidated = transition({ type: "INVALIDATED", event });
-    clearDeadline();
     cancelHostLease(capture);
     if (current.phase === "transcribing" || invalidated.phase !== "stopping") {
       releaseOwner();
       return;
     }
     requestRecorderStop(current.operation);
-  }, [cancelHostLease, clearDeadline, releaseOwner, requestRecorderStop, transition]);
+  }, [cancelHostLease, releaseOwner, requestRecorderStop, transition]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      clearDeadline();
       const capture = stateRef.current.capture;
       if (capture) cancelHostLease(capture);
       const recorder = recorderRef.current?.recorder;
@@ -491,7 +466,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
       clipsRef.current.clear();
       stateRef.current = { ...initialLarkCaptureState(), operation: stateRef.current.operation + 1 };
     };
-  }, [cancelHostLease, clearDeadline, releaseOwner]);
+  }, [cancelHostLease, releaseOwner]);
 
   useEffect(() => {
     if (!runtimeRef.current.isDesktop) {
