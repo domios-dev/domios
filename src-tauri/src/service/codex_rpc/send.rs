@@ -5,18 +5,18 @@ pub(crate) use startup::{admit_startup, send_startup};
 
 use super::{client::ClientError, lifecycle::Sidecar, protocol::Frame};
 use crate::service::{
-    ServiceContext,
     chat_send_transaction::{ChatSendStatus, SendLiveBinding},
     delivery_error::DeliveryError,
     pending_delivery_payloads::user_sends::UserSendAuthority,
+    ServiceContext,
 };
 use gate::SendGate;
 use parking_lot::Mutex;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     cell::RefCell,
     collections::HashMap,
-    sync::{Arc, LazyLock, Weak, atomic::Ordering},
+    sync::{atomic::Ordering, Arc, LazyLock, Weak},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
