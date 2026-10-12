@@ -50,8 +50,10 @@ import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { capsuleSegments, hasCapsuleTokens } from "./composerCapsules";
+import { hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
+import { draftHasPendingUploads } from "./composerUploadModel";
+import { classifyAttachmentPaths } from "./composerFiles";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
@@ -172,7 +174,6 @@ function ChatComposerImpl({
   currentPtyId,
   pendingPrompt,
   attachments,
-  addAttachments,
   removeAttachment,
   clearAttachments,
   handlePasteEvent,
@@ -253,7 +254,8 @@ function ChatComposerImpl({
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
-  const imageCapsules = capsuleSegments(input, capsules.registry).flatMap((segment) => "span" in segment && segment.capsule?.kind === "image" ? [segment] : []);
+  const pendingUploads = draftHasPendingUploads(input, capsules.registry);
+  const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
   const capabilities = useMuxSelector(useCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
@@ -343,6 +345,7 @@ function ChatComposerImpl({
   }
 
   function buildDraft(extraAttachments: string[] = []) {
+    if (draftHasPendingUploads(textareaRef.current?.value ?? input, capsules.registryRef.current)) return;
     const text = input.trim();
     const cleanExtraAttachments = extraAttachments
       .map((p) => p.trim())
@@ -536,17 +539,17 @@ function ChatComposerImpl({
       <div data-testid="composer-row" className="relative">
         <ComposerActions
           tabId={tabId}
-          onAttach={addAttachments}
+          onAttach={(paths) => void attachInline(paths)}
+          uploadFiles={capsules.uploads.addFiles}
           onSend={() => void send()}
           onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
-          sendDisabled={!input.trim() && attachments.length === 0 && !reply.reply}
+          sendDisabled={pendingUploads || (!input.trim() && attachments.length === 0 && !reply.reply)}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
-          cardHeader={(reply.reply || attachments.length > 0 || imageCapsules.length > 0) && <>
+          cardHeader={(reply.reply || attachments.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
             {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
-            {imageCapsules.map((segment) => <ComposerBubbleRow key={segment.span.start} attachments={[segment.capsule!.path]} onRemove={() => capsules.remove(segment.span)} />)}
           </>}
         >
           <SlashPicker
@@ -570,6 +573,8 @@ function ChatComposerImpl({
             textareaRef={textareaRef}
             marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0}
             onRemove={capsules.remove}
+            uploads={capsules.uploads.uploads}
+            onRetryUpload={(id) => void capsules.uploads.retry(id)}
           >
             <ComposerTextInput
               data-testid="chat-composer"

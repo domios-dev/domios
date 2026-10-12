@@ -87,6 +87,10 @@ export function useAttachments({
 
   const uploads = useAttachmentUploads(deliverPaths);
 
+  const upload = useCallback((blob: Blob, name: string) => inlineSinkRef.current?.upload
+    ? inlineSinkRef.current.upload(blob, name) : uploads.add(blob, name), [uploads.add]);
+  const uploadFiles = useCallback(async (files: Iterable<File>) => { await Promise.all(Array.from(files, (file) => upload(file, file.name || "file.bin"))); }, [upload]);
+
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     if (handledPastes.has(e)) return;
     handledPastes.add(e);
@@ -98,19 +102,13 @@ export function useAttachments({
         .map((item) => item.getAsFile())
         .filter((file): file is File => file !== null));
     }
-    if (IS_WEB) {
-      if (files.length) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        await uploads.addFiles(files);
-      }
-      return;
-    }
-    const syncImageFile = files.find((file) => file.type.startsWith("image/")) ?? null;
-    if (syncImageFile) {
+    if (files.length) {
       e.preventDefault();
       e.stopImmediatePropagation();
+      await uploadFiles(files);
+      return;
     }
+    if (IS_WEB) return;
 
     // 1. Native OS file paths (Explorer/Finder copy) — Tauri only; throws in web.
     try {
@@ -124,18 +122,18 @@ export function useAttachments({
       // Not in Tauri, or no files on the clipboard — continue.
     }
 
-    const image = needsAsyncClipboardImageRead(Array.from(cd?.types ?? []), syncImageFile !== null)
+    const image = needsAsyncClipboardImageRead(Array.from(cd?.types ?? []), false)
       ? await readClipboardImage(null)
-      : syncImageFile && { blob: syncImageFile, ext: imageExt(syncImageFile.type) };
+      : null;
     if (image) {
       e.preventDefault();
       try {
-        await uploads.add(image.blob, `pasted-image-${Date.now()}.${image.ext}`);
+        await upload(image.blob, `pasted-image-${Date.now()}.${image.ext}`);
       } catch (err) {
         onError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [deliverPaths, onError, uploads.addFiles, uploads.add]);
+  }, [deliverPaths, onError, uploadFiles, upload]);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
@@ -161,7 +159,7 @@ export function useAttachments({
   const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
     (paths) => void deliverPaths(paths),
     onError,
-    uploads.addFiles,
+    uploadFiles,
   );
 
   return {
