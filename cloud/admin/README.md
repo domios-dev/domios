@@ -30,8 +30,8 @@ The fake provider implements the same interface with injectable identities and i
 Canonical QA, from cloud/admin:
 
 - npm ci
-- npm test: unit/request/local tests and six emulator tests; every selected test must pass with no skipped emulator coverage. Java 21+ is required for the Firestore emulator. The test runner uses ports 29099, 28080, 24400 and 24500, separate from cloud/functions.
-- npm run check: TypeScript exits 0.
+- npm test: 30 unit/request/action/local tests and six emulator tests; every selected test must pass with no skipped emulator coverage. Java 21+ is required for the Firestore emulator. On this Mac, prepend /opt/homebrew/opt/openjdk@21/bin to PATH; the system Java launcher does not discover Homebrew automatically. The emulator config lives beside the shared rules in cloud/firebase.admin-test.json because Firebase refuses rules paths outside its project root. The test runner uses ports 29099, 28080, 24400 and 24500, separate from cloud/functions.
+- npm run check: Next generates route types, then TypeScript exits 0.
 - npm run build: Next compiles all routes and exits 0. Production configuration is lazy, so a build needs no service credentials.
 
 Focused tests: npm run test:unit; npm test -- test/emulator.test.ts. The emulator test proves persisted grant/revoke records, audit collision rollback, concurrent audit continuity, first-admin claim merge and browser rules denial.
