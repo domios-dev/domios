@@ -889,6 +889,23 @@ impl PtyManager {
         })
     }
 
+    #[cfg(windows)]
+    pub fn owning_pty(
+        &self,
+        process: std::os::windows::io::RawHandle,
+    ) -> Result<Option<String>, String> {
+        for (id, session) in &self.sessions {
+            let child = session.child.lock().map_err(|error| error.to_string())?;
+            if child
+                .contains_process(process)
+                .map_err(|error| error.to_string())?
+            {
+                return Ok(Some(id.clone()));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn begin_shutdown(&mut self) -> Result<Vec<PtyReaper>, String> {
         self.spawn_gate.quiesce();
         let pty_ids = self.sessions.keys().cloned().collect::<Vec<_>>();

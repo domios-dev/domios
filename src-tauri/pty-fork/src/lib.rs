@@ -143,6 +143,11 @@ pub trait Child: std::fmt::Debug + ChildKiller + Downcast + Send {
     /// Only available on Windows.
     #[cfg(windows)]
     fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle>;
+
+    #[cfg(windows)]
+    fn contains_process(&self, _process: std::os::windows::io::RawHandle) -> IoResult<bool> {
+        Ok(false)
+    }
 }
 impl_downcast!(Child);
 
@@ -343,6 +348,9 @@ impl ChildKiller for ProcessSignaller {
 impl ChildKiller for std::process::Child {
     #[cfg(unix)]
     fn kill_tree(&mut self) -> IoResult<()> {
+        if self.try_wait()?.is_some() {
+            return Ok(());
+        }
         let pid = self.id();
         if pid <= 1 || pid > i32::MAX as u32 {
             return Err(std::io::Error::new(
@@ -419,3 +427,6 @@ pub fn native_pty_system() -> Box<dyn PtySystem + Send> {
 pub type NativePtySystem = unix::UnixPtySystem;
 #[cfg(windows)]
 pub type NativePtySystem = win::conpty::ConPtySystem;
+
+#[cfg(all(test, unix))]
+mod tree_tests;

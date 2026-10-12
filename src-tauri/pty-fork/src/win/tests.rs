@@ -1,6 +1,6 @@
 use crate::{native_pty_system, CommandBuilder, PtySize};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::sync::mpsc;
+use std::io::{BufRead, BufReader, Write};
+use std::sync::{mpsc, Condvar, Mutex};
 use std::time::Duration;
 
 #[test]
@@ -28,11 +28,26 @@ fn job_member_helper() {
     };
     println!("HELPER_READY");
     std::io::stdout().flush().unwrap();
-    let _ = std::io::stdin().read(&mut [0u8; 1]);
+    let state = Mutex::new(true);
+    let changed = Condvar::new();
+    drop(
+        changed
+            .wait_while(state.lock().unwrap(), |blocked| *blocked)
+            .unwrap(),
+    );
 }
 
 #[test]
 fn killed_job_completes_on_process_exit_without_job_time_limit() {
+    assert_job_exit(false);
+}
+
+#[test]
+fn cloned_killer_preserves_job_exit_boundary() {
+    assert_job_exit(true);
+}
+
+fn assert_job_exit(cloned: bool) {
     use winapi::um::processthreadsapi::OpenProcess;
     use winapi::um::synchapi::WaitForSingleObject;
     use winapi::um::winbase::WAIT_OBJECT_0;
@@ -58,8 +73,11 @@ fn killed_job_completes_on_process_exit_without_job_time_limit() {
     let raw = unsafe { OpenProcess(SYNCHRONIZE, 0, pid) };
     assert!(!raw.is_null());
     let process = unsafe { filedescriptor::OwnedHandle::from_raw_handle(raw as _) };
-    let mut killer = child.clone_killer();
-    killer.kill_tree().unwrap();
+    if cloned {
+        child.clone_killer().kill_tree().unwrap();
+    } else {
+        child.kill_tree().unwrap();
+    }
     let (exit_tx, exit_rx) = mpsc::channel();
     std::thread::spawn(move || {
         exit_tx.send(child.wait()).unwrap();

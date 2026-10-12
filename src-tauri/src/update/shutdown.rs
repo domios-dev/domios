@@ -16,14 +16,6 @@ pub async fn graceful_shutdown(
 ) -> Result<Vec<String>, String> {
     log::info!("[updater] graceful_shutdown: starting");
 
-    let stale_conpty_hosts = super::conpty_cleanup::cleanup_stale_before_shutdown().await?;
-    if stale_conpty_hosts > 0 {
-        log::info!(
-            "[updater] cleared {} stale bundled ConPTY host(s) before PTY shutdown",
-            stale_conpty_hosts
-        );
-    }
-
     // Arms the watchdog's clean-quit signal AND role-based tab-prune suppression
     // before any PTY can die, so teardown EOFs never read as agent crashes.
     crate::crash::shutdown::mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::Update);
@@ -44,7 +36,6 @@ pub async fn graceful_shutdown(
     );
 
     let (desk, reaped) = capture_desk_before(&svc, reap_owned_ptys(&svc)).await?;
-    let conpty_hosts = super::conpty_cleanup::cleanup_before_installer().await?;
 
     let persist_result = persist_desk_off_runtime(app, &svc.mux, desk).await;
     let shutdown_result = shutdown_storage_off_runtime(app).await;
@@ -63,11 +54,8 @@ pub async fn graceful_shutdown(
         log::warn!("[updater] mem WAL checkpoint failed: {}", e);
     }
 
-    log::info!(
-        "[updater] graceful_shutdown: complete; {} PTY session(s) reaped, {} bundled ConPTY host(s) reaped",
-        reaped,
-        conpty_hosts
-    );
+    super::install_holders::release_before_installer().await?;
+    log::info!("[updater] graceful_shutdown: complete; {reaped} PTY session(s) reaped and install holders released");
     Ok(swept)
 }
 

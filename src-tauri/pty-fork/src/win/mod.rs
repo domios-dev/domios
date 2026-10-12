@@ -43,7 +43,7 @@ impl WinChild {
             _ => return Err(IoError::last_os_error()),
         }
         if self.tree_termination_requested.load(Ordering::Acquire)
-            && !job_exit::process_ids(&self.job)?.is_empty()
+            && !job_exit::is_empty(&self.job)?
         {
             return Ok(None);
         }
@@ -118,6 +118,21 @@ impl ChildKiller for WinChildKiller {
 }
 
 impl Child for WinChild {
+    fn contains_process(&self, process: RawHandle) -> IoResult<bool> {
+        let mut belongs = 0;
+        if unsafe {
+            winapi::um::jobapi2::IsProcessInJob(
+                process as _,
+                self.job.as_raw_handle() as _,
+                &mut belongs,
+            )
+        } == 0
+        {
+            return Err(IoError::last_os_error());
+        }
+        Ok(belongs != 0)
+    }
+
     fn try_wait(&mut self) -> IoResult<Option<ExitStatus>> {
         self.is_complete()
     }
