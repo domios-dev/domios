@@ -27,9 +27,15 @@ interface ForkSite {
 }
 
 const INVENTORY: ForkSite[] = [
+  {"file": "src/lib/transportParityScan.ts", "anchor": "if (!markerAssignment && ((ts.isPropertyAccessExpression(node) && [\"__TAURI_INTERNALS__\", \"__TAURI__\"].includes(node.name.text))", "ordinal": 1, "cls": "capability-gate", "note": "Audits direct native runtime access without choosing a frontend transport"},
+  {"file": "src/lib/transportParityScan.ts", "anchor": "&& [\"__TAURI_INTERNALS__\", \"__TAURI__\"].includes(node.argumentExpression.text)))) {", "ordinal": 1, "cls": "capability-gate", "note": "Audits indexed native runtime access without choosing a frontend transport"},
+  {"file": "src/store/multiplexer/index.tsx", "anchor": "dispatch({ type: \"SET_STATE\", state: guarded, pageOwnedSelection: IS_WEB });", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser page owns its selection independently of desktop focus"},
+  {"file": "src/store/multiplexer/index.tsx", "anchor": "if (!acceptsPageFocus(stateRef.current, tabId, IS_WEB)) return;", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser page filters daemon focus against its local selection"},
+  {"file": "src/store/multiplexer/index.tsx", "anchor": "if (IS_WEB) dispatch({ type: \"SET_FOCUSED_TAB\", tabId });", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser focus updates the page selection locally"},
+
   {"file":"src/lib/nativeBridge.ts","anchor":"export function createNativeBridge(native: boolean = typeof window !== \"undefined\" && \"__TAURI_INTERNALS__\" in window): NativeBridge {","ordinal":1,"cls":"capability-gate","note":"Native capability detection is independent of the daemon HTTP transport"},
   {"file":"src/lib/daemonBootstrap.ts","anchor":"if (\"__TAURI_INTERNALS__\" in window) return undefined;","ordinal":1,"cls":"capability-gate","note":"Native capability detection is independent of the daemon HTTP transport"},
-  {"file":"src/lib/daemonBootstrap.ts","anchor":"typeof window !== \"undefined\" && \"__TAURI_INTERNALS__\" in window);","ordinal":1,"cls":"capability-gate","note":"Native capability detection is independent of the daemon HTTP transport"},
+  {"file":"src/lib/daemonBootstrap.ts","anchor":"typeof window !== \"undefined\" && \"__TAURI_INTERNALS__\" in window,","ordinal":1,"cls":"capability-gate","note":"Native capability detection is independent of the daemon HTTP transport"},
   {"file":"src/lib/bridge.ts","anchor":"if (Object.prototype.hasOwnProperty.call(NATIVE_COMMANDS, cmd)) return IS_WEB","ordinal":1,"cls":"capability-gate","note":"Native capability detection is independent of the daemon HTTP transport"},
   { file: "src/components/Terminal/useAttachments.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "browser reads client clipboard bytes while native shell extracts OS paths" },
   { file: "src/components/Terminal/tabPanel/ChangeDetail.tsx", anchor: '<IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />', ordinal: 1, cls: "capability-gate", note: "browser mirror cannot open a file in the host OS" },
@@ -39,7 +45,6 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 2, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
   { file: "src/lib/messengers/telegramBridgeStore.ts", anchor: "if (IS_WEB) return {};", ordinal: 1, cls: "transport-shim", note: "Telegram bridge API base: the browser mirror talks to its own daemon; only the desktop reads the configured API address" },
-  { file: "src/components/StaleBuildBanner.tsx", anchor: "if (IS_WEB) return window.location.origin;", ordinal: 1, cls: "transport-shim", note: "build-check API base: window origin vs this window's local daemon" },
   { file: "src/components/Terminal/composerFiles.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
   { file: "src/components/Terminal/terminalOwnership.ts", anchor: "const isWeb = args.isWeb ?? IS_WEB;", ordinal: 1, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },
   { file: "src/components/Terminal/voice/audio.ts", anchor: "!IS_WEB &&", ordinal: 1, cls: "platform-adaptation", note: "native macOS/iOS codec preference vs web codec order" },

@@ -9,6 +9,7 @@ interface Props {
   className?: string;
   style?: CSSProperties;
   title?: string;
+  ariaLabel?: string;
   working?: boolean;
 }
 
@@ -16,7 +17,7 @@ export function ProviderGlyph(props: Props) {
   return <ProviderGlyphContent key={props.iconSvg ?? ""} {...props} />;
 }
 
-function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, working }: Props) {
+function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, ariaLabel, working }: Props) {
   const { presentation, onLoad, onError } = useProviderLogo(iconSvg);
   const html = iconSvg ? forceInlineSize(iconSvg) : null;
 
@@ -39,7 +40,7 @@ function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, wor
         className={cls}
         style={computedStyle}
         role="img"
-        aria-label={title ?? "Agent logo"}
+        aria-label={ariaLabel ?? title ?? "Agent logo"}
         title={title}
         onErrorCapture={onError}
         dangerouslySetInnerHTML={{ __html: html }}
@@ -49,7 +50,7 @@ function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, wor
 
   const label = title ? `${title} default agent icon` : "Default agent icon";
   return (
-    <span className={cls} style={{ ...computedStyle, position: "relative" }} role="img" aria-label={label} title={title}>
+    <span className={cls} style={{ ...computedStyle, position: "relative" }} role="img" aria-label={ariaLabel ?? label} title={title}>
       <Bot size="1em" aria-hidden="true" />
       {html && (
         <span
