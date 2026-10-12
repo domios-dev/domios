@@ -202,6 +202,11 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 ## Troubleshooting log (grow this as things break)
 
+- **`dev-prebuilt` refuses a recorded build commit that differs from HEAD** —
+  saved provenance belongs to another source revision. Run the normal `dev`
+  operation with `--notify-tab`; require its fresh build/health receipt before
+  testing. Preserve the refusal and never rewrite provenance to bypass it.
+
 > When you hit a dev-startup issue on any platform, add a dated entry below with: symptom, root cause, fix. Keep entries short.
 
 If the failure is caused by the dev-run procedure itself, fix the procedure as
@@ -292,7 +297,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
 
 ### REST listener bind recovery
 

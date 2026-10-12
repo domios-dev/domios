@@ -1,10 +1,20 @@
-import { nativeBridge, NativeCapabilityUnavailable } from "./nativeBridge";
+import { nativeBridge, NativeCapabilityUnavailable, type LocalRecordingCommand } from "./nativeBridge";
 import type { CommandAdapter, CommandArgs } from "./transportCommands";
 const requireCapability = <T>(value: T | undefined, name: string): T => {
   if (!value) throw new NativeCapabilityUnavailable(name);
   return value;
 };
 export const NATIVE_COMMANDS: Record<string, CommandAdapter> = {
+  local_recording_status: (a) => localRecording("local_recording_status", a),
+  local_recording_set_enabled: (a) => localRecording("local_recording_set_enabled", a),
+  local_recording_select_devices: (a) => localRecording("local_recording_select_devices", a),
+  local_recording_input_devices: (a) => localRecording("local_recording_input_devices", a),
+  local_recording_capture_stopped: (a) => localRecording("local_recording_capture_stopped", a),
+  local_recording_cancel: (a) => localRecording("local_recording_cancel", a),
+  local_recording_manual_capture: (a) => localRecording("local_recording_manual_capture", a),
+  local_recording_save_clip: (a) => localRecording("local_recording_save_clip", a),
+  local_recording_discard_clip: (a) => localRecording("local_recording_discard_clip", a),
+  local_recording_commit: (a) => localRecording("local_recording_commit", a),
   open_url: (a) => nativeBridge.openUrl(String(a.url ?? "")),
   open_folder: (a) => nativeBridge.openFolder(String(a.path ?? "")),
   reveal_file: (a) => nativeBridge.revealFile(String(a.path ?? "")),
@@ -20,6 +30,9 @@ export const NATIVE_COMMANDS: Record<string, CommandAdapter> = {
   get_update_status: () => requireCapability(nativeBridge.updater, "app updater").status(),
   install_app_update: () => requireCapability(nativeBridge.updater, "app updater").install(),
 };
+function localRecording(command: LocalRecordingCommand, args: CommandArgs): Promise<unknown> {
+  return requireCapability(nativeBridge.localRecording, "local recording")[command](args);
+}
 export function nativeCommand(command: string, args: CommandArgs): Promise<unknown> | undefined {
   if (!Object.prototype.hasOwnProperty.call(NATIVE_COMMANDS, command)) return undefined;
   return Promise.resolve().then(() => NATIVE_COMMANDS[command](args));

@@ -59,6 +59,7 @@ pub(super) fn test_caps() -> CapabilityRegistries {
         chat_preprocessor: Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new()),
         agent_command: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
         webhook_receiver: Arc::new(crate::webhook::WebhookRegistry::new()),
+        local_recording: Arc::new(crate::local_recording::LocalRecordingRegistry::default()),
         tab_menu: Arc::new(crate::tab_menu::TabMenuRegistry::new()),
         surfaces: Arc::new(crate::surfaces::SurfaceRegistry::new()),
         secret: None,

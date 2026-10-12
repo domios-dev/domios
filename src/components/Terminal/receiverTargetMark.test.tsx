@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import {
   __setPluginTabMenuForTest,
   type PluginTabMenuHost,
@@ -8,6 +8,15 @@ import {
 } from "../../lib/pluginTabMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
+
+import { __setInvokeForTest } from "../../lib/bridge";
+import { __setPluginBubbleFetcherForTest } from "../../lib/pluginBubbleCache";
+
+beforeEach(() => {
+  __setInvokeForTest(async <T,>() => ({ title: "Receiver", nodes: [] }) as T);
+  __setPluginBubbleFetcherForTest(async () => null);
+});
+afterEach(() => { __setInvokeForTest(null); __setPluginBubbleFetcherForTest(null); });
 
 const SANITIZED_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 2h20v20H2z"/></svg>';
 
@@ -40,7 +49,7 @@ function renderSurface(menu: PluginTabMenuState, tabId = "tab-a") {
   document.body.appendChild(host);
   const root = createRoot(host);
   act(() => {
-    root.render(<ReceiverTargetMarks menu={menu} tabId={tabId} surface="composer" />);
+    root.render(<ReceiverTargetMarks menu={menu} tabId={tabId} surface="header" />);
   });
   return { host, root };
 }
@@ -59,6 +68,13 @@ function cleanup(root: Root, host: HTMLElement): void {
 }
 
 describe("receiver_target_mark", () => {
+  it("does not duplicate the receiver in the composer", () => {
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    act(() => root.render(<ReceiverTargetMarks menu={menuState({ "real-receiver": "tab-a" })} tabId="tab-a" surface="composer" />));
+    expect(host.querySelector("button")).toBeNull();
+    cleanup(root, host);
+  });
   it("receiver_target_mark renders real and future receiver capabilities with the same accessible surface", () => {
     const menu = menuState({ "real-receiver": "tab-a", "future-receiver": "tab-a" });
     menu.items.push({ ...menu.items[0], itemId: "receiver-target-secondary" });
@@ -66,15 +82,11 @@ describe("receiver_target_mark", () => {
     const marks = host.querySelectorAll("button[data-receiver-plugin-id]");
     expect(marks).toHaveLength(2);
     expect([...marks].map((mark) => mark.getAttribute("aria-label"))).toEqual([
-      "Detach real-receiver receiver from this tab",
-      "Detach future-receiver receiver from this tab",
+      "Show real-receiver receiver status",
+      "Show future-receiver receiver status",
     ]);
     expect(marks[0]?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     expect(marks[1]?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
-    expect(marks[0]?.querySelector("svg")?.getAttribute("width")).toBe("16");
-    expect(marks[1]?.querySelector("svg")?.getAttribute("width")).toBe("16");
-    expect((marks[0]?.querySelector("span") as HTMLElement | null)?.getAttribute("style")).toContain("color");
-    expect((marks[1]?.querySelector("span") as HTMLElement | null)?.getAttribute("style")).toContain("color");
     cleanup(root, host);
   });
 
@@ -84,8 +96,7 @@ describe("receiver_target_mark", () => {
     const { host, root } = renderSurface(menu);
     const mark = host.querySelector("button[data-receiver-plugin-id]");
     expect(mark?.querySelector("svg")).not.toBeNull();
-    expect(mark?.querySelectorAll("span")).toHaveLength(1);
-    expect(mark?.getAttribute("aria-label")).toBe("Detach real-receiver receiver from this tab");
+    expect(mark?.getAttribute("aria-label")).toBe("Show real-receiver receiver status");
     cleanup(root, host);
   });
 
@@ -111,15 +122,15 @@ describe("receiver_target_mark", () => {
       const menu = usePluginTabMenu();
       return (
         <>
-          <ReceiverTargetMarks menu={menu} tabId="tab-a" surface="composer" />
-          <ReceiverTargetMarks menu={menu} tabId="tab-b" surface="header" />
+          <section data-tab="a"><ReceiverTargetMarks menu={menu} tabId="tab-a" surface="header" /></section>
+          <section data-tab="b"><ReceiverTargetMarks menu={menu} tabId="tab-b" surface="header" /></section>
         </>
       );
     }
     await act(async () => root.render(<LiveSurfaces />));
     await flush();
-    expect(rootHost.querySelector('[data-testid="receiver-target-marks-composer"]')).not.toBeNull();
-    expect(rootHost.querySelector('[data-testid="receiver-target-marks-header"]')).toBeNull();
+    expect(rootHost.querySelector('[data-tab="a"] [data-testid="receiver-target-marks-header"]')).not.toBeNull();
+    expect(rootHost.querySelector('[data-tab="b"] [data-testid="receiver-target-marks-header"]')).toBeNull();
 
     current = menuState({ "real-receiver": "tab-b" });
     await act(async () => {
@@ -127,8 +138,8 @@ describe("receiver_target_mark", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(rootHost.querySelector('[data-testid="receiver-target-marks-composer"]')).toBeNull();
-    expect(rootHost.querySelector('[data-testid="receiver-target-marks-header"]')).not.toBeNull();
+    expect(rootHost.querySelector('[data-tab="a"] [data-testid="receiver-target-marks-header"]')).toBeNull();
+    expect(rootHost.querySelector('[data-tab="b"] [data-testid="receiver-target-marks-header"]')).not.toBeNull();
 
     current = menuState({});
     await act(async () => {
@@ -136,8 +147,8 @@ describe("receiver_target_mark", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(rootHost.querySelector('[data-testid="receiver-target-marks-composer"]')).toBeNull();
-    expect(rootHost.querySelector('[data-testid="receiver-target-marks-header"]')).toBeNull();
+    expect(rootHost.querySelector('[data-tab="a"] [data-testid="receiver-target-marks-header"]')).toBeNull();
+    expect(rootHost.querySelector('[data-tab="b"] [data-testid="receiver-target-marks-header"]')).toBeNull();
     cleanup(root, rootHost);
     __setPluginTabMenuForTest({ items: [], receiverTargets: {} }, host);
   });
@@ -159,17 +170,23 @@ describe("receiver_target_mark", () => {
     const root = createRoot(rootHost);
     function LiveSurface() {
       const menu = usePluginTabMenu();
-      return <ReceiverTargetMarks menu={menu} tabId="tab-a" surface="composer" />;
+      return <ReceiverTargetMarks menu={menu} tabId="tab-a" surface="header" />;
     }
     await act(async () => root.render(<LiveSurface />));
     await flush();
     const mark = rootHost.querySelector<HTMLButtonElement>("button[data-receiver-plugin-id]");
-    expect(mark?.title).toBe("Detach real-receiver receiver from this tab");
     expect(mark?.disabled).toBe(false);
     await act(async () => {
       mark?.click();
       await Promise.resolve();
       await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls).toEqual([]);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => {
+      const detach = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(button => button.textContent?.startsWith("Detach"));
+      detach?.click();
       await Promise.resolve();
     });
     expect(calls).toEqual([{ pluginId: "real-receiver", itemId: "receiver-target", tabId: "tab-a" }]);

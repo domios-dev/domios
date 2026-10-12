@@ -21,6 +21,7 @@ struct Tracked {
     manifest_mtime: SystemTime,
     entry_mtime: SystemTime,
     config_mtime: SystemTime,
+    grants_mtime: SystemTime,
 }
 
 /// The file state a load was attempted against. A load that cannot succeed is
@@ -57,6 +58,7 @@ pub struct CapabilityRegistries {
     pub chat_preprocessor: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
     pub agent_command: crate::agent_commands::AgentCommandRegistryHandle,
     pub webhook_receiver: crate::webhook::WebhookRegistryHandle,
+    pub local_recording: crate::local_recording::LocalRecordingRegistryHandle,
     pub tab_menu: crate::tab_menu::TabMenuRegistryHandle,
     pub surfaces: crate::surfaces::SurfaceRegistryHandle,
     pub secret: Option<Arc<dyn SecretBackendRegistrar>>,
@@ -183,6 +185,10 @@ impl CapabilityRegistries {
                 ),
             );
         }
+        if let Some(trigger) = &caps.local_recording_trigger {
+            self.local_recording
+                .register(id, trigger.clone(), vm.local_recording_allowed());
+        }
         if !caps.tab_menu.is_empty() {
             self.tab_menu
                 .register(id.clone(), Arc::new(caps.tab_menu.clone()));
@@ -233,6 +239,7 @@ impl CapabilityRegistries {
         self.chat_preprocessor.unregister(id);
         self.agent_command.unregister(id);
         self.webhook_receiver.unregister(id);
+        self.local_recording.unregister(id);
         self.tab_menu.unregister(id);
         self.surfaces.unregister(id);
     }
@@ -381,6 +388,7 @@ impl HotReloadRegistry {
                         manifest_mtime: mtime_or_epoch(manifest_path),
                         entry_mtime: mtime_or_epoch(&entry_path),
                         config_mtime: config_mtime_for(manifest_path, &manifest.id),
+                        grants_mtime: grants_mtime_for(manifest_path),
                     },
                 );
                 activated.insert(manifest.id);
@@ -741,10 +749,14 @@ impl HotReloadRegistry {
             let manifest_changed = path_changed || prev.manifest_mtime != manifest_mtime;
             let entry_changed = path_changed || prev.entry_mtime != entry_mtime;
             let config_changed = prev.config_mtime != config_mtime;
-            if !manifest_changed && !entry_changed && !config_changed {
+            let grants_changed = prev.grants_mtime != grants_mtime_for(manifest_path);
+            if grants_changed {
+                self.caps.local_recording.unregister(&manifest.id);
+            }
+            if !manifest_changed && !entry_changed && !config_changed && !grants_changed {
                 return Some(manifest.id);
             }
-            if config_changed && !manifest_changed && !entry_changed {
+            if config_changed && !manifest_changed && !entry_changed && !grants_changed {
                 if let Some(vm) = self.existing_vm(&manifest.id) {
                     let settings = manifest_path
                         .parent()
@@ -796,6 +808,7 @@ impl HotReloadRegistry {
                             manifest_mtime,
                             entry_mtime,
                             config_mtime,
+                            grants_mtime: grants_mtime_for(manifest_path),
                         },
                     );
                     log::info!(
@@ -845,6 +858,7 @@ impl HotReloadRegistry {
                         manifest_mtime,
                         entry_mtime,
                         config_mtime,
+                        grants_mtime: grants_mtime_for(manifest_path),
                     },
                 );
                 crate::audit::append_daemon_reloaded(&id, &version);
@@ -935,6 +949,13 @@ fn config_mtime_for(manifest_path: &std::path::Path, plugin_id: &str) -> SystemT
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
+fn grants_mtime_for(manifest_path: &std::path::Path) -> SystemTime {
+    manifest_path
+        .parent()
+        .map(|dir| mtime_or_epoch(&super::grants::grants_path(dir)))
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
 fn warn_stage_conflicts(
     transcribers: &crate::transcribe::TranscribeRegistry,
     preprocessors: &dyn crate::chatpreprocessor::ChatPreprocessorPort,
@@ -969,6 +990,8 @@ mod agent_verb_tests;
 mod converter_tests;
 #[cfg(test)]
 mod keep_on_failure_tests;
+#[cfg(test)]
+mod recording_tests;
 #[cfg(test)]
 mod surface_tests;
 #[cfg(test)]

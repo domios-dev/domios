@@ -666,6 +666,8 @@ pub struct PermissionsConfig {
     pub analytics: bool,
     #[serde(default, rename = "graph_events", alias = "graphEvents")]
     pub graph_events: bool,
+    #[serde(default, rename = "local_recording", alias = "localRecording")]
+    pub local_recording: bool,
 }
 
 #[cfg(test)]
