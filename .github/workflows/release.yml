@@ -1,14 +1,16 @@
 name: Release
 run-name: Release ${{ inputs.tag || github.ref_name }}
 
+# Every push to release/X.Y.Z is the release: the full test matrix and every platform build run in
+# parallel, and publication waits for all of them. Only the owner account's pushes start it.
 on:
   push:
-    tags:
-      - 'release-*'
+    branches:
+      - 'release/**'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release trigger tag to build (release-X.Y.Z); with dry_run, a branch such as release/X.Y.Z'
+        description: 'Release branch release/X.Y.Z (or vX.Y.Z) to build; with dry_run, any branch'
         required: true
         type: string
       mirror:
@@ -26,6 +28,7 @@ permissions:
   actions: read
   contents: write
   issues: write
+  pull-requests: write
 
 concurrency:
   group: release-${{ inputs.dry_run && 'dry-run-' || '' }}${{ inputs.tag || github.ref_name }}
@@ -34,6 +37,7 @@ concurrency:
 jobs:
   prepare:
     name: prepare release
+    if: github.event_name != 'push' || github.actor == 'rollacode'
     runs-on: [self-hosted, linux-build]
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -41,6 +45,8 @@ jobs:
       source_sha: ${{ steps.release.outputs.source_sha }}
       mirror: ${{ steps.release.outputs.mirror }}
       dry_run: ${{ steps.release.outputs.dry_run }}
+      published: ${{ steps.release.outputs.published }}
+      branch: ${{ steps.release.outputs.branch }}
     steps:
       - name: Checkout release source
         uses: actions/checkout@v5
@@ -61,42 +67,51 @@ jobs:
           MIRROR_INPUT: ${{ inputs.mirror }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
           EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
+          # Builders check out this exact SHA, so a newer push can never leak into this run.
+          sha=$(git rev-parse HEAD)
+          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$sha" >> "$GITHUB_OUTPUT"
+          echo "published=false" >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = true ]; then
-            # A dry run proves the bundles before the tag exists, so the version comes from the ref.
             version=$(node -p "require('./package.json').version")
             echo "tag=v$version" >> "$GITHUB_OUTPUT"
-            echo "source_ref=$REQUESTED_REF" >> "$GITHUB_OUTPUT"
-            echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            echo "branch=" >> "$GITHUB_OUTPUT"
             echo "mirror=false" >> "$GITHUB_OUTPUT"
             echo "dry_run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           case "$REQUESTED_REF" in
-            release-*) version="${REQUESTED_REF#release-}" ;;
+            release/*) version="${REQUESTED_REF#release/}" ;;
             v*) version="${REQUESTED_REF#v}" ;;
-            *) echo "::error::expected release-X.Y.Z or vX.Y.Z (got '$REQUESTED_REF')"; exit 1 ;;
+            *) echo "::error::expected release/X.Y.Z or vX.Y.Z (got '$REQUESTED_REF')"; exit 1 ;;
           esac
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::tag must identify a stable X.Y.Z version (got '$REQUESTED_REF')"
+            echo "::error::the release branch must be release/X.Y.Z (got '$REQUESTED_REF')"
             exit 1
           fi
-          if [ "$EVENT_NAME" = push ] && [ "$REQUESTED_REF" != "release-$version" ]; then
-            echo "::error::tag pushes must use release-X.Y.Z"
+          committed=$(node -p "require('./package.json').version")
+          if [ "$committed" != "$version" ]; then
+            echo "::error::release/$version carries version $committed; run npm run sync:versions for $version on the branch"
             exit 1
+          fi
+          if [ "$(gh release view "v$version" --repo "$SOURCE_REPO" --json isDraft --jq .isDraft 2>/dev/null)" = false ]; then
+            echo "::notice::v$version is already published; a further change needs release/X.Y.(Z+1)"
+            echo "published=true" >> "$GITHUB_OUTPUT"
           fi
           mirror=true
           if [ "$EVENT_NAME" = workflow_dispatch ]; then mirror="$MIRROR_INPUT"; fi
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "source_ref=$REQUESTED_REF" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=release/$version" >> "$GITHUB_OUTPUT"
           echo "mirror=$mirror" >> "$GITHUB_OUTPUT"
           echo "dry_run=false" >> "$GITHUB_OUTPUT"
 
       - name: Create draft releases before parallel uploads
-        if: steps.release.outputs.dry_run != 'true'
+        if: steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -126,7 +141,7 @@ jobs:
   tests:
     name: full release test matrix
     needs: prepare
-    if: needs.prepare.outputs.dry_run != 'true'
+    if: needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
@@ -134,6 +149,7 @@ jobs:
   macos-linux-arm64:
     name: macOS + Linux arm64
     needs: prepare
+    if: needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/release-builder.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -145,6 +161,7 @@ jobs:
   linux-x86_64:
     name: Linux x86_64
     needs: prepare
+    if: needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/release-linux.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -156,6 +173,7 @@ jobs:
   windows:
     name: Windows x64 + arm64
     needs: prepare
+    if: needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/release-windows.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -167,7 +185,7 @@ jobs:
   release-manifest:
     name: release manifest, mirror, and verification
     needs: [prepare, macos-linux-arm64, linux-x86_64, windows, tests]
-    if: needs.prepare.outputs.dry_run != 'true'
+    if: needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -175,3 +193,49 @@ jobs:
       source_sha: ${{ needs.prepare.outputs.source_sha }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
     secrets: inherit
+
+  promote:
+    name: merge the release into master and develop
+    needs: [prepare, release-manifest]
+    if: needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'
+    runs-on: [self-hosted, Linux, light]
+    env:
+      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      REPO: ${{ github.repository }}
+      BRANCH: ${{ needs.prepare.outputs.branch }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+      - name: Merge the release PR into master
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            pr=$(gh pr create --repo "$REPO" --base master --head "$BRANCH" --title "release: ${TAG#v}" \
+              --body "Release $TAG, published by the release run." | grep -oE '[0-9]+$')
+          fi
+          gh pr merge "$pr" --repo "$REPO" --merge
+          git fetch origin master
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/master
+      - name: Merge master back into develop
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin master
+          if git ls-remote --exit-code --heads origin develop >/dev/null; then
+            git fetch origin develop
+            git checkout -B develop origin/develop
+            git merge --no-ff origin/master -m "Merge master after $TAG into develop"
+          else
+            git checkout -B develop origin/master
+          fi
+          git push origin develop
+          git push origin --delete "$BRANCH"

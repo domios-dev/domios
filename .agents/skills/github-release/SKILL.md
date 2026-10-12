@@ -10,19 +10,25 @@ description: >-
 
 # End-to-end Domios release to GitHub
 
-## Choose the release type first
+## Branches and the release flow (since 1.14.4)
 
-| What changed | Release | Reaches installed apps through |
+| Branch | What lands there | CI |
 |---|---|---|
-| Only `src/`, `packages/` and other frontend inputs | frontend release `frontend-vX.Y.Z` | `frontend-latest` discovery, no app reinstall |
-| Only `plugins/<id>/` | plugin release `plugin-<id>-vX.Y.Z` | the official plugin channel |
-| Any Rust (`src-tauri/`, `cli/`), including the frontend downloader itself | app release `release-X.Y.Z` | the app updater (`latest.json`) |
+| `develop` | every work PR (Worker lanes, fixes, features); may break | fast checks on each PR |
+| `release/X.Y.Z` | cut from `develop`; release fixes go straight onto it | every push by `rollacode` is the release run |
+| `master` | only released code: the release PR, merged by the release run after publication | `master accepts only release branches` is red for any other source |
 
-All work collects on one `release/X.Y.Z` branch. When it is ready, the diff since the last release decides: any Rust means an app release, which bundles the frontend, so "both" is an app release; frontend only means a frontend release; plugins release separately. Start frontend lanes from `origin/master`, never from an integration branch.
+1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). The nightly schedule runs the full matrix on `develop`.
+2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
+3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. The full test matrix (`tests.yml` via `workflow_call`, every platform) and every bundle build run in parallel from the exact pushed SHA; a newer push cancels the run.
+4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
+5. **One branch, one version.** After publication a further change needs `release/X.Y.(Z+1)`.
 
-**Versions are one shared sequence.** Every app or frontend release takes the next number, so an app never accepts an older bundled frontend: app 1.14.4 bundles frontend 1.14.4, a frontend-only 1.14.5 follows, the next app is 1.14.6. A patch release takes the next patch automatically. A minor or major release (1.15.0) is chosen only by naming the branch `release/1.15.0`; the app, CLI, frontend contract and lockfiles all follow that name.
+**Which release.** Any Rust (`src-tauri/`, `cli/`) since the last release means an app release, which bundles the frontend; frontend-only changes can ship as a frontend release (below); plugins release separately. Start frontend lanes from `develop`.
 
-**CI on the release PR is fast checks only:** `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata, a few minutes on light runners. `scripts/ci-scope.mjs` sets `heavy=false` for a PR from `release/*`, so the Rust and CLI matrix on every platform runs only once, inside the tag run.
+**Versions are one shared sequence.** Every app or frontend release takes the next number, so an app never accepts an older bundled frontend. A patch release takes the next patch. A minor or major release is chosen only by the branch name, for example `release/1.15.0`; the app, CLI, frontend contract and lockfiles follow it.
+
+**Protection.** This private repo has no rulesets on the free plan, so the owner-account guard in `release.yml` and the red `master accepts only release branches` check are the enforcement; with GitHub Pro, add rulesets restricting `release/*` creation and `master` merges to `rollacode`.
 
 ## Independent frontend release
 
@@ -53,29 +59,14 @@ If a plugin check reports "Vitest failed to access its internal state", its Vite
 
 ## Application release
 
-**Default since 1.14.4 = one tag on the ready release branch head; that run is both the test gate
-and the bundle build.** The pipeline: bump version on `release/X.Y.Z` → merge `origin/master` into it
-→ sync versions → open the release PR → when the branch is ready, tag its head `release-X.Y.Z`. The
-release run then starts, in parallel, the full test matrix (`tests.yml` through `workflow_call`, every
-platform, scope forced to full) and every platform bundle build: macOS arm64+x86_64 and Linux arm64 on
-eight, Linux x86_64 on ubunta, Windows x64 on BLACKSTAR and arm64 on ROG. `release-manifest` needs
-the tests and every build; only when all are green does it stamp the release tag, publish both
-GitHub releases and upload the signed `latest.json`. A red test or build publishes nothing: fix it
-with a new commit on the branch, move the unpublished tag to the new head, and push it again. After
-publication and verification, merge the release PR into master with a merge commit. PR CI on the
-release PR is advisory; there is no separate bundle dry run. The manual per-platform steps further
-down are the fallback for when the runners are down.
-
-**Golden rule: tag only a release branch head that already contains `origin/master`,** so the merge
-after publication cannot change the released tree and master receives exactly the released commit
-as an ancestor. Never move a tag whose release is published.
+**Default since 1.14.4: a push to `release/X.Y.Z` is the release.** See "Branches and the release flow" above. The sections below cover runners, credentials, versioning and the manual fallback.
 
 ---
 
-## ⚡ Default release path: single trigger tag (automated, self-hosted CI)
+## ⚡ Default release path: a push to release/X.Y.Z (automated, self-hosted CI)
 
-One push of `release-X.Y.Z` starts one `.github/workflows/release.yml` run. It prepares draft
-releases, then runs three reusable platform jobs in parallel: Mac `codeterm-builder` builds
+Each push of `release/X.Y.Z` by `rollacode` starts one `.github/workflows/release.yml` run. It prepares draft
+releases, then runs the full test matrix and three reusable platform jobs in parallel: Mac `codeterm-builder` builds
 macOS and arm64 Linux, Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
 builds x86_64 Linux. A final `release-manifest` job needs all three jobs, merges their updater
 fragments, publishes the signed public manifests, marks the releases, verifies served bytes, and
@@ -84,7 +75,7 @@ own tag runs. Each platform job clears incomplete upload slots before building, 
 can be rerun by itself. Self-hosted runner minutes are free, so releases do not burn GitHub-hosted
 minutes.
 
-For a manual build, dispatch `release.yml` with the same `release-X.Y.Z` tag. Set `mirror` false
+For a manual build, dispatch `release.yml` with `tag=release/X.Y.Z`. Set `mirror` false
 only for a dry run; it leaves the private release draft unpublished and skips public verification.
 
 **Normal change flow:** verify the UI from the main checkout on `release/X.Y.Z`, clean old lane
@@ -139,38 +130,37 @@ curl -s http://127.0.0.1:7686/api/health
 Start dev from this main checkout and visually inspect the release UI before opening the release
 PR. Do not cut a release from a lane worktree or a stale dev build.
 
-**To cut a release — on the ready release branch head, push only the trigger tag:**
+**To cut a release:**
 
 ```bash
-PR=<release-pr-number>
+VER=X.Y.Z
 git fetch origin --prune
-HEAD_SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid)
-test "$(git rev-parse "origin/release/$VER")" = "$HEAD_SHA"
-git merge-base --is-ancestor origin/master "$HEAD_SHA"          # branch already contains master
-gh pr view "$PR" --json mergeable -q .mergeable                 # must print MERGEABLE
-git tag "release-$VER" "$HEAD_SHA" && git push origin "release-$VER"
+git checkout -B "release/$VER" origin/develop
+# edit package.json "version" to $VER, then:
+npm run sync:versions
+cargo update --workspace --offline --manifest-path src-tauri/Cargo.toml
+cargo update --workspace --offline --manifest-path cli/Cargo.toml
+npm run check:versions && node scripts/check-release-locks.mjs
+git commit -am "release: v$VER" && git push -u origin "release/$VER"   # this push starts the release
+gh pr create --base master --head "release/$VER" --title "release: $VER" --body-file <release-notes.md>
 ```
 
-If the run goes red, nothing is published. Fix on the branch, then move the unpublished tag:
-`git tag -f "release-$VER" <new-head> && git push --force origin "release-$VER"`, only while
-`gh release view "v$VER" --json isDraft -q .isDraft` prints `true` or the release does not exist.
+Do **not** create or push any tag. The release run stamps `vX.Y.Z` on the released SHA itself, after every gate is green.
 
-Do **not** create or push a separate `vX.Y.Z` tag for the normal path. The workflows build from
-the `release-X.Y.Z` tag and publish/stamp/map the GitHub releases as `vX.Y.Z` themselves.
-
-After the release run publishes and verification passes, merge the release PR with a merge commit,
-confirm the tag is an ancestor of master, then delete the branch:
+After publication the `promote` job merges the release PR into `master` (merge commit), verifies the
+released SHA is an ancestor of master, merges `master` back into `develop` and deletes the branch. If
+`promote` fails (for example the token cannot push workflow files), do the same by hand:
 
 ```bash
-gh pr merge "$PR" --merge
-git fetch origin && git merge-base --is-ancestor "release-$VER" origin/master
+gh pr merge <release-pr> --merge
+git fetch origin && git merge-base --is-ancestor "v$VER" origin/master
+git checkout -B develop origin/develop && git merge --no-ff origin/master && git push origin develop
 git push origin --delete "release/$VER"
 ```
 
-No new commit may land on `release/X.Y.Z` between tagging and merging. A fix found after publication
-is a new patch release through the normal flow.
+A fix found after publication is a new patch release through the normal flow.
 
-Pushing `release-X.Y.Z` creates one Actions run. After release preparation, its Mac + arm64 Linux,
+A push to `release/X.Y.Z` creates one Actions run. After release preparation, its Mac + arm64 Linux,
 x86_64 Linux, and Windows build jobs run in parallel. The Mac job signs and notarizes macOS
 artifacts; Linux jobs package AppImage and Debian assets; Windows builds the NSIS installers. The
 final `release-manifest` job runs only after all platform jobs succeed. It merges every updater
@@ -193,12 +183,11 @@ End-to-end ≈ 25–30 min, hands-off. Watch the single run: `gh run watch --rep
 - macOS signing/notary + `~/.tauri/codeterm.key` on the build machine (secrets table below).
 
 If a stage fails before publishing: `gh run view <id> --log-failed`, fix the runner/build-farm issue,
-and rerun the same workflow/tag only when the tag still points at the intended master SHA. Rerun only
+and push a fix to the release branch, or rerun the run when the failure was environmental. Rerun only
 the failed platform (`gh run rerun <id> --failed`); each platform job clears its own incomplete
 uploads, so the green platforms keep their assets. Do not
 move or overwrite a published release tag/artifact by default. If a public bad release was deleted
-intentionally, cut the correction as a new patch version through the normal PR flow, then push only
-the new `release-X.Y.Z` trigger tag.
+intentionally, cut the correction as a new patch version through the normal flow.
 
 > **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
 > you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
@@ -322,10 +311,9 @@ git diff --check               # whitespace; not owned by preflight
 test/lint matrix, so a green `check` says nothing about whether CI will pass.
 Commit both lockfiles before preflight, so the gate runs on the SHA you will merge.
 
-**No separate bundle dry run.** The tag run is both the full test matrix and the bundle build: a
+**No separate bundle dry run.** The release run is both the full test matrix and the bundle build: a
 bundle or test failure (1.12.1 failed in all three bundle jobs) now fails before anything is
-published or merged, and the fix lands on the release branch as a new commit under the moved,
-still-unpublished tag. Use the dry run
+published or merged, and the fix lands on the release branch as a new commit. Use the dry run
 (`gh workflow run release.yml --ref "release/$VER" -f tag="release/$VER" -f dry_run=true -f mirror=false`)
 only to debug a bundle job, never as a routine step, because it builds every platform a second time.
 
@@ -351,20 +339,19 @@ merged, explicitly recorded as superseded, or deferred before the master PR.
 Patch-equivalent stale refs are not ancestry proof and must not be silently
 deleted without that superseded record.
 
-### 2. Tag the release branch head, publish, then merge to master
+### 2. Push the release branch, publish, then merge to master
 
-**Always via PR on GitHub** — never direct-push `release/X.Y.Z` to master. The tag run is the test
-gate and the bundle build; PR CI is advisory and need not finish first.
+**Always via the release PR** — never direct-push to `master`. The release run is the test gate and
+the bundle build; the release PR shows fast checks only.
 
 ```bash
-bash scripts/check-release-runners.sh                                  # every release runner online
-git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"  # must be empty
-# Then run the tag commands from "To cut a release" above: they prove the PR head is green,
-# mergeable and contains origin/master before pushing release-$VER on it.
+bash scripts/check-release-runners.sh                  # every release runner online
+git ls-remote --tags origin "refs/tags/v$VER"          # must be empty
+git push origin "release/$VER"                         # starts the release run
 ```
 
-Do **not** create or push `v$VER` here. The release workflows create/update the private and
-public GitHub releases under `v$VER` and map the updater metadata there.
+Do **not** create or push `v$VER`. The release workflows create the private and public GitHub
+releases under `v$VER`, stamp the tag after every gate, and map the updater metadata there.
 
 After publication and verification, merge the PR with a merge commit and delete the branch, as
 shown in "To cut a release".

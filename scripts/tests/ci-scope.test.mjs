@@ -73,7 +73,7 @@ test("release calls force all host gates even for empty, docs, frontend or plugi
   }
 });
 
-test("a release PR keeps fast checks but leaves the heavy Rust and CLI matrix to its tag run", () => {
+test("a pull request keeps fast checks but leaves the heavy Rust and CLI matrix to the release run", () => {
   for (const files of [["src-tauri/src/lib.rs"], ["src-tauri/src/lib.rs", "src/App.tsx"], ["unknown.txt"]]) {
     const scope = scopeForRun(files, plugins, false, true);
     assert.equal(scope.rust, classifyPaths(files, plugins).rust);
@@ -105,14 +105,14 @@ test("workflow wiring skips Rust jobs for frontend diffs and preserves generated
   }
 });
 
-test("workflow wiring runs only fast checks on a release PR", () => {
-  const releasePr = scopeForRun(["src-tauri/src/lib.rs", "src/App.tsx"], plugins, false, true);
+test("workflow wiring runs only fast checks on pull requests", () => {
+  const pullRequest = scopeForRun(["src-tauri/src/lib.rs", "src/App.tsx"], plugins, false, true);
   for (const job of ["rust-linux", "rust-macos", "rust-windows", "cli-linux", "cli-macos", "cli-windows", "clippy-linux"]) {
-    assert.equal(jobRuns(job, releasePr), false, job);
+    assert.equal(jobRuns(job, pullRequest), false, job);
   }
   for (const job of ["fmt", "ts-plugins", "release-contracts", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
-    assert.equal(jobRuns(job, releasePr), true, job);
+    assert.equal(jobRuns(job, pullRequest), true, job);
   }
-  assert.match(workflow, /^          CI_RELEASE_PR: \$\{\{ github\.event_name == 'pull_request' && startsWith\(github\.head_ref, 'release\/'\) \}\}$/m);
+  assert.match(workflow, /^          CI_FAST_ONLY: \$\{\{ github\.event_name == 'pull_request' \}\}$/m);
   assert.match(workflow, /^      heavy: \$\{\{ steps\.tree\.outputs\.run == 'true' && steps\.scope\.outputs\.heavy == 'true' \}\}$/m);
 });
