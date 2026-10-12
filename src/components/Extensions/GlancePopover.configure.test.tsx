@@ -17,6 +17,7 @@ async function main() {
     import("./GlancePopover"),
   ]);
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "plugin_manager_snapshot") return { plugins: [{ id: "telegram-client", capabilities: { glance_view: true } }] } as T;
     if (command === "plugin_glance") return { title: "Telegram Client", nodes: [] } as T;
     if (command === "get_config") return {} as T;
     throw new Error(`unexpected invoke: ${command}`);
