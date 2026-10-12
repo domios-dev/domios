@@ -8,9 +8,14 @@ permissions:
   contents: read
   pull-requests: read
 
+# A newer push or body edit supersedes the previous check of the same PR.
+concurrency:
+  group: ready-for-release-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    runs-on: [self-hosted, linux-build]
+    runs-on: [self-hosted, light]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
