@@ -23,6 +23,13 @@ describe("request boundary", () => {
   it("returns 403 without a cookie", async () => {
     expect((await GET(new NextRequest("https://admin.example/api/users?q=local-user"))).status).toBe(403);
   });
+  it("returns 403 for list reads and invalid pagination is rejected", async () => {
+    expect((await GET(new NextRequest("https://admin.example/api/users?pageSize=25"))).status).toBe(403);
+    backend.sessions.set("admin", backend.tokens.get("id")!);
+    const list = await GET(new NextRequest("https://admin.example/api/users?pageSize=25", { headers: { cookie: `${SESSION_COOKIE}=admin` } }));
+    expect(list.status).toBe(200); expect((await list.json()).users).toHaveLength(2);
+    expect((await GET(new NextRequest("https://admin.example/api/users?pageSize=26", { headers: { cookie: `${SESSION_COOKIE}=admin` } }))).status).toBe(400);
+  });
   it("creates a host-only secure session and reads persisted user detail", async () => {
     const response = await POST(new Request("https://admin.example/api/session", {
       method: "POST", headers: { origin: "https://admin.example" }, body: JSON.stringify({ token: "id" }),
