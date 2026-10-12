@@ -48,6 +48,7 @@ mod plan_task_rpc;
 mod plan_time;
 pub(crate) mod protocol;
 mod receiver_target;
+mod remote_worker_policy;
 pub(crate) mod rest_api;
 mod safety_nudge;
 mod services;

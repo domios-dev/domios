@@ -401,6 +401,58 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn worker_dispatch_status_recovers_spawn_and_refuses_foreign_attempt() {
+        let (state, lane, _, _root, fixture) = bundle_fixture("peer-origin");
+        let tab_id = {
+            let mut mux = fixture.service.mux.write();
+            let tab_id = mux.all_tabs().next().unwrap().id.clone();
+            mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce = Some("worker-nonce".into());
+            tab_id
+        };
+        let mut request = super::MeshWorkerDispatchRequest {
+            repository_identity: lane.repository_identity,
+            repository_identities: lane.repository_identities,
+            base_commit: lane.base_commit,
+            plan_id: lane.plan_id,
+            task_id: lane.task_id,
+            attempt_id: lane.attempt_id,
+            origin_tab_id: "origin".into(),
+            provider: "provider".into(),
+            model: None,
+            reasoning_effort: None,
+            brief: String::new(),
+        };
+        let response = super::observed_worker_dispatch(&state, "peer-origin", &request)
+            .unwrap()
+            .0;
+        assert_eq!(response["worker_tab_id"], tab_id);
+        assert_eq!(response["session_binding_nonce"], "worker-nonce");
+        assert_eq!(response["branch"], "lane/remote-test");
+        assert_eq!(response["base_commit"], request.base_commit);
+        request.attempt_id = "foreign-attempt".into();
+        assert_eq!(
+            super::observed_worker_dispatch(&state, "peer-origin", &request)
+                .unwrap_err()
+                .0,
+            axum::http::StatusCode::NOT_FOUND
+        );
+        state
+            .mesh
+            .lock()
+            .paired_peers
+            .get_mut("peer-origin")
+            .unwrap()
+            .access_level = AccessLevel::ReadOnly;
+        assert_eq!(
+            super::observed_worker_dispatch(&state, "peer-origin", &request)
+                .unwrap_err()
+                .0,
+            axum::http::StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
     fn worker_lane_bundle_size_cap_rejects_oversize_without_allocating_bundle() {
         assert!(lane_bundle_size_allowed(
             MAX_LANE_BUNDLE_BYTES,
@@ -653,7 +705,14 @@ fn dispatch_authenticated_worker(
             ));
         }
     };
+    let nonce = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&result.tab_id)
+        .and_then(|tab| tab.session_binding_nonce.clone());
     Ok(Json(serde_json::json!({
+        "session_binding_nonce": nonce,
         "state": "awaiting_worker_ack",
         "peer_id": state.mesh.lock().ident.identity.instance_id,
         "worker_tab_id": result.tab_id,
@@ -662,5 +721,80 @@ fn dispatch_authenticated_worker(
         "worktree_path": provenance.worktree_path,
         "base_commit": provenance.base,
         "repository_identity": request.repository_identity,
+    })))
+}
+
+pub async fn mesh_worker_dispatch_status(
+    AxumState(state): AxumState<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<MeshWorkerDispatchRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let peer_id = super::relay::check_mesh_relay_auth(&state, &headers)?;
+    tokio::task::spawn_blocking(move || observed_worker_dispatch(&state, &peer_id, &request))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
+fn observed_worker_dispatch(
+    state: &AppState,
+    peer_id: &str,
+    request: &MeshWorkerDispatchRequest,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !state
+        .mesh
+        .lock()
+        .paired_peers
+        .get(peer_id)
+        .is_some_and(|peer| super::peer_has_full_access(Some(&peer.access_level)))
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "worker dispatch status requires Full mesh access".into(),
+        ));
+    }
+    let worker = {
+        let mux = state.svc.mux.read();
+        mux.all_tabs().find_map(|tab| {
+            let binding = tab.task_binding.as_ref()?;
+            if binding.plan_id.as_deref() != Some(&request.plan_id)
+                || binding.task_id.as_deref() != Some(&request.task_id)
+                || binding.attempt_id.as_deref() != Some(&request.attempt_id)
+                || tab.report_target_mesh_peer.as_deref() != Some(peer_id)
+            {
+                return None;
+            }
+            Some((
+                tab.id.clone(),
+                tab.provisioned_cwd.clone().or_else(|| tab.cwd.clone())?,
+                tab.session_binding_nonce.clone()?,
+            ))
+        })
+    };
+    let (tab_id, cwd, nonce) = worker.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            "remote worker attempt not found".into(),
+        )
+    })?;
+    if !crate::service::worker_lane::repository_matches(
+        &cwd,
+        &request.repository_identities,
+        &request.repository_identity,
+    ) || !crate::service::worker_lane::contains_commit(&cwd, &request.base_commit)
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            "remote worker lane does not match dispatch".into(),
+        ));
+    }
+    let branch = crate::service::worker_lane::current_branch(&cwd)
+        .map_err(|error| (StatusCode::CONFLICT, error))?;
+    Ok(Json(serde_json::json!({
+        "worker_tab_id": tab_id,
+        "session_binding_nonce": nonce,
+        "state": "awaiting_worker_ack",
+        "branch": branch,
+        "worktree_path": cwd,
+        "base_commit": request.base_commit,
     })))
 }

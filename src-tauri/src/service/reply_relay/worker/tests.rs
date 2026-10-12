@@ -388,13 +388,13 @@ fn tool_less_host_startup_requires_exact_fresh_session_evidence_and_never_cli_ha
     for task_bound in [false, true] {
         assert!(
             crate::service::launch_delivery::startup_starter_prompt_for_class(
-                true, task_bound, true
+                true, task_bound, true, true
             )
             .is_none()
         );
     }
     assert!(
-        crate::service::launch_delivery::startup_starter_prompt_for_class(true, false, false)
+        crate::service::launch_delivery::startup_starter_prompt_for_class(true, false, false, true)
             .is_some()
     );
 }

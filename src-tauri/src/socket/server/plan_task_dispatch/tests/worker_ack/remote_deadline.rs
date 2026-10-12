@@ -46,6 +46,7 @@ fn remote_dispatch_attempt(
             "D:/peer/lane",
             "base-sha",
             "codex",
+            "worker-nonce",
             4,
         )
         .unwrap();
