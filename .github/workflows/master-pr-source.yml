@@ -1,0 +1,29 @@
+name: master accepts only release branches
+
+# Work lands on develop; master receives only release/X.Y.Z, merged by the release run after
+# publication. A pull request into master from any other branch is red here.
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: master PR comes from release/X.Y.Z
+    runs-on: [self-hosted, Linux, light]
+    timeout-minutes: 2
+    steps:
+      - name: Require a release branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::master accepts only release/X.Y.Z; open this pull request against develop (head was '$HEAD_REF')"
+            exit 1
+          fi
+          echo "release branch $HEAD_REF"

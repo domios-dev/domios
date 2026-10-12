@@ -465,19 +465,24 @@ pub async fn close_tab(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     if let Some(caller_tab_id) = caller_tab_header(&headers) {
-        let result = crate::dispatch::dispatch(
-            &crate::dispatch::Command::TabClose {
+        let result = crate::dispatch::dispatch_blocking(
+            crate::dispatch::Command::TabClose {
                 tab_id,
                 caller_tab_id: Some(caller_tab_id),
                 force: query.force,
             },
-            state.svc.as_ref(),
+            state.svc.clone(),
         )
+        .await
         .map_err(map_close_error)?;
         return Ok(Json(result.into_json()));
     }
     let warnings = state.svc.busy_worker_close_warnings_for(&tab_id);
-    state.svc.close_tab(&tab_id).map_err(map_close_error)?;
+    state
+        .svc
+        .close_tab_async(&tab_id)
+        .await
+        .map_err(map_close_error)?;
     let mut result = serde_json::json!({ "ok": true });
     if !warnings.is_empty() {
         result["warnings"] = serde_json::json!(warnings);

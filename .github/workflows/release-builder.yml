@@ -75,23 +75,9 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         run: bash scripts/check-release-credentials-mac.sh
 
-      - name: Stamp the v${{ steps.ver.outputs.ver }} build tag at the release commit
-        env:
-          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+      - name: Stamp the local build tag at the release commit
         run: |
-          # build-all.sh bundles a vX.Y.Z ref from THIS checkout. origin's tag wins when it exists;
-          # otherwise HEAD is tagged, replacing any local tag an earlier dry run left behind.
-          TAG="${{ steps.ver.outputs.tag }}"
-          if [ "$DRY_RUN" != true ] && git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          else
-            git tag -fa "$TAG" HEAD -m "$TAG"
-            if [ "$DRY_RUN" != true ]; then
-              git push origin "$TAG" 2>/dev/null \
-                || echo "::warning::could not push $TAG to origin — building from the local tag"
-            fi
-          fi
-          echo "✅ $TAG -> $(git rev-parse --short "$TAG^{commit}")"
+          git tag -fa "${{ steps.ver.outputs.tag }}" HEAD -m "${{ steps.ver.outputs.tag }}"
 
       - name: Ensure Docker is running (Linux engines)
         run: |

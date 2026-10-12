@@ -128,7 +128,7 @@ class SingleRunGraphTest(unittest.TestCase):
 
         final = caller[caller.index("  release-manifest:") :]
         self.assertIn(
-            "needs: [prepare, macos-linux-arm64, linux-x86_64, windows]", final
+            "needs: [prepare, macos-linux-arm64, linux-x86_64, windows, tests]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
@@ -274,7 +274,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos-linux-arm64, linux-x86_64, windows]",
+            "needs: [prepare, macos-linux-arm64, linux-x86_64, windows, tests]",
             caller[manifest_job:],
         )
 

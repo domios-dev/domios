@@ -432,11 +432,14 @@ pub async fn mesh_relay_to_peer(
             return Ok(answered_by(refusal));
         }
     }
-    crate::api::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &req.body)
+    let mut relay_body = req.body;
+    crate::service::mesh_artifacts::transfer(&client, &req.method, &req.path, &mut relay_body)
+        .await
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
+    crate::api::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &relay_body)
         .await
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
     let delivery_id = relay_send_delivery_id(&req.method, &req.path);
-    let mut relay_body = req.body;
     enrich_spawn_ownership(&state, &req.method, &req.path, &mut relay_body);
     let cmd = crate::mesh::types::RelayCommand {
         method: req.method,
@@ -858,9 +861,18 @@ fn relay_error_summary(status: u16, data: &serde_json::Value) -> String {
 }
 
 /// The only two cursor'd SSE streams a relay target may serve. Both carry D1
-/// frames unmodified so the browser's `?since=` resume works over the relay.
+/// frames unmodified, including surface state, frames and notices.
 fn is_streamable_relay_path(bare: &str) -> bool {
     matches!(bare, "/api/events/stream" | "/api/output/stream")
+        || surface_stream_tab(bare).is_some()
+}
+
+fn surface_stream_tab(path: &str) -> Option<&str> {
+    let tab = path
+        .strip_prefix("/api/surfaces/")?
+        .strip_suffix("/stream")?;
+    (!tab.is_empty() && !tab.contains('/') && !tab.contains('\\') && tab != "." && tab != "..")
+        .then_some(tab)
 }
 
 /// Read-only plugin-UI asset paths (peer `/api/plugins/{id}/ui/...`). Never a
@@ -974,6 +986,16 @@ pub async fn mesh_relay_stream(
         )
     })?;
     if !resp.status().is_success() {
+        if surface_stream_tab(bare).is_some() {
+            let status = resp.status();
+            let body = resp.text().await.map_err(|error| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("Surface stream refusal could not be read: {error}"),
+                )
+            })?;
+            return Err((status, body));
+        }
         return Err((
             StatusCode::BAD_GATEWAY,
             format!("peer-unreachable: HTTP {}", resp.status().as_u16()),
@@ -993,7 +1015,14 @@ pub async fn mesh_relay_stream(
     } else {
         Body::from_stream(track(
             resp.bytes_stream(),
-            StreamGuard::relayed(StreamKind::Events, q.peer.clone()),
+            StreamGuard::relayed(
+                if surface_stream_tab(bare).is_some() {
+                    StreamKind::Surface
+                } else {
+                    StreamKind::Events
+                },
+                q.peer.clone(),
+            ),
         ))
     };
     let mut out = Response::new(body);

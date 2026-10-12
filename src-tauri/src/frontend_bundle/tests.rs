@@ -585,6 +585,20 @@ fn stored_releases_not_newer_than_the_app_frontend_are_retired() {
 }
 
 #[test]
+fn signed_asset_redirects_are_followed_but_published_urls_stay_query_free() {
+    let signed = "https://release-assets.githubusercontent.com/github-production-release-asset/1/2?sp=r&sv=2018-11-09&sig=opaque";
+    assert!(manifest::validate_redirect_url(signed, false).is_ok());
+    assert!(manifest::validate_url(signed, false).is_err());
+    for unsafe_redirect in [
+        "http://release-assets.githubusercontent.com/a?sig=opaque",
+        "https://user:pass@release-assets.githubusercontent.com/a?sig=opaque",
+        "https://release-assets.githubusercontent.com/a?sig=opaque#fragment",
+    ] {
+        assert!(manifest::validate_redirect_url(unsafe_redirect, false).is_err());
+    }
+}
+
+#[test]
 fn bundled_frontend_version_matches_the_release_contract() {
     let contract: serde_json::Value =
         serde_json::from_str(include_str!("../../../frontend-release-contract.json")).unwrap();

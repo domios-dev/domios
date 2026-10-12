@@ -25,7 +25,7 @@ const recorded = [
 {
   const parsed = parseCodexUserContent(recorded);
   assert.equal(parsed.text, "");
-  assert.deepEqual(parsed.images, [{ name: "[Image #1]", path: PATH, mediaType: "image/png", data: null }]);
+  assert.deepEqual(parsed.images, [{ name: "[Image #1]", path: PATH, mediaType: "image/png", data: "iVBORw0KGgo=" }]);
 }
 
 {
@@ -80,9 +80,20 @@ const captioned = JSON.stringify({
 for (const parser of parsers) {
   const [imageOnly, withText] = JSON.parse(JSON.stringify(parser.parseSessionDelta(`${line}\n${captioned}\n`).messages));
   assert.equal(imageOnly.role, "user");
-  assert.deepEqual(imageOnly.blocks, [{ kind: "image", data: { source: { media_type: "image/png", path: PATH } } }]);
+  assert.deepEqual(imageOnly.blocks, [{ kind: "image", data: { source: { media_type: "image/png", path: PATH, data: "iVBORw0KGgo=" } } }]);
   assert.deepEqual(withText.blocks.map((block) => block.kind), ["text", "image"]);
   assert.equal(withText.blocks[0].data.text, "look");
 }
 
 console.log("codex user image tests passed");
+
+{
+  const data = "A".repeat(717_520);
+  const parsed = parseCodexUserContent([
+    { type: "input_text", text: OPEN },
+    { type: "input_image", image_url: `data:image/png;base64,${data}` },
+    { type: "input_text", text: "</image>" },
+  ]);
+  assert.equal(parsed.images[0].path, PATH);
+  assert.equal(parsed.images[0].data, data);
+}

@@ -280,6 +280,36 @@ async fn lark_recording_contract_production_enable_uses_injected_readiness_bound
         .unwrap();
 }
 
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn lark_recording_contract_enable_without_devices_emits_setup_status() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let registry = &fixture.service.local_recording_registry;
+    registry.register("trigger", declaration(), true);
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let listener = fixture
+        ._app
+        .listen_any("local-recording-status", move |event| {
+            let value = serde_json::from_str::<serde_json::Value>(event.payload()).unwrap();
+            event_tx.send(value).unwrap();
+        });
+
+    let (status, completion) = fixture
+        .service
+        .local_recording_set_enabled_with_adapter("trigger", true, platform::production_adapter())
+        .unwrap();
+    assert!(completion.is_none());
+    let event = event_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(event["pluginId"], "trigger");
+    assert_eq!(event["generation"], status.generation);
+    assert_eq!(event["granted"], true);
+    assert_eq!(event["enabled"], true);
+    assert_eq!(event["devicesSelected"], false);
+    assert_eq!(event["available"], false);
+    fixture._app.unlisten(listener);
+}
+
 #[tokio::test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_capture() {

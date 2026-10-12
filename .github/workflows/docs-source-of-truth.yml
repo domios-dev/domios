@@ -9,6 +9,7 @@ on:
       - "prod-docs/**"
       - "src-tauri/prompts/**"
       - "src-tauri/src/prompts.rs"
+      - "src-tauri/src/api/**"
       - "CLAUDE.md"
       - "AGENTS.md"
       - "scripts/check-*.sh"
@@ -18,9 +19,18 @@ on:
     branches:
       - 'release/**'
       - master
-    paths-ignore:
-      - '.codeterm/build-machine/**'
-      - '.github/workflows/release*.yml'
+    paths:
+      - "essences/**"
+      - ".agents/skills/**"
+      - "prod-docs/**"
+      - "src-tauri/prompts/**"
+      - "src-tauri/src/prompts.rs"
+      - "src-tauri/src/api/**"
+      - "CLAUDE.md"
+      - "AGENTS.md"
+      - "scripts/check-*.sh"
+      - "evals/**"
+      - ".github/workflows/docs-source-of-truth.yml"
 
 concurrency:
   group: docs-source-of-truth-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}

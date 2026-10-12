@@ -113,6 +113,15 @@ pub fn verify_metadata(
 }
 
 pub fn validate_url(value: &str, allow_loopback: bool) -> Result<(), String> {
+    validate(value, allow_loopback, false)
+}
+
+/// GitHub serves release assets through signed redirect URLs whose query carries the grant.
+pub fn validate_redirect_url(value: &str, allow_loopback: bool) -> Result<(), String> {
+    validate(value, allow_loopback, true)
+}
+
+fn validate(value: &str, allow_loopback: bool, allow_query: bool) -> Result<(), String> {
     let url = url::Url::parse(value).map_err(|e| e.to_string())?;
     let loopback = match url.host() {
         Some(url::Host::Domain(host)) => host == "localhost",
@@ -124,7 +133,7 @@ pub fn validate_url(value: &str, allow_loopback: bool) -> Result<(), String> {
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()
-        || url.query().is_some()
+        || (!allow_query && url.query().is_some())
         || !(url.scheme() == "https" || (allow_loopback && loopback && url.scheme() == "http"))
     {
         return Err("Frontend URL requires HTTPS or explicit DEV loopback".into());

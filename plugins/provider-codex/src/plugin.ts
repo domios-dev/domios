@@ -1,3 +1,4 @@
+import { codexToolOutputText } from "./toolOutput";
 import {parseSessionObservations} from "./signals";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import type {
@@ -1033,22 +1034,6 @@ function sessionIntentFromPayload(payload: CodexPayload): Record<string, string>
     ...(title ? { title } : {}),
     ...(goal ? { goal } : {}),
   };
-}
-
-function codexToolOutputText(output: unknown): string {
-  if (typeof output === "string") return output;
-  if (Array.isArray(output)) {
-    const text: string[] = [];
-    for (let i = 0; i < output.length; i++) {
-      const item = output[i];
-      if (item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string") {
-        text.push((item as { text: string }).text);
-      }
-    }
-    if (text.length > 0) return text.join("");
-  }
-  if (output == null) return "";
-  return typeof output === "object" ? JSON.stringify(output) : String(output);
 }
 
 function validateEntry(v: CodexEntry): boolean {

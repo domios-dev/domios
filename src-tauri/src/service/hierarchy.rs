@@ -5,6 +5,7 @@ pub(crate) mod heartbeat_gate;
 pub(crate) mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
+mod remote_report;
 #[cfg(test)]
 mod report_attribution;
 mod report_delivery;
@@ -1036,66 +1037,6 @@ impl ServiceContext {
             }
         });
         Ok(())
-    }
-
-    /// Fire-and-forget delivery of a report to a tab (id or `main`/`general`
-    /// alias) on a paired mesh peer. Resolves the peer by instance name or id,
-    /// then rides the same signed relay the CLI `--mesh` send uses; the peer's
-    /// relay ingress stamps the authenticated origin so the report renders as
-    /// `[Report from <worker>@<peer>]`. Errors are logged, never surfaced — the
-    /// report is already stored locally and the reporter must not block.
-    fn relay_report_to_peer(
-        &self,
-        peer: String,
-        target_tab: String,
-        from_title: String,
-        from_tab: String,
-        model: Option<String>,
-        body: String,
-    ) {
-        let client = {
-            let mesh_handle = self.app_handle.state::<crate::MeshStateHandle>();
-            let mesh = mesh_handle.lock();
-            resolve_peer_client_by_name(&mesh, &peer)
-        };
-        let Some(client) = client else {
-            log::warn!(
-                "[report/mesh] no paired peer named '{}' — report from {} stored only",
-                peer,
-                from_tab
-            );
-            return;
-        };
-        let mut send_body = serde_json::json!({
-            "text": body,
-            "source_tab": from_tab,
-            "source_label": from_title,
-            "kind": "report",
-            "enter": true,
-        });
-        if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
-            send_body["source_model"] = serde_json::json!(m);
-        }
-        let cmd = crate::mesh::types::RelayCommand {
-            method: "POST".into(),
-            path: format!("/api/tabs/{}/send", target_tab),
-            body: send_body,
-            // At-most-once: a report is one logical send; dedupe by this id so a
-            // relay retry can never double-post it into the target tab.
-            delivery_id: Some(uuid::Uuid::new_v4().to_string()),
-        };
-        tauri::async_runtime::spawn(async move {
-            match client.send_relay(&cmd).await {
-                Ok(r) if r.ok => log::info!("[report/mesh] delivered to {}/{}", peer, target_tab),
-                Ok(r) => log::warn!(
-                    "[report/mesh] {} rejected report to {}: {:?}",
-                    peer,
-                    target_tab,
-                    r.error
-                ),
-                Err(e) => log::warn!("[report/mesh] relay to {} failed: {}", peer, e),
-            }
-        });
     }
 
     pub fn get_reports(&self, tab_id: &str) -> Vec<serde_json::Value> {

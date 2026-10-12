@@ -28,6 +28,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/launch-session.test.ts
       plugins/provider-claude/tests/account-home.test.ts
       plugins/provider-claude/tests/pre-trust.test.ts
+      plugins/provider-claude/tests/image-metadata.test.ts
       plugins/provider-codex/tests/access-errors.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/resume-compatibility.test.ts
@@ -98,6 +99,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/launch-session.test.ts
       plugins/provider-claude/tests/account-home.test.ts
       plugins/provider-claude/tests/pre-trust.test.ts
+      plugins/provider-claude/tests/image-metadata.test.ts
     )
     ;;
   provider-codex)

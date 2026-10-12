@@ -705,6 +705,36 @@ fn transport_failure_emits_chat_send_failed_event() {
 }
 
 #[test]
+fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../plugins/provider-codex/plugin.json"
+    ))
+    .unwrap();
+    let requires_instruction = manifest["spawn"]["pasteCapability"]
+        ["requiresTypedInstructionForRoutedMessages"]
+        .as_bool()
+        .unwrap_or(false);
+    assert!(!requires_instruction);
+
+    let frame = codeterm_types::domios::DomiosFrame {
+        opening_tag: codeterm_types::domios::build_opening_tag(&[
+            ("from", "tab"),
+            ("label", "sender"),
+            ("tab", "abc12345"),
+        ]),
+        body: "opaque first line\nopaque second line".into(),
+        suffix: " [opaque hint]".into(),
+    };
+    let input = super::prepare_routed_input(&frame, requires_instruction);
+    assert_eq!(input.body, frame.to_message());
+    assert_eq!(input.typed_prefix, None);
+    assert_eq!(input.typed_suffix, None);
+    let parsed = codeterm_types::domios::parse_message(&input.body).unwrap();
+    assert_eq!(parsed.attr("tab"), Some("abc12345"));
+    assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
+}
+
+#[test]
 fn restored_structured_turn_routes_one_complete_pasted_frame() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
