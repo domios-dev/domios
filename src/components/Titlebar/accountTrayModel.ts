@@ -9,6 +9,6 @@ export function accountTrayModel(account: AccountModel, plan: PlanModel | null) 
       plan: plan ? `${plan.plan} (${plan.status})${plan.stale ? " · stale" : ""}` : "Plan unavailable",
       name: `Account: ${identity}` };
   }
-  return { kind: account.kind, name: account.kind === "pending" ? "Signing in or loading account" : "Sign in",
+  return { kind: account.kind, name: account.kind === "pending" ? "Signing in or loading account" : "Account",
     disabled: account.kind === "pending", error: account.kind === "error" ? account.message : null };
 }

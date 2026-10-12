@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { accountTrayModel } from "./accountTrayModel";
 const out = accountTrayModel({kind:"signed_out"}, null);
-assert.equal(out.name, "Sign in");
+assert.equal(out.name, "Account");
 assert.equal(out.disabled, false);
 assert.equal(accountTrayModel({kind:"pending"}, null).disabled, true);
 assert.equal(accountTrayModel({kind:"error",message:"Request failed"}, null).error, "Request failed");

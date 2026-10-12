@@ -6,7 +6,7 @@ mod loopback;
 
 pub use account::{Account, Status};
 use async_trait::async_trait;
-pub use flow::{Callback, LoginFlow, Redemption};
+pub use flow::{Callback, LoginFlow, LoginHint, LoginMode, LoginProvider, Redemption};
 pub use loopback::Loopback;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
