@@ -5,14 +5,12 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage"]
+members = [".", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
 [dependencies]
-minisign-verify = "0.2"
-flate2 = "1"
-tar = "0.4"
+codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
 tempfile = "3"
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run

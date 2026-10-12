@@ -1,6 +1,7 @@
 use super::manifest::{Manifest, VerifiedManifest};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use subtle::ConstantTimeEq;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -133,7 +134,7 @@ impl Activation {
                 .is_some_and(|m| m.release_id == release)
         {
             let claim = self.active_claims.get_mut(client).ok_or("Foreign client")?;
-            if !crate::service::tokens::constant_time_eq(claim.token.as_bytes(), token.as_bytes()) {
+            if !bool::from(claim.token.as_bytes().ct_eq(token.as_bytes())) {
                 return Err("Foreign health token".into());
             }
             claim.rendered = true;
@@ -144,7 +145,7 @@ impl Activation {
             return Err("Stale release generation".into());
         }
         let claim = loading.clients.get_mut(client).ok_or("Foreign client")?;
-        if !crate::service::tokens::constant_time_eq(claim.token.as_bytes(), token.as_bytes()) {
+        if !bool::from(claim.token.as_bytes().ct_eq(token.as_bytes())) {
             return Err("Foreign health token".into());
         }
         claim.rendered = true;

@@ -1,7 +1,4 @@
-use crate::{
-    api::{auth::is_local_caller, routes::AppState},
-    frontend_bundle::FrontendBundles,
-};
+use crate::api::{auth::is_local_caller, routes::AppState};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -9,6 +6,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use codeterm_frontend_bundle::FrontendBundles;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -246,7 +244,10 @@ async fn observer() -> Response {
             ("Cache-Control", "no-store"),
             ("X-Content-Type-Options", "nosniff"),
         ],
-        include_str!("../frontend_bundle/observer.js"),
+        codeterm_frontend_bundle::OBSERVER_SCRIPT,
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod tests;
