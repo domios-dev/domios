@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.14.4"
+version = "1.14.6"
 edition = "2021"
 
 [[bin]]
