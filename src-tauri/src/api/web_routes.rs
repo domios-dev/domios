@@ -841,7 +841,7 @@ pub async fn plugin_glance(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(req): Json<GlanceReq>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<Option<codeterm_plugin::view::GlanceView>>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     crate::commands::plugins::glance_render(
         &state.svc.glance_registry,
