@@ -9,6 +9,7 @@ import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { AnalyticsTray } from "./AnalyticsTray";
+import { AccountTray } from "./AccountTray";
 import { SettingsMenu } from "./SettingsMenu";
 import type { SectionId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
@@ -149,6 +150,7 @@ export function Titlebar({
         {onOpenSettings && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />
+            <AccountTray />
             <SettingsMenu onOpenSection={onOpenSettings} />
           </>
         )}

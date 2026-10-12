@@ -25,3 +25,17 @@ impl BillingProvider for Local {
         self.route("billing/portal")
     }
 }
+
+pub struct Unavailable;
+#[async_trait]
+impl BillingProvider for Unavailable {
+    async fn entitlements(&self, _: &Session) -> Result<Entitlements> {
+        Ok(Entitlements::default())
+    }
+    async fn checkout_url(&self, _: &Session, _: &str) -> Result<url::Url> {
+        Err("Cloud billing is unavailable: no build-time endpoint configured".into())
+    }
+    async fn portal_url(&self, _: &Session) -> Result<url::Url> {
+        Err("Cloud billing is unavailable: no build-time endpoint configured".into())
+    }
+}

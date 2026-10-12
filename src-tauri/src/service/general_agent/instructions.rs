@@ -150,7 +150,48 @@ pub(super) fn render_system_prompt(
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) -> String {
-    render_agent_md(provider_name, &render_wake_up_section(mem))
+    compose_general_prompt_at(
+        &general_dir(),
+        provider_name,
+        &render_wake_up_section(mem),
+        runtime_capability_hints(&general_dir()).as_deref(),
+    )
+}
+
+fn runtime_capability_hints(dir: &std::path::Path) -> Option<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let first_seen = match super::state::first_seen_at(dir, now) {
+        Ok(first_seen) => first_seen,
+        Err(error) => {
+            log::warn!("[general-agent] first-seen state unavailable: {error}");
+            return None;
+        }
+    };
+    super::capability_hints::build(
+        &crate::service::plugin_prompt::capability_hints(),
+        now,
+        first_seen,
+        crate::config::load_config().general_agent.capability_hints,
+    )
+}
+
+fn compose_general_prompt_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    wake_up: &str,
+    fragment: Option<&str>,
+) -> String {
+    append_capability_hints(render_agent_md_at(dir, provider_name, wake_up), fragment)
+}
+
+fn append_capability_hints(mut prompt: String, fragment: Option<&str>) -> String {
+    if let Some(fragment) = fragment {
+        prompt.push_str(fragment);
+    }
+    prompt
 }
 
 fn compose_system_prompt(agent: &str) -> String {
@@ -311,7 +352,12 @@ fn generate_instructions_at(
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) {
     let wake_up_section = render_wake_up_section(mem);
-    let agent_content = render_agent_md_at(dir, provider_name, &wake_up_section);
+    let agent_content = compose_general_prompt_at(
+        dir,
+        provider_name,
+        &wake_up_section,
+        runtime_capability_hints(dir).as_deref(),
+    );
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
         log::error!("[general-agent] Failed to write AGENT.md: {}", e);
@@ -348,6 +394,33 @@ fn rewrite_user_file(path: &std::path::Path, render: impl FnOnce(&str) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capability_hint_fragment_reaches_general_prompt_only_in_window_and_when_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = render_agent_md_at(dir.path(), "OPAQUE_PROVIDER", "");
+        let capabilities = [super::super::capability_hints::Capability {
+            id: "OPAQUE_CAPABILITY".into(),
+            purpose: "OPAQUE_PURPOSE".into(),
+        }];
+        let fragment = super::super::capability_hints::build(&capabilities, 0, 0, true).unwrap();
+        let inside = compose_general_prompt_at(dir.path(), "OPAQUE_PROVIDER", "", Some(&fragment));
+        assert_eq!(inside, format!("{base}{fragment}"));
+        for (now, enabled) in [
+            (super::super::capability_hints::FIRST_WEEK_SECONDS, true),
+            (0, false),
+        ] {
+            let absent = super::super::capability_hints::build(&capabilities, now, 0, enabled);
+            assert_eq!(
+                compose_general_prompt_at(dir.path(), "OPAQUE_PROVIDER", "", absent.as_deref()),
+                base
+            );
+        }
+        assert_eq!(
+            append_capability_hints(base.clone(), Some("OPAQUE_FRAGMENT")),
+            format!("{base}OPAQUE_FRAGMENT")
+        );
+    }
 
     #[test]
     fn general_agent_memory_management_fragment_is_composed_once() {
@@ -467,7 +540,8 @@ mod tests {
 
     #[test]
     fn general_system_prompt_composes_each_runtime_contract_once_without_bootstrap() {
-        let rendered = render_system_prompt("codex", None);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = compose_general_prompt_at(dir.path(), "codex", "", None);
         assert_eq!(
             rendered
                 .matches(crate::prompts::CODETERM_RULE.trim())
@@ -689,7 +763,8 @@ mod tests {
 
     #[test]
     fn general_agent_contract_preserves_memory_recall_save_graph_semantics() {
-        let rendered = render_system_prompt("codex", None);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = compose_general_prompt_at(dir.path(), "codex", "", None);
         assert_eq!(
             rendered.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
             1,
