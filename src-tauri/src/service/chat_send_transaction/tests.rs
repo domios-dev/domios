@@ -910,3 +910,29 @@ fn model_command_hold_is_queued_until_written_and_exact_turn_delivered() {
     assert_eq!(delivered[0].send_id, held.send_id);
     assert!(confirm("session-1", "nonce-1", &provenance).is_empty());
 }
+
+#[test]
+fn failed_user_admission_restore_is_retried_before_next_reservation() {
+    let ledger = ChatSendLedger::default();
+    let attempts = std::cell::Cell::new(0);
+    let admit = || {
+        ledger.restore_before_user_admission("tab-1", || {
+            attempts.set(attempts.get() + 1);
+            if attempts.get() == 1 {
+                Err("opaque-transient-storage-error".into())
+            } else {
+                Ok(())
+            }
+        })?;
+        Ok::<_, String>(ledger.reserve_identity())
+    };
+
+    assert_eq!(admit().unwrap_err(), "opaque-transient-storage-error");
+    assert_eq!(attempts.get(), 1);
+    let first = admit().unwrap();
+    assert_eq!(attempts.get(), 2);
+    let second = admit().unwrap();
+    assert_eq!(attempts.get(), 2);
+    assert_ne!(first.0, second.0);
+    assert_eq!(second.1, first.1 + 1);
+}
