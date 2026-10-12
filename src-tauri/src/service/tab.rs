@@ -257,6 +257,21 @@ impl ServiceContext {
         busy_worker_close_warnings(tab_id, &self.in_progress_assignments_for_tab(tab_id))
     }
 
+    pub(crate) async fn close_tab_async(&self, tab_id: &str) -> Result<(), String> {
+        self.close_tab_with_reason_async(tab_id, TabCloseReason::User)
+            .await
+    }
+
+    pub(crate) async fn close_tab_with_reason_async(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
+        let svc = self.clone();
+        let tab_id = tab_id.to_string();
+        super::blocking::run(move || svc.close_tab_with_reason(&tab_id, reason)).await
+    }
+
     pub fn close_tab(&self, tab_id: &str) -> Result<(), String> {
         self.close_tab_with_reason(tab_id, TabCloseReason::User)
     }
