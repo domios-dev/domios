@@ -73,6 +73,7 @@ impl Config {
 pub mod amplitude;
 pub mod console;
 pub mod fake;
+pub mod local;
 pub mod off;
 
 use crate::{AnalyticsSink, SecretReader};
@@ -84,6 +85,6 @@ pub fn from_config(
     match config.mode {
         Mode::Off => Ok(Box::new(off::Off)),
         Mode::Console => Ok(Box::new(console::Console)),
-        Mode::Amplitude => Ok(Box::new(amplitude::Http::new(config, secrets)?)),
+        Mode::Amplitude => Ok(Box::new(local::Local::new(config, secrets))),
     }
 }

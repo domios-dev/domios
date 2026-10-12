@@ -4,6 +4,7 @@ use tokio::sync::{oneshot, Mutex};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Status {
+    pub provider: String,
     pub identity: Option<Identity>,
     pub pending: bool,
 }
@@ -38,6 +39,7 @@ impl Account {
     pub async fn status(&self) -> Status {
         let state = self.state.lock().await;
         Status {
+            provider: self.provider.id().into(),
             identity: state.session.as_ref().map(|s| s.identity.clone()),
             pending: state.busy,
         }
@@ -53,6 +55,13 @@ impl Account {
         Ok(Completion { sender, request })
     }
     pub async fn login(self: &Arc<Self>, browser: &dyn Browser) -> Result<Status> {
+        self.login_with_hint(browser, LoginHint::default()).await
+    }
+    pub async fn login_with_hint(
+        self: &Arc<Self>,
+        browser: &dyn Browser,
+        hint: LoginHint,
+    ) -> Result<Status> {
         let _operation = self.operation.try_lock().map_err(|_| Error::Pending)?;
         let generation = {
             let mut state = self.state.lock().await;
@@ -62,7 +71,7 @@ impl Account {
         let result = tokio::time::timeout(self.deadline, async {
             let loopback = if self.provider.needs_browser_callback() { Some(Loopback::bind().await?) } else { None };
             let redirect = match &loopback { Some(listener) => listener.redirect()?, None => "domios://auth/callback".into() };
-            let flow = LoginFlow::new(redirect);
+            let flow = LoginFlow::new(redirect).with_hint(hint);
             let start = self.provider.start_login(&flow).await?;
             let tokens = match start {
                 LoginStart::Immediate(tokens) => tokens,

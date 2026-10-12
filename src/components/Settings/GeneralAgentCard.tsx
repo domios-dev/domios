@@ -4,6 +4,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { Button } from "../shared/Button";
 import { SettingsCard, Toggle } from "./shared";
 import type { AppConfig } from "../../lib/types";
+import { capabilityHintsEnabled, capabilityHintsPatch } from "./generalAgentSettingsModel";
 
 interface GeneralAgentCardProps {
   config: AppConfig;
@@ -23,6 +24,11 @@ export function GeneralAgentCard({ config, onUpdate }: GeneralAgentCardProps) {
         label="Enable General Agent"
         checked={config.general_agent?.enabled ?? true}
         onChange={(v) => onUpdate("general_agent", { enabled: v })}
+      />
+      <Toggle
+        label="Suggest Domios features I have when relevant"
+        checked={capabilityHintsEnabled(config.general_agent)}
+        onChange={(enabled) => onUpdate("general_agent", capabilityHintsPatch(enabled))}
       />
       {config.general_agent?.enabled && (
         <div className="flex items-center justify-between">

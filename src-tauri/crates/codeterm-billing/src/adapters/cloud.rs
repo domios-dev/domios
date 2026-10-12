@@ -7,6 +7,22 @@ pub struct Cloud {
     client: reqwest::Client,
 }
 impl Cloud {
+    pub fn configured(override_url: Option<&str>) -> Result<std::sync::Arc<dyn BillingProvider>> {
+        Self::configured_from(override_url, crate::build_config::functions_url())
+    }
+    fn configured_from(
+        override_url: Option<&str>,
+        build_url: Option<&str>,
+    ) -> Result<std::sync::Arc<dyn BillingProvider>> {
+        let endpoint = override_url
+            .filter(|value| !value.trim().is_empty())
+            .or(build_url);
+        match endpoint {
+            Some(endpoint) => Ok(std::sync::Arc::new(Self::new(endpoint)?)),
+            None => Ok(std::sync::Arc::new(super::local::Unavailable)),
+        }
+    }
+
     pub fn new(base: &str) -> Result<Self> {
         let base = url::Url::parse(base).map_err(|_| "Invalid billing endpoint")?;
         if base.scheme() != "https"
@@ -96,5 +112,34 @@ impl BillingProvider for Cloud {
     async fn portal_url(&self, session: &Session) -> Result<url::Url> {
         self.browser_url(session, "createPortalSession", serde_json::json!({}))
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn build_endpoint_missing_uses_local_free_and_honest_actions() {
+        let local = Cloud::configured_from(None, None).unwrap();
+        let session = Session {
+            identity: codeterm_account::Identity {
+                uid: "user".into(),
+                email: None,
+                display_name: None,
+                provider: "local".into(),
+            },
+            id_token: codeterm_account::Secret::new("test-token"),
+        };
+        assert_eq!(
+            local.entitlements(&session).await.unwrap(),
+            Entitlements::default()
+        );
+        assert!(local
+            .portal_url(&session)
+            .await
+            .unwrap_err()
+            .contains("unavailable"));
+        assert!(Cloud::configured_from(None, Some("https://example.test/")).is_ok());
+        assert!(Cloud::configured_from(Some("https://override.test/"), Some("invalid")).is_ok());
     }
 }

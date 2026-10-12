@@ -5,7 +5,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { initializeTestEnvironment, assertFails, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { FirebaseAuthProvider, FirebaseDataProvider } from "../src/adapters/firebase";
 import { createAdminSession, grantAdminClaim } from "../src/domain/auth";
 import { AdminService } from "../src/domain/service";
@@ -85,6 +85,46 @@ describe("persisted entitlement and audit transaction", () => {
         await assertFails(getDoc(ref)); await assertFails(setDoc(ref, { source: "admin" }));
       }
     }
+  });
+  it("lists stable Auth pages with one bounded profile lookup per page", async () => {
+    const targets = Array.from({ length: 28 }, () => `page-${randomUUID()}`);
+    await Promise.all(targets.map(uid => auth.createUser({ uid })));
+    await db.doc(`users/${targets[0]}`).set({ fixture: true });
+    const listing = vi.spyOn(auth, "listUsers"); const profiles = vi.spyOn(db, "getAll");
+    const first = await service.list(cookie, 25);
+    expect(first.users).toHaveLength(25); expect(first.nextPageToken).toBeDefined();
+    expect(listing).toHaveBeenCalledTimes(1); expect(listing).toHaveBeenCalledWith(25, undefined);
+    expect(profiles.mock.calls[0]).toHaveLength(25);
+    const second = await service.list(cookie, 25, first.nextPageToken);
+    expect(new Set([...first.users, ...second.users].map(user => user.uid)).size).toBe(first.users.length + second.users.length);
+    expect(await service.list(cookie, 25)).toEqual(first);
+    expect([...first.users, ...second.users].find(user => user.uid === targets[0])?.hasProfile).toBe(true);
+    listing.mockRestore(); profiles.mockRestore();
+    await Promise.all(targets.map(uid => auth.deleteUser(uid)));
+  });
+  it("account changes persist Auth state, revocation and append-only audit", async () => {
+    const target = `account-${randomUUID()}`;
+    const email = `${target}@example.com`;
+    await auth.createUser({ uid: target, email });
+    await auth.setCustomUserClaims(target, { beta: true });
+    const revoke = vi.spyOn(auth, "revokeRefreshTokens");
+    for (const action of ["disable", "enable", "grant-admin", "revoke-admin"]) {
+      const entry = await service.account(cookie, target, action, "Reviewed support request", { uid: target, email });
+      const record = await auth.getUser(target);
+      expect(record.disabled).toBe(entry.after.disabled);
+      expect(record.customClaims).toEqual(entry.after.claims);
+      expect(record.customClaims?.beta).toBe(true);
+      expect(record.tokensValidAfterTime).toBeDefined();
+      expect((await db.doc(`adminAudit/${entry.id}`).get()).data()).toEqual(entry);
+      await expect(backend.data.appendAccountAudit(entry)).rejects.toThrow();
+    }
+    expect(revoke).toHaveBeenCalledTimes(4); revoke.mockRestore();
+    expect((await db.collection("adminAudit").where("uid", "==", target).get()).size).toBe(4);
+    expect((await auth.getUser(target)).customClaims).toEqual({ beta: true, admin: false });
+    for (const action of ["disable", "enable", "revoke-admin"]) {
+      await expect(service.account(cookie, actor, action, "Self attempt", { uid: actor, email: `${actor}@example.com` })).rejects.toMatchObject({ status: 403 });
+    }
+    await auth.deleteUser(target);
   });
   it("removed admin claim denies reads and writes from an existing session", async () => {
     await auth.setCustomUserClaims(actor, { beta: true });

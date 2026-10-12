@@ -1,3 +1,4 @@
+import { signinHint, hintedAction } from "./hints";
 import { callbackURL, challengeFromQuery } from "../../shared/protocol";
 
 import { authClient, type AuthConfig } from "./adapters";
@@ -20,7 +21,12 @@ async function run(action: () => Promise<void>): Promise<void> {
 }
 
 async function start(): Promise<void> {
-  const challenge = challengeFromQuery(new URLSearchParams(location.search));
+  const query = new URLSearchParams(location.search);
+  const challenge = challengeFromQuery(query);
+  const hint = signinHint(query);
+  const heading = hint.mode === "signup" ? "Create a Domios account" : "Sign in to Domios";
+  document.querySelector("h1")!.textContent = heading;
+  document.title = heading;
   const response = await fetch("config.json", {cache: "no-store"});
   if (!response.ok) throw new Error("Missing configuration");
   const config = await response.json() as AuthConfig;
@@ -59,7 +65,7 @@ async function start(): Promise<void> {
     void run(async () => {
       if (emailLink) return finishEmail();
       const continuation = new URL(location.pathname, location.origin);
-      continuation.search = new URLSearchParams({...challenge}).toString();
+      continuation.search = new URLSearchParams({...challenge, provider:"email",mode:hint.mode}).toString();
       await auth.sendEmail(email.value, continuation.toString());
       sessionStorage.setItem("domios-signin-email", email.value);
       status.textContent = "Open the sign-in link sent to your email to continue.";
@@ -67,7 +73,15 @@ async function start(): Promise<void> {
   });
   providers.hidden = false;
   status.textContent = emailLink ? "Confirm your email address to continue." : "Choose a sign-in method.";
-  if (emailLink && email.value) await run(finishEmail);
+  const action = hintedAction(hint, auth.methods, emailLink);
+  if (action === "finish-email" && email.value) await run(finishEmail);
+  else if (action === "email") {
+    for (const id of ["google", "facebook", "apple", "local"]) document.querySelector<HTMLButtonElement>(`#${id}`)!.hidden = true;
+    email.focus();
+    status.textContent = "Enter your email address to continue.";
+  } else if (action === "google" || action === "facebook") {
+    await run(async () => { await auth.signIn(action); await complete(); });
+  }
 }
 
 void start().catch(() => { status.textContent = "This sign-in request is invalid. Start a new sign-in from Domios."; });

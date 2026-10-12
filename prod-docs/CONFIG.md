@@ -95,6 +95,7 @@ port = 7685
 # token = "your-secret-token"
 
 [general_agent]
+capability_hints = true       # Relevant feature hints during the first week
 enabled = true
 agent_provider = "claude"       # Agent command to use
 auto_restart = true             # Auto-restart on crash
@@ -220,7 +221,7 @@ A `config.toml` that cannot be read or parsed is never treated as empty and neve
 
 ## General Agent
 
-The General Agent is an always-on Claude Code instance in the "General" workspace (`[general_agent]` in the reference above). It handles Telegram messages and cron tasks and acts as the default orchestrator. When enabled, Domios starts with a single protected "General" workspace instead of "Main"; its tab cannot be closed from the UI, and Settings > Agents > General Agent toggles it. Recovery thresholds, owner notifications and provider update behaviour: `codeterm docs TAB-LIFECYCLE`, sections "General Agent recovery" and "Provider updates".
+The General Agent is an always-on Claude Code instance in the "General" workspace (`[general_agent]` in the reference above). It handles Telegram messages and cron tasks and acts as the default orchestrator. When enabled, Domios starts with a single protected "General" workspace instead of "Main"; its tab cannot be closed from the UI, and Settings > Agents > General Agent toggles it. Recovery thresholds, owner notifications and provider update behaviour: `codeterm docs TAB-LIFECYCLE`, sections "General Agent recovery" and "Provider updates". `general_agent.capability_hints` defaults to `true`. Settings exposes “Suggest Domios features I have when relevant”. During the first seven days from the first composed General session on this machine, the prompt carries a bounded installed capability list. The agent mentions a feature only when it directly helps the request, at most once per topic. Turning this off removes that fragment at the next prompt composition; the first-seen time never resets.
 
 ## Worker lane provisioning
 
@@ -234,7 +235,6 @@ Codex structured control is enabled by default in 1.12.4. The provider declares 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider CLI updates run silently on the production instance when its provider has no active turn. Running agents are never restarted; the new CLI applies at their next launch. Results appear in logs and Settings. Disable automatic updates with `updater.auto_update_provider_clis = false` (default: true). Named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`. Declared-incompatible targets are withheld; an updater with declared breaking ranges must pin a supported target.
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `codeterm plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
-
 Domios account sign-in and product analytics settings: `codeterm docs ACCOUNT`.
 
-<!-- revision: 113 -->
+<!-- revision: 115 -->

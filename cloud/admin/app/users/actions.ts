@@ -12,6 +12,18 @@ export async function changeEntitlement(form: FormData) {
   revalidatePath(`/users/${encodeURIComponent(uid)}`);
   redirect(`/users/${encodeURIComponent(uid)}?saved=1`);
 }
+export async function changeAccount(form: FormData) {
+  const cookie = await sessionCookie();
+  const uid = String(form.get("uid") ?? "");
+  await pageResult(() => adminService().account(cookie, uid, String(form.get("action") ?? ""),
+    String(form.get("reason") ?? ""), {
+      uid: form.get("confirmed") === "yes" ? String(form.get("confirmUid") ?? "") : "",
+      email: String(form.get("confirmEmail") ?? ""),
+    }));
+  revalidatePath(`/users/${encodeURIComponent(uid)}`);
+  revalidatePath("/users");
+  redirect(`/users/${encodeURIComponent(uid)}?saved=1`);
+}
 export async function signOut() {
   await pageAdmin();
   (await cookies()).set(SESSION_COOKIE, "", { ...COOKIE_OPTIONS, maxAge: 0 });
