@@ -463,7 +463,7 @@ impl NotificationStore {
         self.conditions.observe_absent(scope, condition);
     }
 
-    pub(crate) fn supersede_question(&mut self, scope: &str, event_key: &str) {
+    pub fn supersede_question(&mut self, scope: &str, event_key: &str) {
         let Some(id) = self
             .question_slots
             .remove(&(scope.to_string(), event_key.to_string()))
@@ -484,7 +484,7 @@ impl NotificationStore {
         self.deliveries.release(&id);
     }
 
-    pub(crate) fn remember_question(&mut self, scope: String, event_key: String, id: &str) {
+    pub fn remember_question(&mut self, scope: String, event_key: String, id: &str) {
         if self
             .notification(id)
             .is_some_and(|record| record.condition.is_none() && record.answer.is_some())
@@ -684,14 +684,6 @@ impl NotificationStore {
             self.notifications.iter().filter(|n| !n.read).collect()
         } else {
             self.notifications.iter().collect()
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_condition(&mut self, id: &str, condition: TabCondition) {
-        if let Some(notification) = self.notifications.iter_mut().find(|n| n.id == id) {
-            notification.condition = Some(condition);
-            self.sync_persisted();
         }
     }
 

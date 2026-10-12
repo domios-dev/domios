@@ -75,7 +75,7 @@ fn resolving_a_stored_prompt_record_disables_its_choices_and_spends_channel_post
         },
         Ask::offering(Some(actions)),
         Some(true),
-        Some(crate::notification::push::NotifyLevel::ActionNeeded),
+        Some(crate::push::NotifyLevel::ActionNeeded),
     );
     store.remember_channel_placement(&id, "telegram", "message-1");
 
@@ -90,7 +90,7 @@ fn resolving_a_stored_prompt_record_disables_its_choices_and_spends_channel_post
     let spent = store
         .spent_question(&id)
         .expect("channel message to update");
-    let rewritten = spent.message_for(crate::notification::push::PushBounds::for_ceiling(4096));
+    let rewritten = spent.message_for(crate::push::PushBounds::for_ceiling(4096));
     assert!(!rewritten.offers_choices());
     assert!(store
         .resolve_prompt_notifications("asking-tab", &identity)
@@ -130,7 +130,7 @@ fn channel_placement_arriving_after_resolution_is_spent_immediately() {
         },
         Ask::offering(Some(vec![action])),
         Some(true),
-        Some(crate::notification::push::NotifyLevel::ActionNeeded),
+        Some(crate::push::NotifyLevel::ActionNeeded),
     );
 
     assert_eq!(
@@ -143,7 +143,7 @@ fn channel_placement_arriving_after_resolution_is_spent_immediately() {
         .expect("receipt for the resolved record returns its spent form");
     assert!(store.notification(&id).unwrap().resolved);
     assert!(!spent
-        .message_for(crate::notification::push::PushBounds::for_ceiling(4096))
+        .message_for(crate::push::PushBounds::for_ceiling(4096))
         .offers_choices());
 }
 
@@ -223,7 +223,7 @@ fn test_notification_with_body_and_tab() {
 /// runtime or a time advance would prove a timer, not the mechanism.
 mod notification_admission {
     use super::*;
-    use crate::notification::push;
+    use crate::push;
     use std::collections::HashSet;
 
     const GENEROUS_LIMIT: u32 = 50;
@@ -610,7 +610,7 @@ mod notification_admission {
 /// record. Payload assembly is covered in `service::notification`.
 mod notification_level_field {
     use super::*;
-    use crate::notification::push;
+    use crate::push;
 
     #[test]
     fn add_ext_stores_the_level_independent_of_severity() {

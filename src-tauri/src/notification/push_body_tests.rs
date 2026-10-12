@@ -5,7 +5,8 @@
 //! ordinary spacing. Both are asserted here, because fixing only the length
 //! would ship a long run-on line and call it done.
 
-use super::*;
+use super::push::*;
+use super::store::NotificationProvenance;
 use crate::notification::channels::{discord, telegram, PushChannel};
 
 const TAB_ID: &str = "tab_7f21c0de";
