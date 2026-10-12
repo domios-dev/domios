@@ -54,10 +54,14 @@ impl PtyTeardownSignal {
     }
 
     pub fn wait_for_completion(&self, deadline: Instant) -> Result<(), String> {
-        self.wait_for_boundary(deadline, true)
+        self.wait_for_boundary(Some(deadline), true)
     }
 
-    fn wait_for_boundary(&self, deadline: Instant, require_cleanup: bool) -> Result<(), String> {
+    fn wait_for_boundary(
+        &self,
+        deadline: Option<Instant>,
+        require_cleanup: bool,
+    ) -> Result<(), String> {
         let mut state = self.state.lock();
         loop {
             if let Some(error) = state.failure.as_ref() {
@@ -70,6 +74,10 @@ impl PtyTeardownSignal {
             ) {
                 return Ok(());
             }
+            let Some(deadline) = deadline else {
+                self.changed.wait(&mut state);
+                continue;
+            };
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err("process tree did not complete before deadline".to_string());
             };
@@ -100,16 +108,20 @@ impl PtyReaper {
     }
 
     pub fn wait_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
-        self.wait_at_boundary(timeout, true)
+        self.wait_at_boundary(Some(timeout), true)
     }
 
     pub fn wait_for_termination_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
-        self.wait_at_boundary(timeout, false)
+        self.wait_at_boundary(Some(timeout), false)
+    }
+
+    pub fn wait_for_termination(self) -> Result<(), String> {
+        self.wait_at_boundary(None, false)
     }
 
     fn wait_at_boundary(
         self,
-        timeout: std::time::Duration,
+        timeout: Option<std::time::Duration>,
         require_cleanup: bool,
     ) -> Result<(), String> {
         self.observe_exit();
@@ -121,7 +133,10 @@ impl PtyReaper {
         }
         self.session
             .teardown
-            .wait_for_boundary(Instant::now() + timeout, require_cleanup)
+            .wait_for_boundary(
+                timeout.map(|timeout| Instant::now() + timeout),
+                require_cleanup,
+            )
             .map_err(|error| format!("PTY {} reap failed: {error}", self.pty_id))?;
         let state = self.session.teardown.state.lock();
         if !require_cleanup && !(state.reader_finished && state.console_closed) {

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useMultiplexer } from "../store/multiplexer";
 import { CheckCircle2, Loader2, RotateCw } from "lucide-react";
 import { useUpdate, type UpdateStatus } from "../hooks/useUpdate";
+import { updateNotice } from "../lib/updateNotice";
 import { BusySpinner } from "./shared/BusyState";
 
 const STATUS_COPY: Record<UpdateStatus, { title: string; body: string }> = {
@@ -18,13 +19,16 @@ const STATUS_COPY: Record<UpdateStatus, { title: string; body: string }> = {
 export function UpdateProgressLayer() {
   const update = useUpdate();
   const { upsertToast } = useMultiplexer();
-  const { status, latestVersion, error, toastOpen, blocking, dismissUpdateToast } = update;
+  const { status, latestVersion, error, toastOpen, blocking, dismissUpdateToast, applyUpdate } = update;
   useEffect(() => {
     if (!toastOpen || blocking) return;
     const copy = STATUS_COPY[status];
-    upsertToast({ id: "app-update", tab_id: null, workspace_id: null, title: latestVersion ? `${copy.title} v${latestVersion}` : copy.title, body: error || copy.body, severity: status === "error" ? "Error" : "Info", level: status === "error" ? "failure" : "verbose" });
+    const notice = updateNotice({ ...copy, latestVersion, error, failed: status === "error" });
+    upsertToast({ id: "app-update", tab_id: null, workspace_id: null, ...notice,
+      local_actions: notice.retry ? [{ label: "Retry", run: () => { void applyUpdate(); } }] : undefined,
+    });
     dismissUpdateToast();
-  }, [status, latestVersion, error, toastOpen, blocking, dismissUpdateToast, upsertToast]);
+  }, [status, latestVersion, error, toastOpen, blocking, dismissUpdateToast, upsertToast, applyUpdate]);
   return blocking ? <UpdateBlockingOverlay /> : null;
 }
 
