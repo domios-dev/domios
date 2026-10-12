@@ -17,6 +17,7 @@ async function main() {
   let enumerations = 0;
   let captures = 0;
   let closed = 0;
+  let proposal: unknown = null;
   const selections: Record<string, unknown>[] = [];
   Object.defineProperty(testWindow.navigator, "mediaDevices", { configurable: true, value: {
     enumerateDevices: async () => {
@@ -28,6 +29,7 @@ async function main() {
   } });
   bridge.__setInvokeForTest(async <T,>(command: string, args: Record<string, unknown> = {}) => {
     if (command === "local_recording_input_devices") return inputs as T;
+    if (command === "plugin_view_call") return proposal as T;
     if (command === "local_recording_select_devices") { selections.push(args); return undefined as T; }
     throw new Error(`unexpected command ${command}`);
   });
@@ -56,7 +58,25 @@ async function main() {
     assert.deepEqual(selections, [{ pluginId: "present", inputId: "exact-input", collectionId: "Col01", microphoneId: "mic-selected" }]);
     assert.equal(closed, 1);
     assert.equal(captures, 0, "explicit setup still records no audio");
-    console.log("LocalRecordingSetup: 3 wiring fixtures passed");
+    proposal = { inputId: "exact-input", collectionId: "Col01", microphoneId: "mic-selected" };
+    await act(async () => root.render(<LocalRecordingSetup pluginId="automatic" onClose={() => closed++} />));
+    assert.deepEqual(selections[selections.length - 1], { pluginId: "automatic", ...proposal as object });
+    assert.equal(selections.length, 2, "automatic setup selects once");
+    assert.equal(closed, 2);
+    assert.equal(captures, 0, "automatic setup acquires no microphone stream");
+    proposal = { inputId: "foreign", collectionId: "Col01", microphoneId: "mic-selected" };
+    await act(async () => root.render(<LocalRecordingSetup pluginId="foreign-proposal" onClose={() => closed++} />));
+    assert.equal(selections.length, 2, "foreign proposal never reaches device selection");
+    assert(container.querySelector('[role="dialog"]'), "invalid automatic proposal falls back to user selection");
+    let resolveProposal!: (value: unknown) => void;
+    proposal = new Promise((resolve) => { resolveProposal = resolve; });
+    await act(async () => root.render(<LocalRecordingSetup pluginId="late-proposal" onClose={() => closed++} />));
+    inputs = [];
+    await act(async () => root.render(<LocalRecordingSetup pluginId="gone" onClose={() => closed++} />));
+    await act(async () => resolveProposal({ inputId: "exact-input", collectionId: "Col01", microphoneId: "mic-selected" }));
+    assert.equal(selections.length, 2, "retired setup cannot apply a late device proposal");
+    assert.equal(closed, 2);
+    console.log("LocalRecordingSetup: 6 wiring fixtures passed");
   } finally {
     await act(async () => root.unmount());
     bridge.__setInvokeForTest(null);

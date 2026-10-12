@@ -1,3 +1,4 @@
+import { isImageDisplayMetadata } from "./imageMetadata";
 import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
@@ -610,6 +611,7 @@ const plugin: PluginModule = {
         }
         continue;
       }
+      if (isImageDisplayMetadata(v)) continue;
       const t = v && v.type;
       let ts: number | null = null;
       if (typeof v.timestamp === "string") {

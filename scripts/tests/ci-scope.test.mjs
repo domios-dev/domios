@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { classifyPaths } from "../ci-scope.mjs";
+import { classifyPaths, scopeForRun } from "../ci-scope.mjs";
 
 const plugins = [{ id: "codex", path: "provider-codex" }, { id: "claude", path: "provider-claude" }];
 const frontendOnly = { frontend: true, rust: false, plugins: [] };
@@ -64,6 +64,24 @@ test("unknown paths conservatively select all host checks", () => {
   }
 });
 
+test("release calls force all host gates even for empty, docs, frontend or plugin changes", () => {
+  for (const files of [[], ["AGENTS.md"], ["src/App.tsx"], ["plugins/provider-codex/plugin.json"]]) {
+    assert.deepEqual(scopeForRun(files, plugins, true), { ...both, heavy: true });
+    assert.deepEqual(scopeForRun(files, plugins, true, true), { ...both, heavy: true });
+    const classified = classifyPaths(files, plugins);
+    assert.deepEqual(scopeForRun(files, plugins), { ...classified, heavy: classified.rust });
+  }
+});
+
+test("a pull request keeps fast checks but leaves the heavy Rust and CLI matrix to the release run", () => {
+  for (const files of [["src-tauri/src/lib.rs"], ["src-tauri/src/lib.rs", "src/App.tsx"], ["unknown.txt"]]) {
+    const scope = scopeForRun(files, plugins, false, true);
+    assert.equal(scope.rust, classifyPaths(files, plugins).rust);
+    assert.equal(scope.heavy, false);
+  }
+  assert.deepEqual(scopeForRun(["src/App.tsx"], plugins, false, true), { ...frontendOnly, heavy: false });
+});
+
 const workflow = readFileSync(new URL("../../.github/workflows/tests.yml", import.meta.url), "utf8");
 const jobConditions = new Map([...workflow.matchAll(/^  ([\w-]+):\n(?:(?!^  [\w-]+:)[\s\S])*?^    if: \$\{\{ (.+) \}\}/gm)].map((match) => [match[1], match[2]]));
 
@@ -71,9 +89,9 @@ function jobRuns(job, scope) {
   const condition = jobConditions.get(job);
   assert.ok(condition, `Missing condition for ${job}`);
   return condition.split(" || ").some((term) => {
-    const match = /^needs.changed.outputs.(frontend|rust) == 'true'$/.exec(term);
+    const match = /^needs.changed.outputs.(frontend|rust|heavy) == 'true'$/.exec(term);
     assert.ok(match, `Unexpected condition: ${term}`);
-    return scope[match[1]];
+    return match[1] === "heavy" ? (scope.heavy ?? scope.rust) : scope[match[1]];
   });
 }
 
@@ -85,4 +103,16 @@ test("workflow wiring skips Rust jobs for frontend diffs and preserves generated
     for (const job of rustJobs) assert.equal(jobRuns(job, scope), rust, job);
     assert.equal(jobRuns("ts-types", scope), true);
   }
+});
+
+test("workflow wiring runs only fast checks on pull requests", () => {
+  const pullRequest = scopeForRun(["src-tauri/src/lib.rs", "src/App.tsx"], plugins, false, true);
+  for (const job of ["rust-linux", "rust-macos", "rust-windows", "cli-linux", "cli-macos", "cli-windows", "clippy-linux"]) {
+    assert.equal(jobRuns(job, pullRequest), false, job);
+  }
+  for (const job of ["fmt", "ts-plugins", "release-contracts", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
+    assert.equal(jobRuns(job, pullRequest), true, job);
+  }
+  assert.match(workflow, /^          CI_FAST_ONLY: \$\{\{ github\.event_name == 'pull_request' \}\}$/m);
+  assert.match(workflow, /^      heavy: \$\{\{ steps\.tree\.outputs\.run == 'true' && steps\.scope\.outputs\.heavy == 'true' \}\}$/m);
 });

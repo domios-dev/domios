@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.14.2",
+  "version": "1.14.4",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -79,7 +79,8 @@
     "vitest": "^3.2.4",
     "workbox-precaching": "^7.4.1",
     "workbox-routing": "^7.4.1",
-    "workbox-strategies": "^7.4.1"
+    "workbox-strategies": "^7.4.1",
+    "yaml": "2.9.0"
   },
   "dependencies": {
     "@codeterm/chat-core": "workspace:*",

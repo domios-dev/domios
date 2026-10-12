@@ -8,6 +8,13 @@ pub async fn check_for_update(
     app: AppHandle,
     force: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    // The desktop updater cadence also discovers frontend releases, as the HTTP route does.
+    if let Some(bundles) =
+        app.try_state::<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>()
+    {
+        crate::startup::frontend_bundles::check(bundles.inner().clone());
+    }
     if !force.unwrap_or(false) {
         let us = update_state.lock();
         if let (Some(info), Some(check_time)) = (&us.last_check, us.last_check_time) {
