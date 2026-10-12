@@ -78,7 +78,8 @@ jobs:
   changed:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
     name: tree is new
-    runs-on: [self-hosted, linux-build]
+    # Every job waits on this gate; keep it off the long Linux Rust queue.
+    runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 5
     outputs:
       run: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.host == 'true' }}
