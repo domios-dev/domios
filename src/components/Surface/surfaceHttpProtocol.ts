@@ -36,9 +36,14 @@ function surfacePath(base: string, tabId: string, leaf: string): string {
   return `${base.replace(/\/+$/, "")}/api/surfaces/${encodeURIComponent(tabId)}/${leaf}`;
 }
 
-export function surfaceStreamUrl(base: string, tabId: string, viewport: StreamViewport): string {
+export function surfaceStreamUrl(base: string, tabId: string, viewport: StreamViewport, peerId?: string): string {
   const query = new URLSearchParams({ w: String(viewport.w), h: String(viewport.h), dpr: String(viewport.dpr) });
-  return `${surfacePath(base, tabId, "stream")}?${query.toString()}`;
+  const path = `/api/surfaces/${encodeURIComponent(tabId)}/stream?${query.toString()}`;
+  if (peerId) {
+    const relay = new URLSearchParams({ peer: peerId, path });
+    return `${base.replace(/\/+$/, "")}/api/mesh/relay-stream?${relay}`;
+  }
+  return `${base.replace(/\/+$/, "")}${path}`;
 }
 
 export function surfaceCallUrl(base: string, tabId: string): string {

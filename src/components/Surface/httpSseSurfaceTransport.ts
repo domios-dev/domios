@@ -1,3 +1,4 @@
+import { baseDaemonTransport, daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { GATEWAY_STATE_EVENT } from "../../lib/webApi";
 import { createSseParser } from "./sseParser";
 import type { StreamViewport } from "./streamModel";
@@ -23,6 +24,7 @@ export interface HttpSseSurfaceTransportOptions {
   baseUrl: string;
   token: string;
   tabId: string;
+  peerId?: string;
   fetch?: FetchLike;
   retrySignal?: RetrySignal;
 }
@@ -90,7 +92,7 @@ class StreamSession {
   private readonly stopSignal: () => void;
 
   constructor(
-    private readonly options: Required<Omit<HttpSseSurfaceTransportOptions, "retrySignal">>,
+    private readonly options: Required<Omit<HttpSseSurfaceTransportOptions, "retrySignal" | "peerId">>,
     private readonly url: string,
     private readonly handlers: StreamHandlers,
     retrySignal: RetrySignal,
@@ -159,12 +161,16 @@ export function createHttpSseSurfaceTransport(options: HttpSseSurfaceTransportOp
     baseUrl: options.baseUrl,
     token: options.token,
     tabId: options.tabId,
-    fetch: options.fetch ?? ((url: string, init: RequestInit) => fetch(url, init)),
+    fetch: options.fetch ?? ((url: string, init: RequestInit) => {
+      const target = new URL(url);
+      const client = init.method === "GET" ? baseDaemonTransport() : daemonTransportForPeer(options.peerId);
+      return client.request!(`${target.pathname}${target.search}`, init, init.method === "GET");
+    }),
   };
   const retrySignal = options.retrySignal ?? browserRetrySignal;
   return {
     connect(params: StreamViewport, handlers: StreamHandlers): Disconnect {
-      const session = new StreamSession(resolved, surfaceStreamUrl(resolved.baseUrl, resolved.tabId, params), handlers, retrySignal);
+      const session = new StreamSession(resolved, surfaceStreamUrl(resolved.baseUrl, resolved.tabId, params, options.peerId), handlers, retrySignal);
       return () => session.close();
     },
     async invoke<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
