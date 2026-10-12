@@ -56,8 +56,10 @@ export function classifyPaths(files, plugins) {
   return { frontend, rust, plugins: frontend || rust ? [] : plugins.filter((entry) => selected.has(entry.id)).map(({ id, path }) => ({ id, path })) };
 }
 
-export function scopeForRun(files, plugins, fullMatrix = false) {
-  return fullMatrix ? { frontend: true, rust: true, plugins: [] } : classifyPaths(files, plugins);
+// A release PR keeps the fast checks; its tag run owns the heavy Rust and CLI matrix.
+export function scopeForRun(files, plugins, fullMatrix = false, releasePr = false) {
+  const scope = fullMatrix ? { frontend: true, rust: true, plugins: [] } : classifyPaths(files, plugins);
+  return { ...scope, heavy: scope.rust && (fullMatrix || !releasePr) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
@@ -67,9 +69,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const fullMatrix = process.env.CI_FULL_MATRIX === "true";
   const files = fullMatrix ? [] : execFileSync("git", ["diff", "--name-only", base, head], { cwd: root, encoding: "utf8" }).trim().split("\n").filter(Boolean);
   const plugins = JSON.parse(fs.readFileSync(path.join(root, "plugins/channel.json"), "utf8")).plugins;
-  const scope = scopeForRun(files, plugins, fullMatrix);
+  const scope = scopeForRun(files, plugins, fullMatrix, process.env.CI_RELEASE_PR === "true");
   if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `frontend=${scope.frontend}\nrust=${scope.rust}\nplugins=${JSON.stringify(scope.plugins)}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `frontend=${scope.frontend}\nrust=${scope.rust}\nheavy=${scope.heavy}\nplugins=${JSON.stringify(scope.plugins)}\n`);
   }
   console.log(JSON.stringify(scope));
 }

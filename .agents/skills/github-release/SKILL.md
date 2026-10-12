@@ -18,7 +18,11 @@ description: >-
 | Only `plugins/<id>/` | plugin release `plugin-<id>-vX.Y.Z` | the official plugin channel |
 | Any Rust (`src-tauri/`, `cli/`), including the frontend downloader itself | app release `release-X.Y.Z` | the app updater (`latest.json`) |
 
-Mixed work ships as separate releases from separate PRs. Start frontend lanes from `origin/master`, never from an integration branch, or the frontend PR inherits Rust and runs the Rust matrix. `scripts/ci-scope.mjs` runs only the TS checks and the frontend build for frontend-only diffs. The broad gate runs once, on the app release SHA.
+All work collects on one `release/X.Y.Z` branch. When it is ready, the diff since the last release decides: any Rust means an app release, which bundles the frontend, so "both" is an app release; frontend only means a frontend release; plugins release separately. Start frontend lanes from `origin/master`, never from an integration branch.
+
+**Versions are one shared sequence.** Every app or frontend release takes the next number, so an app never accepts an older bundled frontend: app 1.14.4 bundles frontend 1.14.4, a frontend-only 1.14.5 follows, the next app is 1.14.6. A patch release takes the next patch automatically. A minor or major release (1.15.0) is chosen only by naming the branch `release/1.15.0`; the app, CLI, frontend contract and lockfiles all follow that name.
+
+**CI on the release PR is fast checks only:** `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata, a few minutes on light runners. `scripts/ci-scope.mjs` sets `heavy=false` for a PR from `release/*`, so the Rust and CLI matrix on every platform runs only once, inside the tag run.
 
 ## Independent frontend release
 

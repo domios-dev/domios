@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { parse } from "yaml";
 
@@ -56,11 +58,13 @@ test("reusable tests require the release SHA and force scope through both skip g
 test("release pushes cannot skip an unchanged tree", () => {
   const script = tests.jobs.changed.steps.find(step => step.id === "tree").run
     .replaceAll("${{ github.event_name }}", "push");
-  const result = execFileSync("bash", ["-euo", "pipefail", "-c", script], {
+  // A CI runner's stdout can be a socket, where /dev/stdout is not appendable.
+  const output = join(mkdtempSync(join(tmpdir(), "release-gate-")), "output");
+  execFileSync("bash", ["-euo", "pipefail", "-c", script], {
     encoding: "utf8",
-    env: { ...process.env, CI_FULL_MATRIX: "true", GITHUB_OUTPUT: "/dev/stdout" },
+    env: { ...process.env, CI_FULL_MATRIX: "true", GITHUB_OUTPUT: output },
   });
-  assert.equal(result.trim(), "run=true");
+  assert.equal(readFileSync(output, "utf8").trim(), "run=true");
 });
 
 test("platform builders do not push release tags before the test gate", () => {

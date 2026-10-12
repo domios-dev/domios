@@ -90,6 +90,7 @@ jobs:
     outputs:
       frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
       rust: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.rust == 'true' }}
+      heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     steps:
       - uses: actions/checkout@v5
@@ -126,6 +127,7 @@ jobs:
         if: steps.tree.outputs.run == 'true'
         env:
           CI_FULL_MATRIX: ${{ inputs.source_ref != '' }}
+          CI_RELEASE_PR: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/') }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
   plugin-metadata:
@@ -200,7 +202,7 @@ jobs:
     name: rust (linux)
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 40
     steps:
@@ -277,7 +279,7 @@ jobs:
     name: rust (macos)
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
     # Any Mac runner: tests need no signing keys, so air takes them while eight builds bundles.
     runs-on: [self-hosted, macOS]
     timeout-minutes: 40
@@ -323,7 +325,7 @@ jobs:
     name: rust (windows)
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
     # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
     runs-on: [self-hosted, windows-ci]
     timeout-minutes: 50
@@ -421,7 +423,7 @@ jobs:
   clippy-linux:
     name: clippy (linux)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 30
     steps:
@@ -455,7 +457,7 @@ jobs:
   cli-linux:
     name: cli (linux)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 20
     steps:
@@ -481,7 +483,7 @@ jobs:
   cli-macos:
     name: cli (macos)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, macOS]
     timeout-minutes: 20
     steps:
@@ -499,7 +501,7 @@ jobs:
   cli-windows:
     name: cli (windows)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
     # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
     runs-on: [self-hosted, windows-ci]
     timeout-minutes: 25
