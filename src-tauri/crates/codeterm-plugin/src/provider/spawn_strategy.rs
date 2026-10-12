@@ -59,6 +59,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn codex_complete_pasted_frame_preserves_opening_tag_in_exact_evidence() {
+        let frame = codeterm_types::domios::DomiosFrame {
+            opening_tag: codeterm_types::domios::build_opening_tag(&[
+                ("from", "tab"),
+                ("label", "sender"),
+                ("tab", "abc12345"),
+            ]),
+            body: "opaque first line\nopaque second line".into(),
+            suffix: " [opaque hint]".into(),
+        };
+        let expected = frame.to_message();
+        let incomplete = format!(
+            "{}{}{}",
+            frame.body,
+            frame.suffix,
+            codeterm_types::domios::DOMIOS_CLOSE_TAG
+        );
+        for unwrap in [false, true] {
+            let normalization = TurnEvidenceNormalization {
+                unwrap_pasted_content_wrapper: unwrap,
+                drop_supplementary_characters: true,
+                ..Default::default()
+            };
+            let normalized = normalization.normalize(&expected);
+            assert!(normalized.starts_with(&frame.opening_tag));
+            assert_ne!(normalized, normalization.normalize(&incomplete));
+            if unwrap {
+                let wrapped = format!(
+                    "<pasted_content id=\"opaque\">\n{expected}\n</pasted_content id=\"opaque\">"
+                );
+                assert_eq!(normalized, normalization.normalize(&wrapped));
+            }
+        }
+    }
+
+    #[test]
     fn pasted_content_wrapper_between_typed_route_tags_keeps_exact_turn_evidence() {
         let normalization = TurnEvidenceNormalization {
             unwrap_pasted_content_wrapper: true,
