@@ -8,6 +8,16 @@ use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+// Shell-integration prompt-end mark (OSC 633;B) that the fixture PowerShell emits.
+const SHELL_PROMPT_READY: &[u8] = b"\x1b]633;B";
+const SHELL_PROMPT_DEADLINE: Duration = Duration::from_secs(60);
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ModalStage {
     Initial,
@@ -363,6 +373,7 @@ pub(super) struct PtyChild {
     pub(super) reader_evidence: Arc<Mutex<ReaderEvidence>>,
     wake: mpsc::Receiver<()>,
     wake_sender: Option<mpsc::SyncSender<()>>,
+    prompt_ready: Option<mpsc::Receiver<()>>,
     reader_join: ReaderJoinState,
     pub(super) reader_started: bool,
     completion_deadline: Option<Instant>,
@@ -388,6 +399,7 @@ impl PtyChild {
             reader_evidence,
             wake,
             wake_sender: Some(wake_sender),
+            prompt_ready: None,
             reader_join: ReaderJoinState::default(),
             reader_started: false,
             completion_deadline: None,
@@ -411,6 +423,8 @@ impl PtyChild {
         let generation = self.generation;
         let evidence = self.reader_evidence.clone();
         let wake = self.wake_sender.take().unwrap();
+        let (prompt_sender, prompt_ready) = mpsc::sync_channel(1);
+        self.prompt_ready = Some(prompt_ready);
         let reader_join = std::thread::Builder::new()
             .name("qualified-modal-pty-reader".into())
             .spawn(move || {
@@ -423,6 +437,7 @@ impl PtyChild {
                 let mut stages =
                     [ModalStage::Initial, ModalStage::Focus, ModalStage::Closed].into_iter();
                 let mut expected = stages.next();
+                let mut prompt_seen = false;
                 let end = loop {
                     let mut bytes = [0u8; 8192];
                     match reader.read(&mut bytes) {
@@ -431,6 +446,10 @@ impl PtyChild {
                             let Some(stage) = expected else { continue };
                             frame.extend_from_slice(&bytes[..count]);
                             evidence.lock().record_pending_frame(&frame);
+                            if !prompt_seen && contains(&frame, SHELL_PROMPT_READY) {
+                                prompt_seen = true;
+                                let _ = prompt_sender.try_send(());
+                            }
                             if !frame
                                 .windows(stage.marker().len())
                                 .any(|bytes| bytes == stage.marker().as_bytes())
@@ -639,6 +658,13 @@ pub(super) fn run_modal(child: &mut PtyChild, command: &str) -> Result<(), Strin
         return Err("fixture screen binding rejected its PTY generation".to_string());
     }
     child.start_reader()?;
+    // Input typed before the shell reads its first line is dropped under load.
+    child
+        .prompt_ready
+        .take()
+        .ok_or("fixture reader did not expose prompt readiness")?
+        .recv_timeout(SHELL_PROMPT_DEADLINE)
+        .map_err(|_| "fixture shell never reported a ready prompt".to_string())?;
     child
         .service
         .pty

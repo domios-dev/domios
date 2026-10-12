@@ -1,5 +1,4 @@
 use super::tests::scene;
-use super::*;
 use codeterm_plugin::local_recording::LocalRecordingTrigger;
 
 #[test]

@@ -160,6 +160,7 @@ impl RecordingLeases {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn transcribing(&self, lease: &str) -> Result<Capture, String> {
         let mut state = self.state.lock();
         let capture = state.captures.get_mut(lease).ok_or("capture_lease_stale")?;
