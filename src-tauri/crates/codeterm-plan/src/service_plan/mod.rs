@@ -31,6 +31,7 @@ pub mod peer_mandate;
 pub mod plan_skills;
 pub mod planner_requests;
 pub mod ports;
+pub mod product_events;
 pub mod prompts_plan;
 pub mod qa;
 mod readback;
@@ -151,6 +152,7 @@ pub struct PlanStore {
     last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
     task_key_port: RwLock<Option<Arc<dyn ports::TaskKeyPort>>>,
+    product_observer: RwLock<Option<product_events::ProductObserver>>,
     reseed_prepare_lock: Mutex<()>,
     mutation_writer: MutationWriter,
     dispatch_reservations:
@@ -222,6 +224,7 @@ impl PlanStore {
             last_writes: RwLock::new(HashMap::new()),
             turn_counter: RwLock::new(None),
             task_key_port: RwLock::new(None),
+            product_observer: RwLock::new(None),
             reseed_prepare_lock: Mutex::new(()),
             mutation_writer: MutationWriter::default(),
             dispatch_reservations: Mutex::new(HashMap::new()),

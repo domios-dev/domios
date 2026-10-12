@@ -1,3 +1,4 @@
+mod pairing_observer;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -135,6 +136,7 @@ pub struct MeshManager {
     last_gossip_claim_ids: Vec<String>,
     pub peer_services: peer_services::PeerServicesCache,
     pub last_activity: Arc<dyn LastActivityProvider>,
+    pairing_observer: Option<pairing_observer::PairingObserver>,
 }
 
 impl MeshManager {
@@ -289,6 +291,7 @@ impl MeshManager {
             last_gossip_claim_ids: Vec::new(),
             peer_services: peer_services::PeerServicesCache::default(),
             last_activity: default_last_activity(),
+            pairing_observer: None,
         }
     }
 
@@ -304,12 +307,25 @@ impl MeshManager {
 
     // ── Forwarding methods (minimize caller changes) ────────────────
 
+    pub fn bind_pairing_observer(&mut self, observer: Arc<dyn Fn() + Send + Sync>) {
+        self.pairing_observer = Some(pairing_observer::PairingObserver::new(self.paired_peers.keys().cloned().collect(), observer));
+    }
+
     pub fn save(&self) -> Result<(), String> {
-        if !self.disk_persist {
-            return Ok(());
+        self.save_with(|| {
+            if self.disk_persist {
+                peers::save_peers(&self.paired_peers)?;
+                peers::save_revocation_list(&self.revocation_list)?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn save_with(&self, persist: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+        persist()?;
+        if let Some(observer) = &self.pairing_observer {
+            observer.committed(self.paired_peers.keys().cloned().collect());
         }
-        peers::save_peers(&self.paired_peers)?;
-        peers::save_revocation_list(&self.revocation_list)?;
         Ok(())
     }
 
