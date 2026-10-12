@@ -47,8 +47,6 @@ import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSend
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
-import { ReceiverTargetMarks } from "./ReceiverTargetMark";
-import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
@@ -221,7 +219,6 @@ function ChatComposerImpl({
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
-  const pluginTabMenu = usePluginTabMenu();
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const recall = useComposerRecall(tabId);
@@ -531,7 +528,6 @@ function ChatComposerImpl({
           />
         );
       })()}
-      <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
       <ComposerContextMeter tabId={tabId} />
       <ProviderCapabilityBadge tabId={tabId} />

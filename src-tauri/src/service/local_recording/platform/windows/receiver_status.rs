@@ -51,20 +51,24 @@ fn selected_path(query: &ReceiverStatusQuery, selected: &str) -> Result<String, 
         let mut values = [0u8; 512];
         let mut count = 1u16;
         unsafe {
-            if HidP_GetCaps(data.as_ptr(), &mut caps) != 0x00110000
-                || (
-                    caps.usage_page,
-                    caps.usage,
-                    caps.input_report_bytes,
-                    caps.output_report_bytes,
-                ) != (
-                    query.usage_page,
-                    query.usage,
-                    query.request.len() as u16,
-                    query.request.len() as u16,
-                )
-                || HidP_GetValueCaps(0, values.as_mut_ptr().cast(), &mut count, data.as_ptr())
-                    != 0x00110000
+            if HidP_GetCaps(data.as_ptr(), &mut caps) != 0x00110000 {
+                return Err("receiver_status_descriptor_unavailable".into());
+            }
+            if !declared_collection_usage(query, &caps) {
+                continue;
+            }
+            if (
+                caps.usage_page,
+                caps.usage,
+                caps.input_report_bytes,
+                caps.output_report_bytes,
+            ) != (
+                query.usage_page,
+                query.usage,
+                query.request.len() as u16,
+                query.request.len() as u16,
+            ) || HidP_GetValueCaps(0, values.as_mut_ptr().cast(), &mut count, data.as_ptr())
+                != 0x00110000
                 || count != 1
                 || values[2] != query.report_id
             {
@@ -76,6 +80,10 @@ fn selected_path(query: &ReceiverStatusQuery, selected: &str) -> Result<String, 
         }
     }
     found.ok_or_else(|| "receiver_status_receiver_unavailable".into())
+}
+
+fn declared_collection_usage(query: &ReceiverStatusQuery, caps: &HidpCaps) -> bool {
+    (caps.usage_page, caps.usage) == (query.usage_page, query.usage)
 }
 
 struct File(HANDLE);
@@ -224,5 +232,27 @@ mod tests {
             &candidate.replace("Col03", "Col04")
         ));
         assert!(!same_receiver("invalid", "invalid"));
+    }
+}
+
+#[cfg(test)]
+mod collection_tests {
+    use super::*;
+    #[test]
+    fn receiver_status_skips_sibling_collections_with_other_usage() {
+        let query = ReceiverStatusQuery {
+            usage_page: 0x99,
+            usage: 1,
+            report_id: 7,
+            request: vec![7, 0],
+        };
+        let mut caps = HidpCaps::default();
+        caps.usage_page = 0x88;
+        caps.usage = 1;
+        assert!(!declared_collection_usage(&query, &caps));
+        caps.usage_page = 0x99;
+        assert!(declared_collection_usage(&query, &caps));
+        caps.usage = 2;
+        assert!(!declared_collection_usage(&query, &caps));
     }
 }
