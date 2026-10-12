@@ -58,6 +58,28 @@ const { configureHtmlFileLoader } = await import("./htmlFileLoader");
 const { configureLocalArtifactLoader } = await import("./localArtifactLoader");
 const { parseLocalArtifactDirective } = await import("./LocalArtifactBlock");
 
+test("directive paths render through markdown, user and linked message bodies", async () => {
+  const { renderUserContent } = await import("./MarkdownBody");
+  const { LinkedText } = await import("./codeterm/LinkedText");
+  const { LocalArtifactScope } = await import("./LocalArtifactScope");
+  const path = "/work/a_b_c [preview].png";
+  const calls: Array<[string, string | undefined]> = [];
+  configureLocalArtifactLoader(async (file, _kind, tab) => {
+    calls.push([file, tab]);
+    return { data: "data:image/png;base64,aGVsbG8=", media_type: "image/png" };
+  });
+  const source = `Lead\n@ds-image ${path}\nTail`;
+  for (const body of [<RichMarkdown text={source} />, renderUserContent(source), <LinkedText text={`pl_abcdef\n${source}`} onOpenPlan={() => {}} />]) {
+    const { host, root } = await render(<LocalArtifactScope tabId="owner">{body}</LocalArtifactScope>);
+    assert(host.querySelector("img")?.getAttribute("src") === "data:image/png;base64,aGVsbG8=", "loaded image is visible");
+    assert(host.textContent?.includes("Lead") && host.textContent?.includes("Tail"), "prose is preserved");
+    await act(async () => root.unmount());
+    host.remove();
+  }
+  assert(calls.length === 3 && calls.every(([file, tab]) => file === path && tab === "owner"), "all bodies preserve path and owning tab");
+  configureLocalArtifactLoader(null);
+});
+
 function paragraphLines(host: HTMLElement): string[] {
   const visibleText = (node: Node): string => {
     if (node.nodeName === "BR") return "\n";

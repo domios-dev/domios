@@ -1,6 +1,6 @@
 import React, { useMemo, useContext, useRef } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
-import { parseMarker } from "@codeterm/chat-core";
+import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -226,9 +226,7 @@ export function RichMarkdown({
           const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
             ? React.Children.toArray(children).join("")
             : null;
-          const directiveSource = textChild === null
-            ? null
-            : sourceForNode(renderedText, node) ?? textChild;
+          const directiveSource = sourceForStandaloneLine(renderedText, node) ?? textChild;
           const blockSource = localArtifacts ? sourceForStandaloneLine(renderedText, node) : null;
           const blocks = blockSource ? parseChatBlocks(blockSource) : null;
           if (blocks) {
@@ -744,6 +742,16 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
 }
 
 export function renderUserContent(rawContent: string): React.ReactNode {
+  const parts = localArtifactTextParts(rawContent);
+  if (parts.some((part) => part.directive)) {
+    return <>{parts.map((part, index) => part.directive
+      ? <RichMarkdown key={index} text={part.text} />
+      : <React.Fragment key={index}>{renderPlainUserContent(part.text)}</React.Fragment>)}</>;
+  }
+  return renderPlainUserContent(rawContent);
+}
+
+function renderPlainUserContent(rawContent: string): React.ReactNode {
   const content = decodeCliMessageText(rawContent);
   const discussion = parseAttachedDiscussionDoc(content);
   if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
