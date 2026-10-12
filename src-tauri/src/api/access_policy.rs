@@ -48,7 +48,8 @@ pub(crate) fn is_preview_read(method: &Method, path: &str) -> bool {
 
 pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
     let path = request_path(path);
-    if path.starts_with("/api/secrets/")
+    if path.starts_with("/api/analytics/")
+        || path.starts_with("/api/secrets/")
         || path == "/api/mesh/debug/sign"
         || path == SUPPORTER_TOKEN_PATH
     {
