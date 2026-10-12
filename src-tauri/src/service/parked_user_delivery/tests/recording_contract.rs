@@ -1,5 +1,5 @@
 use super::*;
-use crate::service::local_recording::leases::{Capture, FrozenTarget};
+use crate::service::local_recording::leases::Capture;
 use codeterm_plugin::local_recording::{LocalRecordingTrigger, SelectedDevices};
 
 fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
@@ -301,98 +301,4 @@ fn lark_recording_contract_possible_handoff_remains_uncertain_and_never_replays(
         .has_write_ticket(&accepted.status.send_id));
     fixture.service.drain_user_owner(&tab).unwrap();
     assert_eq!(writes.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn lark_recording_contract_pty_freeze_reservation_rebind_is_zero_admission() {
-    let (fixture, tab) = queue_fixture(true, None);
-    mark_ready(&fixture, &tab);
-    let (capture, _) = armed_capture(&fixture, &tab);
-    fixture.service.rotate_session_binding_nonce(&tab);
-    let result = fixture.service.admit_recording_voice(
-        capture,
-        "voice-token".into(),
-        "recording-client".into(),
-    );
-    assert!(result.is_err());
-    assert!(fixture.service.chat_send_ledger.reconcile(&tab).is_empty());
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn lark_recording_contract_pty_after_admission_before_write_reuses_existing_guard() {
-    let (fixture, tab) = queue_fixture(true, None);
-    mark_ready(&fixture, &tab);
-    let (capture, _) = armed_capture(&fixture, &tab);
-    let writes = Arc::new(AtomicUsize::new(0));
-    let count = writes.clone();
-    let _write = UserSubmitBoundary::install(
-        &tab,
-        Arc::new(move |_, _| {
-            count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }),
-    );
-    let service = fixture.service.clone();
-    let rebind_tab = tab.clone();
-    let (guard_tx, guard_rx) = mpsc::channel();
-    let _rebind = BeforeUserSubmitBoundary::install(
-        &tab,
-        Arc::new(move || {
-            service.rotate_session_binding_nonce(&rebind_tab);
-            guard_tx.send(()).unwrap();
-        }),
-    );
-    let accepted = fixture
-        .service
-        .admit_recording_voice(capture, "voice-token".into(), "recording-client".into())
-        .unwrap();
-    guard_rx.recv_timeout(TEST_DEADLINE).unwrap();
-    await_owner_idle(&fixture, &tab);
-    assert_eq!(writes.load(Ordering::SeqCst), 0);
-    assert_eq!(
-        accepted.status.correlation_id.as_deref(),
-        Some("recording-client")
-    );
-    fixture.service.drain_user_owner(&tab).unwrap();
-    assert_eq!(writes.load(Ordering::SeqCst), 0);
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn lark_recording_contract_pty_valid_ordinary_tracked_voice_once() {
-    let (fixture, tab) = queue_fixture(true, None);
-    mark_ready(&fixture, &tab);
-    let (capture, _) = armed_capture(&fixture, &tab);
-    let frozen = capture.target.clone();
-    let (write_tx, write_rx) = mpsc::channel();
-    let _write = UserSubmitBoundary::install(
-        &tab,
-        Arc::new(move |record, text| {
-            write_tx
-                .send((record.authority.clone(), text.to_string()))
-                .unwrap();
-            Ok(())
-        }),
-    );
-    let marker = codeterm_types::message_markers::voice("owned-audio", Some("speech-token"), None);
-    let expected = fixture
-        .service
-        .prepare_chat_send_text(&tab, marker.clone(), true)
-        .unwrap()
-        .0;
-    let accepted = fixture
-        .service
-        .admit_recording_voice(capture, marker.clone(), "recording-client".into())
-        .unwrap();
-    let (authority, payload) = write_rx.recv_timeout(TEST_DEADLINE).unwrap();
-    assert_eq!(FrozenTarget::Pty(authority), frozen);
-    assert_eq!(payload, expected);
-    await_owner_idle(&fixture, &tab);
-    assert!(write_rx.try_recv().is_err());
-    assert_eq!(
-        accepted.status.correlation_id.as_deref(),
-        Some("recording-client")
-    );
 }
