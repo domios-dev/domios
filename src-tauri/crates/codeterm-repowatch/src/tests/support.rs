@@ -379,3 +379,8 @@ pub fn linked_worktree(primary: &Path, name: &str) -> tempfile::TempDir {
     );
     holder
 }
+
+pub fn await_reentry_result<T>(rx: &Receiver<T>) -> T {
+    rx.recv_timeout(std::time::Duration::from_secs(5))
+        .expect("sink reentry completes before the failure deadline")
+}

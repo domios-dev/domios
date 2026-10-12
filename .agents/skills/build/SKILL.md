@@ -529,6 +529,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Plugin test compilation cannot read an include_str! fixture | The relative fixture path traversed one directory beyond the repository root. | Resolve the path from the owning Rust source directory, correct the traversal, and rerun the same focused plugin gate before proceeding. |
 
+A moved repository-watcher source guard can fail with “expected the repository-watch sources, found 1” if it still scans the app path. Scan the new crate sources and retained app adapter, keep channel failure deadlines in test support, then rerun `./build.sh test-one repowatch tests::`.
+
 ## Focused analytics checks
 
 `./build.sh test-one analytics tests::` runs the isolated product analytics crate

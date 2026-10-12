@@ -167,7 +167,7 @@ fn refusal_sink_can_reenter_registry_after_both_watch_failures() {
             tx.send(result.unwrap_err().reason).unwrap();
         });
         assert_eq!(
-            rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+            await_reentry_result(&rx),
             RepoWatchUnavailable::WatchRefused
         );
         join.join().unwrap();
