@@ -77,7 +77,7 @@ impl ReaderEvidence {
         }
     }
     pub(super) fn record_pending_frame(&mut self, frame: &[u8]) {
-        let safe = super::super::super::privacy::screen(&String::from_utf8_lossy(frame));
+        let safe = super::super::super::privacy::text(&String::from_utf8_lossy(frame));
         self.pending_output = Some(BoundedText::tail(&safe, MAX_STAGE_SCREEN_BYTES));
     }
     pub(super) fn record_screen(&mut self, screen: &str) {
