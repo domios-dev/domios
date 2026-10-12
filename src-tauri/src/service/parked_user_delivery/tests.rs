@@ -209,6 +209,14 @@ fn start_current_chat_send(
     payload: &str,
     client_token: &str,
 ) -> ChatSendStatus {
+    let authority = fixture.service.user_send_authority(tab_id).unwrap();
+    let boot_stage = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .unwrap()
+        .boot_stage;
     let (tx, rx) = mpsc::channel();
     let expected_tab = tab_id.to_string();
     let listener = fixture._app.listen("chat-send-status", move |event| {
@@ -232,12 +240,10 @@ fn start_current_chat_send(
     assert!(published["error"].is_null());
     assert_eq!(accepted.correlation_id.as_deref(), Some(client_token));
     await_owner_idle(fixture, tab_id);
-    assert!(fixture
-        .service
-        .pty
-        .lock()
-        .get_session("opaque-pty")
-        .is_none());
+    assert_eq!(
+        fixture.service.user_send_authority(tab_id).unwrap(),
+        authority
+    );
     assert_eq!(
         fixture
             .service
@@ -246,7 +252,7 @@ fn start_current_chat_send(
             .get_tab(tab_id)
             .unwrap()
             .boot_stage,
-        Some(codeterm_types::pty::BootStage::SpawnFailed)
+        boot_stage
     );
     assert!(!fixture
         .service
