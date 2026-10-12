@@ -23,7 +23,7 @@ pub async fn check_update(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Query(q): Query<CheckUpdateQuery>,
-    bundles: Option<axum::Extension<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>>,
+    bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 

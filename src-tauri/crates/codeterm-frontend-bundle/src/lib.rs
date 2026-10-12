@@ -3,6 +3,8 @@ pub mod manifest;
 pub mod store;
 pub mod update;
 
+pub const OBSERVER_SCRIPT: &str = include_str!("observer.js");
+
 use activation::Activation;
 use parking_lot::Mutex;
 use serde_json::Value;
