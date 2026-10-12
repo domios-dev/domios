@@ -28,7 +28,8 @@ export async function prepare({ contract, tag, dist, output, dryRun, sourceSha }
   return manifest;
 }
 function githubRemote(repository, output) {
-  const gh = args => execFileSync('gh', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
+  // Asset read-back returns the whole archive on stdout; the 1 MiB default buffer is too small.
+  const gh = args => execFileSync('gh', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, maxBuffer: 256 * 1024 * 1024 });
   const asset = name => path.join(output, name);
   return {
     createDraft: async tag => { gh(['release', 'create', tag, '--repo', repository, '--draft', '--latest=false', '--title', tag, '--notes', 'Independent signed frontend release']); },
