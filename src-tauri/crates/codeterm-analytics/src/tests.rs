@@ -5,9 +5,10 @@ trait TestDestination {
 }
 impl TestDestination for Engine {
     fn destination(&mut self, endpoint: String) {
-        let mut sink = sinks::amplitude::Http::new(
+        let mut sink = sinks::amplitude::Http::with_build_key(
             self.state.config,
             std::sync::Arc::new(|_| Ok("test-key".into())),
+            None,
         )
         .unwrap();
         sink.destination(endpoint);
@@ -321,6 +322,15 @@ fn off_sink_and_missing_credentials_send_nothing() {
     assert!(!engine.enqueue(event(), 0).unwrap());
     let mut engine = Engine::open(dir.path().join("analytics-settings.json"), config()).unwrap();
     engine.enqueue(event(), 0).unwrap();
+    engine.sink = Box::new(
+        sinks::amplitude::Http::with_build_key(
+            config(),
+            std::sync::Arc::new(|_| Err("missing".into())),
+            None,
+        )
+        .unwrap(),
+    );
+    assert!(!engine.status().vendor_available);
     assert!(engine.deliver(0).is_err());
     assert_eq!(engine.status().queued, 1);
     assert_eq!(engine.state.queue[0].failures, 0);

@@ -281,15 +281,16 @@ export function InlineLinkButton({
   );
 }
 
-export function AboutLink({ href, label, Icon }: { href: string; label: string; Icon: LucideIcon }) {
+export function AboutLink({ href, label, Icon, icon, onOpen }: { href: string; label: string; Icon?: LucideIcon; icon?: ReactNode; onOpen?: (href: string) => void }) {
   return (
     <a
       href={href}
+      onClick={onOpen ? event => { event.preventDefault(); onOpen(href); } : undefined}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
     >
-      <Icon size={14} className="shrink-0" />
+      {icon ?? (Icon && <Icon size={14} className="shrink-0" />)}
       <span>{label}</span>
     </a>
   );

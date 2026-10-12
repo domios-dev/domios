@@ -20,12 +20,9 @@ impl ServiceContext {
                     .and_then(|v| v.as_str())
                     .unwrap_or("cloud");
                 let adapter: Arc<dyn codeterm_billing::BillingProvider> = match provider {
-                    "cloud" => Arc::new(adapters::cloud::Cloud::new(
-                        config
-                            .get("endpoint")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("https://us-central1-domios-d9357.cloudfunctions.net/"),
-                    )?),
+                    "cloud" => adapters::cloud::Cloud::configured(
+                        config.get("endpoint").and_then(|v| v.as_str()),
+                    )?,
                     "local" if cfg!(debug_assertions) => {
                         let origin = url::Url::parse(
                             config
