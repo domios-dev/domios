@@ -26,47 +26,14 @@ Each pattern names the source, buckets and handlers; put silent buckets as `[]` 
 
 ## Built-in recipes
 `codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints the handlers JSON and create
-command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph.
-
-Creation proves admission only. Execute the read-only probe once, check exit status and raw output, then verify
-the first actual execution and recognized bucket with `blueprint show`. Match LF/CRLF deliberately. Inspect retained
-transitions and handler results when a route fires; empty Runs alone is not evidence of a broken probe or UI.
-
-<!-- blueprint-recipe:github-ci-watch -->
-### github-ci-watch
-
-**Purpose:** Watch one exact GitHub Actions run and notify on a successful or unsuccessful completed result.
-
-```json
-{"waiting":[],"passed":[{"type":"notify","parameters":{}}],"failed":[{"type":"notify","parameters":{}}]}
-```
-
+command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
+<!-- blueprint-recipe:github-pr-ci-watch -->
+### github-pr-ci-watch
+**Purpose:** Route `failed` on the first failed or cancelled check of one PR, `passed` when every check passed; `waiting` stays silent.
 ```bash
-codeterm blueprint create --name github-ci-result --probe 'gh run view <RUN_ID> --repo <OWNER/REPO> --json status,conclusion --jq "if .status != \"completed\" then \"waiting\" elif .conclusion == \"success\" then \"passed\" else \"failed\" end"' --question 'waiting means the exact run is incomplete; passed means completed success; failed means completed unsuccessful; other means a probe error' --buckets waiting,passed,failed --match 'waiting=^\s*waiting\s*$' --match 'passed=^\s*passed\s*$' --match 'failed=^\s*failed\s*$' --until passed --handlers-file handlers.json --timeout 2h --dry-run
+codeterm blueprint create --name pr-ci --probe 'gh pr checks <PR> --repo <OWNER/REPO> --json bucket -q "if any(.[]; .bucket==\"fail\" or .bucket==\"cancel\") then \"failed\" elif any(.[]; .bucket==\"pending\") then \"waiting\" else \"passed\" end"' --question 'waiting while checks run; passed when all passed; failed when any failed or was cancelled' --buckets waiting,passed,failed --match 'waiting=(?m)^waiting\r?$' --match 'passed=(?m)^passed\r?$' --match 'failed=(?m)^failed\r?$' --until passed --route waiting=none --route passed=notify --route failed=notify --rearm-on-change failed --every 60s --timeout 3h --dry-run
 ```
 <!-- /blueprint-recipe -->
-
-Use the run id for the intended PR head or release tag, never the newest global run. Verify all required PR checks
-before merging. A green release workflow is build evidence; verify published assets separately. On failure, inspect
-the failed job and stop the graph. Authentication or transport errors are probe errors, never build verdicts.
-
-<!-- blueprint-recipe:github-publication-watch -->
-### github-publication-watch
-
-**Purpose:** Watch publication of one exact GitHub release tag and notify when its required assets are present.
-
-```json
-{"waiting":[],"published":[{"type":"notify","parameters":{}}]}
-```
-
-```bash
-codeterm blueprint create --name github-release-publication --probe 'gh release view <TAG> --repo <OWNER/REPO> --json tagName,isDraft,assets --jq "if .isDraft or ([.assets[].name] | index(\"<ARCHIVE_NAME>\")) == null or ([.assets[].name] | index(\"<CHECKSUM_NAME>\")) == null then \"waiting\" else \"published\" end"' --question 'waiting means draft or required assets absent; published means the exact release is public with both assets; other means missing release or probe error' --buckets waiting,published --match 'waiting=^\s*waiting\s*$' --match 'published=^\s*published\s*$' --until published --handlers-file handlers.json --timeout 2h --dry-run
-```
-<!-- /blueprint-recipe -->
-
-Fill in the exact archive and checksum names. A missing release stays unclassified; diagnose gh errors explicitly.
-Asset presence does not prove correct bytes: download and verify the checksum before declaring publication complete.
-
 <!-- blueprint-recipe:team-watch -->
 ### team-watch
 **Purpose:** Observe one Team member's tab and notify when the watched state changes.
