@@ -182,7 +182,11 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
     let store = &svc.plan_store;
-    verify_owner_epoch_for_task_mutation(method, params, svc)?;
+    if !super::remote_worker_policy::worker_authenticated_method(method) {
+        verify_owner_epoch_for_task_mutation(method, params, svc)?;
+    } else {
+        super::plan_task_authority::verify_remote_worker_binding(params, svc)?;
+    }
     match method {
         "plan.task.adopt_checkpoint" => {
             let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
