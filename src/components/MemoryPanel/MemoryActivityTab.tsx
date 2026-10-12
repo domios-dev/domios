@@ -436,6 +436,7 @@ export function WorkerCard({ worker, onOpen, onKill, count = 1 }: WorkerCardProp
           providerId={worker.agent_provider}
           className="text-[12px] shrink-0"
           title={`Executed by ${worker.agent_provider}`}
+          ariaLabel={`Executed by ${worker.agent_provider}`}
         />
       )}
       {worker.model && (
