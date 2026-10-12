@@ -116,15 +116,44 @@ impl<H: ShadowHost> Pending<H> {
         let Some(envelope) = self.metadata.envelope.as_ref() else {
             return false;
         };
-        self.host.connection_is_current(adapter_id)
-            && self
-                .host
+        macro_rules! require_current {
+            ($check:expr, $gate:literal) => {
+                if !$check {
+                    log::debug!(
+                        "[tab-state/candidate] observation={} rejected gate={}",
+                        envelope.observation_id,
+                        $gate
+                    );
+                    #[cfg(test)]
+                    eprintln!(
+                        "[tab-state/candidate] observation={} rejected gate={}",
+                        envelope.observation_id, $gate
+                    );
+                    return false;
+                }
+            };
+        }
+        require_current!(self.host.connection_is_current(adapter_id), "connection");
+        require_current!(
+            self.host
                 .supporter_models()
                 .get(adapter_id)
-                .is_some_and(|current| Arc::ptr_eq(&current, adapter))
-            && coordinator::global().is_current(&envelope.observation)
-            && self.host.ledger_snapshot(&self.tab) == envelope.ledgers
-            && self.host.observation_is_current(&self.tab, &self.metadata)
+                .is_some_and(|current| Arc::ptr_eq(&current, adapter)),
+            "adapter_identity"
+        );
+        require_current!(
+            coordinator::global().is_current(&envelope.observation),
+            "coordinator"
+        );
+        require_current!(
+            self.host.ledger_snapshot(&self.tab) == envelope.ledgers,
+            "ledgers"
+        );
+        require_current!(
+            self.host.observation_is_current(&self.tab, &self.metadata),
+            "observation_identity"
+        );
+        true
     }
 
     fn record(&mut self, source: identity::DecisionSource, verdict: Option<&CandidateVerdict>) {
@@ -220,6 +249,9 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
 ) -> Option<(scheduler::ObservationHandle, u64)> {
     let adapter_id = config.active_id()?.to_owned();
     if !observer::connected(host, config, &adapter_id) {
+        log::debug!("[tab-state/candidate] capture rejected: connection");
+        #[cfg(test)]
+        eprintln!("[tab-state/candidate] capture rejected: connection");
         return None;
     }
     let adapter = supporter::configured_model(config, &host.supporter_models())?;
@@ -231,6 +263,11 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
         parent_observation_id,
         expected_local,
     )
+    .inspect_err(|reason| {
+        log::debug!("[tab-state/candidate] capture rejected: {reason}");
+        #[cfg(test)]
+        eprintln!("[tab-state/candidate] capture rejected: {reason}");
+    })
     .ok()?;
     let envelope = metadata.envelope.as_mut()?;
     let observation_id = envelope.observation_id;
@@ -251,6 +288,13 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
             .as_ref()
             .is_none_or(|envelope| frame_hash(&screen_tail(screen)) != envelope.raw_tail_hash)
     }) {
+        log::debug!(
+            "[tab-state/candidate] observation={observation_id} rejected gate=expected_frame"
+        );
+        #[cfg(test)]
+        eprintln!(
+            "[tab-state/candidate] observation={observation_id} rejected gate=expected_frame"
+        );
         return None;
     }
     request.questions.retain(|key, _| {

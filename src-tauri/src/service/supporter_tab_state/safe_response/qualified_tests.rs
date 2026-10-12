@@ -107,8 +107,15 @@ impl DecisionModel for StaticModalModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
+        let screen = request.state["screen"].as_str().unwrap_or_default();
+        eprintln!(
+            "qualified fixture model stage: initial={} focus={} closed={}",
+            screen.contains(INITIAL_MARKER),
+            screen.contains(FOCUS_MARKER),
+            screen.contains(CLOSED_MARKER)
+        );
         let mut screens = self.screens.lock();
-        screens.record(request.state["screen"].as_str().unwrap_or_default());
+        screens.record(screen);
         let question_set = request.questions.keys().cloned().collect::<Vec<_>>();
         if !screens.question_sets.contains(&question_set) {
             screens.question_sets.push(question_set);
