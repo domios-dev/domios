@@ -16,7 +16,6 @@ export interface CodexUserContent {
   images: CodexUserImage[];
 }
 
-const INLINE_DATA_LIMIT = 100_000;
 const OPEN_TAG = /^<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>$/;
 const INLINE_IMAGE = /<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>[\s\S]*?<\/image>/g;
 const CLOSE_TAG = /^<\/image>$/;
@@ -45,8 +44,7 @@ function imageFromTag(name: string, rawPath: string | undefined): CodexUserImage
 function withDataUrl(image: CodexUserImage, url: string | undefined): CodexUserImage {
   const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url ?? "");
   if (!match) return image;
-  const inline = !image.path && match[2].length < INLINE_DATA_LIMIT ? match[2] : null;
-  return { ...image, mediaType: match[1], data: inline };
+  return { ...image, mediaType: match[1], data: match[2] };
 }
 
 function extractInlineImages(text: string, images: CodexUserImage[]): string {
