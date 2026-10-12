@@ -20,6 +20,9 @@ pub enum DeliveryResult {
 }
 
 pub trait AnalyticsSink: Send {
+    fn available(&self) -> bool {
+        true
+    }
     fn enabled(&self) -> bool {
         true
     }
