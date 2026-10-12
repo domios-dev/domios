@@ -57,19 +57,35 @@ export function classifyPaths(files, plugins) {
 }
 
 // Pull requests run fast checks only; the release run and the nightly own the heavy Rust and CLI matrix.
-export function scopeForRun(files, plugins, fullMatrix = false, fastOnly = false) {
+export function scopeForRun(files, plugins, fullMatrix = false, fastOnly = false, frontendOnly = false) {
+  if (frontendOnly) return { frontend: true, rust: false, plugins: [], heavy: false };
   const scope = fullMatrix ? { frontend: true, rust: true, plugins: [] } : classifyPaths(files, plugins);
   return { ...scope, heavy: scope.rust && (fullMatrix || !fastOnly) };
 }
 
+// Any Rust since the last release needs an app release, which bundles the frontend; anything else ships as a frontend release.
+export function releaseKind(files) {
+  return files.some(isRustPath) ? "app" : "frontend";
+}
+
+function changedFiles(root, base, head) {
+  return execFileSync("git", ["diff", "--name-only", base, head], { cwd: root, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const root = path.resolve(import.meta.dirname, "..");
+  if (process.argv[2] === "--release-kind") {
+    const [base, head = "HEAD"] = process.argv.slice(3);
+    console.log(base ? releaseKind(changedFiles(root, base, head)) : "app");
+    process.exit(0);
+  }
   const [base, head = "HEAD"] = process.argv.slice(2);
-  if (!base) throw new Error("Usage: node scripts/ci-scope.mjs BASE [HEAD]");
+  if (!base) throw new Error("Usage: node scripts/ci-scope.mjs BASE [HEAD] | --release-kind [BASE] [HEAD]");
   const fullMatrix = process.env.CI_FULL_MATRIX === "true";
-  const files = fullMatrix ? [] : execFileSync("git", ["diff", "--name-only", base, head], { cwd: root, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  const frontendOnly = process.env.CI_FRONTEND_ONLY === "true";
+  const files = fullMatrix || frontendOnly ? [] : changedFiles(root, base, head);
   const plugins = JSON.parse(fs.readFileSync(path.join(root, "plugins/channel.json"), "utf8")).plugins;
-  const scope = scopeForRun(files, plugins, fullMatrix, process.env.CI_FAST_ONLY === "true");
+  const scope = scopeForRun(files, plugins, fullMatrix, process.env.CI_FAST_ONLY === "true", frontendOnly);
   if (process.env.GITHUB_OUTPUT) {
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `frontend=${scope.frontend}\nrust=${scope.rust}\nheavy=${scope.heavy}\nplugins=${JSON.stringify(scope.plugins)}\n`);
   }
