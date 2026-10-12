@@ -192,6 +192,7 @@ impl ServiceContext {
             .local_recording_registry
             .set_enabled(plugin_id, enabled)
             .map_err(str::to_string)?;
+        crate::api::events::emit_everywhere(&self.app_handle, "local-recording-status", &status);
         let completion =
             (enabled && status.granted && status.devices_selected && !status.available)
                 .then(|| self.schedule_local_recording_subscription(plugin_id.into(), adapter));
