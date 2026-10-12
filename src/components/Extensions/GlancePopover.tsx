@@ -10,7 +10,8 @@ import { BusyState } from "../shared/BusyState";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import { GearIcon } from "../Icons";
-import { buildGlanceView } from "./glanceModel";
+import { ensurePluginSnapshot } from "../../lib/pluginSnapshotStore";
+import { buildGlanceView, pluginHasGlance } from "./glanceModel";
 import { GlanceBody, type GlanceView } from "./ViewNodeRenderer";
 
 export interface GlanceAnchor {
@@ -51,7 +52,10 @@ export function GlancePopover({
   const load = useCallback(
     async (action?: string) => {
       try {
-        const v = await invoke<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} });
+        const snapshot = await ensurePluginSnapshot();
+        const v = pluginHasGlance(snapshot.plugins, pluginId)
+          ? await invoke<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} })
+          : null;
         setView(buildGlanceView(v, configHelp));
         setError(null);
       } catch (e) {
