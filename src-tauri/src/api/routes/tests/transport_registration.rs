@@ -133,8 +133,10 @@ async fn transport_registry_contract_owner_mutations_restore_and_persist() {
     mux.rename_tab(&tab, "Restored by HTTP").unwrap();
     mux.close_workspace(&workspace).unwrap();
     let fixture = ServiceFixture::new(mux);
+    let binary = if cfg!(windows) { "cmd.exe" } else { "sh" };
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("transport-fixture"),
+        crate::agent::test_provider::MockProvider::new("transport-fixture")
+            .with_launch_binary(binary),
     ));
     let state = fixture::app_state(&fixture);
     let job = state
