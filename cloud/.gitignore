@@ -1,0 +1,5 @@
+functions/lib/
+hosting/signin/app.js
+hosting/signin/config.json
+.firebase/
+*-debug.log
