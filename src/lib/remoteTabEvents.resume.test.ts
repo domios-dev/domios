@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { configureRemoteTabTransport } from "./remoteTabTransport";
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
@@ -5,6 +6,7 @@ import {
 } from "./remoteTabEvents";
 import { onRemoteTransportState } from "./remoteTabTransportState";
 
+configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
 configureRemoteTabTransport({ enabled: true, host: "127.0.0.1", port: 7685, token: "fixture", cors: false });
 
 describe("remote chat event subscription ownership", () => {

@@ -1,3 +1,5 @@
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -11,6 +13,11 @@ import { RunLog } from "./RunLog";
 import { graphRuns } from "./blueprintRunModel";
 import { automationKey, type AutomationGraph } from "./types";
 import { useBlueprintReplay } from "./useBlueprintReplay";
+
+configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, path: string) => {
+  assert.equal(path, "/api/automation/node-files");
+  return [] as T;
+}));
 
 async function main() {
 const window = new Window({ url: "http://localhost" });

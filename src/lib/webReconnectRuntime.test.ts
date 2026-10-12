@@ -1,3 +1,4 @@
+import { RECONNECT_FIRST_MS } from "./webReconnectModel";
 import assert from "node:assert/strict";
 
 class MemoryStorage {
@@ -93,10 +94,12 @@ async function main(): Promise<void> {
     const finalFailure = waiting();
     streams[2].error(new Error("offline again"));
     await finalFailure;
-    assert.equal([...deadlines.values()].some((entry) => entry.delay < 30_000), false);
+    assert.equal(deadlines.size, 1, "a disconnected stream owns one failure deadline");
+    const retry = [...deadlines.values()][0];
+    assert.ok(retry.delay >= RECONNECT_FIRST_MS / 2 && retry.delay <= RECONNECT_FIRST_MS);
     refusal = true;
     const rejected = waiting();
-    browser.dispatchEvent(new Event("online"));
+    retry.callback();
     await rejected;
     assert.equal(reconnects, 2);
     refusal = false;
