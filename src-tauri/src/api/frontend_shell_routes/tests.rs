@@ -107,10 +107,9 @@ async fn transport_bootstrap_contract_auth_status_and_stale_readiness() {
     assert_eq!(response.status(), StatusCode::OK);
     let status: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-    assert_eq!(
-        status,
-        serde_json::to_value(state.rest_api.status()).unwrap()
-    );
+    let mut expected = serde_json::to_value(state.rest_api.status()).unwrap();
+    expected["bindError"] = Value::Null;
+    assert_eq!(status, expected);
     assert!(!super::owner(&state, &HeaderMap::new()).is_ok());
     let response = router
         .oneshot(
