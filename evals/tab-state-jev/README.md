@@ -397,8 +397,8 @@ The one consolidated suite at this repair head replaces repeated historical suit
 The shared process authority/settlement edits justify one macOS success smoke at
 the same exact Homebrew interpreter after canonical review; no six-case repeat.
 
-The separately reviewed focused workflow inputs are `evaluator_scope` (`full`,
-`jev-linux`, `jev-windows`), `expected_source_sha` and `interpreter_path`. Focused
+The separately reviewed focused inputs of the hand-run `qualification.yml` workflow are
+`evaluator_scope` (`jev-linux`, `jev-windows`), `expected_source_sha` and `interpreter_path`. Focused
 source SHA must equal dispatch workflow SHA and checkout HEAD. Existing full
 jobs/triggers remain independent. There is no interpreter setup/install/fallback,
 new secret or retry. Windows dispatch remains held until a real existing exact

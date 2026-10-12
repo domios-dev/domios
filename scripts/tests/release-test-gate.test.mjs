@@ -43,12 +43,11 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
   assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref"]);
   const changed = tests.jobs.changed;
-  assert.ok(changed.if.startsWith("${{ inputs.source_ref != '' || "));
+  assert.equal(changed.if, undefined, "the scope gate runs for every trigger, including release calls");
   for (const id of ["tree", "scope"]) {
     assert.equal(changed.steps.find(step => step.id === id).env.CI_FULL_MATRIX, "${{ inputs.source_ref != '' }}");
   }
-  for (const [id, job] of Object.entries(tests.jobs)) {
-    if (job.if?.includes("inputs.evaluator_scope ==" ) && id !== "changed") continue;
+  for (const job of Object.values(tests.jobs)) {
     for (const step of job.steps.filter(step => step.uses?.startsWith("actions/checkout@"))) {
       assert.equal(step.with.ref, "${{ inputs.source_ref || github.ref }}");
     }
