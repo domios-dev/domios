@@ -1,4 +1,3 @@
-import "./image-metadata.test";
 /**
  * Plugin contract tests for Claude — meta, statusOf, actions, detect.
  * Run: npx tsx plugins/provider-claude/tests/plugin.test.ts
