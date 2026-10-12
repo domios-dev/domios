@@ -15,8 +15,10 @@ const TIMER_IMPORTS: [&str; 2] = ["use std::thread", "use tokio::time"];
 #[test]
 fn repository_watch_never_polls() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut sources = collect(&manifest.join("src").join("repowatch"));
-    sources.push(manifest.join("src").join("commands").join("repo_watch.rs"));
+    let app = manifest.join("../..");
+    let mut sources = collect(&manifest.join("src"));
+    sources.extend(collect(&app.join("src/repowatch")));
+    sources.push(app.join("src/commands/repo_watch.rs"));
     assert!(
         sources.len() > 5,
         "expected the repository-watch sources, found {}",
@@ -56,7 +58,7 @@ fn repository_watch_never_polls() {
 /// The oracles must never coordinate on elapsed time. Only `support.rs` may
 /// hold a timed recv, and never as a drain-until-quiet loop.
 fn guard_oracles_never_wait_on_time(manifest: &Path) {
-    let dir = manifest.join("src").join("repowatch").join("tests");
+    let dir = manifest.join("src").join("tests");
     let entries = std::fs::read_dir(&dir).expect("repository-watch tests directory");
     let mut checked = 0;
     for entry in entries.flatten() {
