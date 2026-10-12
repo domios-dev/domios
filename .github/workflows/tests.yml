@@ -300,7 +300,8 @@ jobs:
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
     if: ${{ needs.changed.outputs.run == 'true' }}
-    runs-on: [self-hosted, windows-build]
+    # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
+    runs-on: [self-hosted, windows-ci]
     timeout-minutes: 50
     steps:
       # Plan-sidecar filenames under .codeterm/plans/** exceed MAX_PATH; the
@@ -467,7 +468,8 @@ jobs:
     name: cli (windows)
     needs: [changed, fmt]
     if: ${{ needs.changed.outputs.run == 'true' }}
-    runs-on: [self-hosted, windows-build]
+    # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
+    runs-on: [self-hosted, windows-ci]
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
