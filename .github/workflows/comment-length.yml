@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: [self-hosted, linux-build]
+    runs-on: [self-hosted, linux-ci]
     steps:
       - uses: actions/checkout@v5
         with:

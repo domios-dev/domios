@@ -10,7 +10,8 @@ succeed. Nothing is cross-built where a native runner exists.
 |--------|---------|----------|--------|
 | **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-builder.yml` | macOS `x64`+`arm64` (Developer ID + notarized) **and** `arm64` Linux `.deb`+`.AppImage` (Docker) |
 | **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release.yml` → `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
-| **`linux-build`** | ROG, WSL2 Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native |
+| **`linux-build`** | ubunta, Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native; also plugin publication and release preparation |
+| **`linux-ci`** | ubunta and BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs and the PR lint workflows | test pool only: either idle runner takes the job; never packaging or signing |
 
 Why this split:
 - **macOS** must be native (Developer ID + notarization need a Mac keychain).

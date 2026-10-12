@@ -48,7 +48,7 @@ concurrency:
 jobs:
   guards:
     name: gateway guards
-    runs-on: [self-hosted, linux-build]
+    runs-on: [self-hosted, linux-ci]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
