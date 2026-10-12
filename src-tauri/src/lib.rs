@@ -172,6 +172,7 @@ pub fn run() {
     }
 
     let builder = builder
+        .plugin(tauri_plugin_deep_link::init())
         .manage(states.storage.clone())
         .manage(states.config.clone())
         .manage(states.pty.clone())
@@ -603,6 +604,7 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                account: Arc::new(tokio::sync::OnceCell::new()),
                 analytics: Arc::new(tokio::sync::OnceCell::new()),
                 agent_pad_data_dir: crate::paths::data_dir(),
                 launch_task_files: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
@@ -766,6 +768,13 @@ pub fn run() {
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
+            crate::service::account::register_deep_links(&app_handle, service_state.clone())?;
+            {
+                let service = service_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = service.account().await;
+                });
+            }
             startup::model_catalogue::reconcile_defaults(&service_state);
             let lane_watch_service = service_state.clone();
             tauri::async_runtime::spawn_blocking(move || {

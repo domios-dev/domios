@@ -30,7 +30,14 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["nsis", "dmg", "app", "deb", "appimage", "rpm"],
+    "targets": [
+      "nsis",
+      "dmg",
+      "app",
+      "deb",
+      "appimage",
+      "rpm"
+    ],
     "icon": [
       "icons/app-32x32.png",
       "icons/icon.png",
@@ -67,6 +74,13 @@
       "endpoints": [
         "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"
       ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "domios"
+        ]
+      }
     }
   }
 }

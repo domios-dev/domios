@@ -12,6 +12,7 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+pub mod account;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
@@ -296,6 +297,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub account: Arc<tokio::sync::OnceCell<Arc<codeterm_account::Account>>>,
     pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,
