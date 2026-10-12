@@ -3,9 +3,7 @@ use crate::service::messenger::MessageEnvelope;
 use super::channel_placement::SpentQuestion;
 use super::NotifState;
 
-pub use codeterm_notification_core::answer_delivery::{
-    mark_delivered, plan, AnswerDelivery, AnswerDeliveryPlan,
-};
+pub use codeterm_notification_core::answer_delivery::{AnswerDelivery, AnswerDeliveryPlan};
 
 pub const ANSWER_CONTEXT: &str = "notification-answer";
 
