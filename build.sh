@@ -1613,7 +1613,7 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|types|storage|mem|mesh|plugin|cli> NAME
+  test-one <billing|account|analytics|app|frontend-bundle|repowatch|plan|pty|pty-fork|types|storage|mem|mesh|plugin|cli> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
