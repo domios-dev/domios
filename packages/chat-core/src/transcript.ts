@@ -1,7 +1,5 @@
 import { mergeById } from "./merge";
 import { reconcileSends, sendRow, type ChatSend, type SendEcho } from "./sendOrder";
-import { timestampMs } from "./time";
-import { chronologicalOrder, inheritedOrderKeys } from "./timeline";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open byte range `[start, end)` of a session source, both ends on a
@@ -313,19 +311,11 @@ export interface TranscriptProjection {
   echoes: Map<string, SendEcho>;
 }
 
-/** The single ordering authority: committed and pending rows share one key path, so an
- *  echo that reconciles a send changes the row's identity and content, never its place. */
 export function projectTranscript(
   state: TranscriptState,
   sends: readonly ChatSend[] = [],
 ): TranscriptProjection {
   const committedRows = transcriptRows(state);
-  const { keys: sendKeys, echoes, pending } = reconcileSends(sends, committedRows);
-  const rows = [...committedRows, ...pending.map(sendRow)];
-  const keys = inheritedOrderKeys(rows, (row, index) => (
-    index >= committedRows.length
-      ? pending[index - committedRows.length].sentAtMs
-      : sendKeys.get(index) ?? timestampMs(row.timestamp)
-  ));
-  return { rows: chronologicalOrder(rows, keys), pending, echoes };
+  const { echoes, pending } = reconcileSends(sends, committedRows);
+  return { rows: [...committedRows, ...pending.map(sendRow)], pending, echoes };
 }
