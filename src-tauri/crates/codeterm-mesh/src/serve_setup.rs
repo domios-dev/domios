@@ -288,6 +288,22 @@ fn choose_free_https_port(
 }
 
 fn tailscale_binary_info() -> TailscaleBinaryInfo {
+    // The app-bundle CLI hangs when spawned from the GUI daemon; a LocalAPI answer proves Tailscale.
+    #[cfg(target_os = "macos")]
+    if let Some(status) = macos_status_json() {
+        return TailscaleBinaryInfo {
+            installed: true,
+            path: None,
+            cli_version: None,
+            daemon_version: status
+                .get("Version")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from),
+            version_skew: false,
+            version_output: None,
+            error: None,
+        };
+    }
     let Some(path) = tailscale_binary() else {
         return TailscaleBinaryInfo {
             installed: false,
@@ -538,7 +554,7 @@ fn localapi_get(port: u16, proof: &str, path: &str) -> Option<serde_json::Value>
     stream.set_write_timeout(Some(PROBE_TIMEOUT)).ok()?;
     let cred = base64::engine::general_purpose::STANDARD.encode(format!(":{proof}"));
     let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Basic {cred}\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Basic {cred}\r\nConnection: close\r\n\r\n"
     );
     stream.write_all(req.as_bytes()).ok()?;
     let mut buf = Vec::new();
@@ -795,6 +811,40 @@ fn run_serve_cmd(bin: &str, args: &[&str]) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // Tailscale 1.102 refuses a LocalAPI request whose Host omits the listener port.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn localapi_request_names_the_listener_port_in_host() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut connection, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(connection.try_clone().unwrap());
+            let mut head = String::new();
+            loop {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                head.push_str(&line);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            connection
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}")
+                .unwrap();
+            head
+        });
+        assert_eq!(
+            localapi_get(port, "fixture-proof", "/localapi/v0/status"),
+            Some(json!({"ok": true}))
+        );
+        assert!(server
+            .join()
+            .unwrap()
+            .contains(&format!("\r\nHost: 127.0.0.1:{port}\r\n")));
+    }
 
     fn serve_json(host_port: &str, https_port: &str, proxy: &str) -> serde_json::Value {
         json!({
