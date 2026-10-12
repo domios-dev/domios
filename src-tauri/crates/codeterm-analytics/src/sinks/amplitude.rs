@@ -24,10 +24,31 @@ pub struct Http {
     endpoint: String,
     project: Project,
     secrets: SecretReader,
+    build_key: Option<String>,
 }
 
 impl Http {
+    pub(crate) fn available_for(config: Config, secrets: &SecretReader) -> bool {
+        resolve_key(
+            crate::build_config::amplitude_key(config.project),
+            config.project,
+            secrets,
+        )
+        .is_some()
+    }
+
     pub fn new(config: Config, secrets: SecretReader) -> Result<Self, String> {
+        Self::with_build_key(
+            config,
+            secrets,
+            crate::build_config::amplitude_key(config.project),
+        )
+    }
+    pub(crate) fn with_build_key(
+        config: Config,
+        secrets: SecretReader,
+        build_key: Option<&str>,
+    ) -> Result<Self, String> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
@@ -38,6 +59,7 @@ impl Http {
             endpoint: config.zone.endpoint().into(),
             project: config.project,
             secrets,
+            build_key: build_key.map(str::to_owned),
         })
     }
 
@@ -48,13 +70,14 @@ impl Http {
 }
 
 impl AnalyticsSink for Http {
+    fn available(&self) -> bool {
+        resolve_key(self.build_key.as_deref(), self.project, &self.secrets).is_some()
+    }
+
     fn deliver(&mut self, batch: &[DeliveryEvent]) -> DeliveryResult {
-        let Ok(key) = (self.secrets)(self.project.secret_name()) else {
+        let Some(key) = resolve_key(self.build_key.as_deref(), self.project, &self.secrets) else {
             return DeliveryResult::Unavailable;
         };
-        if key.is_empty() {
-            return DeliveryResult::Unavailable;
-        }
         let events: Result<Vec<_>, _> = batch
             .iter()
             .map(|event| {
@@ -83,5 +106,48 @@ impl AnalyticsSink for Http {
             400..=499 if code != 429 => DeliveryResult::InvalidPayload,
             _ => DeliveryResult::Retry,
         }
+    }
+}
+
+fn resolve_key(
+    build_key: Option<&str>,
+    project: Project,
+    secrets: &SecretReader,
+) -> Option<String> {
+    build_key
+        .filter(|key| !key.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            secrets(project.secret_name())
+                .ok()
+                .filter(|key| !key.trim().is_empty())
+        })
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn key_precedence_build_then_secret_store() {
+        let never_read: SecretReader =
+            std::sync::Arc::new(|_| panic!("build key must bypass secret store"));
+        assert_eq!(
+            resolve_key(Some("build-key"), Project::Test, &never_read).as_deref(),
+            Some("build-key")
+        );
+        let secrets: SecretReader = std::sync::Arc::new(|_| Ok("store-key".into()));
+        assert_eq!(
+            resolve_key(Some("build-key"), Project::Test, &secrets).as_deref(),
+            Some("build-key")
+        );
+        assert_eq!(
+            resolve_key(None, Project::Prod, &secrets).as_deref(),
+            Some("store-key")
+        );
+        assert_eq!(
+            resolve_key(Some(""), Project::Prod, &secrets).as_deref(),
+            Some("store-key")
+        );
+        let missing: SecretReader = std::sync::Arc::new(|_| Err("missing".into()));
+        assert_eq!(resolve_key(None, Project::Test, &missing), None);
     }
 }

@@ -1,10 +1,10 @@
 {
   "provider": "firebase",
   "firebase": {
-    "apiKey": "AIzaSyCvASd9et5lzKS4bzU9Doh_VamQxUZVuts",
-    "authDomain": "domios-d9357.firebaseapp.com",
-    "projectId": "domios-d9357",
-    "appId": "1:864854672718:web:d96f2c072c6d0308baca1f"
+    "apiKey": "COPY_FIREBASE_API_KEY",
+    "authDomain": "COPY_FIREBASE_PROJECT_ID.firebaseapp.com",
+    "projectId": "COPY_FIREBASE_PROJECT_ID",
+    "appId": "COPY_FIREBASE_APP_ID"
   },
   "appCheckSiteKey": "COPY_RECAPTCHA_ENTERPRISE_SITE_KEY",
   "appleEnabled": false
