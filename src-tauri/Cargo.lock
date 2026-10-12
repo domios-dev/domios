@@ -1255,6 +1255,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "codeterm-util",
+ "dirs 6.0.0",
  "futures-util",
  "libc",
  "log",

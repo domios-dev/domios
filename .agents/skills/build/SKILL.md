@@ -305,6 +305,12 @@ add a short symptom/cause/recovery row here before closing the work.
 Do not use `dev --wait` for an interactive Windows session. It is reserved for
 automation that needs a detached health gate and does not prove a visible window.
 
+### Crate extraction troubleshooting
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| A moved browser locator fails with E0433 at `dirs::home_dir()` | The extracted crate did not declare an existing third-party dependency that the app previously supplied | Declare `dirs = "6"` directly in the browser manifest, refresh the workspace lockfile, and rerun the focused check when the build owner authorizes it. |
+
 ### Focused Windows test prerequisite troubleshooting
 
 | Symptom | Cause | Recovery |
@@ -375,7 +381,7 @@ was written is visible rather than silently reclassified.
 An owner that is wedged rather than dead is a different failure and is not
 reapable: see the `release-preflight` FIFO teardown row below.
 
-Use `./build.sh help` as the command index. `test-one <account|app|frontend-bundle|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
+Use `./build.sh help` as the command index. `test-one <account|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|mem|mesh|plugin|plugins|cli> <filter>`
 hides manifest/package details for focused tests. `frontend-bundle` (also
 `codeterm-frontend-bundle`) runs the isolated bundle crate through the gateway. The `types` and `cli`
 selectors include all Cargo targets so integration and binary tests are
@@ -553,4 +559,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
