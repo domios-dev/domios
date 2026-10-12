@@ -109,7 +109,7 @@ fn delivered_numbered_brief_is_not_an_interactive_prompt() {
     let provider = bundled_provider();
     for suffix in ["", "\n• Working (esc to interrupt)\n›"] {
         let screen = format!("› <domios from=\"parent\">\nWhich checks should be run?\n1. Inspect the classifier\n2. Verify the regression\n</domios>{suffix}");
-        assert!(provider.parse_prompt(&screen).is_some());
+        assert!(provider.parse_prompt(&screen).is_none());
         let resolved = parse_live_prompt(&provider, &screen);
         assert!(resolved.is_none());
         let mut detector = crate::agent::prompt::PromptDetector::new();
