@@ -15,6 +15,16 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'build.sh'
+      - 'gen/**'
+      - 'vitest.config.ts'
+      - 'biome.json'
+      - 'knip.json'
+      - 'scripts/vitest-owned-tests.json'
+      - 'scripts/run-ts-unit-tests.mjs'
+      - 'scripts/run-ts-unit-tests.test.mjs'
+      - 'scripts/ts-unit-tests.sh'
+      - 'scripts/ts-test-assets.mjs'
+      - 'scripts/ts-test-asset-hook.mjs'
   push:
     tags: ['frontend-v*']
   workflow_dispatch:
@@ -35,7 +45,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build:
-    runs-on: [self-hosted, linux-build]
+    runs-on: [self-hosted, Linux, light]
     environment: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'frontend-dry-run' || 'frontend-signing' }}
     env:
       FRONTEND_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -52,6 +62,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Resolve committed frontend version for pull request dry run
         if: github.event_name == 'pull_request'
         run: node scripts/frontend-release/release.mjs resolve-pr-tag
@@ -64,7 +75,7 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
       - name: Frozen dependencies and build.sh dependency freshness marker
         run: |
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
           touch node_modules/.package-lock.json
       - name: Focused producer tests
         run: node --test scripts/frontend-release/*.test.mjs
@@ -72,7 +83,16 @@ jobs:
         run: ./build.sh frontend
       - name: Install dedicated signer
         if: env.FRONTEND_DRY_RUN != 'true'
-        run: command -v minisign
+        env:
+          MINISIGN_SHA256: 9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73
+        run: |
+          if command -v minisign; then exit 0; fi
+          dir="$RUNNER_TEMP/minisign"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/minisign.tar.gz" https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+          echo "$MINISIGN_SHA256  $dir/minisign.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/minisign.tar.gz" -C "$dir"
+          echo "$dir/minisign-linux/$(uname -m)" >> "$GITHUB_PATH"
       - name: Package and verify fixture signature
         if: env.FRONTEND_DRY_RUN == 'true'
         run: node scripts/frontend-release/release.mjs prepare "$FRONTEND_TAG"
@@ -89,7 +109,7 @@ jobs:
   publish:
     needs: build
     if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
-    runs-on: [self-hosted, linux-build]
+    runs-on: [self-hosted, Linux, light]
     environment: frontend-publication
     env:
       FRONTEND_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -103,6 +123,17 @@ jobs:
         with:
           name: frontend-${{ env.FRONTEND_TAG }}
           path: frontend-release-output/
+      - name: Install GitHub CLI
+        env:
+          GH_CLI_SHA256: bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+        run: |
+          if command -v gh; then exit 0; fi
+          dir="$RUNNER_TEMP/gh"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/gh.tar.gz" https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz
+          echo "$GH_CLI_SHA256  $dir/gh.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/gh.tar.gz" -C "$dir"
+          echo "$dir/gh_2.102.0_linux_amd64/bin" >> "$GITHUB_PATH"
       - name: Verify, upload immutable assets, then update frontend discovery
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
