@@ -1004,6 +1004,35 @@
       ]
     },
     {
+      "name": "analytics",
+      "about": "Manage local opt-in product analytics",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "disable",
+          "about": "Record opt-out consent and clear queued events and identifiers",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "enable",
+          "about": "Record opt-in consent and create an installation identifier",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show recorded consent, queue size and delivery counters",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "blueprint",
       "about": "Cheap hash-gated watchers with closed-set routes",
       "aliases": [],
