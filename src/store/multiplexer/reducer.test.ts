@@ -328,26 +328,15 @@ test("a burst of toasts cannot strand its own overflow", () => {
   assert(state.toasts[state.toasts.length - 1].id === "t-39", "the newest toast survives");
 });
 
-test("expired local notices retain their actions in the bell; ephemeral ones do not", () => {
+test("local notices never enter bell history", () => {
   const toast: Notification = { id: "local", title: "opaque", body: null, tab_id: null, workspace_id: null, timestamp: 1, severity: "Info", read: false, local_actions: [{ label: "Restore", run: () => undefined }] };
   let state = reducer(base(), { type: "UPSERT_TOAST", toast });
   state = reducer(state, { type: "DISMISS_TOAST", id: "local" });
   assert(state.toasts.length === 0, "expired toast leaves the screen");
-  assert(state.notifications[0].local_actions?.[0].label === "Restore", "the action remains in the bell");
+  assert(state.notifications.length === 0, "local actions remain outside the bell");
   state = reducer(state, { type: "UPSERT_TOAST", toast: { ...toast, id: "copied", ephemeral: true } });
   state = reducer(state, { type: "DISMISS_TOAST", id: "copied" });
-  assert(state.notifications.length === 1, "purely ephemeral content is not archived");
-});
-
-test("progress updates cannot resurrect a dismissed activity", () => {
-  const toast: Notification = { id: "progress", key: "operation-1", title: "opaque", body: null, tab_id: null, workspace_id: null, timestamp: 1, severity: "Info", read: false, update_only: true };
-  let state = reducer(base(), { type: "UPSERT_TOAST", toast });
-  state = reducer(state, { type: "DISMISS_TOAST", id: toast.id });
-  state = reducer(state, { type: "UPSERT_TOAST", toast: { ...toast, body: "updated" } });
-  assert(state.toasts.length === 0, "no fresh lifetime for progress");
-  assert(state.notifications[0].body === "updated", "the bell receives progress updates");
-  state = reducer(state, { type: "UPSERT_TOAST", toast: { ...toast, id: "progress-2", key: "operation-2" } });
-  assert(state.toasts.length === 1, "a distinct operation can announce itself");
+  assert(state.notifications.length === 0, "purely ephemeral content is not archived");
 });
 
 test("an unanswered toast moves to the bell when newer notices fill the stack", () => {
@@ -358,7 +347,7 @@ test("an unanswered toast moves to the bell when newer notices fill the stack", 
     timestamp: 0,
     actions: [{ type: "answer", label: "Yes" }],
   } as unknown as Notification;
-  let state = reducer(base(), { type: "UPSERT_TOAST", toast: owed });
+  let state = reducer(base(), { type: "ADD_NOTIFICATION", notification: owed });
   for (let i = 0; i < 40; i += 1) {
     state = reducer(state, {
       type: "UPSERT_TOAST",
