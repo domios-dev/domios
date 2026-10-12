@@ -156,6 +156,7 @@ async function main() {
     };
   } | { kind: "preHandoffFailure"; message: string } | { kind: "possibleHandoff"; message: string }>>> = [];
   let deferNextStore = false;
+  let hostStatus = { ...recordingStatus(1), enabled: false, available: false };
   const runtime: Partial<LarkCaptureRuntime> = {
     isDesktop: true,
     getUserMedia: async (constraints) => {
@@ -189,6 +190,7 @@ async function main() {
   });
   bridge.__setInvokeForTest(async <T,>(command: string, args: Record<string, unknown> = {}) => {
     invocations.push({ command, args });
+    if (command === "local_recording_status") return hostStatus as T;
     if (command === "local_recording_cancel") {
       return undefined as T;
     }
@@ -263,7 +265,7 @@ async function main() {
   try {
     await render();
     await flushAct();
-    assert.equal(listeners.size, 3, "desktop status, capture, and invalidation events are installed");
+    assert.equal(listeners.size, 4, "desktop status, capture, invalidation and receiver binding events are installed");
     emit("local-recording-capture", { kind: "start", capture: lease("disabled-start", 1) });
     await flushAct();
     assert.equal(mediaCalls.length, 0, "disabled START cannot acquire audio");
@@ -414,7 +416,10 @@ async function main() {
     assert.match(alertText(), /cancelled/i);
     assert.equal(invokeCount("local_recording_commit"), 2, "composer cancel discards and does not retry");
 
-    await act(async () => emit("local-recording-status", recordingStatus(18)));
+    hostStatus = recordingStatus(18);
+    await act(async () => emit("contributions-changed", { kind: "receiver_target" }));
+    await flushAct();
+    assert.equal(current().state.phase, "armed", "rebinding refreshes authoritative readiness after cancellation");
     await startCapture(lease("lease-typed-failure", 18));
     await emitRecorderStarted(5);
     await stopByHost("lease-typed-failure");
@@ -520,7 +525,13 @@ async function main() {
     await stopRecorder(11);
     assert.equal(currentCaptureOwner(), null);
     assert.equal(invokeCount("local_recording_commit"), 4);
-    console.log("useLarkCapture: 14 wiring fixtures passed");
+    hostStatus = recordingStatus(24);
+    await act(async () => root.render(null));
+    await render();
+    await flushAct();
+    assert.equal(current().state.phase, "armed", "frontend remount restores an already armed receiver without waiting for a new host status event");
+    assert.equal(current().state.generation, 24);
+    console.log("useLarkCapture: 16 wiring fixtures passed");
   } finally {
     await act(async () => root.unmount());
     hookWindow.happyDOM.abort();

@@ -475,9 +475,24 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     }
     let disposed = false;
     const unlisten: UnlistenFn[] = [];
+    let statusRevision = 0;
+    const refreshStatus = async () => {
+      const revision = ++statusRevision;
+      try {
+        const status = await runtimeRef.current.invoke<LarkRecordingStatus>("local_recording_status", {
+          pluginId: stateRef.current.pluginId ?? "lark",
+        });
+        if (!disposed && revision === statusRevision && statusPayload(status)) {
+          transition({ type: "STATUS", status });
+        }
+      } catch {
+        return;
+      }
+    };
     void Promise.all([
       runtimeRef.current.listen<LarkRecordingStatus>("local-recording-status", ({ payload }) => {
         if (!statusPayload(payload)) return;
+        statusRevision += 1;
         transition({ type: "STATUS", status: payload });
         if (payload.granted && payload.enabled && payload.devicesSelected === false) setSetupPluginId(payload.pluginId);
         else if (payload.devicesSelected || !payload.enabled) setSetupPluginId(null);
@@ -488,11 +503,20 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
         else stopCapture(payload.lease);
       }),
       runtimeRef.current.listen<LarkCaptureInvalidation>("local-recording-capture-invalidated", ({ payload }) => {
-        if (invalidationPayload(payload)) handleInvalidation(payload);
+        if (invalidationPayload(payload)) {
+          statusRevision += 1;
+          handleInvalidation(payload);
+        }
       }),
-    ]).then((listeners) => {
+      runtimeRef.current.listen<{ kind: string }>("contributions-changed", ({ payload }) => {
+        if (payload?.kind === "receiver_target") void refreshStatus();
+      }),
+    ]).then(async (listeners) => {
       if (disposed) listeners.forEach((unlistenEvent) => unlistenEvent());
-      else unlisten.push(...listeners);
+      else {
+        unlisten.push(...listeners);
+        await refreshStatus();
+      }
       resolveListenerReadyRef.current?.();
     }).catch((error) => {
       transition({ type: "FAILED", operation: stateRef.current.operation, message: errorText(error) });
