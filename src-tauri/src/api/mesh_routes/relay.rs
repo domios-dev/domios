@@ -432,11 +432,14 @@ pub async fn mesh_relay_to_peer(
             return Ok(answered_by(refusal));
         }
     }
-    crate::api::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &req.body)
+    let mut relay_body = req.body;
+    crate::service::mesh_artifacts::transfer(&client, &req.method, &req.path, &mut relay_body)
+        .await
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
+    crate::api::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &relay_body)
         .await
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
     let delivery_id = relay_send_delivery_id(&req.method, &req.path);
-    let mut relay_body = req.body;
     enrich_spawn_ownership(&state, &req.method, &req.path, &mut relay_body);
     let cmd = crate::mesh::types::RelayCommand {
         method: req.method,
