@@ -20,7 +20,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
   return { id, type: "user", content: id, ...opts };
 }
 
-//    → no real sort, leaving order to chance. (timestamp,seq) must hold send order.
+
 {
   const incoming = [
     msg("u1", { type: "user", timestamp: "2026-06-20T17:42:57.501Z", seq: 1 }),
@@ -30,10 +30,10 @@ function msg(id: string, opts: Partial<M> = {}): M {
   ];
   // Feed shuffled to prove the sort — not insertion luck — produces order.
   const merged = mergeById([], [incoming[2], incoming[0], incoming[3], incoming[1]]);
-  eq(merged.map((m) => m.id), ["u1", "a1", "u2", "a2"], "codex ISO timestamps order by time");
+  eq(merged.map((m) => m.id), ["u1", "a1", "u2", "a2"], "source sequence orders shuffled ISO rows");
 }
 
-// ── codex same-second: equal coarse timestamps fall back to seq (source order).
+// Equal timestamps still follow source sequence.
 {
   const ts = "2026-06-20T17:42:58Z"; // second resolution: user + reply collide
   const merged = mergeById(
@@ -43,7 +43,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
       msg("u", { type: "user", timestamp: ts, seq: 4 }),
     ],
   );
-  eq(merged.map((m) => m.id), ["u", "a"], "same-second timestamps tiebreak by seq");
+  eq(merged.map((m) => m.id), ["u", "a"], "same-second timestamps preserve source sequence");
 }
 
 // ── cursor: NO timestamps at all. Ordering rests entirely on seq.
