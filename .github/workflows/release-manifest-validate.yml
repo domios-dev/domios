@@ -70,6 +70,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           draft=$(gh release view "$TAG" --repo "$SOURCE_REPO" --json isDraft --jq .isDraft)
           if [ "$draft" = false ]; then
             test "$(git rev-parse "$TAG^{commit}")" = "$SOURCE_SHA"
