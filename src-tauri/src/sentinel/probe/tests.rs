@@ -1,6 +1,7 @@
 use super::capture::{self, CaptureData, CompletionFacts};
 use super::owner::{ProbeResourceOwner, RetainedResources, Settlement};
 use super::process::{cancellation_target, Deadlines, LeaderOwnership, WindowsLaunchState};
+use super::PROBE_RUNTIME;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Weak};
@@ -569,4 +570,37 @@ fn sentinel_probe_owner_shutdown_delivers_only_registered_slot_cancellation() {
     assert!(!unrelated.load(Ordering::SeqCst));
     reservation.release().unwrap();
     assert_eq!(owner.snapshot().free, super::owner::MAX_RESOURCE_SLOTS);
+}
+
+#[test]
+fn sentinel_probe_readiness_handoff_preserves_default_deadlines() {
+    let deadlines = super::process::Deadlines::start(PROBE_RUNTIME, PROBE_RUNTIME).unwrap();
+    let signal = super::cancellation::Cancellation::default();
+    let setup = signal.setup_deadlines(deadlines);
+    let ready = signal.child_ready(setup).unwrap();
+    assert_eq!(ready.receipt().admitted, deadlines.receipt().admitted);
+    assert_eq!(ready.receipt().hard, deadlines.receipt().hard);
+}
+
+#[test]
+fn sentinel_probe_readiness_handoff_uses_observed_operation_deadline() {
+    let operation =
+        super::process::Deadlines::start(Duration::from_secs(1), PROBE_RUNTIME).unwrap();
+    let signal = super::cancellation::Cancellation::with_readiness(move || Ok(operation));
+    let setup = signal.setup_deadlines(operation);
+    assert_eq!(setup.duration, super::test_readiness::SETUP_DEADLINE);
+    let ready = signal.child_ready(setup).unwrap();
+    assert_eq!(ready.receipt().admitted, operation.receipt().admitted);
+    assert_eq!(ready.receipt().hard, operation.receipt().hard);
+    assert_eq!(ready.duration, Duration::from_secs(1));
+}
+
+#[test]
+fn sentinel_probe_readiness_handoff_fails_on_missing_child_signal() {
+    let signal = super::cancellation::Cancellation::with_readiness(|| Err("missing signal".into()));
+    let deadlines = super::process::Deadlines::start(PROBE_RUNTIME, PROBE_RUNTIME).unwrap();
+    assert_eq!(
+        signal.child_ready(deadlines).err().as_deref(),
+        Some("missing signal")
+    );
 }

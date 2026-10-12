@@ -143,7 +143,7 @@ impl fmt::Display for ProbeFailure {
 impl std::error::Error for ProbeFailure {}
 
 #[derive(Clone, Copy)]
-pub(super) struct Deadlines {
+pub(in crate::sentinel) struct Deadlines {
     #[cfg(test)]
     pub admitted: Instant,
     pub operation: Instant,
@@ -162,7 +162,10 @@ pub(in crate::sentinel) struct DeadlineReceipt {
 }
 
 impl Deadlines {
-    pub(super) fn start(limit: Duration, runtime: Duration) -> Result<Self, ProbeFailure> {
+    pub(in crate::sentinel) fn start(
+        limit: Duration,
+        runtime: Duration,
+    ) -> Result<Self, ProbeFailure> {
         Self::at(limit, runtime, Instant::now())
     }
 
