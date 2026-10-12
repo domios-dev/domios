@@ -95,9 +95,14 @@ fn nothing_landed_and_landed_unconfirmed_stay_distinguishable() {
         SEND,
         accepted_envelope_with_peer_refusal(delivery::SUBMIT_UNCONFIRMED, Some(true)),
     )
-    .expect("bytes that reached the PTY are an accepted, pending send — the local path's verdict");
-    assert_eq!(landed["bytes_written"].as_bool(), Some(true));
-    assert_eq!(landed["delivery"].as_str(), Some("pending"));
+    .expect_err("submit_unconfirmed exits nonzero, as the local send does since #578");
+    assert_eq!(landed.code.as_deref(), Some(delivery::SUBMIT_UNCONFIRMED));
+    assert_eq!(landed.bytes_written, Some(true));
+    assert_eq!(
+        landed.to_json()["error"]["bytes_written"].as_bool(),
+        Some(true),
+        "landed bytes stay visible so no caller replays the send"
+    );
 }
 
 /// Symptom B's shape: the relay abandoned its own loopback call, so nobody knows
