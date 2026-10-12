@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Status {
+    pub vendor_available: bool,
     pub consent: Consent,
     pub config: Config,
     pub queued: usize,
@@ -50,6 +51,7 @@ impl Engine {
 
     pub fn status(&self) -> Status {
         Status {
+            vendor_available: self.state.config.mode == Mode::Amplitude && self.sink.available(),
             consent: self.state.consent,
             config: self.state.config,
             queued: self.state.queue.len(),

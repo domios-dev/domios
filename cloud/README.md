@@ -7,7 +7,7 @@ Functions v2 run on Node 22 in `us-central1`. This directory is independent of t
 ## Owner setup
 
 1. In the [Firebase console](https://console.firebase.google.com/), create or select project ID `domios`, attach a billing account (Blaze), and create Firestore in production mode in the chosen permanent database location. The project ID is globally unique: if unavailable, choose the dedicated ID and update `.firebaserc`, the web config and URLs below together. Never point this project at an existing application's database.
-2. In Project settings → General → Your apps, register a **Web** app named `Domios sign-in`. Copy its Firebase configuration into `hosting/signin/config.json`, starting from `config.example.json`. The web API key and App Check site key are public configuration; provider secrets and service-account private keys never belong in Hosting.
+2. In Project settings → General → Your apps, register a **Web** app named `Domios sign-in`. Export its values as `DOMIOS_FIREBASE_API_KEY`, `DOMIOS_FIREBASE_PROJECT_ID`, and `DOMIOS_FIREBASE_APP_ID`, then run `node cloud/write-signin-config.mjs` from the repository root. The web API key and App Check site key are public configuration; provider secrets and service-account private keys never belong in Hosting.
 3. In Authentication → Get started → Settings → Authorized domains, add `domios-d9357.web.app` and confirm `domios-d9357.firebaseapp.com` is present. Add a custom Hosting domain only if actually using it. The desktop's loopback IP and `domios` scheme are **not** Firebase authorized domains or OAuth redirect URIs. The system browser signs into the hosted web app; the daemon receives only its bound desktop code.
 4. In Authentication → Sign-in method, enable **Google** and select the support email. In [Google Cloud console](https://console.cloud.google.com/) → Google Auth Platform, configure the app name, support/developer email and audience; add owner/test users while in Testing. Publish the consent screen when ready. Under Clients (or APIs & Services → Credentials), select Firebase's Web OAuth client. Set Authorized JavaScript origins to `https://domios-d9357.web.app` and `https://domios-d9357.firebaseapp.com`; set Authorized redirect URIs to **`https://domios-d9357.firebaseapp.com/__/auth/handler`**. Use the Web client ID/secret in Firebase's Google provider configuration if entering a client manually. No desktop OAuth client or embedded desktop client secret is needed. The web configuration uses `authDomain: "domios-d9357.firebaseapp.com"`.
 5. Create a [Meta developer app](https://developers.facebook.com/apps/) with the Facebook Login use case. Under app settings, set App Domains to `domios-d9357.web.app` and `domios-d9357.firebaseapp.com`, Website URL to `https://domios-d9357.web.app/`, contact email, privacy policy URL and data deletion instructions URL. In Facebook Login → Settings, enable Client OAuth Login and Web OAuth Login, require HTTPS and strict redirect matching, and add Valid OAuth Redirect URI **`https://domios-d9357.firebaseapp.com/__/auth/handler`**. Copy the Meta **App ID** and **App Secret** into Firebase Authentication → Sign-in method → Facebook and enable it. Use app administrators/developers/testers in Development mode. Complete Meta's required verification/review and switch to Live before admitting other accounts. Request only the default identity/email scope; email may be absent and is not used to authorize redemption. See [Firebase's Facebook setup](https://firebase.google.com/docs/auth/web/facebook-login).
@@ -26,7 +26,7 @@ they do not need owner credentials or access the production project.
 ```sh
 npm --prefix cloud/functions ci
 npm --prefix cloud/functions test
-cp cloud/hosting/signin/config.example.json cloud/hosting/signin/config.json
+node cloud/write-signin-config.mjs
 # Fill in the public web configuration and App Check site key as described above.
 npm --prefix cloud/functions run build
 cd cloud
@@ -178,3 +178,22 @@ through the local signed-event adapter and updates the in-memory entitlement.
 `/api/createCheckoutSession`, `/api/createPortalSession`, and `/api/entitlement`
 use the existing local session. Local/fake providers are test-only, and deployment
 refuses them outside the emulator. Restarting local development clears billing data.
+
+
+## Deploy-time sign-in configuration
+
+Export DOMIOS_FIREBASE_API_KEY, DOMIOS_FIREBASE_PROJECT_ID and
+DOMIOS_FIREBASE_APP_ID from the same named secrets used by app builds, then run
+node cloud/write-signin-config.mjs before deploying Hosting. It writes the ignored
+cloud/hosting/signin/config.json and exits with a missing-variable message if
+any required value is empty. Export the App Check site key before running the writer. Never commit the generated file.
+DOMIOS_FIREBASE_APP_CHECK_SITE_KEY is also required: the hosted adapter uses App Check;
+DOMIOS_APPLE_ENABLED=true enables Apple sign-in after its provider is configured.
+DOMIOS_ACCOUNT_REDEEM_URL and DOMIOS_BILLING_FUNCTIONS_URL configure the desktop
+adapters with the deployed HTTPS function URL and HTTPS base URL ending in /.
+
+Hosted sign-in accepts optional provider=google|facebook|email and
+mode=signin|signup query hints. A supported social provider starts immediately;
+email focuses its link form. Unknown/disabled hints fall back to all choices.
+Mode changes only the heading, and email continuation preserves it. Firebase
+creates accounts on first sign-in; there is no separate sign-up credential flow.

@@ -66,7 +66,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            account: serde_json::json!({"provider": "local"}),
+            account: serde_json::json!({}),
             billing: serde_json::json!({"provider": "cloud"}),
             theme: ThemeConfig::default(),
             font: FontConfig::default(),
