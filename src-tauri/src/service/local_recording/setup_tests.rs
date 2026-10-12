@@ -281,6 +281,7 @@ async fn lark_recording_contract_production_enable_uses_injected_readiness_bound
 }
 
 #[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_capture() {
     use crate::service::local_recording::chat::ChatIdentity;
     use crate::service::local_recording::completion::complete_capture;
