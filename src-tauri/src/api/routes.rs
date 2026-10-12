@@ -759,6 +759,10 @@ pub fn create_router_with_frontend(
             post(mesh_routes::mesh_worker_dispatch),
         )
         .route(
+            "/api/mesh/worker-dispatch-status",
+            post(mesh_routes::mesh_worker_dispatch_status),
+        )
+        .route(
             "/api/mesh/worker-lane-bundle",
             post(mesh_routes::mesh_worker_lane_bundle),
         )

@@ -244,6 +244,21 @@ pub(super) fn dispatch(
         &request,
         Some(WORKER_DISPATCH_DEADLINE),
     ));
+    let observed_spawn = if response.is_err() {
+        tauri::async_runtime::block_on(client.auth_post_json_within(
+            "/api/mesh/worker-dispatch-status",
+            &request,
+            Some(WORKER_DISPATCH_DEADLINE),
+        ))
+        .map_err(|error| {
+            log::debug!("[remote-dispatch] spawn observation failed for {attempt_id}: {error}");
+            error
+        })
+        .ok()
+    } else {
+        None
+    };
+    let response = super::super::remote_worker_policy::dispatch_response(response, observed_spawn);
     let response = match response {
         Ok(response) => response,
         Err(error) => {
@@ -304,6 +319,17 @@ pub(super) fn dispatch(
             "peer response did not contain verified lane references",
         ));
     }
+    let nonce = response
+        .get("session_binding_nonce")
+        .and_then(Value::as_str)
+        .filter(|nonce| !nonce.trim().is_empty())
+        .ok_or_else(|| {
+            remote_failure(
+                "relay_lost",
+                &attempt_id,
+                "peer omitted worker binding nonce",
+            )
+        })?;
     svc.plan_store
         .record_remote_dispatch_lane(
             &plan_id,
@@ -315,6 +341,7 @@ pub(super) fn dispatch(
             worktree_path,
             lane_base,
             &model.provider_id,
+            nonce,
             now,
         )
         .map_err(super::super::plan::plan_rpc_err)?;
@@ -669,17 +696,7 @@ fn identify_advertises(identify: &Value, feature: &str) -> bool {
 }
 
 fn remote_error_state(error: &str) -> (RemoteDispatchState, &'static str) {
-    if error.contains("peer_missing_repo") {
-        (RemoteDispatchState::PeerMissingRepo, "peer_missing_repo")
-    } else if error.contains("peer_missing_base") {
-        (RemoteDispatchState::PeerMissingBase, "peer_missing_base")
-    } else if error.contains("Network error") || error.contains("unroutable") {
-        (RemoteDispatchState::PeerOffline, "peer_offline")
-    } else if error.starts_with("HTTP error:") {
-        (RemoteDispatchState::PeerRefused, "peer_refused")
-    } else {
-        (RemoteDispatchState::RelayLost, "relay_lost")
-    }
+    super::super::remote_worker_policy::dispatch_error_state(error)
 }
 
 fn remote_failure(state: &str, attempt_id: &str, detail: &str) -> JsonRpcError {
@@ -786,7 +803,7 @@ mod tests {
         );
         assert_eq!(
             remote_error_state("Network error: connection refused").0,
-            RemoteDispatchState::PeerOffline,
+            RemoteDispatchState::RelayLost,
         );
     }
 
