@@ -33,13 +33,23 @@ Run it in the **background** so you can keep working:
 | verb | what |
 |---|---|
 | `./build.sh dev` | start dev (port 7686, hot-reload) |
-| `./build.sh kill` | stop dev only — prod on 7685 stays alive |
+| `./build.sh kill` | stop dev and reap its Codex RPC sidecar groups by token-file directory; prod stays alive |
 | `./build.sh check` | `cargo check` (~2s incremental) — use this before debugging to confirm code still compiles |
 | `./build.sh test` | Rust unit tests |
 | `./build.sh cli` | rebuild CLI only — no dev restart needed if you only edited `cli/` |
 | `./build.sh clean` | wipe build cache, next build from scratch |
 | `./build.sh webdriver` | dev with WebDriver enabled for UI tests |
 | `./build.sh e2e` | run E2E suite against a running dev |
+
+`kill` also reaps orphaned Codex RPC launchers whose `--ws-token-file` is
+inside this instance's `codex-rpc` directory. Unix cleanup requires an owned
+group leader; Windows cleanup terminates the identified launcher's tree.
+A launcher in an unidentified Unix group fails cleanup rather than risking
+another instance. Inspect the scoped count with:
+
+```bash
+node scripts/reap-dev-sidecars.mjs "$HOME/.codeterm-dev" --count
+```
 
 For dev readiness reports routed to the calling agent tab, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 

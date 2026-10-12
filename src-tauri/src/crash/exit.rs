@@ -200,12 +200,14 @@ fn begin_surface_shutdown(
 /// `handle_run_exit` instead, so only the unix signal handlers need this.
 #[cfg(unix)]
 pub fn graceful_exit_cleanup(app: &tauri::AppHandle) {
+    let sidecars = crate::service::codex_rpc::exit::begin();
     let surfaces = begin_surface_shutdown(app);
     declare_clean_exit(app);
     persist_state(app);
     if let Some(surfaces) = surfaces {
         surfaces.wait();
     }
+    sidecars.wait();
 }
 
 /// `RunEvent::Exit` entry point: always persist, declare only on a genuine quit.
@@ -220,10 +222,12 @@ pub fn handle_run_exit(app: &tauri::AppHandle) {
             "[shutdown] unrequested macOS RunEvent::Exit; persisting state without clean-exit declaration"
         );
     }
+    let sidecars = crate::service::codex_rpc::exit::begin();
     let surfaces = begin_surface_shutdown(app);
     execute_exit_plan(plan, || declare_clean_exit(app), || persist_state(app));
     if let Some(surfaces) = surfaces {
         surfaces.wait();
     }
+    sidecars.wait();
     log::info!("[shutdown] RunEvent::Exit handler completed");
 }
