@@ -244,6 +244,8 @@ fn default_capabilities() -> Capabilities {
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
+        local_recording_trigger: None,
+        receiver_status_query: None,
         tab_menu: Vec::new(),
         surfaces: Vec::new(),
         unknown: Default::default(),

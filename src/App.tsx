@@ -11,6 +11,9 @@ import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { TabContent } from "./components/Terminal/TabContent";
+import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
+import { LocalRecordingSetup } from "./components/Terminal/voice/LocalRecordingSetup";
+import { useLocalRecordingCapture } from "./components/Terminal/voice/useLocalRecordingCapture";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
 import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
@@ -95,20 +98,6 @@ function useStableJsonValue<T>(value: T): T {
 function AppInner() {
   useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
-  useEffect(() => {
-    if (!IS_WEB) {
-      void (async () => {
-        frontendBootDiagnostic("ready-request");
-        const generation = await invoke<number>("frontend_readiness_generation");
-        const accepted = await invoke<boolean>("frontend_ready", { generation });
-        frontendBootDiagnostic(accepted ? "ready-accepted" : "ready-rejected");
-        if (!accepted) throw new Error("frontend readiness generation was replaced");
-      })().catch((error) => {
-        frontendBootDiagnostic("ready-failed");
-        console.warn("Unable to report frontend readiness", error);
-      });
-    }
-  }, []);
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phone width owns the sidebar: it becomes an overlay drawer and yields the viewport to the content until the hamburger reopens it.
   const {
@@ -244,6 +233,22 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  const larkCapture = useLocalRecordingCapture({ tabs: state.tabs });
+  useEffect(() => {
+    if (!IS_WEB) {
+      void (async () => {
+        frontendBootDiagnostic("ready-request");
+        await larkCapture.ready;
+        const generation = await invoke<number>("frontend_readiness_generation");
+        const accepted = await invoke<boolean>("frontend_ready", { generation });
+        frontendBootDiagnostic(accepted ? "ready-accepted" : "ready-rejected");
+        if (!accepted) throw new Error("frontend readiness generation was replaced");
+      })().catch((error) => {
+        frontendBootDiagnostic("ready-failed");
+        console.warn("Unable to report frontend readiness", error);
+      });
+    }
+  }, [larkCapture.ready]);
   useFrontendApp({
     generation: state.generation,
     workspaceId: state.active_workspace_id,
@@ -667,6 +672,8 @@ function AppInner() {
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
         className="flex flex-1 min-h-0 relative"
       >
+        <LocalRecordingCaptureStatus state={larkCapture.state} />
+        {larkCapture.setupPluginId && <LocalRecordingSetup pluginId={larkCapture.setupPluginId} onClose={larkCapture.closeSetup} />}
         {sidebarMounted && (
           <>
             {/* Narrow shell: the sidebar overlays the content with a tap-to-close

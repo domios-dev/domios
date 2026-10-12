@@ -8,12 +8,19 @@ import { open, save, type OpenDialogOptions, type SaveDialogOptions } from "@tau
 
 export type NativeUnsubscribe = () => void;
 export type NotificationPermission = "granted" | "denied" | "prompt" | "unknown";
+export type LocalRecordingCommand =
+  | "local_recording_status" | "local_recording_set_enabled"
+  | "local_recording_select_devices" | "local_recording_input_devices"
+  | "local_recording_capture_stopped" | "local_recording_cancel"
+  | "local_recording_manual_capture" | "local_recording_save_clip"
+  | "local_recording_discard_clip" | "local_recording_commit";
 export type FileDropEvent =
   | { type: "enter" | "drop"; paths: string[]; position: { x: number; y: number } }
   | { type: "over"; position: { x: number; y: number } }
   | { type: "leave" };
 
 export interface NativeBridge {
+  localRecording?: Record<LocalRecordingCommand, (args: Record<string, unknown>) => Promise<unknown>>;
   window: {
     minimize(): Promise<void>;
     toggleMaximize(): Promise<void>;
@@ -88,6 +95,18 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
     return globalThis.navigator.clipboard;
   };
   return {
+    localRecording: native ? {
+      local_recording_status: (args) => invoke("local_recording_status", args),
+      local_recording_set_enabled: (args) => invoke("local_recording_set_enabled", args),
+      local_recording_select_devices: (args) => invoke("local_recording_select_devices", args),
+      local_recording_input_devices: (args) => invoke("local_recording_input_devices", args),
+      local_recording_capture_stopped: (args) => invoke("local_recording_capture_stopped", args),
+      local_recording_cancel: (args) => invoke("local_recording_cancel", args),
+      local_recording_manual_capture: (args) => invoke("local_recording_manual_capture", args),
+      local_recording_save_clip: (args) => invoke("local_recording_save_clip", args),
+      local_recording_discard_clip: (args) => invoke("local_recording_discard_clip", args),
+      local_recording_commit: (args) => invoke("local_recording_commit", args),
+    } : undefined,
     window: native ? {
       minimize: () => getCurrentWindow().minimize(),
       toggleMaximize: () => getCurrentWindow().toggleMaximize(),

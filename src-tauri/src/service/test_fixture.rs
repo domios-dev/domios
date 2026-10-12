@@ -292,6 +292,15 @@ impl ServiceFixture {
             ),
             agent_command_registry: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
             webhook_registry: Arc::new(codeterm_plugin::WebhookRegistry::new()),
+            local_recording_registry: Arc::new(
+                codeterm_plugin::local_recording::LocalRecordingRegistry::default(),
+            ),
+            local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
+            local_recording_targets: Arc::new(
+                crate::service::receiver_target::ReceiverTargetStore::open(
+                    data_dir.join("local-recording-targets.json"),
+                ),
+            ),
             tab_menu_registry: Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new()),
             surface_registry: Arc::new(codeterm_plugin::surfaces::SurfaceRegistry::new()),
             surface_runtimes: Arc::new(

@@ -28,6 +28,14 @@ describe("nativeBridge", () => {
     expect(mocks.invoke).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+  it("routes exact local recording operations only through the desktop capability", async () => {
+    expect(createNativeBridge(false).localRecording).toBeUndefined();
+    const recording = createNativeBridge(true).localRecording!;
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    const args = { pluginId: "selected-plugin", inputId: "exact-input", collectionId: "exact-collection", microphoneId: "exact-mic" };
+    await recording.local_recording_select_devices(args);
+    expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("local_recording_select_devices", args);
+  });
   it("uses the native capability even for a daemon-hosted shell", async () => {
     const bridge = createNativeBridge(true);
     await bridge.window?.minimize();

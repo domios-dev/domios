@@ -6,6 +6,7 @@ mod file_actions;
 mod hooks;
 pub(crate) mod html_preview;
 pub use file_actions::*;
+pub(crate) mod local_recording;
 pub mod mux_commands;
 pub(crate) mod plugins;
 mod pty;

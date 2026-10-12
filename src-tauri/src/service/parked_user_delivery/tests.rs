@@ -854,5 +854,6 @@ mod merged_turns;
 mod owner_jev;
 #[path = "tests/readiness.rs"]
 mod readiness;
+mod recording_contract;
 #[path = "tests/retained_uncertainty.rs"]
 mod retained_uncertainty;

@@ -3,7 +3,7 @@
  * plugin's read-only `renderGlance()` ViewNode tree. Not settings: a quick peek
  * (Bitwarden account, transcriber status, …) with a gear to open full settings.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../../lib/bridge";
 import { BusyState } from "../shared/BusyState";
@@ -27,7 +27,13 @@ export function GlancePopover({
   ctx,
   onClose,
   onOpenSettings,
+  trigger,
+  hoverOnly = false,
+  footer,
 }: {
+  trigger?: HTMLElement | null;
+  hoverOnly?: boolean;
+  footer?: ReactNode;
   pluginId: string;
   displayName: string;
   /** Opt-in instructions; absent means this plugin is not AI-configurable. */
@@ -67,18 +73,27 @@ export function GlancePopover({
   // Dismiss on outside click + Escape.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) && !trigger?.contains(e.target as Node)) onClose();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") { onClose(); trigger?.focus(); }
     };
+    const onMove = (e: PointerEvent) => {
+      if (!hoverOnly || !trigger || !menuRef.current) return;
+      const a = trigger.getBoundingClientRect();
+      const b = menuRef.current.getBoundingClientRect();
+      const inside = e.clientX >= Math.min(a.left, b.left) && e.clientX <= Math.max(a.right, b.right) && e.clientY >= Math.min(a.top, b.top) && e.clientY <= Math.max(a.bottom, b.bottom);
+      if (!inside) onClose();
+    };
+    document.addEventListener("pointermove", onMove);
     document.addEventListener("mousedown", onDown, true);
     document.addEventListener("keydown", onKey);
     return () => {
+      document.removeEventListener("pointermove", onMove);
       document.removeEventListener("mousedown", onDown, true);
       document.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [onClose, trigger, hoverOnly]);
 
   const onAction = useCallback(
     (action: string) => {
@@ -116,6 +131,8 @@ export function GlancePopover({
   return createPortal(
     <div
       ref={menuRef}
+      role="dialog"
+      aria-label={`${displayName} receiver status`}
       className="fixed z-50"
       style={{
         top: anchor.top,
@@ -135,6 +152,7 @@ export function GlancePopover({
         <button
           onClick={() => { onOpenSettings(pluginId); onClose(); }}
           title="Open settings"
+          aria-label="Open settings"
           style={{ background: "transparent", border: "none", color: "var(--ct-muted)", cursor: "pointer", display: "flex", padding: 2 }}
         >
           <GearIcon size={14} />
@@ -147,6 +165,7 @@ export function GlancePopover({
       ) : (
         <BusyState labelKey="settingsPending" inline style={{ fontSize: 12 }} />
       )}
+      {footer}
     </div>,
     document.body,
   );

@@ -19,7 +19,9 @@ pub enum TabMenuAction {
 impl TabMenuAction {
     fn required_capability(self, caps: &Capabilities) -> Option<&'static str> {
         match self {
-            Self::ReceiverTarget => caps.webhook_receiver.is_none().then_some("webhookReceiver"),
+            Self::ReceiverTarget => (caps.webhook_receiver.is_none()
+                && caps.local_recording_trigger.is_none())
+            .then_some("webhookReceiver or localRecordingTrigger"),
         }
     }
 }

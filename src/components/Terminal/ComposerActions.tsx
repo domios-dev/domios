@@ -9,6 +9,7 @@ import { useComposerVoice } from "./voice/useComposerVoice";
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
 interface Props {
+  tabId?: string;
   onAttach: (paths: string[]) => void;
   onSend: () => void;
   onSchedule?: () => void;
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function ComposerActions({
+  tabId,
   onAttach,
   onSend,
   onSchedule,
@@ -39,6 +41,7 @@ export function ComposerActions({
   const uploads = useAttachmentUploads(onAttach);
   const voiceUploads = useAttachmentUploads(onSendWithAttachments);
   const voiceUi = useComposerVoice({
+    tabId,
     hasText,
     onSend,
     onAttach,

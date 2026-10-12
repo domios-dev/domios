@@ -9,6 +9,24 @@ contracts for that surface — the `host` global, and the capability interfaces 
 plugin can implement. Type imports have zero runtime weight. The optional pure
 diff helpers are bundled only when imported as values.
 
+`capabilities.localRecordingTrigger` declares a USB vendor/product and HID
+usage-page/usage tuple. It permits a host-owned `receiverTarget` tab-menu item
+without a webhook receiver. `local_recording` needs an explicit persisted user
+grant; requesting it in a manifest, system trust, and dev mode do not grant it.
+`host.localRecording.status()` and `setEnabled(boolean)` address only the calling
+plugin. Enabling arms the trigger without recording. The host selects exact input
+collection and microphone identities, freezes an authenticated ready recipient at
+START, transcribes with the configured voice stage, and admits ordinary tracked
+voice through the existing permission/text pipeline and client token.
+
+An explicit closed recipient stays stale until the owner clears or replaces it.
+General resolves only at START when there is no explicit selection. Cancellation,
+device loss, grant revocation on reload, and unload invalidate subscription and
+capture generations. Linux and web capture are unsupported. The SDK exposes no
+raw HID, audio, device selection, capture lease, transcript commit, or arbitrary
+recipient sender. Windows/macOS adapter and desktop recorder implementation belong
+to the host; the declaration alone does not prove hardware capture or delivery.
+
 ```ts
 import type { PluginModule } from "@codeterm/plugin-sdk";
 
@@ -132,3 +150,9 @@ const decisionModel: DecisionModelCapability = {
 const plugin: PluginModule = { ...decisionModel };
 export default plugin;
 ```
+
+### Selected receiver status
+
+`capabilities.receiverStatusQuery` declares one immutable HID status request (2–64bytes), application-collection usage and reportID. `host.localRecording.statusReport()` exchanges only that declaration with a sibling collection belonging to the exact selected receiver; persisted `local_recording` grant and current selection/availability are checked before and after IO. No device path or request argument is exposed. The plugin owns decoding, connection/battery semantics and `statusBubble`; unsupported platforms or unavailable status return a refusal. `TabContext.tabId` identifies the host-supplied bubble recipient.
+
+`localRecordingTrigger.button` supplies the selected interface/collection, report schema, approved singleton button usages, press usage and duplicate window. Native adapters validate that declared shape instead of branching on manufacturer identity. A missing native mapping remains unavailable.

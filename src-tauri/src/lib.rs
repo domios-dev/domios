@@ -282,6 +282,7 @@ pub fn run() {
                 chat_preprocessor: chat_preprocessor_registry.clone(),
                 agent_command: agent_command_registry.clone(),
                 webhook_receiver: webhook_registry.clone(),
+                local_recording: Arc::new(codeterm_plugin::local_recording::LocalRecordingRegistry::default()),
                 tab_menu: tab_menu_registry.clone(),
                 surfaces: surface_registry.clone(),
             };
@@ -674,6 +675,9 @@ pub fn run() {
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),
                 webhook_registry: webhook_registry.clone(),
+                local_recording_registry: cap_registries.local_recording.clone(),
+                local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
+                local_recording_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(crate::paths::data_dir().join("local-recording-targets.json"))),
                 tab_menu_registry: tab_menu_registry.clone(),
                 surface_registry,
                 surface_runtimes: crate::service::surface::builtin_runtimes(),

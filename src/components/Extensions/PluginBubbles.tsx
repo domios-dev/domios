@@ -14,6 +14,8 @@ import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSn
 import { subscribePluginBubble, type BubbleData, type PluginBubbleSubscription } from "../../lib/pluginBubbleCache";
 import { watchRepository, type RepoWatchState } from "../../lib/repoWatch";
 
+import { usePluginTabMenu } from "../../lib/pluginTabMenu";
+
 interface BubblePlugin {
   id: string;
   display_name?: string | null;
@@ -57,6 +59,7 @@ export function PluginBubbles({
   isActive: boolean;
 }) {
   const snapshotState = usePluginSnapshotStore();
+  const receiverMenu = usePluginTabMenu();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
   const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
   const [watch, setWatch] = useState<RepoWatchState | null>(null);
@@ -109,7 +112,7 @@ export function PluginBubbles({
     };
   }, [isActive, cwd]);
 
-  const visible = plugins.filter((p) => pills[p.id]);
+  const visible = plugins.filter((p) => pills[p.id] && receiverMenu.receiverTargets[p.id] !== tabId);
   const watchReason = watch?.status === "unavailable" ? watch.reason : null;
   // Only a proven watch reads as live; pending and unwatched say so.
   const watchState = watchReason ? "unavailable" : (watch?.status ?? "idle");

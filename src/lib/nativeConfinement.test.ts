@@ -7,7 +7,7 @@ const nativeSource = readFileSync("src/lib/nativeBridge.ts", "utf8");
 describe("native capability confinement", () => {
   it("exposes exactly the declared native commands through Rust IPC", () => {
     const source = readFileSync("src-tauri/src/command_registration.rs", "utf8");
-    const registered = [...source.matchAll(/(?:commands|clipboard_files)::([a-z_]+),/g)].map(match => match[1]);
+    const registered = [...source.matchAll(/(?:commands|clipboard_files)::(?:[a-z_]+::)*([a-z_]+),/g)].map(match => match[1]);
     const calls = scanTransportSource("nativeBridge.ts", nativeSource).filter(site => site.kind === "invoke").map(site => site.target);
     expect([...new Set(calls)].sort()).toEqual(Object.keys(NATIVE_COMMANDS).sort());
     expect(registered.sort()).toEqual(Object.keys(NATIVE_COMMANDS).sort());
