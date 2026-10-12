@@ -14,6 +14,7 @@ pub use super::supporter::{
 #[serde(default)]
 pub struct AppConfig {
     pub account: serde_json::Value,
+    pub billing: serde_json::Value,
     pub theme: ThemeConfig,
     pub font: FontConfig,
     pub terminal: TerminalConfig,
@@ -66,6 +67,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             account: serde_json::json!({"provider": "local"}),
+            billing: serde_json::json!({"provider": "cloud"}),
             theme: ThemeConfig::default(),
             font: FontConfig::default(),
             terminal: TerminalConfig::default(),

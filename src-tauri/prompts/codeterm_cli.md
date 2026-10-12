@@ -89,3 +89,5 @@ Paths: use forward slashes; the CLI normalizes them on every OS.
 Blueprints use deterministic patterns by default; unmatched output remains `other` without a model call. Use `--model-classification` without patterns only when model judgment is wanted. Blueprint terminal adapters: `codeterm blueprint create --observe tab:<id> --output-settled 300 --session` watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.
 
 Opt-in product analytics is local: `codeterm analytics status`, `codeterm analytics enable`, and `codeterm analytics disable`. Disabling clears queued events and identifiers.
+
+Account and subscriptions: `codeterm account plan` shows cached entitlements and a stale marker; `codeterm account upgrade pro` opens checkout; `codeterm account portal` opens subscription management. See `codeterm docs ACCOUNT`.

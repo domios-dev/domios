@@ -24,6 +24,7 @@ pub mod analytics;
 mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
+pub mod billing;
 mod blueprint_pipeline;
 mod blueprint_portable;
 pub(crate) mod boot_owner_prompt;
@@ -298,6 +299,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 #[derive(Clone)]
 pub struct ServiceContext {
     pub account: Arc<tokio::sync::OnceCell<Arc<codeterm_account::Account>>>,
+    pub billing: Arc<tokio::sync::OnceCell<Arc<codeterm_billing::Billing>>>,
     pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,

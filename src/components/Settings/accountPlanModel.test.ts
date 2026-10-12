@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import { accountPlanModel, planFailure } from "./accountPlanModel";
+const free = accountPlanModel({entitlements:{plan:"free",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false});
+assert.equal(free.plan,"free");
+assert.equal(free.periodEnd,null);
+const paid = accountPlanModel({entitlements:{plan:"pro",status:"past_due",current_period_end:2000000000,cancel_at_period_end:true},stale:true});
+assert.equal(paid.status,"past_due");
+assert.equal(paid.cancelAtPeriodEnd,true);
+assert.equal(paid.periodEnd,2000000000);
+assert.equal(paid.stale,true);
+assert.deepEqual(planFailure({...paid,stale:false}),paid);
+assert.equal(planFailure(null),null);
+console.log("8 account plan model assertions passed");
