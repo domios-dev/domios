@@ -23,17 +23,48 @@ test("release tests and platform builds share preparation and publication waits 
     assert.notEqual(release.jobs[id]["continue-on-error"], true);
   }
   assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "tests", ...builds]));
-  assert.equal(release.jobs["release-manifest"].if, "needs.prepare.outputs.dry_run != 'true'");
+  assert.equal(release.jobs["release-manifest"].if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'");
 });
 
 test("dry runs still build every platform while skipping the tests and publisher", () => {
-  assert.equal(release.jobs.tests.if, "needs.prepare.outputs.dry_run != 'true'");
+  assert.equal(release.jobs.tests.if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'");
   for (const id of builds) {
     assert.equal(release.jobs[id].with.dry_run, "${{ needs.prepare.outputs.dry_run == 'true' }}");
-    assert.equal(release.jobs[id].if, undefined);
+    assert.equal(release.jobs[id].if, "needs.prepare.outputs.published != 'true'");
   }
   const draft = release.jobs.prepare.steps.find(step => step.name === "Create draft releases before parallel uploads");
-  assert.equal(draft.if, "steps.release.outputs.dry_run != 'true'");
+  assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true'");
+});
+
+test("a push to release/X.Y.Z by the owner account is the release, and a published version never rebuilds", () => {
+  assert.deepEqual(release.on.push, { branches: ["release/**"] });
+  assert.equal(release.on.push.tags, undefined);
+  assert.equal(release.jobs.prepare.if, "github.event_name != 'push' || github.actor == 'rollacode'");
+  const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
+  assert.match(resolve, /release\/\*\) version="\$\{REQUESTED_REF#release\/\}"/);
+  assert.match(resolve, /committed=\$\(node -p "require\('\.\/package\.json'\)\.version"\)/);
+  assert.match(resolve, /echo "published=true" >> "\$GITHUB_OUTPUT"/);
+  assert.match(resolve, /echo "source_ref=\$sha" >> "\$GITHUB_OUTPUT"/);
+});
+
+test("only a successful publication merges the release into master and back into develop", () => {
+  const promote = release.jobs.promote;
+  assert.deepEqual(new Set(dependencies(promote)), new Set(["prepare", "release-manifest"]));
+  assert.equal(promote.if, "needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'");
+  const scripts = promote.steps.map(step => step.run ?? "").join("\n");
+  assert.match(scripts, /gh pr merge "\$pr" --repo "\$REPO" --merge/);
+  assert.match(scripts, /git merge-base --is-ancestor "\$SOURCE_SHA" origin\/master/);
+  assert.match(scripts, /git push origin develop/);
+});
+
+test("master accepts pull requests only from release branches", () => {
+  const guard = workflow("master-pr-source");
+  assert.deepEqual(guard.on.pull_request.branches, ["master"]);
+  const script = guard.jobs.source.steps[0].run;
+  for (const [head, ok] of [["release/1.14.4", true], ["release/1.15.0", true], ["develop", false], ["lane/pl-x-task-y", false], ["release/next", false]]) {
+    const run = () => execFileSync("bash", ["-euo", "pipefail", "-c", script], { env: { ...process.env, HEAD_REF: head }, stdio: "pipe" });
+    if (ok) run(); else assert.throws(run, undefined, head);
+  }
 });
 
 test("reusable tests require the release SHA and force scope through both skip gates", () => {
@@ -45,11 +76,11 @@ test("reusable tests require the release SHA and force scope through both skip g
   const changed = tests.jobs.changed;
   assert.equal(changed.if, undefined, "the scope gate runs for every trigger, including release calls");
   for (const id of ["tree", "scope"]) {
-    assert.equal(changed.steps.find(step => step.id === id).env.CI_FULL_MATRIX, "${{ inputs.source_ref != '' }}");
+    assert.equal(changed.steps.find(step => step.id === id).env.CI_FULL_MATRIX, "${{ inputs.source_ref != '' || github.event_name == 'schedule' }}");
   }
   for (const job of Object.values(tests.jobs)) {
     for (const step of job.steps.filter(step => step.uses?.startsWith("actions/checkout@"))) {
-      assert.equal(step.with.ref, "${{ inputs.source_ref || github.ref }}");
+      assert.equal(step.with.ref, "${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}");
     }
   }
 });

@@ -20,7 +20,7 @@ on:
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
-  # Nightly full matrix on master while the farm is idle, so parallel-test races
+  # Nightly full matrix on develop while the farm is idle, so parallel-test races
   # and flakes surface days before a release instead of on release day.
   schedule:
     - cron: '0 1 * * *'
@@ -62,11 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
           fetch-depth: 2
       - id: tree
         env:
-          CI_FULL_MATRIX: ${{ inputs.source_ref != '' }}
+          CI_FULL_MATRIX: ${{ inputs.source_ref != '' || github.event_name == 'schedule' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -93,8 +93,8 @@ jobs:
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
-          CI_FULL_MATRIX: ${{ inputs.source_ref != '' }}
-          CI_RELEASE_PR: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/') }}
+          CI_FULL_MATRIX: ${{ inputs.source_ref != '' || github.event_name == 'schedule' }}
+          CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
   plugin-metadata:
@@ -105,7 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - uses: actions/setup-node@v5
         with:
           package-manager-cache: false
@@ -125,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - uses: actions/setup-node@v5
         with:
           package-manager-cache: false
@@ -150,7 +150,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       # Light runners include Linux services whose PATH can miss the runner user's rustup.
       - name: Ensure Rust toolchain on PATH
         run: |
@@ -175,7 +175,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
 
       # Runner service PATH has no node (same as release-linux.yml).
       - name: Setup Node.js
@@ -253,7 +253,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -302,7 +302,7 @@ jobs:
       # so inject core.longpaths per-invocation via GIT_CONFIG_* env instead.
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -396,7 +396,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -430,7 +430,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -456,7 +456,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -475,7 +475,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -518,7 +518,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -561,7 +561,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Ensure Rust toolchain on PATH
         run: |
           if command -v cargo >/dev/null 2>&1; then exit 0; fi
@@ -598,7 +598,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -627,7 +627,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -659,7 +659,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -691,7 +691,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
