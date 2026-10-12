@@ -30,7 +30,7 @@ const FOCUS_MARKER: &str = "SAFE_TEST_FOCUS_EVENT";
 const CLOSED_MARKER: &str = "SAFE_TEST_MODAL_CLOSED";
 const SESSION_ID: &str = "fixture-session-private";
 const SESSION_NONCE: &str = "fixture-nonce-private";
-const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|reason|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
+const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|error_category|reason|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
 const CORRELATION_FIELDS: &str = "version|decision_point|observation_id|launch_id|session_id|occurrence_id|producer|parent_observation_id|frame_hash|candidate_evidence";
 
 struct StaticModalModel {
