@@ -6,7 +6,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::agent::usage_parser::UsageSnapshot;
+use crate::UsageSample;
 pub use codeterm_types::usage::UsageSnapshotRow;
 
 use super::suspicious::{
@@ -113,7 +113,7 @@ impl UsageStore {
         f(&*conn)
     }
 
-    pub fn insert_snapshot(&self, snapshot: &UsageSnapshot) -> Result<i64, String> {
+    pub fn insert_snapshot(&self, snapshot: &UsageSample) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
         let id = if let Some(reason) = suspicious_snapshot_reason(&tx, snapshot)? {
@@ -359,7 +359,7 @@ fn trim_to_cap(tx: &rusqlite::Transaction<'_>, provider: &str, cap: i64) -> Resu
     Ok(())
 }
 
-fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result<i64, String> {
+fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSample) -> Result<i64, String> {
     tx.execute(
         r#"INSERT INTO usage_snapshots
            (provider, account_id, captured_at, parsed_ok,
@@ -388,7 +388,7 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
 
 fn insert_rejected_snapshot(
     tx: &rusqlite::Transaction<'_>,
-    snap: &UsageSnapshot,
+    snap: &UsageSample,
     reason: &str,
     probe_command: Option<&str>,
 ) -> Result<i64, String> {
@@ -425,7 +425,7 @@ fn insert_rejected_snapshot(
 
 fn suspicious_snapshot_reason(
     tx: &rusqlite::Transaction<'_>,
-    snap: &UsageSnapshot,
+    snap: &UsageSample,
 ) -> Result<Option<String>, String> {
     if snap.provider != "codex" {
         return Ok(None);
@@ -447,7 +447,7 @@ fn suspicious_snapshot_reason(
 
 fn previous_accepted_snapshot(
     tx: &rusqlite::Transaction<'_>,
-    snap: &UsageSnapshot,
+    snap: &UsageSample,
 ) -> Result<Option<UsageSnapshotRow>, String> {
     let sql = format!(
         "{} WHERE provider = ?1 AND (?2 IS NULL OR account_id = ?2) AND parsed_ok = 1 AND captured_at < ?3 ORDER BY captured_at DESC LIMIT 1",
@@ -464,7 +464,7 @@ fn previous_accepted_snapshot(
         .ok())
 }
 
-fn suspicious_debug_json(reason: &str, snap: &UsageSnapshot) -> String {
+fn suspicious_debug_json(reason: &str, snap: &UsageSample) -> String {
     rejected_debug_json(
         reason,
         UsageGuardSnapshot {
@@ -556,8 +556,8 @@ fn drop_legacy_columns(conn: &Connection) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn make_snapshot(ms: i64) -> UsageSnapshot {
-        let mut s = UsageSnapshot::empty("claude", "raw", ms);
+    fn make_snapshot(ms: i64) -> UsageSample {
+        let mut s = UsageSample::empty("claude", "raw", ms);
         s.session_pct = Some(42.0);
         s.weekly_pct = Some(10.0);
         s
@@ -569,8 +569,8 @@ mod tests {
         weekly_pct: f32,
         session_reset: i64,
         weekly_reset: i64,
-    ) -> UsageSnapshot {
-        let mut s = UsageSnapshot::empty("codex", "OpenAI Codex\nraw usage screen", ms);
+    ) -> UsageSample {
+        let mut s = UsageSample::empty("codex", "OpenAI Codex\nraw usage screen", ms);
         s.session_pct = Some(session_pct);
         s.weekly_pct = Some(weekly_pct);
         s.session_resets_at_ms = Some(session_reset);
@@ -911,7 +911,7 @@ mod tests {
     #[test]
     fn subscription_billing_without_limits_roundtrips() {
         let store = UsageStore::open_in_memory().unwrap();
-        let mut snapshot = UsageSnapshot::empty("fixture", "{}", 1000);
+        let mut snapshot = UsageSample::empty("fixture", "{}", 1000);
         snapshot.billing_mode = codeterm_types::usage::BillingMode::Subscription;
         store.insert_snapshot(&snapshot).unwrap();
         let row = store.get_latest("fixture", None).unwrap().unwrap();
@@ -933,7 +933,7 @@ mod tests {
     #[test]
     fn spend_fields_roundtrip() {
         let store = UsageStore::open_in_memory().unwrap();
-        let mut s = UsageSnapshot::empty("cursor", "raw", 1_000_000_000_000);
+        let mut s = UsageSample::empty("cursor", "raw", 1_000_000_000_000);
         s.spend_cents = Some(1743.5);
         s.spend_limit_cents = Some(2000.0);
         s.spend_remaining_cents = Some(256.5);
