@@ -13,6 +13,7 @@
 
 pub(crate) mod binding_wait;
 pub mod blocker;
+pub(crate) mod capability_hints;
 mod first_run;
 mod fresh_session;
 pub mod identity;

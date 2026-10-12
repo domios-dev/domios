@@ -33,7 +33,7 @@ impl super::Transport for Transport {
 #[tokio::test]
 async fn redeem_and_token_exchange_produce_session() {
     let transport = Arc::new(Transport(Mutex::new(Vec::new())));
-    let provider = Firebase::new(Config::default(), transport.clone());
+    let provider = Firebase::new(fixture_config(), transport.clone());
     let tokens = provider
         .redeem(flow().complete(callback("fixture-state-matching")).unwrap())
         .await
@@ -81,7 +81,7 @@ impl super::Transport for RefreshTransport {
 }
 #[tokio::test]
 async fn refresh_posts_form_and_replaces_tokens() {
-    let provider = Firebase::new(Config::default(), Arc::new(RefreshTransport));
+    let provider = Firebase::new(fixture_config(), Arc::new(RefreshTransport));
     let tokens = provider
         .refresh(&Secret::new("refresh-before"))
         .await
@@ -99,11 +99,54 @@ impl super::Transport for RefusingTransport {
 }
 #[tokio::test]
 async fn rejected_redemption_cannot_create_session() {
-    let provider = Firebase::new(Config::default(), Arc::new(RefusingTransport));
+    let provider = Firebase::new(fixture_config(), Arc::new(RefusingTransport));
     assert!(matches!(
         provider
             .redeem(flow().complete(callback("fixture-state-matching")).unwrap())
             .await,
         Err(Error::Provider)
     ));
+}
+
+fn fixture_config() -> Config {
+    Config {
+        provider: "firebase".into(),
+        api_key: "test-key".into(),
+        redeem_url: "https://example.test/redeem".into(),
+        signin_url: "https://example.test/signin".into(),
+        ..Config::default()
+    }
+}
+#[test]
+fn build_config_availability_and_overrides() {
+    use crate::build_config::Vendor;
+    let missing = config_from_build(Vendor::default());
+    assert!(!available(&missing));
+    assert_eq!(
+        crate::adapters::configured(&Config {
+            provider: "firebase".into(),
+            ..missing
+        })
+        .unwrap()
+        .id(),
+        "local"
+    );
+    let configured = config_from_build(Vendor {
+        api_key: Some("test-key"),
+        project_id: Some("test-project"),
+        app_id: Some("test-app"),
+        redeem_url: Some("https://example.test/redeem"),
+    });
+    assert!(available(&configured));
+    assert_eq!(configured.provider, "firebase");
+    assert_eq!(configured.api_key, "test-key");
+    assert_eq!(
+        configured.signin_url,
+        "https://test-project.web.app/signin/"
+    );
+    assert_eq!(configured.redeem_url, "https://example.test/redeem");
+    assert_eq!(
+        crate::adapters::configured(&fixture_config()).unwrap().id(),
+        "firebase"
+    );
 }

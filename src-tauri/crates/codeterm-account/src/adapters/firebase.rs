@@ -148,12 +148,33 @@ impl IdentityProvider for Firebase {
     }
 }
 
-pub fn defaults() -> (String, String, String) {
-    (
-        "https://domios-d9357.web.app/signin/".into(),
-        "https://us-central1-domios-d9357.cloudfunctions.net/redeemDesktopLoginCode".into(),
-        "AIzaSyCvASd9et5lzKS4bzU9Doh_VamQxUZVuts".into(),
-    )
+pub fn default_config() -> Config {
+    config_from_build(crate::build_config::vendor())
+}
+fn config_from_build(vendor: crate::build_config::Vendor) -> Config {
+    let present = |value: Option<&'static str>| value.filter(|value| !value.trim().is_empty());
+    let available = [
+        vendor.api_key,
+        vendor.project_id,
+        vendor.app_id,
+        vendor.redeem_url,
+    ]
+    .into_iter()
+    .all(|value| present(value).is_some());
+    Config {
+        provider: if available { "firebase" } else { "local" }.into(),
+        signin_url: present(vendor.project_id)
+            .map(|project| format!("https://{project}.web.app/signin/"))
+            .unwrap_or_default(),
+        redeem_url: present(vendor.redeem_url).unwrap_or_default().into(),
+        api_key: present(vendor.api_key).unwrap_or_default().into(),
+        login_timeout_secs: 180,
+    }
+}
+pub fn available(config: &Config) -> bool {
+    [&config.signin_url, &config.redeem_url, &config.api_key]
+        .into_iter()
+        .all(|value| !value.trim().is_empty())
 }
 
 #[cfg(test)]

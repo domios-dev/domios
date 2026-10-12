@@ -13,7 +13,7 @@ vi.mock("next/navigation", () => ({
   forbidden: () => { throw new Error("FORBIDDEN_403"); },
   redirect: (path: string) => { throw new Error(`REDIRECT:${path}`); },
 }));
-import { changeEntitlement, signOut } from "../app/users/actions";
+import { changeAccount, changeEntitlement, signOut } from "../app/users/actions";
 
 let backend: FakeBackend;
 beforeEach(() => {
@@ -40,6 +40,20 @@ describe("server actions", () => {
     injected.cookie = undefined;
     await expect(changeEntitlement(form("grant", "Replay"))).rejects.toThrow("FORBIDDEN_403");
     expect(backend.state.entitlements).toEqual({}); expect(backend.state.audit).toEqual([]);
+  });
+  it("requires inline confirmation and persists the account before redirect", async () => {
+    const data = form("disable", "Account support");
+    await expect(changeAccount(data)).rejects.toMatchObject({ status: 400 });
+    data.set("confirmed", "yes"); data.set("confirmUid", "local-user"); data.set("confirmEmail", "user@localhost");
+    await expect(changeAccount(data)).rejects.toThrow("REDIRECT:/users/local-user?saved=1");
+    expect(backend.state.users[1].disabled).toBe(true);
+    expect(backend.state.audit).toHaveLength(1);
+    expect(backend.state.audit[0]).toMatchObject({ action: "disable", actor: "local-admin" });
+  });
+  it.each(["disable", "enable", "grant-admin", "revoke-admin"])("denies captured account action %s", async action => {
+    injected.cookie = undefined;
+    await expect(changeAccount(form(action, "Reason"))).rejects.toThrow("FORBIDDEN_403");
+    expect(backend.state.audit).toEqual([]);
   });
   it("clears the secure cookie only for an authorized sign-out", async () => {
     await expect(signOut()).rejects.toThrow("REDIRECT:/signin");
