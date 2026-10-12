@@ -266,10 +266,11 @@ impl ServiceContext {
         let app_handle = self.app_handle.clone();
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         tauri::async_runtime::spawn(async move {
-            let result = match app_handle.try_state::<crate::service::ServiceState>() {
-                Some(state) => {
-                    let service = Arc::clone(state.inner());
-                    drop(state);
+            let service = app_handle
+                .try_state::<crate::service::ServiceState>()
+                .map(|state| Arc::clone(state.inner()));
+            let result = match service {
+                Some(service) => {
                     let result = service.local_recording_subscribe(&plugin_id, adapter).await;
                     if let Ok(status) = service.local_recording_status(&plugin_id) {
                         crate::api::events::emit_everywhere(

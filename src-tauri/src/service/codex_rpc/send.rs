@@ -351,7 +351,7 @@ pub async fn submit<F, Fut>(
     origin: Origin,
     active: Option<&str>,
     params: Value,
-    mut request: F,
+    request: F,
 ) -> Result<Value, ClientError>
 where
     F: FnMut(&'static str, Value) -> Fut,

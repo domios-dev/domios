@@ -1,3 +1,4 @@
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SelectedInputEvent {
     Press {
@@ -9,6 +10,7 @@ pub(crate) enum SelectedInputEvent {
     },
 }
 
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum InputUnavailable {
     Removed,
@@ -55,6 +57,7 @@ pub(crate) fn supported() -> bool {
     cfg!(any(windows, target_os = "macos"))
 }
 
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_imports))]
 pub(crate) use codeterm_plugin::local_recording::{
     LocalInputSetupError, LocalInputSubscription, SubscriptionTeardown,
 };
@@ -69,8 +72,10 @@ pub(crate) trait LocalInputAdapter: Send + Sync {
     ) -> Result<Box<dyn LocalInputSubscription>, LocalInputSetupError>;
 }
 
+#[cfg(not(any(windows, target_os = "macos")))]
 pub(crate) struct UnsupportedInput;
 
+#[cfg(not(any(windows, target_os = "macos")))]
 impl LocalInputAdapter for UnsupportedInput {
     fn subscribe(
         &self,
