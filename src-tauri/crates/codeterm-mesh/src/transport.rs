@@ -306,7 +306,18 @@ impl PeerClient {
         path: &str,
         body: &impl serde::Serialize,
     ) -> Result<serde_json::Value, String> {
-        let resp = self.auth_post(path, body).await?;
+        self.auth_post_json_within(path, body, None).await
+    }
+
+    /// Authenticated POST with an explicit failure deadline for peer work that
+    /// legitimately outlives the 5s unary default.
+    pub async fn auth_post_json_within(
+        &self,
+        path: &str,
+        body: &impl serde::Serialize,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<serde_json::Value, String> {
+        let resp = self.auth_post_within(path, body, timeout).await?;
         if resp.status().is_success() {
             resp.json()
                 .await
@@ -315,15 +326,6 @@ impl PeerClient {
             let body = resp.text().await.unwrap_or_default();
             Err(format!("HTTP error: {}", body))
         }
-    }
-
-    /// Authenticated POST helper.
-    async fn auth_post(
-        &self,
-        path: &str,
-        body: &impl serde::Serialize,
-    ) -> Result<reqwest::Response, String> {
-        self.auth_post_within(path, body, None).await
     }
 
     /// Builds an authenticated POST without sending it, so callers can classify
