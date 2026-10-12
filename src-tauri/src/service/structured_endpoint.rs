@@ -66,3 +66,18 @@ pub(crate) fn sse_for_nonce(tab: &str, nonce: &str) -> Option<(String, String)> 
         _ => None,
     }
 }
+
+pub(crate) fn take_rpc() -> Vec<Arc<super::codex_rpc::lifecycle::Sidecar>> {
+    let mut endpoints = ENDPOINTS.lock();
+    let tabs: Vec<_> = endpoints
+        .iter()
+        .filter(|(_, entry)| matches!(entry.endpoint, Endpoint::Rpc(_)))
+        .map(|(tab, _)| tab.clone())
+        .collect();
+    tabs.into_iter()
+        .filter_map(|tab| match endpoints.remove(&tab)?.endpoint {
+            Endpoint::Rpc(sidecar) => Some(sidecar),
+            _ => None,
+        })
+        .collect()
+}

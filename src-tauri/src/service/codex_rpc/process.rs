@@ -172,7 +172,8 @@ pub async fn spawn(
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     #[cfg(unix)]
-    command.process_group(0);
+    let lease = super::unix_lease::Lease::configure(&mut command)
+        .map_err(|error| format!("Sidecar lifetime lease: {error}"))?;
     let mut child = command.spawn().map_err(|error| {
         format!(
             "Sidecar process spawn failed: binary={binary:?} cwd={cwd:?} token_file={token_file:?} CODEX_HOME={:?}: {error}",
@@ -262,6 +263,8 @@ pub async fn spawn(
         }
         #[cfg(windows)]
         drop(job);
+        #[cfg(unix)]
+        drop(lease);
         let _ = std::fs::remove_file(token_file);
         let _ = std::fs::remove_file(marker_file);
         died.send_replace(true);
