@@ -5,7 +5,7 @@
 //! change — see .agents/skills/cli-contributor/SKILL.md (consumer audit).
 
 /// One integer presented on every socket and mesh RPC request envelope.
-pub const PROTOCOL_VERSION: u64 = 4;
+pub const PROTOCOL_VERSION: u64 = 5;
 
 /// JSON-RPC error code the daemon returns on protocol version skew.
 pub const VERSION_SKEW_CODE: i32 = -32002;
