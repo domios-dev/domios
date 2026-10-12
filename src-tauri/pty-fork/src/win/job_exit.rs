@@ -1,9 +1,10 @@
 use filedescriptor::OwnedHandle;
 use std::io;
-use std::os::windows::io::AsRawHandle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::ptr;
 use winapi::shared::winerror::{ERROR_INVALID_PARAMETER, ERROR_MORE_DATA};
-use winapi::um::jobapi2::{IsProcessInJob, QueryInformationJobObject};
+use winapi::um::jobapi::IsProcessInJob;
+use winapi::um::jobapi2::QueryInformationJobObject;
 use winapi::um::processthreadsapi::OpenProcess;
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
