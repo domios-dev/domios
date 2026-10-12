@@ -128,4 +128,19 @@ show the executor, model and progress live, and open the task on a click; Open
 plan opens the plan. A message the user sends with `@ds-tasks` arrives as a
 `<ds-tasks plan="…">` text block listing the tasks, and renders as this card.
 
-<!-- revision: 1 -->
+## File previews
+
+Write `@ds-image ABSOLUTE_PATH`, `@ds-page ABSOLUTE_PATH` or
+`@ds-document ABSOLUTE_PATH` on its own line. Quoted paths support spaces;
+`@ct-` forms use the same renderer. Code fences and inline mentions stay literal.
+
+Paths belong to the machine authoring the message. An immediate mesh tab send
+or a mesh-routed agent report transfers these files to the target tab's host
+before delivering the message, then replaces directive paths with the returned
+target-local paths. A failed transfer refuses delivery; it never reads a
+same-named file on the receiving machine. A message may contain at most 32 file
+previews. Mesh transfers retain the 25 MiB attachment bound; previews retain
+their HTML (200,000 bytes), document (1,000,000 bytes) and image (10 MiB) bounds.
+Notification previews require the originating tab identity.
+
+<!-- revision: 2 -->
