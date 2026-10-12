@@ -524,3 +524,96 @@ async fn catalog_worker_identity_follows_sign_in_opt_in_and_sign_out() {
     assert_eq!(events[1].user_id.as_deref(), Some("account-uid"));
     assert_eq!(events[2].user_id, None);
 }
+
+#[tokio::test]
+async fn activity_fast_path_skips_count_callback_pending_stamped_and_after_restart() {
+    use std::{
+        cell::Cell,
+        sync::{Arc, Mutex},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let worker = Worker::start_with_sink(
+        path.clone(),
+        config(),
+        Box::new(sinks::fake::Fake {
+            recording: recording.clone(),
+        }),
+    )
+    .unwrap();
+    worker.set_consent(Consent::On).await.unwrap();
+    worker.flush().await.unwrap();
+    recording.lock().unwrap().batches.clear();
+    worker.set_mesh_machines(3);
+    let counts = Cell::new(0);
+    let count = || {
+        counts.set(counts.get() + 1);
+        4
+    };
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+    assert!(worker.record_activity_on_day(day, count).unwrap());
+    assert!(!worker.record_activity_on_day(day, count).unwrap());
+    worker.flush().await.unwrap();
+    assert!(!worker.record_activity_on_day(day, count).unwrap());
+    assert_eq!(counts.get(), 1);
+    drop(worker);
+    let worker = Worker::start_with_sink(
+        path,
+        config(),
+        Box::new(sinks::fake::Fake {
+            recording: recording.clone(),
+        }),
+    )
+    .unwrap();
+    worker.set_mesh_machines(3);
+    assert!(!worker.record_activity_on_day(day, count).unwrap());
+    assert_eq!(counts.get(), 1);
+    assert!(worker
+        .record_activity_on_day(day.succ_opt().unwrap(), count)
+        .unwrap());
+    worker.flush().await.unwrap();
+    assert_eq!(counts.get(), 2);
+    let recording = recording.lock().unwrap();
+    let events: Vec<_> = recording
+        .batches
+        .iter()
+        .flatten()
+        .map(|item| item.event.clone())
+        .collect();
+    assert_eq!(
+        events,
+        vec![
+            Event::ActiveDay {
+                mesh_machines: 3,
+                workspaces: 4
+            };
+            2
+        ]
+    );
+}
+
+#[tokio::test]
+async fn activity_fast_path_consent_off_skips_count_callback() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = std::sync::Arc::new(std::sync::Mutex::new(sinks::fake::Recording::default()));
+    let worker = Worker::start_with_sink(
+        dir.path().join("settings.json"),
+        config(),
+        Box::new(sinks::fake::Fake {
+            recording: recording.clone(),
+        }),
+    )
+    .unwrap();
+    assert!(!worker
+        .record_activity_nowait(|| panic!("consent off must not count"))
+        .unwrap());
+    worker.set_consent(Consent::On).await.unwrap();
+    worker.set_consent(Consent::Off).await.unwrap();
+    recording.lock().unwrap().batches.clear();
+    assert!(!worker
+        .record_activity_nowait(|| panic!("opt-out must not count"))
+        .unwrap());
+    worker.flush().await.unwrap();
+    assert!(recording.lock().unwrap().batches.is_empty());
+}

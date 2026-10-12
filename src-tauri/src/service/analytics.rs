@@ -37,15 +37,14 @@ impl ServiceContext {
         }
     }
     pub(crate) fn record_product_activity(&self) {
-        let mesh_machines = self
-            .app_handle
-            .try_state::<crate::mesh::MeshState>()
-            .map_or(1, |mesh| mesh.lock().machine_count());
-        let workspaces = self.mux.read().workspace_count();
-        self.record_product_event(Event::ActiveDay {
-            mesh_machines: count(mesh_machines),
-            workspaces: count(workspaces),
-        });
+        if let Some(worker) = self.analytics.get() {
+            if worker
+                .record_activity_nowait(|| self.mux.read().workspace_count())
+                .is_err()
+            {
+                log::debug!("[analytics] activity unavailable");
+            }
+        }
     }
     pub(crate) fn record_product_feature(&self, feature: codeterm_analytics::Feature) {
         self.record_product_event(Event::FeatureUsed { feature });
@@ -98,13 +97,11 @@ impl ServiceContext {
                         Config::from_env()?,
                         reader,
                     )?;
+                    worker.set_mesh_machines(mesh_machines);
                     if let Some(event) = startup {
                         let _ = worker.record_nowait(event);
                     }
-                    let _ = worker.record_nowait(Event::ActiveDay {
-                        mesh_machines: count(mesh_machines),
-                        workspaces: count(workspaces),
-                    });
+                    let _ = worker.record_activity_nowait(|| workspaces);
                     if crate::update::analytics::confirm(
                         &crate::paths::data_dir().join("analytics-update.json"),
                         env!("CARGO_PKG_VERSION"),
@@ -123,8 +120,11 @@ impl ServiceContext {
                     let _ = observer.record_nowait(Event::PlanCreated {});
                 }));
                 if let Some(mesh) = self.app_handle.try_state::<crate::mesh::MeshState>() {
-                    mesh.lock()
-                        .bind_pairing_observer(mesh_observer(worker.clone()));
+                    let counts = worker.clone();
+                    mesh.lock().bind_pairing_observers(
+                        mesh_observer(worker.clone()),
+                        Arc::new(move |machines| counts.set_mesh_machines(machines)),
+                    );
                 }
                 Ok::<_, String>(worker)
             })
