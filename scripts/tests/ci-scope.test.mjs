@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { classifyPaths, scopeForRun } from "../ci-scope.mjs";
+import { classifyPaths, releaseKind, scopeForRun } from "../ci-scope.mjs";
 
 const plugins = [{ id: "codex", path: "provider-codex" }, { id: "claude", path: "provider-claude" }];
 const frontendOnly = { frontend: true, rust: false, plugins: [] };
@@ -115,4 +115,20 @@ test("workflow wiring runs only fast checks on pull requests", () => {
   }
   assert.match(workflow, /^          CI_FAST_ONLY: \$\{\{ github\.event_name == 'pull_request' \}\}$/m);
   assert.match(workflow, /^      heavy: \$\{\{ steps\.tree\.outputs\.run == 'true' && steps\.scope\.outputs\.heavy == 'true' \}\}$/m);
+});
+
+test("the release kind is an app release only when Rust changed since the last release", () => {
+  assert.equal(releaseKind(["src-tauri/src/lib.rs", "src/App.tsx"]), "app");
+  assert.equal(releaseKind(["Cargo.lock"]), "app");
+  assert.equal(releaseKind(["cli/src/main.rs"]), "app");
+  assert.equal(releaseKind(["src/App.tsx", "frontend-release-contract.json"]), "frontend");
+  assert.equal(releaseKind([".github/workflows/release.yml", "scripts/ci-scope.mjs", "AGENTS.md"]), "frontend");
+  assert.equal(releaseKind([]), "frontend");
+});
+
+test("a frontend release call runs the frontend checks and no Rust gate", () => {
+  assert.deepEqual(scopeForRun(["src-tauri/src/lib.rs"], plugins, false, false, true), { frontend: true, rust: false, plugins: [], heavy: false });
+  const scope = scopeForRun([], plugins, false, false, true);
+  for (const job of ["ts-static", "ts-unit", "ts-vitest", "ts-types"]) assert.equal(jobRuns(job, scope), true, job);
+  for (const job of ["fmt", "rust-linux", "rust-macos", "rust-windows", "cli-linux", "clippy-linux", "release-contracts"]) assert.equal(jobRuns(job, scope), false, job);
 });
