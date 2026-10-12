@@ -1,6 +1,6 @@
 import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { RichMarkdown } from "@codeterm/chat-ui";
+import { NotificationBody } from "./NotificationBody";
 import { runNotificationAction } from "../../lib/notificationActions";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { X } from "lucide-react";
@@ -80,7 +80,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
         </button>
         {notification.body && (
           <div className="min-w-0 flex-1 truncate text-[var(--ct-muted-fg)] [&_*]:whitespace-nowrap [&_p]:m-0 [&_p]:inline">
-            <RichMarkdown text={notification.body} />
+            <NotificationBody text={notification.body} tabId={notification.tab_id} />
           </div>
         )}
       </div>
@@ -165,7 +165,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
               </>}
               {notification.body && (
                 <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
-                  <RichMarkdown text={notification.body} />
+                  <NotificationBody text={notification.body} tabId={notification.tab_id} />
                 </div>
               )}
               <div className="mt-3 flex flex-wrap gap-1.5">
