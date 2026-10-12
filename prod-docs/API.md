@@ -40,6 +40,17 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 
 ### Endpoints
 
+#### Account (local callers only)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/account/status` | — | Account identity and pending flag |
+| POST | `/api/account/login` | — | Browser sign-in |
+| POST | `/api/account/logout` | — | Clear credentials and cached entitlements |
+| GET | `/api/account/plan` | — | Cached entitlement and stale marker |
+| POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
+| POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
+| POST | `/api/account/portal` | — | Open subscription management in the system browser |
+
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -187,4 +198,4 @@ Local analytics: `/api/analytics/{status,consent,event}` (see CONFIG).
 
 Account routes: see `API-CLI`.
 
-<!-- revision: 192 -->
+<!-- revision: 193 -->

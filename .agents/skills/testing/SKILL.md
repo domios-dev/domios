@@ -611,3 +611,16 @@ Example: `tests/playwright/suites/03-agents/agents.spec.ts`.
 - Teardown is in `finally` or fixture cleanup. WHY: shared dev survives test
   failure.
 - LLM/golden markers are explicit. WHY: reviewers can control token spend.
+
+## Focused billing checks
+
+Workers run `pnpm exec tsc --noEmit`, `npm run test:unit -- accountPlanModel`,
+and `cd cloud/functions && npm test -- getEntitlements`. The cloud test owns
+Auth, Firestore and Functions emulators; it verifies the returned owner record,
+foreign-UID refusal, token verification and free fallback. Rust remains canonical:
+`./build.sh test-one billing tests::` and `./build.sh test-one app account_plan_routes`.
+
+If the emulator reports `Unable to locate a Java Runtime`, an installed Homebrew
+JDK may be absent from `PATH`. Discover its installed path before running the
+same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
+prepended to `PATH`; no system Java registration or emulator bypass is needed.
