@@ -88,6 +88,7 @@ class LaunchPromptControls(unittest.TestCase):
         evidence["cron_run"] = {"run_id": "run-1", "status": "AwaitingOwnerPrompt"}
         evidence["journal_rows"] = evidence["journal_rows"][:1]
         evidence["journal_rows"][0]["decided_by"] = "fallback(no_adapter)"
+        evidence["jev"] = "off"
         self.assertEqual(judge(evidence, bound_contract()),
                          {"outcome": "owner_notice", "decided_by": "fallback(no_adapter)"})
 

@@ -109,7 +109,7 @@ pub fn create_router(state: AppState) -> Router {
 
 pub fn create_router_with_frontend(
     state: AppState,
-    bundles: Option<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>,
+    bundles: Option<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>,
 ) -> Router {
     // Separate budgets: the Documents existence probe re-runs while a reply streams and
     // must never starve the preview reads that render content.
@@ -757,6 +757,10 @@ pub fn create_router_with_frontend(
         .route(
             "/api/mesh/worker-dispatch",
             post(mesh_routes::mesh_worker_dispatch),
+        )
+        .route(
+            "/api/mesh/worker-dispatch-status",
+            post(mesh_routes::mesh_worker_dispatch_status),
         )
         .route(
             "/api/mesh/worker-lane-bundle",

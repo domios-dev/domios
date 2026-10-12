@@ -380,33 +380,31 @@ fn binding_completion_preserves_new_session_stream() {
 
 #[test]
 fn tailer_streams_new_messages_as_file_grows() {
-    // Skip if running in an env without the plugin checkout.
-    if !workspace_plugins_root().join("provider-claude").exists() {
-        return;
+    use std::io::Write;
+
+    struct ChannelSink(std::sync::mpsc::Sender<Vec<RichMessage>>);
+    impl DeltaSink for ChannelSink {
+        fn emit(&self, _: &str, messages: Vec<RichMessage>, _: u64, _: u64) {
+            self.0.send(messages).unwrap();
+        }
     }
 
-    // Lay out <tmp>/projects/<dash-encoded-cwd>/<sid>.jsonl so the synthetic plugin (sessions.rootDir = tmp) resolves it correctly.
+    assert!(workspace_plugins_root().join("provider-claude").exists());
     let tmp = TempDir::new().unwrap();
     let cwd = "/proj/tail-demo";
     let sid = "sess-tail-001";
-    // Dash-encoding: every non-alphanumeric becomes '-'. "/proj/tail-demo" → "-proj-tail-demo".
     let proj_dir = tmp.path().join("-proj-tail-demo");
     std::fs::create_dir_all(&proj_dir).unwrap();
     let jsonl = proj_dir.join(format!("{sid}.jsonl"));
-
-    // First write — must be picked up on the FIRST poll because the tailer starts from offset 0.
     std::fs::write(
         &jsonl,
         "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
     )
     .unwrap();
-
-    // Build registry with sessions.rootDir pointing at our tempdir.
     let registry = registry_with_claude_at(tmp.path());
-    let sink = Arc::new(Collector {
-        msgs: Mutex::new(vec![]),
-    });
-    let handle = spawn_tailer(
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let (ready_sender, ready_receiver) = std::sync::mpsc::channel();
+    let handle = super::tailer::spawn_tailer_with_ready(
         TailConfig {
             tab_id: "p1".into(),
             provider_id: "claude".into(),
@@ -415,38 +413,36 @@ fn tailer_streams_new_messages_as_file_grows() {
             start_offset: 0,
         },
         registry,
-        sink.clone() as Arc<dyn DeltaSink>,
+        Arc::new(ChannelSink(sender)),
+        ready_sender,
     );
+    ready_receiver
+        .recv_timeout(Duration::from_secs(30))
+        .expect("tailer must resolve its source and install the watcher before timing delivery");
+    let initial = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("initial message must arrive within 2s after watcher readiness");
+    assert_eq!(initial.len(), 1);
+    assert_eq!(initial[0].role, "user");
+    assert_eq!(initial[0].blocks[0].data["text"], "hi");
 
-    assert!(
-        wait_until(2000, || sink.msgs.lock().len() >= 1),
-        "first message must arrive within 2s"
-    );
-
-    // Append a second line.
-    use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
+    let mut file = std::fs::OpenOptions::new()
         .append(true)
         .open(&jsonl)
         .unwrap();
     writeln!(
-        f,
+        file,
         "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"thanks\"}}}}"
     )
     .unwrap();
-    drop(f);
-
-    assert!(
-        wait_until(2000, || sink.msgs.lock().len() >= 2),
-        "second message must arrive within 2s"
-    );
-
-    {
-        let msgs = sink.msgs.lock();
-        assert_eq!(msgs[0].role, "user");
-        assert_eq!(msgs[1].role, "assistant");
-    }
-
+    file.flush().unwrap();
+    drop(file);
+    let appended = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("file growth must deliver a new message within 2s after readiness");
+    assert_eq!(appended.len(), 1);
+    assert_eq!(appended[0].role, "assistant");
+    assert_eq!(appended[0].blocks[0].data["text"], "thanks");
     handle.shutdown();
 }
 

@@ -4,7 +4,7 @@ import { initialSwapState } from "./model";
 import type { CheckpointWrite, ClientCheckpoint } from "./checkpoint";
 
 const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "t", drafts: { t: { text: "unsent", attachmentIds: ["a"], replyTo: null } }, scroll: {} };
-const safety = { focused: true, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
+const safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
 const release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: 2, maxApiVersion: 2 };
 
 describe("frontend update client", () => {

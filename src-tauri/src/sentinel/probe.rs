@@ -20,6 +20,8 @@ mod native_tests;
 #[cfg(test)]
 mod owner_tests;
 #[cfg(test)]
+pub(super) mod test_readiness;
+#[cfg(test)]
 mod tests;
 
 #[cfg(windows)]
@@ -74,7 +76,7 @@ pub(super) fn run_with_environment(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(super) fn run_with_receipt(
     command: &str,
     cwd: &Path,
@@ -154,6 +156,8 @@ fn run_transaction(
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(process::ProbeFailure::new("probe_cancelled"));
     }
+    #[cfg(test)]
+    let deadlines = cancellation.setup_deadlines(deadlines);
     admit_then(owner, |mut reservation| {
         reservation.register_cancellation(cancellation.clone())?;
         #[cfg(unix)]

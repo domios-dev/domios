@@ -34,6 +34,7 @@ export interface SwapState {
   ticket: Ticket | null;
   reloading: boolean;
   failed: boolean;
+  consented: boolean;
 }
 
 export type SwapEvent =
@@ -43,6 +44,7 @@ export type SwapEvent =
   | { type: "persisted"; write: CheckpointWrite }
   | { type: "activated"; ticket: Ticket }
   | { type: "failed" }
+  | { type: "consent" }
   | { type: "rolledBack"; releaseId: string };
 
 export type SwapEffect =
@@ -57,16 +59,16 @@ export function compatible(release: Release, api: number): boolean {
     && release.minApiVersion <= api && api <= release.maxApiVersion;
 }
 
-export function safeToSwap(safety: Safety): boolean {
-  return safety.focused && safety.idle && !safety.typing && !safety.composing
-    && !safety.modalOpen && safety.pendingUploads === 0;
+// Nobody looking: swap at once. Someone looking: swap only after they choose to refresh.
+export function safeToSwap(safety: Safety, consented = false): boolean {
+  return safety.pendingUploads === 0 && (!safety.focused || consented);
 }
 
 export function initialSwapState(apiVersion: number, checkpoint: ClientCheckpoint, safety: Safety, restoredRevision = 0): SwapState {
   checkpointWrite(restoredRevision, checkpoint);
   return { apiVersion, checkpoint: structuredClone(checkpoint), safety, pending: null,
     revision: restoredRevision, acknowledgedRevision: null, writing: null, activating: null,
-    ticket: null, reloading: false, failed: false };
+    ticket: null, reloading: false, failed: false, consented: false };
 }
 
 export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapState; effects: SwapEffect[] } {
@@ -75,7 +77,14 @@ export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapSt
   switch (event.type) {
     case "ready":
       if (compatible(event.release, state.apiVersion) && !state.activating && !state.ticket) {
+        if (state.pending?.releaseId !== event.release.releaseId) state.consented = false;
         state.pending = event.release;
+        state.failed = false;
+      }
+      break;
+    case "consent":
+      if (state.pending) {
+        state.consented = true;
         state.failed = false;
       }
       break;
@@ -108,7 +117,7 @@ export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapSt
       break;
   }
   const effects: SwapEffect[] = [];
-  if (!state.failed && state.pending && safeToSwap(state.safety)) {
+  if (!state.failed && state.pending && safeToSwap(state.safety, state.consented)) {
     if (state.acknowledgedRevision !== state.revision) {
       if (!state.writing) {
         state.writing = checkpointWrite(state.revision, state.checkpoint);

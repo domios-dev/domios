@@ -45,9 +45,10 @@ async fn frontend_bundle_routes_contract_bundled_index_and_relative_assets() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn frontend_bundle_routes_contract_central_bearer_registration() {
     use crate::{
-        api::routes::create_router_with_frontend, frontend_bundle::FrontendBundles,
-        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+        api::routes::create_router_with_frontend, multiplexer::state::MultiplexerState,
+        service::test_fixture::ServiceFixture,
     };
+    use codeterm_frontend_bundle::FrontendBundles;
     use std::sync::Arc;
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

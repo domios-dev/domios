@@ -611,3 +611,46 @@ fn rpc_error(message: impl ToString) -> JsonRpcError {
 mod planner_authority_tests;
 #[cfg(test)]
 mod tests;
+
+pub(super) fn verify_remote_worker_binding(
+    params: &Option<Value>,
+    svc: &ServiceState,
+) -> Result<(), JsonRpcError> {
+    let (_, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
+    let attempt_id = super::get_string_param(params, "attempt_id")?;
+    let peer_id = super::get_string_param(params, "authenticated_mesh_peer_id").map_err(|_| {
+        JsonRpcError {
+            code: -32003,
+            message: "remote worker lifecycle requires authenticated mesh transport".into(),
+            data: None,
+        }
+    })?;
+    let worker_tab_id = super::get_string_param(params, "worker_tab_id")?;
+    let nonce = super::get_string_param(params, "session_binding_nonce")?;
+    let detail = svc.plan_store.show_task(&task_id);
+    let attempt = detail.as_ref().and_then(|detail| {
+        detail
+            .task
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == attempt_id)
+    });
+    if attempt.is_some_and(|attempt| {
+        super::remote_worker_policy::worker_binding_matches(
+            attempt.mesh_peer.as_deref(),
+            &attempt.executor_tab_id,
+            attempt.session_binding_nonce.as_deref(),
+            &peer_id,
+            &worker_tab_id,
+            &nonce,
+        )
+    }) {
+        Ok(())
+    } else {
+        Err(JsonRpcError {
+            code: -32003,
+            message: "remote worker binding does not match the origin attempt".into(),
+            data: Some(serde_json::json!({"type": "remote_worker_binding_stale"})),
+        })
+    }
+}

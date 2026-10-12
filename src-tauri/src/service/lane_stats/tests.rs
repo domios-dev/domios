@@ -2,6 +2,9 @@ use super::*;
 use std::fs;
 use std::process::Command;
 
+// Failure deadline only: each checkpoint spawns several git processes, slow under a loaded Windows runner.
+const CHECKPOINT_DEADLINE: Duration = Duration::from_secs(60);
+
 fn repository() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     git(root.path(), &["init"]);
@@ -181,7 +184,7 @@ fn lane_checkpoint_refuses_lfs_repository() {
         root.path(),
         "attempt_lfs",
         1,
-        Instant::now() + Duration::from_secs(5),
+        Instant::now() + CHECKPOINT_DEADLINE,
     )
     .unwrap();
 
@@ -201,7 +204,7 @@ fn lane_checkpoint_refuses_non_cone_sparse_checkout() {
         root.path(),
         "attempt_sparse",
         1,
-        Instant::now() + Duration::from_secs(5),
+        Instant::now() + CHECKPOINT_DEADLINE,
     )
     .unwrap();
 
@@ -227,7 +230,7 @@ fn lane_checkpoint_retains_latest_twenty_turn_refs() {
             root.path(),
             "attempt_retention",
             turn,
-            Instant::now() + Duration::from_secs(5),
+            Instant::now() + CHECKPOINT_DEADLINE,
         )
         .unwrap();
     }
@@ -262,7 +265,7 @@ fn lane_checkpoint_deletes_only_the_named_attempt_refs() {
             root.path(),
             attempt,
             turn,
-            Instant::now() + Duration::from_secs(5),
+            Instant::now() + CHECKPOINT_DEADLINE,
         )
         .unwrap();
     }
