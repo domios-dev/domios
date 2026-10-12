@@ -128,7 +128,7 @@ fn classified_prompt_fixture(
     (fixture, service, tab_id, pty_id)
 }
 
-fn assert_pending_prompt_has_owner_notice(
+fn assert_pending_prompt_without_owner_notice(
     fixture: &crate::service::test_fixture::ServiceFixture,
     tab_id: &str,
     prompt: &PendingPrompt,
@@ -139,32 +139,7 @@ fn assert_pending_prompt_has_owner_notice(
     assert_eq!(tab.pending_prompt.as_ref(), Some(prompt));
     assert_eq!(tab.pending_prompt_kind, Some(kind));
     drop(mux);
-    let notifications = fixture.service.notif.lock();
-    let open = notifications
-        .list(false)
-        .into_iter()
-        .filter(|notification| !notification.resolved)
-        .collect::<Vec<_>>();
-    assert_eq!(open.len(), 1, "one notice represents this pending prompt");
-    let notice = open[0];
-    assert_eq!(notice.tab_id.as_deref(), Some(tab_id));
-    assert_eq!(
-        notice.condition,
-        Some(crate::notification::dedupe::TabCondition::PendingPrompt)
-    );
-    assert_eq!(
-        notice.level,
-        Some(crate::notification::push::NotifyLevel::ActionNeeded)
-    );
-    let actions = notice.actions.as_deref().expect("owner response actions");
-    assert!(actions.iter().any(|action| matches!(
-        action,
-        codeterm_types::notification::NotificationAction::Answer { .. }
-    )));
-    assert!(actions.iter().any(|action| matches!(
-        action,
-        codeterm_types::notification::NotificationAction::Dismiss { .. }
-    )));
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 }
 
 fn reactor_test_prompt() -> PendingPrompt {
@@ -216,7 +191,7 @@ fn state_reactor_stores_a_detected_prompt_without_notification() {
 
     react(&service, &pty_id, TabStatus::Waiting);
 
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -247,7 +222,7 @@ fn classified_terminal_dialogs_are_stored_without_notifications() {
 
         react(&service, &pty_id, TabStatus::Waiting);
 
-        assert_pending_prompt_has_owner_notice(
+        assert_pending_prompt_without_owner_notice(
             &fixture,
             &tab_id,
             &prompt,
@@ -567,7 +542,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     );
 
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -575,7 +550,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     );
 
     react(&service, pty_id, TabStatus::Waiting);
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -592,7 +567,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &wrapped_prompt,
@@ -609,7 +584,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &selected_prompt,
@@ -655,7 +630,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .with_directory_trust_prompt(next_prompt.clone()),
     ));
     react(&service, pty_id, TabStatus::Waiting);
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &next_prompt,
@@ -746,7 +721,7 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
             .collect::<Vec<_>>(),
         vec!["1", "2", "3"]
     );
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -764,7 +739,7 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
         codeterm_types::pty::PromptKind::Provider,
         false,
     );
-    assert_pending_prompt_has_owner_notice(
+    assert_pending_prompt_without_owner_notice(
         &fixture,
         &tab_id,
         &output_prompt,

@@ -107,22 +107,7 @@ fn boot_permission_prompt_holds_readiness_without_notification() {
         .get_tab(&tab_id)
         .and_then(|tab| tab.pending_prompt.clone());
     assert_eq!(pending, Some(prompt), "the surfaced rendering stays");
-    let owner_notice_id = {
-        let notifications = fixture.service.notif.lock();
-        let open = notifications
-            .list(false)
-            .into_iter()
-            .filter(|notification| !notification.resolved)
-            .collect::<Vec<_>>();
-        assert_eq!(open.len(), 1, "one notice represents this pending prompt");
-        let notice = open[0];
-        assert_eq!(notice.tab_id.as_deref(), Some(tab_id.as_str()));
-        assert_eq!(
-            notice.condition,
-            Some(crate::notification::dedupe::TabCondition::PendingPrompt)
-        );
-        notice.id.clone()
-    };
+    assert!(fixture.service.notif.lock().list(false).is_empty());
     assert_eq!(
         stage(&fixture, &tab_id),
         Some(BootStage::AwaitingOwnerPrompt)
@@ -130,13 +115,7 @@ fn boot_permission_prompt_holds_readiness_without_notification() {
 
     fixture.service.clear_prompt(&tab_id).unwrap();
     assert_eq!(stage(&fixture, &tab_id), Some(BootStage::AgentReady));
-    let notifications = fixture.service.notif.lock();
-    let notice = notifications
-        .notification(&owner_notice_id)
-        .expect("the resolved prompt notice remains auditable");
-    assert!(notice.resolved);
-    assert!(notice.read);
-    assert!(notice.actions.is_none());
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 }
 
 #[test]
