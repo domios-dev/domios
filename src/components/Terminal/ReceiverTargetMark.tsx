@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Battery } from "lucide-react";
+import { useReceiverBattery } from "./useReceiverBattery";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import {
   pluginTabMenuEntries,
@@ -28,6 +30,7 @@ function ReceiverTargetMarkButton({
   surface: ReceiverTargetMarkSurface;
 }) {
   const [detaching, setDetaching] = useState(false);
+  const batteries = useReceiverBattery(entry.pluginId);
   const receiverName = entry.pluginId || "Unknown receiver";
   const detachLabel = `Detach ${receiverName} receiver from this tab`;
 
@@ -58,6 +61,12 @@ function ReceiverTargetMarkButton({
     >
       <PluginIcon plugin={{ icon_svg: entry.iconSvg, icon_color: entry.iconColor }} size={surface === "header" ? 14 : 16} />
       <span className="max-w-48 truncate">{receiverName}</span>
+      {batteries.length > 0 && <span className="inline-flex items-center gap-1 tabular-nums" title={batteries.map(battery => `Mic ${battery.slot}: ${battery.percent}%`).join(", ")}>
+        <Battery size={12} aria-hidden="true" />
+        <span aria-label={batteries.map(battery => `Microphone ${battery.slot} battery ${battery.percent} percent`).join(", ")}>
+          {batteries.map(battery => `${battery.percent}%`).join(" · ")}
+        </span>
+      </span>}
     </button>
   );
 }

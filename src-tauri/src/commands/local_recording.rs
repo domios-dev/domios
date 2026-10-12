@@ -94,3 +94,11 @@ pub(crate) async fn local_recording_commit(
         .local_recording_commit(&lease, &clip_handle, client_token)
         .await)
 }
+
+#[tauri::command]
+pub(crate) async fn local_recording_battery(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+) -> Result<Vec<crate::service::local_recording::battery::TransmitterBattery>, String> {
+    svc.local_recording_battery(&plugin_id).await
+}

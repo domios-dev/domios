@@ -1,4 +1,5 @@
 mod admission;
+pub(crate) mod battery;
 pub(crate) mod chat;
 mod clip;
 mod completion;
