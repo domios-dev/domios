@@ -754,7 +754,7 @@ fn observed_worker_dispatch(
     }
     let worker = {
         let mux = state.svc.mux.read();
-        mux.all_tabs().find_map(|tab| {
+        let found = mux.all_tabs().find_map(|tab| {
             let binding = tab.task_binding.as_ref()?;
             if binding.plan_id.as_deref() != Some(&request.plan_id)
                 || binding.task_id.as_deref() != Some(&request.task_id)
@@ -768,7 +768,8 @@ fn observed_worker_dispatch(
                 tab.provisioned_cwd.clone().or_else(|| tab.cwd.clone())?,
                 tab.session_binding_nonce.clone()?,
             ))
-        })
+        });
+        found
     };
     let (tab_id, cwd, nonce) = worker.ok_or_else(|| {
         (
