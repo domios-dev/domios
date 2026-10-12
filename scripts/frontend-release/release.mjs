@@ -34,7 +34,10 @@ function githubRemote(repository, output) {
     createDraft: async tag => { gh(['release', 'create', tag, '--repo', repository, '--draft', '--latest=false', '--title', tag, '--notes', 'Independent signed frontend release']); },
     upload: async (tag, name) => { gh(['release', 'upload', tag, asset(name), '--repo', repository]); },
     download: async (tag, name) => {
-      const release = JSON.parse(gh(['api', `repos/${repository}/releases/tags/${tag}`]));
+      // The tags endpoint hides drafts, so the draft is read from the release list.
+      const releases = JSON.parse(gh(['api', `repos/${repository}/releases?per_page=100`]));
+      const release = releases.find(item => item.tag_name === tag);
+      if (!release) throw new Error('Versioned release missing');
       const item = release.assets.find(item => item.name === name);
       if (!item) throw new Error('Versioned upload missing');
       return gh(['api', `repos/${repository}/releases/assets/${item.id}`, '-H', 'Accept: application/octet-stream']);
