@@ -171,8 +171,8 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   const pending = projectTranscript(turn, sends);
   eq(
     pending.rows.map((row) => row.content),
-    ["earlier reply", "run the build", "Bash build.sh"],
-    "a pending send sits at its key, before the tool row its send triggered",
+    ["earlier reply", "Bash build.sh", "run the build"],
+    "a pending send follows the committed transcript",
   );
   const echoed = reduceTranscript(
     turn,
@@ -275,8 +275,8 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   ).state;
   eq(
     projectTranscript(later, sends).rows.map((row) => row.content),
-    ["old reply", "still sending", "later unrelated"],
-    "a pending send keeps its key slot, never pinned below a later row",
+    ["old reply", "later unrelated", "still sending"],
+    "a pending send follows later committed output",
   );
   const echoed = reduceTranscript(
     later,
@@ -288,13 +288,13 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   eq(reconciled.pending.length, 0, "a matched send disappears into its echo");
   eq(
     reconciled.rows.map((row) => row.content),
-    ["old reply", "still sending", "later unrelated"],
-    "an echo stamped after later output still orders by its send key",
+    ["old reply", "later unrelated", "still sending"],
+    "an echo stays at its committed transcript position",
   );
   eq(
     projectTranscript(echoed).rows.map((row) => row.content),
     ["old reply", "later unrelated", "still sending"],
-    "without the send, the same row orders by its own provider timestamp",
+    "removing send metadata preserves transcript order",
   );
 }
 
@@ -316,8 +316,8 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   const working = reduceTranscript(history, batch("delta", 100, 300, laterOutput)).state;
   eq(
     projectTranscript(working, sends).rows.map((row) => row.content),
-    ["earlier reply", "also check the logs", "running the build", "Bash build.sh"],
-    "a pending mid-turn send holds its send slot while later output follows it",
+    ["earlier reply", "running the build", "Bash build.sh", "also check the logs"],
+    "a pending mid-turn send follows the committed output",
   );
   const committedTurn: NormalizedChatMessage[] = [
     { id: "c-0", type: "tool_result", content: "build ok", seq: 0, timestamp: at(8_000) },
@@ -334,15 +334,15 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   const consumed = reduceTranscript(working, batch("delta", 300, 600, committedTurn)).state;
   const expected = [
     "earlier reply",
-    "also check the logs",
     "running the build",
     "Bash build.sh",
     "build ok",
+    "also check the logs",
     "logs are clean",
   ];
   const live = projectTranscript(consumed, sends);
   eq(live.pending.length, 0, "the consumed echo reconciles the mid-turn send");
-  eq(live.rows.map((row) => row.content), expected, "the committed mid-turn user row keeps its send slot");
+  eq(live.rows.map((row) => row.content), expected, "the committed mid-turn user row takes its transcript position");
   eq(
     live.rows.filter((row) => row.type === "user").map((row) => row.id),
     ["300:1"],
@@ -376,7 +376,7 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   eq(
     projectTranscript(fresh()).rows.map((row) => row.content),
     expected,
-    "without the send, provider enqueue time gives the same order",
+    "without the send, transcript sequence gives the same order",
   );
 }
 
