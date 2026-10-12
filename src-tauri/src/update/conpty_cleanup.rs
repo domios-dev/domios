@@ -16,9 +16,8 @@ enum HostSelection {
     /// Hosts whose parent is absent from the same snapshot. A sibling instance
     /// running this same install keeps its hosts; only leftovers are selected.
     Orphaned,
-    /// Every host running the exact bundled image, ours included. The file
-    /// cannot be replaced while any process runs it, so replacement needs this.
-    All,
+    #[cfg(test)]
+    Owned,
 }
 
 #[cfg(any(windows, test))]
@@ -31,7 +30,8 @@ fn is_selected_bundled_host(
     windows_paths_match(&candidate.executable_path, expected_executable)
         && match selection {
             HostSelection::Orphaned => !candidate.parent_alive,
-            HostSelection::All => true,
+            #[cfg(test)]
+            HostSelection::Owned => candidate.parent_pid == _owner_pid,
         }
 }
 
@@ -96,46 +96,6 @@ fn normalized_windows_path(path: &Path) -> String {
         .to_string()
 }
 
-#[cfg(windows)]
-pub(super) async fn cleanup_stale_before_shutdown() -> Result<usize, String> {
-    tokio::task::spawn_blocking(cleanup_stale_from_environment)
-        .await
-        .map_err(|error| format!("stale bundled ConPTY cleanup task failed: {error}"))?
-}
-
-#[cfg(not(windows))]
-pub(super) async fn cleanup_stale_before_shutdown() -> Result<usize, String> {
-    Ok(0)
-}
-
-#[cfg(windows)]
-pub(super) async fn cleanup_before_installer() -> Result<usize, String> {
-    tokio::task::spawn_blocking(cleanup_from_environment)
-        .await
-        .map_err(|error| format!("bundled ConPTY cleanup task failed: {error}"))?
-}
-
-#[cfg(not(windows))]
-pub(super) async fn cleanup_before_installer() -> Result<usize, String> {
-    Ok(0)
-}
-
-#[cfg(windows)]
-fn cleanup_stale_from_environment() -> Result<usize, String> {
-    let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
-        return Ok(0);
-    };
-    cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::Orphaned)
-}
-
-#[cfg(windows)]
-fn cleanup_from_environment() -> Result<usize, String> {
-    let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
-        return Ok(0);
-    };
-    cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::All)
-}
-
 /// Reap bundled hosts left behind by a previous run. Runs off the startup path;
 /// hosts owned by any live process (this one or another instance) are spared.
 ///
@@ -177,9 +137,6 @@ fn cleanup_bundled_hosts(
     for process in &processes {
         process.wait_until(deadline)?;
     }
-    if matches!(selection, HostSelection::All) {
-        windows::ensure_file_replaceable(&expected)?;
-    }
     Ok(processes.len())
 }
 
@@ -187,17 +144,23 @@ fn cleanup_bundled_hosts(
 mod windows {
     use super::{is_selected_bundled_host, HostSelection, ProcessCandidate};
     use std::collections::{HashMap, HashSet};
+    #[cfg(test)]
     use std::ffi::OsStr;
+    #[cfg(test)]
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
     use std::time::Instant;
+    #[cfg(test)]
+    use windows_sys::Win32::Foundation::GENERIC_WRITE;
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_NO_MORE_FILES, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED,
-        WAIT_OBJECT_0, WAIT_TIMEOUT,
+        CloseHandle, ERROR_NO_MORE_FILES, HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0,
+        WAIT_TIMEOUT,
     };
+    use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
+    #[cfg(test)]
     use windows_sys::Win32::Storage::FileSystem::{
         CreateFileW, DELETE, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING, SYNCHRONIZE,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
     };
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
@@ -324,7 +287,8 @@ mod windows {
             });
         match selection {
             HostSelection::Orphaned => confirm_still_orphaned(matches),
-            HostSelection::All => Ok(matches),
+            #[cfg(test)]
+            HostSelection::Owned => Ok(matches),
         }
     }
 
@@ -414,6 +378,7 @@ mod windows {
         Ok(PathBuf::from(String::from_utf16_lossy(&path)))
     }
 
+    #[cfg(test)]
     pub(super) fn ensure_file_replaceable(path: &Path) -> Result<(), String> {
         let wide = OsStr::new(path)
             .encode_wide()
@@ -482,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn orphan_selection_spares_live_parent_but_all_selects_it() {
+    fn orphan_and_owned_selection_spare_sibling_instances() {
         let expected = Path::new(r"C:\CodeTerm\conpty\x64\OpenConsole.exe");
         let path = expected.to_str().unwrap();
 
@@ -504,11 +469,11 @@ mod tests {
             expected,
             HostSelection::Orphaned,
         ));
-        assert!(is_selected_bundled_host(
+        assert!(!is_selected_bundled_host(
             &other_instance,
             7,
             expected,
-            HostSelection::All,
+            HostSelection::Owned,
         ));
 
         assert!(!is_selected_bundled_host(
@@ -639,15 +604,18 @@ mod tests {
     }
 
     #[test]
-    fn final_selection_accepts_exact_host_from_any_parent() {
+    fn owned_selection_requires_current_instance_parent() {
         let expected = Path::new(r"C:\CodeTerm\conpty\x64\OpenConsole.exe");
         for parent_pid in [7, 8] {
-            assert!(is_selected_bundled_host(
-                &candidate(10, parent_pid, expected.to_str().unwrap()),
-                7,
-                expected,
-                HostSelection::All,
-            ));
+            assert_eq!(
+                is_selected_bundled_host(
+                    &candidate(10, parent_pid, expected.to_str().unwrap()),
+                    7,
+                    expected,
+                    HostSelection::Owned,
+                ),
+                parent_pid == 7
+            );
         }
     }
 
@@ -664,7 +632,7 @@ mod tests {
                 &candidate(10, 8, path),
                 7,
                 expected,
-                HostSelection::All,
+                HostSelection::Owned,
             ));
         }
     }
@@ -704,7 +672,8 @@ mod tests {
             windows::ensure_file_replaceable(&host).is_err(),
             "running OpenConsole helper must lock its executable"
         );
-        let cleaned = cleanup_bundled_hosts(&dir, std::process::id(), HostSelection::All).unwrap();
+        let cleaned =
+            cleanup_bundled_hosts(&dir, std::process::id(), HostSelection::Owned).unwrap();
         assert_eq!(cleaned, 1);
         child.wait().unwrap();
 

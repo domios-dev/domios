@@ -8,9 +8,27 @@ use winapi::um::processthreadsapi::OpenProcess;
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{
-    JobObjectBasicProcessIdList, JOBOBJECT_BASIC_PROCESS_ID_LIST,
+    JobObjectBasicAccountingInformation, JobObjectBasicProcessIdList,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_BASIC_PROCESS_ID_LIST,
     PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZE,
 };
+
+pub(super) fn is_empty(job: &OwnedHandle) -> io::Result<bool> {
+    let mut accounting: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = unsafe { std::mem::zeroed() };
+    if unsafe {
+        QueryInformationJobObject(
+            job.as_raw_handle() as _,
+            JobObjectBasicAccountingInformation,
+            &mut accounting as *mut _ as _,
+            std::mem::size_of_val(&accounting) as u32,
+            ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(accounting.ActiveProcesses == 0)
+}
 
 pub(super) fn process_ids(job: &OwnedHandle) -> io::Result<Vec<u32>> {
     let mut storage = vec![0usize; 32];
@@ -44,10 +62,10 @@ pub(super) fn process_ids(job: &OwnedHandle) -> io::Result<Vec<u32>> {
 
 pub(super) fn wait(job: &OwnedHandle) -> io::Result<()> {
     loop {
-        let ids = process_ids(job)?;
-        if ids.is_empty() {
+        if is_empty(job)? {
             return Ok(());
         }
+        let ids = process_ids(job)?;
         for pid in ids {
             let raw =
                 unsafe { OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
