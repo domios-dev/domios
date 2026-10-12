@@ -627,8 +627,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
       # job is the only thing that runs them.
+      # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
       - name: Run vitest-owned TS tests
-        run: pnpm test:vitest
+        run: pnpm test:vitest --maxWorkers=4
 
   ts-plugins:
     name: plugin bundles + tests
