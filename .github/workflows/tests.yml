@@ -5,6 +5,12 @@ name: tests
 # push/PR: Rust lib+CLI tests on all three platforms, TS gates on Linux.
 
 on:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Immutable release source SHA; reusable calls always run the full matrix
+        required: true
+        type: string
   pull_request:
   push:
     branches: [master]
@@ -63,8 +69,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.evaluator_scope == 'rust-windows-task-local' || inputs.evaluator_scope == 'windows-sccache-maintenance') && format('tests-rust-windows-task-local-{0}', github.ref) || github.event_name == 'workflow_dispatch' && inputs.evaluator_scope != 'full' && format('tests-{0}-{1}', inputs.evaluator_scope, github.ref) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
+  group: ${{ inputs.source_ref != '' && format('release-tests-{0}-{1}', github.run_id, inputs.source_ref) || github.event_name == 'workflow_dispatch' && (inputs.evaluator_scope == 'rust-windows-task-local' || inputs.evaluator_scope == 'windows-sccache-maintenance') && format('tests-rust-windows-task-local-{0}', github.ref) || github.event_name == 'workflow_dispatch' && inputs.evaluator_scope != 'full' && format('tests-{0}-{1}', inputs.evaluator_scope, github.ref) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
+  cancel-in-progress: ${{ inputs.source_ref != '' || github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
 
 jobs:
   # A push whose tree equals a parent's tree introduces nothing that parent had
@@ -76,7 +82,7 @@ jobs:
   # base tip and the PR head; with an unmoved base its tree equals the head tree,
   # and skipping there would skip the one run that has never happened.
   changed:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
+    if: ${{ inputs.source_ref != '' || github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
     name: tree is new
     # Every job waits on this gate, so any free light runner takes it.
     runs-on: [self-hosted, light]
@@ -88,12 +94,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 2
       - id: tree
+        env:
+          CI_FULL_MATRIX: ${{ inputs.source_ref != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" != push ]; then
+          if [ "$CI_FULL_MATRIX" = true ] || [ "${{ github.event_name }}" != push ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -115,6 +124,8 @@ jobs:
 
       - id: scope
         if: steps.tree.outputs.run == 'true'
+        env:
+          CI_FULL_MATRIX: ${{ inputs.source_ref != '' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
   plugin-metadata:
@@ -124,6 +135,8 @@ jobs:
     runs-on: [self-hosted, linux-ci]
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@v5
         with:
           package-manager-cache: false
@@ -142,6 +155,8 @@ jobs:
         plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@v5
         with:
           package-manager-cache: false
@@ -165,6 +180,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       # Light runners include Linux services whose PATH can miss the runner user's rustup.
       - name: Ensure Rust toolchain on PATH
         run: |
@@ -188,6 +205,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
 
       # Runner service PATH has no node (same as release-linux.yml).
       - name: Setup Node.js
@@ -259,10 +278,13 @@ jobs:
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
     if: ${{ needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, codeterm-builder]
+    # Any Mac runner: tests need no signing keys, so air takes them while eight builds bundles.
+    runs-on: [self-hosted, macOS]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -310,6 +332,8 @@ jobs:
       # runner service account (NETWORK SERVICE) can't take a system gitconfig,
       # so inject core.longpaths per-invocation via GIT_CONFIG_* env instead.
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -402,6 +426,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -434,6 +460,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -454,10 +482,12 @@ jobs:
     name: cli (macos)
     needs: [changed, fmt]
     if: ${{ needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, codeterm-builder]
+    runs-on: [self-hosted, macOS]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -475,6 +505,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -516,6 +548,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -557,6 +591,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Ensure Rust toolchain on PATH
         run: |
           if command -v cargo >/dev/null 2>&1; then exit 0; fi
@@ -592,6 +628,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -619,6 +657,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -649,6 +689,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -679,6 +721,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -695,6 +739,8 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: Release test and publication gate contracts
+        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs
       - name: Release metadata contract tests
         run: python3 -m unittest scripts.tests.test_release_issue_contract
       - name: Release workflow signature-gate contract tests

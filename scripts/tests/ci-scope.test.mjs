@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { classifyPaths } from "../ci-scope.mjs";
+import { classifyPaths, scopeForRun } from "../ci-scope.mjs";
 
 const plugins = [{ id: "codex", path: "provider-codex" }, { id: "claude", path: "provider-claude" }];
 const frontendOnly = { frontend: true, rust: false, plugins: [] };
@@ -61,6 +61,13 @@ test("documentation does not broaden plugin checks into host builds", () => {
 test("unknown paths conservatively select all host checks", () => {
   for (const file of ["unknown.txt", ".github/workflows/release.yml", "scripts/new-check.mjs", "src-other/module.ts", "tsconfig/other.json"]) {
     assert.deepEqual(classifyPaths([file], plugins), both, file);
+  }
+});
+
+test("release calls force all host gates even for empty, docs, frontend or plugin changes", () => {
+  for (const files of [[], ["AGENTS.md"], ["src/App.tsx"], ["plugins/provider-codex/plugin.json"]]) {
+    assert.deepEqual(scopeForRun(files, plugins, true), both);
+    assert.deepEqual(scopeForRun(files, plugins), classifyPaths(files, plugins));
   }
 });
 

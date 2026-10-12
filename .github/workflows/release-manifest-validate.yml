@@ -63,6 +63,21 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
 
+      - name: Stamp the source release tag after all gates succeed
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          draft=$(gh release view "$TAG" --repo "$SOURCE_REPO" --json isDraft --jq .isDraft)
+          if [ "$draft" = false ]; then
+            test "$(git rev-parse "$TAG^{commit}")" = "$SOURCE_SHA"
+          else
+            git tag -fa "$TAG" "$SOURCE_SHA" -m "$TAG"
+            git push --force origin "refs/tags/$TAG"
+          fi
+
       - name: Detect channel
         id: channel
         env:
