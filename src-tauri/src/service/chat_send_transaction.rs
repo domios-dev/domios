@@ -171,7 +171,7 @@ impl Default for ChatSendLedgerState {
 pub(crate) struct ChatSendLedger {
     state: Mutex<ChatSendLedgerState>,
     owner: Mutex<Option<Weak<super::ServiceContext>>>,
-    admission_restores: Mutex<HashMap<String, Arc<std::sync::OnceLock<Result<(), String>>>>>,
+    admission_restores: Mutex<HashMap<String, Arc<Mutex<bool>>>>,
     submit_claims:
         Mutex<HashMap<String, crate::service::pty_io::submit_transaction::SubmitCycleClaim>>,
 }
@@ -188,7 +188,12 @@ impl ChatSendLedger {
             .entry(tab_id.to_string())
             .or_default()
             .clone();
-        initialized.get_or_init(restore).clone()
+        let mut restored = initialized.lock();
+        if !*restored {
+            restore()?;
+            *restored = true;
+        }
+        Ok(())
     }
 
     pub(crate) fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
