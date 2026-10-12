@@ -9,10 +9,13 @@ pub mod compaction;
 pub mod control;
 mod delivery;
 pub mod diagnostics;
+pub(crate) mod exit;
 pub mod launch;
 pub mod lifecycle;
 pub mod model;
 pub mod normalize;
+#[cfg(any(unix, test))]
+mod ownership;
 pub mod process;
 pub mod protocol;
 pub mod recovery;
@@ -24,5 +27,7 @@ mod subscriber;
 mod thread_start;
 pub mod transcript;
 mod transport_config;
+#[cfg(unix)]
+mod unix_lease;
 
 pub mod status;
