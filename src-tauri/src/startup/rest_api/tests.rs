@@ -2,30 +2,9 @@ use super::*;
 
 const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
-// Rebinding tests release their port mid-test; an ephemeral port can be taken there by any
-// concurrent outgoing connection, so they reserve below every OS's ephemeral range (#620).
-const REBIND_PORTS: std::ops::Range<u16> = 20_000..32_000;
-static NEXT_REBIND_PORT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-fn reserve_rebind_port() -> std::net::TcpListener {
-    let span = u32::from(REBIND_PORTS.end - REBIND_PORTS.start);
-    let seed = std::process::id().wrapping_mul(7_919);
-    for _ in 0..span {
-        let step = NEXT_REBIND_PORT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let port = REBIND_PORTS.start + (seed.wrapping_add(step) % span) as u16;
-        if let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", port)) {
-            return listener;
-        }
-    }
-    panic!("no free loopback port in {REBIND_PORTS:?}");
-}
-
 async fn reserve_initial_listener(control: &RestApiControl) -> SocketAddr {
-    let address = {
-        let probe = reserve_rebind_port();
-        probe.local_addr().unwrap()
-    };
-    let listener = bind_listener(&address.to_string()).await.unwrap();
+    let listener = bind_listener("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
     control.install_initial_listener(listener);
     address
 }
@@ -658,7 +637,7 @@ async fn pending_bind_is_silent_without_a_bound_listener() {
 
 #[tokio::test]
 async fn socket_restart_recovers_after_foreign_port_owner_is_released() {
-    let occupier = reserve_rebind_port();
+    let occupier = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = occupier.local_addr().unwrap();
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
