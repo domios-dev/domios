@@ -1,7 +1,9 @@
 import { useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { Diff, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
-import { attachmentPreviewKind, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, type AttachmentSegment } from "@codeterm/chat-core";
+import { attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, type AttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
+import { LocalArtifactBlock } from "./LocalArtifactBlock";
+import { RichMarkdown } from "./MarkdownBody";
 import { PRE_WRAP_CLASS } from "./CodeBlock";
 import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
@@ -138,7 +140,7 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
 
 /** User text with its capsules rendered where they were typed; a copy keeps capsules as tags for a composer. */
 export function InlineAttachmentText({ segments }: { segments: AttachmentSegment[] }) {
-  const copy = (event: ClipboardEvent<HTMLPreElement>) => {
+  const copy = (event: ClipboardEvent<HTMLDivElement>) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return;
     const range = selection.getRangeAt(0);
@@ -150,10 +152,12 @@ export function InlineAttachmentText({ segments }: { segments: AttachmentSegment
     event.clipboardData.setData(DOMIOS_TEXT_MIME, portable);
   };
   return (
-    <pre data-testid="chat-inline-attachment-text" className={`${PRE_WRAP_CLASS} m-0 select-text font-[inherit]`} onCopy={copy}>
-      {segments.map((segment, index) => ("text" in segment
+    <div data-testid="chat-inline-attachment-text" className={`${PRE_WRAP_CLASS} m-0 select-text font-[inherit]`} onCopy={copy}>
+      {inlineArtifactParts(segments).map((segment, index) => ("directive" in segment
+        ? <LocalArtifactBlock key={index} directive={segment.directive} renderMarkdown={(text) => <RichMarkdown text={text} localArtifacts={false} />} />
+        : "text" in segment
         ? segment.text
         : <AttachmentCapsule key={`${index}:${segment.attachment.path}`} attachment={segment.attachment} />))}
-    </pre>
+    </div>
   );
 }
