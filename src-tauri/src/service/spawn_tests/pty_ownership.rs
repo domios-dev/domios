@@ -11,7 +11,9 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::pty_ownership::OwnershipEvent;
 use crate::service::test_fixture::ServiceFixture;
 
-const EVENT_DEADLINE: Duration = Duration::from_secs(30);
+// Failure bound only: the full Windows suite (~300 s of parallel PowerShell launches) has
+// delayed one frontend attach past 30 s while every step still completes (#620).
+const EVENT_DEADLINE: Duration = Duration::from_secs(120);
 
 enum Step {
     Ownership(OwnershipEvent),
