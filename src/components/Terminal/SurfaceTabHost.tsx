@@ -1,3 +1,5 @@
+import { surfaceTransportTarget } from "../Surface/surfaceTransportTarget";
+import { relayTarget } from "../../lib/webApi";
 import { useState } from "react";
 import { SurfaceTabView } from "./SurfaceTabView";
 import { useSurfaceDecl } from "../Surface/useSurfaceDecl";
@@ -20,7 +22,8 @@ export function SurfaceTabHost({ tab, backing, api, isVisible }: SurfaceTabHostP
   const ownerName = ownerTab?.title ?? null;
   const ownerWorkspaceId = useMuxSelector((state) => workspaceIdOfTab(state.workspaces, ownerId));
   const [refreshGeneration, setRefreshGeneration] = useState(0);
-  const decl = useSurfaceDecl(api, backing.plugin_id, backing.surface_id, refreshGeneration);
+  const { peerId } = surfaceTransportTarget(tab, relayTarget()?.id ?? null);
+  const decl = useSurfaceDecl(api, backing.plugin_id, backing.surface_id, refreshGeneration, peerId ?? null);
   return (
     <SurfaceTabView
       tab={tab}
