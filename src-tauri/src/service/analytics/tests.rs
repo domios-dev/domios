@@ -100,3 +100,5 @@ fn product_app_started_strips_release_labels_and_rejects_arbitrary_values() {
     assert!(app_started("1.2.3", "private", "stable").is_none());
     assert!(app_started("1.2.3", "linux", "private").is_none());
 }
+
+mod outcomes;

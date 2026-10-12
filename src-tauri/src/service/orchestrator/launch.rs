@@ -318,7 +318,11 @@ pub(crate) fn launch_agent_in_background_with_env(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     resume_session_id: Option<String>,
 ) {
+    crate::service::analytics::restore::discard(&tab_id);
     if let Some(reason) = cwd_guard::refuse_launch_without_cwd(&svc, &tab_id) {
+        if origin.relaunches_existing_agent() {
+            svc.record_product_restore_refused(&tab_id);
+        }
         if let Some(tx) = ready_tx {
             let _ = tx.send(Err(reason));
         }
@@ -380,6 +384,27 @@ pub(crate) fn launch_agent_in_background_with_env(
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
+    let analytics_nonce = reserved_nonce.clone().or_else(|| {
+        svc.mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.session_binding_nonce.clone())
+    });
+    let analytics_target = resume_session_id.clone().filter(|session| {
+        !svc.mux
+            .read()
+            .get_tab(&tab_id)
+            .is_some_and(|tab| tab.fork_source_session_id.as_ref() == Some(session))
+    });
+    crate::service::analytics::restore::begin(
+        &tab_id,
+        launch.generation,
+        analytics_nonce,
+        analytics_target,
+        origin
+            .relaunches_existing_agent()
+            .then_some(agent_cmd.as_str()),
+    );
     std::thread::spawn(move || {
         let pty_claim = svc.pty_ownership.acquire(&tab_id);
         crate::service::agent_restart::timing::stage(&tab_id, "pending", "relaunch-worker");

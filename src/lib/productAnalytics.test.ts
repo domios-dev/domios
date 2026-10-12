@@ -29,3 +29,13 @@ test("UI emitter refuses unknown properties and enum values before sending", asy
   assert.equal(isProductEvent({ event_type: "app_started", event_properties: { version: "1.2.3-private", platform: "macos", update_channel: "stable" } }), false);
   assert.equal(isProductEvent({ event_type: "update_installed", event_properties: { from_version: "1.2.3", to_version: "1.2.4", kind: "frontend", attempt_count: -1 } }), false);
 });
+
+test("UI dispatch emitter preserves unspecified intent without guessing", async () => {
+  const calls: Parameters<AnalyticsEndpoint>[] = [];
+  await emitProductEvent(async (...args) => { calls.push(args); }, "on", {
+    event_type: "task_dispatched", event_properties: { execution_intent: "unspecified" },
+  });
+  assert.deepEqual(calls, [["POST", "/api/analytics/event", {
+    event_type: "task_dispatched", event_properties: { execution_intent: "unspecified" },
+  }]]);
+});

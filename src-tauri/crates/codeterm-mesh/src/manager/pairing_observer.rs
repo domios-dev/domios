@@ -7,7 +7,10 @@ pub struct PairingObserver {
 }
 impl PairingObserver {
     pub fn new(peers: HashSet<String>, emit: Arc<dyn Fn() + Send + Sync>) -> Self {
-        Self { committed: Mutex::new(peers), emit }
+        Self {
+            committed: Mutex::new(peers),
+            emit,
+        }
     }
     pub fn committed(&self, peers: HashSet<String>) {
         let count = {
@@ -16,6 +19,8 @@ impl PairingObserver {
             *committed = peers;
             count
         };
-        for _ in 0..count { (self.emit)(); }
+        for _ in 0..count {
+            (self.emit)();
+        }
     }
 }

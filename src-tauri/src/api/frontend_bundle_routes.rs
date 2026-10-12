@@ -19,6 +19,12 @@ pub struct FrontendRouteState {
 }
 
 pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> {
+    let service = app.svc.clone();
+    bundles.bind_installation_observer(Arc::new(move |installation| {
+        if let Some(event) = crate::service::analytics::frontend_event(installation) {
+            service.record_product_event(event);
+        }
+    }));
     routes(FrontendRouteState {
         bundles,
         is_owner: Arc::new(move |headers| is_local_caller(&app, headers)),

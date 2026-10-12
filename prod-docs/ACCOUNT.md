@@ -32,9 +32,11 @@ Every event contains its catalog properties plus a random installation ID (`devi
 
 Prompts, messages, terminal output, paths, workspace or tab names, email addresses, display names, session IDs, peer identities, credentials and arbitrary plugin model or provider names are never included. Custom providers become `other`; unlisted models become `unknown`. No emitter can bypass the consent gate: consent off prevents queueing and analytics network delivery, clears queued events and analytics identifiers, and a later opt-in creates a new random installation ID. Settings > Privacy > What we collect shows the same closed catalog.
 
+Managed app updates count installer attempts and report completion only after the requested app version is running. Frontend updates report after all enrolled clients prove health and activation is saved. Restore outcomes require the current launch nonce and an authenticated exact target session for `resumed`; unconfirmed launches emit no outcome. Plan creation and task dispatch follow successful persistence and worker acknowledgment. Pairing follows saved paired state. Checkout follows a successful browser open; subscription changes follow authoritative entitlement refresh, with unchanged plan/status and failed refreshes suppressed.
+
 ## Product event catalog
 
-Versions contain numeric major, minor and patch only, without prerelease labels or build metadata. Counts are unsigned 32-bit integers. Provider and model categories come from the bundled provider registry; no runtime free-form model or provider value is sent. Shell tabs use a null provider. Events with no properties carry an empty object.
+Versions contain numeric major, minor and patch only, without prerelease labels or build metadata. Counts are unsigned 32-bit integers. Provider and model categories come from the bundled provider registry; no runtime free-form model or provider value is sent. Shell tabs use a null provider. Events with no properties carry an empty object. Dispatch intent is the recorded policy, including `unspecified` when none was declared.
 
 <!-- analytics-catalog:start -->
 | Event | Properties |
@@ -59,7 +61,7 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 - **TabKind:** `shell`, `agent`
 - **Role:** `general`, `orchestrator`, `planner`, `worker`, `manager`, `supporter`, `none`, `other`
 - **RestoreOutcome:** `resumed`, `fresh_launch`, `failed`
-- **ExecutionIntent:** `read_only`, `mutating`
+- **ExecutionIntent:** `read_only`, `mutating`, `unspecified`
 - **AuthProvider:** `local`, `fake`, `firebase`
 - **PlanKey:** `free`, `pro`
 - **SubscriptionStatus:** `active`, `past_due`, `canceled`, `revoked`, `incomplete`, `trialing`, `unpaid`, `paused`
@@ -81,4 +83,4 @@ Local callers only.
 | POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

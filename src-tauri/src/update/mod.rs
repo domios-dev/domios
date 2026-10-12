@@ -1,3 +1,4 @@
+pub(crate) mod analytics;
 pub mod apply;
 pub mod channel;
 pub mod checker;

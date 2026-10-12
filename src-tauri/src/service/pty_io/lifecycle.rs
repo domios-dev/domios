@@ -765,11 +765,13 @@ impl ServiceContext {
     }
 
     fn refuse_restored_launch(&self, tab_id: &str, reason: &str) {
+        crate::service::analytics::restore::discard(tab_id);
         self.void_launch_session_proof(tab_id);
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.agent_booting = false;
         }
         self.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
+        self.record_product_restore_refused(tab_id);
         self.emit_state_changed();
     }
 
