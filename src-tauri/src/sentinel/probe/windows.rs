@@ -181,7 +181,11 @@ pub(super) fn run_with_assignment(
         return run.finish_failure();
     }
     if let Err(error) = run.spawn_contained(command, cwd, environment, assign) {
-        run.fail("probe_containment_failed");
+        run.fail(if run.deadlines.expired_operation() {
+            "probe_timeout"
+        } else {
+            "probe_containment_failed"
+        });
         run.add_error(error);
         return run.finish_failure();
     }
