@@ -3,7 +3,7 @@ use codeterm_types::notification::{
 };
 
 use super::*;
-use crate::notification::store::{NotificationProvenance, NotificationSeverity, NotificationStore};
+use crate::store::{NotificationProvenance, NotificationSeverity, NotificationStore};
 
 fn choices(labels: &[&str]) -> Vec<NotificationAction> {
     adopt_caller_actions(
@@ -22,7 +22,7 @@ fn asked_from(tab_id: Option<&str>) -> (NotificationStore, String) {
             tab_id: tab_id.map(str::to_string),
             ..Default::default()
         },
-        crate::notification::store::Ask::offering(Some(choices(&["Rebase", "Merge"]))),
+        crate::store::Ask::offering(Some(choices(&["Rebase", "Merge"]))),
         None,
         None,
     );
@@ -238,7 +238,7 @@ fn notify_answer_absent_when_no_choice_is_offered() {
             tab_id: Some("asking-tab".into()),
             ..Default::default()
         },
-        crate::notification::store::Ask::default(),
+        crate::store::Ask::default(),
         None,
         None,
     );

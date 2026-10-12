@@ -8,6 +8,7 @@ const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const scopeAliases = new Map([
   ["codeterm", "app"],
   ["codeterm-analytics", "analytics"],
+  ["codeterm-notification-core", "notification-core"],
   ["codeterm-account", "account"],
   ["codeterm-billing", "billing"],
   ["codeterm-cli", "cli"],

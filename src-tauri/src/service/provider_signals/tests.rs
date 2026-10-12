@@ -137,7 +137,10 @@ fn provider_access_recovery_resolves_a_preexisting_condition() {
             ..Default::default()
         },
         per_scope_limit: 100,
-        ask: Ask::default(),
+        ask: Ask::about(
+            crate::notification::dedupe::TabCondition::ProviderAccessLost,
+            None,
+        ),
     };
     let admission = store.add_push(request);
     let id = admission.id().to_string();
@@ -148,10 +151,6 @@ fn provider_access_recovery_resolves_a_preexisting_condition() {
     assert_eq!(
         store.notification(&id).unwrap().severity,
         NotificationSeverity::Error
-    );
-    store.set_condition(
-        &id,
-        crate::notification::dedupe::TabCondition::ProviderAccessLost,
     );
     assert_eq!(
         store.resolve_tab_condition(
@@ -169,7 +168,12 @@ fn provider_access_recovery_resolves_a_preexisting_condition() {
     );
     assert!(store.notification(&id).unwrap().resolved);
     assert!(store.notification(&id).unwrap().read);
-    assert!(!store.resolve_id(&id));
+    assert!(store
+        .resolve_tab_condition(
+            "own",
+            crate::notification::dedupe::TabCondition::ProviderAccessLost,
+        )
+        .is_empty());
 }
 
 #[test]

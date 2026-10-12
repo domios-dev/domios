@@ -69,6 +69,8 @@ Orchestrator's canonical wave batch.
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
 
+The notification domain crate uses `./build.sh test-one notification-core <selector>`; focused runs enter the build gateway and support `--wait-build`.
+
 The isolated billing crate uses `./build.sh test-one billing <selector>`; workers defer Rust execution to canonical.
 
 The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
