@@ -749,11 +749,20 @@ fn protocol_relative_rejected() {
 }
 
 #[test]
-fn only_cursor_streams_are_relayable() {
+fn cursor_and_surface_streams_are_relayable() {
     assert!(is_streamable_relay_path("/api/events/stream"));
     assert!(is_streamable_relay_path("/api/output/stream"));
     assert!(!is_streamable_relay_path("/api/tabs/abc/send"));
     assert!(!is_streamable_relay_path("/api/config"));
+    assert!(is_streamable_relay_path("/api/surfaces/88a2dfa7/stream"));
+    for path in [
+        "/api/surfaces//stream",
+        "/api/surfaces/tab/call",
+        "/api/surfaces/a/b/stream",
+        "/api/surfaces/../stream",
+    ] {
+        assert!(!is_streamable_relay_path(path), "{path}");
+    }
 }
 
 #[test]
