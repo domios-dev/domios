@@ -5,6 +5,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs BLUEPRINTS` — Bounded status probes, changed-output classification and safe transition routes.
 - `codeterm docs BLUEPRINT-RECIPES` — Blueprint graph use-case patterns and built-in recipe skeletons.
 - `codeterm docs CONFIG` — Application configuration reference.
+- `codeterm docs ACCOUNT` — Domios account sign-in and opt-in product analytics settings.
 - `codeterm docs NOTIFICATIONS` — Notification levels, per-level surfaces, sound, and push channels.
 - `codeterm docs INTEGRATIONS` — Messaging, hooks, transcription, and secret-backed integration settings.
 - `codeterm docs RUNTIME-CONFIG` — Runtime, UI, session, cron, and memory settings.

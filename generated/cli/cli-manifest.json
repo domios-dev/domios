@@ -26,6 +26,35 @@
   ],
   "subcommands": [
     {
+      "name": "account",
+      "about": "Sign in, inspect identity or sign out on this machine",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "login",
+          "about": "Sign in using the system browser and wait for completion",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "logout",
+          "about": "Sign out and delete the saved credential",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show the signed-in identity",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "agent",
       "about": "Agent hierarchy management",
       "aliases": [],

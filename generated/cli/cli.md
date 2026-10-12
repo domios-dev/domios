@@ -46,6 +46,22 @@ Domios CLI — control your terminal multiplexer
 - `--json` — Output raw JSON instead of human-readable text
 - `--mesh` — Execute command on a remote mesh peer instead of locally
 
+#### `codeterm account`
+
+Sign in, inspect identity or sign out on this machine
+
+#### `codeterm account login`
+
+Sign in using the system browser and wait for completion
+
+#### `codeterm account logout`
+
+Sign out and delete the saved credential
+
+#### `codeterm account status`
+
+Show the signed-in identity
+
 #### `codeterm agent`
 
 Agent hierarchy management
