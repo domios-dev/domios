@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH, spawnAiHelper } from "./aiHelperSpawn";
 import { configureWithAI } from "./pluginConfigure";
 import { startWebAccessSetupHelper } from "./webAccess";
@@ -20,6 +21,7 @@ type Captured = { url: string; body: Record<string, unknown> };
 const g = globalThis as unknown as Record<string, unknown>;
 const focused: Array<{ tabId: string; workspaceId: string }> = [];
 g.window = {
+    location: { origin: "http://127.0.0.1:7686" },
   dispatchEvent: (event: { type: string; detail?: { tabId?: string; workspaceId?: string } }) => {
     if (event.type === "codeterm:focus-tab" && event.detail?.tabId && event.detail.workspaceId) focused.push({ tabId: event.detail.tabId, workspaceId: event.detail.workspaceId });
     return true;
@@ -41,6 +43,8 @@ function respond(status: number, payload: unknown) {
     return { ok: status < 400, status, json: async () => payload };
   };
 }
+
+configureDaemonTransport({ origin: "http://127.0.0.1:7686", token: "fixture-token" });
 
 const api = { host: "127.0.0.1", port: 7686, token: "fixture-token" };
 const opaqueTask = "ai-helper-task-token-4d21";

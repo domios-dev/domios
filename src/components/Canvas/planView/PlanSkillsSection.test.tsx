@@ -1,3 +1,4 @@
+import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 // Run: npx tsx src/components/Canvas/planView/PlanSkillsSection.test.tsx
 
 import { act, type ReactElement } from "react";
@@ -42,6 +43,7 @@ function setupDom() {
 }
 
 setupDom();
+configureDaemonFixture();
 
 async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");

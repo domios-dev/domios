@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, deliveryState, sendForRow, reconcileDeliveryStatusesModel, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 
@@ -79,6 +79,44 @@ test("a snapshot started before settlement cannot erase the live failure receipt
   const echoed = requested.map((item) => ({ ...item, echo: { content: item.content, timestampMs: item.sentAtMs } }));
   const restored = reconcileDeliveryStatusesModel(echoed, failed.map((item) => item.status!), requested);
   assert(restored.every((item) => deliveryState(item) === "failed" && item.echo == null));
+});
+
+test("the first failure snapshot applies after an in-flight held response changes both sends", () => {
+  const requested = [send(), { ...send(), id: "second", correlationId: "second-token" }];
+  const held = requested.map((item) => applyDeliveryStatus(item, {
+    ...status("held", 1), correlationId: item.correlationId, send_id: item.id,
+  }));
+  const receipts = held.map((item) => ({ ...item.status!, state: "failed" as const }));
+  const failed = reconcileDeliveryStatusesModel(held, receipts, requested);
+  assert(failed.every((item) => deliveryState(item) === "failed"));
+  assert.deepEqual(failed.map((item) => item.id), requested.map((item) => item.id));
+  const lateHeld = reconcileDeliveryStatusesModel(failed, held.map((item) => item.status!), requested);
+  assert(lateHeld.every((item) => deliveryState(item) === "failed"));
+});
+
+test("reloaded admissions adopt failed or delivered outcomes from the restarted ledger", () => {
+  for (const outcome of ["failed", "delivered"] as const) {
+    const reloaded = JSON.parse(JSON.stringify([applyDeliveryStatus(send(), status("held", 10))])) as DeliverySend[];
+    const receipt = { ...status(outcome, 1), ledger_id: "restarted-ledger" };
+    const result = reconcileDeliveryStatusesModel(reloaded, [receipt]);
+    assert.equal(result[0].status?.state, outcome);
+    assert.equal(deliveryState(result[0]), outcome);
+    assert.equal(result[0].id, reloaded[0].id);
+  }
+});
+
+test("interrupted admissions leave sending without turning ambiguous responses into Retry", () => {
+  for (const requestHadResponse of [false, true, undefined]) {
+    for (const evidence of ["present", "absent", "unknown"] as const) {
+      const reloaded = JSON.parse(JSON.stringify({ ...send(), requestHadResponse })) as DeliverySend;
+      const result = reconcileAdmissionEvidence(reloaded, evidence);
+      assert.equal(deliveryState(result), evidence === "absent" && requestHadResponse === false ? "failed" : "uncertain");
+    }
+  }
+  for (const state of ["held", "written", "submit_unconfirmed", "delivered", "failed"] as const) {
+    const known = applyDeliveryStatus(send(), status(state, 1));
+    assert.equal(reconcileAdmissionEvidence(known, "absent"), known);
+  }
 });
 
 test("two failed sends remain visible across reload alongside a similar new session turn", () => {

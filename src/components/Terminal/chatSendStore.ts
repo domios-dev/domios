@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { ChatSend, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, deliveryState, reconcileDeliveryStatusesModel, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 
@@ -113,6 +113,19 @@ export function failChatSendRequest(tabId: string, id: string): void {
     ? { ...send, requestFailed: true } : send));
 }
 
+export function reconcileChatSendAdmission(tabId: string, correlationId: string, evidence: AdmissionEvidence): void {
+  const current = readChatSends(tabId);
+  const next = current.map((send) => send.correlationId === correlationId
+    ? reconcileAdmissionEvidence(send, evidence) : send);
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
+}
+
+export function recordChatSendAdmissionFailure(tabId: string, correlationId: string, hadResponse: boolean): void {
+  const current = readChatSends(tabId);
+  publish(tabId, current.map((send) => send.correlationId === correlationId
+    ? reconcileAdmissionEvidence({ ...send, requestHadResponse: hadResponse }, "unknown") : send));
+}
+
 export function reconcileDeliveryStatuses(
   tabId: string, statuses: readonly ChatSendStatus[], requested?: readonly DeliverySend[],
 ): void {
@@ -128,7 +141,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
   if (!send || send.status?.system_send || deliveryState(send) !== "failed") return;
-  const next = { ...send, requestFailed: false, status: undefined,
+  const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, status: undefined,
     correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;

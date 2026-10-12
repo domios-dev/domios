@@ -18,8 +18,8 @@ pub(crate) mod model_catalogue;
 mod plan_restore;
 mod progress;
 mod rest_api;
-mod restore_complete;
 pub(crate) mod restart_stdio;
+mod restore_complete;
 mod servers;
 #[cfg(test)]
 mod stall_tests;

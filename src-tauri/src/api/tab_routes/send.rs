@@ -11,6 +11,9 @@ use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin}
 
 use super::AppState;
 
+mod admissions;
+pub use admissions::chat_send_admissions;
+
 fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
     if detail.starts_with("admission_unknown:") {
         SendRejection {

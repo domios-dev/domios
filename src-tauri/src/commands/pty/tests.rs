@@ -458,6 +458,36 @@ mod spawn_pty_restore_tests {
 
     #[tokio::test]
     #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    async fn spawn_pty_live_restored_reuse_returns_after_materialization() {
+        let (fixture, tab_id, resume_context) = restored_fixture();
+        let pty_guard = fixture.bind_test_pty_session(&tab_id, SESSION, "restored-reuse-nonce");
+        let backend = fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pty_id
+            .clone()
+            .unwrap();
+        let service = Arc::new(fixture.service.clone());
+        let target = tab_id.clone();
+        let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
+        let operation = tokio::spawn(async move {
+            let result = spawn_pty_core(&service, None, None, 80, 24, None, Some(target)).await;
+            completed_tx.send(result).unwrap();
+        });
+        assert_eq!(completed_rx.await.unwrap().unwrap(), backend);
+        operation.await.unwrap();
+        assert_eq!(resume_context.lock().len(), 1);
+        let restored = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+        assert!(!restored.restored_from_snapshot);
+        assert_eq!(restored.pty_id.as_deref(), Some(backend.as_str()));
+        drop(pty_guard);
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn manual_restart_claim_prevents_frontend_remount_restore_launch() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         let pty_id = "manual-restart-restored-pty";
@@ -571,4 +601,58 @@ mod restored_scrollback_tests {
         drop(buffer);
         service.kill_ptys(&[pty_id]);
     }
+}
+
+#[tokio::test]
+async fn live_restored_reuse_transfers_its_claim_and_completes_on_materialization() {
+    use crate::service::pty_ownership::{LinkOutcome, OwnershipEvent, PtyOwnership};
+    use std::sync::{Arc, Mutex};
+
+    let ownership = PtyOwnership::default();
+    ownership.set_test_observer(Arc::new(|_, event| {
+        if event == OwnershipEvent::AwaitingActivation {
+            panic!("the reuse operation reacquired its activation permit");
+        }
+    }));
+    let claim = ownership
+        .acquire_async("restored-reuse".into())
+        .await
+        .unwrap();
+    let linked = Arc::new(Mutex::new(None::<String>));
+    let link_state = linked.clone();
+    let (materialized_tx, materialized_rx) = tokio::sync::oneshot::channel();
+    let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
+    let operation = tokio::spawn(async move {
+        let result = super::reuse_live_pty_with_claim(
+            claim,
+            "live-pty".into(),
+            true,
+            move |claim, existing| {
+                claim.settle(
+                    existing,
+                    false,
+                    |id| id == "live-pty",
+                    |id| LinkOutcome::Linked(link_state.lock().unwrap().replace(id.into())),
+                    |_| panic!("the live PTY must remain owned"),
+                    |_| {},
+                )
+            },
+            move |claim| {
+                assert_eq!(claim.tab_id(), "restored-reuse");
+                materialized_tx.send(()).unwrap();
+                Ok(())
+            },
+        )
+        .await;
+        completed_tx.send(result).unwrap();
+    });
+    materialized_rx.await.unwrap();
+    assert_eq!(completed_rx.await.unwrap().unwrap(), "live-pty");
+    operation.await.unwrap();
+    assert_eq!(linked.lock().unwrap().as_deref(), Some("live-pty"));
+    let next_claim = ownership
+        .acquire_async("restored-reuse".into())
+        .await
+        .unwrap();
+    assert_eq!(next_claim.tab_id(), "restored-reuse");
 }

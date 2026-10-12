@@ -116,9 +116,11 @@ test('dry run artifact has complete dist, archive, manifest, signature and repro
 });
 test('committed cross-language fixture is canonical, signed and matches archive',async()=>{
   const stored=await readFile(path.join(fixture,'frontend-manifest.json'));
-  assert.deepEqual(stored,bytes);
+  const committed=await readFile(path.join(fixture,'frontend-v1.0.0.tar.gz'));
+  assert.deepEqual(stored,canonicalManifest(createManifest('frontend-v1.0.0',contract,committed)));
   verifySignature(stored,await readFile(path.join(fixture,'frontend-manifest.json.minisig'),'utf8'),publicKey);
-  assert.deepEqual(await readFile(path.join(fixture,'frontend-v1.0.0.tar.gz')),archive);
+  // Deflate output differs between zlib builds, so the committed archive pins its tar, not its gzip bytes.
+  assert.deepEqual(gunzipSync(committed),gunzipSync(archive));
 });
 
 test('pull requests always force fixture dry run even when requested flag is false or missing', () => {

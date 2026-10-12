@@ -39,7 +39,7 @@ function provider(id: string, displayName: string): ProviderDescriptor {
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    icon_hint: "◆",
+    icon_svg: '<svg><path d="M1 2 L3 4" /></svg>',
   };
 }
 
@@ -73,7 +73,11 @@ async function main() {
   const icon = host.querySelector('[role="img"]');
   assert(icon?.getAttribute("title") === "Executed by cursor", "icon tooltip must name the durable worker provider");
   assert(icon?.getAttribute("aria-label") === "Executed by cursor", "icon must expose its executor provider to assistive technology");
-  assert(icon?.textContent === "◆", "provider glyph must come from the provider descriptor, not the model text");
+  assert(icon?.querySelector("path")?.getAttribute("d") === "M1 2 L3 4", "provider glyph must come from the provider descriptor, not the model text");
+  await act(async () => setAgentDescriptors([{ ...provider("cursor", "Cursor"), icon_svg: undefined }]));
+  const fallback = host.querySelector('[role="img"]');
+  assert(fallback?.getAttribute("aria-label") === "Executed by cursor", "fallback must retain the executor provider's accessible name");
+  assert(fallback?.getAttribute("title") === "Executed by cursor", "fallback tooltip must retain the executor provider");
   await act(async () => root.unmount());
   console.log("✓ Memory worker card renders its durable executor provider icon");
 }

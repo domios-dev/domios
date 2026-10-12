@@ -1,8 +1,8 @@
-const BLOCK_LINE = /^[\t ]*@ds-([a-z][a-z0-9-]*)[\t ]+(\S(?:.*\S)?)[\t ]*$/;
+const BLOCK_LINE = /^[\t ]*@(?:ds|ct)-([a-z][a-z0-9-]*)[\t ]+(\S(?:.*\S)?)[\t ]*$/;
 
-/** Gives every standalone `@ds-` line its own paragraph so a lead sentence on the line above cannot swallow it. */
+/** Gives every standalone `@ds-` (or legacy `@ct-`) line its own paragraph so a lead sentence on the line above cannot swallow it. */
 export function isolateBlockDirectives(text: string, inserted?: (offset: number) => void): string {
-  if (!text.includes("@ds-")) return text;
+  if (!text.includes("@ds-") && !text.includes("@ct-")) return text;
   const out: string[] = [];
   let fence: string | null = null;
   let offset = 0;
