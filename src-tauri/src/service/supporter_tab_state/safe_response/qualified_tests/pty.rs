@@ -57,6 +57,7 @@ pub(super) struct ReaderEvidence {
     started_at: Instant,
     pub(super) sequence: u64,
     pub(super) last_snapshot: Option<ScreenSnapshot>,
+    pub(super) pending_output: Option<BoundedText>,
     pub(super) stage_events: Vec<StageEvent>,
     end: Option<ReaderEnd>,
     end_elapsed_ms: Option<u128>,
@@ -68,13 +69,19 @@ impl ReaderEvidence {
             started_at: Instant::now(),
             sequence: 0,
             last_snapshot: None,
+            pending_output: None,
             stage_events: Vec::new(),
             end: None,
             end_elapsed_ms: None,
             reader_finished: false,
         }
     }
+    pub(super) fn record_pending_frame(&mut self, frame: &[u8]) {
+        let safe = super::super::super::privacy::text(&String::from_utf8_lossy(frame));
+        self.pending_output = Some(BoundedText::tail(&safe, MAX_STAGE_SCREEN_BYTES));
+    }
     pub(super) fn record_screen(&mut self, screen: &str) {
+        self.pending_output = None;
         self.sequence += 1;
         let safe_screen = super::super::super::privacy::screen(screen);
         let snapshot = ScreenSnapshot {
@@ -118,6 +125,7 @@ pub(super) struct StageFailure {
     pub(super) deadline_ms: u128,
     pub(super) event_sequence: u64,
     pub(super) last_snapshot: Option<ScreenSnapshot>,
+    pub(super) pending_output: Option<BoundedText>,
 }
 pub(super) fn stage_failure(
     stage: ModalStage,
@@ -133,6 +141,7 @@ pub(super) fn stage_failure(
         deadline_ms: STAGE_TIMEOUT.as_millis(),
         event_sequence: evidence.sequence,
         last_snapshot: evidence.last_snapshot.clone(),
+        pending_output: evidence.pending_output.clone(),
     }
 }
 fn wait_for_screen(
@@ -421,6 +430,7 @@ impl PtyChild {
                         Ok(count) => {
                             let Some(stage) = expected else { continue };
                             frame.extend_from_slice(&bytes[..count]);
+                            evidence.lock().record_pending_frame(&frame);
                             if !frame
                                 .windows(stage.marker().len())
                                 .any(|bytes| bytes == stage.marker().as_bytes())

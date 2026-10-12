@@ -269,7 +269,7 @@ pub(crate) fn caller_access_level(
 
 pub async fn auth_middleware(
     AxumState(state): AxumState<AppState>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     let path = req.uri().path().to_string();
@@ -320,7 +320,11 @@ pub async fn auth_middleware(
         .unwrap_or("")
         .to_string();
 
-    match identify_caller(&state, &auth) {
+    let caller = identify_caller(&state, &auth);
+    if let Ok(identity) = &caller {
+        req.extensions_mut().insert(identity.clone());
+    }
+    match caller {
         Ok(CallerIdentity::Local) => next.run(req).await,
         Ok(CallerIdentity::ServicePush { ref service_id }) => {
             if is_service_push_allowed(method.as_str(), &path) {

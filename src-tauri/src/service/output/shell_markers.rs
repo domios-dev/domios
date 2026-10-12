@@ -1,6 +1,19 @@
 use super::super::ServiceContext;
 
 impl ServiceContext {
+    pub(super) fn process_shell_markers_for_pty(&self, pty_id: &str, data: &[u8]) {
+        let (tab_id, nonce) = {
+            let mux = self.mux.read();
+            let tab_id = mux.tab_id_for_pty(pty_id);
+            let nonce = tab_id
+                .as_ref()
+                .and_then(|tab| mux.get_tab(tab))
+                .and_then(|tab| tab.shell_integration_nonce.clone());
+            (tab_id, nonce)
+        };
+        self.process_shell_markers(pty_id, tab_id.as_deref(), nonce, data);
+    }
+
     fn publish_shell_command_state(
         &self,
         tab_id: &str,

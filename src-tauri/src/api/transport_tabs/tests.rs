@@ -111,14 +111,15 @@ async fn transport_tabs_contract_cwd_persistence_envelopes_and_status() {
     };
     use tower::ServiceExt;
 
-    let (mut mux, tab) = MultiplexerState::new();
-    mux.get_tab_mut(&tab).unwrap().pty_id = Some("retained-pty".into());
+    let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
+    let _pty = fixture.bind_test_pty_session(&tab, "history-session", "history-launch");
+    let pty_id = fixture.service.resolve_pty_id(&tab).unwrap();
     fixture
         .service
         .output_buf
         .lock()
-        .append("retained-pty", b"\x1b[31mraw\x1b[0m");
+        .append(&pty_id, b"\x1b[31mraw\x1b[0m");
     let state = fixture::app_state(&fixture);
     let app = router()
         .layer(middleware::from_fn_with_state(

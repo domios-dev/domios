@@ -734,7 +734,14 @@ fn refused_team_folder_trust_prompt_notifies_owner_once_with_tab_identity() {
         &prompt,
         codeterm_types::pty::PromptKind::DirectoryTrust,
     );
-    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    assert!(fixture.service.notif.lock().list(false).is_empty());
+    let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+    assert_eq!(tab.pending_prompt, Some(prompt));
+    assert_eq!(
+        tab.pending_prompt_kind,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+    );
+    assert_eq!(tab.team_id.as_deref(), Some("team-fresh-repo"));
 }
 
 #[test]

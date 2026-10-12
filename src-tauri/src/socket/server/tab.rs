@@ -735,6 +735,7 @@ mod tests {
         mux.set_tab_role(&recipient, AgentRole::Worker, Some(&sender))
             .unwrap();
         mux.get_tab_mut(&recipient).unwrap().agent_type = Some("limited-test-provider".into());
+        mux.get_tab_mut(&recipient).unwrap().session_binding_nonce = Some("pad-send-launch".into());
         let fixture = ServiceFixture::new(mux);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("limited-test-provider")
