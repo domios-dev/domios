@@ -225,13 +225,7 @@ jobs:
           file src-tauri/target/debug/codeterm-embed | grep -q ELF
           cp src-tauri/target/debug/codeterm-embed "$RUNNER_TEMP/codeterm-embed-runtime"
 
-      - name: File-size discipline
-        if: ${{ !cancelled() && steps.stubs.outcome == 'success' }}
-        run: bash scripts/check-file-sizes.sh --fail
 
-      - name: clippy (repo gate)
-        if: ${{ !cancelled() && steps.stubs.outcome == 'success' }}
-        run: bash scripts/clippy-gate.sh
 
       - name: Restore runtime embed sidecar
         if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
@@ -251,9 +245,6 @@ jobs:
         if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
 
-      - name: CLI tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        run: cargo test --manifest-path cli/Cargo.toml
 
       # The _work checkout is shared with release jobs on this runner — never
       # leave 0-byte stubs where the release resource glob would ship them.
@@ -299,9 +290,6 @@ jobs:
         if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
 
-      - name: CLI tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        run: cargo test --manifest-path cli/Cargo.toml
 
       - name: Clean 0-byte stubs
         if: always()
@@ -394,10 +382,6 @@ jobs:
         shell: pwsh
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
 
-      - name: CLI tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        shell: pwsh
-        run: cargo test --manifest-path cli/Cargo.toml
 
       - name: Clean 0-byte stubs
         if: always()
@@ -407,15 +391,127 @@ jobs:
             Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Where-Object Length -eq 0 | Remove-Item -Force
           }
 
-  ts:
-    name: ts unit + plugins
-    needs: changed
+  clippy-linux:
+    name: clippy (linux)
+    needs: [changed, fmt]
     if: ${{ needs.changed.outputs.run == 'true' }}
-    runs-on: [self-hosted, codeterm-builder]
+    runs-on: [self-hosted, linux-ci]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Ensure Rust toolchain on PATH
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: Prepare compile stubs
+        run: |
+          mkdir -p dist src-tauri/bundled-cli
+          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
+          node scripts/prepare-embed-stub.js
+      - name: clippy (repo gate)
+        run: bash scripts/clippy-gate.sh
+      - name: Clean 0-byte stubs
+        if: always()
+        run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
 
+  cli-linux:
+    name: cli (linux)
+    needs: [changed, fmt]
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, linux-ci]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Ensure Rust toolchain on PATH
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: CLI tests
+        run: cargo test --manifest-path cli/Cargo.toml
+
+  cli-macos:
+    name: cli (macos)
+    needs: [changed, fmt]
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: CLI tests
+        run: cargo test --manifest-path cli/Cargo.toml
+
+  cli-windows:
+    name: cli (windows)
+    needs: [changed, fmt]
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, windows-build]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+      - name: Ensure Rust toolchain on PATH
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Get-Command rustup -ErrorAction SilentlyContinue) { Write-Host "rustup already on PATH"; exit 0 }
+          $candidates = @()
+          if ($env:CARGO_HOME)  { $candidates += (Join-Path $env:CARGO_HOME 'bin') }
+          if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE '.cargo\bin') }
+          $candidates += (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue |
+                          ForEach-Object { Join-Path $_.FullName '.cargo\bin' })
+          $hit = $candidates | Where-Object { Test-Path (Join-Path $_ 'rustup.exe') } | Select-Object -First 1
+          if (-not $hit) { Write-Error "rustup.exe not found in: $($candidates -join '; '). Restore Rust on the runner."; exit 1 }
+          $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Prepended Rust bin to PATH: $hit"
+      - name: Ensure Windows PowerShell on PATH
+        shell: pwsh
+        run: |
+          $psDir = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0'
+          if (-not (Test-Path (Join-Path $psDir 'powershell.exe'))) { Write-Error "powershell.exe not found at $psDir"; exit 1 }
+          $psDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Prepended $psDir"
+      - name: Set up fixture Node interpreter
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.22.0'
+      - name: CLI tests
+        shell: pwsh
+        run: cargo test --manifest-path cli/Cargo.toml
+
+  ts-static:
+    name: ts static checks
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, light]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -429,72 +525,173 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        id: install
         run: pnpm install --frozen-lockfile
-
-      - name: Check Rust generated TypeScript types
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm types:check
-
       - name: TS strict typecheck (prod build gate)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm exec tsc --noEmit
-
       - name: TypeScript unused exports
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: pnpm check:unused-exports
-
       - name: Repository Knip report
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: pnpm knip:report
-
       # An effect that reaches the API must key on primitives; a mux-rebuilt object
       # re-runs it at broadcast rate. Five such sites shipped before this existed.
       - name: Check API effect dependencies
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: pnpm check:api-effects
+      - name: Biome (TS lint)
+        if: ${{ !cancelled() }}
+        run: pnpm lint
 
+  ts-types:
+    name: ts generated types
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, light]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ensure Rust toolchain on PATH
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check Rust generated TypeScript types
+        run: pnpm types:check
+
+  ts-unit:
+    name: ts unit
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, light]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Run TS unit tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm test:unit
 
+  ts-vitest:
+    name: ts vitest
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, light]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
-      # step is the only thing that runs them.
+      # job is the only thing that runs them.
       - name: Run vitest-owned TS tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm test:vitest
 
-      - name: Check generated plugin bundles
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm check:plugin-bundles
+  ts-plugins:
+    name: plugin bundles + tests
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, light]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check generated plugin bundles
+        run: pnpm check:plugin-bundles
       - name: Run plugin tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: pnpm test:plugins
 
+  release-contracts:
+    name: release contract tests
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
+    runs-on: [self-hosted, light]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Release metadata contract tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python3 -m unittest scripts.tests.test_release_issue_contract
-
       - name: Release workflow signature-gate contract tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: python3 -m unittest scripts.tests.test_release_workflow_contract
-
       - name: Updater manifest merge + signature tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: node --test scripts/tests/updater-manifest.test.mjs
-
       - name: Release closure authority tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: node --test scripts/tests/release-closure-authority.test.mjs
-
       - name: Release notes synchronization tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         run: node --test scripts/tests/release-notes-sync.test.mjs
-
-      - name: Biome (TS lint)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm lint
 
   jev-linux:
     name: Jev local evaluator (linux)
