@@ -49,6 +49,10 @@ fn ingest_targets_the_same_tab_and_only_message_routes() {
         ingest_path("post", "/api/tabs/a%20b/chat-send"),
         Some("/api/tabs/a%20b/attachments".into())
     );
+    assert_eq!(
+        ingest_path("POST", "/api/tabs/target/delayed-messages"),
+        Some("/api/tabs/target/attachments".into())
+    );
     for (method, path) in [
         ("GET", "/api/tabs/main/send"),
         ("POST", "/api/tabs//send"),
