@@ -1,0 +1,28 @@
+{
+  "id": "evt_customer_subscription_deleted",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1900000005,
+  "livemode": false,
+  "type": "customer.subscription.deleted",
+  "data": {
+    "object": {
+      "id": "sub_fixture",
+      "object": "subscription",
+      "customer": "cus_fixture",
+      "status": "canceled",
+      "cancel_at_period_end": false,
+      "items": {
+        "data": [
+          {
+            "id": "si_fixture",
+            "price": {
+              "id": "price_pro"
+            },
+            "current_period_end": 2000000000
+          }
+        ]
+      }
+    }
+  }
+}

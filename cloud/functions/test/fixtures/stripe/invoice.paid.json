@@ -1,0 +1,29 @@
+{
+  "id": "evt_invoice_paid",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1900000003,
+  "livemode": false,
+  "type": "invoice.paid",
+  "data": {
+    "object": {
+      "id": "in_paid",
+      "object": "invoice",
+      "customer": "cus_fixture",
+      "parent": {
+        "subscription_details": {
+          "subscription": "sub_fixture"
+        }
+      },
+      "lines": {
+        "data": [
+          {
+            "period": {
+              "end": 2100000000
+            }
+          }
+        ]
+      }
+    }
+  }
+}
