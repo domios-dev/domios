@@ -13,6 +13,7 @@ pub use super::supporter::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    pub account: serde_json::Value,
     pub theme: ThemeConfig,
     pub font: FontConfig,
     pub terminal: TerminalConfig,
@@ -64,6 +65,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            account: serde_json::json!({"provider": "local"}),
             theme: ThemeConfig::default(),
             font: FontConfig::default(),
             terminal: TerminalConfig::default(),

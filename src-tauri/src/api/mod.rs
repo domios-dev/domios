@@ -1,4 +1,5 @@
 pub(crate) mod access_policy;
+pub mod account_routes;
 pub mod analytics_routes;
 pub mod auth;
 pub mod automation_graph_routes;

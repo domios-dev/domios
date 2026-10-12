@@ -184,6 +184,7 @@ impl ServiceFixture {
         );
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
         let service = ServiceContext {
+            account: Arc::new(tokio::sync::OnceCell::new()),
             analytics: Arc::new(tokio::sync::OnceCell::new()),
             agent_pad_data_dir: data_dir.clone(),
             launch_task_files: Arc::new(Mutex::new(HashMap::new())),
