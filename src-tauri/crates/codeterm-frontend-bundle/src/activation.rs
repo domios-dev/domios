@@ -13,8 +13,6 @@ pub struct Activation {
     pub loading: Option<Loading>,
     pub quarantined: BTreeSet<String>,
     pub active_claims: BTreeMap<String, HealthClaim>,
-    #[serde(default)]
-    pub installation_attempts: BTreeMap<String, u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -101,11 +99,6 @@ impl Activation {
             .generation
             .checked_add(1)
             .ok_or("Generation exhausted")?;
-        let attempts = self
-            .installation_attempts
-            .entry(release_id.into())
-            .or_default();
-        *attempts = attempts.saturating_add(1);
         self.loading = Some(Loading {
             release_id: release_id.into(),
             generation: self.generation,

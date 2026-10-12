@@ -296,3 +296,15 @@ mod tests {
         );
     }
 }
+
+impl PlanStore {
+    pub fn bind_product_observer(&self, observer: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        *self.product_observer.write() = Some(observer);
+    }
+    pub(in crate::service_plan) fn publish_product_created(&self) {
+        let observer = self.product_observer.read().clone();
+        if let Some(observer) = observer {
+            observer();
+        }
+    }
+}

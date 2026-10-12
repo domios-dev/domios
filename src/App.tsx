@@ -1,3 +1,5 @@
+import { emitFeatureUsed } from "./lib/productAnalytics";
+import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -234,6 +236,9 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  useEffect(() => {
+    if (IS_WEB && !configLoading) void emitFeatureUsed(localJson, "web_ui_opened");
+  }, [configLoading]);
   const larkCapture = useLocalRecordingCapture({ tabs: state.tabs });
   // The capture listener's readiness promise lives for the hook's lifetime; readiness is reported once.
   const larkReadyRef = useRef(larkCapture.ready);

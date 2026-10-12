@@ -379,9 +379,6 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
-        if let Some(event) = super::analytics::restore::transition(tab_id, tab, stage) {
-            self.record_product_event(event);
-        }
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "tab-boot-stage",

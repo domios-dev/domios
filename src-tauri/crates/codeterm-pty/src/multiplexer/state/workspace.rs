@@ -267,6 +267,10 @@ impl MultiplexerState {
         Ok(())
     }
 
+    pub fn workspace_count(&self) -> usize {
+        self.workspaces.len()
+    }
+
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.workspaces
             .iter()

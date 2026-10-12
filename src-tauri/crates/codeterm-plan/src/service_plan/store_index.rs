@@ -373,7 +373,6 @@ impl PlanStore {
         self.index
             .write()
             .insert(staged.id.clone(), Self::index_entry(&staged, path));
-        self.publish_product_commit(previous.as_ref(), &staged);
         Ok(())
     }
 

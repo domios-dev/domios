@@ -1,4 +1,4 @@
-import { PRODUCT_EVENT_CATALOG, PRODUCT_EVENT_ENUMS, type ProductEvent } from "./productAnalytics.generated";
+import { PRODUCT_EVENT_CATALOG, PRODUCT_EVENT_ENUMS, type ProductEvent, type Feature } from "./productAnalytics.generated";
 
 export type AnalyticsEndpoint = (method: "POST", path: "/api/analytics/event", event: ProductEvent) => Promise<unknown>;
 
@@ -27,4 +27,13 @@ export async function emitProductEvent(endpoint: AnalyticsEndpoint, consent: "of
   if (consent !== "on" || !isProductEvent(event)) return;
   try { await endpoint("POST", "/api/analytics/event", event); }
   catch { /* Analytics cannot interrupt a product action. */ }
+}
+
+export type FeatureEndpoint = <T>(method: string, path: string, body?: unknown) => Promise<T>;
+
+export async function emitFeatureUsed(endpoint: FeatureEndpoint, feature: Feature): Promise<void> {
+  try {
+    const status = await endpoint<{ consent: "off" | "on" }>("GET", "/api/analytics/status");
+    await emitProductEvent(endpoint, status.consent, { event_type: "feature_used", event_properties: { feature } });
+  } catch { /* Analytics cannot interrupt a product action. */ }
 }

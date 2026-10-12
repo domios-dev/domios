@@ -402,8 +402,8 @@ pub(super) async fn install_staged_deb_and_restart(
     path: std::path::PathBuf,
     initiating_tab_id: Option<&str>,
 ) -> Result<(), String> {
-    let receipt_version = version.clone();
-    tokio::task::spawn_blocking(move || super::analytics::stage_app(&receipt_version))
+    let target = version.clone();
+    tokio::task::spawn_blocking(move || super::analytics::stage_app(&target))
         .await
         .map_err(|e| e.to_string())?;
     install_verified_deb_async(path, version).await?;

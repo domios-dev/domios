@@ -20,10 +20,10 @@ pub struct FrontendRouteState {
 
 pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> {
     let service = app.svc.clone();
-    bundles.bind_installation_observer(Arc::new(move |installation| {
-        if let Some(event) = crate::service::analytics::frontend_event(installation) {
-            service.record_product_event(event);
-        }
+    bundles.bind_installation_observer(Arc::new(move || {
+        service.record_product_event(codeterm_analytics::Event::UpdateInstalled {
+            kind: codeterm_analytics::UpdateKind::Frontend,
+        })
     }));
     routes(FrontendRouteState {
         bundles,

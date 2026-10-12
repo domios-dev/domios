@@ -307,7 +307,11 @@ impl MeshManager {
 
     // ── Forwarding methods (minimize caller changes) ────────────────
 
-    pub fn bind_pairing_observer(&mut self, observer: Arc<dyn Fn() + Send + Sync>) {
+    pub fn machine_count(&self) -> usize {
+        self.paired_peers.len().saturating_add(1)
+    }
+
+    pub fn bind_pairing_observer(&mut self, observer: Arc<dyn Fn(usize) + Send + Sync>) {
         self.pairing_observer = Some(pairing_observer::PairingObserver::new(
             self.paired_peers.keys().cloned().collect(),
             observer,

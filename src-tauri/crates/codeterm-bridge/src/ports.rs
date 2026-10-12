@@ -20,6 +20,7 @@ pub trait AttachmentStorePort: Send + Sync {
 }
 
 pub trait BridgeTabPort: Send + Sync {
+    fn telegram_used(&self) {}
     fn resolve_general_tab(&self) -> Result<String, String>;
     fn tab_agent_type(&self, tab_id: &str) -> Option<String>;
     fn transcribe_registry(&self) -> Arc<TranscribeRegistry>;
