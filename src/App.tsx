@@ -672,7 +672,7 @@ function AppInner() {
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
         className="flex flex-1 min-h-0 relative"
       >
-        <LarkCaptureStatus state={larkCapture.state} onCancel={larkCapture.cancel} />
+        <LarkCaptureStatus state={larkCapture.state} />
         {larkCapture.setupPluginId && <LocalRecordingSetup pluginId={larkCapture.setupPluginId} onClose={larkCapture.closeSetup} />}
         {sidebarMounted && (
           <>

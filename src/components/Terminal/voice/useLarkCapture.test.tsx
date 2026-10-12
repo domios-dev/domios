@@ -135,7 +135,6 @@ async function main() {
   const mediaCalls: MediaStreamConstraints[] = [];
   const streams: FakeStream[] = [];
   const recorders: FakeRecorder[] = [];
-  const deadlines: Array<{ callback: () => void; ms: number; cancelled: boolean }> = [];
   const uploads: Array<{ blob: Blob; mime: string }> = [];
   const storeCompletions: Array<ReturnType<typeof deferred<{ handle: string; path: string }>>> = [];
   const discardedClips: Array<{ lease: string; handle: string }> = [];
@@ -181,11 +180,6 @@ async function main() {
       return { handle: `capture-clip-${uploads.length}`, path: `C:/temp/voice-${uploads.length}.webm` };
     },
     discardClip: async (leaseId, handle) => { discardedClips.push({ lease: leaseId, handle }); },
-    scheduleDeadline: (callback, ms) => {
-      const deadline = { callback, ms, cancelled: false };
-      deadlines.push(deadline);
-      return () => { deadline.cancelled = true; };
-    },
     now: () => 123456,
     createId: () => `voice-send-${acceptedStatuses.length + invocations.filter((item) => item.command === "local_recording_commit").length + 1}`,
   };
@@ -240,7 +234,7 @@ async function main() {
       onError: () => {},
     });
     latest = useLarkCapture({ tabs, runtime });
-    return React.createElement(LarkCaptureStatus, { state: current().state, onCancel: current().cancel });
+    return React.createElement(LarkCaptureStatus, { state: current().state });
   }
   const host = document.createElement("div");
   document.body.append(host);
@@ -290,7 +284,6 @@ async function main() {
     await emitRecorderStarted(0);
     assert.equal(current().state.phase, "recording");
     assert.match(statusRow(), /recording is active/i);
-    assert.equal(deadlines[0].ms, 120_000);
 
     currentTabs = { ...currentTabs, A: tab("A", "session-A"), B: tab("B", "session-B-focused") };
     await render();
@@ -410,16 +403,16 @@ async function main() {
     await act(async () => releaseCaptureOwnership("manual"));
 
     await act(async () => emit("local-recording-status", recordingStatus(17)));
-    await startCapture(lease("lease-deadline", 17));
+    await startCapture(lease("lease-composer-cancel", 17));
     await emitRecorderStarted(4);
-    await act(async () => deadlines[deadlines.length - 1].callback());
+    await act(async () => composer!.cancelVoice());
     assert.equal(current().state.phase, "stopping");
-    assert.equal(streams[4].track.readyState, "ended", "deadline immediately releases the selected stream");
-    assert.equal(streams[4].track.stopCalls, 1, "deadline releases its microphone exactly once");
+    assert.equal(streams[4].track.readyState, "ended", "composer cancel immediately releases the selected stream");
+    assert.equal(streams[4].track.stopCalls, 1, "composer cancel releases its microphone exactly once");
     await stopRecorder(4);
     assert.equal(current().state.phase, "error");
-    assert.match(alertText(), /two minute/i);
-    assert.equal(invokeCount("local_recording_commit"), 2, "deadline discards and does not retry");
+    assert.match(alertText(), /cancelled/i);
+    assert.equal(invokeCount("local_recording_commit"), 2, "composer cancel discards and does not retry");
 
     await act(async () => emit("local-recording-status", recordingStatus(18)));
     await startCapture(lease("lease-typed-failure", 18));
@@ -443,9 +436,8 @@ async function main() {
     await act(async () => emit("local-recording-status", recordingStatus(19)));
     await startCapture(lease("lease-ui-cancel", 19));
     await emitRecorderStarted(6);
-    const cancel = host.querySelector<HTMLButtonElement>('button[aria-label="Cancel hardware voice recording"]');
-    assert(cancel, "active hardware capture has an accessible cancel control");
-    await act(async () => cancel.click());
+    assert.equal(host.querySelector("button"), null, "hardware status adds no separate recording popup or cancel control");
+    await act(async () => composer!.cancelVoice());
     assert.equal(current().state.phase, "stopping");
     await stopRecorder(6);
     assert.equal(current().state.phase, "error");
