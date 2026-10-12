@@ -37,7 +37,9 @@ pub fn download_and_stage(
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() >= 5 {
                 attempt.error("Frontend redirect limit")
-            } else if manifest::validate_url(attempt.url().as_str(), allow_loopback).is_err() {
+            } else if manifest::validate_redirect_url(attempt.url().as_str(), allow_loopback)
+                .is_err()
+            {
                 attempt.error("Unsafe frontend redirect")
             } else {
                 attempt.follow()
