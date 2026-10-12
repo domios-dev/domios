@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, type ClipboardEvent, type KeyboardEvent, type MutableRefObject, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MutableRefObject, type RefObject } from "react";
 import { DOMIOS_TEXT_MIME, type AttachmentKind } from "@codeterm/chat-core";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { contextFileName, type ContextCapsule } from "./composerInsertion";
+import { useComposerUploads } from "./useComposerUploads";
 import { storeBlob } from "./voice/audio";
 import {
   absorbAttachmentTags,
@@ -30,7 +31,7 @@ export interface InlineAttachment {
   detail?: string;
 }
 
-export type InlineAttachmentSink = (items: InlineAttachment[]) => void;
+export type InlineAttachmentSink = ((items: InlineAttachment[]) => void) & { upload?: (blob: Blob, name: string) => Promise<string | null | undefined> };
 
 /** Replaces a textarea range through the editing command so native undo keeps the step; falls back where the command is missing. */
 export function replaceTextareaRange(el: HTMLTextAreaElement, start: number, end: number, text: string) {
@@ -66,7 +67,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
   onError: (message: string) => void;
 }) {
   const [raw, setRaw] = usePersistentDraft(`tab-session-chat-capsules:${tabId}`);
-  const registry = useMemo(() => decodeCapsuleRegistry(raw), [raw]);
+  const [registry, setRegistry] = useState(() => decodeCapsuleRegistry(raw));
   const registryRef = useRef<CapsuleRegistry>(registry);
   registryRef.current = registry;
   const onErrorRef = useRef(onError);
@@ -75,10 +76,23 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
   const commit = useCallback((next: CapsuleRegistry) => {
     if (next === registryRef.current) return;
     registryRef.current = next;
+    setRegistry(next);
     setRaw(encodeCapsuleRegistry(next));
   }, [setRaw]);
 
-  const clear = useCallback(() => commit(EMPTY_CAPSULES), [commit]);
+  useEffect(() => {
+    if (raw !== encodeCapsuleRegistry(registryRef.current)) {
+      const next = decodeCapsuleRegistry(raw);
+      registryRef.current = next;
+      setRegistry(next);
+    }
+  }, [raw]);
+
+  const uploads = useComposerUploads({
+    registry: () => registryRef.current, commit,
+    insert: (capsule) => { const el = textareaRef.current; if (el) insertWithPadding(el, capsuleToken(capsule.label)); },
+  });
+  const clear = () => { uploads.clear(); commit(EMPTY_CAPSULES); };
 
   const insert = useCallback<InlineAttachmentSink>((items) => {
     const el = textareaRef.current;
@@ -88,11 +102,13 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     insertWithPadding(el, added.text);
   }, [commit, textareaRef]);
 
+  const sink = useMemo(() => Object.assign(insert, { upload: uploads.add }), [insert, uploads.add]);
+
   useEffect(() => {
     if (!sinkRef) return;
-    sinkRef.current = insert;
-    return () => { if (sinkRef.current === insert) sinkRef.current = null; };
-  }, [insert, sinkRef]);
+    sinkRef.current = sink;
+    return () => { if (sinkRef.current === sink) sinkRef.current = null; };
+  }, [sink, sinkRef]);
 
   /** Context capsules land inline at the caret, or at the end when the composer is not focused. */
   const insertContext = useCallback(async (requests: ContextCapsule[]) => {
@@ -208,5 +224,5 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     return absorbed.text;
   }, [commit]);
 
-  return { registry, registryRef, clear, insert, insertContext, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable };
+  return { registry, registryRef, clear, insert, insertContext, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable, uploads };
 }

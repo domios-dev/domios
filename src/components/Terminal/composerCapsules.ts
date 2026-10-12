@@ -4,6 +4,7 @@ export interface ComposerCapsule {
   label: string;
   kind: AttachmentKind;
   path: string;
+  uploadId?: number;
 }
 
 /** Capsules a draft may reference, keyed by label; entries outlive their token so undo can bring one back. */
@@ -119,7 +120,7 @@ function samePath(a: string, b: string): boolean {
 
 /** Registers a capsule for a path; the same path in one draft keeps its label. */
 export function addCapsule(registry: CapsuleRegistry, request: CapsuleRequest): { registry: CapsuleRegistry; capsule: ComposerCapsule } {
-  const existing = Object.values(registry).find((capsule) => capsule.kind === request.kind && samePath(capsule.path, request.path));
+  const existing = Object.values(registry).find((capsule) => capsule.uploadId === undefined && capsule.kind === request.kind && samePath(capsule.path, request.path));
   if (existing) return { registry, capsule: existing };
   const preferred = request.label ? cleanLabel(request.label) : "";
   const label = preferred && !registry[preferred]
@@ -175,7 +176,7 @@ export function capsulesInDraft(text: string, registry: CapsuleRegistry): Compos
 }
 
 export function capsuleMarker(capsule: ComposerCapsule): string {
-  return formatAttachmentMarker(capsule.path, capsule.kind, capsule.label);
+  return capsule.uploadId === undefined ? formatAttachmentMarker(capsule.path, capsule.kind, capsule.label) : capsule.label;
 }
 
 /** The text an agent receives: every capsule becomes its tag with an absolute path; an unknown token keeps its label. */
@@ -252,7 +253,8 @@ export function capsuleArrowTarget(text: string, position: number, direction: "l
 }
 
 export function encodeCapsuleRegistry(registry: CapsuleRegistry): string {
-  return Object.keys(registry).length ? JSON.stringify(Object.values(registry)) : "";
+  const stored = Object.values(registry).filter((capsule) => capsule.uploadId === undefined);
+  return stored.length ? JSON.stringify(stored) : "";
 }
 
 export function decodeCapsuleRegistry(raw: string): CapsuleRegistry {
