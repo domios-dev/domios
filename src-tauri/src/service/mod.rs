@@ -160,6 +160,7 @@ pub(crate) mod tab_stop;
 pub(crate) mod turn_resume;
 mod utility_tabs;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
+pub(crate) mod blocking;
 pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;

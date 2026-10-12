@@ -191,7 +191,10 @@ pub async fn workers_report(
     let tab_id = info.tab_id.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        if let Err(e) = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded) {
+        if let Err(e) = svc
+            .close_tab_with_reason_async(&tab_id, TabCloseReason::AgentRunEnded)
+            .await
+        {
             log::warn!("[graph-workers] auto-close Tab {}: {}", tab_id, e);
         }
     });
@@ -228,7 +231,11 @@ pub async fn workers_kill(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    cancel_worker(&state.svc, &id)
+    let svc = state.svc.clone();
+    let worker_id = id.clone();
+    crate::service::blocking::run(move || Ok(cancel_worker(&svc, &worker_id)))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worker not found: {}", id)))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

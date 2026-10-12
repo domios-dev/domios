@@ -1014,7 +1014,7 @@ pub async fn task_respawn(
     let created = match created {
         Ok(created) => created,
         Err(error) => {
-            if let Err(close_error) = state.svc.close_tab(&spawn.tab_id) {
+            if let Err(close_error) = state.svc.close_tab_async(&spawn.tab_id).await {
                 return Err(text_err(
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     format!(

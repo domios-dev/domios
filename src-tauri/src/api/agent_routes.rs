@@ -422,10 +422,13 @@ pub(crate) async fn verify_spawn_delivery(
         )
     });
     if let Err(message) = delivery {
-        let _ = state.svc.close_tab_with_reason(
-            tab_id,
-            crate::multiplexer::types::TabCloseReason::SpawnRollback,
-        );
+        let _ = state
+            .svc
+            .close_tab_with_reason_async(
+                tab_id,
+                crate::multiplexer::types::TabCloseReason::SpawnRollback,
+            )
+            .await;
         return Err(SpawnRejection::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "delivery_failed",
