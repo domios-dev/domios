@@ -1,3 +1,4 @@
+import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 // Run: npx tsx src/components/Sidebar/TabItem.restoreFailure.test.tsx
 
 import { act } from "react";
@@ -17,6 +18,15 @@ Object.defineProperty(globalThis, "navigator", { value: window.navigator, config
 Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
 Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
 Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
+Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
+configureDaemonFixture();
+globalThis.fetch = async (input) => {
+  const path = new URL(String(input)).pathname;
+  if (path === "/api/plugins/tab-menu") return Response.json({ items: [], receiverTargets: {} });
+  if (path === "/api/events/stream") return new Response(new ReadableStream({ start() {} }));
+  throw new Error(`Unexpected sidebar request: ${path}`);
+};
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 async function main() {

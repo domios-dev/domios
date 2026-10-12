@@ -1,3 +1,5 @@
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -6,6 +8,11 @@ import { AutomationGraphView } from "./AutomationGraphView";
 import { attachment, fixtureGraph, FixtureTransport } from "./fixtures.testdata";
 import { typedGraph, watchIdentity } from "./blueprintModel.testdata";
 import type { AutomationGraph } from "./types";
+
+configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, path: string) => {
+  assert.equal(path, "/api/automation/node-files");
+  return [] as T;
+}));
 
 const window = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "HTMLElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "navigator"]) {

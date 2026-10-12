@@ -1,3 +1,4 @@
+import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 // Run: npx tsx src/components/Canvas/planView/PlanDetailOverlay.test.tsx
 
 import { act, type ReactElement } from "react";
@@ -29,6 +30,7 @@ function setupDom() {
 }
 
 setupDom();
+configureDaemonFixture();
 
 const API: ApiConfig = {
   enabled: true,
