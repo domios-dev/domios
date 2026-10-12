@@ -3,7 +3,7 @@
 set -euo pipefail
 
 REPO="${RELEASE_REPO:-rollacode/codeterm}"
-REQUIRED_LABELS=(codeterm-builder windows-build linux-build)
+REQUIRED_LABELS=(codeterm-builder windows-build windows-x64-build linux-build)
 
 runners=$(gh api "repos/$REPO/actions/runners" --paginate \
     --jq '.runners[] | "\(.status)\t\(.name)\t\([.labels[].name] | join(","))"')

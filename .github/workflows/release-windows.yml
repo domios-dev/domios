@@ -47,7 +47,9 @@ jobs:
   build:
     name: build (${{ matrix.target }})
     if: ${{ vars.RELEASE_WINDOWS_ENABLED != 'false' }}
-    runs-on: [self-hosted, windows-build]
+    # x64 builds on BLACKSTAR and arm64 on ROG in parallel. If BLACKSTAR is unavailable, set the
+    # repository variable RELEASE_WINDOWS_X64_LABEL=windows-build and both build on ROG again.
+    runs-on: [self-hosted, "${{ matrix.runner_label }}"]
     strategy:
       fail-fast: false
       matrix:
@@ -57,11 +59,13 @@ jobs:
             vsarch: x64
             sdkarch: x64
             label: x64
+            runner_label: ${{ vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build' }}
           - target: aarch64-pc-windows-msvc
             platform_key: windows-aarch64
             vsarch: x64_arm64
             sdkarch: arm64
             label: arm64
+            runner_label: windows-build
     env:
       TARGET: ${{ matrix.target }}
       # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
