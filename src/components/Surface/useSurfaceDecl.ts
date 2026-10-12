@@ -1,3 +1,4 @@
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "../../lib/bridge";
 import { daemonFetch, type DaemonApiConfig } from "../../lib/webApi";
@@ -37,7 +38,7 @@ function usePluginsGeneration(): number | null {
   return generation;
 }
 
-export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: string, surfaceId: string, refreshGeneration = 0): SurfaceDeclLookup {
+export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: string, surfaceId: string, refreshGeneration = 0, peerId?: string | null): SurfaceDeclLookup {
   const [lookup, setLookup] = useState<SurfaceDeclLookup>(LOADING);
   const pluginsGeneration = usePluginsGeneration();
   const identity = useRef<string | null>(null);
@@ -48,7 +49,7 @@ export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: strin
   useEffect(() => {
     if (pluginsGeneration === null) return;
     const controller = new AbortController();
-    const key = JSON.stringify([host, port, token, pluginId, surfaceId]);
+    const key = JSON.stringify([host, port, token, pluginId, surfaceId, peerId]);
     if (identity.current !== key) {
       identity.current = key;
       setLookup(LOADING);
@@ -58,7 +59,10 @@ export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: strin
       setLookup((previous) => nextSurfaceDeclLookup(previous, next));
     };
     const load = () => {
-      daemonFetch({ host, port, token }, "/api/surfaces", { signal: controller.signal })
+      const request = peerId === undefined
+        ? daemonFetch({ host, port, token }, "/api/surfaces", { signal: controller.signal })
+        : daemonTransportForPeer(peerId ?? undefined).request!("/api/surfaces", { signal: controller.signal });
+      request
         .then(async (response) => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const declared = parseDeclaredSurfaces(await response.json());
@@ -71,7 +75,7 @@ export function useSurfaceDecl(api: DaemonApiConfig | undefined, pluginId: strin
     return () => {
       controller.abort();
     };
-  }, [host, port, token, pluginId, surfaceId, pluginsGeneration, refreshGeneration]);
+  }, [host, port, token, pluginId, surfaceId, pluginsGeneration, refreshGeneration, peerId]);
 
   return lookup;
 }

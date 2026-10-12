@@ -26,6 +26,11 @@ assert.equal(
 );
 assert.equal(surfaceCallUrl("https://host", "t1"), "https://host/api/surfaces/t1/call");
 
+const relayedStream = new URL(surfaceStreamUrl("https://local", "88a2dfa7", { w: 640, h: 480, dpr: 2 }, "eight"));
+assert.equal(relayedStream.pathname, "/api/mesh/relay-stream");
+assert.equal(relayedStream.searchParams.get("peer"), "eight");
+assert.equal(relayedStream.searchParams.get("path"), "/api/surfaces/88a2dfa7/stream?w=640&h=480&dpr=2");
+
 const state = { targetId: "target-1", owner: "Jev", title: "Login", url: "https://a.test/", activity: "typing", needsHuman: "none", profile: "clean", profiles: ["Work", 3] };
 assert.deepEqual(surfaceStreamEvent({ event: "state", data: JSON.stringify(state) }), {
   type: "state",

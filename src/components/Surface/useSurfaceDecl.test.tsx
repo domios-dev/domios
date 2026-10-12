@@ -9,8 +9,10 @@ vi.mock("../../lib/bridge", () => ({
     return Promise.resolve(() => listeners.delete(event));
   }),
 }));
+vi.mock("../../lib/daemonBootstrap", () => ({ daemonTransportForPeer: vi.fn() }));
 vi.mock("../../lib/webApi", () => ({ daemonFetch: vi.fn() }));
 
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { listen } from "../../lib/bridge";
 import { daemonFetch } from "../../lib/webApi";
 import { nextSurfaceDeclLookup, useSurfaceDecl } from "./useSurfaceDecl";
@@ -25,8 +27,8 @@ const fetchMock = vi.mocked(daemonFetch);
 let root: Root | null = null;
 let latest: SurfaceDeclLookup = { status: "loading" };
 
-function Probe({ generation = 0 }: { generation?: number }) {
-  latest = useSurfaceDecl({ host: "127.0.0.1", port: 7686, token: "t" }, "browser", "browser", generation);
+function Probe({ generation = 0, peerId }: { generation?: number; peerId?: string | null }) {
+  latest = useSurfaceDecl({ host: "127.0.0.1", port: 7686, token: "t" }, "browser", "browser", generation, peerId);
   return null;
 }
 
@@ -47,6 +49,20 @@ afterEach(async () => {
 });
 
 describe("useSurfaceDecl", () => {
+  it("reads the registry from the surface's owning daemon", async () => {
+    const request = vi.fn().mockResolvedValue(json([browserRow]));
+    vi.mocked(daemonTransportForPeer).mockReturnValue({ request } as unknown as ReturnType<typeof daemonTransportForPeer>);
+    root = createRoot(document.createElement("div"));
+    await act(async () => root!.render(<Probe peerId="eight" />));
+    expect(daemonTransportForPeer).toHaveBeenLastCalledWith("eight");
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(latest.status === "ready" && latest.declared?.runtime).toBe("browser");
+    await act(async () => root!.render(<Probe peerId={null} />));
+    expect(daemonTransportForPeer).toHaveBeenLastCalledWith(undefined);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("waits for the contribution subscription before taking its initial snapshot", async () => {
     let subscribed!: (unlisten: () => void) => void;
     vi.mocked(listen).mockImplementationOnce(() => new Promise((resolve) => { subscribed = resolve; }));
