@@ -7,16 +7,16 @@ pub(crate) async fn glance_render(
     plugin_id: &str,
     action: Option<&str>,
     ctx: Value,
-) -> Result<Value, String> {
-    let provider = registry
-        .get(plugin_id)
-        .ok_or_else(|| format!("no glance provider for plugin '{plugin_id}'"))?;
+) -> Result<Option<codeterm_plugin::view::GlanceView>, String> {
+    let Some(provider) = registry.get(plugin_id) else {
+        return Ok(None);
+    };
     let view = match action {
         Some(a) => provider.action(a, ctx).await,
         None => provider.render(ctx).await,
     }
     .map_err(|e| e.to_string())?;
-    serde_json::to_value(view).map_err(|e| e.to_string())
+    Ok(Some(view))
 }
 
 /// Shared by the Tauri command and the web-mirror REST route.
@@ -147,6 +147,68 @@ mod tests {
     use crate::secrets::mock::MockStore;
     use crate::secrets::{SaveRequest, SecretStore, SecretString};
     use crate::view_host::{ViewError, ViewProvider, ViewRegistry};
+
+    #[tokio::test]
+    async fn plugin_glance_without_provider_returns_http_200_null() {
+        use axum::response::IntoResponse;
+
+        let registry = crate::glance::GlanceRegistry::new();
+        for action in [None, Some("refresh")] {
+            let view = super::glance_render(&registry, "provider-less", action, Value::Null)
+                .await
+                .expect("optional capability is absent");
+            assert!(view.is_none());
+            let response = axum::Json(view).into_response();
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap();
+            assert_eq!(&body[..], b"null");
+        }
+    }
+
+    struct StubGlance {
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::glance::GlanceProvider for StubGlance {
+        fn id(&self) -> &str {
+            "fixture"
+        }
+
+        async fn render(
+            &self,
+            _ctx: Value,
+        ) -> Result<codeterm_plugin::view::GlanceView, crate::glance::GlanceError> {
+            if self.fail {
+                return Err(crate::glance::GlanceError::Render("fixture-failure".into()));
+            }
+            Ok(codeterm_plugin::view::GlanceView {
+                title: Some("fixture-title".into()),
+                nodes: vec![],
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn plugin_glance_preserves_provider_views_and_failures() {
+        let registry = crate::glance::GlanceRegistry::new();
+        registry.register("ready", Arc::new(StubGlance { fail: false }));
+        registry.register("failed", Arc::new(StubGlance { fail: true }));
+        for action in [None, Some("refresh")] {
+            let view = super::glance_render(&registry, "ready", action, Value::Null)
+                .await
+                .unwrap()
+                .expect("provider view remains present");
+            assert_eq!(view.title.as_deref(), Some("fixture-title"));
+            assert!(view.nodes.is_empty());
+            let error = super::glance_render(&registry, "failed", action, Value::Null)
+                .await
+                .expect_err("provider failures remain errors");
+            assert_eq!(error, "glance render failed: fixture-failure");
+        }
+    }
 
     const TOKEN: &str = "pebble-runtime-token";
     const BASE_URL: &str = "http://runtime-host:7685";
