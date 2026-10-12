@@ -167,3 +167,13 @@ describe("tab command HTTP contract", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("provider restart transport", () => {
+  it("carries the requested provider in the atomic restart body", async () => {
+    const { calls, transport } = fixture();
+    await transport.restart_agent_tab({ tabId: "main", providerId: "opaque-provider" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/main/agent/restart",
+      body: { fresh: false, provider: "opaque-provider" } });
+  });
+});
