@@ -265,6 +265,20 @@ impl ServiceContext {
             .await
     }
 
+    async fn bind_worker_plan_task_or_rollback_tab_async(
+        &self,
+        params: &SpawnAgentParams,
+        tab_id: &str,
+    ) -> Result<(), String> {
+        let service = self.clone();
+        let params = params.clone();
+        let tab_id = tab_id.to_string();
+        crate::service::blocking::run(move || {
+            service.bind_worker_plan_task_or_rollback_tab(&params, &tab_id)
+        })
+        .await
+    }
+
     pub(crate) async fn spawn_agent_with_state_change(
         &self,
         mut params: SpawnAgentParams,
@@ -341,7 +355,8 @@ impl ServiceContext {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
+            self.bind_worker_plan_task_or_rollback_tab_async(&bind_params, &handle.tab_id)
+                .await?;
             if let Some(reservation) = worker_persona_reservation {
                 reservation.commit_to_tab(&handle.tab_id);
             }
@@ -806,7 +821,8 @@ impl ServiceContext {
             bg_task.as_deref(),
             launch_session_id.as_deref(),
         )?;
-        self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id)?;
+        self.bind_worker_plan_task_or_rollback_tab_async(&params, &tab_id)
+            .await?;
         let fallback_spec = spawn_input.fallback_spec(
             fallback_bootstrap.as_deref(),
             bg_task.as_deref(),
