@@ -12,6 +12,7 @@ enum Command {
     Status(oneshot::Sender<Status>),
     Consent(Consent, oneshot::Sender<Result<Status, String>>),
     Event(Event, oneshot::Sender<Result<bool, String>>),
+    Activity(Event, chrono::NaiveDate),
     Identity(Option<String>, oneshot::Sender<Result<(), String>>),
     Flush(oneshot::Sender<Result<(), String>>),
 }
@@ -19,6 +20,7 @@ enum Command {
 #[derive(Clone)]
 pub struct Worker {
     sender: mpsc::SyncSender<Command>,
+    activity: Arc<crate::activity::Activity>,
 }
 
 impl Worker {
@@ -39,12 +41,17 @@ impl Worker {
     }
 
     fn spawn(engine: Engine) -> Result<Self, String> {
+        let activity = Arc::new(crate::activity::Activity::new(
+            engine.state.consent,
+            engine.state.last_active_day,
+        ));
+        let shared_activity = activity.clone();
         let (sender, receiver) = mpsc::sync_channel(64);
         std::thread::Builder::new()
             .name("analytics".into())
-            .spawn(move || run(engine, receiver))
+            .spawn(move || run(engine, receiver, shared_activity))
             .map_err(|_| "analytics worker unavailable")?;
-        Ok(Self { sender })
+        Ok(Self { sender, activity })
     }
 
     fn send(&self, command: Command) -> Result<(), String> {
@@ -70,6 +77,36 @@ impl Worker {
     pub fn record_nowait(&self, event: Event) -> Result<(), String> {
         let (sender, _receiver) = oneshot::channel();
         self.send(Command::Event(event, sender))
+    }
+
+    pub fn set_mesh_machines(&self, machines: usize) {
+        self.activity.set_machines(machines);
+    }
+
+    pub fn record_activity_nowait(
+        &self,
+        workspaces: impl FnOnce() -> usize,
+    ) -> Result<bool, String> {
+        self.record_activity_on_day(chrono::Local::now().date_naive(), workspaces)
+    }
+
+    pub(crate) fn record_activity_on_day(
+        &self,
+        day: chrono::NaiveDate,
+        workspaces: impl FnOnce() -> usize,
+    ) -> Result<bool, String> {
+        if !self.activity.claim(day) {
+            return Ok(false);
+        }
+        let event = Event::ActiveDay {
+            mesh_machines: u32::try_from(self.activity.machines()).unwrap_or(u32::MAX),
+            workspaces: u32::try_from(workspaces()).unwrap_or(u32::MAX),
+        };
+        if let Err(error) = self.send(Command::Activity(event, day)) {
+            self.activity.release();
+            return Err(error);
+        }
+        Ok(true)
     }
 
     pub async fn record(&self, event: Event) -> Result<bool, String> {
@@ -109,7 +146,11 @@ fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
-fn run(mut engine: Engine, receiver: mpsc::Receiver<Command>) {
+fn run(
+    mut engine: Engine,
+    receiver: mpsc::Receiver<Command>,
+    activity: Arc<crate::activity::Activity>,
+) {
     let mut suspended = false;
     let mut account_uid = None;
     loop {
@@ -147,23 +188,55 @@ fn run(mut engine: Engine, receiver: mpsc::Receiver<Command>) {
                     }
                     Ok(engine.status())
                 });
+                activity.publish(engine.state.consent, engine.state.last_active_day);
                 let _ = reply.send(result);
             }
             Some(Command::Event(event, reply)) => {
                 suspended = false;
-                let _ = reply.send(engine.enqueue(event, now_ms()));
+                let result = engine.enqueue(event, now_ms());
+                activity.publish(engine.state.consent, engine.state.last_active_day);
+                let _ = reply.send(result);
+            }
+            Some(Command::Activity(event, day)) => {
+                suspended = false;
+                let _ = engine.enqueue_on_day(event, now_ms(), day);
+                activity.publish(engine.state.consent, engine.state.last_active_day);
+                activity.release();
             }
             Some(Command::Identity(uid, reply)) => {
                 suspended = false;
                 account_uid = uid.clone();
-                let _ = reply.send(engine.identity(uid));
+                let result = engine.identity(uid);
+                activity.publish(engine.state.consent, engine.state.last_active_day);
+                let _ = reply.send(result);
             }
             Some(Command::Flush(reply)) => {
-                let _ = reply.send(engine.deliver(now_ms()));
+                let result = engine.deliver(now_ms());
+                activity.publish(engine.state.consent, engine.state.last_active_day);
+                let _ = reply.send(result);
             }
             None => {
                 suspended = engine.deliver(now_ms()).is_err();
+                activity.publish(engine.state.consent, engine.state.last_active_day);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activity_full_queue_releases_claim_for_next_activity() {
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        let worker = Worker {
+            sender,
+            activity: Arc::new(crate::activity::Activity::new(Consent::On, None)),
+        };
+        worker.record_nowait(Event::AnalyticsOptedIn {}).unwrap();
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        assert!(worker.record_activity_on_day(day, || 1).is_err());
+        assert!(worker.activity.claim(day));
     }
 }

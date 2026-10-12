@@ -1,3 +1,4 @@
+mod activity;
 mod catalog;
 mod config;
 mod engine;

@@ -187,14 +187,27 @@ async fn product_mesh_peer_paired_requires_successful_save_and_deduplicates() {
         "private-name".into(),
         7686,
     );
-    mesh.bind_pairing_observer(mesh_observer(sink.worker.clone()));
+    let machines = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let cache = machines.clone();
+    mesh.bind_pairing_observers(
+        mesh_observer(sink.worker.clone()),
+        Arc::new(move |count| {
+            cache.store(count, std::sync::atomic::Ordering::Relaxed);
+        }),
+    );
+    assert_eq!(machines.load(std::sync::atomic::Ordering::Relaxed), 1);
     let peer: PairedPeer = serde_json::from_value(serde_json::json!({"instance_id":"private-peer","instance_name":"private-name","addresses":[],"api_port":7685,"public_key":"private-key","paired_at":"private-date","last_seen":null,"version":null})).unwrap();
     mesh.complete_explicit_pairing(peer);
     assert!(mesh.save_with(|| Err("disk failed".into())).is_err());
     assert!(sink.events().await.is_empty());
+    assert_eq!(machines.load(std::sync::atomic::Ordering::Relaxed), 1);
     mesh.save().unwrap();
     mesh.save().unwrap();
     assert_eq!(mesh.paired_peers.len(), 1);
+    assert_eq!(machines.load(std::sync::atomic::Ordering::Relaxed), 2);
+    mesh.paired_peers.clear();
+    mesh.save().unwrap();
+    assert_eq!(machines.load(std::sync::atomic::Ordering::Relaxed), 1);
     assert_eq!(
         sink.events().await,
         vec![Event::MeshPeerPaired { mesh_machines: 2 }]

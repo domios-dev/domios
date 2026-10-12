@@ -312,9 +312,19 @@ impl MeshManager {
     }
 
     pub fn bind_pairing_observer(&mut self, observer: Arc<dyn Fn(usize) + Send + Sync>) {
+        self.bind_pairing_observers(observer, Arc::new(|_| {}));
+    }
+
+    pub fn bind_pairing_observers(
+        &mut self,
+        observer: Arc<dyn Fn(usize) + Send + Sync>,
+        counts: Arc<dyn Fn(usize) + Send + Sync>,
+    ) {
+        counts(self.machine_count());
         self.pairing_observer = Some(pairing_observer::PairingObserver::new(
             self.paired_peers.keys().cloned().collect(),
             observer,
+            counts,
         ));
     }
 
