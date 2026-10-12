@@ -1098,6 +1098,7 @@ dependencies = [
  "chrono-tz",
  "clipboard-win",
  "codeterm-account",
+ "codeterm-agent-detect",
  "codeterm-analytics",
  "codeterm-billing",
  "codeterm-bridge",
@@ -1197,6 +1198,22 @@ dependencies = [
  "tokio",
  "url",
  "zeroize",
+]
+
+[[package]]
+name = "codeterm-agent-detect"
+version = "0.1.0"
+dependencies = [
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "vt100",
 ]
 
 [[package]]
