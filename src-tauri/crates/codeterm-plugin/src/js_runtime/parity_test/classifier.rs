@@ -125,8 +125,25 @@ fn codex_followup_menu_round_trips_native_prompt_and_response_shapes() {
     );
 
     let echoed = fixture("codex", "echoed-numbered-message.txt");
-    assert!(provider.parse_prompt(&echoed).is_some());
+    assert!(provider.parse_prompt(&echoed).is_none());
     let result = classify(&provider, "codex", echoed);
     assert_eq!(result.state, TabState::Working);
     assert!(result.action.is_none());
+}
+
+#[test]
+fn codex_routed_numbered_list_is_not_an_interactive_prompt() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = load_js("codex");
+    let routed = fixture("codex", "routed-numbered-list.txt");
+    let picker = fixture("codex", "reasoning-submenu-0.160.0.txt");
+    for screen in [routed.clone(), format!("{picker}\n{routed}")] {
+        assert!(provider.parse_prompt(&screen).is_none());
+        let result = classify(&provider, "codex", screen);
+        assert_eq!(result.state, TabState::Working);
+        assert!(result.action.is_none());
+    }
+    assert!(provider.parse_prompt(&picker).is_some());
 }

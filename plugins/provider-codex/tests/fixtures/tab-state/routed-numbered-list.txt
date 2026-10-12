@@ -1,0 +1,10 @@
+› <domios from="tab" label="Euler" tab="5ab04269" model="opus">
+  Please carry out these steps:
+  1. Inspect the affected module.
+  2. Add focused regression coverage.
+  3. Report the result to the owning tab.
+  </domios>
+• Inspecting the assigned task.
+
+›
+  GPT-6.1-Sol · /workspace · 78% context left
