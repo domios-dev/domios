@@ -248,11 +248,16 @@ async fn frontend_bundle_routes_contract_verified_activation_assets_health_and_r
 }
 
 #[test]
-fn bundled_frontend_version_matches_the_release_contract() {
+fn release_contract_never_falls_behind_the_bundled_frontend() {
+    // A frontend-only release advances the contract alone; an app release syncs both.
     let contract: serde_json::Value =
         serde_json::from_str(include_str!("../../../../frontend-release-contract.json")).unwrap();
-    assert_eq!(
-        contract["version"].as_str(),
-        Some(crate::frontend_bundle_api_version::BUNDLED_FRONTEND_VERSION)
+    let contract = semver::Version::parse(contract["version"].as_str().unwrap()).unwrap();
+    let bundled =
+        semver::Version::parse(crate::frontend_bundle_api_version::BUNDLED_FRONTEND_VERSION)
+            .unwrap();
+    assert!(
+        contract >= bundled,
+        "contract {contract} is behind bundled {bundled}"
     );
 }
