@@ -55,7 +55,7 @@ fn force_kill_closes_descendant_output_and_reaps_leader() {
                 }
                 Ok(_) => {}
                 Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
-                Err(error) => panic!("PTY read failed: {error}"),
+                Err(error) => panic!("PTY read failed: {}", error),
             }
         }
         eof_tx.send(()).unwrap();

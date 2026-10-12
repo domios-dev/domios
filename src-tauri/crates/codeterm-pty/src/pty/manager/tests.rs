@@ -438,9 +438,18 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
     use std::io::Read;
     use std::sync::mpsc;
 
+    // The runner user's shell startup files (update prompts, wizards) must not consume the typed exit.
+    let quiet_home = tempfile::tempdir().unwrap();
+    let env = HashMap::from([
+        (
+            "ZDOTDIR".to_string(),
+            quiet_home.path().display().to_string(),
+        ),
+        ("ENV".to_string(), String::new()),
+    ]);
     let mut manager = PtyManager::new();
     let (pty_id, session) = manager
-        .spawn(None, None, 80, 24, HashMap::new())
+        .spawn(None, None, 80, 24, env)
         .expect("spawn default shell");
     let mut reader = session
         .reader
