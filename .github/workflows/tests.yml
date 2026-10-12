@@ -149,6 +149,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - run: node scripts/check-plugin.mjs '${{ matrix.plugin.id }}'
 
@@ -525,6 +526,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -573,6 +575,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -599,6 +602,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -625,6 +629,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -654,6 +659,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -683,6 +689,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
