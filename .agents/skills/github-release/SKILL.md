@@ -49,19 +49,22 @@ If a plugin check reports "Vitest failed to access its internal state", its Vite
 
 ## Application release
 
-**Default since 1.14.4 = release from the green release PR head, then merge it to master.** The
-pipeline: bump version on `release/X.Y.Z` → merge `origin/master` into it → sync versions → open the
-release PR → PR CI green (the only test gate) → tag the PR head `release-X.Y.Z` → the self-hosted
-runners build signed+notarized macOS (arm64+x86_64) + Linux (arm64+x86_64) + Windows (arm64+x86_64),
-upload to the private repo, mirror artifacts + signed `latest.json` to the public repo → verify the
-published release → merge the release PR into master with a merge commit. Each platform is built
-once: there is no separate bundle dry run, because the tag run is the bundle build. The manual
-per-platform steps further down are the fallback for when the runners are down.
+**Default since 1.14.4 = one tag on the ready release branch head; that run is both the test gate
+and the bundle build.** The pipeline: bump version on `release/X.Y.Z` → merge `origin/master` into it
+→ sync versions → open the release PR → when the branch is ready, tag its head `release-X.Y.Z`. The
+release run then starts, in parallel, the full test matrix (`tests.yml` through `workflow_call`, every
+platform, scope forced to full) and every platform bundle build: macOS arm64+x86_64 and Linux arm64 on
+eight, Linux x86_64 on ubunta, Windows x64 on BLACKSTAR and arm64 on ROG. `release-manifest` needs
+the tests and every build; only when all are green does it stamp the release tag, publish both
+GitHub releases and upload the signed `latest.json`. A red test or build publishes nothing: fix it
+with a new commit on the branch, move the unpublished tag to the new head, and push it again. After
+publication and verification, merge the release PR into master with a merge commit. PR CI on the
+release PR is advisory; there is no separate bundle dry run. The manual per-platform steps further
+down are the fallback for when the runners are down.
 
-**Golden rule: release only a commit that is the head of a green, mergeable release PR whose branch
-already contains `origin/master`.** Merging it afterwards then cannot change the tree, so master
-receives exactly the released commit as an ancestor. If master moves before the merge, merge master
-into the release branch only after publication, never re-tag a published release.
+**Golden rule: tag only a release branch head that already contains `origin/master`,** so the merge
+after publication cannot change the released tree and master receives exactly the released commit
+as an ancestor. Never move a tag whose release is published.
 
 ---
 
@@ -132,7 +135,7 @@ curl -s http://127.0.0.1:7686/api/health
 Start dev from this main checkout and visually inspect the release UI before opening the release
 PR. Do not cut a release from a lane worktree or a stale dev build.
 
-**To cut a release — on the green release PR head, push only the trigger tag:**
+**To cut a release — on the ready release branch head, push only the trigger tag:**
 
 ```bash
 PR=<release-pr-number>
@@ -140,11 +143,13 @@ git fetch origin --prune
 HEAD_SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid)
 test "$(git rev-parse "origin/release/$VER")" = "$HEAD_SHA"
 git merge-base --is-ancestor origin/master "$HEAD_SHA"          # branch already contains master
-gh pr view "$PR" --json mergeable,statusCheckRollup \
-  -q '.mergeable, ([.statusCheckRollup[] | select(.conclusion != "SUCCESS" and .conclusion != "SKIPPED" and .conclusion != "NEUTRAL")] | length)'
-# must print MERGEABLE and 0
+gh pr view "$PR" --json mergeable -q .mergeable                 # must print MERGEABLE
 git tag "release-$VER" "$HEAD_SHA" && git push origin "release-$VER"
 ```
+
+If the run goes red, nothing is published. Fix on the branch, then move the unpublished tag:
+`git tag -f "release-$VER" <new-head> && git push --force origin "release-$VER"`, only while
+`gh release view "v$VER" --json isDraft -q .isDraft` prints `true` or the release does not exist.
 
 Do **not** create or push a separate `vX.Y.Z` tag for the normal path. The workflows build from
 the `release-X.Y.Z` tag and publish/stamp/map the GitHub releases as `vX.Y.Z` themselves.
@@ -313,9 +318,10 @@ git diff --check               # whitespace; not owned by preflight
 test/lint matrix, so a green `check` says nothing about whether CI will pass.
 Commit both lockfiles before preflight, so the gate runs on the SHA you will merge.
 
-**No separate bundle dry run.** The tag run on the green PR head is the bundle build: a bundle
-failure (1.12.1 failed in all three bundle jobs) now fails before anything is published or merged,
-and the fix lands on the release branch as a new commit with a new patch tag. Use the dry run
+**No separate bundle dry run.** The tag run is both the full test matrix and the bundle build: a
+bundle or test failure (1.12.1 failed in all three bundle jobs) now fails before anything is
+published or merged, and the fix lands on the release branch as a new commit under the moved,
+still-unpublished tag. Use the dry run
 (`gh workflow run release.yml --ref "release/$VER" -f tag="release/$VER" -f dry_run=true -f mirror=false`)
 only to debug a bundle job, never as a routine step, because it builds every platform a second time.
 
@@ -341,13 +347,12 @@ merged, explicitly recorded as superseded, or deferred before the master PR.
 Patch-equivalent stale refs are not ancestry proof and must not be silently
 deleted without that superseded record.
 
-### 2. Tag the green release PR head, publish, then merge to master
+### 2. Tag the release branch head, publish, then merge to master
 
-**Always via PR on GitHub** — never direct-push `release/X.Y.Z` to master. The release PR's CI is
-the only test gate; the tag starts the single bundle build.
+**Always via PR on GitHub** — never direct-push `release/X.Y.Z` to master. The tag run is the test
+gate and the bundle build; PR CI is advisory and need not finish first.
 
 ```bash
-gh pr checks <pr-number> --watch
 bash scripts/check-release-runners.sh                                  # every release runner online
 git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"  # must be empty
 # Then run the tag commands from "To cut a release" above: they prove the PR head is green,
