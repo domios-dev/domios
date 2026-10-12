@@ -24,6 +24,12 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/imageMetadata.ts
+var IMAGE_GEOMETRY = /^\[Image: original \d+x\d+, displayed at \d+x\d+\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
+function isImageDisplayMetadata(entry) {
+  return entry.type === "user" && entry.isMeta === true && typeof entry.message?.content === "string" && IMAGE_GEOMETRY.test(entry.message.content.trim());
+}
+
 // plugins/provider-shared/updateCheck.ts
 function record(raw) {
   if (typeof raw !== "string") return null;
@@ -2717,6 +2723,7 @@ var plugin = {
         }
         continue;
       }
+      if (isImageDisplayMetadata(v)) continue;
       const t = v && v.type;
       let ts = null;
       if (typeof v.timestamp === "string") {
