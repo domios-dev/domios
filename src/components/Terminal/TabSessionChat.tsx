@@ -90,10 +90,6 @@ import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
 import { streamingMessageId } from "./streamingMessage";
 import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
-import { HelperMomentCard } from "./HelperMomentCard";
-import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
-import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
-import { isGeneralAgent } from "../../lib/roleKind";
 
 interface Props {
   inputStatus?: ReactNode;
@@ -362,11 +358,9 @@ export function TabSessionChat({
   const choiceHost = useTabChoiceHost(tabId, { messages: allMessages, addOptimistic, followSentMessage, observeChatSendStatus });
   const chatBlockHost = useMemo(() => ({ ...tabBlockHost, choice: choiceHost }), [tabBlockHost, choiceHost]);
 
-  const generalAgent = isGeneralAgent(tab);
-  const willSendMessage = useCallback((text: string) => {
+  const willSendMessage = useCallback(() => {
     followSentMessage();
-    if (generalAgent) void helperMoments.observe({ kind: "user-message", text, at: Date.now() });
-  }, [followSentMessage, generalAgent]);
+  }, [followSentMessage]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
@@ -744,10 +738,6 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  const helperAnswer = useMemo(
-    () => (generalAgent ? latestAnswerText(renderedEnrichedMessages.map(({ msg }) => msg)) : null),
-    [generalAgent, renderedEnrichedMessages],
-  );
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -906,7 +896,6 @@ export function TabSessionChat({
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
-        {isActive && generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}
