@@ -128,3 +128,53 @@ Transport-level failures rejected by Google/Firebase's request parser before a
 function is invoked (invalid JSON syntax or platform body-size limits) use the
 platform error response; the generic JSON error applies to requests reaching the
 redemption handler. Callers must send a JSON object as specified above.
+
+## Billing setup and verification
+
+Billing callables accept a verified Firebase session. `createCheckoutSession`
+accepts only `{plan: "pro"}` (or another configured plan key), returns `{url}`,
+and derives the account from the token. `createPortalSession` returns the portal
+URL for that account's stored customer. Both functions reject missing authentication.
+
+Set `BILLING_PROVIDER=stripe` and `BILLING_MODE=test` or `live` in the deployed
+function parameters. Store `{plans: {pro: "price_..."}, hostedOrigin:
+"https://domios-d9357.web.app"}` in `test_billing/config` for test mode and
+`billing/config` for live mode. The HTTPS origin is server configuration; checkout
+always uses `/billing/success` and `/billing/cancel`, and the portal returns to
+`/billing`. Those Hosting pages must exist before the owner performs a live journey.
+
+Provision Secret Manager values `BILLING_TEST_API_KEY`, `BILLING_LIVE_API_KEY`,
+`BILLING_TEST_ENDPOINT_SECRET`, and `BILLING_LIVE_ENDPOINT_SECRET` through
+`firebase functions:secrets:set NAME`. Configure the corresponding signed webhook
+endpoint at `/stripeWebhook` for the selected mode. Register checkout completion,
+subscription created/updated/deleted, invoice paid/payment failed, charge refunded
+and charge dispute created. The adapter targets Stripe SDK 23's API shape
+(`2026-09-30.endive`); configure the endpoint to that version. Customers, events,
+and entitlements use `test_` collections in test mode; live collections have no
+prefix. A mismatched event or API key is refused. Firestore rules deny client
+access to all billing collections.
+
+Customer creation uses a stable per-account, per-mode provider idempotency key.
+Only verified webhooks modify entitlements. Unknown customers return an error
+without recording the event, allowing a provider retry. The event record and
+entitlement share a transaction. Older event timestamps cannot replace newer
+state; revocation stays in effect until an audited admin repair (owned separately).
+Refunds and disputes revoke the customer's entitlement, including partial refunds.
+
+`npm --prefix cloud/functions test -- billing` builds once and runs the billing
+selectors with Auth, Firestore and Functions emulators. Java 21+ is required.
+The runner creates disposable fixture secrets only when `.secret.local` is absent
+and removes its file afterward; existing developer secrets are left intact.
+Fixtures under `test/fixtures/stripe/` are representative SDK event snapshots,
+not captured customer data. Tests sign them with `generateTestHeaderString` and
+prove persisted lifecycle state, replay no-ops, mode separation, HTTP signature
+refusal, token verification and allow-list refusal. Provider API calls are faked.
+After account setup, the owner still needs one real test checkout and an observed
+active `test_entitlements/{uid}` document before production deployment.
+
+Local development needs no payment account: the existing local accounts server
+serves `/billing` with Activate Pro and Cancel plan controls. Each action travels
+through the local signed-event adapter and updates the in-memory entitlement.
+`/api/createCheckoutSession`, `/api/createPortalSession`, and `/api/entitlement`
+use the existing local session. Local/fake providers are test-only, and deployment
+refuses them outside the emulator. Restarting local development clears billing data.

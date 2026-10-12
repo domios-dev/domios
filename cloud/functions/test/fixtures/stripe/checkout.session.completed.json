@@ -1,0 +1,21 @@
+{
+  "id": "evt_checkout_session_completed",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1900000002,
+  "livemode": false,
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_fixture",
+      "object": "checkout.session",
+      "customer": "cus_fixture",
+      "subscription": "sub_fixture",
+      "payment_status": "paid",
+      "client_reference_id": "victim",
+      "metadata": {
+        "uid": "victim"
+      }
+    }
+  }
+}
