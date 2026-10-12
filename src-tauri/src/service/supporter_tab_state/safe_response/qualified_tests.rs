@@ -45,10 +45,12 @@ struct CapturedScreens {
     truncated: bool,
     adjacent_equal: bool,
     previous_screen: Option<String>,
+    initial_stage_observed: bool,
 }
 impl CapturedScreens {
     fn record(&mut self, screen: &str) {
         self.count += 1;
+        self.initial_stage_observed |= screen.contains(INITIAL_MARKER);
         self.adjacent_equal |= self.previous_screen.as_deref() == Some(screen);
         self.previous_screen = Some(screen.to_string());
         if self.snapshots.len() == MAX_MODEL_SCREENS {
@@ -69,6 +71,7 @@ impl std::fmt::Debug for CapturedScreens {
         formatter
             .debug_struct("CapturedScreens")
             .field("count", &self.count)
+            .field("initial_stage_observed", &self.initial_stage_observed)
             .field("snapshots", &self.snapshots)
             .field("question_sets", &self.question_sets)
             .field("truncated", &self.truncated)
@@ -367,6 +370,7 @@ fn verify_qualified_journey(
             && reader.reader_finished
             && current_identity
             && model_screen_captured
+            && captures.initial_stage_observed
             && completion_matches,
         "stage, model, identity, and host completion evidence was incomplete"
     );
@@ -486,6 +490,7 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
     let script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\
 [Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
 [Console]::Write([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'initial.txt'), [System.Text.Encoding]::UTF8))\n\
+[Console]::Write([char]27 + ']7;' + [Uri]::new($PSScriptRoot).AbsoluteUri + [char]7)\n\
 [Console]::WriteLine('SAFE_TEST_INITIAL_MODAL')\n\
 $first = [Console]::ReadKey($true)\n\
 [Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
