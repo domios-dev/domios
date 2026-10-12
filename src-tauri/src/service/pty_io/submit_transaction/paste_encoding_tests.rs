@@ -39,6 +39,37 @@ fn xterm_paste_keeps_single_line_chat_input_in_one_paste_frame() {
 }
 
 #[test]
+fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
+    for body in ["opaque body", "opaque first line\nopaque second line"] {
+        let frame = codeterm_types::domios::DomiosFrame {
+            opening_tag: codeterm_types::domios::build_opening_tag(&[
+                ("from", "tab"),
+                ("tab", "abc12345"),
+            ]),
+            body: body.into(),
+            suffix: " [opaque hint]".into(),
+        };
+        let message = frame.to_message();
+        let encoded = encode_paste_frame(
+            &message,
+            None,
+            None,
+            Some(true),
+            PasteEncodingCapability::MultilineTui,
+        );
+        assert_eq!(
+            encoded,
+            format!("{BRACKETED_PASTE_START}{message}{BRACKETED_PASTE_END}").as_bytes()
+        );
+        let semantics = model_submit_semantics(&[encoded, b"\r".to_vec()]);
+        assert_eq!(semantics.payload_writes, 1);
+        assert_eq!(semantics.bracketed_insertions, 1);
+        assert_eq!(semantics.submit_boundaries, 1);
+        assert_eq!(semantics.provider_rows, vec![message]);
+    }
+}
+
+#[test]
 fn routed_tags_are_typed_around_a_bracketed_body_only() {
     let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
     let body = "line one\nline two";
