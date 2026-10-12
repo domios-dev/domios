@@ -123,7 +123,7 @@ async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
     let count = reapers.len();
     let mut set = JoinSet::new();
     for reaper in reapers {
-        set.spawn_blocking(move || reaper.wait_bounded(PTY_REAP_TIMEOUT));
+        set.spawn_blocking(move || reaper.wait_for_termination_bounded(PTY_REAP_TIMEOUT));
     }
     let mut failures = Vec::new();
     while let Some(result) = set.join_next().await {
@@ -133,6 +133,10 @@ async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
             Err(error) => failures.push(format!("PTY reap task failed: {error}")),
         }
     }
+    pty_shutdown_disposition(count, failures)
+}
+
+fn pty_shutdown_disposition(count: usize, failures: Vec<String>) -> Result<usize, String> {
     if failures.is_empty() {
         Ok(count)
     } else {
@@ -212,6 +216,20 @@ async fn persist_desk_off_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminated_ptys_do_not_abort_update() {
+        assert_eq!(pty_shutdown_disposition(3, Vec::new()), Ok(3));
+    }
+
+    #[test]
+    fn any_pty_termination_failure_aborts_update() {
+        let failures = vec!["live process tree".into(), "termination task failed".into()];
+        assert_eq!(
+            pty_shutdown_disposition(3, failures),
+            Err("live process tree; termination task failed".into())
+        );
+    }
 
     #[test]
     fn update_teardown_reports_every_owned_pty_tab() {
