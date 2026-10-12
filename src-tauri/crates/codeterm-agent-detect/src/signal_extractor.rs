@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::attributed_screen::AttributedScreen;
+use codeterm_pty::attributed_screen::AttributedScreen;
 
 /// Half-open row band `[top, bottom)`. Geometry-relative, used for both the
 /// region model and the changed-row bounding box.

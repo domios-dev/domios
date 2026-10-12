@@ -1,7 +1,7 @@
 pub mod attributed_screen;
 pub mod chat_types;
-pub mod classify_input;
-pub mod command_detection;
+pub use codeterm_agent_detect::classify_input;
+pub use codeterm_agent_detect::command_detection;
 pub mod detector;
 pub(crate) mod interactive_prompt;
 pub mod keys;
@@ -12,12 +12,12 @@ pub mod live_state;
 pub mod model_binary_watch;
 pub use codeterm_plugin::model_catalog;
 pub mod models;
-pub mod motion_decoder;
-pub mod native_prompt;
-pub mod offline_state_classifier;
-pub mod permission_request;
+pub use codeterm_agent_detect::motion_decoder;
+pub use codeterm_agent_detect::native_prompt;
+pub use codeterm_agent_detect::offline_state_classifier;
+pub use codeterm_agent_detect::permission_request;
 pub mod plugin_registrar;
-pub mod prompt;
+pub use codeterm_agent_detect::prompt;
 pub mod provider;
 pub(crate) mod provider_identity;
 #[cfg(test)]
@@ -27,9 +27,9 @@ pub mod registry;
 pub mod registry_search;
 pub mod reports;
 pub mod run_watcher;
-pub mod semantic_marker;
+pub use codeterm_agent_detect::semantic_marker;
 pub mod shell_command_state;
-pub mod signal_extractor;
+pub use codeterm_agent_detect::signal_extractor;
 pub mod state_reactor;
 pub mod state_verdict;
 #[allow(dead_code)]
@@ -40,3 +40,7 @@ pub mod tab_state;
 #[cfg(test)]
 pub mod test_provider;
 pub mod usage_parser;
+
+#[cfg(test)]
+#[path = "classify_input_wiring_tests.rs"]
+mod classify_input_wiring_tests;

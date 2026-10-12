@@ -1,6 +1,6 @@
 use super::*;
-use crate::agent::offline_state_classifier::{prompt_line_cursor_ready, WAIT_MS};
-use crate::agent::provider::ComposerCursorPosition;
+use crate::offline_state_classifier::{prompt_line_cursor_ready, WAIT_MS};
+use codeterm_plugin::provider::ComposerCursorPosition;
 
 fn input(screen: &[String], visible: bool, row: u16) -> ClassifyInput<'_> {
     let last = screen

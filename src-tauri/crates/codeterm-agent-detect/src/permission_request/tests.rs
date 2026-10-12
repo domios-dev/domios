@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::prompt::{PromptDecision, PromptDetector};
+use crate::prompt::{PromptDecision, PromptDetector};
 use serde_json::json;
 
 fn vendor_body() -> serde_json::Value {

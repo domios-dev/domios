@@ -1,6 +1,6 @@
-use crate::agent::signal_extractor::StreamSignals;
-use crate::multiplexer::types::{PendingPrompt, PromptOption};
+use crate::signal_extractor::StreamSignals;
 use codeterm_pty::attributed_screen::{detect_picker, AttributedColor, AttributedScreen};
+use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 pub use codeterm_pty::native_prompt::NativePromptInput;
 
@@ -132,7 +132,7 @@ fn row_has_selection_attribute(screen: &AttributedScreen, row: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::signal_extractor::{SignalExtractor, VolatileHint};
+    use crate::signal_extractor::{SignalExtractor, VolatileHint};
     use serde_json::Value;
     use std::path::{Path, PathBuf};
 
@@ -493,7 +493,7 @@ mod tests {
     fn snapshots_root() -> PathBuf {
         PathBuf::from(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../testbench/snapshots"
+            "/../../../testbench/snapshots"
         ))
     }
 }

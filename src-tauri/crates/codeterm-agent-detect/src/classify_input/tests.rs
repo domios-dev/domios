@@ -1,21 +1,31 @@
 use std::cell::Cell;
 
 use super::*;
-use crate::agent::offline_state_classifier::{
+use crate::offline_state_classifier::{
     classify_state, composer_cursor_ready, StatusElapsedProgress, TabVerdict, TimelineState,
 };
-use crate::agent::registry::AgentRegistry;
-use crate::agent::signal_extractor::{SignalExtractor, StreamSignals};
-use crate::agent::test_provider::MockProvider;
+use crate::signal_extractor::{SignalExtractor, StreamSignals};
 
 const ROWS: u16 = 10;
 const COLS: u16 = 40;
 const PROVIDER: &str = "mock";
 
-fn registry_with(rows: u16) -> AgentRegistry {
-    let registry = AgentRegistry::new();
-    registry.register_provider(Box::new(MockProvider::with_status_bar_rows(PROVIDER, rows)));
-    registry
+struct FixtureRows(u16);
+
+impl StatusBarRowsSource for FixtureRows {
+    fn status_bar_rows_for(&self, agent_type: &str) -> Option<u16> {
+        (agent_type == PROVIDER).then_some(self.0)
+    }
+}
+
+impl FixtureRows {
+    fn try_status_bar_rows(&self, agent_type: &str) -> Option<u16> {
+        self.status_bar_rows_for(agent_type)
+    }
+}
+
+fn registry_with(rows: u16) -> FixtureRows {
+    FixtureRows(rows)
 }
 
 /// Offline replay shape: everything read off the replayed extractor.
