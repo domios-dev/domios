@@ -360,7 +360,12 @@ jobs:
 
       - name: Rust lib tests
         shell: pwsh
-        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib
+        run: 'cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib -- --skip startup::rest_api::tests::'
+
+      # Same rebind isolation as Unix (#620): on Windows a concurrent child launch also holds the listener.
+      - name: Rust REST listener lifecycle tests
+        shell: pwsh
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
 
       - name: CLI tests
         shell: pwsh
