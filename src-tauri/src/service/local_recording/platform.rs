@@ -298,7 +298,9 @@ fn macos_teardown(mut native: macos::MacTeardown) -> SubscriptionTeardown {
     })
 }
 
+// Other platforms compile the portable descriptor logic for tests only; native-only items stay unused.
 #[cfg(any(target_os = "macos", test))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[path = "platform/macos.rs"]
 pub(crate) mod macos;
 #[cfg(windows)]
