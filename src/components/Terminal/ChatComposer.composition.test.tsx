@@ -380,6 +380,33 @@ test("ASCII negative control: plain typing is byte-identical through the same ha
   }
 });
 
+test("iPad software Return clears the draft and creates one optimistic message", async () => {
+  const originalPlatform = Object.getOwnPropertyDescriptor(navigator, "platform");
+  const originalTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
+  Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+  Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, value: 5 });
+  const h = await renderComposer("tab-ipad-return");
+  try {
+    setDomValue(h.el, "explain this");
+    await fire(h.el, inputEvent({ isComposing: false }));
+    const shifted = keydownEvent({ key: "Enter", keyCode: 13, shiftKey: true });
+    await fire(h.el, shifted);
+    assert(!shifted.defaultPrevented && h.sendCalls.length === 0, "Shift+Return permits a newline");
+    const enter = keydownEvent({ key: "Enter", keyCode: 13 });
+    await fire(h.el, enter);
+    await flush();
+    assert(enter.defaultPrevented, "Return prevents the browser newline");
+    assert((h.sendCalls.length as number) === 1 && h.sendCalls[0].text === "explain this", "Return submits the exact draft once");
+    assert(h.el.value === "" && h.optimisticCount() === 1, "the composer clears and shows one optimistic message");
+  } finally {
+    await teardown(h);
+    if (originalPlatform) Object.defineProperty(navigator, "platform", originalPlatform);
+    else Reflect.deleteProperty(navigator, "platform");
+    if (originalTouchPoints) Object.defineProperty(navigator, "maxTouchPoints", originalTouchPoints);
+    else Reflect.deleteProperty(navigator, "maxTouchPoints");
+  }
+});
+
 test("Shift+Enter after a composition inserts a newline, never sends", async () => {
   const h = await renderComposer("tab-shift-enter");
   try {

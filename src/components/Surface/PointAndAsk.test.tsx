@@ -87,6 +87,31 @@ suite.test("Enter sends, Shift+Enter and an empty Enter do not", async () => {
   await unmount();
 });
 
+suite.test("iPad software Return sends once and preserves Shift and composition input", async () => {
+  const originalPlatform = Object.getOwnPropertyDescriptor(navigator, "platform");
+  const originalTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
+  Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+  Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, value: 5 });
+  const { editor, key, type, sends, unmount } = await renderAsk();
+  try {
+    await type("explain this");
+    await key({ code: "", key: "Enter", shiftKey: true });
+    await key({ code: "", key: "Enter", isComposing: true });
+    await act(async () => { editor.dispatchEvent(new Event("compositionstart", { bubbles: true })); });
+    await key({ code: "", key: "Enter" });
+    assert.deepEqual(sends, []);
+    await act(async () => { editor.dispatchEvent(new Event("compositionend", { bubbles: true })); });
+    await key({ code: "Unidentified", key: "Enter" });
+    assert.deepEqual(sends, ["explain this"]);
+  } finally {
+    await unmount();
+    if (originalPlatform) Object.defineProperty(navigator, "platform", originalPlatform);
+    else Reflect.deleteProperty(navigator, "platform");
+    if (originalTouchPoints) Object.defineProperty(navigator, "maxTouchPoints", originalTouchPoints);
+    else Reflect.deleteProperty(navigator, "maxTouchPoints");
+  }
+});
+
 suite.test("Escape cancels even with a draft", async () => {
   const { key, type, cancels, unmount } = await renderAsk();
   await type("draft");

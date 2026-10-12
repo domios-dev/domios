@@ -7,21 +7,15 @@ pub fn configured(config: &Config) -> Result<Arc<dyn IdentityProvider>> {
     match config.provider.as_str() {
         "local" => Ok(Arc::new(local::Local)),
         "fake" => Ok(Arc::new(fake::Fake::default())),
-        "firebase" => Ok(Arc::new(firebase::Firebase::new(
+        "firebase" if firebase::available(config) => Ok(Arc::new(firebase::Firebase::new(
             config.clone(),
             Arc::new(firebase::HttpTransport::new()?),
         ))),
+        "firebase" => Ok(Arc::new(local::Local)),
         _ => Err(Error::Configuration),
     }
 }
 
 pub fn default_config() -> Config {
-    let (signin_url, redeem_url, api_key) = firebase::defaults();
-    Config {
-        provider: "local".into(),
-        signin_url,
-        redeem_url,
-        api_key,
-        login_timeout_secs: 180,
-    }
+    firebase::default_config()
 }

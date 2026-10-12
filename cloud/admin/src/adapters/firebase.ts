@@ -1,7 +1,7 @@
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth, type Auth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import { AdminError, type Audit, type AuthProvider, type Backend, type Claims, type DataProvider, type Entitlement, type User } from "../domain/model";
+import { AdminError, type AccountAudit, type Audit, type AuthProvider, type Backend, type Claims, type DataProvider, type Entitlement, type User, type AuditEntry } from "../domain/model";
 
 function user(record: UserRecord): User {
   return {
@@ -25,10 +25,24 @@ export class FirebaseAuthProvider implements AuthProvider {
       throw error;
     }
   }
+  async listUsers(pageSize: number, pageToken?: string) {
+    const page = await this.auth.listUsers(pageSize, pageToken);
+    return { users: page.users.map(user), nextPageToken: page.pageToken };
+  }
+  async setDisabled(uid: string, disabled: boolean) { await this.auth.updateUser(uid, { disabled }); }
+  revokeTokens(uid: string) { return this.auth.revokeRefreshTokens(uid); }
   setClaims(uid: string, claims: Claims) { return this.auth.setCustomUserClaims(uid, claims); }
 }
 export class FirebaseDataProvider implements DataProvider {
   constructor(private auth: Auth, private db: Firestore) {}
+  async profiles(uids: string[]) {
+    if (!uids.length) return [];
+    const profiles = await this.db.getAll(...uids.map(uid => this.db.doc(`users/${uid}`)));
+    return profiles.filter(profile => profile.exists).map(profile => profile.id);
+  }
+  async appendAccountAudit(entry: AccountAudit) {
+    await this.db.doc(`adminAudit/${entry.id}`).create(entry);
+  }
   async findUser(query: string) {
     try { return user(await this.auth.getUser(query)); }
     catch (error) {
@@ -54,7 +68,7 @@ export class FirebaseDataProvider implements DataProvider {
       user: record, entitlement: (entitlement.data() as Entitlement | undefined) ?? null,
       customerUrl: typeof customerId === "string" && /^cus_[a-zA-Z0-9]+$/.test(customerId)
         ? `https://dashboard.stripe.com/customers/${customerId}` : null,
-      audit: audit.docs.map(doc => doc.data() as Audit).sort((a, b) => b.created_at - a.created_at),
+      audit: audit.docs.map(doc => doc.data() as AuditEntry).sort((a, b) => b.created_at - a.created_at),
     };
   }
   async change(uid: string, build: (before: Entitlement | null) => Audit) {

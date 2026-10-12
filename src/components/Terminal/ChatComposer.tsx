@@ -16,7 +16,7 @@ import { ComposerContextMeter } from "./ComposerContextMeter";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-import { classifyComposerDevice, composerEnterIntent } from "./composerKeyboard";
+import { classifyComposerDevice, composerEnterIntent, isComposerEnterKey } from "./composerKeyboard";
 import {
   createDelayedMessage,
   deleteDelayedMessage,
@@ -595,10 +595,10 @@ function ChatComposerImpl({
                 recordComposerIgnoredKey(e.key);
                 if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
                 const enterIntent = composerEnterIntent(composerDevice, {
-                  code: e.code || e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey,
+                  code: e.code, key: e.key, keyCode: e.nativeEvent.keyCode, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey,
                   metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing,
                 });
-                if ((e.code || e.key) === "Enter" || e.code === "NumpadEnter") {
+                if (isComposerEnterKey(e)) {
                   if (enterIntent !== "submit") {
                     if (enterIntent === "newline") setPickerOpen(false);
                     return;
