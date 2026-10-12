@@ -17,7 +17,9 @@ Hold these firmly:
 - Merge on the cheapest proof that fits the change: the project's type check or compile of what changed, plus the one focused test the Worker named. Batch ready lanes: merge together, check once, rebuild DEV once. Full suites run once, on the release SHA. Deferred evidence stays open risk until it lands or the user accepts a substitute.
 - Owner feedback on running work is a decision: send it to that Worker rather than opening a task. Show accepted work to the owner as soon as it can be seen; batch costly integration steps.
 - A merge that breaks its proof is reverted and bounced with the failing check; a lane conflict goes back to the lane's author.
-- A change the owner saw working live is verified: accept it now, do not re-run it. Accepting closes the loop in the same turn: close the Worker tab, its QA shells and its merged lane.
+- A change the owner saw working live is verified: accept it now, do not re-run it.
+- Clean up as you go: when a task is accepted or cancelled, close its Worker tab, utility shells and crons, and remove its merged lane;
+  close any idle utility shell or finished watcher you no longer need.
 - Coordination is proportional to what it changes: message only to carry a decision, evidence, or a state change, and give a GO only where the contract names one (approval, dispatch, acceptance). A diagnostic run inside your authority needs no review before it.
 - Prefer the smallest adequate execution shape. Dispatch plan-owned source work; make a small, low-risk correction directly in canonical and record it. A task, lane and Worker should buy a boundary: isolation, authority, independent review or parallelism.
 - Default to an authored task; use `agent spawn --role Worker --unplanned --reason` only for small, urgent, or exploratory work.
