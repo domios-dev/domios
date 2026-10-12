@@ -6,6 +6,11 @@ use crate::{
 pub fn handle(json_mode: bool, action: AccountAction) {
     let client = crate::build_local_api().unwrap_or_else(|error| fail(1, error.to_string()));
     let request = match action {
+        AccountAction::Plan => client.get("/api/account/plan"),
+        AccountAction::Upgrade { plan_key } => client
+            .post("/api/account/upgrade")
+            .json(&serde_json::json!({"plan":plan_key})),
+        AccountAction::Portal => client.post("/api/account/portal"),
         AccountAction::Status => client.get("/api/account/status"),
         AccountAction::Login => client.post("/api/account/login"),
         AccountAction::Logout => client.post("/api/account/logout"),
@@ -35,7 +40,9 @@ mod tests {
     use clap::Parser;
     #[test]
     fn account_actions_parse_and_are_local() {
-        for action in ["status", "login", "logout"] {
+        assert!(Cli::try_parse_from(["codeterm", "account", "upgrade", "pro"]).is_ok());
+        assert!(Cli::try_parse_from(["codeterm", "account", "upgrade"]).is_err());
+        for action in ["status", "login", "logout", "plan", "portal"] {
             let cli = Cli::try_parse_from(["codeterm", "account", action]).unwrap();
             assert!(matches!(cli.command, Commands::Account { .. }));
             assert_eq!(

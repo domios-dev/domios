@@ -605,6 +605,7 @@ pub fn run() {
 
             let svc_ctx = ServiceContext {
                 account: Arc::new(tokio::sync::OnceCell::new()),
+                billing: Arc::new(tokio::sync::OnceCell::new()),
                 analytics: Arc::new(tokio::sync::OnceCell::new()),
                 agent_pad_data_dir: crate::paths::data_dir(),
                 launch_task_files: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
@@ -772,7 +773,7 @@ pub fn run() {
             {
                 let service = service_state.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = service.account().await;
+                    let _ = service.refresh_billing(codeterm_billing::RefreshEvent::SignIn).await;
                 });
             }
             startup::model_catalogue::reconcile_defaults(&service_state);

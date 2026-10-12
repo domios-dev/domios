@@ -58,9 +58,23 @@ Sign in using the system browser and wait for completion
 
 Sign out and delete the saved credential
 
+#### `codeterm account plan`
+
+Show the current plan and stale-cache marker
+
+#### `codeterm account portal`
+
+Open subscription management in the system browser
+
 #### `codeterm account status`
 
 Show the signed-in identity
+
+#### `codeterm account upgrade`
+
+Open an upgrade checkout in the system browser
+
+- `<plan_key>`
 
 #### `codeterm agent`
 
