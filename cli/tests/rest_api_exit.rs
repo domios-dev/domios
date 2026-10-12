@@ -5,12 +5,19 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+// macOS clocks tick in microseconds, so parallel tests could mint the same time-based name.
+static NEXT_SOCKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn run_rest_api(verb: &str, json_mode: bool, result: Value) -> std::process::Output {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let socket = format!("codeterm-rest-api-test-{}-{nonce}.sock", std::process::id());
+    let sequence = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let socket = format!(
+        "codeterm-rest-api-test-{}-{nonce}-{sequence}.sock",
+        std::process::id()
+    );
     let listener = ListenerOptions::new()
         .name(socket.clone().to_ns_name::<GenericNamespaced>().unwrap())
         .create_sync()
