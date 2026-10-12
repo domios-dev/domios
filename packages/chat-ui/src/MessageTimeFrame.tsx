@@ -6,13 +6,13 @@ export function MessageTimeFrame({ timestamp, side, children }: { timestamp?: st
   const [focused, setFocused] = useState(false);
   return (
     <div
-      className="ct-chat-message-row w-full min-w-0"
+      className="ct-chat-message-row w-full max-w-4xl min-w-0 mx-auto"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
-      <div className="relative w-full max-w-4xl min-w-0 mx-auto">
+      <div className="relative w-full min-w-0">
         {(hovered || focused) && <MessageTime timestamp={timestamp} side={side} />}
         {children}
       </div>

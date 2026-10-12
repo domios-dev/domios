@@ -1,6 +1,5 @@
-.ct-chat-shell, .ct-chat-surface, .ct-chat-surface > div {
+.ct-chat-shell, .ct-chat-surface {
   min-width: 0;
-  max-width: 100%;
 }
 .ct-chat-surface {
   overflow-x: hidden;
@@ -8,7 +7,6 @@
 }
 :where(.ct-chat-surface) :where(div, pre, blockquote, button, a, figure, details, header) {
   min-width: 0;
-  max-width: 100%;
 }
 .ct-chat-surface :is(.ct-user-bubble, .ct-card__body, .ct-chat-message-row--agent .ct-chat-message-column > div, [data-testid="chat-tool-inline"]) {
   overflow-x: auto;
