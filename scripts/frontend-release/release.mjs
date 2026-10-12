@@ -28,13 +28,17 @@ export async function prepare({ contract, tag, dist, output, dryRun, sourceSha }
   return manifest;
 }
 function githubRemote(repository, output) {
-  const gh = args => execFileSync('gh', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
+  // Asset read-back returns the whole archive on stdout; the 1 MiB default buffer is too small.
+  const gh = args => execFileSync('gh', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, maxBuffer: 256 * 1024 * 1024 });
   const asset = name => path.join(output, name);
   return {
     createDraft: async tag => { gh(['release', 'create', tag, '--repo', repository, '--draft', '--latest=false', '--title', tag, '--notes', 'Independent signed frontend release']); },
     upload: async (tag, name) => { gh(['release', 'upload', tag, asset(name), '--repo', repository]); },
     download: async (tag, name) => {
-      const release = JSON.parse(gh(['api', `repos/${repository}/releases/tags/${tag}`]));
+      // The tags endpoint hides drafts, so the draft is read from the release list.
+      const releases = JSON.parse(gh(['api', `repos/${repository}/releases?per_page=100`]));
+      const release = releases.find(item => item.tag_name === tag);
+      if (!release) throw new Error('Versioned release missing');
       const item = release.assets.find(item => item.name === name);
       if (!item) throw new Error('Versioned upload missing');
       return gh(['api', `repos/${repository}/releases/assets/${item.id}`, '-H', 'Accept: application/octet-stream']);
@@ -68,4 +72,4 @@ async function main() {
   if (manifest.releaseId !== tag || manifest.minApiVersion !== contract.minApiVersion || manifest.maxApiVersion !== contract.maxApiVersion || manifest.url !== createManifest(tag, contract, Buffer.alloc(0)).url) throw new Error('Artifact contract mismatch');
   await publishRelease({ manifest, archive: await readFile(path.join(output, `${tag}.tar.gz`)), signature: await readFile(path.join(output, 'frontend-manifest.json.minisig'), 'utf8'), publicKey: contract.publicKey, fixtureKey: await readFile(path.join(fixtureRoot, 'frontend-test.pub'), 'utf8'), dryRun }, githubRemote(contract.repository, output));
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(() => { console.error('Frontend release failed; no discovery update is authorized. Inspect the failed step and configured frontend identity.'); process.exitCode = 1; });
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(error => { console.error(`Frontend release failed; no discovery update is authorized: ${error.code ?? ''} ${error.message}`.trim()); process.exitCode = 1; });

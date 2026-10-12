@@ -82,7 +82,8 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 5
     outputs:
-      run: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.host == 'true' }}
+      frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
+      rust: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.rust == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     steps:
       - uses: actions/checkout@v5
@@ -149,6 +150,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - run: node scripts/check-plugin.mjs '${{ matrix.plugin.id }}'
 
@@ -158,7 +160,7 @@ jobs:
   fmt:
     name: fmt
     needs: changed
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 10
     steps:
@@ -181,7 +183,7 @@ jobs:
     name: rust (linux)
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 40
     steps:
@@ -256,7 +258,7 @@ jobs:
     name: rust (macos)
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 40
     steps:
@@ -299,7 +301,7 @@ jobs:
     name: rust (windows)
     # A seconds-long fmt failure stops the heavy builds before they start.
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
     runs-on: [self-hosted, windows-ci]
     timeout-minutes: 50
@@ -395,7 +397,7 @@ jobs:
   clippy-linux:
     name: clippy (linux)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 30
     steps:
@@ -427,7 +429,7 @@ jobs:
   cli-linux:
     name: cli (linux)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 20
     steps:
@@ -451,7 +453,7 @@ jobs:
   cli-macos:
     name: cli (macos)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 20
     steps:
@@ -467,7 +469,7 @@ jobs:
   cli-windows:
     name: cli (windows)
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
     runs-on: [self-hosted, windows-ci]
     timeout-minutes: 25
@@ -509,7 +511,7 @@ jobs:
   ts-static:
     name: ts static checks
     needs: changed
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
@@ -525,6 +527,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -549,7 +552,7 @@ jobs:
   ts-types:
     name: ts generated types
     needs: changed
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 30
     steps:
@@ -573,6 +576,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -583,7 +587,7 @@ jobs:
   ts-unit:
     name: ts unit
     needs: changed
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
@@ -599,6 +603,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -609,7 +614,7 @@ jobs:
   ts-vitest:
     name: ts vitest
     needs: changed
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
@@ -625,6 +630,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -638,7 +644,7 @@ jobs:
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
@@ -654,6 +660,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
@@ -667,7 +674,7 @@ jobs:
   release-contracts:
     name: release contract tests
     needs: changed
-    if: ${{ needs.changed.outputs.run == 'true' }}
+    if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
@@ -683,6 +690,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
 
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
