@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { FakeBackend, seedState, type State } from "./fake";
-import { AdminError, type Audit, type Entitlement, type Identity } from "../domain/model";
+import { AdminError, type AccountAudit, type Claims, type Audit, type Entitlement, type Identity } from "../domain/model";
 
 export class LocalBackend extends FakeBackend {
   constructor(private path: string, private secret: string, private password: string) {
@@ -27,6 +27,8 @@ export class LocalBackend extends FakeBackend {
     if (value.kind !== kind || typeof value.uid !== "string" || typeof value.expiresAt !== "number" ||
       value.expiresAt <= Date.now() / 1000 || typeof value.authenticatedAt !== "number" ||
       !value.claims || typeof value.claims !== "object") throw new Error("Invalid token");
+    this.load();
+    if (value.authenticatedAt <= (this.state.revokedBefore?.[value.uid] ?? 0)) throw new Error("Revoked token");
     return value as Identity;
   }
   async login(email: string, password: string) {
@@ -46,19 +48,24 @@ export class LocalBackend extends FakeBackend {
   }
   async getUser(uid: string) { this.load(); return super.getUser(uid); }
   async findUser(query: string) { this.load(); return super.findUser(query); }
+  async listUsers(pageSize: number, pageToken?: string) { this.load(); return super.listUsers(pageSize, pageToken); }
+  async profiles(uids: string[]) { this.load(); return super.profiles(uids); }
+  async setClaims(uid: string, claims: Claims) { this.load(); await super.setClaims(uid, claims); this.save(); }
+  async setDisabled(uid: string, disabled: boolean) { await super.setDisabled(uid, disabled); this.save(); }
+  async revokeTokens(uid: string) { await super.revokeTokens(uid); this.save(); }
+  async appendAccountAudit(entry: AccountAudit) { this.load(); await super.appendAccountAudit(entry); this.save(); }
+  private save() {
+    const temporary = `${this.path}.${randomUUID()}.tmp`;
+    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
+    writeFileSync(temporary, JSON.stringify(this.state), { mode: 0o600 });
+    renameSync(temporary, this.path);
+  }
   async change(uid: string, build: (before: Entitlement | null) => Audit) {
     this.load();
     const before = this.state;
     const entry = this.apply(uid, build);
-    const temporary = `${this.path}.${randomUUID()}.tmp`;
-    try {
-      mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
-      writeFileSync(temporary, JSON.stringify(this.state), { mode: 0o600 });
-      renameSync(temporary, this.path);
-    } catch (error) {
-      this.state = before;
-      throw error;
-    }
+    try { this.save(); }
+    catch (error) { this.state = before; throw error; }
     return entry;
   }
 }
