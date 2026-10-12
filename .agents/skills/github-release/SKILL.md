@@ -21,7 +21,7 @@ Provider and capability plugin versions are independent of the app. For a plugin
 
 Use a Blueprint to watch publication and stop it at completion or failure. Do not poll CI or bypass required checks.
 
-If plugin-only CI stays queued at `tree is new`, check the required runner label and runner status. An offline Mac runner once blocked all platform-independent plugin checks. Scope detection, metadata, plugin verification, issue metadata and plugin publication use `linux-build`; restore that runner rather than waiting for Mac or running an app release.
+If plugin-only CI stays queued at `tree is new`, check the required runner label and runner status. An offline Mac runner once blocked all platform-independent plugin checks. Issue metadata, release preparation and plugin publication use `linux-build` (ubunta only); plugin metadata, plugin verification, the Linux Rust job and the PR lint workflows use the `linux-ci` pool (ubunta and BLACKSTAR-wsl-ci). Restore the missing runner rather than waiting for Mac or running an app release.
 
 If a plugin check reports "Vitest failed to access its internal state", its Vitest tests were run through a standalone TypeScript runner. `check-plugin.mjs` selects Vitest-owned files from `scripts/vitest-owned-tests.json`, including owned UI tests, and runs only those files through Vitest; standalone tests use tsx.
 
@@ -297,7 +297,7 @@ shares the runners with PR CI, so start it right after the PR checks finish.
 **Iterating on a red release branch.** Reproduce a failing test with the focused
 oracle (`./build.sh test-one ...`, one TS file) and fix it there. Do not re-dispatch
 the whole `tests.yml` matrix to learn whether a single fix worked: every matrix run
-holds the one `linux-build` runner that each lint check and the release also need.
+holds a `linux-ci` runner, and on ubunta also delays the release jobs that need `linux-build`.
 A newer push to the PR cancels the superseded matrix run automatically.
 
 Then start dev from the main checkout and visually confirm the app:
