@@ -40,17 +40,6 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 
 ### Endpoints
 
-#### Account (local callers only)
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| GET | `/api/account/status` | — | Account identity and pending flag |
-| POST | `/api/account/login` | — | Browser sign-in |
-| POST | `/api/account/logout` | — | Clear credentials and cached entitlements |
-| GET | `/api/account/plan` | — | Cached entitlement and stale marker |
-| POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
-| POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
-| POST | `/api/account/portal` | — | Open subscription management in the system browser |
-
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -194,8 +183,8 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-Local analytics: `/api/analytics/{status,consent,event}` (see CONFIG).
+Local analytics: `/api/analytics/{status,consent,event}` (see ACCOUNT).
 
-Account routes: see `API-CLI`.
+Account and plan routes: see `ACCOUNT`.
 
-<!-- revision: 193 -->
+<!-- revision: 194 -->
