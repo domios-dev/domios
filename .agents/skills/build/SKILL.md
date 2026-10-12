@@ -369,8 +369,9 @@ was written is visible rather than silently reclassified.
 An owner that is wedged rather than dead is a different failure and is not
 reapable: see the `release-preflight` FIFO teardown row below.
 
-Use `./build.sh help` as the command index. `test-one <app|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
-hides manifest/package details for focused tests. The `types` and `cli`
+Use `./build.sh help` as the command index. `test-one <app|frontend-bundle|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
+hides manifest/package details for focused tests. `frontend-bundle` (also
+`codeterm-frontend-bundle`) runs the isolated bundle crate through the gateway. The `types` and `cli`
 selectors include all Cargo targets so integration and binary tests are
 reachable; the other selectors retain their existing ownership scopes. Each
 target is its own test binary and prints its own `test result` line, so a

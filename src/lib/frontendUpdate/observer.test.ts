@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const script = readFileSync("src-tauri/src/frontend_bundle/observer.js", "utf8");
+const script = readFileSync("src-tauri/crates/codeterm-frontend-bundle/src/observer.js", "utf8");
 const ticket = { releaseId: "frontend-v1.0.0", generation: 1, token: "health" };
 const context = { apiOrigin: "http://localhost:7686", token: "owner", clientId: "client-a", ticket, attempted: [] as string[], bundled: { index: "/bundled/index.html", minApiVersion: 2, maxApiVersion: 2 } };
 
