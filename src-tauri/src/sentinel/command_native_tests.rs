@@ -96,13 +96,21 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
     let signal = Cancellation::default();
     #[cfg(windows)]
     let signal = fixture.cancellation();
+    let waits = Arc::new(std::sync::Mutex::new(signal.observe_waits()));
     let ready_fixture = fixture.clone();
+    let ready_waits = waits.clone();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    // Windows emits capture waits while pipes connect, before the child exists; the probe
+    // thread drains them here, before drive() can emit a post-readiness wait.
     signal.set_readiness(move || {
         ready_fixture.wait_ready()?;
-        probe::process::Deadlines::start(probe::PROBE_RUNTIME, probe::PROBE_RUNTIME)
-            .map_err(|error| error.to_string())
+        let deadlines =
+            probe::process::Deadlines::start(probe::PROBE_RUNTIME, probe::PROBE_RUNTIME)
+                .map_err(|error| error.to_string())?;
+        let early: Vec<WaitPhase> = ready_waits.lock().unwrap().try_iter().collect();
+        let _ = ready_tx.send(early);
+        Ok(deadlines)
     });
-    let waits = signal.observe_waits();
     let parameters = Parameters {
         command: fixture.command(),
         label: "Controlled child".into(),
@@ -135,6 +143,15 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
     let mut last_native_state = None;
     #[cfg(windows)]
     let mut native_diagnostics = WindowsDiagnostics::default();
+    let Ok(_early) = ready_rx.recv_timeout(probe::test_readiness::SETUP_DEADLINE) else {
+        signal.cancel();
+        panic!("controlled child readiness was not observed before the failure deadline");
+    };
+    #[cfg(windows)]
+    for phase in _early {
+        native_diagnostics.observe(phase);
+    }
+    let waits = waits.lock().unwrap();
     loop {
         let phase = match waits.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(phase) => phase,
