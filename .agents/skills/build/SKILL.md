@@ -69,6 +69,8 @@ Orchestrator's canonical wave batch.
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
 
+The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
@@ -369,7 +371,7 @@ was written is visible rather than silently reclassified.
 An owner that is wedged rather than dead is a different failure and is not
 reapable: see the `release-preflight` FIFO teardown row below.
 
-Use `./build.sh help` as the command index. `test-one <app|frontend-bundle|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
+Use `./build.sh help` as the command index. `test-one <account|app|frontend-bundle|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
 hides manifest/package details for focused tests. `frontend-bundle` (also
 `codeterm-frontend-bundle`) runs the isolated bundle crate through the gateway. The `types` and `cli`
 selectors include all Cargo targets so integration and binary tests are

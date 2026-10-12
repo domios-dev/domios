@@ -86,6 +86,7 @@ const fn pre_socket_unsupported(reason: &'static str) -> Transport {
 
 pub(crate) fn transport_for(command: &Commands) -> Transport {
     match command {
+        Commands::Account { .. } => pre_socket_unsupported("account is local-only; run on the owning machine"),
         Commands::Analytics { .. } => pre_socket_unsupported("analytics is local-only; run on the owning machine"),
         Commands::Trace { .. } => pre_socket_unsupported("trace files are local-only; run on the owning instance"),
         Commands::Identify => socket_rest(),

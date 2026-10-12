@@ -701,6 +701,9 @@ pub fn create_router_with_frontend(
             post(super::analytics_routes::consent),
         )
         .route("/api/analytics/event", post(super::analytics_routes::event))
+        .route("/api/account/status", get(super::account_routes::status))
+        .route("/api/account/login", post(super::account_routes::login))
+        .route("/api/account/logout", post(super::account_routes::logout))
         .route("/api/update/check", get(updater_routes::check_update))
         .route("/api/update/status", get(updater_routes::update_status))
         .route("/api/update/install", post(updater_routes::install_update))

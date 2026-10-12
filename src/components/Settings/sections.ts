@@ -1,5 +1,6 @@
 import {
   Shield,
+  UserRound,
   Sliders,
   Bell,
   Bot,
@@ -13,6 +14,7 @@ import {
 import type { HelpSettingsTarget } from "../../help/types";
 
 export type SectionId =
+  | "account"
   | "privacy"
   | "general"
   | "notifications"
@@ -32,6 +34,7 @@ export interface SettingsSection {
 
 // (secrets lives in the Extensions surface but still needs a breadcrumb icon).
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
+  account: UserRound,
   privacy: Shield,
   general: Sliders,
   notifications: Bell,
@@ -45,6 +48,7 @@ export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
 
 // The curated, user-facing nav list — order is the order shown in the menu and panel.
 export const SETTINGS_SECTIONS: SettingsSection[] = [
+  { id: "account", label: "Account", desc: "Sign in and manage your identity", icon: SECTION_ICONS.account },
   { id: "general", label: "General", desc: "Theme, fonts, messengers, keybindings", icon: SECTION_ICONS.general },
   { id: "notifications", label: "Notifications", desc: "The bell, desktop alerts, sound, and where each level may go", icon: SECTION_ICONS.notifications },
   { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-provider config", icon: SECTION_ICONS.agents },

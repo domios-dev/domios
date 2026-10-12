@@ -59,6 +59,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Plugins, provider CLIs | `plugin list` / `install` / `update`, `agent cli status <provider>` | `docs API-CLI` |
 | Plugin app tabs (surfaces) | `surface list`, `surface open <plugin>:<surface>`, `surface close --tab <ID>`; surfaces take no `send` | `docs SURFACES` |
 | Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
+| Account sign-in and identity | `account login|status|logout` (local machine; hosted sign-in opens the system browser) | `codeterm docs CONFIG` |
 | Updates | `update check`, `update install --auto` | — |
 | Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
 | Services registry | `service --help` | `docs MESH` |

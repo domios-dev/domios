@@ -929,6 +929,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         // Declared non-REST by the transport table, which answered before this
         // match was reached. Listed explicitly so a new variant must choose.
         Commands::Web { .. }
+        | Commands::Account { .. }
         | Commands::Analytics { .. }
         | Commands::Plugin { .. }
         | Commands::ModelProvider { .. }

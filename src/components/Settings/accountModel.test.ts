@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import { accountModel, accountFailure } from "./accountModel";
+assert.deepEqual(accountModel({ identity: null, pending: false }), { kind: "signed_out" });
+assert.deepEqual(accountModel({ identity: null, pending: true }), { kind: "pending" });
+const identity = { uid: "fixture", email: "fixture@example.test", display_name: "Fixture", provider: "fake" };
+assert.deepEqual(accountModel({ identity, pending: false }), { kind: "signed_in", identity });
+assert.deepEqual(accountModel({ identity, pending: true }), { kind: "pending" });
+assert.deepEqual(accountFailure(new Error("fixture failure")), { kind: "error", message: "fixture failure" });
+assert.equal(accountFailure(undefined).kind, "error");
+console.log("6 account model assertions passed");

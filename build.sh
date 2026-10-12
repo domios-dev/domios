@@ -264,7 +264,7 @@ CMD="${1:-dev}"
 run_workspace_lib_tests() {
   local package
   local test_cap_secs="${TEST_CAP_SECS:-3600}"
-  for package in codeterm codeterm-frontend-bundle codeterm-types codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
+  for package in codeterm codeterm-account codeterm-frontend-bundle codeterm-types codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
     TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
@@ -285,6 +285,7 @@ run_nextest_scope() {
     app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     analytics|codeterm-analytics) package="codeterm-analytics"; targets+=(--lib) ;;
+    account|codeterm-account) package="codeterm-account"; targets+=(--lib) ;;
     plan|codeterm-plan) package="codeterm-plan"; targets+=(--lib) ;;
     pty|codeterm-pty) package="codeterm-pty" ;;
     types|codeterm-types) package="codeterm-types"; targets+=(--all-targets) ;;
@@ -1610,7 +1611,7 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <analytics|app|frontend-bundle|plan|pty|pty-fork|types|storage|mem|mesh|plugin|cli> NAME
+  test-one <account|analytics|app|frontend-bundle|plan|pty|pty-fork|types|storage|mem|mesh|plugin|cli> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
@@ -1793,7 +1794,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli}"
+    test_scope="${2:?test-one requires account, analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -1811,6 +1812,7 @@ EOF
         enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
         ;;
+      account) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-account/Cargo.toml -p codeterm-account --lib "$test_filter" ;;
       analytics) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
@@ -1828,7 +1830,7 @@ EOF
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected account, analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
     esac
     ;;
   nextest)
