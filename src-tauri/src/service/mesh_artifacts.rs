@@ -73,7 +73,7 @@ fn ingest_path(method: &str, path: &str) -> Option<String> {
     let bare = path.split('?').next()?;
     let rest = bare.strip_prefix("/api/tabs/")?;
     let (tab, action) = rest.split_once('/')?;
-    if tab.is_empty() || !matches!(action, "send" | "chat-send") {
+    if tab.is_empty() || !matches!(action, "send" | "chat-send" | "delayed-messages") {
         return None;
     }
     Some(format!("/api/tabs/{tab}/attachments"))
@@ -110,7 +110,8 @@ pub(crate) async fn transfer(
     transfer_with(method, path, body, |source, ingest_path| async move {
         let source_path = source.clone();
         let request = tokio::task::spawn_blocking(move || {
-            build_ingest_request(std::path::Path::new(&source_path), AttachmentKind::File)
+            let source_path = crate::commands::html_preview::checked_path(&source_path)?;
+            build_ingest_request(&source_path, AttachmentKind::File)
         })
         .await
         .map_err(|error| error.to_string())??;

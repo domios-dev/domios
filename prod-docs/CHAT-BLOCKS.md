@@ -134,8 +134,8 @@ Write `@ds-image ABSOLUTE_PATH`, `@ds-page ABSOLUTE_PATH` or
 `@ds-document ABSOLUTE_PATH` on its own line. Quoted paths support spaces;
 `@ct-` forms use the same renderer. Code fences and inline mentions stay literal.
 
-Paths belong to the machine authoring the message. An immediate mesh tab send
-or a mesh-routed agent report transfers these files to the target tab's host
+Paths belong to the machine authoring the message. A mesh tab send, delayed send
+or mesh-routed agent report transfers these files to the target tab's host
 before delivering the message, then replaces directive paths with the returned
 target-local paths. A failed transfer refuses delivery; it never reads a
 same-named file on the receiving machine. A message may contain at most 32 file
