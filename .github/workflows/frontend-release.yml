@@ -123,6 +123,17 @@ jobs:
         with:
           name: frontend-${{ env.FRONTEND_TAG }}
           path: frontend-release-output/
+      - name: Install GitHub CLI
+        env:
+          GH_CLI_SHA256: bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+        run: |
+          if command -v gh; then exit 0; fi
+          dir="$RUNNER_TEMP/gh"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/gh.tar.gz" https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz
+          echo "$GH_CLI_SHA256  $dir/gh.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/gh.tar.gz" -C "$dir"
+          echo "$dir/gh_2.102.0_linux_amd64/bin" >> "$GITHUB_PATH"
       - name: Verify, upload immutable assets, then update frontend discovery
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
