@@ -123,6 +123,14 @@ jobs:
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
           fi
 
+  tests:
+    name: full release test matrix
+    needs: prepare
+    if: needs.prepare.outputs.dry_run != 'true'
+    uses: ./.github/workflows/tests.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.source_sha }}
+
   macos-linux-arm64:
     name: macOS + Linux arm64
     needs: prepare
@@ -158,7 +166,7 @@ jobs:
 
   release-manifest:
     name: release manifest, mirror, and verification
-    needs: [prepare, macos-linux-arm64, linux-x86_64, windows]
+    needs: [prepare, macos-linux-arm64, linux-x86_64, windows, tests]
     if: needs.prepare.outputs.dry_run != 'true'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
