@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn restart_requires_observed_process_exit_but_not_console_or_reader_cleanup() {
+fn termination_requires_observed_process_exit_but_not_console_or_reader_cleanup() {
     for resources_closed in [false, true] {
         assert!(!teardown_boundary_reached(false, resources_closed, false));
         assert!(!teardown_boundary_reached(false, resources_closed, true));
@@ -11,6 +11,14 @@ fn restart_requires_observed_process_exit_but_not_console_or_reader_cleanup() {
             resources_closed
         );
     }
+}
+
+#[test]
+fn live_tree_refuses_termination_even_when_cleanup_has_finished() {
+    let signal = PtyTeardownSignal::default();
+    assert!(signal.wait_for_boundary(Instant::now(), false).is_err());
+    signal.mark_child_exited();
+    assert!(signal.wait_for_boundary(Instant::now(), false).is_ok());
 }
 
 #[test]
