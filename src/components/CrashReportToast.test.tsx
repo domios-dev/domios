@@ -140,12 +140,15 @@ test("blocking update progress remains a persistent progress surface", async () 
   expect(host.childElementCount).toBe(1);
 });
 
-function PluginSource() { usePluginActivity(); return null; }
-test("plugin activity events render through the host", async () => {
+function PluginSource() { const { activities } = usePluginActivity(); return <output>{activities.size}</output>; }
+test("plugin activity events update their own surface without creating notifications", async () => {
   await render(<PluginSource />);
   await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind: "install", label: "opaque progress", status: "running", startedAt: 1, updatedAt: 2 } }));
-  const value = await showCapturedToast();
-  expect(value.update_only).toBe(true);
+  expect(host.querySelector("output")?.textContent).toBe("1");
+  await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind: "install", label: "opaque completion", status: "done", startedAt: 1, updatedAt: 3 } }));
+  expect(host.querySelector("output")?.textContent).toBe("0");
+  expect(fakes.upsert).not.toHaveBeenCalled();
+  expect(fakes.add).not.toHaveBeenCalled();
 });
 
 function RunSource() { useBlueprintRunPopups([{ id: "workspace" }], 1, [], fakes.upsert); return null; }
