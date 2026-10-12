@@ -4,7 +4,6 @@ use tokio::task::JoinSet;
 use crate::service::ServiceState;
 
 const SPAWN_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const PTY_REAP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Steps 2-9 of the auto-update sequence. Step 1 (user confirmation) and
 /// step 6 (binary swap, handled by `tauri-plugin-updater` before this runs)
@@ -120,10 +119,30 @@ async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
         .collect::<Vec<_>>();
     svc.pty_ownership.release_ptys(&pty_ids);
 
+    let blockers = svc
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .values()
+        .filter_map(|tab| {
+            tab.pty_id
+                .as_ref()
+                .map(|pty| (pty.clone(), format!("Tab {} ({})", tab.title, tab.id)))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
     let count = reapers.len();
     let mut set = JoinSet::new();
     for reaper in reapers {
-        set.spawn_blocking(move || reaper.wait_for_termination_bounded(PTY_REAP_TIMEOUT));
+        let blocker = blockers
+            .get(reaper.pty_id())
+            .cloned()
+            .unwrap_or_else(|| format!("PTY {}", reaper.pty_id()));
+        set.spawn_blocking(move || {
+            reaper
+                .wait_for_termination()
+                .map_err(|error| format!("{blocker}: {error}"))
+        });
     }
     let mut failures = Vec::new();
     while let Some(result) = set.join_next().await {

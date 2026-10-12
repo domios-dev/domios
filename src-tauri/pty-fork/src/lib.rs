@@ -148,6 +148,10 @@ impl_downcast!(Child);
 
 /// Represents the ability to signal a Child to terminate
 pub trait ChildKiller: std::fmt::Debug + Downcast + Send {
+    fn kill_tree(&mut self) -> std::io::Result<()> {
+        self.kill()
+    }
+
     /// Terminate the child process
     fn kill(&mut self) -> IoResult<()>;
 
@@ -337,6 +341,22 @@ impl ChildKiller for ProcessSignaller {
 }
 
 impl ChildKiller for std::process::Child {
+    #[cfg(unix)]
+    fn kill_tree(&mut self) -> IoResult<()> {
+        let pid = self.id();
+        if pid <= 1 || pid > i32::MAX as u32 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid PTY process group",
+            ));
+        }
+        if unsafe { libc::kill(-(pid as i32), libc::SIGKILL) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
     fn kill(&mut self) -> IoResult<()> {
         #[cfg(unix)]
         {
