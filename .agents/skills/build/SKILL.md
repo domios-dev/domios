@@ -69,6 +69,8 @@ Orchestrator's canonical wave batch.
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
 
+The utility and browser crates use `./build.sh test-one util|browser <selector>`; these focused operations acquire the build gateway and accept `--wait-build`.
+
 The isolated billing crate uses `./build.sh test-one billing <selector>`; workers defer Rust execution to canonical.
 
 The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
@@ -551,4 +553,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
