@@ -15,6 +15,16 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'build.sh'
+      - 'gen/**'
+      - 'vitest.config.ts'
+      - 'biome.json'
+      - 'knip.json'
+      - 'scripts/vitest-owned-tests.json'
+      - 'scripts/run-ts-unit-tests.mjs'
+      - 'scripts/run-ts-unit-tests.test.mjs'
+      - 'scripts/ts-unit-tests.sh'
+      - 'scripts/ts-test-assets.mjs'
+      - 'scripts/ts-test-asset-hook.mjs'
   push:
     tags: ['frontend-v*']
   workflow_dispatch:

@@ -14,9 +14,29 @@ const pluginTooling = new Set([
   ".github/workflows/ready-for-release.yml",
 ]);
 
+const frontendFiles = new Set([
+  "index.html", "vite.config.ts", "vitest.config.ts", "package.json",
+  "pnpm-lock.yaml", "pnpm-workspace.yaml", "frontend-release-contract.json",
+  "biome.json", "knip.json", "scripts/vitest-owned-tests.json",
+  "scripts/run-ts-unit-tests.mjs", "scripts/run-ts-unit-tests.test.mjs",
+  "scripts/ts-unit-tests.sh", "scripts/ts-test-assets.mjs", "scripts/ts-test-asset-hook.mjs",
+]);
+
+function isFrontendPath(file) {
+  return /^(?:src|packages|public|gen)\//.test(file) ||
+    /^tsconfig[^/]*\.json$/.test(file) || frontendFiles.has(file) ||
+    file.startsWith("scripts/frontend-release/") || file === ".github/workflows/frontend-release.yml";
+}
+
+function isRustPath(file) {
+  return /^(?:src-tauri|cli|\.cargo)\//.test(file) ||
+    /^(?:Cargo\.(?:toml|lock)|build\.(?:sh|ps1)|rust-toolchain(?:\.toml)?|rustfmt\.toml|\.rustfmt\.toml)$/.test(file);
+}
+
 export function classifyPaths(files, plugins) {
   const selected = new Set();
-  let host = false;
+  let frontend = false;
+  let rust = false;
   for (const file of files) {
     if (file.startsWith("plugins/")) {
       const plugin = plugins.find((entry) => file.startsWith(`plugins/${entry.path}/`));
@@ -24,11 +44,16 @@ export function classifyPaths(files, plugins) {
       else for (const entry of plugins) selected.add(entry.id);
     } else if (pluginTooling.has(file)) {
       for (const entry of plugins) selected.add(entry.id);
+    } else if (isFrontendPath(file)) {
+      frontend = true;
+    } else if (isRustPath(file)) {
+      rust = true;
     } else if (!/^(AGENTS\.md|CLAUDE\.md|(?:prod-docs|essences|\.agents\/skills)\/)/.test(file)) {
-      host = true;
+      frontend = true;
+      rust = true;
     }
   }
-  return { host, plugins: host ? [] : plugins.filter((entry) => selected.has(entry.id)).map(({ id, path }) => ({ id, path })) };
+  return { frontend, rust, plugins: frontend || rust ? [] : plugins.filter((entry) => selected.has(entry.id)).map(({ id, path }) => ({ id, path })) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
@@ -39,7 +64,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const plugins = JSON.parse(fs.readFileSync(path.join(root, "plugins/channel.json"), "utf8")).plugins;
   const scope = classifyPaths(files, plugins);
   if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `host=${scope.host}\nplugins=${JSON.stringify(scope.plugins)}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `frontend=${scope.frontend}\nrust=${scope.rust}\nplugins=${JSON.stringify(scope.plugins)}\n`);
   }
   console.log(JSON.stringify(scope));
 }
