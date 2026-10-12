@@ -162,6 +162,8 @@ mod tests {
             .kill_on_drop(true);
         let lease = Lease::configure(&mut command).unwrap();
         let mut child = command.spawn().unwrap();
+        // Child::wait closes its own stdin; keep this fixture blocked until the lease kills it.
+        let stdin = child.stdin.take().unwrap();
         let mut ready = [0u8; 1];
         tokio::time::timeout(
             std::time::Duration::from_secs(5),
@@ -177,5 +179,6 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(status.signal(), Some(libc::SIGKILL));
+        drop(stdin);
     }
 }
