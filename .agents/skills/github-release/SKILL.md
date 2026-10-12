@@ -27,15 +27,19 @@ If a plugin check reports "Vitest failed to access its internal state", its Vite
 
 ## Application release
 
-**Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
-"Default release path" right below). The pipeline: bump version on the open `release/X.Y.Z` branch →
-sync versions → merge to master by PR → tag the master commit with `release-X.Y.Z` → build
-signed+notarized macOS (arm64+x86_64) + Linux (arm64+x86_64) + Windows (arm64+x86_64) → upload
-to private repo (source) → mirror artifacts + signed `latest.json` to public repo (so the GUI
-updater works) → (optional) update Homebrew cask. The manual per-platform / multi-machine steps
-further down are the fallback for when the runners are down.
+**Default since 1.14.4 = release from the green release PR head, then merge it to master.** The
+pipeline: bump version on `release/X.Y.Z` → merge `origin/master` into it → sync versions → open the
+release PR → PR CI green (the only test gate) → tag the PR head `release-X.Y.Z` → the self-hosted
+runners build signed+notarized macOS (arm64+x86_64) + Linux (arm64+x86_64) + Windows (arm64+x86_64),
+upload to the private repo, mirror artifacts + signed `latest.json` to the public repo → verify the
+published release → merge the release PR into master with a merge commit. Each platform is built
+once: there is no separate bundle dry run, because the tag run is the bundle build. The manual
+per-platform steps further down are the fallback for when the runners are down.
 
-**Golden rule: all builds happen from the tagged commit on master. Never build release artifacts from `release/X.Y.Z`.**
+**Golden rule: release only a commit that is the head of a green, mergeable release PR whose branch
+already contains `origin/master`.** Merging it afterwards then cannot change the tree, so master
+receives exactly the released commit as an ancestor. If master moves before the merge, merge master
+into the release branch only after publication, never re-tag a published release.
 
 ---
 
@@ -56,8 +60,8 @@ only for a dry run; it leaves the private release draft unpublished and skips pu
 
 **Normal change flow:** verify the UI from the main checkout on `release/X.Y.Z`, clean old lane
 worktrees, then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`,
-open a PR from `release/X.Y.Z` into `master`, and merge it only after required checks are green.
-Releases are cut from the resulting `master` commit.
+open a PR from `release/X.Y.Z` into `master`, wait for its CI to be green, tag the PR head, and
+merge the PR only after the release is published and verified.
 
 **Step one of every release — every release runner is online:**
 
@@ -106,25 +110,34 @@ curl -s http://127.0.0.1:7686/api/health
 Start dev from this main checkout and visually inspect the release UI before opening the release
 PR. Do not cut a release from a lane worktree or a stale dev build.
 
-**To cut a release — after the version bump PR lands on `master`, push only the trigger tag:**
+**To cut a release — on the green release PR head, push only the trigger tag:**
 
 ```bash
-# On master, at the merge commit from the release PR:
-git checkout master
-git pull --ff-only origin master
-git rev-parse --abbrev-ref HEAD   # must print master
-git tag release-X.Y.Z && git push origin release-X.Y.Z
+PR=<release-pr-number>
+git fetch origin --prune
+HEAD_SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid)
+test "$(git rev-parse "origin/release/$VER")" = "$HEAD_SHA"
+git merge-base --is-ancestor origin/master "$HEAD_SHA"          # branch already contains master
+gh pr view "$PR" --json mergeable,statusCheckRollup \
+  -q '.mergeable, ([.statusCheckRollup[] | select(.conclusion != "SUCCESS" and .conclusion != "SKIPPED" and .conclusion != "NEUTRAL")] | length)'
+# must print MERGEABLE and 0
+git tag "release-$VER" "$HEAD_SHA" && git push origin "release-$VER"
 ```
 
 Do **not** create or push a separate `vX.Y.Z` tag for the normal path. The workflows build from
 the `release-X.Y.Z` tag and publish/stamp/map the GitHub releases as `vX.Y.Z` themselves.
 
-Once the tag is pushed, delete the `release/X.Y.Z` branch — it dies with the tag, and there is no
-back-merge step waiting on it:
+After the release run publishes and verification passes, merge the release PR with a merge commit,
+confirm the tag is an ancestor of master, then delete the branch:
 
 ```bash
+gh pr merge "$PR" --merge
+git fetch origin && git merge-base --is-ancestor "release-$VER" origin/master
 git push origin --delete "release/$VER"
 ```
+
+No new commit may land on `release/X.Y.Z` between tagging and merging. A fix found after publication
+is a new patch release through the normal flow.
 
 Pushing `release-X.Y.Z` creates one Actions run. After release preparation, its Mac + arm64 Linux,
 x86_64 Linux, and Windows build jobs run in parallel. The Mac job signs and notarizes macOS
@@ -278,21 +291,11 @@ git diff --check               # whitespace; not owned by preflight
 test/lint matrix, so a green `check` says nothing about whether CI will pass.
 Commit both lockfiles before preflight, so the gate runs on the SHA you will merge.
 
-**Bundle dry run, before the master PR merges.** Preflight and PR CI never run
-`tauri build`, NSIS or the Linux engines; 1.12.1 was tagged green and then failed
-in all three bundle jobs, which cost a whole extra release cycle. Push the release
-head and build every platform from the branch without drafts, uploads, tags or a
-manifest:
-
-```bash
-gh workflow run release.yml --repo rollacode/codeterm --ref "release/$VER" \
-  -f tag="release/$VER" -f dry_run=true -f mirror=false
-gh run watch --repo rollacode/codeterm --exit-status "$(gh run list --repo rollacode/codeterm \
-  --workflow release.yml --limit 1 --json databaseId -q '.[0].databaseId')"
-```
-
-Merge the release PR only after the dry run is green on its head SHA. The dry run
-shares the runners with PR CI, so start it right after the PR checks finish.
+**No separate bundle dry run.** The tag run on the green PR head is the bundle build: a bundle
+failure (1.12.1 failed in all three bundle jobs) now fails before anything is published or merged,
+and the fix lands on the release branch as a new commit with a new patch tag. Use the dry run
+(`gh workflow run release.yml --ref "release/$VER" -f tag="release/$VER" -f dry_run=true -f mirror=false`)
+only to debug a bundle job, never as a routine step, because it builds every platform a second time.
 
 **Iterating on a red release branch.** Reproduce a failing test with the focused
 oracle (`./build.sh test-one ...`, one TS file) and fix it there. Do not re-dispatch
@@ -316,36 +319,24 @@ merged, explicitly recorded as superseded, or deferred before the master PR.
 Patch-equivalent stale refs are not ancestry proof and must not be silently
 deleted without that superseded record.
 
-### 2. Merge to master by PR + push the release trigger tag
+### 2. Tag the green release PR head, publish, then merge to master
 
-**Always via PR on GitHub** — don't direct-push `release/X.Y.Z` to master. This avoids merge-commit
-collisions when multiple machines operate on master. The normal trigger is a single
-`release-$VER` tag on the master merge commit.
+**Always via PR on GitHub** — never direct-push `release/X.Y.Z` to master. The release PR's CI is
+the only test gate; the tag starts the single bundle build.
 
 ```bash
-# On GitHub: open PR release/X.Y.Z → master, watch checks, and merge via "Create a merge commit".
 gh pr checks <pr-number> --watch
-gh pr view <pr-number> --json mergeable,mergeStateStatus,statusCheckRollup,headRefOid
-
-# Then locally, tag the exact merged master commit:
-git checkout master
-git pull origin master --no-rebase   # get the merge commit GitHub created
-INTENDED_MASTER_SHA=$(git rev-parse HEAD)
-bash scripts/check-release-runners.sh           # every release runner online
+bash scripts/check-release-runners.sh                                  # every release runner online
 git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"  # must be empty
-test "$(git rev-parse origin/master)" = "$INTENDED_MASTER_SHA"
-git tag "release-$VER" "$INTENDED_MASTER_SHA"
-git push origin "release-$VER"
+# Then run the tag commands from "To cut a release" above: they prove the PR head is green,
+# mergeable and contains origin/master before pushing release-$VER on it.
 ```
 
 Do **not** create or push `v$VER` here. The release workflows create/update the private and
 public GitHub releases under `v$VER` and map the updater metadata there.
 
-Once the tag is pushed, delete the `release/X.Y.Z` branch — it dies with the tag:
-
-```bash
-git push origin --delete "release/$VER"
-```
+After publication and verification, merge the PR with a merge commit and delete the branch, as
+shown in "To cut a release".
 
 ### 2.1. Release closeout cleanup
 
