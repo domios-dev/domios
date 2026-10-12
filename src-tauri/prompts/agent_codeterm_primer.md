@@ -20,4 +20,4 @@ Notify at `action_needed` or `failure` is a rare user-attention escalation, vali
 
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 
-Use Blueprint graphs to watch CI, agents, crons and Teams. When status checks repeat, build a graph and end your turn; sleeps, waits and loops still poll. Read `codeterm docs BLUEPRINTS` first; silent buckets need [] or none, stop ends the graph.
+Watch repeating CI, agent, cron and Team checks with a Blueprint graph and end your turn; sleeps and loops poll. Read `codeterm docs BLUEPRINTS` first. A graph works only once `blueprint show` names a real run's bucket; silent buckets need none.

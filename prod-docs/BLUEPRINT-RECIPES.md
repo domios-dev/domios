@@ -26,8 +26,14 @@ Each pattern names the source, buckets and handlers; put silent buckets as `[]` 
 
 ## Built-in recipes
 `codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints the handlers JSON and create
-command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph.
-
+command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
+<!-- blueprint-recipe:github-pr-ci-watch -->
+### github-pr-ci-watch
+**Purpose:** Route `failed` on the first failed or cancelled check of one PR, `passed` when every check passed; `waiting` stays silent. Create it from the repository checkout: the probe runs in the creator's cwd.
+```bash
+codeterm blueprint create --name pr-ci --probe 'gh pr checks <PR> --json bucket -q "if any(.[]; .bucket==\"fail\" or .bucket==\"cancel\") then \"failed\" elif any(.[]; .bucket==\"pending\") then \"waiting\" else \"passed\" end"' --question 'waiting while checks run; passed when all passed; failed when any failed or was cancelled' --buckets waiting,passed,failed --match 'waiting=(?m)^waiting\r?$' --match 'passed=(?m)^passed\r?$' --match 'failed=(?m)^failed\r?$' --until passed --route waiting=none --route passed=notify --route failed=notify --rearm-on-change failed --every 60s --timeout 3h --dry-run
+```
+<!-- /blueprint-recipe -->
 <!-- blueprint-recipe:team-watch -->
 ### team-watch
 **Purpose:** Observe one Team member's tab and notify when the watched state changes.
@@ -231,4 +237,4 @@ codeterm blueprint create --name "Marker and review" --probe "printf passed" --q
 ```json
 {"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
 ```
-<!-- revision: 8 -->
+<!-- revision: 9 -->

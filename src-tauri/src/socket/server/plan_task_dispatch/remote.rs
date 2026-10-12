@@ -8,6 +8,10 @@ use crate::service::ServiceState;
 use super::{dispatch_authorized_gates, invalid_dispatch, owned_str};
 use crate::socket::server::{plan_refs, JsonRpcError};
 
+// The peer creates a lane and launches the Worker before answering; a busy Windows peer
+// outlives the 5s unary default, which closed live attempts as peer_offline.
+const WORKER_DISPATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+
 fn encoded_bundle_size_allowed(encoded_size: usize, max_bundle_bytes: usize) -> bool {
     encoded_size <= max_bundle_bytes.div_ceil(3) * 4
 }
@@ -236,7 +240,11 @@ pub(super) fn dispatch(
         ));
     };
     let response = tauri::async_runtime::block_on(
-        client.auth_post_json("/api/mesh/worker-dispatch", &request),
+        client.auth_post_json_within(
+            "/api/mesh/worker-dispatch",
+            &request,
+            Some(WORKER_DISPATCH_DEADLINE),
+        ),
     );
     let response = match response {
         Ok(response) => response,
