@@ -5,6 +5,7 @@ const requireCapability = <T>(value: T | undefined, name: string): T => {
   return value;
 };
 export const NATIVE_COMMANDS: Record<string, CommandAdapter> = {
+  local_recording_battery: (a) => localRecording("local_recording_battery", a),
   local_recording_status: (a) => localRecording("local_recording_status", a),
   local_recording_set_enabled: (a) => localRecording("local_recording_set_enabled", a),
   local_recording_select_devices: (a) => localRecording("local_recording_select_devices", a),

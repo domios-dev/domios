@@ -9,6 +9,7 @@ import { open, save, type OpenDialogOptions, type SaveDialogOptions } from "@tau
 export type NativeUnsubscribe = () => void;
 export type NotificationPermission = "granted" | "denied" | "prompt" | "unknown";
 export type LocalRecordingCommand =
+  | "local_recording_battery"
   | "local_recording_status" | "local_recording_set_enabled"
   | "local_recording_select_devices" | "local_recording_input_devices"
   | "local_recording_capture_stopped" | "local_recording_cancel"
@@ -96,6 +97,7 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
   };
   return {
     localRecording: native ? {
+      local_recording_battery: (args) => invoke("local_recording_battery", args),
       local_recording_status: (args) => invoke("local_recording_status", args),
       local_recording_set_enabled: (args) => invoke("local_recording_set_enabled", args),
       local_recording_select_devices: (args) => invoke("local_recording_select_devices", args),

@@ -9,6 +9,8 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+#[path = "windows/battery.rs"]
+pub(crate) mod battery;
 #[path = "windows/ffi.rs"]
 mod ffi;
 #[path = "windows/lifecycle.rs"]
