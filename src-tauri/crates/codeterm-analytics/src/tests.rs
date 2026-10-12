@@ -16,7 +16,7 @@ impl TestDestination for Engine {
 }
 
 fn event() -> Event {
-    Event::WorkspaceCreated {}
+    Event::WorkspaceCreated { workspaces: 2 }
 }
 fn config() -> Config {
     Config {
@@ -37,11 +37,9 @@ fn consent_off_never_queues_or_sends() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = engine(&dir, &server);
     assert!(!engine.enqueue(event(), 0).unwrap());
-    engine.identity(Some("firebase_uid".into())).unwrap();
     engine.deliver(0).unwrap();
     assert_eq!(engine.status().queued, 0);
     assert!(!engine.status().has_device_id);
-    assert!(!engine.status().has_user_id);
     destination.assert();
 }
 
@@ -53,7 +51,6 @@ fn opt_out_clears_persisted_queue_and_ids() {
     let mut engine = engine(&dir, &server);
     engine.consent(Consent::On).unwrap();
     let first_id = engine.state.device_id;
-    engine.identity(Some("firebase_uid".into())).unwrap();
     engine.enqueue(event(), 0).unwrap();
     engine.consent(Consent::Off).unwrap();
     engine.deliver(0).unwrap();
@@ -62,7 +59,6 @@ fn opt_out_clears_persisted_queue_and_ids() {
     assert_eq!(reopened.status().consent, Consent::Off);
     assert_eq!(reopened.status().queued, 0);
     assert!(!reopened.status().has_device_id);
-    assert!(!reopened.status().has_user_id);
     reopened.consent(Consent::On).unwrap();
     assert_ne!(reopened.state.device_id, first_id);
     destination.assert();
@@ -86,7 +82,8 @@ fn catalog_rejects_unknown_events_properties_and_strings() {
     let accepted = Event::AppStarted {
         version: Version::new(1, 2, 3),
         platform: Platform::Macos,
-        update_channel: UpdateChannel::Stable,
+        mesh_machines: 1,
+        workspaces: 2,
     };
     assert_eq!(
         serde_json::from_value::<Event>(serde_json::to_value(&accepted).unwrap()).unwrap(),
@@ -95,27 +92,20 @@ fn catalog_rejects_unknown_events_properties_and_strings() {
 }
 
 #[test]
-fn batches_carry_insert_id_device_id_and_uid() {
+fn batches_carry_catalog_properties_and_account_linkage() {
     let mut server = mockito::Server::new();
     let dir = tempfile::tempdir().unwrap();
     let mut engine = engine(&dir, &server);
     engine.consent(Consent::On).unwrap();
-    engine.identity(Some("firebase_uid".into())).unwrap();
     engine.enqueue(event(), 100).unwrap();
     engine
-        .enqueue(
-            Event::TabOpened {
-                kind: TabKind::Agent,
-                provider_id: Some(ProviderId::Codex),
-            },
-            100,
-        )
+        .enqueue(Event::MeshPeerPaired { mesh_machines: 3 }, 100)
         .unwrap();
     let destination = server.mock("POST", "/2/httpapi")
         .match_header("content-type", "application/json")
         .match_body(mockito::Matcher::PartialJson(serde_json::json!({"api_key":"test-key","events":[
-            {"event_type":"workspace_created","event_properties":{},"insert_id":engine.state.queue[0].insert_id,"device_id":engine.state.device_id,"user_id":"firebase_uid","time":100},
-            {"event_type":"tab_opened","event_properties":{"kind":"agent","provider_id":"codex"},"insert_id":engine.state.queue[1].insert_id,"device_id":engine.state.device_id,"user_id":"firebase_uid","time":100}
+            {"event_type":"workspace_created","event_properties":{"workspaces":2},"insert_id":engine.state.queue[0].insert_id,"device_id":engine.state.device_id,"time":100},
+            {"event_type":"mesh_peer_paired","event_properties":{"mesh_machines":3},"insert_id":engine.state.queue[1].insert_id,"device_id":engine.state.device_id,"time":100}
         ]}))).with_status(200).expect(1).create();
     engine.deliver(100).unwrap();
     engine.deliver(100).unwrap();
@@ -216,7 +206,6 @@ fn queue_cap_drops_oldest_and_counts() {
             insert_id: uuid::Uuid::new_v4(),
             time: index as u64,
             event: event(),
-            user_id: None,
             failures: 0,
             retry_at: 0,
         });
@@ -355,8 +344,7 @@ fn catalog_every_event_rejects_extra_properties_and_unknown_enum_values() {
             let value = match kind {
                 "Version" => serde_json::json!("1.2.3"),
                 "u32" => serde_json::json!(1),
-                "ProviderId" | "Option<ProviderId>" => serde_json::json!("codex"),
-                "ModelFamily" => serde_json::json!("unknown"),
+                "ProviderId" => serde_json::json!("codex"),
                 _ => enums[kind][0].clone(),
             };
             properties.insert(field.clone(), value);
@@ -379,6 +367,126 @@ fn catalog_every_event_rejects_extra_properties_and_unknown_enum_values() {
             );
         }
     }
+}
+
+#[test]
+fn daily_active_day_survives_restart_and_emits_again_next_day() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("analytics-settings.json");
+    let recording = std::sync::Arc::new(std::sync::Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = Engine::open(path.clone(), config()).unwrap();
+    engine.sink = Box::new(sinks::fake::Fake {
+        recording: recording.clone(),
+    });
+    engine.consent(Consent::On).unwrap();
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+    let activity = Event::ActiveDay {
+        mesh_machines: 2,
+        workspaces: 3,
+    };
+    assert!(engine.enqueue_on_day(activity.clone(), 0, day).unwrap());
+    assert!(!engine.enqueue_on_day(activity.clone(), 0, day).unwrap());
+    engine.deliver(0).unwrap();
+    drop(engine);
+    let mut engine = Engine::open(path, config()).unwrap();
+    engine.sink = Box::new(sinks::fake::Fake {
+        recording: recording.clone(),
+    });
+    assert!(!engine.enqueue_on_day(activity.clone(), 0, day).unwrap());
+    assert!(engine
+        .enqueue_on_day(activity, 0, day.succ_opt().unwrap())
+        .unwrap());
+    engine.deliver(0).unwrap();
+    assert_eq!(
+        recording.lock().unwrap().batches.iter().flatten().count(),
+        2
+    );
+}
+#[test]
+fn daily_feature_used_deduplicates_each_feature_and_persists() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("analytics-settings.json");
+    let recording = std::sync::Arc::new(std::sync::Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = Engine::open(path.clone(), config()).unwrap();
+    engine.sink = Box::new(sinks::fake::Fake {
+        recording: recording.clone(),
+    });
+    engine.consent(Consent::On).unwrap();
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+    let feature = Event::FeatureUsed {
+        feature: Feature::MemorySaved,
+    };
+    assert!(engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
+    assert!(!engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
+    assert!(engine
+        .enqueue_on_day(
+            Event::FeatureUsed {
+                feature: Feature::ThemeChanged
+            },
+            0,
+            day
+        )
+        .unwrap());
+    engine.deliver(0).unwrap();
+    drop(engine);
+    let mut engine = Engine::open(path, config()).unwrap();
+    engine.sink = Box::new(sinks::fake::Fake {
+        recording: recording.clone(),
+    });
+    assert!(!engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
+    assert!(engine
+        .enqueue_on_day(feature, 0, day.succ_opt().unwrap())
+        .unwrap());
+    engine.deliver(0).unwrap();
+    assert_eq!(
+        recording.lock().unwrap().batches.iter().flatten().count(),
+        3
+    );
+}
+#[test]
+fn daily_events_with_consent_off_never_emit_or_save_days() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = std::sync::Arc::new(std::sync::Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = Engine::open(dir.path().join("analytics-settings.json"), config()).unwrap();
+    engine.sink = Box::new(sinks::fake::Fake {
+        recording: recording.clone(),
+    });
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+    for event in [
+        Event::ActiveDay {
+            mesh_machines: 1,
+            workspaces: 1,
+        },
+        Event::FeatureUsed {
+            feature: Feature::MemorySaved,
+        },
+    ] {
+        assert!(!engine.enqueue_on_day(event, 0, day).unwrap());
+    }
+    engine.deliver(0).unwrap();
+    assert!(recording.lock().unwrap().batches.is_empty());
+    assert!(engine.state.last_active_day.is_none());
+    assert!(engine.state.feature_days.is_empty());
+}
+#[test]
+fn account_linkage_is_exact_then_cleared_on_sign_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = std::sync::Arc::new(std::sync::Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = Engine::open(dir.path().join("analytics-settings.json"), config()).unwrap();
+    engine.sink = Box::new(sinks::fake::Fake {
+        recording: recording.clone(),
+    });
+    engine.consent(Consent::On).unwrap();
+    engine.identity(Some("firebase-opaque-uid".into())).unwrap();
+    engine.enqueue(event(), 0).unwrap();
+    engine.identity(None).unwrap();
+    engine.enqueue(event(), 0).unwrap();
+    engine.deliver(0).unwrap();
+    let recording = recording.lock().unwrap();
+    let events: Vec<_> = recording.batches.iter().flatten().collect();
+    assert_eq!(events[0].user_id.as_deref(), Some("firebase-opaque-uid"));
+    assert!(events[1].user_id.is_none());
+    assert_eq!(events[0].device_id, events[1].device_id);
 }
 
 #[tokio::test]

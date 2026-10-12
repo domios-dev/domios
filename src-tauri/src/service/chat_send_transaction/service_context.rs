@@ -113,6 +113,7 @@ impl crate::service::ServiceContext {
                 );
             }
         });
+        self.record_product_activity();
         Ok(response)
     }
 
@@ -324,6 +325,7 @@ impl crate::service::ServiceContext {
             held_before_readiness,
         )?;
         let status = self.chat_send_ledger.admit_user(&record);
+        self.record_product_activity();
         let mut status = if held_before_readiness {
             self.chat_send_ledger
                 .set_user_pending_reason(&record.send_id, Some("awaiting_agent_ready"))

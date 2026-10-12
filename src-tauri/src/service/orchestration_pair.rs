@@ -795,6 +795,9 @@ impl ServiceContext {
                 self.emit_state_changed();
                 // final count is the authoritative one for the nudge.
                 let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
+                if reserved.team_minted {
+                    self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
+                }
                 Ok(OrchestrationPairResult {
                     plan_id: None,
                     orchestrator_tab_id: orch_tab_id,

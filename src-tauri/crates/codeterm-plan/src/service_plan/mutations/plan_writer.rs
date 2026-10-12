@@ -90,7 +90,6 @@ impl PlanStore {
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
         self.reset_bound_tabs(&committed);
-        self.publish_product_commit(Some(&previous), &committed);
         Ok(Some(out))
     }
 }

@@ -10,15 +10,14 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 test("catalog checker rejects stale TypeScript and regenerates it", () => {
   const fixture = mkdtempSync(resolve(tmpdir(), "domios-catalog-"));
   try {
-    for (const path of ["prod-docs/ACCOUNT.md", "plugins", "src-tauri/crates/codeterm-analytics/catalog.schema.json", "src-tauri/crates/codeterm-analytics/src/catalog/generated.rs", "src/lib/productAnalytics.generated.ts"]) {
+    for (const path of ["prod-docs/ACCOUNT.md", "src-tauri/crates/codeterm-analytics/catalog.schema.json", "src-tauri/crates/codeterm-analytics/src/catalog/generated.rs", "src/lib/productAnalytics.generated.ts"]) {
       mkdirSync(dirname(resolve(fixture, path)), { recursive: true });
-      if (path === "plugins") {
-        for (const id of ["claude", "codex", "cursor", "opencode"]) {
-          const manifest = `plugins/provider-${id}/plugin.json`;
-          mkdirSync(dirname(resolve(fixture, manifest)), { recursive: true });
-          cpSync(resolve(root, manifest), resolve(fixture, manifest));
-        }
-      } else cpSync(resolve(root, path), resolve(fixture, path));
+      cpSync(resolve(root, path), resolve(fixture, path));
+    }
+    for (const id of ["claude", "codex", "cursor", "opencode"]) {
+      const manifest = `plugins/provider-${id}/plugin.json`;
+      mkdirSync(dirname(resolve(fixture, manifest)), { recursive: true });
+      cpSync(resolve(root, manifest), resolve(fixture, manifest));
     }
     const run = (...args) => spawnSync(process.execPath, [resolve(root, "scripts/check-analytics-catalog.mjs"), "--root", fixture, ...args], { encoding: "utf8" });
     assert.equal(run().status, 0);

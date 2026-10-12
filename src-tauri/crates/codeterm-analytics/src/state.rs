@@ -1,6 +1,10 @@
-use crate::{Config, Event};
+use crate::{Config, Event, Feature};
 use serde::{Deserialize, Serialize};
-use std::{collections::VecDeque, io::Write, path::Path};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    io::Write,
+    path::Path,
+};
 use uuid::Uuid;
 
 pub const QUEUE_CAP: usize = 1000;
@@ -30,8 +34,8 @@ pub struct Counters {
 pub(crate) struct Queued {
     pub insert_id: Uuid,
     pub time: u64,
-    pub event: Event,
     pub user_id: Option<String>,
+    pub event: Event,
     pub failures: usize,
     pub retry_at: u64,
 }
@@ -42,6 +46,8 @@ pub(crate) struct State {
     pub consent: Consent,
     pub device_id: Option<Uuid>,
     pub user_id: Option<String>,
+    pub last_active_day: Option<chrono::NaiveDate>,
+    pub feature_days: BTreeMap<Feature, chrono::NaiveDate>,
     pub config: Config,
     pub queue: VecDeque<Queued>,
     pub counters: Counters,
@@ -53,6 +59,8 @@ impl State {
         self.device_id = None;
         self.user_id = None;
         self.queue.clear();
+        self.last_active_day = None;
+        self.feature_days.clear();
     }
 
     pub fn read(path: &Path) -> Result<Self, String> {
@@ -73,8 +81,8 @@ impl State {
         }
         if state.user_id.as_deref().is_some_and(|uid| !valid_uid(uid))
             || state.queue.iter().any(|event| {
-                event.user_id.as_deref().is_some_and(|uid| !valid_uid(uid))
-                    || event.failures > RETRY_DELAYS_MS.len()
+                event.failures > RETRY_DELAYS_MS.len()
+                    || event.user_id.as_deref().is_some_and(|uid| !valid_uid(uid))
             })
         {
             return Err("invalid analytics queue".into());

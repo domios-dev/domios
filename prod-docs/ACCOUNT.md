@@ -28,45 +28,42 @@ Settings > Account shows the same plan, status, period end, cancellation flag an
 
 Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store and holds the queue while it is missing. Every sink shares the consent gate, the closed product event catalog below, the persisted queue and the bounded retry policy.
 
-Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its opaque account ID (`user_id`). Sign-out removes it from subsequent events; events already queued keep the identity that owned them. Sign-in while analytics is off does not persist an analytics account ID. Opting in while signed in attaches the current account ID. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
+Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Sign-out removes it from subsequent events; events already queued keep the identity that owned them. Sign-in while analytics is off does not persist an analytics account ID. Opting in while signed in attaches the current account ID. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
 
-Prompts, messages, terminal output, paths, workspace or tab names, email addresses, display names, session IDs, peer identities, credentials and arbitrary plugin model or provider names are never included. Custom providers become `other`; unlisted models become `unknown`. No emitter can bypass the consent gate: consent off prevents queueing and analytics network delivery, clears queued events and analytics identifiers, and a later opt-in creates a new random installation ID. Settings > Privacy > What we collect shows the same closed catalog.
+Prompts, messages, terminal output, paths, workspace or tab names, email addresses, display names, session IDs, peer identities, credentials and arbitrary plugin model or provider names are never included. Custom providers become `other`; models are never collected. No emitter can bypass the consent gate: consent off prevents queueing and analytics network delivery, clears queued events and analytics identifiers, and a later opt-in creates a new random installation ID. Settings > Privacy > What we collect shows the same closed catalog.
 
-Managed app updates count installer attempts and report completion only after the requested app version is running. Frontend updates report after all enrolled clients prove health and activation is saved. Restore outcomes require the current launch nonce and an authenticated exact target session for `resumed`; unconfirmed launches emit no outcome. Plan creation and task dispatch follow successful persistence and worker acknowledgment. Pairing follows saved paired state. Checkout follows a successful browser open; subscription changes follow authoritative entitlement refresh, with unchanged plan/status and failed refreshes suppressed.
+Managed app updates report only their kind after the requested app version is running. Frontend updates report only their kind after enrolled clients prove health and activation is saved. Plan creation follows successful persistence. Pairing and workspace creation carry the saved post-change counts. Checkout follows a successful browser open; subscription changes follow authoritative entitlement refresh, with unchanged plan/status and failed refreshes suppressed.
+
+`active_day` records the first app start, user message admission, agent spawn or workspace switch in a local calendar day. `feature_used` records successful use of each listed feature at most once per local calendar day. Both gates persist alongside analytics settings, survive restarts, and use activity events without timers or polling. Opt-out clears the saved days together with identifiers and queued events. Machine counts include this machine plus paired peers; workspace counts include all workspaces.
 
 ## Product event catalog
 
-Versions contain numeric major, minor and patch only, without prerelease labels or build metadata. Counts are unsigned 32-bit integers. Provider and model categories come from the bundled provider registry; no runtime free-form model or provider value is sent. Shell tabs use a null provider. Events with no properties carry an empty object. Dispatch intent is the recorded policy, including `unspecified` when none was declared.
+Versions contain numeric major, minor and patch only, without prerelease labels or build metadata. Counts are unsigned 32-bit integers. Provider IDs come from the bundled registry; runtime free-form provider names become `other`. Events with no properties carry an empty object. Feature adoption includes completed dreaming runs, saved crons and Blueprints, saved theme changes, confirmed Telegram sends or accepted inbound messages, accepted voice input, installed plugins, formed Teams, saved memory and opening the web interface.
 
 <!-- analytics-catalog:start -->
 | Event | Properties |
 |---|---|
-| `app_started` | `version`: Version, `platform`: Platform, `update_channel`: UpdateChannel |
-| `update_installed` | `from_version`: Version, `to_version`: Version, `kind`: UpdateKind, `attempt_count`: u32 |
-| `workspace_created` | None |
-| `tab_opened` | `kind`: TabKind, `provider_id`: Option&lt;ProviderId&gt; |
-| `agent_spawned` | `provider_id`: ProviderId, `role`: Role, `model_family`: ModelFamily |
-| `agent_restored` | `provider_id`: ProviderId, `outcome`: RestoreOutcome |
-| `plan_created` | None |
-| `task_dispatched` | `execution_intent`: ExecutionIntent |
-| `mesh_peer_paired` | None |
+| `app_started` | `version`: Version, `platform`: Platform, `mesh_machines`: u32, `workspaces`: u32 |
+| `mesh_peer_paired` | `mesh_machines`: u32 |
+| `workspace_created` | `workspaces`: u32 |
 | `signed_in` | `auth_provider`: AuthProvider |
-| `checkout_started` | `plan_key`: PlanKey |
+| `checkout_started` | `plan`: PlanKey |
 | `subscription_changed` | `plan`: PlanKey, `status`: SubscriptionStatus |
 | `analytics_opted_in` | None |
+| `agent_spawned` | `provider_id`: ProviderId, `role`: Role |
+| `update_installed` | `kind`: UpdateKind |
+| `plan_created` | None |
+| `active_day` | `mesh_machines`: u32, `workspaces`: u32 |
+| `feature_used` | `feature`: Feature |
 
 - **Platform:** `macos`, `windows`, `linux`
-- **UpdateChannel:** `stable`, `rc`, `nightly`
-- **UpdateKind:** `app`, `frontend`
-- **TabKind:** `shell`, `agent`
-- **Role:** `general`, `orchestrator`, `planner`, `worker`, `manager`, `supporter`, `none`, `other`
-- **RestoreOutcome:** `resumed`, `fresh_launch`, `failed`
-- **ExecutionIntent:** `read_only`, `mutating`, `unspecified`
 - **AuthProvider:** `local`, `fake`, `firebase`
 - **PlanKey:** `free`, `pro`
 - **SubscriptionStatus:** `active`, `past_due`, `canceled`, `revoked`, `incomplete`, `trialing`, `unpaid`, `paused`
+- **Role:** `general`, `orchestrator`, `planner`, `worker`, `manager`, `supporter`, `none`, `other`
+- **UpdateKind:** `app`, `frontend`
+- **Feature:** `dreaming_run`, `cron_created`, `blueprint_created`, `theme_changed`, `telegram_bridge_used`, `voice_input_used`, `plugin_installed`, `team_created`, `memory_saved`, `web_ui_opened`
 - **ProviderId:** `claude`, `codex`, `cursor`, `opencode`, `other`
-- **ModelFamily:** `anthropic/claude-opus-4-8`, `anthropic/claude-sonnet-4-6`, `auto`, `best`, `claude-4.6-sonnet-medium`, `claude-opus-4-8-thinking-high`, `claude-opus-4-8-thinking-low`, `composer-2.5`, `fable`, `gemini-3.1-pro`, `gpt-5.2-codex`, `gpt-5.5`, `gpt-5.5-high`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`, `grok-4.3`, `haiku`, `kimi-k2.5`, `opencode/big-pickle`, `opencode/deepseek-v4-flash-free`, `opencode/gpt-5.4-mini`, `opencode/gpt-5.5`, `opus`, `opusplan`, `sonnet`, `unknown`
 <!-- analytics-catalog:end -->
 
 ## Local API
@@ -83,4 +80,4 @@ Local callers only.
 | POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

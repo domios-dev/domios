@@ -1,50 +1,33 @@
 use super::ServiceContext;
-pub(crate) mod restore;
-use codeterm_analytics::{
-    Config, Event, ModelFamily, Platform, ProviderId, Role, TabKind, UpdateChannel, Version, Worker,
-};
+use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
 use tauri::Manager;
 
-pub(crate) fn app_started(version: &str, platform: &str, channel: &str) -> Option<Event> {
+pub(crate) fn count(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+pub(crate) fn app_started(
+    version: &str,
+    platform: &str,
+    mesh_machines: usize,
+    workspaces: usize,
+) -> Option<Event> {
     Some(Event::AppStarted {
         version: Version::from_release(version)?,
         platform: Platform::from_catalog(platform)?,
-        update_channel: UpdateChannel::from_catalog(channel)?,
+        mesh_machines: count(mesh_machines),
+        workspaces: count(workspaces),
     })
 }
-
-pub(crate) fn tab_events(
-    provider: Option<&str>,
-    role: Option<&str>,
-    model: Option<&str>,
-) -> Vec<Event> {
-    let provider_id =
-        provider.map(|value| ProviderId::from_catalog(value).unwrap_or(ProviderId::Other));
-    let mut events = vec![Event::TabOpened {
-        kind: if provider.is_some() {
-            TabKind::Agent
-        } else {
-            TabKind::Shell
-        },
-        provider_id,
-    }];
-    if let Some(provider_id) = provider_id {
-        events.push(Event::AgentSpawned {
-            provider_id,
-            role: role
-                .map(|value| Role::from_catalog(&value.to_ascii_lowercase()).unwrap_or(Role::Other))
-                .unwrap_or(Role::None),
-            model_family: model
-                .and_then(|value| {
-                    ModelFamily::from_catalog(value.split('[').next().unwrap_or(value))
-                })
-                .unwrap_or(ModelFamily::Unknown),
-        });
-    }
-    events
+pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Option<Event> {
+    Some(Event::AgentSpawned {
+        provider_id: ProviderId::from_catalog(provider?).unwrap_or(ProviderId::Other),
+        role: role
+            .map(|value| Role::from_catalog(&value.to_ascii_lowercase()).unwrap_or(Role::Other))
+            .unwrap_or(Role::None),
+    })
 }
-
 impl ServiceContext {
     pub(crate) fn record_product_event(&self, event: Event) {
         if let Some(worker) = self.analytics.get() {
@@ -53,79 +36,51 @@ impl ServiceContext {
             }
         }
     }
-
-    pub(crate) fn record_product_tab_created(&self, tab_id: &str) {
-        let event = {
-            let mux = self.mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return;
-            };
-            Event::TabOpened {
-                kind: if tab.agent_type.is_some() {
-                    TabKind::Agent
-                } else {
-                    TabKind::Shell
-                },
-                provider_id: tab
-                    .agent_type
-                    .as_deref()
-                    .map(|value| ProviderId::from_catalog(value).unwrap_or(ProviderId::Other)),
-            }
-        };
-        self.record_product_event(event);
+    pub(crate) fn record_product_activity(&self) {
+        let mesh_machines = self
+            .app_handle
+            .try_state::<crate::mesh::MeshState>()
+            .map_or(1, |mesh| mesh.lock().machine_count());
+        let workspaces = self.mux.read().workspace_count();
+        self.record_product_event(Event::ActiveDay {
+            mesh_machines: count(mesh_machines),
+            workspaces: count(workspaces),
+        });
     }
-
-    pub(crate) fn record_product_restore_refused(&self, tab_id: &str) {
+    pub(crate) fn record_product_feature(&self, feature: codeterm_analytics::Feature) {
+        self.record_product_event(Event::FeatureUsed { feature });
+    }
+    pub(crate) fn record_product_agent_spawned(&self, tab_id: &str) {
         let event = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id)
-                .filter(|tab| tab.boot_stage == Some(super::boot_stage::BootStage::SpawnFailed))
-                .and_then(|tab| tab.agent_type.as_deref())
-                .map(|provider| Event::AgentRestored {
-                    provider_id: ProviderId::from_catalog(provider).unwrap_or(ProviderId::Other),
-                    outcome: codeterm_analytics::RestoreOutcome::Failed,
-                })
+            mux.get_tab(tab_id).and_then(|tab| {
+                agent_spawned(
+                    tab.agent_type.as_deref(),
+                    tab.role_profile
+                        .as_deref()
+                        .or_else(|| tab.role.map(|role| role.label())),
+                )
+            })
         };
         if let Some(event) = event {
             self.record_product_event(event);
+            self.record_product_activity();
         }
     }
-
-    pub(crate) fn record_product_agent_spawned(&self, tab_id: &str, model: Option<&str>) {
-        let event = {
-            let mux = self.mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return;
-            };
-            tab_events(
-                tab.agent_type.as_deref(),
-                tab.role_profile
-                    .as_deref()
-                    .or_else(|| tab.role.map(|role| role.label())),
-                model.or(tab.agent_provider_resolved_model.as_deref()),
-            )
-            .into_iter()
-            .find(|event| matches!(event, Event::AgentSpawned { .. }))
-        };
-        if let Some(event) = event {
-            self.record_product_event(event);
-        }
-    }
-
     pub async fn analytics_worker(&self) -> Result<&Worker, String> {
         self.analytics
             .get_or_try_init(|| async {
                 let secrets = self.secrets.clone();
-                let channel = self
+                let mesh_machines = self
                     .app_handle
-                    .state::<crate::config::ConfigState>()
-                    .lock()
-                    .updater
-                    .channel;
+                    .try_state::<crate::mesh::MeshState>()
+                    .map_or(1, |mesh| mesh.lock().machine_count());
+                let workspaces = self.mux.read().workspace_count();
                 let startup = app_started(
                     env!("CARGO_PKG_VERSION"),
                     std::env::consts::OS,
-                    &channel.to_string(),
+                    mesh_machines,
+                    workspaces,
                 );
                 let worker = tokio::task::spawn_blocking(move || {
                     let reader = Arc::new(move |name: &str| {
@@ -143,6 +98,13 @@ impl ServiceContext {
                         Config::from_env()?,
                         reader,
                     )?;
+                    if let Some(event) = startup {
+                        let _ = worker.record_nowait(event);
+                    }
+                    let _ = worker.record_nowait(Event::ActiveDay {
+                        mesh_machines: count(mesh_machines),
+                        workspaces: count(workspaces),
+                    });
                     if crate::update::analytics::confirm(
                         &crate::paths::data_dir().join("analytics-update.json"),
                         env!("CARGO_PKG_VERSION"),
@@ -152,15 +114,14 @@ impl ServiceContext {
                     {
                         log::debug!("[analytics] update confirmation unavailable");
                     }
-                    if let Some(event) = startup {
-                        let _ = worker.record_nowait(event);
-                    }
                     Ok::<_, String>(worker)
                 })
                 .await
                 .map_err(|_| "analytics initialization failed".to_string())??;
-                self.plan_store
-                    .bind_product_observer(plan_observer(worker.clone()));
+                let observer = worker.clone();
+                self.plan_store.bind_product_observer(Arc::new(move || {
+                    let _ = observer.record_nowait(Event::PlanCreated {});
+                }));
                 if let Some(mesh) = self.app_handle.try_state::<crate::mesh::MeshState>() {
                     mesh.lock()
                         .bind_pairing_observer(mesh_observer(worker.clone()));
@@ -170,38 +131,11 @@ impl ServiceContext {
             .await
     }
 }
-
-pub(crate) fn plan_observer(
-    worker: Worker,
-) -> codeterm_plan::service_plan::product_events::ProductObserver {
-    Arc::new(move |event| {
-        use codeterm_plan::{
-            plan::ExecutionIntent as Intent, service_plan::product_events::ProductEvent,
-        };
-        let event = match event {
-            ProductEvent::PlanCreated => Event::PlanCreated {},
-            ProductEvent::TaskDispatched {
-                execution_intent: Intent::ReadOnly,
-            } => Event::TaskDispatched {
-                execution_intent: codeterm_analytics::ExecutionIntent::ReadOnly,
-            },
-            ProductEvent::TaskDispatched {
-                execution_intent: Intent::Mutating,
-            } => Event::TaskDispatched {
-                execution_intent: codeterm_analytics::ExecutionIntent::Mutating,
-            },
-            ProductEvent::TaskDispatched {
-                execution_intent: Intent::Unspecified,
-            } => Event::TaskDispatched {
-                execution_intent: codeterm_analytics::ExecutionIntent::Unspecified,
-            },
-        };
-        let _ = worker.record_nowait(event);
-    })
-}
-pub(crate) fn mesh_observer(worker: Worker) -> Arc<dyn Fn() + Send + Sync> {
-    Arc::new(move || {
-        let _ = worker.record_nowait(Event::MeshPeerPaired {});
+pub(crate) fn mesh_observer(worker: Worker) -> Arc<dyn Fn(usize) + Send + Sync> {
+    Arc::new(move |machines| {
+        let _ = worker.record_nowait(Event::MeshPeerPaired {
+            mesh_machines: count(machines),
+        });
     })
 }
 pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObserver {
@@ -211,20 +145,10 @@ pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObser
                 subscription_event(plan, status)
             }
             codeterm_billing::ProductEvent::CheckoutStarted { plan } => Event::CheckoutStarted {
-                plan_key: billing_plan(plan),
+                plan: billing_plan(plan),
             },
         };
         let _ = worker.record_nowait(event);
-    })
-}
-pub(crate) fn frontend_event(
-    installation: codeterm_frontend_bundle::Installation,
-) -> Option<Event> {
-    Some(Event::UpdateInstalled {
-        from_version: Version::from_release(&installation.from_version)?,
-        to_version: Version::from_release(&installation.to_version)?,
-        kind: codeterm_analytics::UpdateKind::Frontend,
-        attempt_count: installation.attempt_count,
     })
 }
 pub(crate) fn billing_plan(plan: codeterm_billing::Plan) -> codeterm_analytics::PlanKey {

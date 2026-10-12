@@ -3,16 +3,17 @@ use std::{collections::HashSet, sync::Arc};
 
 pub struct PairingObserver {
     committed: Mutex<HashSet<String>>,
-    emit: Arc<dyn Fn() + Send + Sync>,
+    emit: Arc<dyn Fn(usize) + Send + Sync>,
 }
 impl PairingObserver {
-    pub fn new(peers: HashSet<String>, emit: Arc<dyn Fn() + Send + Sync>) -> Self {
+    pub fn new(peers: HashSet<String>, emit: Arc<dyn Fn(usize) + Send + Sync>) -> Self {
         Self {
             committed: Mutex::new(peers),
             emit,
         }
     }
     pub fn committed(&self, peers: HashSet<String>) {
+        let machines = peers.len().saturating_add(1);
         let count = {
             let mut committed = self.committed.lock();
             let count = peers.difference(&committed).count();
@@ -20,7 +21,7 @@ impl PairingObserver {
             count
         };
         for _ in 0..count {
-            (self.emit)();
+            (self.emit)(machines);
         }
     }
 }

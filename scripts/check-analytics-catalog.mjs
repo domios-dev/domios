@@ -8,15 +8,12 @@ const root = rootFlag >= 0 ? resolve(process.argv[rootFlag + 1]) : fileURLToPath
 const read = (path) => readFileSync(resolve(root, path), "utf8");
 const schema = JSON.parse(read("src-tauri/crates/codeterm-analytics/catalog.schema.json"));
 const providers = readdirSync(resolve(root, "plugins")).filter((id) => id.startsWith("provider-") && existsSync(resolve(root, `plugins/${id}/plugin.json`))).map((id) => JSON.parse(read(`plugins/${id}/plugin.json`))).sort((a,b) => a.id.localeCompare(b.id));
-// Registry model ids bound the vocabulary; unlisted plugin models collapse to unknown.
-const families = [...new Set(providers.flatMap((p) => (p.models ?? []).map((m) => m.id.replace(/\[.*\]$/, ""))))].sort();
 schema.enums.ProviderId = [...providers.map((p) => p.id), "other"];
-schema.enums.ModelFamily = [...families, "unknown"];
 const variant = (value) => value.split(/[^a-zA-Z0-9]+/).filter(Boolean).map((s) => s[0].toUpperCase() + s.slice(1)).join("");
 const quoted = (v) => JSON.stringify(v);
 let rust = 'use serde::{Deserialize, Serialize};\nuse super::Version;\n';
 for (const [name, values] of Object.entries(schema.enums)) {
-  rust += `#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]\npub enum ${name} {\n`;
+  rust += `#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]\npub enum ${name} {\n`;
   rust += values.map((v) => `#[serde(rename = ${quoted(v)})]\n${variant(v)},\n`).join("");
   rust += `}\nimpl ${name} { pub fn from_catalog(value: &str) -> Option<Self> { match value {\n`;
   rust += values.map((v) => `${quoted(v)} => Some(Self::${variant(v)}),\n`).join("");

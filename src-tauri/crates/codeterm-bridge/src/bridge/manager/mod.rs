@@ -161,6 +161,7 @@ impl BridgeManager {
                 Some(msg) = rx.recv() => {
                     // It is offered whole and unmerged: an answer is one event, and debouncing it into neighbouring text would paste the token into a tab instead of answering with it.
                     if msg.callback_data.as_deref().is_some_and(|data| tab.claim_channel_answer(data)) {
+                        tab.telegram_used();
                         log::info!("[bridge] inbound tap answered a notification");
                         continue;
                     }
@@ -194,7 +195,7 @@ impl BridgeManager {
                             inject_message(&tab, &merged_msg, &voice_cfg, &text_hooks_cfg).await
                         {
                             log::error!("[bridge] inject failed: {}", e);
-                        }
+                        } else { tab.telegram_used(); }
                     }
                 }
 
