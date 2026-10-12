@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Shield } from "lucide-react";
+import { PRODUCT_EVENT_CATALOG, PRODUCT_EVENT_ENUMS } from "../../lib/productAnalytics.generated";
 import { localJson } from "../../lib/webApi";
 import { SettingsCard, Toggle } from "./shared";
 import { analyticsEnabled, changeAnalyticsConsent, type AnalyticsStatus, type PrivacyApi } from "./privacyModel";
@@ -13,14 +14,12 @@ export function PrivacyTab() {
   const [status, setStatus] = useState<AnalyticsStatus | null>(null);
   const [error, setError] = useState(false);
   const [pending, setPending] = useState(false);
+  const [showCollection, setShowCollection] = useState(false);
   useEffect(() => {
     let active = true;
     api.status().then((value) => {
       if (!active) return;
       setStatus(value);
-      if (value.consent === "on") {
-        void localJson("POST", "/api/analytics/event", { event_type: "settings_opened", event_properties: { section: "privacy" } }).catch(() => {});
-      }
     }).catch(() => { if (active) setError(true); });
     return () => { active = false; };
   }, []);
@@ -36,6 +35,14 @@ export function PrivacyTab() {
 
   return <SettingsCard icon={<Shield size={16} />} title="Product analytics" description="Share feature usage; prompts, paths, names and terminal output are never collected.">
     <fieldset disabled={pending || !status}><Toggle label="Share product analytics" checked={analyticsEnabled(status)} onChange={(enabled) => { void change(enabled); }} /></fieldset>
+    <a href="#analytics-collection" onClick={() => setShowCollection(true)}>What we collect</a>
+    {showCollection && <section id="analytics-collection" aria-label="Analytics collection catalog">
+      <p>With your consent, Domios may send the following product events. Each event accepts only the listed properties and allowed values.</p>
+      <ul>{Object.entries(PRODUCT_EVENT_CATALOG).map(([event, properties]) => <li key={event}><code>{event}</code>: {Object.keys(properties).join(", ") || "no event properties"}</li>)}</ul>
+      <details><summary>Allowed property values</summary><ul>{Object.entries(PRODUCT_EVENT_ENUMS).map(([category, values]) => <li key={category}>{category}: {values.join(", ")}</li>)}</ul></details>
+      <p>Properties are limited to numeric app versions, platform and update channel, update kind and attempt count, tab kind, registered provider and model category, agent role and restore outcome, execution intent, authentication provider, and plan and subscription status. Each event also carries a random installation ID, event ID and timestamp. While signed in, events carry your account ID; signing out removes it from subsequent events.</p>
+      <p>We never collect prompts, messages, terminal output, names, paths, email addresses, session IDs or peer identities. Turning analytics off clears queued events and analytics identifiers and stops analytics network traffic. The installation ID is generated on opt-in and replaced after opting out and back in.</p>
+    </section>}
     {error && <p role="alert">Analytics settings could not be saved or loaded.</p>}
   </SettingsCard>;
 }

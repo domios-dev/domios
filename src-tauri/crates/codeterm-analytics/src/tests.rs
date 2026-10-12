@@ -16,9 +16,7 @@ impl TestDestination for Engine {
 }
 
 fn event() -> Event {
-    Event::SettingsOpened {
-        section: Section::Privacy,
-    }
+    Event::WorkspaceCreated {}
 }
 fn config() -> Config {
     Config {
@@ -87,6 +85,8 @@ fn catalog_rejects_unknown_events_properties_and_strings() {
     }
     let accepted = Event::AppStarted {
         version: Version::new(1, 2, 3),
+        platform: Platform::Macos,
+        update_channel: UpdateChannel::Stable,
     };
     assert_eq!(
         serde_json::from_value::<Event>(serde_json::to_value(&accepted).unwrap()).unwrap(),
@@ -104,8 +104,9 @@ fn batches_carry_insert_id_device_id_and_uid() {
     engine.enqueue(event(), 100).unwrap();
     engine
         .enqueue(
-            Event::TabCreated {
+            Event::TabOpened {
                 kind: TabKind::Agent,
+                provider_id: Some(ProviderId::Codex),
             },
             100,
         )
@@ -113,8 +114,8 @@ fn batches_carry_insert_id_device_id_and_uid() {
     let destination = server.mock("POST", "/2/httpapi")
         .match_header("content-type", "application/json")
         .match_body(mockito::Matcher::PartialJson(serde_json::json!({"api_key":"test-key","events":[
-            {"event_type":"settings_opened","event_properties":{"section":"privacy"},"insert_id":engine.state.queue[0].insert_id,"device_id":engine.state.device_id,"user_id":"firebase_uid","time":100},
-            {"event_type":"tab_created","event_properties":{"kind":"agent"},"insert_id":engine.state.queue[1].insert_id,"device_id":engine.state.device_id,"user_id":"firebase_uid","time":100}
+            {"event_type":"workspace_created","event_properties":{},"insert_id":engine.state.queue[0].insert_id,"device_id":engine.state.device_id,"user_id":"firebase_uid","time":100},
+            {"event_type":"tab_opened","event_properties":{"kind":"agent","provider_id":"codex"},"insert_id":engine.state.queue[1].insert_id,"device_id":engine.state.device_id,"user_id":"firebase_uid","time":100}
         ]}))).with_status(200).expect(1).create();
     engine.deliver(100).unwrap();
     engine.deliver(100).unwrap();
@@ -340,4 +341,78 @@ fn failed_opt_out_persistence_still_gates_delivery() {
     engine.deliver(0).unwrap();
     assert_eq!(engine.status().consent, Consent::Off);
     destination.assert();
+}
+
+#[test]
+fn catalog_every_event_rejects_extra_properties_and_unknown_enum_values() {
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../catalog.schema.json")).unwrap();
+    let enums = schema["enums"].as_object().unwrap();
+    for (name, fields) in schema["events"].as_object().unwrap() {
+        let mut properties = serde_json::Map::new();
+        for (field, kind) in fields.as_object().unwrap() {
+            let kind = kind.as_str().unwrap();
+            let value = match kind {
+                "Version" => serde_json::json!("1.2.3"),
+                "u32" => serde_json::json!(1),
+                "ProviderId" | "Option<ProviderId>" => serde_json::json!("codex"),
+                "ModelFamily" => serde_json::json!("unknown"),
+                _ => enums[kind][0].clone(),
+            };
+            properties.insert(field.clone(), value);
+        }
+        let payload = serde_json::json!({"event_type":name,"event_properties":properties});
+        let event = serde_json::from_value::<Event>(payload.clone()).unwrap();
+        assert_eq!(serde_json::to_value(event).unwrap(), payload);
+        let mut extra = payload.clone();
+        extra["event_properties"]["private"] = serde_json::json!("private");
+        assert!(
+            serde_json::from_value::<Event>(extra).is_err(),
+            "extra field accepted by {name}"
+        );
+        for (field, _) in fields.as_object().unwrap() {
+            let mut invalid = payload.clone();
+            invalid["event_properties"][field] = serde_json::json!("private");
+            assert!(
+                serde_json::from_value::<Event>(invalid).is_err(),
+                "untyped field accepted by {name}.{field}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn catalog_worker_identity_follows_sign_in_opt_in_and_sign_out() {
+    use std::sync::{Arc, Mutex};
+    let dir = tempfile::tempdir().unwrap();
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let worker = Worker::start_with_sink(
+        dir.path().join("analytics-settings.json"),
+        config(),
+        Box::new(sinks::fake::Fake {
+            recording: recording.clone(),
+        }),
+    )
+    .unwrap();
+    worker
+        .set_user_id(Some("account-uid".into()))
+        .await
+        .unwrap();
+    assert!(!worker.status().await.unwrap().has_user_id);
+    assert!(!worker.record(event()).await.unwrap());
+    worker.flush().await.unwrap();
+    assert!(recording.lock().unwrap().batches.is_empty());
+    worker.set_consent(Consent::On).await.unwrap();
+    worker.record(event()).await.unwrap();
+    worker.flush().await.unwrap();
+    worker.set_user_id(None).await.unwrap();
+    worker.record(Event::PlanCreated {}).await.unwrap();
+    worker.flush().await.unwrap();
+    let recording = recording.lock().unwrap();
+    let events: Vec<_> = recording.batches.iter().flatten().collect();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].event, Event::AnalyticsOptedIn {});
+    assert_eq!(events[0].user_id.as_deref(), Some("account-uid"));
+    assert_eq!(events[1].user_id.as_deref(), Some("account-uid"));
+    assert_eq!(events[2].user_id, None);
 }

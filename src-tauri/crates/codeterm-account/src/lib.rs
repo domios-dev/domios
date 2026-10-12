@@ -87,6 +87,10 @@ pub trait CredentialStore: Send + Sync {
     async fn delete(&self, provider: &str) -> Result<()>;
 }
 #[async_trait]
+pub trait IdentityObserver: Send + Sync {
+    async fn changed(&self, identity: Option<&Identity>);
+}
+#[async_trait]
 pub trait Browser: Send + Sync {
     async fn open(&self, url: &url::Url) -> Result<()>;
 }
