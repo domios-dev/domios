@@ -234,7 +234,7 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_release_input_prebuilds_app_and_embed_bins_together(self):
         build = (ROOT / "build.sh").read_text(encoding="utf-8")
         self.assertIn('cargo_target_args=(--target "$CARGO_BUILD_TARGET")', build)
-        self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings}"', build)
+        self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol"', build)
         self.assertIn("--bin codeterm --bin codeterm-embed", build)
 
     def test_linux_and_windows_keep_the_release_build_contract(self):

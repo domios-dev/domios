@@ -2,15 +2,16 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const bridge = readFileSync(resolve(process.cwd(), "src/lib/bridge.ts"), "utf8");
+const tabsTransport = readFileSync(resolve(process.cwd(), "src/lib/transport/tabs.ts"), "utf8");
+const orchestrationTransport = readFileSync(resolve(process.cwd(), "src/lib/transport/orchestration.ts"), "utf8");
 const sidebar = readFileSync(resolve(process.cwd(), "src/components/Sidebar/Sidebar.tsx"), "utf8");
 const multiplexer = readFileSync(resolve(process.cwd(), "src/store/multiplexer/index.tsx"), "utf8");
 
 describe("confirmed close UI contracts", () => {
-  it("posts force and the exact target confirmation for web workspace and Team closes", () => {
-    expect(bridge).toMatch(/mux_close_workspace:[\s\S]*?force: a\.force === true,[\s\S]*?confirm: s\(a, "workspaceId"\)/);
-    expect(bridge).toMatch(
-      /mux_close_team:[\s\S]*?\{ force: true, confirm: s\(a, "teamId"\), force_busy: a\.forceBusy === true \}/,
+  it("posts force and the exact target confirmation for workspace and Team closes", () => {
+    expect(tabsTransport).toMatch(/mux_close_workspace:[\s\S]*?force: a\.force === true,[\s\S]*?confirm: s\(a, "workspaceId"\)/);
+    expect(orchestrationTransport).toMatch(
+      /mux_close_team:[\s\S]*?\{ force: true, confirm: args\.teamId, force_busy: args\.forceBusy === true,/,
     );
   });
 
