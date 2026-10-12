@@ -13,11 +13,47 @@ Entitlement changes require a reason and an existing user. A transaction replace
 
 ## Vercel
 
-Create a Next.js Vercel project with root directory cloud/admin, Node 22+, install command npm ci and build command npm run build. Copy .env.example values into the project environment for preview and production. ADMIN_SERVICE_ACCOUNT is a server secret; never give it a NEXT_PUBLIC prefix. The three NEXT_PUBLIC_AUTH values are the browser's public Auth configuration. ADMIN_PLANS is the comma-separated allowlist of manual plan ids; match the billing plan configuration.
+Create a Next.js Vercel project with root directory cloud/admin, Node 22, install command npm ci and build command npm run build. Copy .env.example values into the project environment for preview and production. ADMIN_SERVICE_ACCOUNT is a server secret; never give it a NEXT_PUBLIC prefix. The three NEXT_PUBLIC_AUTH values are the browser's public Auth configuration. ADMIN_PLANS is the comma-separated allowlist of manual plan ids; match the billing plan configuration.
 
 Set ADMIN_ORIGIN to the exact HTTPS deployment origin for each environment. For a generated preview URL, set it to that URL before testing, or omit it to require the origin of the incoming request. Add the deployment domain to Auth's authorized domains. Leave ADMIN_PROVIDER=firebase; local and fake providers are refused whenever VERCEL is set or NODE_ENV is production. Cookies always use __Host-admin, HttpOnly, Secure, SameSite=Lax, Path=/ and no Domain. Session creation and deletion also require a same-origin Origin header; Next.js server actions apply their origin protection and independently verify the session.
 
 No deployment is performed by npm scripts. The owner must supply the project credentials and Vercel access.
+
+### Deployed project
+
+The Vercel project is `domios-admin` in `gandry90-3616s-projects`, project ID
+`prj_4Fezu4C4VYFn6NbqjG8VN06vIKcj`. Its root is `cloud/admin`, framework is
+Next.js, Node version is `22.x`, install command is `npm ci`, and build command
+is `npm run build`. Deploy from the repository root after linking this project.
+The root login page is public; user pages and APIs still require an admin session.
+
+Configured in both Preview and Production: `ADMIN_PROVIDER`, `ADMIN_PROJECT_ID`,
+`ADMIN_PLANS`, `NEXT_PUBLIC_AUTH_API_KEY`, `NEXT_PUBLIC_AUTH_DOMAIN`, and
+`NEXT_PUBLIC_AUTH_PROJECT_ID`. The Firebase project is `domios-d9357`.
+`ADMIN_ORIGIN` is omitted so same-origin checks use the incoming HTTPS origin.
+Confirm the manual plan allowlist against the billing configuration before grants.
+
+The server credential is `ADMIN_SERVICE_ACCOUNT`. The owner must create the
+shared Bitwarden entry `domios-firebase-admin-sa`; on BLACKSTAR, pipe its value
+directly into `vercel env add ADMIN_SERVICE_ACCOUNT` for Preview and Production
+using stdin, then redeploy. Never put the credential in shell arguments, source,
+deployment logs, or reports. The initial deployment has no service credential.
+Blaze/Firestore setup, authorized Auth domains, and first-admin bootstrap must
+be completed before the authenticated search and persisted grant/revoke check.
+
+Verified Node 22 preview: `https://domios-admin-53hamj6qt-gandry90-3616s-projects.vercel.app`.
+Production alias: `https://domios-admin.vercel.app`.
+Production deployment: `https://domios-admin-1nvq1d5sm-gandry90-3616s-projects.vercel.app`.
+Vercel project: <https://vercel.com/gandry90-3616s-projects/domios-admin>.
+The first deployment was automatically assigned to Production by Vercel;
+subsequent previews must explicitly use `--target preview`.
+
+The preview and production login pages load over HTTPS with status 200. A signed-out
+`GET /api/users?q=x` returns 403 with `{"error":"Admin access required"}` and
+no user data. The deployment build succeeds, 30 focused unit/request/action/local
+tests pass, and route generation plus TypeScript checking pass. Authenticated
+search and the two persisted `adminAudit` entries from grant/revoke remain
+unverified until the owner setup and credential gates above are complete.
 
 ## Account-free development
 
