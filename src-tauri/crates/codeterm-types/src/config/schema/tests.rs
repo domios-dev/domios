@@ -556,3 +556,15 @@ desktop = false
         "an unanswered row writes no sound key: {rows_only}"
     );
 }
+
+#[test]
+fn general_agent_capability_hints_defaults_on_and_round_trips_off() {
+    assert!(super::GeneralAgentConfig::default().capability_hints);
+    let missing: super::GeneralAgentConfig = toml::from_str("").unwrap();
+    assert!(missing.capability_hints);
+    let disabled: super::GeneralAgentConfig = toml::from_str("capability_hints = false").unwrap();
+    assert!(!disabled.capability_hints);
+    let restored: super::GeneralAgentConfig =
+        toml::from_str(&toml::to_string(&disabled).unwrap()).unwrap();
+    assert!(!restored.capability_hints);
+}
