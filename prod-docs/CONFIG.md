@@ -233,31 +233,8 @@ Codex structured control is enabled by default in 1.12.4. The provider declares 
 ## Related documents
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider CLI updates run silently on the production instance when its provider has no active turn. Running agents are never restarted; the new CLI applies at their next launch. Results appear in logs and Settings. Disable automatic updates with `updater.auto_update_provider_clis = false` (default: true). Named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`. Declared-incompatible targets are withheld; an updater with declared breaking ranges must pin a supported target.
-
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `codeterm plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
 
-## Product analytics
+Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store and holds the queue while it is missing. Every sink shares the consent gate, the closed catalog (feature enums, counts, durations, booleans, numeric versions; never paths, prompts, names or terminal output), the persisted queue and the bounded retry policy.
 
-Product analytics is off by default. Settings > Privacy records opt-in consent;
-turning it off clears queued events and installation/account identifiers.
-The daemon stores these settings separately in `analytics-settings.json`.
-
-```bash
-codeterm analytics status
-codeterm analytics enable
-codeterm analytics disable
-```
-
-`DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs), or
-`amplitude`. Console mode works without an external account. Each sink shares
-the consent gate, closed event catalog, persisted queue and bounded retry policy.
-`DOMIOS_AMPLITUDE_SERVER_ZONE` selects `us` (default) or `eu`;
-`DOMIOS_ANALYTICS_PROJECT` selects `test` (default) or `prod`.
-Set environment configuration before starting the daemon.
-The HTTP adapter reads `domios.amplitude.test.api_key` or
-`domios.amplitude.prod.api_key` from the active secret store. A missing credential
-holds the queue until a new event, consent change or identity change wakes delivery.
-Only feature enums, counts, durations, booleans and numeric version strings are
-accepted; paths, prompts, names and terminal output cannot be event properties.
-
-<!-- revision: 110 -->
+<!-- revision: 111 -->

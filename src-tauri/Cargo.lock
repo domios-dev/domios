@@ -1097,6 +1097,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clipboard-win",
+ "codeterm-analytics",
  "codeterm-bridge",
  "codeterm-frontend-bundle",
  "codeterm-mem",
@@ -1177,6 +1178,20 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "codeterm-analytics"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "mockito",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

@@ -231,6 +231,22 @@ Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm analytics`
+
+Manage local opt-in product analytics
+
+#### `codeterm analytics disable`
+
+Record opt-out consent and clear queued events and identifiers
+
+#### `codeterm analytics enable`
+
+Record opt-in consent and create an installation identifier
+
+#### `codeterm analytics status`
+
+Show recorded consent, queue size and delivery counters
+
 #### `codeterm blueprint`
 
 Cheap hash-gated watchers with closed-set routes
