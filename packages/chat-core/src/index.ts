@@ -188,3 +188,5 @@ export {
 
 export { parseLocalArtifactDirective, localArtifactTextParts } from "./localArtifactDirective";
 export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";
+
+export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";

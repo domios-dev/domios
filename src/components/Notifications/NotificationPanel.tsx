@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { RichMarkdown } from "@codeterm/chat-ui";
+import { NotificationBody } from "./NotificationBody";
 import type { Notification } from "../../lib/types";
 import { runNotificationAction } from "../../lib/notificationActions";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
@@ -166,7 +166,7 @@ export function NotificationPanel({
                           overscrollBehavior: "contain",
                         }}
                       >
-                        <RichMarkdown text={notif.body} />
+                        <NotificationBody text={notif.body} tabId={notif.tab_id} />
                       </div>
                     )}
                   </>
