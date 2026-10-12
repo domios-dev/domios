@@ -30,6 +30,16 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-codex/src/toolOutput.ts
+function codexToolOutputText(output) {
+  if (typeof output === "string") return output;
+  if (output == null) return "";
+  if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
+    return output.map((item) => item.text).join("");
+  }
+  return typeof output === "object" ? JSON.stringify(output) : String(output);
+}
+
 // plugins/provider-shared/accessError.ts
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -1773,7 +1783,6 @@ function pairFileChange(activity, turnId, pending) {
 }
 
 // plugins/provider-codex/src/userContent.ts
-var INLINE_DATA_LIMIT = 1e5;
 var OPEN_TAG = /^<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>$/;
 var INLINE_IMAGE = /<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>[\s\S]*?<\/image>/g;
 var CLOSE_TAG = /^<\/image>$/;
@@ -1798,8 +1807,7 @@ function imageFromTag(name, rawPath) {
 function withDataUrl(image, url) {
   const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url ?? "");
   if (!match) return image;
-  const inline = !image.path && match[2].length < INLINE_DATA_LIMIT ? match[2] : null;
-  return { ...image, mediaType: match[1], data: inline };
+  return { ...image, mediaType: match[1], data: match[2] };
 }
 function extractInlineImages(text5, images) {
   return text5.replace(INLINE_IMAGE, (_whole, name, path) => {
@@ -4436,21 +4444,6 @@ function sessionIntentFromPayload(payload) {
     ...title ? { title } : {},
     ...goal ? { goal } : {}
   };
-}
-function codexToolOutputText(output) {
-  if (typeof output === "string") return output;
-  if (Array.isArray(output)) {
-    const text5 = [];
-    for (let i = 0; i < output.length; i++) {
-      const item = output[i];
-      if (item && typeof item === "object" && typeof item.text === "string") {
-        text5.push(item.text);
-      }
-    }
-    if (text5.length > 0) return text5.join("");
-  }
-  if (output == null) return "";
-  return typeof output === "object" ? JSON.stringify(output) : String(output);
 }
 function validateEntry(v) {
   return isValidCodexSessionDelta(v);
