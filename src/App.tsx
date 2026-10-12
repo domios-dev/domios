@@ -234,11 +234,14 @@ function AppInner() {
   } = useMultiplexer();
   const state = useMuxState();
   const larkCapture = useLocalRecordingCapture({ tabs: state.tabs });
+  // The capture listener's readiness promise lives for the hook's lifetime; readiness is reported once.
+  const larkReadyRef = useRef(larkCapture.ready);
+  larkReadyRef.current = larkCapture.ready;
   useEffect(() => {
     if (!IS_WEB) {
       void (async () => {
         frontendBootDiagnostic("ready-request");
-        await larkCapture.ready;
+        await larkReadyRef.current;
         const generation = await invoke<number>("frontend_readiness_generation");
         const accepted = await invoke<boolean>("frontend_ready", { generation });
         frontendBootDiagnostic(accepted ? "ready-accepted" : "ready-rejected");
@@ -248,7 +251,7 @@ function AppInner() {
         console.warn("Unable to report frontend readiness", error);
       });
     }
-  }, [larkCapture.ready]);
+  }, []);
   useFrontendApp({
     generation: state.generation,
     workspaceId: state.active_workspace_id,
