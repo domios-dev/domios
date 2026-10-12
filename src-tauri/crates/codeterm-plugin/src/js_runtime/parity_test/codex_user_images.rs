@@ -1,5 +1,5 @@
 //! A Codex pasted-image turn (`<image name=[Image #N] path="...">`, `input_image`, `</image>`)
-//! must flatten to one user row whose attachment carries the local path.
+//! must flatten to one user row whose attachment carries the local path and the supplied bytes.
 
 use super::*;
 use crate::rich_to_chat::rich_to_chat_msgs;
@@ -55,7 +55,7 @@ fn codex_pasted_image_turn_flattens_to_one_user_row_with_a_path_attachment() {
     assert_eq!(attachments.len(), 1);
     assert_eq!(attachments[0].mime_type, "image/png");
     assert_eq!(attachments[0].path.as_deref(), Some(PASTED));
-    assert_eq!(attachments[0].data, None);
+    assert_eq!(attachments[0].data.as_deref(), Some("iVBORw0KGgo="));
 }
 
 #[test]
