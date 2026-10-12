@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,7 +17,7 @@ function run(command, args, cwd) {
 }
 
 async function makeDiffFixture(t, changedPath) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "codeterm-affected-tests-"));
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "codeterm-affected-tests-")));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await mkdir(path.join(directory, "src-tauri", "src"), { recursive: true });
   await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "src"), { recursive: true });
@@ -29,7 +29,7 @@ async function makeDiffFixture(t, changedPath) {
   await mkdir(path.join(directory, "packages"), { recursive: true });
 
   await writeFile(path.join(directory, "src-tauri", "Cargo.toml"), `[workspace]
-members = [".", "crates/codeterm-plugin"]
+members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle"]
 resolver = "2"
 
 [package]
@@ -48,6 +48,13 @@ version = "0.1.0"
 edition = "2021"
 `);
   await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "src", "lib.rs"), "pub fn plugin() {}\n");
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-frontend-bundle", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-frontend-bundle", "Cargo.toml"), `[package]
+name = "codeterm-frontend-bundle"
+version = "0.1.0"
+edition = "2021"
+`);
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-frontend-bundle", "src", "lib.rs"), "pub fn bundle() {}\n");
   await writeFile(path.join(directory, "cli", "Cargo.toml"), `[package]
 name = "codeterm-cli"
 version = "0.1.0"
@@ -101,4 +108,11 @@ test("maps a prompt diff to the prompt contract suite", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/prompts/launch.md");
   const output = mapFixture(fixture.directory, fixture.base);
   assert.match(output, /\.\/build\.sh nextest app 'test\(\/\^prompts::tests::\/\)'/);
+});
+
+test("maps bundle crate changes to its supported scope and reverse dependents", async (t) => {
+  const fixture = await makeDiffFixture(t, "src-tauri/crates/codeterm-frontend-bundle/src/activation.rs");
+  const output = mapFixture(fixture.directory, fixture.base);
+  assert.match(output, /\.\/build\.sh nextest frontend-bundle 'rdeps\(codeterm-frontend-bundle\)'/);
+  assert.match(output, /Cost: 1 codeterm-frontend-bundle compile/);
 });

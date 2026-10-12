@@ -1,7 +1,7 @@
-use crate::frontend_bundle::FrontendBundles;
 use crate::frontend_bundle_api_version::{
     API_VERSION, BUNDLED_FRONTEND_VERSION, FRONTEND_PUBLIC_KEY,
 };
+use codeterm_frontend_bundle::FrontendBundles;
 use std::sync::Arc;
 
 const DISCOVERY_URL: &str = "https://github.com/rollacode/codeterm-releases/releases/download/frontend-latest/frontend-manifest.json";
