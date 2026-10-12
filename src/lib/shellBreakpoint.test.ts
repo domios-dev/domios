@@ -1,3 +1,4 @@
+import { sidebarDrawerLayout } from "../components/Sidebar/sidebarDrawerLayout";
 import assert from "node:assert/strict";
 import { SHELL_NARROW_MAX_PX, SHELL_NARROW_QUERY, SHELL_WIDE_QUERY } from "./shellBreakpoint";
 import {
@@ -13,6 +14,7 @@ import {
 
 const globals = repoFile("src/styles/globals.css");
 const app = repoFile("src/App.tsx");
+const drawerSource = repoFile("src/components/Sidebar/SidebarDrawer.tsx");
 const sidebar = repoFile("src/components/Sidebar/Sidebar.tsx");
 
 const NARROW_VARIANT = customVariantQuery(globals, "shell-narrow");
@@ -46,15 +48,14 @@ function main() {
   // The shell utilities are the scoped variants, never Tailwind's rem-based `sm`.
   const backdrop = classAttributeContaining(app, "ct-sidebar-backdrop");
   assert.ok(backdrop.includes("shell-wide:hidden"), "the backdrop does not use shell-wide:hidden");
-  const drawer = classAttributeContaining(app, "ct-sidebar-drawer");
-  for (const utility of [
-    "shell-narrow:fixed",
-    "shell-narrow:inset-y-0",
-    "shell-narrow:left-0",
-    "shell-narrow:z-40",
-  ]) {
-    assert.ok(drawer.includes(utility), `the drawer does not use ${utility}`);
-  }
+  const drawer = classAttributeContaining(drawerSource, "ct-sidebar-drawer");
+  assert.deepEqual(sidebarDrawerLayout(false), {});
+  const phoneDrawer = sidebarDrawerLayout(true);
+  assert.equal(phoneDrawer.position, "absolute");
+  assert.equal(phoneDrawer.top, 0);
+  assert.equal(phoneDrawer.bottom, 0);
+  assert.equal(phoneDrawer.left, 0);
+  assert.equal(phoneDrawer.zIndex, 40);
   const handle = classAttributeContaining(sidebar, "ct-sidebar-grip");
   assert.ok(handle.includes("shell-narrow:hidden"), "the resize handle does not use shell-narrow:hidden");
   for (const [name, line] of [["backdrop", backdrop], ["drawer", drawer], ["resize handle", handle]] as const) {

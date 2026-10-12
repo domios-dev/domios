@@ -138,7 +138,8 @@ impl PsuedoCon {
         };
         log::debug!(
             "[conpty] CreatePseudoConsole flags=0x{:x} HRESULT=0x{:08x}",
-            base_flags, result as u32,
+            base_flags,
+            result as u32,
         );
         ensure!(
             result == S_OK,

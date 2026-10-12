@@ -18,6 +18,12 @@ impl ServiceContext {
         mut payload: AgentDeliveryPayload,
         visible_text: &str,
     ) -> Result<Delivery, String> {
+        let resolved = self
+            .mux
+            .read()
+            .resolve_tab_id(target)
+            .ok_or_else(|| format!("Tab {target} not found"))?;
+        let target = resolved.as_str();
         if crate::paths::is_dev_instance() && payload.trace_id.is_none() {
             let id = crate::flow_trace::tab_flow(self, target)
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -25,7 +31,7 @@ impl ServiceContext {
             payload.trace_id = Some(id);
         }
         let pty_claim = self.pty_ownership.acquire(target);
-        self.pin_agent_delivery_binding(target, &mut payload)?;
+        self.pin_agent_delivery_binding(&pty_claim, &mut payload)?;
         let encoded = serde_json::to_string(&payload)
             .map_err(|_| "agent delivery payload serialization failed")?;
         let idempotency_key = self.agent_delivery_idempotency_key(&payload);

@@ -1,6 +1,6 @@
 use super::*;
 
-const MAX_RECEIPTS: usize = 256;
+pub(super) const MAX_RECEIPTS: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ReceiptState {

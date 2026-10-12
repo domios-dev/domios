@@ -18,6 +18,8 @@ use super::routes::AppState;
 const WINDOW: Duration = Duration::from_secs(60);
 const REQUESTS_PER_WINDOW: usize = 120;
 const MAX_BATCH: usize = 128;
+// A burst of previews in one reply queues for a permit; the deadline only bounds a stuck read.
+const PERMIT_DEADLINE: Duration = Duration::from_secs(10);
 
 pub(super) struct Admission {
     window: Mutex<(Instant, usize)>,
@@ -34,7 +36,7 @@ impl Default for Admission {
 }
 
 impl Admission {
-    fn admit(&self, now: Instant) -> Result<OwnedSemaphorePermit, StatusCode> {
+    fn count(&self, now: Instant) -> Result<(), StatusCode> {
         let mut window = self.window.lock();
         if now.saturating_duration_since(window.0) >= WINDOW {
             *window = (now, 0);
@@ -42,13 +44,24 @@ impl Admission {
         if window.1 >= REQUESTS_PER_WINDOW {
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
-        let permit = self
-            .active
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
         window.1 += 1;
-        Ok(permit)
+        Ok(())
+    }
+
+    async fn admit_within(
+        &self,
+        now: Instant,
+        deadline: Duration,
+    ) -> Result<OwnedSemaphorePermit, StatusCode> {
+        self.count(now)?;
+        tokio::time::timeout(deadline, self.active.clone().acquire_owned())
+            .await
+            .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?
+            .map_err(|_| StatusCode::TOO_MANY_REQUESTS)
+    }
+
+    async fn admit(&self, now: Instant) -> Result<OwnedSemaphorePermit, StatusCode> {
+        self.admit_within(now, PERMIT_DEADLINE).await
     }
 }
 
@@ -91,7 +104,7 @@ pub(super) async fn read(
     Extension(admission): Extension<Arc<Admission>>,
     Json(body): Json<ReadBody>,
 ) -> Response {
-    let permit = match admission.admit(Instant::now()) {
+    let permit = match admission.admit(Instant::now()).await {
         Ok(permit) => permit,
         Err(status) => return status.into_response(),
     };
@@ -119,7 +132,7 @@ pub(super) async fn check(
     if body.paths.len() > MAX_BATCH {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    let permit = match admission.admit(Instant::now()) {
+    let permit = match admission.admit(Instant::now()).await {
         Ok(permit) => permit,
         Err(status) => return status.into_response(),
     };

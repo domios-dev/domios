@@ -4,18 +4,19 @@ use crate::service::{delivery_error::DeliveryError, ServiceContext};
 impl ServiceContext {
     pub(crate) fn pin_agent_delivery_binding(
         &self,
-        tab_id: &str,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
         payload: &mut crate::service::messenger::AgentDeliveryPayload,
     ) -> Result<(), String> {
+        let tab_id = claim.tab_id();
         let restored = {
             let mux = self.mux.read();
             mux.resolve_tab_id(tab_id)
                 .and_then(|id| mux.get_tab(&id))
                 .filter(|tab| tab.restored_from_snapshot && !tab.agent_booting)
-                .map(|tab| tab.id.clone())
+                .is_some()
         };
-        if let Some(restored) = restored {
-            self.materialize_restored_agent_for_send(&restored)?;
+        if restored {
+            self.materialize_restored_agent_with_claim(claim)?;
         }
         let binding = self
             .queued_agent_binding(tab_id)

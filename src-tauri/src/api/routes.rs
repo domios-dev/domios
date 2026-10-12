@@ -111,20 +111,23 @@ pub fn create_router_with_frontend(
     state: AppState,
     bundles: Option<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>,
 ) -> Router {
-    let preview_admission = super::local_preview_routes::admission();
+    // Separate budgets: the Documents existence probe re-runs while a reply streams and
+    // must never starve the preview reads that render content.
+    let preview_read_admission = super::local_preview_routes::admission();
+    let preview_check_admission = super::local_preview_routes::admission();
     let router = Router::new()
         .route(
             "/api/tabs/{id}/preview/read",
             super::local_preview_routes::bounded(
                 post(super::local_preview_routes::read),
-                &preview_admission,
+                &preview_read_admission,
             ),
         )
         .route(
             "/api/tabs/{id}/preview/check",
             super::local_preview_routes::bounded(
                 post(super::local_preview_routes::check),
-                &preview_admission,
+                &preview_check_admission,
             ),
         )
         .route("/api/health", get(health_routes::health))

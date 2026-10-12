@@ -3,8 +3,9 @@
   let context;
   try { context = JSON.parse(sessionStorage.getItem(storageKey) || "null"); } catch { return; }
   if (!context || !context.ticket || !context.apiOrigin || !context.token) return;
-  const origin = new URL(context.apiOrigin).origin;
-  if (origin !== location.origin) return;
+  const api = new URL(context.apiOrigin);
+  if (!["http:", "https:"].includes(api.protocol)) return;
+  const origin = api.origin;
   const ticket = context.ticket;
   if (!location.pathname.includes(`/frontend/${ticket.releaseId}/`)) return;
   const headers = { Authorization: `Bearer ${context.token}`, "Content-Type": "application/json" };

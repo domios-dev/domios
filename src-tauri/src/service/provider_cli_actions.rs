@@ -140,14 +140,14 @@ pub(crate) fn launch_with_dispatch(
             }
             .into(),
         ),
-        description: Some(format!(
+        description: Some(fit_tab_description(&format!(
             "{} CLI for {provider}{}",
             operation.label(),
             prerequisite_hint
                 .as_ref()
                 .map(|hint| format!("; {hint}"))
                 .unwrap_or_default()
-        )),
+        ))),
         ..Default::default()
     })?;
     let tab_id = handle.tab_id;
@@ -183,7 +183,10 @@ pub(crate) fn launch_with_dispatch(
         let _ = tokio::task::spawn_blocking(move || {
             let status = super::provider_cli::provider_cli_status(&service.provider_registry, &provider, platform).ok();
             let summary = completion_summary(&provider, operation, completion, status.as_ref());
-            let _ = service.mux.write().set_tab_description(&monitor_tab, Some(summary.clone()));
+            let _ = service
+                .mux
+                .write()
+                .set_tab_description(&monitor_tab, Some(fit_tab_description(&summary)));
             service.emit_state_changed();
             crate::api::events::emit_everywhere(&service.app_handle, "provider-cli-completed", serde_json::json!({
                 "provider": provider, "operation": operation, "tab_id": monitor_tab,
@@ -237,9 +240,39 @@ fn completion_summary(
     summary
 }
 
+// The full guidance stays in the launch warnings and the completion report.
+fn fit_tab_description(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let limit = super::MAX_TAB_DESCRIPTION_CHARS;
+    if flat.chars().count() <= limit {
+        return flat;
+    }
+    let mut fitted: String = flat.chars().take(limit - 1).collect();
+    fitted.push('…');
+    fitted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_long_install_hint_still_fits_the_tab_description() {
+        let long = format!(
+            "Install CLI for fixture; {}",
+            "needs a runner first. ".repeat(20)
+        );
+        let fitted = fit_tab_description(&long);
+        assert!(super::super::normalize_tab_description(&fitted).is_ok());
+        assert_eq!(
+            fitted.chars().count(),
+            super::super::MAX_TAB_DESCRIPTION_CHARS
+        );
+        assert_eq!(
+            fit_tab_description("Install CLI for fixture"),
+            "Install CLI for fixture"
+        );
+        assert_eq!(fit_tab_description("two\nlines"), "two lines");
+    }
     #[test]
     fn completion_routes_shells_to_records_and_agents_to_reports() {
         assert_eq!(completion_route(None, false), CompletionRoute::SystemLog);

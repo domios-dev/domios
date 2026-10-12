@@ -26,12 +26,14 @@ function row(id: string, content: string): NormalizedChatMessage {
 }
 
 interface Binding {
-  sessionId: string;
-  nonce: string;
+  sessionId: string | null;
+  nonce: string | null;
 }
 
 class FakeChatServer {
   handler: ChatHandler | null = null;
+  statusHandler: ChatHandler | null = null;
+  statuses: import("./chatSendStatus").ChatSendStatus[] = [];
   starts: string[] = [];
   stops: string[] = [];
   live = new Set<string>();
@@ -45,7 +47,12 @@ class FakeChatServer {
     __setInvokeForTest: (fn: unknown) => void;
     __setListenForTest: (fn: unknown) => void;
   }): void {
-    bridge.__setListenForTest(async (_event: string, next: ChatHandler) => {
+    bridge.__setListenForTest(async (event: string, next: ChatHandler) => {
+      if (event === "chat-send-status") {
+        this.statusHandler = next;
+        return () => { if (this.statusHandler === next) this.statusHandler = null; };
+      }
+      if (event !== "tab-chat-msg-tab") return () => {};
       this.handler = next;
       return () => {
         if (this.handler === next) this.handler = null;
@@ -55,18 +62,19 @@ class FakeChatServer {
       if (command === "chat_start") {
         const subscriptionId = String(args.subscriptionId ?? "");
         this.starts.push(subscriptionId);
-        this.live.add(subscriptionId);
+        if (this.binding.sessionId != null) this.live.add(subscriptionId);
         return {
           text: "",
           start_offset: this.ranged ? 0 : undefined,
           offset: this.ranged ? this.offset : 0,
-          pending: false,
+          pending: this.binding.sessionId == null,
           messages: [...this.transcript],
           source_session_id: this.binding.sessionId,
           session_binding_nonce: this.binding.nonce,
-          subscription_id: subscriptionId,
+          subscription_id: this.binding.sessionId == null ? null : subscriptionId,
         };
       }
+      if (command === "chat_send_status") return this.statuses;
       if (command === "chat_stop") {
         const subscriptionId = String(args.subscriptionId ?? "");
         this.stops.push(subscriptionId);
@@ -109,12 +117,16 @@ async function flush(): Promise<void> {
   });
 }
 
-async function runVariant(ranged: boolean): Promise<void> {
-  const label = ranged ? "ranged" : "unranged";
+async function runVariant(ranged: boolean, held: boolean): Promise<void> {
+  const label = `${ranged ? "ranged" : "unranged"}, held=${held}`;
   const bridge = await import("../../lib/bridge");
   const { useChatSession } = await import("./useChatSession");
   const { clearTranscriptWindows } = await import("./transcriptStore");
+  const { addChatSend, readChatSends, forgetChatSendsInMemory } = await import("./chatSendStore");
+  const { deliveryState } = await import("./chatDeliveryModel");
   clearTranscriptWindows();
+  window.localStorage.clear();
+  forgetChatSendsInMemory();
 
   const scheduled: string[] = [];
   const realSetTimeout = globalThis.setTimeout;
@@ -138,9 +150,10 @@ async function runVariant(ranged: boolean): Promise<void> {
   const server = new FakeChatServer(ranged);
   server.transcript = [row("s-1", "old session history")];
   server.install(bridge as never);
+  if (held) for (const id of ["one", "two"]) addChatSend("tab", { id, correlationId: id, content: id, sentAtMs: 1 });
 
   let view: NormalizedChatMessage[] = [];
-  function Harness({ sid, nonce }: { sid: string; nonce: string }) {
+  function Harness({ sid, nonce }: { sid: string | null; nonce: string | null }) {
     const session = useChatSession({
       tabId: "tab",
       agentSessionId: sid,
@@ -153,7 +166,7 @@ async function runVariant(ranged: boolean): Promise<void> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root: Root = createRoot(host);
-  const render = async (sid: string, nonce: string) => {
+  const render = async (sid: string | null, nonce: string | null) => {
     await act(async () => {
       root.render(createElement(Harness, { sid, nonce }));
     });
@@ -163,7 +176,17 @@ async function runVariant(ranged: boolean): Promise<void> {
   const staleSubscription = server.starts[server.starts.length - 1] ?? "";
   assert(view.some((m) => m.content === "old session history"), `${label}: first binding renders`);
 
-  // The tab rebinds; the server's new session has its own transcript.
+  server.rebind({ sessionId: null, nonce: "nonce-2" }, []);
+  await render(null, "nonce-2");
+  if (held) {
+    server.statuses = ["one", "two"].map((id, sequence) => ({ send_id: id, tab_id: "tab",
+      correlationId: id, ledger_id: "ledger", sequence, retained_from: 0,
+      state: "failed", error: "launch_ended_before_write" }));
+    await act(async () => {
+      for (const status of server.statuses) server.statusHandler?.({ payload: status });
+    });
+    assert(readChatSends("tab").every((send) => deliveryState(send) === "failed"), `${label}: failures apply on their event before fresh readiness`);
+  }
   const fresh: Binding = { sessionId: "sid-2", nonce: "nonce-2" };
   server.rebind(fresh, [row("n-1", "new session history")]);
   await render(fresh.sessionId, fresh.nonce);
@@ -173,7 +196,7 @@ async function runVariant(ranged: boolean): Promise<void> {
     `${label}: the superseded subscription is released exactly once (${server.stops.join(",")})`,
   );
   assert(
-    view.map((m) => m.content).join(",") === "new session history",
+    view.some((m) => m.content === "new session history"),
     `${label}: the new authority tail renders (${view.map((m) => m.content)})`,
   );
 
@@ -190,12 +213,16 @@ async function runVariant(ranged: boolean): Promise<void> {
   );
   assert(
     server.starts.length === startsBeforeStaleEvent + 1,
-    `${label}: the observed mismatch replaces the subscription exactly once`,
+    `${label}: stale authority triggers exactly one recovery of the current session`,
   );
   assert(
-    view.map((m) => m.content).join(",") === "new session history",
+    view.some((m) => m.content === "new session history"),
     `${label}: recovery re-adopts the current authority tail`,
   );
+  await act(async () => server.emit([row("live-answer", "opaque-live-answer")], fresh));
+  await flush();
+  assert(view.some((message) => message.content === "opaque-live-answer"), `${label}: fresh assistant turn renders live without reload`);
+  if (held) assert(view.filter((message) => message.id === "one" || message.id === "two").length === 2, `${label}: both failed rows remain visible`);
   assert(scheduled.length === 0, `${label}: recovery scheduled a timer (${scheduled.join(",")})`);
 
   await act(async () => root.unmount());
@@ -208,8 +235,7 @@ async function runVariant(ranged: boolean): Promise<void> {
 
 async function main(): Promise<void> {
   setupHookDom();
-  await runVariant(true);
-  await runVariant(false);
+  for (const ranged of [true, false]) for (const held of [false, true]) await runVariant(ranged, held);
   console.log("chat stale-subscription checks passed");
 }
 

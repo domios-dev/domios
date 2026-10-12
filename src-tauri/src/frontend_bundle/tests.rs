@@ -145,6 +145,8 @@ fn frontend_bundle_activation_requires_every_exact_health_claim() {
     assert!(state.active.is_none());
     assert!(state.healthy(&release, 1, "client-b", "token-b").unwrap());
     assert_eq!(state.active, Some(fixture()));
+    assert!(!state.expire(100));
+    assert!(state.quarantined.is_empty());
     assert!(state.healthy(&release, 1, "client-a", "token-a").unwrap());
     assert!(state.healthy(&release, 1, "client-a", "foreign").is_err());
 }
@@ -163,6 +165,25 @@ fn frontend_bundle_activation_deadline_quarantines_without_success() {
     assert!(state.quarantined.contains(&fixture().release_id));
     assert!(state.stage(&verified()).is_err());
     assert!(!state.expire(101));
+}
+
+#[test]
+fn frontend_bundle_partial_health_deadline_preserves_active_and_quarantines_candidate() {
+    let mut old = fixture();
+    old.release_id = "previous".into();
+    let mut state = Activation {
+        active: Some(old.clone()),
+        ..Activation::default()
+    };
+    state.stage(&verified()).unwrap();
+    let release = fixture().release_id;
+    state.begin(&release, claims(), 100, 2).unwrap();
+    assert!(!state.healthy(&release, 1, "client-a", "token-a").unwrap());
+    assert!(state.expire(100));
+    assert_eq!(state.active, Some(old));
+    assert!(state.pending.is_none());
+    assert!(state.quarantined.contains(&release));
+    assert!(state.healthy(&release, 1, "client-b", "token-b").is_err());
 }
 
 #[test]
