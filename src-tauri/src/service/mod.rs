@@ -19,6 +19,7 @@ pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
+pub mod analytics;
 mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
@@ -295,6 +296,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,
     pub mux: MuxState,

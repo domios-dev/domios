@@ -692,6 +692,15 @@ pub fn create_router_with_frontend(
             "/api/config",
             get(config_routes::get_config_api).patch(config_routes::patch_config_api),
         )
+        .route(
+            "/api/analytics/status",
+            get(super::analytics_routes::status),
+        )
+        .route(
+            "/api/analytics/consent",
+            post(super::analytics_routes::consent),
+        )
+        .route("/api/analytics/event", post(super::analytics_routes::event))
         .route("/api/update/check", get(updater_routes::check_update))
         .route("/api/update/status", get(updater_routes::update_status))
         .route("/api/update/install", post(updater_routes::install_update))
