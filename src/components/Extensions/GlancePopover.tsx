@@ -10,6 +10,8 @@ import { BusyState } from "../shared/BusyState";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import { GearIcon } from "../Icons";
+import { ensurePluginSnapshot } from "../../lib/pluginSnapshotStore";
+import { buildGlanceView, pluginHasGlance } from "./glanceModel";
 import { GlanceBody, type GlanceView } from "./ViewNodeRenderer";
 
 export interface GlanceAnchor {
@@ -50,14 +52,11 @@ export function GlancePopover({
   const load = useCallback(
     async (action?: string) => {
       try {
-        const v = await invoke<GlanceView>("plugin_glance", { pluginId, action, ctx: ctx ?? {} });
-        if (configHelp) {
-          v.nodes = [
-            ...(v.nodes ?? []),
-            { kind: "button", label: "Configure with AI", action: "configure-with-ai" },
-          ];
-        }
-        setView(v);
+        const snapshot = await ensurePluginSnapshot();
+        const v = pluginHasGlance(snapshot.plugins, pluginId)
+          ? await invoke<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} })
+          : null;
+        setView(buildGlanceView(v, configHelp));
         setError(null);
       } catch (e) {
         setError(String(e));
@@ -159,7 +158,9 @@ export function GlancePopover({
         </button>
       </div>
       {error ? (
-        <div style={{ fontSize: 12, color: "var(--ct-err)" }}>{error}</div>
+        <div role="alert" style={{ fontSize: 12, color: "var(--ct-err)" }}>{error}</div>
+      ) : view?.nodes.length === 0 ? (
+        <div role="status" aria-busy={false} style={{ fontSize: 12, color: "var(--ct-muted)" }}>No status available</div>
       ) : view ? (
         <GlanceBody view={view} onAction={onAction} />
       ) : (
