@@ -37,6 +37,8 @@ use tokio::sync::broadcast;
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
 mod grouping;
+mod live_policy;
+pub use live_policy::register_catalogue_capability;
 
 pub(super) const CACHE_SCHEMA_VERSION: u32 = 1;
 
@@ -315,6 +317,26 @@ pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
     change
 }
 
+pub fn reject_model(provider: &str, model: &str) {
+    let snapshot = {
+        let mut registry = registry().write();
+        let Some(snapshot) = registry.get_mut(provider) else {
+            return;
+        };
+        let before = snapshot.models.len();
+        snapshot
+            .models
+            .retain(|entry| !entry.id.eq_ignore_ascii_case(model));
+        if snapshot.models.len() == before {
+            return;
+        }
+        snapshot.default = resolve_live_default(&snapshot.models, snapshot.default.clone());
+        snapshot.clone()
+    };
+    persist_cache(provider, &snapshot);
+    invalidate(provider);
+}
+
 /// Plugin entry point: register the built-in catalog for `provider_id`.
 /// Idempotent — calling twice replaces the prior registration (handy for
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
@@ -372,6 +394,7 @@ pub fn replace_resolved(provider_id: &str, defaults: RegisteredDefaults) -> Regi
 /// Remove only `provider_id` from every in-memory catalog registry.
 pub fn unregister(provider_id: &str) {
     capability_overlay::clear(provider_id);
+    live_policy::clear(provider_id);
     let removed_models = registry().write().remove(provider_id).is_some();
     let removed_seed = seed_registry().write().remove(provider_id).is_some();
     let removed_efforts = effort_registry().write().remove(provider_id).is_some();
@@ -587,6 +610,7 @@ pub async fn refresh_models(
     force: bool,
 ) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
+    register_catalogue_capability(&provider_id, &provider.model_catalogue_capability());
     if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
         log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
         return None;
@@ -652,11 +676,9 @@ pub async fn refresh_live(
         // A refresh must observe current filesystem and PATH state before live discovery.
         crate::js_runtime::forget_resolved_bins();
         let models = futures_executor::block_on(provider.discover_models())?;
+        let was_empty = models.is_empty();
         let models = sanitize_live(models);
-        if models.is_empty() {
-            log::warn!(
-                "[model_catalog] {provider_id} discovery returned no usable models — keeping seed"
-            );
+        if !was_empty && models.is_empty() {
             return None;
         }
         let default = resolve_live_default(&models, default);
@@ -730,6 +752,9 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
             .read()
             .get(provider_id)
             .is_some_and(|snapshot| snapshot.source == Source::Live);
+    if live_policy::required(provider_id) && !live {
+        return Vec::new();
+    }
     let mut models = match load_override(provider_id) {
         None => registered,
         Some(o) if live => overlay_only(&registered, &o.models),
@@ -808,6 +833,9 @@ fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
     if snapshot.source != Source::Live {
         return snapshot.models;
     }
+    if live_policy::required(provider_id) {
+        return snapshot.models;
+    }
     let seed = seed_registry()
         .read()
         .get(provider_id)
@@ -820,6 +848,9 @@ fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
 
 /// Same precedence for the default model id.
 pub fn resolve_default(provider_id: &str) -> Option<String> {
+    if live_policy::required(provider_id) {
+        return resolve_live_default_model(provider_id);
+    }
     if let Some(o) = load_override(provider_id) {
         if let Some(d) = o.default {
             return Some(d);
@@ -1044,6 +1075,7 @@ pub(crate) fn model(id: &str, display: &str) -> ModelInfo {
 
 #[cfg(test)]
 pub(crate) fn cleanup(id: &str) {
+    live_policy::clear(id);
     registry().write().remove(id);
     seed_registry().write().remove(id);
     override_cache().write().remove(id);

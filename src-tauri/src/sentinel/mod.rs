@@ -1,5 +1,7 @@
 pub(crate) mod actions;
+mod agent_stage;
 pub(crate) mod amend;
+mod classification_policy;
 pub(crate) mod classify;
 pub(crate) mod command;
 pub(crate) mod delete;
@@ -12,6 +14,7 @@ mod pipeline;
 mod pipeline_journal;
 pub(crate) mod portable;
 pub(crate) mod probe;
+mod progress;
 pub(crate) mod provenance;
 pub(crate) mod public_definition;
 pub(crate) mod routes;

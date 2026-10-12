@@ -71,7 +71,7 @@ function parseMessageParts(id: string, source: string): MessagePart[] {
     let end = block.position?.end.offset;
     if (start === undefined || end === undefined) continue;
     const next = blocks[index + 1];
-    if (block.type === "heading" && next?.type === "paragraph" && !normalized.text.slice(next.position?.start.offset).startsWith("@ds-")) {
+    if (block.type === "heading" && next?.type === "paragraph" && !/^@(?:ds|ct)-/.test(normalized.text.slice(next.position?.start.offset))) {
       end = next.position?.end.offset ?? end;
       index++;
     }

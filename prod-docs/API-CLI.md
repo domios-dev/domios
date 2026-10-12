@@ -1,5 +1,7 @@
 # CLI and environment API
 
+Immediate `codeterm send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. With `--json`, the error envelope preserves the daemon receipt in `data`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
+
 CLI identity rules, environment variables, agent integration, and desktop behavior.
 
 ## CLI
@@ -136,4 +138,4 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 
 Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or Team-authority base, overriding a builtin kind, or asking to own a contract without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

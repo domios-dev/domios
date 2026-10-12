@@ -1,58 +1,25 @@
 import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { invoke, IS_WEB, isPtyDeadError, resetWebPtyTail, takePtyTruncation } from "../../lib/bridge";
-import { subscribeTabOutput, webOutputStreamActive, type TabOutputSink } from "../../lib/outputStream";
+import { invoke } from "../../lib/bridge";
+import { subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
-import { parseCompositeTabId } from "../../lib/remoteTabTransport";
-import { writeTerminalHistory } from "./terminalHistoryWrite";
 import { writeTerminalOutput } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
   captureTerminalViewport,
-  restoreTerminalViewport,
   restoreTerminalViewportAfterQueue,
   type TerminalViewport,
 } from "./terminalViewport";
-import {
-  abandonInitialTerminalHistory,
-  claimInitialTerminalHistory,
-  completeInitialTerminalHistory,
-  type TerminalHistoryClaim,
-} from "./terminalHistoryReplay";
-import { terminalHistorySource } from "./scrollbackReplay";
 import { setTerminalReadingHistory } from "./terminalHistoryReaders";
 
-async function fetchTabHistory(tabId: string): Promise<string> {
-  try {
-    const raw = await invoke<string>("get_tab_history_raw", { tabId });
-    if (raw) return raw;
-  } catch { /* fall back to screen dump */ }
-  try {
-    const formatted = await invoke<string>("get_tab_text", { tabId, formatted: true });
-    if (formatted) return formatted;
-  } catch { /* fall back to plain */ }
-  try {
-    const text = await invoke<string>("get_tab_text", { tabId, formatted: false });
-    if (text) return text;
-  } catch { /* ignore */ }
-  return "";
-}
-
-// A pending fetch keeps its call stack's closures alive; starting it from a microtask keeps the reader's terminal out of that stack.
-function readPtyChunk(ptyId: string): Promise<number[]> {
-  return new Promise((resolve, reject) => {
-    queueMicrotask(() => { invoke<number[]>("read_pty", { ptyId }).then(resolve, reject); });
-  });
-}
-
 export function shouldFetchInitialTerminalHistory(
-  ptyId: string | null | undefined,
-  isWeb: boolean,
-  isRemote: boolean,
+  _ptyId: string | null | undefined,
+  _isWeb: boolean,
+  _isRemote: boolean,
 ): boolean {
-  return terminalHistorySource(ptyId, isWeb, isRemote) === "backend-buffer";
+  return false;
 }
 
 export interface UsePtyConnectionOptions {
@@ -92,55 +59,9 @@ export function usePtyConnection({
     (s) => s.tabs[tabId]?.cwd ?? null,
     (a, b) => a === b,
   );
-  const wslDistro = useMuxSelector((s) => s.tabs[tabId]?.shell_profile?.wsl_distro ?? null);
-  const wslDistroRef = useRef(wslDistro);
-  wslDistroRef.current = wslDistro;
   const tabCwdRef = useRef(tabCwd);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
-  const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
-  const replayRequestRef = useRef(0);
-  const replayTerminalRef = useRef<Terminal | null>(null);
   const viewportRestoreRequestRef = useRef(0);
-  const webReplayedPtysRef = useRef<Set<string>>(new Set());
-
-  const cancelReplay = useCallback(() => {
-    replayRequestRef.current += 1;
-    cancelVisibleReplayRef.current?.();
-    cancelVisibleReplayRef.current = null;
-    replayTerminalRef.current?.element?.style.removeProperty("visibility");
-    replayTerminalRef.current = null;
-    onHistoryReplayStateChange?.(false);
-  }, [onHistoryReplayStateChange]);
-
-  const replayHistory = useCallback((
-    term: Terminal,
-    history: Uint8Array | string,
-    viewport: TerminalViewport,
-    onComplete?: () => void,
-    onCancel?: () => void,
-  ) => {
-    cancelReplay();
-    const request = replayRequestRef.current;
-    replayTerminalRef.current = term;
-    term.element?.style.setProperty("visibility", "hidden");
-    onHistoryReplayStateChange?.(true);
-    let settled = false;
-    const complete = () => {
-      if (request !== replayRequestRef.current) return;
-      settled = true;
-      onComplete?.();
-      cancelVisibleReplayRef.current = null;
-      restoreTerminalViewport(term, viewport);
-      term.element?.style.removeProperty("visibility");
-      replayTerminalRef.current = null;
-      onHistoryReplayStateChange?.(false);
-    };
-    const cancelWrite = writeTerminalHistory(term, history, complete);
-    cancelVisibleReplayRef.current = () => {
-      cancelWrite();
-      if (!settled) onCancel?.();
-    };
-  }, [cancelReplay, onHistoryReplayStateChange]);
 
   useEffect(() => {
     tabCwdRef.current = tabCwd;
@@ -168,10 +89,6 @@ export function usePtyConnection({
 
   useEffect(() => () => setTerminalReadingHistory(tabId, false), [tabId]);
 
-  useEffect(() => () => {
-    cancelReplay();
-  }, [cancelReplay]);
-
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
     if (id) void writeTerminalInput(tabId, id, data);
@@ -180,287 +97,63 @@ export function usePtyConnection({
   useEffect(() => {
     const term = termRef.current;
     if (!term || !termReady || !ioEnabled) return;
-
-    if (connectedPtyRef.current !== null) {
-      if (ptyId && connectedPtyRef.current !== ptyId) {
-      } else {
-        return;
-      }
-    }
-
-    let cleanupFns: (() => void)[] = [];
     let disposed = false;
-    let historyClaim: TerminalHistoryClaim | null = null;
-    let historySettled = true;
-    let transportStarted = false;
-    const reportConnectionReady = () => {
-      if (!disposed && historySettled && transportStarted) onConnectionStateChange?.(true);
-    };
+    let unsubscribe: (() => void) | undefined;
     onConnectionStateChange?.(false);
+    onHistoryReplayStateChange?.(false);
 
-    const setupAndConnect = async () => {
-      const predictedId = ptyId || uid();
-      connectedPtyRef.current = predictedId;
-      // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
-      const isRemote = parseCompositeTabId(tabId) !== null;
-      const useOutputStream = webOutputStreamActive() || isRemote;
-      const historySource = terminalHistorySource(ptyId, IS_WEB, isRemote);
-
-      if (historySource === "transport") {
-        if (ptyId && IS_WEB) {
-          if (!webReplayedPtysRef.current.has(ptyId)) {
-            webReplayedPtysRef.current.add(ptyId);
-            if (!useOutputStream) resetWebPtyTail(ptyId);
-          }
-        }
-      } else if (historySource === "backend-buffer") {
-        const claim = claimInitialTerminalHistory(tabId, term);
-        if (claim) {
-          historyClaim = claim;
-          historySettled = false;
-          const history = await fetchTabHistory(tabId);
-          if (disposed) {
-            abandonInitialTerminalHistory(claim);
-            return;
-          }
-          if (history) {
-            replayHistory(
-              term,
-              history,
-              { followOutput: true, line: 0 },
-              () => {
-                completeInitialTerminalHistory(claim);
-                historyClaim = null;
-                historySettled = true;
-                reportConnectionReady();
-              },
-              () => {
-                abandonInitialTerminalHistory(claim);
-                historyClaim = null;
-                historySettled = true;
-                reportConnectionReady();
-              },
-            );
-          } else {
-            completeInitialTerminalHistory(claim);
-            historyClaim = null;
-          }
-        }
-      }
-
-      let reading = true;
-      let firstData = true;
-      let staleRespawnStarted = false;
-      const WRITE_HIGH_WATERMARK = 128 * 1024;
-      const LIVE_FLUSH_MAX_BYTES = 256 * 1024;
-      let pendingBytes = 0;
-      let readPaused = false;
-      let resumeResolve: (() => void) | null = null;
-      let pendingWriteChunks: Uint8Array[] = [];
-      let pendingWriteLength = 0;
-      let cancelActiveWrite: (() => void) | null = null;
-      const TRANSIENT_RETRY_BASE_MS = 500;
-      const TRANSIENT_RETRY_MAX_MS = 8_000;
-      let transientRetryMs = TRANSIENT_RETRY_BASE_MS;
-      // read_pty long-polls and cannot be cancelled; an unmounted loop must not stay parked on it holding the terminal.
-      let stopReading = () => {};
-      const readingStopped = new Promise<null>((resolve) => { stopReading = () => resolve(null); });
-
-      const waitForDrain = (): Promise<void> => {
-        if (!readPaused) return Promise.resolve();
-        return new Promise((resolve) => { resumeResolve = resolve; });
-      };
-
-      const flushPendingWrites = () => {
-        if (!reading || disposed || pendingWriteLength === 0) return;
-
-        const targetLength = Math.min(pendingWriteLength, LIVE_FLUSH_MAX_BYTES);
-        const payload = new Uint8Array(targetLength);
-        let copied = 0;
-        while (copied < targetLength && pendingWriteChunks.length > 0) {
-          const chunk = pendingWriteChunks[0];
-          const take = Math.min(chunk.length, targetLength - copied);
-          payload.set(chunk.slice(0, take), copied);
-          copied += take;
-          if (take === chunk.length) pendingWriteChunks.shift();
-          else pendingWriteChunks[0] = chunk.slice(take);
-        }
-        pendingWriteLength -= targetLength;
-
-        const completeWrite = () => {
-          cancelActiveWrite = null;
-          pendingBytes -= payload.length;
-          if (readPaused && pendingBytes < WRITE_HIGH_WATERMARK / 2) {
-            readPaused = false;
-            resumeResolve?.();
-            resumeResolve = null;
-          }
-          if (pendingWriteLength > 0) flushPendingWrites();
-        };
-        let cancelled = false;
-        cancelActiveWrite = () => { cancelled = true; };
-        writeTerminalOutput(term, payload, () => {
-          if (!cancelled) completeWrite();
-        });
-
-        if (firstData) {
-          firstData = false;
-        }
-      };
-
-      const enqueueTermWrite = (chunk: Uint8Array) => {
-        const tail = chunk.length > 200 ? chunk.slice(chunk.length - 200) : chunk;
-        try {
-          const text = new TextDecoder().decode(tail);
-          onOutputChunk(text);
-        } catch { /* ignore decode errors */ }
-
-        pendingWriteChunks.push(chunk);
-        pendingWriteLength += chunk.length;
-        if (cancelActiveWrite == null) flushPendingWrites();
-      };
-
-      // multiplexed output stream's `{ended: true}` frame both mean the same thing.
-      const respawnStalePty = async () => {
-        if (staleRespawnStarted) return;
-        staleRespawnStarted = true;
-        reading = false;
-        connectedPtyRef.current = null;
-        term.writeln("\r\n\x1b[90m[PTY disappeared, reconnecting...]\x1b[0m");
-
-        try {
-          const cols = Math.max(term.cols, 80);
-          const rows = Math.max(term.rows, 24);
-          const tabCwdNow = tabCwdRef.current;
-          const tabData = tabCwdNow != null ? { cwd: tabCwdNow } : undefined;
-          const cwd = consumePendingCwd(tabId) || tabData?.cwd || undefined;
-          const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, tabId });
-          if (!disposed) {
-            onPtySpawned?.(tabId, spawnedId);
-            connectedPtyRef.current = null;
-          }
-        } catch (respawnError) {
-          console.warn("Failed to respawn stale PTY:", respawnError);
-          term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
-        }
-      };
-
-      const readLoop = async () => {
-        while (reading) {
-          try {
-            if (readPaused) await Promise.race([waitForDrain(), readingStopped]);
-            if (!reading || disposed) break;
-
-            const data = await Promise.race([readPtyChunk(predictedId), readingStopped]);
-            if (!reading || disposed) break;
-            transientRetryMs = TRANSIENT_RETRY_BASE_MS;
-
-            const truncatedFrom = takePtyTruncation(predictedId);
-            if (truncatedFrom != null) {
-              term.writeln(
-                `\r\n\x1b[90m[output truncated — resuming from byte ${truncatedFrom}]\x1b[0m`,
-              );
-            }
-
-            if (data && data.length > 0) {
-              const chunk = new Uint8Array(data);
-
-              pendingBytes += chunk.length;
-              if (pendingBytes >= WRITE_HIGH_WATERMARK) readPaused = true;
-
-              enqueueTermWrite(chunk);
-            }
-          } catch (e) {
-            if (!reading || disposed) break; // torn down mid-read — silent stop
-
-            if (isPtyDeadError(e)) {
-              await respawnStalePty();
-              break;
-            }
-
-            // only advances it on a successful response), nothing printed.
-            await new Promise((resolve) => setTimeout(resolve, transientRetryMs));
-            transientRetryMs = Math.min(transientRetryMs * 2, TRANSIENT_RETRY_MAX_MS);
-          }
-        }
-      };
-      if (IS_WEB && !useOutputStream) {
-        const onBootChanged = () => resetWebPtyTail(predictedId);
-        window.addEventListener("codeterm-web-boot-changed", onBootChanged);
-        cleanupFns.push(() =>
-          window.removeEventListener("codeterm-web-boot-changed", onBootChanged),
-        );
-      }
-
-      if (!ptyId) {
-        const cols = Math.max(term.cols, 80);
-        const rows = Math.max(term.rows, 24);
+    const connect = async () => {
+      let id = ptyId;
+      if (!id) {
         const cwd = consumePendingCwd(tabId) || tabCwdRef.current || undefined;
-        const spawnedId = await invoke<string>("spawn_pty", {
-          cols, rows, predictedId, cwd, tabId,
+        id = await invoke<string>("spawn_pty", {
+          cols: Math.max(term.cols, 80), rows: Math.max(term.rows, 24),
+          predictedId: uid(), cwd, tabId,
         });
-        if (disposed) {
-          // killing here leaves backend tab state pointing at a dead PTY. Tab/tab close paths own real teardown.
-          return;
-        }
-        onPtySpawned?.(tabId, spawnedId);
-
-        if (!cwd && !wslDistroRef.current) {
-          const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
-          if (defaultCwd) {
-            invoke("mux_update_tab_cwd", { tabId, cwd: defaultCwd }).catch(() => {});
-          }
-        }
-
+        if (disposed) return;
+        onPtySpawned?.(tabId, id);
         onShellReady();
       }
-
-      let unsubscribeOutputStream: (() => void) | null = null;
-      if (useOutputStream) {
-        const sink: TabOutputSink = {
-          onOutput: (text) => enqueueTermWrite(new TextEncoder().encode(text)),
-          onTruncated: (from) => {
-            term.writeln(
-              `\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`,
-            );
-          },
-          onEnded: () => {
-            void respawnStalePty();
-          },
-          onStreamError: () => {
-            term.writeln("\r\n\x1b[31m[Failed to connect to output stream]\x1b[0m");
-          },
-        };
-        unsubscribeOutputStream = subscribeTabOutput(tabId, sink);
-      } else {
-        readLoop();
-      }
-      transportStarted = true;
-      reportConnectionReady();
-      cleanupFns.push(() => {
-        reading = false;
-        stopReading();
-        unsubscribeOutputStream?.();
-        pendingWriteChunks = [];
-        pendingWriteLength = 0;
-        cancelActiveWrite?.();
-        cancelActiveWrite = null;
-      });
+      if (disposed) return;
+      connectedPtyRef.current = id;
+      const sink: TabOutputSink = {
+        onReady() { if (!disposed) onConnectionStateChange?.(true); },
+        onOutput: (text) => {
+          if (disposed) return;
+          writeTerminalOutput(term, text);
+          onOutputChunk(text);
+        },
+        onBytes: (bytes) => {
+          if (disposed) return;
+          writeTerminalOutput(term, bytes);
+          onOutputChunk(new TextDecoder().decode(bytes.slice(-200)));
+        },
+        onTruncated: (from) => {
+          if (!disposed) term.writeln(`\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`);
+        },
+        onEnded: () => {
+          if (disposed) return;
+          connectedPtyRef.current = null;
+          onConnectionStateChange?.(false);
+        },
+        onStreamError: () => {
+          if (!disposed) onConnectionStateChange?.(false);
+        },
+      };
+      unsubscribe = subscribeTabOutput(tabId, sink, term, id);
     };
-
-    setupAndConnect().catch((e) => {
-      console.warn("Failed to setup PTY:", e);
-      termRef.current?.writeln("\x1b[31m[Failed to connect to PTY]\x1b[0m");
+    void connect().catch((error: unknown) => {
+      if (disposed) return;
+      console.warn("Failed to setup PTY:", error);
+      onConnectionStateChange?.(false);
     });
-
     return () => {
       disposed = true;
-      onConnectionStateChange?.(false);
-      if (historyClaim) abandonInitialTerminalHistory(historyClaim);
-      for (const fn of cleanupFns) fn();
+      unsubscribe?.();
       connectedPtyRef.current = null;
+      onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, onPtySpawned, replayHistory, onConnectionStateChange]);
+  }, [ptyId, tabId, termReady, ioEnabled, onPtySpawned, onConnectionStateChange, onHistoryReplayStateChange, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
 
   return { writePty };
 }

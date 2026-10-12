@@ -1,15 +1,18 @@
+import { daemonFetch } from "../../lib/webApi";
+import { memoryListControlsVisible } from "./memoryDetailModel";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatAge } from "../../lib/timeLabels";
 import type { ApiConfig } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
-import { baseUrl, authHeaders } from "./memoryApi";
+import { authHeaders } from "./memoryApi";
 import { MemoryItemEditor } from "./MemoryItemEditor";
 
 interface Props {
   api: ApiConfig;
   nodes: Map<string, MemNode>;
   selectedId: string | null;
+  onDetailOpenChange?: (open: boolean) => void;
   onSelectItem: (id: string | null) => void;
   onViewInGraph: (id: string) => void;
   updateNode: (id: string, patch: Partial<MemNode>, markDirty?: boolean) => void;
@@ -26,13 +29,17 @@ function relTime(iso: string): string {
 
 const PAGE_SIZE = 50;
 
-function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode }: Props) {
+function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, onDetailOpenChange, removeNode }: Props) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [kindFilter, setKindFilter] = useState<Set<string>>(new Set());
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [editorItemId, setEditorItemId] = useState<string | null>(null);
+  useEffect(() => {
+    onDetailOpenChange?.(editorItemId !== null);
+    return () => onDetailOpenChange?.(false);
+  }, [editorItemId, onDetailOpenChange]);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -44,7 +51,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ q: search, limit: "50", supporter: "false" });
-        const res = await fetch(`${baseUrl(api)}/api/mem/search?${params}`, {
+        const res = await daemonFetch(api, `/api/mem/search?${params}`, {
           headers: authHeaders(api),
           signal: ctrl.signal,
         });
@@ -115,64 +122,66 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode
 
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="memory-list-tab">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-3 py-2">
-        <div className="relative flex-1">
-          <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ct-muted-fg)]" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6.5" cy="6.5" r="5" /><line x1="10" y1="10" x2="15" y2="15" /></svg>
-          <input
-            ref={searchRef}
-            data-testid="memory-list-search"
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded pl-7 pr-2.5 py-1.5 text-xs text-[var(--ct-fg)] placeholder:text-[var(--ct-muted-fg)] focus:outline-none focus:border-[var(--ct-accent)] font-[inherit]"
-            placeholder="Search memory... (/ to focus)"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => { if (e.key === "Escape") { setSearch(""); (e.target as HTMLInputElement).blur(); } }}
-          />
+      {memoryListControlsVisible(editorItemId !== null) && <>
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 px-3 py-2">
+          <div className="relative flex-1">
+            <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ct-muted-fg)]" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6.5" cy="6.5" r="5" /><line x1="10" y1="10" x2="15" y2="15" /></svg>
+            <input
+              ref={searchRef}
+              data-testid="memory-list-search"
+              className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded pl-7 pr-2.5 py-1.5 text-xs text-[var(--ct-fg)] placeholder:text-[var(--ct-muted-fg)] focus:outline-none focus:border-[var(--ct-accent)] font-[inherit]"
+              placeholder="Search memory... (/ to focus)"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => { if (e.key === "Escape") { setSearch(""); (e.target as HTMLInputElement).blur(); } }}
+            />
+          </div>
+          <select
+            data-testid="memory-list-sort"
+            className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1.5 text-xs text-[var(--ct-fg)] cursor-pointer"
+            value={sort}
+            onChange={e => setSort(e.target.value as SortKey)}
+          >
+            <option value="recent">Recent</option>
+            <option value="oldest">Oldest</option>
+            <option value="importance">Importance</option>
+            <option value="title">Title A-Z</option>
+          </select>
         </div>
-        <select
-          data-testid="memory-list-sort"
-          className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1.5 text-xs text-[var(--ct-fg)] cursor-pointer"
-          value={sort}
-          onChange={e => setSort(e.target.value as SortKey)}
-        >
-          <option value="recent">Recent</option>
-          <option value="oldest">Oldest</option>
-          <option value="importance">Importance</option>
-          <option value="title">Title A-Z</option>
-        </select>
-      </div>
 
-      {/* Filters */}
-      <div className="ct-jobs-header flex items-center gap-1.5 px-3 py-1.5 flex-wrap">
-        {KINDS.map(k => {
-          const active = kindFilter.has(k);
-          const color = colorForKind(k);
-          return (
-            <button
-              key={k}
-              data-testid="memory-kind-filter"
-              data-memory-kind={k}
-              onClick={() => toggleKind(k)}
-              className={`px-2 py-0.5 rounded-full text-[10px] flex items-center gap-1 select-none cursor-pointer border ${active ? "font-semibold" : "text-[var(--ct-muted-fg)] border-[var(--ct-border)] hover:border-[var(--ct-fg)]"}`}
-              style={active ? { background: `${color}22`, color, borderColor: color } : undefined}
-            >
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-              {k}
-            </button>
-          );
-        })}
-        <select
-          data-testid="memory-area-filter"
-          className="ml-1 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer"
-          value={areaFilter || ""}
-          onChange={e => setAreaFilter(e.target.value || null)}
-        >
-          <option value="">All areas</option>
-          {areas.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <span className="ml-auto text-[10px] text-[var(--ct-muted-fg)]" data-testid="memory-list-count">{filtered.length} items</span>
-      </div>
+        {/* Filters */}
+        <div className="ct-jobs-header flex items-center gap-1.5 px-3 py-1.5 flex-wrap">
+          {KINDS.map(k => {
+            const active = kindFilter.has(k);
+            const color = colorForKind(k);
+            return (
+              <button
+                key={k}
+                data-testid="memory-kind-filter"
+                data-memory-kind={k}
+                onClick={() => toggleKind(k)}
+                className={`px-2 py-0.5 rounded-full text-[10px] flex items-center gap-1 select-none cursor-pointer border ${active ? "font-semibold" : "text-[var(--ct-muted-fg)] border-[var(--ct-border)] hover:border-[var(--ct-fg)]"}`}
+                style={active ? { background: `${color}22`, color, borderColor: color } : undefined}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                {k}
+              </button>
+            );
+          })}
+          <select
+            data-testid="memory-area-filter"
+            className="ml-1 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer"
+            value={areaFilter || ""}
+            onChange={e => setAreaFilter(e.target.value || null)}
+          >
+            <option value="">All areas</option>
+            {areas.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <span className="ml-auto text-[10px] text-[var(--ct-muted-fg)]" data-testid="memory-list-count">{filtered.length} items</span>
+        </div>
 
+      </>}
       {/* List */}
       <div ref={listRef} onScroll={handleScroll} className="ct-rows flex-1 overflow-y-auto" data-testid="memory-list-results">
         {filtered.length === 0 && (

@@ -15,6 +15,7 @@ vi.mock("../../lib/webApi", () => ({
   daemonHttpBase: () => "http://127.0.0.1:7686",
   daemonAuthToken: () => "token",
 }));
+vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ html: "<html></html>", error: null }) }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";

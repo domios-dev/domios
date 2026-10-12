@@ -1,4 +1,4 @@
-import { invoke } from "../../lib/bridge";
+import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 
 export type TelegramTopicsState = "available" | "unavailable" | "unknown";
 
@@ -42,14 +42,14 @@ export function telegramThreadHint(state: TelegramThreadMenuState): string | nul
 }
 
 export async function fetchTelegramThreadState(tabId: string): Promise<TelegramThreadMenuState> {
-  return telegramThreadMenuState(await invoke<WireThreadState>("bridge_thread_state", { tabId }));
+  return telegramThreadMenuState(await orchestrationTransport().bridge_thread_state({ tabId }));
 }
 
 export async function openTelegramThread(tabId: string): Promise<string | null> {
-  const opened = await invoke<{ link?: string | null }>("bridge_thread_open", { tabId });
+  const opened = await orchestrationTransport().bridge_thread_open({ tabId });
   return typeof opened?.link === "string" ? opened.link : null;
 }
 
 export async function closeTelegramThread(tabId: string): Promise<void> {
-  await invoke("bridge_thread_close", { tabId });
+  await orchestrationTransport().bridge_thread_close({ tabId });
 }

@@ -260,7 +260,7 @@ function renderParallelCommands(repoRoot, files) {
   const relatedVitest = vitestFiles(repoRoot, files);
   if (relatedVitest.length > 0) {
     commands.push({
-      command: `pnpm exec vitest related --passWithNoTests ${selectedTsFiles(files).map(shellQuote).join(" ")}`,
+      command: `pnpm exec vitest related --run --maxWorkers=2 --passWithNoTests ${selectedTsFiles(files).map(shellQuote).join(" ")}`,
       reason: "Vitest resolves related test files from the changed source graph",
     });
   }

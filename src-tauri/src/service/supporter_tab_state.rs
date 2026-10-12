@@ -476,6 +476,19 @@ impl ShadowHost for ServiceContext {
                     })
                     .flatten()
             });
+        let structural_classification = self
+            .agent_registry
+            .with_provider(provider_id, |provider| {
+                provider.classify_tab_state(&crate::agent::tab_state::TabStateSnapshot {
+                    tab_id: tab.id.clone(),
+                    agent_type: provider_id.into(),
+                    session_id: tab.agent_session_id.clone(),
+                    cwd: tab.cwd.clone(),
+                    screen_text: screen.into(),
+                })
+            })
+            .flatten()
+            .map(|classification| serde_json::json!({ "state": classification.state, "confidence": classification.confidence }));
         let context = serde_json::json!({
             "provider_capability": {
                 "transport": transport,
@@ -498,6 +511,7 @@ impl ShadowHost for ServiceContext {
             "structural_verdict": {
                 "event_detector": structural_verdict,
                 "agent_state": tab.agent_state,
+                "classification": structural_classification,
             },
             "pending_prompt_kind": tab.pending_prompt_kind,
             "startup_deadline_elapsed": trigger.after_startup_deadline() || tab.boot_stage == Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed),

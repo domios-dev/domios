@@ -703,3 +703,37 @@ fn transport_failure_emits_chat_send_failed_event() {
         "expected transport failure message, got: {err}"
     );
 }
+
+#[test]
+fn restored_structured_turn_routes_one_complete_pasted_frame() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
+    ))
+    .unwrap();
+    let frame = codeterm_types::domios::DomiosFrame {
+        opening_tag: fixture["opening_tag"].as_str().unwrap().into(),
+        body: fixture["body"].as_str().unwrap().into(),
+        suffix: fixture["suffix"].as_str().unwrap().into(),
+    };
+    let expected = frame.to_message();
+    assert_ne!(fixture["persisted_content"].as_str().unwrap(), expected);
+    assert!(
+        fixture["created_ms"].as_u64().unwrap() > fixture["cursor_before"][0].as_u64().unwrap()
+    );
+
+    let input = super::prepare_routed_input(&frame, false);
+    assert_eq!(input.body, expected);
+    assert_eq!(input.typed_prefix, None);
+    assert_eq!(input.typed_suffix, None);
+
+    let typed = super::prepare_routed_input(&frame, true);
+    assert_eq!(typed.body, frame.body);
+    assert_eq!(
+        typed.typed_prefix.as_deref(),
+        Some(frame.opening_tag.as_str())
+    );
+    assert_eq!(
+        typed.typed_suffix,
+        Some(super::compose_routed_suffix(&frame.suffix, true))
+    );
+}

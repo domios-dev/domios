@@ -1,3 +1,5 @@
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 import assert from "node:assert/strict";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -70,6 +72,16 @@ function graphOf(workspaceId: unknown): AutomationGraph {
 
 export async function installBridge() {
   const bridge = await import("../../lib/bridge");
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, path: string) => {
+    const url = new URL(path, "http://fixture.test");
+    const workspaceId = url.searchParams.get("workspace_id");
+    if (url.pathname === "/api/crons") {
+      machine.cronReads.push(workspaceId === null ? {} : { workspaceId });
+      return machine.crons.filter((job) => workspaceId === null || job.workspace_id === workspaceId) as T;
+    }
+    if (url.pathname === "/api/automation/graph/workspace") return graphOf(workspaceId) as T;
+    throw new Error(`Unexpected HTTP path: ${path}`);
+  }));
   bridge.__setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "cron_list") {
       machine.cronReads.push(args);

@@ -72,6 +72,10 @@ fn plan_reminder_choice_blocker_notice_key_stays_stable_across_plan_changes() {
         .insert("stride:unrelated".into(), "changed".into());
     assert_eq!(
         f.admit(ReminderKind::Owner, 101),
+        ReminderOutcome::Suppressed("judgement_cadence")
+    );
+    assert_eq!(
+        f.admit(ReminderKind::Owner, 100 + 1800 + 1),
         ReminderOutcome::Suppressed("recipient_blocked")
     );
     let notices = f.host.notices.lock();

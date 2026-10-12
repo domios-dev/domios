@@ -11,6 +11,9 @@ use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin}
 
 use super::AppState;
 
+mod admissions;
+pub use admissions::chat_send_admissions;
+
 fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
     if detail.starts_with("admission_unknown:") {
         SendRejection {
@@ -127,13 +130,16 @@ pub async fn chat_send_status(
     let svc = state.svc.clone();
     // Ledger read doubles as the closed-chat reconciliation point: scan each
     // unconfirmed send's own session append window before reporting state.
-    let statuses = tokio::task::spawn_blocking(move || {
-        svc.reconcile_chat_send_evidence(&tab_id);
-        svc.chat_send_ledger.reconcile(&tab_id)
-    })
-    .await
-    .map_err(|_| {
-        SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat status task failed"))
+    let statuses = tokio::task::spawn_blocking(move || svc.reconcile_user_send_statuses(&tab_id))
+        .await
+        .map_err(|_| {
+            SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat status task failed"))
+        })?;
+    let statuses = statuses.map_err(|error| {
+        SendRejection {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body: serde_json::json!({ "ok": false, "error": { "code": "status_unavailable", "message": error } }),
+        }
     })?;
     Ok(Json(statuses))
 }

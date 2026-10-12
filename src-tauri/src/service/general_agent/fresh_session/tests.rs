@@ -21,6 +21,9 @@ fn fixture() -> (
             .to_string(),
         role: crate::service::general_agent::GENERAL_AGENT_KIND.into(),
         intent: "fresh_general".into(),
+        model: None,
+        reasoning_effort: None,
+        preset: None,
     };
     (mux, config, request)
 }
@@ -82,13 +85,15 @@ fn sanctioned_general_session_survives_durable_snapshot_restore() {
 }
 
 #[test]
-fn fresh_general_launch_rejects_project_provider_and_cwd_overrides() {
+fn fresh_general_launch_accepts_provider_selection_but_rejects_project_and_cwd_overrides() {
     let (mut mux, config, mut request) = fixture();
     let original = request.workspace_id.clone();
     request.workspace_id = mux.create_workspace("Project".into(), None).id;
     assert!(validate_request(&mux, &config, &request).is_err());
     request.workspace_id = original;
     request.provider_id = "foreign-provider".into();
+    assert!(validate_request(&mux, &config, &request).is_ok());
+    request.provider_id = String::new();
     assert!(validate_request(&mux, &config, &request).is_err());
     request.provider_id = config.agent_provider.clone();
     request.cwd = "foreign-home".into();
@@ -109,4 +114,18 @@ fn fresh_general_launch_requires_completed_setup_and_explicit_intent() {
     request.intent = "fresh_general".into();
     request.role = "orchestrator".into();
     assert!(validate_request(&mux, &config, &request).is_err());
+}
+
+#[test]
+fn fresh_general_request_deserializes_chosen_launch_settings() {
+    let request: FreshGeneralSessionRequest = serde_json::from_value(serde_json::json!({
+        "workspaceId": "general", "providerId": "selected-provider", "cwd": "general-home",
+        "role": "general_agent", "intent": "fresh_general", "model": "chosen-model",
+        "reasoningEffort": "high", "preset": "owned-preset"
+    }))
+    .unwrap();
+    assert_eq!(request.provider_id, "selected-provider");
+    assert_eq!(request.model.as_deref(), Some("chosen-model"));
+    assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(request.preset.as_deref(), Some("owned-preset"));
 }

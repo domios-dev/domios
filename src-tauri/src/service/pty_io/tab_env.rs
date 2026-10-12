@@ -71,41 +71,66 @@ pub(crate) fn compose_launch_env(
     env_vars
 }
 
-pub(crate) fn active_tab_lane_base(plan_store: &PlanStore, tab_id: &str) -> Option<String> {
-    let (plan_id, task_id) = plan_store.task_binding_for_tab(tab_id)?;
-    plan_store
-        .get(&plan_id)
-        .and_then(|plan| {
-            plan.tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id.as_str()))
-                .and_then(|task| {
-                    task.execution_attempts
-                        .iter()
-                        .rev()
-                        .find(|attempt| {
-                            attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                        })
-                        .and_then(|attempt| attempt.base.clone())
-                        .or_else(|| task.lane.base.clone())
-                })
-        })
+fn compose_task_env(
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    attempts: &[crate::plan::TaskExecutionAttempt],
+    lane_base: Option<&str>,
+) -> HashMap<String, String> {
+    let attempt = attempts.iter().rev().find(|attempt| {
+        attempt.executor_tab_id == tab_id
+            && attempt.closed_at.is_none()
+            && attempt.retired_at.is_none()
+    });
+    let mut env = HashMap::from([
+        ("CODETERM_PLAN_ID".into(), plan_id.into()),
+        ("CODETERM_TASK_ID".into(), task_id.into()),
+    ]);
+    if let Some(attempt) = attempt {
+        env.insert("CODETERM_ATTEMPT_ID".into(), attempt.id.clone());
+    }
+    if let Some(base) = attempt
+        .and_then(|attempt| attempt.base.as_deref())
+        .or(lane_base)
         .filter(|base| !base.trim().is_empty())
+    {
+        env.insert("CODETERM_LANE_BASE".into(), base.into());
+    }
+    env
+}
+
+#[cfg(test)]
+pub(crate) fn active_tab_lane_base(plan_store: &PlanStore, tab_id: &str) -> Option<String> {
+    tab_task_env(plan_store, tab_id).remove("CODETERM_LANE_BASE")
 }
 
 pub(crate) fn tab_task_env(plan_store: &PlanStore, tab_id: &str) -> HashMap<String, String> {
-    let mut env_vars = HashMap::new();
     if let Some((plan_id, task_id)) = plan_store.task_binding_for_tab(tab_id) {
-        if let Some(base) = active_tab_lane_base(plan_store, tab_id) {
-            env_vars.insert("CODETERM_LANE_BASE".into(), base);
-        }
-        env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
-        env_vars.insert("CODETERM_TASK_ID".into(), task_id);
-    } else if let Some(plan_id) = plan_store.planner_plan_id_for_tab(tab_id) {
-        // A Planner binds to its plan directly, with no task — codeterm#371.
-        env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
+        return plan_store
+            .get(&plan_id)
+            .and_then(|plan| {
+                plan.tasks
+                    .iter()
+                    .find(|task| {
+                        task.id == task_id || task.handle.as_deref() == Some(task_id.as_str())
+                    })
+                    .map(|task| {
+                        compose_task_env(
+                            &plan_id,
+                            &task_id,
+                            tab_id,
+                            &task.execution_attempts,
+                            task.lane.base.as_deref(),
+                        )
+                    })
+            })
+            .unwrap_or_default();
     }
-    env_vars
+    if let Some(plan_id) = plan_store.planner_plan_id_for_tab(tab_id) {
+        return HashMap::from([("CODETERM_PLAN_ID".into(), plan_id)]);
+    }
+    HashMap::new()
 }
 
 pub(crate) fn tab_identity_env(tab: &Tab) -> HashMap<String, String> {

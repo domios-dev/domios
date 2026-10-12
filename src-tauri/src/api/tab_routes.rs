@@ -17,7 +17,7 @@ pub use turn_controls::turn_controls;
 mod utility_tests;
 
 pub use exec::exec_in_tab;
-pub use send::{chat_send_status, chat_send_text, send_text};
+pub use send::{chat_send_admissions, chat_send_status, chat_send_text, send_text};
 pub use stop::stop_tab;
 
 #[cfg(test)]

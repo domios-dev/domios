@@ -1,3 +1,5 @@
+import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
+import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
@@ -7,7 +9,11 @@ import { tabChatCapable } from "./lib/chatUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
+import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { TabContent } from "./components/Terminal/TabContent";
+import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
+import { LocalRecordingSetup } from "./components/Terminal/voice/LocalRecordingSetup";
+import { useLocalRecordingCapture } from "./components/Terminal/voice/useLocalRecordingCapture";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
 import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
@@ -66,7 +72,7 @@ import { matchesBinding } from "./lib/keybindings";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { nativeFolderDialog as openDialog } from "./lib/nativeBridge";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
@@ -92,17 +98,6 @@ function useStableJsonValue<T>(value: T): T {
 function AppInner() {
   useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
-  useEffect(() => {
-    if (!IS_WEB) {
-      void (async () => {
-        const generation = await invoke<number>("frontend_readiness_generation");
-        const accepted = await invoke<boolean>("frontend_ready", { generation });
-        if (!accepted) throw new Error("frontend readiness generation was replaced");
-      })().catch((error) => {
-        console.warn("Unable to report frontend readiness", error);
-      });
-    }
-  }, []);
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phone width owns the sidebar: it becomes an overlay drawer and yields the viewport to the content until the hamburger reopens it.
   const {
@@ -238,6 +233,35 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  const larkCapture = useLocalRecordingCapture({ tabs: state.tabs });
+  // The capture listener's readiness promise lives for the hook's lifetime; readiness is reported once.
+  const larkReadyRef = useRef(larkCapture.ready);
+  larkReadyRef.current = larkCapture.ready;
+  useEffect(() => {
+    if (!IS_WEB) {
+      void (async () => {
+        frontendBootDiagnostic("ready-request");
+        await larkReadyRef.current;
+        const generation = await invoke<number>("frontend_readiness_generation");
+        const accepted = await invoke<boolean>("frontend_ready", { generation });
+        frontendBootDiagnostic(accepted ? "ready-accepted" : "ready-rejected");
+        if (!accepted) throw new Error("frontend readiness generation was replaced");
+      })().catch((error) => {
+        frontendBootDiagnostic("ready-failed");
+        console.warn("Unable to report frontend readiness", error);
+      });
+    }
+  }, []);
+  useFrontendApp({
+    generation: state.generation,
+    workspaceId: state.active_workspace_id,
+    tabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,
+    hasWorkspace: id => state.workspaces.some(ws => ws.id === id),
+    hasTab: id => !!state.tabs[id],
+    selectWorkspace: setActiveWorkspace,
+    selectTab: setActiveTab,
+  });
+
   useHelperMomentsHost(state.tabs, configLoading ? null : config.integrations?.telegram_enabled ?? false);
   const peerContext = usePlanPeerContext();
   useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);
@@ -267,6 +291,8 @@ function AppInner() {
   const teamActions = useMemo(
     () => buildTeamActions({
       invoke,
+      callerNonce: (tabId) => stateRef.current.tabs[tabId]?.session_binding_nonce ?? undefined,
+      selectedTab: () => stateRef.current.focused_tab_id,
     }),
     [],
   );
@@ -649,6 +675,8 @@ function AppInner() {
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
         className="flex flex-1 min-h-0 relative"
       >
+        <LocalRecordingCaptureStatus state={larkCapture.state} />
+        {larkCapture.setupPluginId && <LocalRecordingSetup pluginId={larkCapture.setupPluginId} onClose={larkCapture.closeSetup} />}
         {sidebarMounted && (
           <>
             {/* Narrow shell: the sidebar overlays the content with a tap-to-close
@@ -659,13 +687,7 @@ function AppInner() {
               aria-hidden={!sidebarShown}
               style={{ pointerEvents: sidebarOpen ? "auto" : "none" }}
             />
-            {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
-            <div
-              data-testid="sidebar-drawer"
-              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} shell-narrow:fixed shell-narrow:inset-y-0 shell-narrow:left-0 shell-narrow:z-40 shell-narrow:pt-[var(--ct-safe-top,0px)] shell-narrow:pb-[var(--ct-safe-bottom,0px)] flex min-h-0 overflow-visible`}
-              aria-hidden={!sidebarShown}
-              inert={!sidebarShown || undefined}
-            >
+            <SidebarDrawer phone={phoneViewport} shown={sidebarShown}>
               <Sidebar
                 onCollapse={closeSidebar}
                 onCollapsedChange={setSidebarRailCollapsed}
@@ -682,7 +704,7 @@ function AppInner() {
                 onOpenWorkspaceAutomation={openWorkspaceAutomation}
                 teamActions={teamActions}
               />
-            </div>
+            </SidebarDrawer>
           </>
         )}
 

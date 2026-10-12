@@ -1,5 +1,8 @@
 use crate::js_runtime::{probe_bin, BinResolution};
 
+#[cfg(any(windows, test))]
+mod powershell;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct CommandPrerequisite {
     pub binary: String,
@@ -109,7 +112,7 @@ fn setup_hint(binary: &str) -> String {
 }
 
 pub(super) fn observe(command: Option<&str>) -> Vec<CommandPrerequisite> {
-    command
+    let prerequisites = command
         .into_iter()
         .flat_map(command_binaries)
         .map(|binary| {
@@ -124,7 +127,21 @@ pub(super) fn observe(command: Option<&str>) -> Vec<CommandPrerequisite> {
                 installed,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    #[cfg(windows)]
+    {
+        let mut prerequisites = prerequisites;
+        if let Some(command) = command.filter(|command| powershell::runs_downloaded_script(command))
+        {
+            let values = codeterm_util::windows_powershell::read_execution_policy_values();
+            if let Some(prerequisite) = powershell::prerequisite(command, &values) {
+                prerequisites.push(prerequisite);
+            }
+        }
+        prerequisites
+    }
+    #[cfg(not(windows))]
+    prerequisites
 }
 
 pub fn missing_prerequisite_hint(prerequisites: &[CommandPrerequisite]) -> Option<String> {

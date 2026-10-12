@@ -1,15 +1,10 @@
 # Blueprints
 
-A Blueprint watches status with bounded probes at a declared cadence, classifies changed output, or carries a terminal conversation. Use it to wait for CI or builds without repeated agent checks.
+A Blueprint watches status with bounded probes at a declared cadence, classifies changes with patterns or an explicitly enabled model, or carries a terminal conversation. Use it to wait for CI or builds without repeated agent checks.
 
-Name graphs, handlers and crons by what they watch and do. Create requires `--name`; updates require `name`. Validate with `--dry-run`. Ready skeletons: `codeterm docs BLUEPRINT-RECIPES` or `codeterm blueprint recipe [<name>]`.
+Name graphs, handlers and crons by what they watch and do. Create requires `--name`; updates require `name`. Validate with `--dry-run`. Worked examples and recipes: `codeterm docs BLUEPRINT-RECIPES` or `codeterm blueprint recipe [<name>]`.
 
 ## Share a Blueprint
-
-```bash
-codeterm blueprint export <id> --out watch.blueprint.json
-codeterm blueprint import watch.blueprint.json --set binding_1=<value> --set timeout=1h --stopped
-```
 
 Export defaults to stdout. A `.blueprint.json` recipe contains `schema_version: 1`, described `placeholders`, and a `definition` holding a create or pipeline spec. Bind `{{key}}` with `--set`; `create --recipe` also accepts exports. Invalid versions, missing bindings and invalid definitions are refused. Imports use the caller's Team and start stopped; `--start` runs them.
 
@@ -17,31 +12,23 @@ Exports omit owner ids, runtime and history. Commands, input, event parameters, 
 
 ## When to use a Blueprint graph
 
-Define a graph before repeating an external, agent or cron status check. Unchanged output costs no model call or agent turn; declared buckets route back to you. Observation and actions are deterministic. The model picks a finite bucket, never a command, target or reply. Actions stay in the creator's Team, workspace and machine; `other` means none fits.
+Define a graph before repeating an external, agent or cron status check. Pattern watches never call the model; unmatched output stays in `other`. Model classification requires `--model-classification` without `--match`. Unchanged output costs no model call or agent turn; declared buckets route back to you. Observation and actions are deterministic. The model picks a finite bucket, never a command, target or reply. Actions stay in the creator's Team, workspace and machine; `other` means none fits.
 
-Print a stable verdict before long output; only 32 KiB is kept. Timestamps and durations trigger classification, and errors must not resemble success. `--match` classifies first; the Choice adapter handles unmatched output. `--question` defines each bucket and `other`. After creating, end your turn and let a route wake you: waits, sleeps and background loops are polling. Observe same-Team, same-workspace tabs; utility shells need `--terminal-pattern` or `--output-settled`.
+Print a stable verdict before long output; only 32 KiB is kept. Timestamps and durations trigger classification, and errors must not resemble success. `--question` defines each bucket and `other`. After creating, end your turn and let a route wake you: waits, sleeps and background loops are polling. Observe same-Team, same-workspace tabs; utility shells need `--terminal-pattern` or `--output-settled`.
 
 Probes receive the creating instance's CLI directory first on `PATH`, API URL/token and socket path. Flapping stops at the transition budget and notifies the creator; hung probes skip ticks without slowing other graphs. Removing an observed tab stops its graph and notifies the creator. Removing a CronRun tab ends that run, notifies the creator and waits for another verified run. A solo creator's graph remains visible after joining a Team.
 
 ## Create a watch
 
-```bash
-codeterm blueprint create --name ci-finished-watch --probe "gh run view 456 --json status,conclusion" --question "waiting while CI is in progress; finished when CI has completed with any conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
-```
+The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`, `h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout` bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition.
 
-The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`, `h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout` bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition. `--route bucket=stop` ends it on its first accepted reading.
+`--route bucket=stop` ends the graph the first time that bucket is seen; never put `stop` on a still-waiting bucket. Keep a bucket silent with an empty handler list (`{"waiting":[]}`) or `--route waiting=none`.
 
-Every declared bucket routes on its first accepted reading. `--route bucket=stop` ends the graph the first time that bucket is seen; never put `stop` on a still-waiting bucket. Keep a bucket silent with an empty handler list (`{"waiting":[]}`) or `--route waiting=none`. Without rearm-on-change, a route runs again when its bucket changes away and later returns.
+Watch each member with its own `--observe tab:<id>` graph, or use `--rearm-on-change <bucket>` when a relevant source change should start a fresh episode.
 
-For Team watches, a bucket routes only when it changes. Watch each member with its own `--observe tab:<id>` graph, or use `--rearm-on-change <bucket>` when a relevant source change should start a fresh episode.
+The creator's live tab supplies cwd, workspace and Team. Commands run as the daemon user there, without interactive stdin, through `/bin/sh -c` on Unix and Windows PowerShell on Windows, where `curl` is an alias (use `curl.exe`) and `>` writes UTF-16. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status is part of the hashed result. A confirmed probe timeout, spawn failure or nonzero command exit records an `error` run and keeps watching. Unconfirmed child or process-boundary cleanup stops the watch to prevent overlapping probes.
 
-The creator's live tab supplies its cwd, workspace, and Team. Commands are executed as the daemon user in that cwd, with no interactive stdin, through `/bin/sh -c` on Unix and Windows PowerShell on Windows, where `curl` is an alias (use `curl.exe`) and `>` writes UTF-16. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status is part of the hashed result. A probe timeout or spawn failure records a skip.
-
-Use `--observe` to watch an agent tab or a cron run instead of running a shell probe:
-
-```bash
-codeterm blueprint create --name nightly-run-watch --observe cron-run:nightly --question "identify the current run state" --buckets waiting,finished --every 20s --timeout 1h
-```
+Use `--observe` to watch an agent tab or cron run instead of a shell probe.
 
 For `tab:<id>`, the observed tab must share the creator's Team and workspace. Without terminal options it observes agent status and prompts. A `cron-run:<id-or-name>` stage waits for a run, then observes the exact automation tab recorded for that run, even when that hidden tab has no Team membership. A finished run or removed tab unbinds the stage; a replacement run starts a fresh observation episode by resetting the observation hash, accepted bucket, held state, and per-run transition allowance while retaining history. A removed tab routes a notice to the creator agent with the reason.
 
@@ -51,13 +38,9 @@ An input stage watches data instead of a probe or observation: inline text, a fi
 
 ## Classification and transitions
 
-A connected Supporter adapter with Choice capability classifies output that matches no deterministic pattern, using one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never calls the model, including after a failed or budget-exhausted classification. Deterministic patterns are checked first, even when a Choice adapter is connected. One matching bucket is accepted at confidence 1; overlapping matches become `other`. Unmatched output uses the adapter when connected, or becomes `other` when no adapter is connected:
+With `--model-classification` and no patterns, a connected Supporter adapter with Choice capability classifies changed output, using one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never calls the model, including after a failed or budget-exhausted classification. Blueprints with declared patterns are entirely deterministic; unmatched output never falls back to a model. Blueprint probes and lifecycle records reach the Supporter journal only after explicit model-classification opt-in. One matching bucket is accepted at confidence 1. Overlap, unmatched patterns or absence of both patterns and model opt-in show `other`.
 
-```bash
-codeterm blueprint create --name ci-result-watch --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
-```
-
-Patterns see the formatted result: exit status, stdout, then stderr. Match the status line with a multiline pattern such as `(?m)^success$` when the probe prints `success`. Create without either a connected Choice adapter or a pattern is refused.
+Patterns see the formatted result: exit status, stdout, then stderr. Matching uses multiline anchors, normalizes CRLF to LF and removes trailing whitespace on each line. Match the status line with a multiline pattern such as `(?m)^success$` when the probe prints `success`. `show` reports `classification=pattern`, `unmatched` or `model`, and JSON carries `model_classification`.
 
 Routes run once when a new accepted bucket differs from the previous accepted bucket, including the first accepted result. Model confidence must be at least 0.80. `other` and low confidence can use the reserved `other` handlers; adapter failure and exhausted budgets never escalate. Unknown or weak observations do not reset the last accepted bucket. Returning to a previously accepted bucket after another accepted bucket is a new transition.
 
@@ -86,44 +69,15 @@ A send target must share the creator's Team and workspace. The existing safe sen
 
 Create downstream stages first with `--paused`, then create the named entry whose outputs activate their exact IDs. Paused stages do not probe or spend Choice requests. Their timeout starts at creation and continues while dormant.
 
-```bash
-codeterm blueprint create --name "Review stage" --paused --probe "check-review" --question "done when review completes" --buckets done --match 'done=(?m)^done$' --until done --timeout 1h --json
-codeterm blueprint create --name "CI and review" --probe "check-ci" --question "passed or failed CI" --buckets passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --route passed=blueprint:sentinel_DOWNSTREAM_ID --route passed=notify --route failed=stop --timeout 1h
-```
+The entry and its reachable stages appear as one named scenario. Shared targets retain their identity and results. Activating an already active stage is a noop: it does not reset its accepted result, schedule, expiry or running work. Missing, foreign, self, stopped and expired targets are refused. Rearming is limited to `--rearm-on-change`; there is no recursive scheduler execution or cyclic-episode guarantee.
 
-Replace `sentinel_DOWNSTREAM_ID` with the exact ID from the first response. The entry and its reachable stages appear as one named scenario. Shared targets retain their identity and results. Activating an already active stage is a noop: it does not reset its accepted result, schedule, expiry or running work. Missing, foreign, self, stopped and expired targets are refused. Rearming is limited to `--rearm-on-change`; there is no recursive scheduler execution or cyclic-episode guarantee.
+Use `--handlers-file PATH` for JSON bucket-to-array definitions. Omit `id` to generate a meaningful handler-node name from its type and bucket (for example, `send-to-review-on-passed`). Explicit generic IDs such as `default_1` or `handler_2` are refused; replace them with a purpose-based name or omit them.
 
-Use `--handlers-file PATH` for JSON bucket-to-array definitions. Omit `id` to generate a meaningful handler-node name from its type and bucket (for example, `send-to-review-on-passed`). Explicit generic IDs such as `default_1` or `handler_2` are refused; replace them with a purpose-based name or omit them:
+The file form cannot be mixed with `--route`. Unknown fields or types, duplicate IDs and ambiguous targets are refused. At most 16 handlers fit each bucket and 64 fit one node. Composition definitions require `--timeout`. Each graph has a transition budget that defaults to 64 and can be set up to 256 with `--max-transitions`. Probe and direct-tab graphs spend it over their lifetime; each verified CronRun binding gets a fresh allowance. Accepted history is retained to a separate lifetime cap of 65,536 transitions. Exhaustion stops the graph with `transition_budget_exhausted` and routes a notice with the reason to the creator agent. The action-attempt budget defaults to 256 and `--max-actions` allows up to 1024. No model output constructs a handler, target or command. A fixed local command is available only through `--handlers-file`, with creator-authored parameters.
 
-```json
-{"passed":[{"id":"review","type":"blueprint","parameters":{"target":"sentinel_DOWNSTREAM_ID"}},{"id":"notice","type":"notify","parameters":{}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
-```
+Put escalation actions only in the reserved `other` array.
 
-The file form cannot be mixed with `--route`. Unknown fields or types, duplicate IDs and ambiguous targets are refused. At most 16 handlers fit each bucket and 64 fit one node. Composition definitions require `--timeout`. Each graph has a transition budget that defaults to 64 and can be set up to 256 with `--max-transitions`. Probe and direct-tab graphs spend it over their lifetime; each verified CronRun binding gets a fresh allowance. Accepted history is retained to a separate lifetime cap of 65,536 transitions. Exhaustion stops the graph with `transition_budget_exhausted` and routes a notice with the reason to the creator agent. The action-attempt budget defaults to 256 and `--max-actions` allows up to 1024. No model output constructs a handler, target or command. A fixed local command is available only through `--handlers-file`, with creator-authored parameters:
-
-```json
-{"passed":[{"id":"marker","type":"command","parameters":{"command":"printf marker > marker.txt","label":"Write marker","timeout_ms":1000}},{"id":"review","type":"blueprint","parameters":{"target":"sentinel_DOWNSTREAM_ID"}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
-```
-
-Use the same file form to declare a prompt answer:
-
-```json
-{"ready":[{"id":"answer_permission","type":"respond_prompt","parameters":{"target":"permission"}}]}
-```
-
-Save the JSON as `handlers.json` in your disposable fixture directory, replace the downstream ID, and create from that directory:
-
-```bash
-codeterm blueprint create --name "Marker and review" --probe "printf passed" --question "passed or failed" --buckets passed,failed --match 'passed=(?m)^passed$' --match 'failed=(?m)^failed$' --handlers-file handlers.json --timeout 1h
-```
-
-Put escalation actions only in the reserved `other` array, for example:
-
-```json
-{"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
-```
-
-It accepts only `notify` and `escalate` handlers, with at most one escalation. An escalation packet carries only Blueprint and transition IDs, never probe output. Creating a graph with `other` handlers requires positive `--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms` in the definition JSON. After an escalation the stage holds without classifying until resolution, a new run binding, or timeout (journaled as `escalation_expired`). Resolve an open episode with:
+The `other` array accepts only `notify` and `escalate` handlers, with at most one escalation. An escalation packet carries only Blueprint and transition IDs, never probe output. Creating a graph with `other` handlers requires positive `--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms` in the definition JSON. After an escalation the stage holds without classifying until resolution, a new run binding, or timeout (journaled as `escalation_expired`). Resolve an open episode with:
 
 ```bash
 codeterm blueprint escalation resolve BLUEPRINT_ID TRANSITION_ID
@@ -161,13 +115,11 @@ codeterm blueprint delete --stopped
 
 `delete` removes a whole Blueprint with every stage and its history; naming a stage deletes the Blueprint it belongs to. Only the creator tab or the Team owner may delete, and only inside the caller's Team and workspace. A running Blueprint is refused unless `--stop` is passed. `--stopped` deletes every stopped Blueprint the caller may delete and prints the removed ids; deletion cannot be undone.
 
-These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
+These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. `runs_since_transition` counts completed repeats after the current state began (zero on a transition); `last_probe_at` is the last completed probe time in Unix milliseconds. Jobs and the human output show the current probe state with `×N`, including `error` and unmatched `other`. The declared cadence remains fixed; missed ticks are skipped rather than replayed. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
 
 Legacy single-route definitions or corrupt stores make Blueprints unavailable; other subsystems still start. Original bytes remain, and reads and mutations return a load/format error. Preserve the definitions and recreate them through current authoring: no automatic migration, reset or discard. Demonstrate with fresh isolated dev data.
 
 Failed persistence holds Blueprints unavailable until filesystem repair and a valid reload. Cancellation remains in memory; durability, stop success and replay are unconfirmed.
-
-
 
 ## Terminal output and conversation mode
 
@@ -186,4 +138,10 @@ codeterm blueprint create --recipe echo --set message=ready
 codeterm blueprint log BLUEPRINT_ID
 ```
 
-<!-- revision: 26 -->
+## Bounded Agent steps
+
+A typed pipeline may include `{"kind":"agent","provider":"<capable-provider>","profile":"<profile>","task":"<instruction>","deadline_ms":300000,"max_tokens":64000,"max_turns":24}` as a step's `kind`. Input and output are text. Discover providers and their profiles through `codeterm blueprint nodes`; the provider must declare bounded Agent tasks. Rotterdom implements this capability through its configured profiles. An unsupported provider is refused before creation and checked again before execution.
+
+The task and preceding output reach the provider unchanged, with token, turn and deadline ceilings. The provider returns structured JSON `{status, output, error?}`, with status `done`, `failed`, `cancelled` or `deadline_exceeded`. The step routes `done` or `failed`. A graph stop aborts the active task; its step log closes as failed. Results, including abort status, persist in `blueprint-agent-results/` and the step log exposes their `body_ref`. Claimed steps never replay after restart, and an unfinished tool effect remains unconfirmed. Agent steps do not turn model output into a shell command.
+
+<!-- revision: 30 -->

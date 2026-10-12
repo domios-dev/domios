@@ -14,13 +14,15 @@ pub fn grants_path(bundle_dir: &Path) -> PathBuf {
     bundle_dir.join("grants.yaml")
 }
 
-const TOGGLEABLE: [&str; 6] = [
+const TOGGLEABLE: [&str; 8] = [
+    "project_write",
     "manage_workspaces",
     "spawn_agents",
     "agent_commands",
     "surfaces",
     "secrets",
     "analytics",
+    "local_recording",
 ];
 
 /// No rotating backups: the file lives inside the plugin bundle.
@@ -59,6 +61,7 @@ pub fn load_grants(bundle_dir: &Path) -> PluginGrants {
                 .map(|permission| (permission.to_string(), false))
                 .collect(),
             network_allow: Vec::new(),
+            project_write_roots: Vec::new(),
         },
     }
 }
@@ -67,6 +70,7 @@ pub fn load_grants(bundle_dir: &Path) -> PluginGrants {
 /// present key wins over the manifest; absent keys leave the manifest value.
 pub fn apply_persisted(perms: &mut PermissionsConfig, bundle_dir: &Path) {
     let g = load_grants(bundle_dir);
+    perms.local_recording = g.permissions.get("local_recording") == Some(&true);
     if let Some(v) = g.permissions.get("manage_workspaces") {
         perms.manage_workspaces = *v;
     }
@@ -108,6 +112,23 @@ pub fn save_grant(bundle_dir: &Path, permission: &str, granted: bool) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lark_recording_contract_requires_explicit_persisted_grant_even_for_manifest_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut perms = PermissionsConfig {
+            local_recording: true,
+            ..Default::default()
+        };
+        apply_persisted(&mut perms, dir.path());
+        assert!(!perms.local_recording);
+        save_grant(dir.path(), "local_recording", true).unwrap();
+        apply_persisted(&mut perms, dir.path());
+        assert!(perms.local_recording);
+        save_grant(dir.path(), "local_recording", false).unwrap();
+        apply_persisted(&mut perms, dir.path());
+        assert!(!perms.local_recording);
+    }
 
     #[test]
     fn unparseable_grants_file_revokes_every_toggleable_permission() {

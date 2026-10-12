@@ -23,9 +23,15 @@ pub async fn check_update(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Query(q): Query<CheckUpdateQuery>,
+    bundles: Option<axum::Extension<std::sync::Arc<crate::frontend_bundle::FrontendBundles>>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
+    if super::auth::is_local_caller(&state, &headers) {
+        if let Some(axum::Extension(bundles)) = bundles {
+            crate::startup::frontend_bundles::check(bundles);
+        }
+    }
     let force = q.force.unwrap_or(false);
 
     if !force {

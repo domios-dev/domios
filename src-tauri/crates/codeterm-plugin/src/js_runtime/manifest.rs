@@ -43,7 +43,12 @@ pub use read_root::ReadRootEnvironment;
 pub use surfaces::{SurfaceDecl, SurfaceRenderer, SurfaceRestore};
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
 
-/// Top-level `plugin.json` document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, tag = "format", rename_all = "snake_case")]
+pub enum DirectoryTrustRecord {
+    TomlFolders { path: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PluginManifest {
@@ -99,6 +104,8 @@ pub struct PluginManifest {
     // Optional features (most providers leave these omitted)
     #[serde(default)]
     pub sessions: Option<SessionsConfig>,
+    #[serde(default)]
+    pub directory_trust_record: Option<DirectoryTrustRecord>,
     /// Credential files the host reads on the plugin's behalf. Declaring one
     /// also revokes the plugin's own `readFile` access to that exact file.
     #[serde(default)]
@@ -237,6 +244,8 @@ fn default_capabilities() -> Capabilities {
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
+        local_recording_trigger: None,
+        receiver_status_query: None,
         tab_menu: Vec::new(),
         surfaces: Vec::new(),
         unknown: Default::default(),

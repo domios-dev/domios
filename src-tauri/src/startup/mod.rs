@@ -8,12 +8,17 @@ mod bridge;
 mod cli_install;
 mod cli_shim;
 mod conpty_host;
+pub(crate) mod frontend_bundles;
 mod frontend_ready;
+pub(crate) mod frontend_shell;
 mod logging;
+mod native_notification;
+pub(crate) use native_notification::native_notification;
 pub(crate) mod model_catalogue;
 mod plan_restore;
 mod progress;
 mod rest_api;
+pub(crate) mod restart_stdio;
 mod restore_complete;
 mod servers;
 #[cfg(test)]
@@ -33,13 +38,15 @@ pub(crate) use cli_shim::forward_to_cli_if_invoked;
 pub(crate) use conpty_host::setup_conpty_host;
 pub(crate) use frontend_ready::{
     arm_frontend_readiness, frontend_readiness_generation, mark_frontend_ready,
-    wait_for_frontend_ready_until,
+    observe_frontend_boot, wait_for_frontend_ready_until,
 };
 pub(crate) use logging::setup_logging;
 pub(crate) use plan_restore::restore as restore_plans;
 pub(crate) use progress::StartupStep;
+pub(crate) use rest_api::RestApiDiagnostic;
 pub(crate) use rest_api::{
-    RestApiControl, RestApiControlState, RestApiRecovery, RestApiRuntimePolicy, RestApiStatus,
+    RestApiControl, RestApiControlState, RestApiPhase, RestApiRecovery, RestApiRuntimePolicy,
+    RestApiStatus,
 };
 pub(crate) use restore_complete::notify as restore_complete;
 pub(crate) use servers::start_servers;

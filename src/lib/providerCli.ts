@@ -1,4 +1,5 @@
 export interface ProviderCliStatus {
+  update_summary?: string | null;
   detected_version?: string | null;
   version_probe?: "pending" | "detected" | "missing" | "unreadable" | "failed" | "timeout" | "invalid" | "saturated";
   compatibility?: { verdict: "supported" | "breaking" | "unknown"; reasons: string[] };
@@ -20,6 +21,7 @@ export interface ProviderCliView {
   state: ProviderCliState;
   label: string;
   version: string | null;
+  compatibilityHint: string | null;
   pathHint: string | null;
   canInstall: boolean;
   canRecheck: boolean;
@@ -44,6 +46,17 @@ export function providerCliPresentation(status: ProviderCliStatus | null): { sta
   return { state, label, canInstall: status.installed !== true && Boolean(status.installer) };
 }
 
+export function providerCompatibilityHint(status: ProviderCliStatus | null): string | null {
+  if (!status?.required || status.installed !== true) return null;
+  const compatibility = status.compatibility;
+  if (!compatibility || compatibility.verdict === "supported" || compatibility.reasons.includes("undeclared_capability")) return null;
+  const version = status.detected_version?.trim();
+  if (compatibility.verdict === "breaking") return "CLI version is incompatible; transcript reads are disabled. Use the terminal.";
+  return version
+    ? `CLI ${version} is not verified yet; transcript reads are best effort. Use the terminal if Chat is unavailable.`
+    : "CLI version is unknown; transcript compatibility is not verified. Use the terminal if Chat is unavailable.";
+}
+
 export function providerCliView(status: ProviderCliStatus | null, error: string | null): ProviderCliView {
   const base = providerCliPresentation(status);
   const state: ProviderCliState = error && base.state === "checking" ? "unknown" : base.state;
@@ -51,6 +64,7 @@ export function providerCliView(status: ProviderCliStatus | null, error: string 
   const installer = status?.installer ?? null;
   return {
     state,
+    compatibilityHint: providerCompatibilityHint(status),
     label: state === "unknown" ? "CLI status unknown" : base.label,
     version: state === "installed" ? status?.detected_version?.trim() || null : null,
     pathHint: state === "installed" ? status?.resolved_path ?? null : null,

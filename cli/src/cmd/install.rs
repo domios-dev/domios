@@ -1,11 +1,47 @@
+#[cfg(any(test, target_os = "windows", target_os = "macos"))]
+mod relaunch_env {
+    pub(super) const CODETERM_RELAUNCH_KEY: &str = "CODETERM";
+
+    fn is_codeterm_relaunch_key(key: &str) -> bool {
+        let stem = CODETERM_RELAUNCH_KEY;
+        key.len() >= stem.len()
+            && key[..stem.len()].eq_ignore_ascii_case(stem)
+            && (key.len() == stem.len() || key[stem.len()..].starts_with('_'))
+    }
+
+    pub(super) fn filter_relaunch_env<I, K, V>(env: I) -> Vec<(K, V)>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+    {
+        env.into_iter()
+            .filter(|(key, _)| !is_codeterm_relaunch_key(key.as_ref()))
+            .collect()
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    pub(super) fn apply_relaunch_env(command: &mut std::process::Command) {
+        command.env_clear();
+        command.envs(filter_relaunch_env(std::env::vars()));
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use relaunch_env::apply_relaunch_env;
+#[cfg(target_os = "windows")]
+use relaunch_env::CODETERM_RELAUNCH_KEY;
+
 // Detached NSIS install helper keeps running after CLI exits.
 #[cfg(target_os = "windows")]
-fn windows_runtime_env_scrub_block() -> &'static str {
-    "for /f \"tokens=1 delims==\" %%V in ('set CODETERM 2^>nul') do set \"%%V=\"\r\n\
-    set \"CARGO_TARGET_DIR=\"\r\n\
-    set \"CARGO_INCREMENTAL=\"\r\n\
-    set \"RUSTC_WRAPPER=\"\r\n\
-    set \"SCCACHE_BASEDIRS=\"\r\n"
+fn windows_runtime_env_scrub_block() -> String {
+    format!(
+        "for /f \"tokens=1 delims==\" %%V in ('set {prefix} 2^>nul') do set \"%%V=\"\r\n\
+        set \"CARGO_TARGET_DIR=\"\r\n\
+        set \"CARGO_INCREMENTAL=\"\r\n\
+        set \"RUSTC_WRAPPER=\"\r\n\
+        set \"SCCACHE_BASEDIRS=\"\r\n",
+        prefix = CODETERM_RELAUNCH_KEY,
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -75,7 +111,9 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
     eprintln!("[install --from-file] Detaching installer helper.");
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let broker = std::process::Command::new("powershell.exe")
+    let mut broker = std::process::Command::new("powershell.exe");
+    apply_relaunch_env(&mut broker);
+    let broker = broker
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -185,7 +223,9 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
     eprintln!("[install --from-file] Detaching. Domios goes down in ~2s.");
 
     // Detach into its own process group so it survives this CLI + the daemon.
-    std::process::Command::new("bash")
+    let mut helper = std::process::Command::new("bash");
+    apply_relaunch_env(&mut helper);
+    helper
         .arg(&script)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -202,6 +242,96 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     Ok(())
+}
+
+#[cfg(test)]
+mod relaunch_env_tests {
+    use super::relaunch_env::filter_relaunch_env;
+
+    #[test]
+    fn filter_relaunch_env_strips_every_codeterm_variable_and_keeps_path_home() {
+        let filtered = filter_relaunch_env([
+            ("PATH", "/usr/bin"),
+            ("HOME", "/Users/andrey"),
+            ("USER", "andrey"),
+            ("TMPDIR", "/tmp"),
+            ("CARGO_TARGET_DIR", "/tmp/target"),
+            ("CODETERM", "1"),
+            ("CODETERM_INSTANCE", "aiderqa"),
+            ("CODETERM_API_PORT", "7697"),
+            ("CODETERM_API_URL", "http://127.0.0.1:7697"),
+            ("CODETERM_API_TOKEN", "secret"),
+            ("CODETERM_SOCKET_PATH", "/tmp/codeterm-dev-aiderqa.sock"),
+            ("CODETERM_DATA_DIR", "/Users/andrey/.codeterm-dev-aiderqa"),
+            ("CODETERM_DEV_IDENTIFIER", "com.codeterm.dev.aiderqa"),
+            ("CODETERM_TAB_ID", "tab-1"),
+            ("CODETERM_VITE_PORT", "1519"),
+            ("CODETERM_CDP_PORT", "9322"),
+        ]);
+
+        assert_eq!(
+            filtered,
+            vec![
+                ("PATH", "/usr/bin"),
+                ("HOME", "/Users/andrey"),
+                ("USER", "andrey"),
+                ("TMPDIR", "/tmp"),
+                ("CARGO_TARGET_DIR", "/tmp/target"),
+            ]
+        );
+    }
+
+    #[test]
+    fn filter_relaunch_env_keeps_nothing_instance_specific() {
+        let filtered = filter_relaunch_env([
+            ("HOME", "/home/andrey"),
+            ("PATH", "/bin"),
+            ("CODETERM", "1"),
+            ("CODETERM_INSTANCE", "aiderqa"),
+            ("CODETERM_DEV_IDENTIFIER", "com.codeterm.dev.aiderqa"),
+            ("CODETERM_DATA_DIR", "/home/andrey/.codeterm-dev-aiderqa"),
+            ("CODETERM_SOCKET_PATH", "/tmp/codeterm-dev-aiderqa.sock"),
+            ("CODETERM_API_PORT", "7697"),
+        ]);
+        let keys: Vec<&str> = filtered.iter().map(|(key, _)| *key).collect();
+        assert_eq!(keys, vec!["HOME", "PATH"]);
+        assert!(filtered.iter().all(|(key, _)| {
+            let upper = key.to_ascii_uppercase();
+            upper != "CODETERM" && !upper.starts_with("CODETERM_")
+        }));
+    }
+
+    #[test]
+    fn filter_relaunch_env_strips_codeterm_prefix_case_insensitively() {
+        let filtered = filter_relaunch_env([
+            ("Path", "/bin"),
+            ("Home", "/home/andrey"),
+            ("codeterm", "1"),
+            ("codeterm_instance", "aiderqa"),
+            ("CodeTerm_API_PORT", "7686"),
+            ("CODETERM_tab_id", "tab-1"),
+        ]);
+        assert_eq!(filtered, vec![("Path", "/bin"), ("Home", "/home/andrey")]);
+    }
+
+    #[test]
+    fn filter_relaunch_env_keeps_unrelated_and_short_keys() {
+        let filtered = filter_relaunch_env([
+            ("C", "1"),
+            ("CODETERM", "1"),
+            ("CODETERM_", ""),
+            ("CODETERMINAL", "x"),
+            ("NOT_CODETERM_INSTANCE", "keep"),
+        ]);
+        assert_eq!(
+            filtered,
+            vec![
+                ("C", "1"),
+                ("CODETERMINAL", "x"),
+                ("NOT_CODETERM_INSTANCE", "keep")
+            ]
+        );
+    }
 }
 
 #[cfg(all(test, target_os = "windows"))]
@@ -238,7 +368,7 @@ mod tests {
     fn installed_daemon_launch_scrubs_dev_and_build_environment() {
         let script = install_script();
 
-        let scrub = script.find("set CODETERM").unwrap();
+        let scrub = script.find("set CODETERM ").unwrap();
         let launch = script.find("start \"\" \"codeterm.exe\"").unwrap();
         assert!(scrub < launch);
         for variable in [

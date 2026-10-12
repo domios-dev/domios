@@ -1033,18 +1033,13 @@ impl ServiceContext {
         if !LAUNCH_ONBOARDING_NOTICES.lock().insert(tab_id.to_string()) {
             return;
         }
-        self.create_notification_ext(
+        self.log_system_notice(
             "Provider onboarding choice applied".into(),
             Some(format!(
                 "Tab {} completed its provider-declared safe onboarding choice.",
                 tab_id
             )),
             Some("info"),
-            None,
-            None,
-            crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
-            crate::service::notification::PushIntent::default(),
-            None,
         );
     }
 

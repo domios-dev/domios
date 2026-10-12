@@ -7,12 +7,14 @@ use super::{client::ClientError, lifecycle::Sidecar, protocol::Frame};
 use crate::service::{
     chat_send_transaction::{ChatSendStatus, SendLiveBinding},
     delivery_error::DeliveryError,
+    pending_delivery_payloads::user_sends::UserSendAuthority,
     ServiceContext,
 };
 use gate::SendGate;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::{
+    cell::RefCell,
     collections::HashMap,
     sync::{atomic::Ordering, Arc, LazyLock, Weak},
 };
@@ -48,6 +50,7 @@ pub fn try_send_to_pty(
 pub(crate) fn try_send_owned(
     svc: &ServiceContext,
     record: &crate::service::pending_delivery_payloads::user_sends::UserSendRecord,
+    capture_send: bool,
 ) -> Option<Result<(), DeliveryError>> {
     if svc.chat_send_ledger.has_rpc_handoff(&record.send_id) {
         return Some(Err(DeliveryError::SubmitUnconfirmed {
@@ -67,15 +70,16 @@ pub(crate) fn try_send_owned(
             return Some(Err(DeliveryError::TabBusyRefused {
                 tab: record.authority.tab_id.clone(),
                 detail,
-            }))
+            }));
         }
     };
-    try_send(
+    try_send_with_capture(
         svc,
         &record.authority.tab_id,
         &text,
         Origin::User,
         Some(&record.send_id),
+        capture_send.then_some(&record.authority),
     )
 }
 
@@ -85,6 +89,17 @@ pub fn try_send(
     text: &str,
     origin: Origin,
     send_id: Option<&str>,
+) -> Option<Result<(), DeliveryError>> {
+    try_send_with_capture(svc, tab, text, origin, send_id, None)
+}
+
+fn try_send_with_capture(
+    svc: &ServiceContext,
+    tab: &str,
+    text: &str,
+    origin: Origin,
+    send_id: Option<&str>,
+    capture_authority: Option<&UserSendAuthority>,
 ) -> Option<Result<(), DeliveryError>> {
     if send_id.is_some_and(|id| svc.chat_send_ledger.has_rpc_handoff(id)) {
         return Some(Err(DeliveryError::SubmitUnconfirmed {
@@ -151,12 +166,27 @@ pub fn try_send(
     };
     let attachment_ready = super::lifecycle::startup_attachment_ready(tab);
     let binding_verified = binding.is_some();
-    let gate = SendGate::classify(capability, state, available, binding_verified);
-    log::debug!("[rpc/send] tab={tab} provider={provider:?} capability={capability:?} gate={gate:?} runtime_entered={}", tokio::runtime::Handle::try_current().is_ok());
+    let first_readiness_reached = svc
+        .user_send_authority(tab)
+        .ok()
+        .is_some_and(|authority| svc.user_authority_is_ready(&authority));
+    let gate = SendGate::classify(
+        capability,
+        state,
+        available,
+        binding_verified,
+        first_readiness_reached,
+    );
+    log::debug!(
+        "[rpc/send] tab={tab} provider={provider:?} capability={capability:?} gate={gate:?} runtime_entered={}",
+        tokio::runtime::Handle::try_current().is_ok()
+    );
     let (sidecar, thread, nonce) = match (gate, sidecar, thread, binding) {
         (SendGate::Pty, _, _, _) => return None,
-        (SendGate::Hold(reason), _, _, _) => {
-            log::info!("[codex-rpc-send] tab={tab} state=held reason={reason:?} delivery_state={state:?} origin={origin:?} capability={capability:?} endpoint_present={endpoint_present} client_alive={client_alive} process_alive={process_alive} server_verified={server_verified} launch_authenticated={authenticated} thread_matches={thread_matches} nonce_present={nonce_present} nonce_matches={nonce_matches} binding_verified={binding_verified} attachment_ready={attachment_ready} bootstrap_pending={bootstrap_pending}");
+        (SendGate::Refuse(reason), _, _, _) => {
+            log::info!(
+                "[codex-rpc-send] tab={tab} state=refused reason={reason:?} delivery_state={state:?} origin={origin:?} capability={capability:?} endpoint_present={endpoint_present} client_alive={client_alive} process_alive={process_alive} server_verified={server_verified} launch_authenticated={authenticated} thread_matches={thread_matches} nonce_present={nonce_present} nonce_matches={nonce_matches} binding_verified={binding_verified} attachment_ready={attachment_ready} bootstrap_pending={bootstrap_pending}"
+            );
             return Some(Err(DeliveryError::TabBusyRefused {
                 tab: tab.into(),
                 detail: reason.into(),
@@ -184,7 +214,7 @@ pub fn try_send(
                 return Some(Err(DeliveryError::TabBusyRefused {
                     tab: tab.into(),
                     detail,
-                }))
+                }));
             }
         },
     };
@@ -194,18 +224,23 @@ pub fn try_send(
             detail: "RPC ledger admission absent".into(),
         }));
     };
-    if !svc.chat_send_ledger.bind_rpc_send(
-        &pending.send_id,
-        SendLiveBinding {
-            session_id: Some(thread.clone()),
-            binding_nonce: Some(nonce),
-        },
-    ) {
-        return Some(Err(DeliveryError::SubmitUnconfirmed {
-            tab: tab.into(),
-            detail: "RPC send was already claimed; replay refused".into(),
-        }));
-    }
+    let rpc_bound = if capture_authority.is_none() {
+        if !svc.chat_send_ledger.bind_rpc_send(
+            &pending.send_id,
+            SendLiveBinding {
+                session_id: Some(thread.clone()),
+                binding_nonce: Some(nonce.clone()),
+            },
+        ) {
+            return Some(Err(DeliveryError::SubmitUnconfirmed {
+                tab: tab.into(),
+                detail: "RPC send was already claimed; replay refused".into(),
+            }));
+        }
+        true
+    } else {
+        false
+    };
     observe(svc, tab, &sidecar);
     let cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
     let params = start_params(
@@ -217,18 +252,42 @@ pub fn try_send(
     );
     let active = super::control::active_turn(tab);
     log::debug!("[rpc/send] tab={tab} branch=block_on origin={origin:?}");
-    let result = tauri::async_runtime::block_on(submit(
+    let send_id = pending.send_id.clone();
+    let submission = tauri::async_runtime::block_on(submit_owned_rpc(
+        svc,
         origin,
         active.as_deref(),
         params,
+        &send_id,
+        capture_authority,
+        &thread,
+        &nonce,
+        rpc_bound,
+        |_, _| {},
         |method, params| sidecar.client.request(method, params),
     ));
+    let result = match submission {
+        GuardedSubmit::RefusedBeforeRequest { .. } => {
+            return Some(Err(DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: if capture_authority.is_some() {
+                    "recording capture or frozen RPC authority changed before request".into()
+                } else {
+                    "RPC send was already claimed before request".into()
+                },
+            }));
+        }
+        GuardedSubmit::Attempted(result) => result,
+    };
     if origin == Origin::User {
         if let Ok(reply) = &result {
             if let Some(turn) = reply.pointer("/turn/id").and_then(Value::as_str) {
-                let mut control = sidecar.control.lock();
-                if control.started(&thread, turn) {
-                    sidecar.busy.store(true, Ordering::Release);
+                let started = sidecar.control.lock().started(&thread, turn);
+                log::debug!(
+                    "[rpc/status] tab={tab} thread={thread} accepted_turn={turn} started={started}"
+                );
+                if started {
+                    super::status::observe(svc, tab, &thread, &sidecar, "turn/started");
                 }
             }
         }
@@ -292,18 +351,182 @@ pub async fn submit<F, Fut>(
     origin: Origin,
     active: Option<&str>,
     params: Value,
-    mut request: F,
+    request: F,
 ) -> Result<Value, ClientError>
 where
     F: FnMut(&'static str, Value) -> Fut,
     Fut: std::future::Future<Output = Result<Value, ClientError>>,
 {
+    match submit_guarded(origin, active, params, |_, _| true, |_| true, request).await {
+        GuardedSubmit::Attempted(result) => result,
+        GuardedSubmit::RefusedBeforeRequest { .. } => unreachable!(),
+    }
+}
+
+async fn submit_owned_rpc<B, F, Fut>(
+    service: &ServiceContext,
+    origin: Origin,
+    active: Option<&str>,
+    params: Value,
+    send_id: &str,
+    capture_authority: Option<&UserSendAuthority>,
+    thread: &str,
+    nonce: &str,
+    rpc_bound: bool,
+    mut before_validation: B,
+    request: F,
+) -> GuardedSubmit
+where
+    B: FnMut(&'static str, &Value),
+    F: FnMut(&'static str, Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, ClientError>>,
+{
+    let admission = RefCell::new(capture_authority.map(|authority| CaptureRpcAdmission {
+        service,
+        send_id,
+        authority,
+        thread,
+        nonce,
+        bound: false,
+    }));
+    let mut rpc_bound = rpc_bound;
+    submit_guarded(
+        origin,
+        active,
+        params,
+        |method, params| {
+            before_validation(method, params);
+            if let Some(admission) = admission.borrow_mut().as_mut() {
+                admission.before_request()
+            } else {
+                if !rpc_bound {
+                    rpc_bound = service.chat_send_ledger.bind_rpc_send(
+                        send_id,
+                        SendLiveBinding {
+                            session_id: Some(thread.to_string()),
+                            binding_nonce: Some(nonce.to_string()),
+                        },
+                    );
+                }
+                rpc_bound
+            }
+        },
+        |_| {
+            admission
+                .borrow_mut()
+                .as_mut()
+                .is_none_or(CaptureRpcAdmission::after_known_steer_refusal)
+        },
+        request,
+    )
+    .await
+}
+
+struct CaptureRpcAdmission<'a> {
+    service: &'a ServiceContext,
+    send_id: &'a str,
+    authority: &'a UserSendAuthority,
+    thread: &'a str,
+    nonce: &'a str,
+    bound: bool,
+}
+
+impl CaptureRpcAdmission<'_> {
+    fn before_request(&mut self) -> bool {
+        let current_authority = self
+            .service
+            .user_send_authority(&self.authority.tab_id)
+            .ok();
+        if !self
+            .service
+            .local_recordings
+            .write_ticket_matches_authority(self.send_id, self.authority)
+            || current_authority.as_ref() != Some(self.authority)
+            || self.authority.session_id.as_deref() != Some(self.thread)
+            || self.authority.binding_nonce != self.nonce
+            || !self.service.user_authority_is_current_session(
+                self.authority,
+                self.thread,
+                self.nonce,
+            )
+        {
+            return false;
+        }
+        if !self.bound {
+            self.bound = self.service.chat_send_ledger.bind_rpc_send(
+                self.send_id,
+                SendLiveBinding {
+                    session_id: Some(self.thread.to_string()),
+                    binding_nonce: Some(self.nonce.to_string()),
+                },
+            );
+        }
+        self.bound
+    }
+
+    fn after_known_steer_refusal(&mut self) -> bool {
+        if !self.bound {
+            return false;
+        }
+        let cleared = self
+            .service
+            .chat_send_ledger
+            .clear_rpc_send_after_definite_refusal(
+                self.send_id,
+                &SendLiveBinding {
+                    session_id: Some(self.thread.to_string()),
+                    binding_nonce: Some(self.nonce.to_string()),
+                },
+            );
+        if cleared {
+            self.bound = false;
+        }
+        cleared
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum GuardedSubmit {
+    RefusedBeforeRequest { after_known_steer_refusal: bool },
+    Attempted(Result<Value, ClientError>),
+}
+
+async fn submit_guarded<F, Fut, G, R>(
+    origin: Origin,
+    active: Option<&str>,
+    params: Value,
+    mut before_request: G,
+    mut after_known_steer_refusal: R,
+    mut request: F,
+) -> GuardedSubmit
+where
+    F: FnMut(&'static str, Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, ClientError>>,
+    G: FnMut(&'static str, &Value) -> bool,
+    R: FnMut(&ClientError) -> bool,
+{
+    let mut after_steer_refusal = false;
     if let (Origin::User, Some(turn)) = (origin, active) {
         let steer = steer_params(&params, turn);
-        log::info!("[codex-rpc-send] method=turn/steer thread={} expectedTurnId={turn} clientUserMessageId={}", steer["threadId"], steer["clientUserMessageId"]);
+        log::info!(
+            "[codex-rpc-send] method=turn/steer thread={} expectedTurnId={turn} clientUserMessageId={}",
+            steer["threadId"],
+            steer["clientUserMessageId"]
+        );
+        if !before_request("turn/steer", &steer) {
+            return GuardedSubmit::RefusedBeforeRequest {
+                after_known_steer_refusal: false,
+            };
+        }
         match request("turn/steer", steer).await {
-            Err(ClientError::Rpc(error)) if steer_turn_ended(&error, turn) => {}
-            result => return result,
+            Err(ClientError::Rpc(error)) if steer_turn_ended(&error, turn) => {
+                let refusal = ClientError::Rpc(error);
+                if !after_known_steer_refusal(&refusal) {
+                    return GuardedSubmit::Attempted(Err(refusal));
+                }
+                after_steer_refusal = true;
+            }
+            result => return GuardedSubmit::Attempted(result),
         }
     }
     log::info!(
@@ -311,7 +534,12 @@ where
         params["threadId"],
         params["clientUserMessageId"]
     );
-    request("turn/start", params).await
+    if !before_request("turn/start", &params) {
+        return GuardedSubmit::RefusedBeforeRequest {
+            after_known_steer_refusal: after_steer_refusal,
+        };
+    }
+    GuardedSubmit::Attempted(request("turn/start", params).await)
 }
 
 fn steer_params(start: &Value, turn: &str) -> Value {

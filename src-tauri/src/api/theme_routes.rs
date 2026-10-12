@@ -16,6 +16,14 @@ pub async fn list_themes_api(
     Ok(Json(serde_json::json!({ "themes": ids })))
 }
 
+pub(crate) fn valid_theme_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct SaveThemeBody {
     id: String,
@@ -28,6 +36,9 @@ pub async fn save_theme_api(
     Json(body): Json<SaveThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if !valid_theme_id(&body.id) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
+    }
     let dir = crate::config::schema::user_themes_dir().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Cannot determine themes directory",
@@ -58,6 +69,9 @@ pub async fn delete_theme_api(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if !valid_theme_id(&id) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
+    }
     if let Some(dir) = crate::config::schema::user_themes_dir() {
         let path = dir.join(format!("{}.toml", id));
         if path.exists() {
@@ -111,12 +125,17 @@ pub async fn check_rules_api(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let status = state
+    if !crate::api::auth::is_local_caller(&state, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required"));
+    }
+    let provider = state
         .svc
         .agent_registry
-        .with_provider(&q.provider, |p| p.check_rule_status())
+        .provider_arc(&q.provider)
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
+    let status = tokio::task::spawn_blocking(move || provider.check_rule_status())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Rule status task failed"))?;
     Ok(Json(status))
 }
 
@@ -125,13 +144,44 @@ pub async fn install_rules_api(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    state
+    if !crate::api::auth::is_local_caller(&state, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required"));
+    }
+    let provider = state
         .svc
         .agent_registry
-        .with_provider(&q.provider, |p| p.install_rule())
-        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
+        .provider_arc(&q.provider)
+        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
+    tokio::task::spawn_blocking(move || provider.install_rule())
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Rule install task failed",
+            )
+        })?
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install rule"))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn restore_hooks_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !crate::api::auth::is_local_caller(&state, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+    }
+    if state.svc.agent_registry.provider_arc(&q.provider).is_none() {
+        return Err((StatusCode::NOT_FOUND, "Unknown provider".into()));
+    }
+    let registry = state.svc.agent_registry.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::commands::restore_provider_integration_core(&registry, &q.provider)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::CONFLICT, error))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -208,7 +258,9 @@ pub async fn install_hooks_api(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<InstallHooksQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    if !crate::api::auth::is_local_caller(&state, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+    }
     if state
         .svc
         .agent_registry
@@ -264,18 +316,22 @@ pub async fn uninstall_hooks_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    state
-        .svc
-        .agent_registry
-        .with_provider(&q.provider, |p| p.uninstall_integration())
-        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to uninstall integration",
-            )
-        })?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !crate::api::auth::is_local_caller(&state, &headers) {
+        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+    }
+    if state.svc.agent_registry.provider_arc(&q.provider).is_none() {
+        return Err((StatusCode::NOT_FOUND, "Unknown provider".into()));
+    }
+    let registry = state.svc.agent_registry.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::commands::uninstall_provider_integration_core(&registry, &q.provider)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::CONFLICT, error))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
+
+#[cfg(test)]
+pub(crate) mod tests;

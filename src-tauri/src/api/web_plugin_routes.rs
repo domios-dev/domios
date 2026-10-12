@@ -5,7 +5,6 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::AppState;
-use crate::api::web_routes::validate_manifest_token;
 
 const PLUGIN_BRIDGE_JS: &str = r#"
 (function(){var p={},s=0;
@@ -13,7 +12,7 @@ window.addEventListener('message',function(e){var m=e.data||{};
  if(m.__ctReply!=null&&p[m.__ctReply]){var d=p[m.__ctReply];delete p[m.__ctReply];
   m.error?d.reject(new Error(m.error)):d.resolve(m.result);}
  if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
-window.ct={invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
+window.ct={surface:__CT_SURFACE__,invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
   p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
  close:function(){parent.postMessage({__ctClose:true},'*');}};
 parent.postMessage({__ctReady:true},'*');
@@ -22,9 +21,14 @@ function watch(){if(window.ResizeObserver){new ResizeObserver(rz).observe(docume
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch):watch();})();
 "#;
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginUiQuery {
-    pub token: Option<String>,
+    pub surface: Option<String>,
+    pub instance: Option<String>,
+    pub tab: Option<String>,
+    #[serde(skip_serializing, rename = "reload")]
+    pub _reload: Option<u64>,
 }
 
 fn ui_mime(path: &str) -> &'static str {
@@ -41,7 +45,7 @@ fn ui_mime(path: &str) -> &'static str {
 }
 
 pub async fn plugin_ui(
-    AxumState(state): AxumState<AppState>,
+    AxumState(_state): AxumState<AppState>,
     axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
     Query(q): Query<PluginUiQuery>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
@@ -55,48 +59,58 @@ pub async fn plugin_ui(
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
     }
-    if rel.ends_with(".html") {
-        let ok = q
-            .token
-            .as_deref()
-            .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
-            .unwrap_or(false);
-        if !ok {
-            return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
-        }
-    }
     let file = dir.join(rel);
     let bytes = tokio::fs::read(&file)
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
 
+    Ok(plugin_ui_response(rel, bytes, &q))
+}
+
+fn plugin_ui_response(
+    rel: &str,
+    bytes: Vec<u8>,
+    context: &PluginUiQuery,
+) -> axum::response::Response {
     let mut resp = if rel.ends_with(".html") {
-        html_response(&bytes)
+        html_response(&bytes, context)
     } else {
         asset_response(rel, bytes)
     };
     let cache = if rel.ends_with(".html") {
         "no-store, must-revalidate"
     } else {
-        "public, max-age=31536000, immutable"
+        "private, max-age=31536000, immutable"
     };
     resp.headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    Ok(resp)
+    resp
 }
 
-fn html_response(bytes: &[u8]) -> axum::response::Response {
+fn plugin_frame_csp(nonce: &str) -> String {
+    // A style nonce suppresses unsafe-inline, blocking attributes and Git's unnonced runtime styles.
+    format!(
+        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; \
+         img-src blob: data:; font-src blob: data:; \
+         connect-src 'none'; base-uri 'none'; form-action 'none'"
+    )
+}
+
+fn html_response(bytes: &[u8], context: &PluginUiQuery) -> axum::response::Response {
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let raw = String::from_utf8_lossy(bytes).replace("__CT_NONCE__", &nonce);
-    let bridge = format!("<script nonce=\"{nonce}\">{PLUGIN_BRIDGE_JS}</script>");
+    let context = serde_json::to_string(context)
+        .unwrap_or_else(|_| "null".into())
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026");
+    let bridge_js = PLUGIN_BRIDGE_JS.replace("__CT_SURFACE__", &context);
+    let bridge = format!("<script nonce=\"{nonce}\">{bridge_js}</script>");
     let html = match raw.find("<head>") {
         Some(i) => format!("{}{}{}", &raw[..i + 6], bridge, &raw[i + 6..]),
         None => format!("{bridge}{raw}"),
     };
-    let csp = format!(
-        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}' 'unsafe-inline'; \
-         img-src 'self' data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
-    );
+    let csp = plugin_frame_csp(&nonce);
     let mut response = axum::response::Response::new(axum::body::Body::from(html));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -117,3 +131,6 @@ fn asset_response(rel: &str, bytes: Vec<u8>) -> axum::response::Response {
         .insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
     response
 }
+
+#[cfg(test)]
+mod tests;

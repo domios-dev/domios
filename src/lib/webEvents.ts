@@ -1,3 +1,4 @@
+import { streamRecoveryAction } from "./streamRecoveryModel";
 /**
  * Web-mode event delivery for the `listen()` bridge.
  *
@@ -11,11 +12,19 @@
  * eviction, or broadcast lag — server-unified, D1 §3), which triggers a full
  * resync instead of guessing what was missed.
  */
-import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
+import { apiHost, currentToken, relayTarget } from "./webApi";
+import { createTransportClient, type TransportClient } from "./transportClient";
 import { fireResync } from "./resync";
 import { createSeqGapTracker } from "./eventSeqGaps";
-import { transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
+import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+
+let eventClient: TransportClient | undefined;
+export function bindWebEventsTransport(client: TransportClient): void {
+  eventClient = client;
+  if (started) resetWebEvents();
+}
+const eventOrigin = () => eventClient?.origin() ?? apiHost();
 
 type Handler = (e: { payload: unknown }) => void;
 
@@ -35,7 +44,6 @@ interface OverflowData {
 
 const handlers = new Map<string, Set<Handler>>();
 let streamAbort: AbortController | null = null;
-let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let lastFrameAt = 0;
 let forceImmediateRetry = false;
@@ -85,12 +93,12 @@ function waitForReconnectFailure(delay: number, generation: number): Promise<boo
     (deadline as unknown as { unref?: () => void }).unref?.();
     wakeReconnectWait = () => finish("wake");
     cancelReconnectWait = () => finish("stop");
+    window.dispatchEvent(new Event("codeterm-event-stream-disconnected"));
   });
 }
 
 const CURSOR_KEY = "codeterm-web-events-cursor";
 const RECEIVE_TIMEOUT_MS = 30_000;
-const WATCHDOG_INTERVAL_MS = 5_000;
 
 // refetches regardless); mux state uses its own seam below, rest need per-hook wiring.
 export const RESYNC_EVENTS = [
@@ -109,7 +117,7 @@ function readCursor(): string | null {
 }
 
 function cursorKey(): string {
-  return `${CURSOR_KEY}:${apiHost()}:${relayTarget()?.id ?? "self"}`;
+  return `${CURSOR_KEY}:${eventOrigin()}:${relayTarget()?.id ?? "self"}`;
 }
 
 let cursor: string | null = readCursor();
@@ -153,13 +161,7 @@ function runFullResync(info: OverflowData): void {
   }
 }
 
-function handleFrame(dataLine: string): void {
-  let msg: EventFrame;
-  try {
-    msg = JSON.parse(dataLine.slice(5).trim()) as EventFrame;
-  } catch {
-    return; // malformed frame — skip
-  }
+function handleFrame(msg: EventFrame): void {
   if (msg.event_type === "overflow") {
     runFullResync(msg.data as OverflowData);
     return;
@@ -186,126 +188,71 @@ export function webEventStreamUrl(
 ): string {
   if (!target) {
     const since = replayCursor ? `?since=${encodeURIComponent(replayCursor)}` : "";
-    return `${apiHost()}/api/events/stream${since}`;
+    return `${eventOrigin()}/api/events/stream${since}`;
   }
   const params = new URLSearchParams({
     peer: target.id,
     path: "/api/events/stream",
   });
   if (replayCursor) params.set("since", replayCursor);
-  return `${apiHost()}/api/mesh/relay-stream?${params.toString()}`;
+  return `${eventOrigin()}/api/mesh/relay-stream?${params.toString()}`;
 }
 
 async function runStream(): Promise<void> {
   const generation = ++streamGeneration;
-  const probeFirst = webReconnectEnabled();
-  let backoffMs = 1_000;
+  let backoffMs = RECONNECT_FIRST_MS;
   for (;;) {
     if (generation !== streamGeneration) return;
     const abort = new AbortController();
     streamAbort = abort;
     lastFrameAt = Date.now();
-    if (probeFirst) armReceiveDeadline(abort);
+    armReceiveDeadline(abort);
     const reconnecting = hasAttemptedConnection;
     hasAttemptedConnection = true;
-    try {
-      const token = currentToken();
-      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      if (probeFirst && reconnecting) {
-        const probe = await fetch(webEventStreamUrl(cursor), {
-          method: "HEAD",
-          cache: "no-store",
-          headers,
-          signal: abort.signal,
-        });
-        if (abort.signal.aborted || !probe.ok) throw new Error(`Stream probe HTTP ${probe.status}`);
-        const next = transitionWebReconnect(reconnectState, "probe-ok");
-        if (next.action !== "connect") throw new Error("Stale stream probe");
-        reconnectState = next.state;
-      }
-      const res = await fetch(webEventStreamUrl(cursor), { headers, signal: abort.signal });
-      if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const reader = res.body.getReader();
-      if (probeFirst) {
-        reconnectState = transitionWebReconnect(reconnectState, "connected").state;
-        armReceiveDeadline(abort);
-      }
-      if (reconnecting) {
-        window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
-        if (probeFirst) {
-          window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
-          fireResync();
+    let connected = false;
+    const client = eventClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
+    await new Promise<void>((resolve) => {
+      client.subscribe(webEventStreamUrl(cursor).slice(client.origin().length), (_name, data) => {
+        if (abort.signal.aborted || generation !== streamGeneration) return;
+        const frame = data as EventFrame;
+        if (!frame || typeof frame.event_type !== "string") return;
+        if (!connected) {
+          connected = true;
+          backoffMs = RECONNECT_FIRST_MS;
+          reconnectState = transitionWebReconnect(reconnectState, "connected").state;
+          if (reconnecting) {
+            window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+            window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
+            fireResync();
+          }
         }
-      }
-      backoffMs = 1_000;
-      const decoder = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
-        if (done) break;
-        lastFrameAt = Date.now();
-        if (probeFirst) armReceiveDeadline(abort);
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          lastFrameAt = Date.now(); // keep-alive comments count as a live frame too (D1 §6)
-          const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
-          if (dataLine) handleFrame(dataLine);
-        }
-      }
-    } catch {
-      /* connection lost / aborted / watchdog-forced — fall through to retry */
-    }
+        handleFrame(frame);
+      }, {
+        signal: abort.signal, raw: true,
+        onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },
+        onEnd(end) {
+          if (streamRecoveryAction(end.reason, generation !== streamGeneration) === "reconnect") forceImmediateRetry = true;
+          resolve();
+        },
+      });
+    });
     if (generation !== streamGeneration) return;
     abort.abort();
-    if (probeFirst && receiveDeadline) {
-      clearTimeout(receiveDeadline);
-      receiveDeadline = null;
-    }
-    if (generation !== streamGeneration || (abort.signal.aborted && streamAbort !== abort)) {
-      // Torn down by resetWebEvents (peer switch): the new loop owns it.
-      return;
-    }
-    if (probeFirst && wakeRequested) {
+    if (receiveDeadline) { clearTimeout(receiveDeadline); receiveDeadline = null; }
+    if (wakeRequested || forceImmediateRetry) {
       wakeRequested = false;
-      reconnectState = transitionWebReconnect(reconnectState, "lost").state;
-      reconnectState = transitionWebReconnect(reconnectState, "wake").state;
-      continue;
-    }
-    if (forceImmediateRetry) {
       forceImmediateRetry = false;
-      backoffMs = 1_000;
       continue;
     }
-    // Equal jitter: avoids a thundering-herd reconnect after a shared outage.
-    const delay = backoffMs / 2 + Math.random() * (backoffMs / 2);
-    if (!await waitForReconnectFailure(delay, generation)) return;
-    backoffMs = Math.min(backoffMs * 2, 15_000);
+    if (!await waitForReconnectFailure(reconnectDelay(backoffMs, Math.random()), generation)) return;
+    backoffMs = nextReconnectBackoff(backoffMs);
   }
 }
 
-/** D1 §6: no more blind 5s refetch — a receive-timeout watchdog forces a
- * reconnect (which replays via `?since`) if nothing arrives for ~30s. */
-function startWatchdog(): void {
-  if (watchdogTimer) return;
-  watchdogTimer = setInterval(() => {
-    if (Date.now() - lastFrameAt > RECEIVE_TIMEOUT_MS) {
-      forceImmediateRetry = true;
-      streamAbort?.abort();
-    }
-  }, WATCHDOG_INTERVAL_MS);
-  (watchdogTimer as unknown as { unref?: () => void }).unref?.();
-}
-
 function ensureStarted(): void {
-  if (started || !IS_WEB) return;
+  if (started) return;
   started = true;
   void runStream();
-  if (!webReconnectEnabled()) startWatchdog();
 }
 
 /** Silent seq discontinuities seen this page lifetime. Non-zero means the
@@ -334,10 +281,6 @@ export function resetWebEvents(): void {
   hasAttemptedConnection = true;
   seqGaps.reset();
   cursor = readCursor();
-  if (watchdogTimer) {
-    clearInterval(watchdogTimer);
-    watchdogTimer = null;
-  }
   started = false;
   streamAbort?.abort();
   streamAbort = null;
@@ -357,8 +300,6 @@ function stopReconnect(): void {
 export function __resetWebEventsForTest(): void {
   stopReconnect();
   seqGaps.reset();
-  if (watchdogTimer) clearInterval(watchdogTimer);
-  watchdogTimer = null;
   started = false;
   streamAbort?.abort();
   streamAbort = null;

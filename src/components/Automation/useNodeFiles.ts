@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { nativeBridge } from "../../lib/nativeBridge";
 import type { AutomationIdentity } from "./types";
 import type { NodeFile } from "./nodeFilesModel";
 
@@ -10,9 +11,9 @@ export interface NodeFilesAdapter {
 }
 
 export const nodeFilesAdapter: NodeFilesAdapter = {
-  read: (identity, bucket, handler) => invoke("automation_node_files", { identity, bucket, handler }),
-  open: (path) => invoke("open_folder", { path }),
-  reveal: (path) => invoke("reveal_file", { path }),
+  read: (identity, bucket, handler) => orchestrationTransport().automation_node_files({ identity, bucket, handler }),
+  open: (path) => nativeBridge.openFolder(path),
+  reveal: (path) => nativeBridge.revealFile(path),
 };
 
 export function useNodeFiles(adapter: NodeFilesAdapter, identity: AutomationIdentity, bucket: string | null, handler: string | null) {

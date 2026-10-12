@@ -23,6 +23,7 @@ pub mod structured_poller;
 pub mod structured_sink;
 pub mod tailer;
 pub mod tauri_sink;
+mod timestamp;
 
 pub use registry::ChatRegistry;
 pub use store_watch::{spawn_store_watch, StoreWatchConfig};
@@ -270,7 +271,7 @@ fn apply_capabilities(
             id: format!("{base}-0"),
             kind: kind.into(),
             content,
-            timestamp: rich.timestamp.clone(),
+            timestamp: timestamp::rich_message_timestamp(rich),
             ..Default::default()
         });
     }
@@ -301,7 +302,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| fallback_base.to_string());
     let id_at = |i: usize| format!("{base}-{i}");
-    let ts = rich.timestamp.clone();
+    let ts = timestamp::rich_message_timestamp(rich);
     let source_subtype = rich.source_subtype.as_deref();
 
     if rich.is_compact_summary == Some(true) {

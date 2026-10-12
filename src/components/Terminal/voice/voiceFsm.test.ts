@@ -211,4 +211,28 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
   assertEqual(s.pointerId, PID, "first pointerId preserved");
 }
 
+{
+  const started = apply([
+    { type: "POINTER_DOWN", pointerId: PID, ...BASE },
+    { type: "START_OK" },
+  ]);
+  const duplicateStart = voiceReducer(started, { type: "START_OK" });
+  assertEqual(duplicateStart.phase, "hold", "duplicate START_OK does not restart a manual capture");
+  const released = voiceReducer(started, { type: "POINTER_UP", pointerId: PID });
+  const duplicateRelease = voiceReducer(released, { type: "POINTER_UP", pointerId: PID });
+  assertEqual(duplicateRelease.phase, "hold", "duplicate manual release keeps one finish transition");
+  assert(duplicateRelease.busy, "duplicate release cannot clear the pending finish");
+}
+
+{
+  const starting = voiceReducer(initVoiceState(), { type: "HANDS_FREE_START" });
+  assertEqual(starting.phase, "starting", "hardware start waits for recorder readiness");
+  assertEqual(voiceReducer(starting, { type: "HANDS_FREE_START" }), starting, "duplicate start is inert");
+  const active = voiceReducer(starting, { type: "HANDS_FREE_READY" });
+  assertEqual(active.phase, "locked", "actual recorder readiness enters hands-free recording");
+  assertEqual(voiceReducer(active, { type: "HANDS_FREE_START" }), active, "active recorder cannot restart");
+  const stopped = voiceReducer(voiceReducer(active, { type: "BUSY_START" }), { type: "BUSY_END_IDLE" });
+  assertEqual(stopped.phase, "idle", "stopped controller allows a fresh recording");
+}
+
 console.log("voiceFsm: all tests passed");

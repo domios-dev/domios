@@ -236,6 +236,7 @@ impl Store {
             every,
             routes: BTreeMap::new(),
             matches: BTreeMap::new(),
+            model_classification: false,
             rearm_on_change: BTreeSet::new(),
             until: None,
             timeout: None,
@@ -307,7 +308,12 @@ impl Store {
         };
         let interval_ms = duration_ms(&params.every)?;
         if pipeline.is_none() {
-            machine::validate(&params.buckets, &params.matches, connected, interval_ms)?;
+            machine::validate(
+                &params.buckets,
+                &params.matches,
+                connected || !params.model_classification,
+                interval_ms,
+            )?;
         }
         if params
             .rearm_on_change
@@ -387,6 +393,7 @@ impl Store {
             interval_ms,
             routes,
             matches: params.matches,
+            model_classification: params.model_classification,
             rearm_on_change: params.rearm_on_change,
             until: params.until,
             expires_at,
@@ -396,6 +403,7 @@ impl Store {
                 ..Machine::default()
             },
             last_reason: None,
+            progress: super::super::progress::Progress::default(),
             revision: 0,
             agent_authored: false,
             name: params.name,

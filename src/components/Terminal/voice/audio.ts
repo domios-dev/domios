@@ -87,6 +87,7 @@ function createTestMediaRecorder(): typeof MediaRecorder {
     readonly mimeType: string;
     state: RecordingState = "inactive";
     ondataavailable: ((event: BlobEvent) => void) | null = null;
+    onstart: ((event: Event) => void) | null = null;
     onstop: ((event: Event) => void) | null = null;
     onerror: ((event: Event) => void) | null = null;
     private timer: number | null = null;
@@ -103,6 +104,7 @@ function createTestMediaRecorder(): typeof MediaRecorder {
       }
       window.__codetermTestAudio!.recorderStarts += 1;
       this.state = "recording";
+      queueMicrotask(() => this.onstart?.(new Event("start")));
       if (timeslice && timeslice > 0) {
         this.timer = window.setInterval(() => {
           if (this.state === "recording") emitRecorderEvent(this);
@@ -185,6 +187,15 @@ export function pickAudioMime(): string | undefined {
   return candidates.find((m) => MediaRecorder.isTypeSupported(m));
 }
 
+export function createVoiceRecorder(stream: MediaStream, mime: string | undefined): MediaRecorder {
+  if (!mime) return new MediaRecorder(stream);
+  try {
+    return new MediaRecorder(stream, { mimeType: mime });
+  } catch {
+    return new MediaRecorder(stream);
+  }
+}
+
 export function audioExt(mime: string): string {
   if (mime.includes("ogg")) return "ogg";
   if (mime.includes("mp4")) return "m4a";
@@ -228,4 +239,25 @@ export async function storeBlob(blob: Blob, filename: string): Promise<string> {
     extension: ext,
     name: filename,
   });
+}
+
+export async function storeVoiceBlob(blob: Blob, mime: string): Promise<string[]> {
+  const path = await storeBlob(blob, `voice-note-${Date.now()}.${audioExt(mime)}`);
+  return path.trim() ? [path] : [];
+}
+
+export async function storeLarkCaptureClip(
+  lease: string,
+  blob: Blob,
+  mime: string,
+): Promise<{ handle: string; path: string }> {
+  return invoke<{ handle: string; path: string }>("local_recording_save_clip", {
+    lease,
+    data: await blobToBase64(blob),
+    extension: audioExt(mime),
+  });
+}
+
+export async function discardLarkCaptureClip(lease: string, clipHandle: string): Promise<void> {
+  await invoke<void>("local_recording_discard_clip", { lease, clipHandle });
 }

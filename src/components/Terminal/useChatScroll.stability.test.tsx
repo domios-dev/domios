@@ -1,4 +1,5 @@
-import { act } from "react";
+import { act, useLayoutEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -57,6 +58,29 @@ let modeChanges: string[] = [];
 let hook: UseChatScrollResult | null = null;
 let root: Root | null = null;
 let host: HTMLElement | null = null;
+let commitStreamingHeight: ((height: number) => void) | null = null;
+let committedBottomGaps: number[] = [];
+
+function StreamingRows({ rows }: { rows: NormalizedChatMessage[] }) {
+  const [streamingHeight, setStreamingHeight] = useState<number | null>(null);
+  commitStreamingHeight = setStreamingHeight;
+  useLayoutEffect(() => {
+    hook!.handleContentLayout();
+    const el = scroll();
+    committedBottomGaps.push(el.scrollHeight - el.scrollTop - el.clientHeight);
+  });
+  return <div>{rows.map((row, index) => (
+    <div
+      key={row.id}
+      data-message-id={row.id}
+      data-source-message-id={sourceKey(row)}
+      data-height={streamingHeight != null && index === rows.length - 2
+        ? streamingHeight : heights.get(sourceKey(row)) ?? ROW_HEIGHT}
+    >
+      {row.content}
+    </div>
+  ))}</div>;
+}
 
 function sourceKey(row: NormalizedChatMessage): string {
   return row.sourceMessageId ?? row.id;
@@ -75,18 +99,7 @@ function Harness({ rows, active }: { rows: NormalizedChatMessage[]; active: bool
   });
   return (
     <div ref={hook.scrollRef} data-testid="scroll">
-      <div>
-        {rows.map((row) => (
-          <div
-            key={row.id}
-            data-message-id={row.id}
-            data-source-message-id={sourceKey(row)}
-            data-height={heights.get(sourceKey(row)) ?? ROW_HEIGHT}
-          >
-            {row.content}
-          </div>
-        ))}
-      </div>
+      <StreamingRows rows={rows} />
     </div>
   );
 }
@@ -250,6 +263,8 @@ beforeEach(() => {
   heights.clear();
   followTail.current = true;
   modeChanges = [];
+  committedBottomGaps = [];
+  commitStreamingHeight = null;
   clearPersistedChatScrollState(SESSION);
   fill(40);
 });
@@ -299,6 +314,107 @@ describe("attached tail at the history cap", () => {
     await asyncHeightChange(tail[tail.length - 1].dataset.sourceMessageId!, 320);
     expectPinnedToBottom();
     await asyncHeightChange(tail[2].dataset.sourceMessageId!, 260);
+    expectPinnedToBottom();
+  });
+});
+
+describe("send from history", () => {
+  it("follows the optimistic insert and the streaming child's layout in their own commit", async () => {
+    await mount();
+    await act(async () => hook!.followSend());
+    optimistic = [{ id: "steering-send", type: "user", content: "while streaming" }];
+    await act(async () => {
+      flushSync(() => root!.render(<Harness rows={visibleRows()} active />));
+      expectPinnedToBottom();
+      expect(domRows()[domRows().length - 1].textContent).toBe("while streaming");
+    });
+    committedBottomGaps = [];
+    await act(async () => {
+      flushSync(() => commitStreamingHeight!(2640));
+      expectPinnedToBottom();
+      expect(committedBottomGaps).toEqual([0]);
+    });
+  });
+
+  it("repairs the recorded working layout shift before resize delivery without detaching", async () => {
+    await mount();
+    const el = scroll();
+    let height = 9775;
+    let client = 717;
+    let top = 9058;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, get: () => height },
+      clientHeight: { configurable: true, get: () => client },
+      scrollTop: {
+        configurable: true,
+        get: () => top,
+        set: (value: number) => { top = Math.min(value, height - client); },
+      },
+    });
+    await act(async () => hook!.scrollToBottom());
+    await deliverScrollEvent();
+    height -= 26;
+    top = Math.min(top, height - client);
+    height += 34;
+    expect(top).toBe(9032);
+    await deliverScrollEvent();
+    expectPinnedToBottom();
+    expect(modeChanges).not.toContain("detached");
+    client = 699;
+    await deliverScrollEvent();
+    expectPinnedToBottom();
+    height = 12387;
+    client = 717;
+    await act(async () => {
+      for (const observer of RecordingResizeObserver.instances) observer.deliver();
+    });
+    expectPinnedToBottom();
+    await userScrollTo(top - 26);
+    expect(followTail.current).toBe(false);
+  });
+
+  it("shows the sent turn at bottom through echo reconciliation and streaming until the reader scrolls up", async () => {
+    await mount();
+    await userScrollTo(500);
+    expect(followTail.current).toBe(false);
+
+    optimistic = [{ id: "send-from-history", type: "user", content: "latest please", correlationId: "send-from-history" }];
+    await act(async () => hook!.followSend());
+    await update();
+    expectPinnedToBottom();
+    expect(domRows()[domRows().length - 1]?.textContent).toBe("latest please");
+
+    optimistic = [];
+    appendDelta(sourceRow("user", { content: "latest please", correlationId: "send-from-history" }));
+    await update();
+    await deliverScrollEvent();
+    expectPinnedToBottom();
+    appendDelta(sourceRow("assistant"));
+    await update();
+    expectPinnedToBottom();
+
+    await userScrollTo(scroll().scrollTop - 100);
+    const anchor = domRows()[14].dataset.sourceMessageId!;
+    const position = readerPosition(anchor);
+    appendDelta(sourceRow("assistant"));
+    await update();
+    expect(followTail.current).toBe(false);
+    expect(readerPosition(anchor)).toBe(position);
+  });
+
+  it("keeps following after composer growth clamps the pinned bottom before ResizeObserver delivery", async () => {
+    await mount();
+    await deliverScrollEvent();
+    let viewportHeight = VIEWPORT;
+    Object.defineProperty(scroll(), "clientHeight", { configurable: true, get: () => viewportHeight });
+    viewportHeight += 100;
+    scroll().scrollTop = scroll().scrollHeight - viewportHeight;
+    await deliverScrollEvent();
+    expect(followTail.current).toBe(true);
+    expect(modeChanges).not.toContain("detached");
+    appendDelta(sourceRow("assistant"));
+    viewportHeight = VIEWPORT;
+    await update();
     expectPinnedToBottom();
   });
 });
@@ -389,9 +505,9 @@ describe("detached reader at the history cap", () => {
   });
 });
 
-describe("reattaching at a fractional visual bottom", () => {
+describe("reattaching only at the bottom", () => {
   it.each([0.6, 1, 1.4])(
-    "reattaches a reader who scrolls down to a %spx fractional gap and follows the next send and reply",
+    "keeps a reader detached at a %spx gap until they return to the bottom",
     async (gap) => {
       await mount();
       await userScrollTo(500);
@@ -399,7 +515,8 @@ describe("reattaching at a fractional visual bottom", () => {
 
       const el = scroll();
       await userScrollTo(el.scrollHeight - el.clientHeight - gap);
-      expect(el.scrollHeight - el.scrollTop - el.clientHeight).toBeCloseTo(gap);
+      expect(followTail.current).toBe(false);
+      await userScrollTo(el.scrollHeight - el.clientHeight);
       expect(followTail.current).toBe(true);
       expect(modeChanges[modeChanges.length - 1]).toBe("pinned");
       expect(hook!.showScrollDown).toBe(false);

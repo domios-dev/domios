@@ -76,7 +76,13 @@ impl From<StoredAction> for NotificationAction {
 }
 
 #[derive(Serialize, Deserialize)]
+enum StoredSource {
+    AgentNotifySend,
+}
+
+#[derive(Serialize, Deserialize)]
 struct StoredNotification {
+    source: StoredSource,
     id: String,
     tab_id: Option<String>,
     workspace_id: Option<String>,
@@ -109,6 +115,7 @@ pub fn outlives_restart(notification: &Notification) -> bool {
 
 fn stored(notification: &Notification) -> StoredNotification {
     StoredNotification {
+        source: StoredSource::AgentNotifySend,
         id: notification.id.clone(),
         tab_id: notification.tab_id.clone(),
         workspace_id: notification.workspace_id.clone(),

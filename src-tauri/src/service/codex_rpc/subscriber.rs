@@ -104,6 +104,13 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
             else {
                 continue;
             };
+            if matches!(
+                method.as_str(),
+                "turn/started" | "turn/completed" | "thread/status/changed"
+            ) {
+                log::debug!("[rpc/status] tab={tab} bound_thread={current} notification={method} thread={} turn={:?}",
+                    params["threadId"], super::control::turn_id(params));
+            }
             if method == "account/login/completed" {
                 if let Ok(response) = sidecar
                     .client
@@ -208,17 +215,14 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                 if !started {
                     continue;
                 }
-                sidecar.busy.store(true, Ordering::Release);
                 super::model::on_turn_started(&svc, &tab, &current);
-                svc.mark_agent_turn_started(&tab);
-                crate::agent::state_verdict::observe_declared_event(&svc, &tab, &current, method);
+                super::status::observe(&svc, &tab, &current, &sidecar, method);
             }
             if method == "turn/completed" {
                 let first = super::control::turn_id(params)
                     .is_some_and(|turn| sidecar.control.lock().completed(&current, turn));
                 if first {
-                    sidecar.busy.store(false, Ordering::Release);
-                    svc.mark_agent_turn_complete(&tab);
+                    super::status::observe(&svc, &tab, &current, &sidecar, method);
                     let nonce = svc
                         .mux
                         .read()
@@ -230,9 +234,6 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                     sidecar
                         .turn_settled
                         .send_modify(|generation| *generation = generation.wrapping_add(1));
-                    crate::agent::state_verdict::observe_declared_event(
-                        &svc, &tab, &current, method,
-                    );
                     let interrupted = super::control::turn_id(params)
                         .is_some_and(|turn| sidecar.control.lock().was_interrupted(&current, turn))
                         || params.pointer("/turn/status").and_then(Value::as_str)

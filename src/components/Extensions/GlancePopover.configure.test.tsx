@@ -7,6 +7,7 @@ import { Window } from "happy-dom";
 
 async function main() {
   const win = new Window({ url: "http://localhost/" });
+  Object.assign(win, { __CODETERM_DAEMON__: { origin: /^https?:/.test(win.location.origin) ? win.location.origin : "http://127.0.0.1:7686", token: "test-token" } });
   for (const key of ["window", "document", "navigator", "localStorage", "sessionStorage", "HTMLElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "CustomEvent"]) {
     Object.defineProperty(globalThis, key, { configurable: true, value: (win as unknown as Record<string, unknown>)[key] });
   }

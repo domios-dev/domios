@@ -142,12 +142,12 @@ function TabMenuHead({ identity, session, onAction }: { identity?: TabMenuIdenti
   if (!identity && !session) return null;
   return (
     <div className="ct-menu-head" data-testid="tab-menu-head">
-      {identity && (
+      {(identity || session) && (
         <div className="ct-menu-identity">
-          <span className="ct-menu-identity__icon" aria-hidden>{identity.icon}</span>
+          {identity && <span className="ct-menu-identity__icon" aria-hidden>{identity.icon}</span>}
           <span className="ct-menu-identity__text">
-            <span className="ct-menu-identity__title">{identity.title}</span>
-            {identity.subtitle && <span className="ct-menu-identity__subtitle" data-testid="tab-menu-identity-subtitle">{identity.subtitle}</span>}
+            <span className="ct-menu-identity__title">{identity?.title ?? session?.title}</span>
+            {identity?.subtitle && <span className="ct-menu-identity__subtitle" data-testid="tab-menu-identity-subtitle">{identity.subtitle}</span>}
           </span>
         </div>
       )}

@@ -55,6 +55,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
           </div>
         )}
       </div>
+      {view.compatibilityHint && <p role="status" aria-label="CLI compatibility" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{view.compatibilityHint}</p>}
       {!compact && view.installCommand && (
         <div aria-label="Install command" role="region">
           <CodeBlock text={view.installCommand} language={view.installLanguage} wrapLines />

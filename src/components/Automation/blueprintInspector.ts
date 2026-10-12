@@ -1,5 +1,5 @@
 import { bucketDefinitions } from "./nodeDecision";
-import { automationState } from "./model";
+import { probeStateLabel } from "./probeProgress";
 import type { BlueprintNode } from "./blueprintModel";
 import type { AutomationGraph, AutomationHandler, AutomationHandlerResult, AutomationIdentity } from "./types";
 
@@ -33,7 +33,8 @@ export function inspectBlueprintNode(node: BlueprintNode, graph: AutomationGraph
     add("Cadence", cadence(stage.cadence_ms));
     add("Schedule", stage.schedule);
     add("Expires", stage.expires_at ? new Date(stage.expires_at).toLocaleString() : null);
-    add("State", automationState(stage));
+    add("State", probeStateLabel(stage));
+    add("Last probe", stage.detail?.last_probe_at != null ? new Date(stage.detail.last_probe_at).toLocaleString() : null);
     return { ...base, purpose: blueprintTriggers[node.trigger ?? "schedule"].purpose, properties };
   }
   if (node.type === "source") {
@@ -43,6 +44,8 @@ export function inspectBlueprintNode(node: BlueprintNode, graph: AutomationGraph
     add("Settles after", source?.idle_ms ? `${source.idle_ms} ms` : null);
     add("Input", source?.type === "input" ? `${source.kind ?? "text"} ${source.ref_type ?? ""}`.trim() : null);
     add("Converts to", source?.convert_to ?? null);
+    add("State", probeStateLabel(stage));
+    add("Last probe", stage.detail?.last_probe_at != null ? new Date(stage.detail.last_probe_at).toLocaleString() : null);
     add("Output", node.outputs.find((pin) => pin.kind === "data")?.label);
     const probe = definition?.probe;
     return {

@@ -21,6 +21,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
         )
         .route(
+            "/api/tabs/{id}/chat-send/admissions",
+            post(tab_routes::chat_send_admissions),
+        )
+        .route(
             "/api/tabs/{id}/attachments",
             post(super::mesh_attachment::ingest).layer(axum::extract::DefaultBodyLimit::max(
                 super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,
@@ -100,14 +104,6 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/tabs/{id}/role",
             post(agent_routes::set_tab_role).delete(agent_routes::clear_tab_role),
-        )
-        .route(
-            "/api/tabs/{id}/make-orchestrator",
-            post(agent_routes::make_orchestrator),
-        )
-        .route(
-            "/api/tabs/{id}/make-planner",
-            post(agent_routes::make_planner),
         )
         .route("/api/tabs/{id}/status", get(agent_routes::get_tab_status))
         .route("/api/tabs/{id}/report", post(agent_routes::submit_report))

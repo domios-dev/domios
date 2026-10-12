@@ -1,3 +1,4 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 import { harnessWindow } from "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { act } from "react";
@@ -10,6 +11,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import type { Tab, TabStatus } from "../../lib/types";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 
+nativeBridge.fileDrop = undefined;
 delete (harnessWindow as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
 
 const agent: Tab = { id: "grok", title: "Grok", agent_type: "grok", pty_id: "pty", tab_type: "Terminal", cwd: null, agent_session_id: "own-session", session_binding_nonce: "own-nonce" };

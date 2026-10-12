@@ -86,7 +86,7 @@ impl ServiceContext {
             hooked,
             exact,
             deadline_elapsed,
-            trust_prompt_resolved,
+            trust_prompt_resolved || (exact && self.launch_has_resume_target(tab_id)),
         );
         let launch_detection = launch_detection && !exact_returned_null;
         if exact_returned_null

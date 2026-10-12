@@ -217,20 +217,10 @@ fn blueprint_delivery_result_targets_persist_before_delivery_without_resend() {
     assert_eq!(notification.state, "delivered");
     assert_eq!(notification.body_ref.as_deref(), Some(body_ref.as_str()));
     assert!(path.is_file());
-    let notification_count = fixture
-        .service
-        .notif
-        .lock()
-        .list(false)
-        .iter()
-        .filter(|record| {
-            record
-                .body
-                .as_deref()
-                .is_some_and(|body| body.contains(path.to_str().unwrap()))
-        })
-        .count();
-    assert_eq!(notification_count, 1);
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .ends_with("notification result"));
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 }
 
 #[test]

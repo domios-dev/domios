@@ -69,20 +69,12 @@ pub fn try_start(svc: &ServiceContext, tab: &str, nonce: &str, reason: &str) -> 
         );
     }
     log::warn!("[codex-rpc-attach] tab={tab} nonce={nonce} action=reattach reason={reason}");
-    svc.create_notification_ext(
+    svc.log_system_notice(
         "Remote agent detached".into(),
         Some(format!(
             "Tab {tab}: {reason}. Its thread is retained; reconnecting the terminal."
         )),
         Some("error"),
-        None,
-        Some(true),
-        crate::service::notification::NotificationOrigin::local_tab(tab.into()),
-        crate::service::notification::PushIntent {
-            level: Some(crate::notification::push::NotifyLevel::Failure),
-            event_key: Some(format!("codex-tui-detached:{tab}:{nonce}")),
-        },
-        None,
     );
     let (svc, tab, nonce) = (svc.clone(), tab.to_owned(), nonce.to_owned());
     std::thread::spawn(move || {

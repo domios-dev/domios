@@ -8,6 +8,7 @@ impl ServiceContext {
         self.feed_pty_output_inner(pty_id, None, data)
     }
 
+    #[cfg(test)]
     pub(crate) fn feed_pty_output_for_generation(
         &self,
         pty_id: &str,
@@ -114,6 +115,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_tab_status_if_changed(&self, pty_id: &str, prev: TabStatus, now: TabStatus) {
+        self.publish_authoritative_tab_statuses();
         if now == prev {
             return;
         }
@@ -125,14 +127,6 @@ impl ServiceContext {
             }
             self.wake_agent_deliveries_on_state_change(pid);
             self.wake_user_owner_on_state_change(pid);
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "tab-status-changed",
-                serde_json::json!({
-                    "tab_id": pid,
-                    "status": format!("{:?}", now),
-                }),
-            );
         }
     }
 

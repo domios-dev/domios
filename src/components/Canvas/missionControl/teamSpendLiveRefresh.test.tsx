@@ -1,3 +1,6 @@
+import { beforeEach as beforeDaemonCase } from "vitest";
+import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
+beforeDaemonCase(() => configureDaemonFixture());
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

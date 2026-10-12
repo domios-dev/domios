@@ -135,7 +135,7 @@ fn fresh_prelaunch_send_waits_for_pty_and_rebinds_to_written_launch_once() {
     not(windows),
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
-fn queued_prelaunch_send_expires_after_a_later_launch_supersedes_its_nonce() {
+fn queued_prelaunch_send_expires_after_a_later_launch_changes_its_session() {
     let (fixture, tab) = queue_fixture(true, None);
     {
         let mut mux = fixture.service.mux.write();
@@ -166,6 +166,7 @@ fn queued_prelaunch_send_expires_after_a_later_launch_supersedes_its_nonce() {
         tab.boot_stage = Some(codeterm_types::pty::BootStage::LaunchWritten);
         tab.remember_superseded_binding_nonce();
         tab.session_binding_nonce = Some("nonce-second-launch".into());
+        tab.agent_session_id = Some("different-session".into());
         tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
     }
     attach_fixture_pty(&fixture, &tab);
@@ -194,6 +195,13 @@ fn queued_prelaunch_send_expires_after_a_later_launch_supersedes_its_nonce() {
 )]
 fn previous_launch_never_written_head_is_settled_before_restored_send_flushes() {
     let (fixture, tab) = queue_fixture(true, None);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .agent_session_id = Some("previous-session".into());
     let stale = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "previous-launch-client");
     let stale_record = fixture
         .service
@@ -208,6 +216,7 @@ fn previous_launch_never_written_head_is_settled_before_restored_send_flushes() 
         let mut mux = fixture.service.mux.write();
         let restored = mux.get_tab_mut(&tab).unwrap();
         restored.session_binding_nonce = Some("nonce-restored-current".into());
+        restored.agent_session_id = Some("opaque-session".into());
         restored.reported_session_binding_nonce = Some("nonce-restored-current".into());
         restored.boot_stage = Some(codeterm_types::pty::BootStage::LaunchWritten);
         restored.boot_failure_reason = None;

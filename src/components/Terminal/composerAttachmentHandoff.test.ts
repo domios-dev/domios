@@ -31,15 +31,15 @@ async function main() {
     calls.push({ url, body });
     if (url.endsWith("/api/mesh/attachments/transfer")) {
       const voice = body?.kind === "voice";
-      return new Response(JSON.stringify({
+      return Response.json({
         path: voice ? peerVoice : peerImage,
         kind: body?.kind,
         size: 9000,
         reference: voice ? `[voice ${peerVoice}: peer transcript]` : null,
-      }), { status: 200 });
+      }, { status: 200 });
     }
     if (url.endsWith("/api/transcribe-voice")) {
-      return new Response(JSON.stringify({ line: `[voice ${String(body?.path)}: origin transcript]` }), { status: 200 });
+      return Response.json({ line: `[voice ${String(body?.path)}: origin transcript]` }, { status: 200 });
     }
     return new Response("unexpected", { status: 500 });
   };

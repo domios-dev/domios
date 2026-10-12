@@ -21,16 +21,6 @@ pub fn save_clipboard_file_core(bytes: Vec<u8>, filename: String) -> Result<Stri
 }
 
 #[tauri::command]
-pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String, String> {
-    save_clipboard_image_core(bytes, ext)
-}
-
-#[tauri::command]
-pub async fn save_clipboard_file(bytes: Vec<u8>, filename: String) -> Result<String, String> {
-    save_clipboard_file_core(bytes, filename)
-}
-
-#[tauri::command]
 pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>, String> {
     tokio::task::spawn_blocking(move || {
         paths
@@ -43,20 +33,6 @@ pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>
     })
     .await
     .map_err(|e| format!("materialize dropped files task failed: {}", e))?
-}
-
-#[tauri::command]
-pub async fn attachment_path_kinds(paths: Vec<String>) -> Result<Vec<String>, String> {
-    tokio::task::spawn_blocking(move || {
-        paths
-            .iter()
-            .map(|path| {
-                crate::attachments::dropped_path_kind(std::path::Path::new(path)).to_string()
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| format!("attachment path kinds task failed: {}", e))
 }
 
 #[tauri::command]

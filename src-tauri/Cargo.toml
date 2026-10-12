@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.14.1"
+version = "1.14.2"
 edition = "2021"
 default-run = "codeterm"
 
@@ -10,8 +10,11 @@ exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
 [dependencies]
+minisign-verify = "0.2"
+flate2 = "1"
+tar = "0.4"
 tempfile = "3"
-tauri = { version = "2", features = ["tray-icon", "test"] }
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
 # here when called from headless / background Rust code paths). Features chosen to keep
 # binary size minimal — no parallel/multi-context, no async, just the
@@ -125,7 +128,7 @@ fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 [target.'cfg(windows)'.dependencies]
 conpty = "0.7"
 clipboard-win = "5"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 codeterm-types = { path = "crates/codeterm-types", features = ["decision-fixture-clock"] }

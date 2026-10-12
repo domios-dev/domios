@@ -41,8 +41,7 @@ pub(super) fn start(service: &ServiceContext) {
         .spawn(move || {
             let _watcher = watcher;
             for () in rx {
-                super::restarts::schedule(&service, None);
-                super::process_waiting(&service);
+                super::idle::schedule(&service, None);
             }
         });
     if let Err(error) = result {

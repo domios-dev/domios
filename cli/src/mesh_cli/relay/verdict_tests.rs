@@ -69,11 +69,10 @@ fn mesh_send_no_payload_echo() {
 #[test]
 fn mesh_relay_large_payload_verdict() {
     let landed = answer(SEND, reqwest::StatusCode::OK, submit_unconfirmed_envelope())
-        .expect("bytes that reached the PTY are an accepted send, as on the local path");
-    assert_eq!(landed.data["ok"], true);
-    assert_eq!(landed.data["delivery"], "pending");
-    assert_eq!(landed.data["bytes_written"], true);
-    assert_eq!(landed.peer.expect("answering peer").instance_id, PEER_ID);
+        .expect_err("submit_unconfirmed exits nonzero, as the local send does since #578");
+    assert_eq!(landed.code.as_deref(), Some(delivery::SUBMIT_UNCONFIRMED));
+    assert_eq!(landed.bytes_written, Some(true));
+    assert_eq!(landed.peer_id.as_deref(), Some(PEER_ID));
 
     let unknown = envelope(
         true,

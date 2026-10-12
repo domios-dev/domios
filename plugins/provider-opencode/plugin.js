@@ -24,6 +24,145 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-opencode/src/turnErrors.ts
+function turnError(value) {
+  if (!value || typeof value !== "object") return null;
+  const message = value;
+  return message.role === "assistant" && message.error?.name === "APIError" ? message.error : null;
+}
+function sessionObservations(value) {
+  const error = turnError(value);
+  if (!error) {
+    const message2 = value;
+    return message2?.role === "assistant" && !message2.error && typeof message2.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
+  }
+  const status = error.data?.statusCode;
+  const message = value;
+  const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
+  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+}
+function unavailableModelError(value) {
+  const error = turnError(value);
+  return error?.data?.isRetryable === false && (error.data.statusCode === 410 || /\bmodel\b.*\b(deprecated|unavailable|not found|does not exist|not supported)\b/i.test(error.data.message ?? ""));
+}
+function modelMetadata(stdout) {
+  const metadata = /* @__PURE__ */ new Map();
+  let id = null;
+  let lines2 = [];
+  const finish = () => {
+    if (!id) return;
+    try {
+      const value = JSON.parse(lines2.join("\n"));
+      if (value && typeof value === "object" && !Array.isArray(value)) metadata.set(id, value);
+    } catch {
+    }
+  };
+  for (const line of stdout.split("\n")) {
+    if (/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(line.trim())) {
+      finish();
+      id = line.trim();
+      lines2 = [];
+    } else if (id) lines2.push(line);
+  }
+  finish();
+  return metadata;
+}
+function modelUnavailable(metadata) {
+  return metadata?.status === "deprecated" || metadata?.status === "unavailable" || metadata?.deprecated === true || metadata?.available === false;
+}
+function rejectedModelIds(rows) {
+  const seen = /* @__PURE__ */ new Set();
+  const rejected = /* @__PURE__ */ new Set();
+  for (const { model, message } of rows) {
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    if (unavailableModelError(message)) rejected.add(model);
+  }
+  return rejected;
+}
+
+// plugins/provider-shared/updateCheck.ts
+function record(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
+  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  if (!currentVersion || !versionParts(currentVersion)) return null;
+  const response = record(host2.fetch(JSON.stringify({
+    url: metadataUrl,
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: { Accept: "application/vnd.npm.install-v1+json" }
+  })));
+  if (response?.status !== 200) return null;
+  const metadata = record(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+}
+
+// plugins/provider-opencode/src/update.ts
+function checkOpencodeUpdate() {
+  let manifest;
+  try {
+    manifest = JSON.parse(host.manifestJson() ?? "null");
+  } catch {
+    return null;
+  }
+  if (!manifest?.cliCompatibility?.supported?.length) return null;
+  return checkProviderUpdate(host, "opencode", "https://registry.npmjs.org/opencode-ai", manifest.cliCompatibility);
+}
+
 // plugins/provider-opencode/src/opencodeConfig.ts
 var OWNERSHIP_MARKER = "x-domios";
 function isDomiosOwned(entry) {
@@ -216,7 +355,7 @@ function fileDiffFromEdit(edit) {
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
 
 // plugins/provider-opencode/src/fileDiffs.ts
-function record(value) {
+function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function parsePatch(path, patch) {
@@ -278,10 +417,10 @@ function parsePatch(path, patch) {
   return files;
 }
 function opencodeFileDiffs(path, edits, metadata) {
-  const value = record(metadata);
+  const value = record2(metadata);
   if (Array.isArray(value.files)) {
     return value.files.flatMap((entry) => {
-      const item = record(entry);
+      const item = record2(entry);
       const filePath = typeof item.filePath === "string" ? item.filePath : "";
       return opencodeFileDiffs(filePath, [], { diff: item.diff }).map((diff) => ({
         ...diff,
@@ -296,7 +435,7 @@ function opencodeFileDiffs(path, edits, metadata) {
 }
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v8";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v9";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -484,13 +623,30 @@ function discoverOpencodeModels() {
   }));
   const result = safeJson(raw);
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const lines2 = result.stdout.split("\n");
-  const variants = parseModelVariants(result.stdout);
+  const models2 = parseOpencodeModels(result.stdout);
+  const db = opencodeDbPath();
+  if (!models2 || !db || !host.fs.fileExists(db)) return models2;
+  const rows = host.fs.sqliteQuery(
+    db,
+    "SELECT data FROM message WHERE octet_length(data) <= ?1 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY time_updated DESC LIMIT 1000",
+    [ASSISTANT_MESSAGE_MAX_BYTES]
+  );
+  const rejected = rejectedModelIds(rows.map((row) => {
+    const message = safeJson(row.data);
+    return { model: sessionModelIdentity(message), message };
+  }));
+  return models2.filter((model) => !rejected.has(model.id));
+}
+function parseOpencodeModels(stdout) {
+  if (stdout.length > 1048576) return null;
+  const lines2 = stdout.split("\n");
+  const variants = parseModelVariants(stdout);
+  const metadata = modelMetadata(stdout);
   const models2 = [];
   for (let i = 0; i < lines2.length; i++) {
     const id = lines2[i].trim();
     if (!isModelId(id)) continue;
-    if (isNonChatModel(id)) continue;
+    if (isNonChatModel(id) || modelUnavailable(metadata.get(id))) continue;
     const efforts = variants.get(id);
     models2.push({
       id,
@@ -499,7 +655,7 @@ function discoverOpencodeModels() {
       ...efforts ? { reasoningEfforts: efforts, ...efforts.length ? { defaultReasoningEffort: "default" } : {} } : {}
     });
   }
-  return models2.length ? models2 : null;
+  return models2.length || metadata.size ? models2 : null;
 }
 function groupFromModelId(id) {
   const slash = id.split("/");
@@ -921,7 +1077,7 @@ function opencodeBindingPluginSource() {
     "",
     "async function reportProviderEvent(event, directory) {",
     "  const sessionID = eventSessionID(event);",
-    "  if (!(await report(sessionID, event.type, eventDirectory(event, directory)))) return;",
+    "  if (sessionID !== lastReported) return;",
     '  const url = endpoint("provider_event");',
     "  if (!url) return;",
     "  await fetch(url, {",
@@ -948,7 +1104,7 @@ function opencodeBindingPluginSource() {
     "  return {",
     "    async event({ event }) {",
     "      await startupBinding;",
-    '      if (event?.type === "session.error" || event?.type === "session.idle" || (event?.type === "session.status" && event?.properties?.status?.type === "busy")) {',
+    '      if ((event?.type === "message.updated" && event?.properties?.info?.role === "assistant" && event?.properties?.info?.error?.name === "APIError") || event?.type === "session.error" || event?.type === "session.idle" || (event?.type === "session.status" && event?.properties?.status?.type === "busy")) {',
     "        await reportProviderEvent(event, directory);",
     "        return;",
     "      }",
@@ -991,10 +1147,8 @@ function scanMessagesForModel(db, sql, params) {
     const raw = rows[i].data;
     if (!raw) continue;
     try {
-      const v = JSON.parse(raw);
-      if (v && v.role === "assistant" && typeof v.modelID === "string" && v.modelID) {
-        return v.modelID;
-      }
+      const model = sessionModelIdentity(JSON.parse(raw));
+      if (model) return model;
     } catch (_) {
     }
   }
@@ -1011,10 +1165,8 @@ function scanMessagesForQualifiedModel(db, sessionId) {
       const raw = rows[i].data;
       if (!raw) continue;
       try {
-        const value = JSON.parse(raw);
-        if (value.role === "assistant" && typeof value.providerID === "string" && value.providerID && typeof value.modelID === "string" && value.modelID) {
-          return `${value.providerID}/${value.modelID}`;
-        }
+        const model = sessionModelIdentity(JSON.parse(raw));
+        if (model) return model;
       } catch (_) {
       }
     }
@@ -1034,6 +1186,16 @@ function scanSessionDirectory(db, sessionId) {
   } catch (_) {
     return null;
   }
+}
+function sessionModelIdentity(value) {
+  if (!value || typeof value !== "object") return null;
+  const message = value;
+  if (message.role !== "assistant" || typeof message.modelID !== "string") return null;
+  const provider = typeof message.providerID === "string" ? message.providerID.trim() : "";
+  const model = message.modelID.trim();
+  if (!model) return null;
+  if (isModelId(model)) return model;
+  return provider && isModelId(`${provider}/${model}`) ? `${provider}/${model}` : null;
 }
 
 // plugins/provider-opencode/src/opencodePresets.ts
@@ -1091,16 +1253,16 @@ function applyDomiosPresets(config, presets) {
 }
 
 // plugins/provider-opencode/src/modelProviders.ts
-function record2(value) {
+function record3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function readModelProviders(config) {
-  if (!record2(config) || config.provider !== void 0 && !record2(config.provider)) {
+  if (!record3(config) || config.provider !== void 0 && !record3(config.provider)) {
     throw new Error("Invalid provider config");
   }
   return Object.entries(config.provider ?? {}).flatMap(([id, entry]) => {
-    if (!record2(entry) || entry["x-domios"] !== true) return [];
-    if (!record2(entry.options) || typeof entry.options.baseURL !== "string") {
+    if (!record3(entry) || entry["x-domios"] !== true) return [];
+    if (!record3(entry.options) || typeof entry.options.baseURL !== "string") {
       throw new Error("Invalid owned provider");
     }
     const kind = entry.npm === "@ai-sdk/anthropic" ? "anthropic" : entry.npm === "@ai-sdk/openai-compatible" ? "openai-compatible" : null;
@@ -1116,7 +1278,7 @@ function readModelProviders(config) {
       id,
       kind,
       baseUrl: entry.options.baseURL,
-      models: record2(entry.models) ? Object.keys(entry.models) : [],
+      models: record3(entry.models) ? Object.keys(entry.models) : [],
       ...typeof entry.name === "string" ? { name: entry.name } : {},
       ...env ? { keyEnv: env } : {},
       ...typeof secret === "string" ? { secretName: secret } : {}
@@ -1204,16 +1366,16 @@ function decisionRunOptions(model, request, remainingMs = DECISION_TIMEOUT_MS) {
     }
   };
 }
-function record3(value) {
+function record4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function probability(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 function validateDecision(answer, question) {
-  if (!record3(answer) || answer.type !== question.type) return false;
+  if (!record4(answer) || answer.type !== question.type) return false;
   if (question.type === "noul") return probability(answer.p);
-  if (!record3(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
+  if (!record4(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
   const entries = Object.entries(answer.probabilities);
   if (!entries.length || entries.some(([, value]) => !probability(value))) return false;
   const mass = entries.reduce((sum, [, value]) => sum + value, 0);
@@ -1230,10 +1392,10 @@ function parseDecisionEvents(stdout, question) {
   try {
     for (const line of stdout.split(/\r?\n/).filter((line2) => line2.trim())) {
       const event = JSON.parse(line);
-      if (!record3(event)) return { error: "invalid_response" };
+      if (!record4(event)) return { error: "invalid_response" };
       if (event.type === "tool_use" || event.type === "error") return { error: "transport" };
-      if (event.type === "text" && record3(event.part) && typeof event.part.text === "string") text += event.part.text;
-      if (event.type === "step_finish" && record3(event.part) && event.part.reason === "stop") completed = true;
+      if (event.type === "text" && record4(event.part) && typeof event.part.text === "string") text += event.part.text;
+      if (event.type === "step_finish" && record4(event.part) && event.part.reason === "stop") completed = true;
     }
     if (!completed) return { error: "invalid_response" };
     const answer = JSON.parse(text);
@@ -1387,6 +1549,7 @@ function withPadPermissionConfig(command, instructions, cleanup, launchConfig = 
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 var plugin = {
+  checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,
   ...decisionModel,
   ...modelProviderExports,
@@ -1439,7 +1602,7 @@ var plugin = {
     const events = [];
     try {
       const event = JSON.parse(t);
-      if (event?.type === "session.error") events.push("turn_error");
+      if (event?.type === "session.error" || event?.type === "message.updated" && turnError(event.properties?.info)) events.push("turn_error");
       if (event?.type === "session.idle") events.push("task_complete");
       if (event?.type === "session.status" && event.properties?.status?.type === "busy") {
         events.push("turn_started");
@@ -1451,7 +1614,6 @@ var plugin = {
     }
     return events;
   },
-  // off hot reads. `null` when the CLI cannot answer: the host keeps its seed.
   discoverModels() {
     return discoverOpencodeModels();
   },
@@ -1729,6 +1891,7 @@ var plugin = {
     if (!part || typeof part !== "object" || part.state?.status !== "completed") return null;
     return toolFileDiffs(part);
   },
+  parseSessionObservations: sessionObservations,
   usesStructuredChat() {
     return true;
   },
@@ -1740,10 +1903,11 @@ var plugin = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC",
       [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
     );
     const messages = [];
+    const observations = [];
     let lastTs = sinceMs;
     let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
@@ -1756,6 +1920,14 @@ var plugin = {
       }
       if (seenAtLastTs.indexOf(id) !== -1) continue;
       seenAtLastTs.push(id);
+      const message = safeJson(rows[i].message);
+      const observation = sessionObservations(message);
+      if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
+      const error = turnError(message);
+      if (error) {
+        messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+        continue;
+      }
       const part = safeJson(rows[i].part);
       if (!part) continue;
       const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
@@ -1763,7 +1935,7 @@ var plugin = {
       if (cm) messages.push(cm);
     }
     seenAtLastTs.sort();
-    return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+    return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
 function resumeLaunchArgs(args, sessionId) {

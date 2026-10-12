@@ -10,3 +10,7 @@ assert.equal(remainingLifetime(5000, 1000, 9000), 0);
 assert.equal(countdownAnimation(true), "none");
 assert.equal(countdownAnimation(false), "ct-toast-countdown");
 console.log("Toast lifetime caps, elapsed time and reduced motion passed");
+
+import { CHAT_ERROR_TOAST_LIFETIME_MS } from "./toastLifetime";
+assert.equal(toastLifetime(CHAT_ERROR_TOAST_LIFETIME_MS), 10_000);
+assert.equal(remainingLifetime(CHAT_ERROR_TOAST_LIFETIME_MS, 100, 10_100), 0);

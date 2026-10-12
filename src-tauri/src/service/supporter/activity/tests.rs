@@ -393,7 +393,7 @@ fn supporter_feed_sentinel_budget_preserves_safe_fields_and_redaction() {
         vec![json!({
             "time": 100, "team_id": "team_aabbccdd", "kind": "blueprint", "label": "redacted",
             "confidence_band": "unknown", "action": "decision", "decision_point": "blueprint", "reason": "budget_exhausted",
-            "budget_reached": true, "fallback": true
+            "budget_reached": true, "fallback": true, "tab_id": null
         })]
     );
 }

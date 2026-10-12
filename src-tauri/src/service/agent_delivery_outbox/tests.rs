@@ -292,3 +292,22 @@ fn worker_brief_and_report_receipts_are_flagged() {
     assert_eq!(retired_delivery_flags(true, true), (true, true));
     assert_eq!(retired_delivery_flags(false, true), (false, true));
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
+fn live_resume_provisional_launch_delivers_held_payload_once_after_binding() {
+    let (fixture, tab_id) = fixture(Some("saved-session"), false);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.boot_stage = Some(BootStage::LaunchWritten);
+        tab.provisional_launch = crate::service::boot_stage::provisional_launch_for(
+            tab,
+            "own-pty",
+            "reserved-launch-nonce",
+            "opaque-reason",
+        );
+        tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    }
+    assert_fixture_auth_drains_once(fixture, tab_id);
+}

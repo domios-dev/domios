@@ -1,8 +1,7 @@
 use super::ServiceContext;
-use crate::notification::{dedupe::TabCondition, push::NotifyLevel};
+use crate::notification::dedupe::TabCondition;
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::messenger::MessageEnvelope;
-use crate::service::notification::{NotificationOrigin, PushIntent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum IncidentTransition {
@@ -30,13 +29,6 @@ pub(super) fn parent_target(
     // A roleless child still belongs to the tab that spawned it; only role tabs fall back to the plan owner.
     let target = if role { parent.or(owner) } else { parent };
     target.filter(|target| target != tab)
-}
-
-pub(super) fn intent(tab: &str, nonce: &str) -> PushIntent {
-    PushIntent {
-        level: Some(NotifyLevel::ActionNeeded),
-        event_key: Some(format!("provider-access-lost:{tab}:{nonce}")),
-    }
 }
 
 pub(super) fn incident(
@@ -89,29 +81,17 @@ pub(super) fn incident(
         .map(|identity| identity.machine)
         .unwrap_or_default();
     let body = format!("Tab {title} ({tab_id}), role {role}, machine {machine}, provider {provider}: provider access lost. Work is blocked. Run /login in that tab, or use the provider's token setup command (Claude: claude setup-token). The work owner can respawn on another provider.");
-    let id = svc.create_notification_ext(
+    let id = svc.log_system_notice(
         "Provider access lost".into(),
         Some(body.clone()),
         Some("error"),
-        None,
-        Some(true),
-        NotificationOrigin::local_tab(tab_id.into()),
-        intent(tab_id, nonce),
-        None,
     );
-    svc.notif
-        .lock()
-        .set_condition(&id, TabCondition::ProviderAccessLost);
     let retained = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
         tab.agent_session_id.as_deref() == Some(session)
             && tab.session_binding_nonce.as_deref() == Some(nonce)
             && tab.provider_signals.access_lost()
     });
     if !retained {
-        let resolved = svc.notif.lock().resolve_id(&id);
-        if resolved {
-            svc.announce_resolved(&[id]);
-        }
         log::debug!("[provider-access] recovered during notification tab={tab_id}");
         return;
     }

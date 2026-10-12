@@ -312,7 +312,26 @@ pub(super) fn dispatch(
                     data: None,
                 })?;
             let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
-            if writes_pty && svc.as_ref().has_public_send_launch_gate(&resolved_target) {
+            let target_has_agent = mux
+                .read()
+                .get_tab(&resolved_target)
+                .is_some_and(|tab| tab.agent_type.is_some());
+            let first_readiness_reached = svc
+                .as_ref()
+                .user_send_authority(&resolved_target)
+                .ok()
+                .is_some_and(|authority| svc.as_ref().user_authority_is_ready(&authority));
+            let user_admission = uses_user_send_admission(
+                source_tab.is_some(),
+                enter,
+                writes_pty,
+                target_has_agent,
+                first_readiness_reached,
+            );
+            if !user_admission
+                && writes_pty
+                && svc.as_ref().has_public_send_launch_gate(&resolved_target)
+            {
                 if let Err(detail) = svc.as_ref().await_public_send_readiness(
                     &resolved_target,
                     std::time::Duration::from_secs(30),
@@ -370,12 +389,32 @@ pub(super) fn dispatch(
                         message,
                         data: None,
                     })?;
-                local_send_response(
-                    svc.as_ref()
-                        .send_text_input_delivery(&resolved_target, &text, enter, None),
-                    writes_pty,
-                    pad_file,
-                )
+                if user_admission {
+                    let status = svc
+                        .as_ref()
+                        .start_chat_send(&resolved_target, text, None, None)
+                        .map_err(|message| JsonRpcError {
+                            code: -32603,
+                            message,
+                            data: None,
+                        })?;
+                    serde_json::json!({
+                        "ok": true,
+                        "delivery": "pending",
+                        "status": status.state,
+                        "send_id": status.send_id,
+                        "bytes_written": false,
+                        "detail": "accepted by user send owner; inspect send_id before any resend",
+                        "pad_file": pad_file.map(|path| path.display().to_string()),
+                    })
+                } else {
+                    local_send_response(
+                        svc.as_ref()
+                            .send_text_input_delivery(&resolved_target, &text, enter, None),
+                        writes_pty,
+                        pad_file,
+                    )
+                }
             };
             Ok(response)
         }
@@ -495,6 +534,16 @@ pub(super) fn dispatch(
     }
 }
 
+fn uses_user_send_admission(
+    source_present: bool,
+    submit: bool,
+    writes_pty: bool,
+    has_agent: bool,
+    first_readiness_reached: bool,
+) -> bool {
+    !source_present && submit && writes_pty && has_agent && !first_readiness_reached
+}
+
 fn gateway_send_response(
     delivery: crate::service::messenger::Delivery,
     pad_file: Option<std::path::PathBuf>,
@@ -548,9 +597,25 @@ fn local_send_response(
 
 #[cfg(test)]
 mod tests {
-    use super::{gateway_send_response, local_send_response, require_send_target};
+    use super::{
+        gateway_send_response, local_send_response, require_send_target, uses_user_send_admission,
+    };
     use crate::service::delivery_error::DeliveryError;
     use crate::service::messenger::Delivery;
+
+    #[test]
+    fn user_submissions_hold_only_before_first_readiness() {
+        assert!(uses_user_send_admission(false, true, true, true, false));
+        assert!(!uses_user_send_admission(false, true, true, true, true));
+        for (source, submit, pty, agent) in [
+            (true, true, true, true),
+            (false, false, true, true),
+            (false, true, false, true),
+            (false, true, true, false),
+        ] {
+            assert!(!uses_user_send_admission(source, submit, pty, agent, false));
+        }
+    }
 
     #[test]
     fn send_target_must_resolve_to_a_real_tab() {
@@ -670,6 +735,7 @@ mod tests {
         mux.set_tab_role(&recipient, AgentRole::Worker, Some(&sender))
             .unwrap();
         mux.get_tab_mut(&recipient).unwrap().agent_type = Some("limited-test-provider".into());
+        mux.get_tab_mut(&recipient).unwrap().session_binding_nonce = Some("pad-send-launch".into());
         let fixture = ServiceFixture::new(mux);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("limited-test-provider")

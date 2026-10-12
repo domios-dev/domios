@@ -30,7 +30,7 @@ const FOCUS_MARKER: &str = "SAFE_TEST_FOCUS_EVENT";
 const CLOSED_MARKER: &str = "SAFE_TEST_MODAL_CLOSED";
 const SESSION_ID: &str = "fixture-session-private";
 const SESSION_NONCE: &str = "fixture-nonce-private";
-const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|reason|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
+const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|error_category|reason|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
 const CORRELATION_FIELDS: &str = "version|decision_point|observation_id|launch_id|session_id|occurrence_id|producer|parent_observation_id|frame_hash|candidate_evidence";
 
 struct StaticModalModel {
@@ -45,10 +45,12 @@ struct CapturedScreens {
     truncated: bool,
     adjacent_equal: bool,
     previous_screen: Option<String>,
+    initial_stage_observed: bool,
 }
 impl CapturedScreens {
     fn record(&mut self, screen: &str) {
         self.count += 1;
+        self.initial_stage_observed |= screen.contains(INITIAL_MARKER);
         self.adjacent_equal |= self.previous_screen.as_deref() == Some(screen);
         self.previous_screen = Some(screen.to_string());
         if self.snapshots.len() == MAX_MODEL_SCREENS {
@@ -69,6 +71,7 @@ impl std::fmt::Debug for CapturedScreens {
         formatter
             .debug_struct("CapturedScreens")
             .field("count", &self.count)
+            .field("initial_stage_observed", &self.initial_stage_observed)
             .field("snapshots", &self.snapshots)
             .field("question_sets", &self.question_sets)
             .field("truncated", &self.truncated)
@@ -107,8 +110,15 @@ impl DecisionModel for StaticModalModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
+        let screen = request.state["screen"].as_str().unwrap_or_default();
+        eprintln!(
+            "qualified fixture model stage: initial={} focus={} closed={}",
+            screen.contains(INITIAL_MARKER),
+            screen.contains(FOCUS_MARKER),
+            screen.contains(CLOSED_MARKER)
+        );
         let mut screens = self.screens.lock();
-        screens.record(request.state["screen"].as_str().unwrap_or_default());
+        screens.record(screen);
         let question_set = request.questions.keys().cloned().collect::<Vec<_>>();
         if !screens.question_sets.contains(&question_set) {
             screens.question_sets.push(question_set);
@@ -360,6 +370,7 @@ fn verify_qualified_journey(
             && reader.reader_finished
             && current_identity
             && model_screen_captured
+            && captures.initial_stage_observed
             && completion_matches,
         "stage, model, identity, and host completion evidence was incomplete"
     );
@@ -479,6 +490,7 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
     let script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\
 [Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
 [Console]::Write([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'initial.txt'), [System.Text.Encoding]::UTF8))\n\
+[Console]::Write([char]27 + ']7;' + [Uri]::new($PSScriptRoot).AbsoluteUri + [char]7)\n\
 [Console]::WriteLine('SAFE_TEST_INITIAL_MODAL')\n\
 $first = [Console]::ReadKey($true)\n\
 [Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
@@ -647,6 +659,10 @@ fn qualified_fixture_capture_summary_survives_diagnostic_truncation() {
 fn qualified_fixture_stage_timeout_retains_actual_last_snapshot() {
     let mut evidence = ReaderEvidence::new();
     evidence.record_screen("fixture output without a stage marker");
+    let pending = "opaque startup output".repeat(MAX_STAGE_SCREEN_BYTES);
+    evidence.record_pending_frame(pending.as_bytes());
+    assert_eq!(evidence.sequence, 1);
+    assert!(evidence.stage_events.is_empty());
     let failure = stage_failure(
         ModalStage::Focus,
         StageFailureReason::Deadline,
@@ -676,6 +692,13 @@ fn qualified_fixture_stage_timeout_retains_actual_last_snapshot() {
             Some("fixture output without a stage marker")
         )
     );
+    let diagnostic = failure.pending_output.unwrap();
+    assert!(diagnostic.truncated);
+    assert!(diagnostic.text.len() <= MAX_STAGE_SCREEN_BYTES);
+    let tail = diagnostic.text.strip_prefix("[truncated]\n").unwrap();
+    assert!(pending.ends_with(tail));
+    evidence.record_screen("completed frame");
+    assert!(evidence.pending_output.is_none());
 }
 #[test]
 fn qualified_fixture_reader_end_distinguishes_eof_from_read_error() {

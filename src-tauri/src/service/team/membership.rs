@@ -85,6 +85,19 @@ pub(crate) fn apply_team_attachment_under(
     tab_id: &str,
     parent: AttachmentParent<'_>,
 ) -> Result<(), String> {
+    apply_team_placement_under(mux, attachment, tab_id, parent)?;
+    mux.get_tab_mut(tab_id)
+        .ok_or_else(|| format!("Tab {tab_id} not found"))?
+        .spawned_by_tab_id = Some(attachment.caller_tab_id.clone());
+    Ok(())
+}
+
+fn apply_team_placement_under(
+    mux: &mut MultiplexerState,
+    attachment: &TeamAttachment,
+    tab_id: &str,
+    parent: AttachmentParent<'_>,
+) -> Result<(), String> {
     // Membership door 3: the one write every attach verb shares — `tab new
     // --team`, `agent spawn --team`, `team adopt-agent`, and `surface open`.
     let shape = shape_for_tab(mux, tab_id);
@@ -108,7 +121,6 @@ pub(crate) fn apply_team_attachment_under(
         .get_tab_mut(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found"))?;
     tab.team_id = Some(attachment.team_id.clone());
-    tab.spawned_by_tab_id = Some(attachment.caller_tab_id.clone());
     tab.parent_tab_id = Some(parent_tab_id);
     tab.depth = depth;
     Ok(())
@@ -194,7 +206,7 @@ pub(crate) fn adopt_agent_into_team(
     if attachment.manager_tab_id == tab_id {
         return Err(format!("Tab {tab_id} anchors Team {team_id} already"));
     }
-    apply_team_attachment(mux, &attachment, tab_id)?;
+    apply_team_placement_under(mux, &attachment, tab_id, AttachmentParent::TeamAnchor)?;
     mux.get_team(team_id)
         .cloned()
         .ok_or_else(|| format!("Team {team_id} not found"))

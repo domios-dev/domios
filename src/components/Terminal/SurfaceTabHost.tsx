@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { SurfaceTabView } from "./SurfaceTabView";
 import { useSurfaceDecl } from "../Surface/useSurfaceDecl";
 import { workspaceIdOfTab } from "../../lib/surfaceTab";
@@ -18,7 +19,8 @@ export function SurfaceTabHost({ tab, backing, api, isVisible }: SurfaceTabHostP
   const ownerTab = useMuxSelector((state) => (ownerId ? state.tabs[ownerId] ?? null : null));
   const ownerName = ownerTab?.title ?? null;
   const ownerWorkspaceId = useMuxSelector((state) => workspaceIdOfTab(state.workspaces, ownerId));
-  const decl = useSurfaceDecl(api, backing.plugin_id, backing.surface_id);
+  const [refreshGeneration, setRefreshGeneration] = useState(0);
+  const decl = useSurfaceDecl(api, backing.plugin_id, backing.surface_id, refreshGeneration);
   return (
     <SurfaceTabView
       tab={tab}
@@ -29,6 +31,7 @@ export function SurfaceTabHost({ tab, backing, api, isVisible }: SurfaceTabHostP
       api={api}
       isVisible={isVisible}
       decl={decl}
+      onRetry={() => setRefreshGeneration((generation) => generation + 1)}
     />
   );
 }

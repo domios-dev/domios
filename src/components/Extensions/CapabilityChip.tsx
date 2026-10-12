@@ -52,6 +52,7 @@ export function CapabilityChip({
 
 /** Human-readable line for a capability id (Chrome-style permission wording). */
 export const CAPABILITY_LABELS: Record<string, string> = {
+  local_recording: "Start and stop your selected microphone recording",
   manage_workspaces: "Create & manage its workspaces",
   spawn_agents: "Spawn AI agents",
   agent_commands: "Receive commands from your agents",

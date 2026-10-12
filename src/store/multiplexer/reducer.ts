@@ -1,4 +1,5 @@
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
+import { reconcilePageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -17,7 +18,7 @@ import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../
 
 export type Action =
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
-  | { type: "SET_STATE"; state: MultiplexerState }
+  | { type: "SET_STATE"; state: MultiplexerState; pageOwnedSelection?: boolean }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
   | { type: "SET_ACTIVE_WORKSPACE"; id: string }
   | { type: "CLOSE_WORKSPACE"; id: string }
@@ -240,14 +241,17 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           : state.focused_tab_id && attached.tabs[state.focused_tab_id]
             ? state.focused_tab_id
             : null;
+      const selection = reconcilePageSelection(state, {
+        focused_tab_id,
+        active_workspace_id: action.state.active_workspace_id,
+        activeTabIds,
+      }, attached.workspaces, action.pageOwnedSelection === true);
       return {
         ...state,
         workspaces: attached.workspaces,
         tabs: attached.tabs,
         teams: action.state.teams ?? [],
-        focused_tab_id,
-        active_workspace_id: action.state.active_workspace_id,
-        activeTabIds,
+        ...selection,
         // Prefer the authoritative recently closed list when it is present.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
         closed_structures: action.state.closed_structures ?? [],

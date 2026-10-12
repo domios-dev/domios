@@ -103,6 +103,11 @@ const PLUGIN_PREAMBLE: &str = r#"
     get:   function () { return parseJson(host.receiverTargetGet()); },
     clear: function () { return parseJson(host.receiverTargetClear()); },
   };
+  host.localRecording = {
+    statusReport: function () { return parseJson(host.receiverStatusReport()); },
+    status: function () { return parseJson(host.localRecordingStatus()); },
+    setEnabled: function (enabled) { return parseJson(host.localRecordingSetEnabled(enabled === true)); },
+  };
   host.workspace = {
     ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
     tabs: function (workspaceId) { return parseJson(host.workspaceTabs(workspaceId)) || []; },
@@ -467,6 +472,10 @@ impl PluginVm {
         self.sandbox.graph_events_allowed()
     }
 
+    pub fn local_recording_allowed(&self) -> bool {
+        self.sandbox.local_recording_allowed()
+    }
+
     /// How many sandbox capabilities this plugin has been denied. Snapshot it
     /// around a plugin call: a rise means the call failed because the plugin is
     /// confined, which is a state a user has to be told about rather than a
@@ -672,9 +681,26 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
         CALL_YIELDED.with(|y| y.set(true));
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
-        let job_result = match super::host_exec::wait_json(vm.sandbox.plugin_id(), &pending.job) {
+        let waited = match &interrupt {
+            Some((cancellation, deadline)) => super::host_exec::wait_json_interruptible(
+                vm.sandbox.plugin_id(),
+                &pending.job,
+                cancellation,
+                *deadline,
+            ),
+            None => super::host_exec::wait_json(vm.sandbox.plugin_id(), &pending.job),
+        };
+        let job_result = match waited {
             super::host_exec::WaitResult::Completed(result) => result,
-            super::host_exec::WaitResult::TimedOut => return Err(VmError::AsyncJobTimedOut),
+            super::host_exec::WaitResult::TimedOut => {
+                let inner = vm.inner.lock();
+                inner._ctx.with(|ctx| {
+                    if let Ok(take) = ctx.globals().get::<_, Function>("__ct_await_take__") {
+                        let _ = take.call::<_, rquickjs::Value>((pending.continuation.as_str(),));
+                    }
+                });
+                return Err(VmError::AsyncJobTimedOut);
+            }
         };
         result_json = resume_call(
             vm,

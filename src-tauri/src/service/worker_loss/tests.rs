@@ -169,22 +169,7 @@ fn worker_tab_death_pushes_orchestrator_event() {
             .contains(&held[0].dedupe_key()),
         "a withheld loss keeps no report claim"
     );
-    let alerts = busy
-        .fx
-        .service
-        .notif
-        .lock()
-        .list(false)
-        .into_iter()
-        .filter(|notification| notification.tab_id.as_deref() == Some(busy.orchestrator.as_str()))
-        .filter(|notification| {
-            notification
-                .body
-                .as_deref()
-                .is_some_and(|body| body.contains(&busy.task_id))
-        })
-        .count();
-    assert_eq!(alerts, 1, "one owner alert names the withheld task");
+    assert!(busy.fx.service.notif.lock().list(false).is_empty());
 }
 
 #[test]

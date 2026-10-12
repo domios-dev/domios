@@ -49,14 +49,14 @@ pub struct CliLaunch {
 #[derive(Debug, PartialEq, Eq)]
 enum CompletionRoute {
     AgentReport,
-    NotificationRecord,
+    SystemLog,
 }
 
 fn completion_route(agent_type: Option<&str>, agent_booting: bool) -> CompletionRoute {
     if agent_type.is_some() || agent_booting {
         CompletionRoute::AgentReport
     } else {
-        CompletionRoute::NotificationRecord
+        CompletionRoute::SystemLog
     }
 }
 
@@ -65,7 +65,7 @@ fn report_completion(svc: &ServiceContext, caller: &str, utility_tab: &str, summ
         let mux = svc.mux.read();
         mux.get_tab(caller)
             .map(|tab| completion_route(tab.agent_type.as_deref(), tab.agent_booting))
-            .unwrap_or(CompletionRoute::NotificationRecord)
+            .unwrap_or(CompletionRoute::SystemLog)
     };
     match route {
         CompletionRoute::AgentReport => {
@@ -78,16 +78,11 @@ fn report_completion(svc: &ServiceContext, caller: &str, utility_tab: &str, summ
                 log::warn!("[provider-cli] result delivery failed: {error}");
             }
         }
-        CompletionRoute::NotificationRecord => {
-            svc.create_notification_ext(
+        CompletionRoute::SystemLog => {
+            svc.log_system_notice(
                 "Provider CLI result".into(),
                 Some(summary.into()),
                 Some("info"),
-                None,
-                Some(false),
-                super::notification::NotificationOrigin::local_tab(utility_tab.into()),
-                super::notification::PushIntent::default(),
-                None,
             );
         }
     }
@@ -115,7 +110,21 @@ pub(crate) fn launch_with_dispatch(
     let platform = crate::agent::provider::current_platform_tag();
     let status =
         super::provider_cli::provider_cli_status(&svc.provider_registry, provider, platform)?;
-    let command = operation_command(&status, operation, platform)?;
+    let mut command = operation_command(&status, operation, platform)?;
+    if matches!(operation, CliOperation::Update) && command.contains("{version}") {
+        let updater_provider = svc
+            .agent_registry
+            .provider_arc(provider)
+            .ok_or_else(|| "CLI update provider is unavailable".to_string())?;
+        let target = updater_provider
+            .check_for_update()
+            .ok_or_else(|| "No supported CLI update target is available".to_string())?;
+        command = super::provider_update::compatible_command_for_target(
+            &command,
+            &target.latest_version,
+            updater_provider.cli_compatibility().as_ref(),
+        )?;
+    }
     let prerequisites = match operation {
         CliOperation::Install => &status.installer_prerequisites,
         CliOperation::Update => &status.updater_prerequisites,
@@ -131,14 +140,14 @@ pub(crate) fn launch_with_dispatch(
             }
             .into(),
         ),
-        description: Some(format!(
+        description: Some(fit_tab_description(&format!(
             "{} CLI for {provider}{}",
             operation.label(),
             prerequisite_hint
                 .as_ref()
                 .map(|hint| format!("; {hint}"))
                 .unwrap_or_default()
-        )),
+        ))),
         ..Default::default()
     })?;
     let tab_id = handle.tab_id;
@@ -174,7 +183,10 @@ pub(crate) fn launch_with_dispatch(
         let _ = tokio::task::spawn_blocking(move || {
             let status = super::provider_cli::provider_cli_status(&service.provider_registry, &provider, platform).ok();
             let summary = completion_summary(&provider, operation, completion, status.as_ref());
-            let _ = service.mux.write().set_tab_description(&monitor_tab, Some(summary.clone()));
+            let _ = service
+                .mux
+                .write()
+                .set_tab_description(&monitor_tab, Some(fit_tab_description(&summary)));
             service.emit_state_changed();
             crate::api::events::emit_everywhere(&service.app_handle, "provider-cli-completed", serde_json::json!({
                 "provider": provider, "operation": operation, "tab_id": monitor_tab,
@@ -228,15 +240,42 @@ fn completion_summary(
     summary
 }
 
+// The full guidance stays in the launch warnings and the completion report.
+fn fit_tab_description(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let limit = super::MAX_TAB_DESCRIPTION_CHARS;
+    if flat.chars().count() <= limit {
+        return flat;
+    }
+    let mut fitted: String = flat.chars().take(limit - 1).collect();
+    fitted.push('…');
+    fitted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn completion_routes_shells_to_records_and_agents_to_reports() {
-        assert_eq!(
-            completion_route(None, false),
-            CompletionRoute::NotificationRecord
+    fn a_long_install_hint_still_fits_the_tab_description() {
+        let long = format!(
+            "Install CLI for fixture; {}",
+            "needs a runner first. ".repeat(20)
         );
+        let fitted = fit_tab_description(&long);
+        assert!(super::super::normalize_tab_description(&fitted).is_ok());
+        assert_eq!(
+            fitted.chars().count(),
+            super::super::MAX_TAB_DESCRIPTION_CHARS
+        );
+        assert_eq!(
+            fit_tab_description("Install CLI for fixture"),
+            "Install CLI for fixture"
+        );
+        assert_eq!(fit_tab_description("two\nlines"), "two lines");
+    }
+    #[test]
+    fn completion_routes_shells_to_records_and_agents_to_reports() {
+        assert_eq!(completion_route(None, false), CompletionRoute::SystemLog);
         assert_eq!(
             completion_route(Some("fixture"), false),
             CompletionRoute::AgentReport

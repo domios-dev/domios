@@ -239,6 +239,7 @@ pub(crate) async fn validate_and_commit_rebind(
             return Ok(VerifiedRebindOutcome::EvidenceChanged);
         }
     };
+    svc.reconcile_validated_rebind_boot(tab_id, session_id);
     Ok(VerifiedRebindOutcome::Committed(VerifiedRebindCommit {
         provider_id,
         previous_session_id,

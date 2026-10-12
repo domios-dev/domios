@@ -9,10 +9,26 @@ const MAX_TYPED_FOLLOW_UP_CHARS: usize = 160;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PasteCapability {
+    #[serde(default = "default_bracketed_paste_support")]
+    pub supports_bracketed_paste: bool,
+    #[serde(default)]
+    pub multiline: Option<MultilinePasteStrategy>,
+    #[serde(default)]
     pub untrusted_above_lines: usize,
+    #[serde(default)]
     pub typed_follow_up: String,
     #[serde(default)]
     pub requires_typed_instruction_for_routed_messages: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MultilinePasteStrategy {
+    TaggedBlock,
+}
+
+fn default_bracketed_paste_support() -> bool {
+    true
 }
 
 impl PasteCapability {
@@ -47,6 +63,8 @@ mod paste_capability_tests {
     #[test]
     fn typed_follow_up_is_limited_to_valid_messages_above_the_threshold() {
         let capability = PasteCapability {
+            supports_bracketed_paste: true,
+            multiline: None,
             untrusted_above_lines: 4,
             typed_follow_up: " ::marker::".into(),
             requires_typed_instruction_for_routed_messages: true,

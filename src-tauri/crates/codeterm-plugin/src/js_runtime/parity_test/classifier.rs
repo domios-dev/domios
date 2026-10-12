@@ -88,3 +88,45 @@ fn provider_classifiers_agree_on_shared_input_request_fixtures() {
     assert_single_surface(&claude_auth, "auth_prompt");
     assert_single_surface(&codex_auth, "auth_prompt");
 }
+
+#[test]
+fn codex_followup_menu_round_trips_native_prompt_and_response_shapes() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = load_js("codex");
+    let screen = fixture("codex", "reasoning-submenu-0.160.0.txt");
+    let result = classify(&provider, "codex", screen.clone());
+    assert_eq!(result.state, TabState::ClarifyingQuestion);
+    assert_eq!(result.confidence, 1.0);
+    assert_single_surface(&result, "clarifying_question");
+    let prompt = provider.parse_prompt(&screen).expect("active submenu");
+    assert_eq!(prompt.options.len(), 5);
+    assert_eq!(
+        prompt
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        vec!["1", "2", "3", "4", "5"]
+    );
+    assert_eq!(
+        provider.build_prompt_response(1, &screen),
+        vec![b"\r".to_vec()]
+    );
+    assert_eq!(
+        provider.build_prompt_response(4, &screen),
+        vec![
+            b"\x1b[B".to_vec(),
+            b"\x1b[B".to_vec(),
+            b"\x1b[B".to_vec(),
+            b"\r".to_vec()
+        ]
+    );
+
+    let echoed = fixture("codex", "echoed-numbered-message.txt");
+    assert!(provider.parse_prompt(&echoed).is_some());
+    let result = classify(&provider, "codex", echoed);
+    assert_eq!(result.state, TabState::Working);
+    assert!(result.action.is_none());
+}
