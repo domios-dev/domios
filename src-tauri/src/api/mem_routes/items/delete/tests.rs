@@ -19,7 +19,7 @@ impl ExtractionCancelSink for RuntimeCancellation {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn memory_deletion_finishes_runtime_cancellation_before_returning() {
     for by_area in [false, true] {
-        let mem = Arc::new(crate::mem::MemManager::open_in_memory().unwrap());
+        let mem = crate::mem::MemManager::open_in_memory().unwrap();
         let cancelled = Arc::new(RuntimeCancellation::default());
         mem.extraction_authority()
             .set_cancel_sink(cancelled.clone());
