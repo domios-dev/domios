@@ -95,6 +95,7 @@ port = 7685
 # token = "your-secret-token"
 
 [general_agent]
+capability_hints = true       # Relevant feature hints during the first week
 enabled = true
 agent_provider = "claude"       # Agent command to use
 auto_restart = true             # Auto-restart on crash
@@ -220,6 +221,8 @@ A `config.toml` that cannot be read or parsed is never treated as empty and neve
 
 ## General Agent
 
+`general_agent.capability_hints` defaults to `true`. Settings exposes “Suggest Domios features I have when relevant”. During the first seven days from the first composed General session on this machine, the prompt carries a bounded installed capability list. The agent mentions a feature only when it directly helps the request, at most once per topic. Turning this off removes that fragment at the next prompt composition; the first-seen time never resets.
+
 The General Agent is an always-on Claude Code instance in the "General" workspace (`[general_agent]` in the reference above). It handles Telegram messages and cron tasks and acts as the default orchestrator. When enabled, Domios starts with a single protected "General" workspace instead of "Main"; its tab cannot be closed from the UI, and Settings > Agents > General Agent toggles it. Recovery thresholds, owner notifications and provider update behaviour: `codeterm docs TAB-LIFECYCLE`, sections "General Agent recovery" and "Provider updates".
 
 ## Worker lane provisioning
@@ -237,4 +240,4 @@ Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `
 
 Domios account sign-in and product analytics settings: `codeterm docs ACCOUNT`.
 
-<!-- revision: 113 -->
+<!-- revision: 114 -->

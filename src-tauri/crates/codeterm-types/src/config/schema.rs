@@ -578,6 +578,7 @@ impl Default for AgentConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GeneralAgentConfig {
+    pub capability_hints: bool,
     pub enabled: bool,
     pub agent_provider: String,
     pub auto_restart: bool,
@@ -595,6 +596,7 @@ fn default_first_run_complete_for_deserialize() -> bool {
 impl Default for GeneralAgentConfig {
     fn default() -> Self {
         Self {
+            capability_hints: true,
             enabled: true,
             agent_provider: "claude".to_string(),
             auto_restart: true,
