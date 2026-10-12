@@ -185,6 +185,15 @@ pub(super) fn run_with_assignment(
         run.add_error(error);
         return run.finish_failure();
     }
+    #[cfg(test)]
+    match cancellation.child_ready(run.deadlines) {
+        Ok(deadlines) => run.deadlines = deadlines,
+        Err(error) => {
+            run.fail("probe_fixture_readiness_failed");
+            run.add_error(error);
+            return run.finish_failure();
+        }
+    }
     run.drive()
 }
 

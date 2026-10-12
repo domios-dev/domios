@@ -14,11 +14,9 @@ fn sentinel_command_native_finite_actual_zero_nonzero_stdout_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let owner = Arc::new(ProbeResourceOwner::new());
     for code in [0, 7] {
-        #[cfg(unix)]
-        let command = format!("printf out; printf err >&2; exit {code}");
-        #[cfg(windows)]
-        let command =
-            format!("[Console]::Out.Write('out'); [Console]::Error.Write('err'); exit {code}");
+        let readiness = probe::test_readiness::Readiness::new();
+        let (signal, receipts) = readiness.signal(probe::PROBE_RUNTIME, probe::PROBE_RUNTIME);
+        let command = readiness.finite_command(code);
         let parameters = Parameters {
             command,
             label: "Finite fixture".into(),
@@ -29,8 +27,9 @@ fn sentinel_command_native_finite_actual_zero_nonzero_stdout_stderr() {
             dir.path(),
             probe::PROBE_RUNTIME,
             &owner,
-            &Cancellation::default(),
+            &signal,
         );
+        receipts.try_recv().expect("finite child readiness receipt");
         let metadata = effect.command_result.unwrap();
         assert_eq!(
             metadata.status,
@@ -91,12 +90,18 @@ fn sentinel_command_native_owner_shutdown_wakes_active_wait() {
 }
 
 fn cancellation_control(close_streams: bool, shutdown: bool) {
-    let fixture = Fixture::new(close_streams);
+    let fixture = Arc::new(Fixture::new(close_streams));
     let owner = Arc::new(ProbeResourceOwner::new());
     #[cfg(unix)]
     let signal = Cancellation::default();
     #[cfg(windows)]
     let signal = fixture.cancellation();
+    let ready_fixture = fixture.clone();
+    signal.set_readiness(move || {
+        ready_fixture.wait_ready()?;
+        probe::process::Deadlines::start(probe::PROBE_RUNTIME, probe::PROBE_RUNTIME)
+            .map_err(|error| error.to_string())
+    });
     let waits = signal.observe_waits();
     let parameters = Parameters {
         command: fixture.command(),
@@ -107,7 +112,6 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
     let worker_owner = owner.clone();
     let worker_signal = signal.clone();
     let cwd = fixture.cwd();
-    let started = Instant::now();
     let worker = std::thread::spawn(move || {
         let result = command::execute(
             &parameters,
@@ -118,7 +122,6 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
         );
         tx.send(result).unwrap();
     });
-    fixture.wait_ready();
     let expected = if close_streams {
         #[cfg(unix)]
         let phase = WaitPhase::Parent;
@@ -128,7 +131,7 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
     } else {
         WaitPhase::Capture
     };
-    let deadline = Instant::now() + probe::PROBE_RUNTIME;
+    let deadline = Instant::now() + probe::test_readiness::SETUP_DEADLINE;
     let mut last_native_state = None;
     #[cfg(windows)]
     let mut native_diagnostics = WindowsDiagnostics::default();
@@ -160,6 +163,7 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
             break;
         }
     }
+    let started = Instant::now();
     if shutdown {
         owner.close_admission();
     } else {
@@ -263,18 +267,23 @@ impl Fixture {
         format!("SENTINEL_PROBE_NATIVE_CONTROL={} SENTINEL_PROBE_NATIVE_ACK={} SENTINEL_PROBE_NATIVE_STARTED={} {} exec {} --exact --ignored --nocapture sentinel::probe::native_tests::probe_native_control_child", quote(&self.dir.path().join("release")), quote(&self.dir.path().join("ready")), quote(&self.dir.path().join("ready")), if self.close_streams { "SENTINEL_PROBE_NATIVE_CLOSE_STREAMS=1" } else { "" }, quote(&std::env::current_exe().unwrap()))
     }
 
-    fn wait_ready(&self) {
+    fn wait_ready(&self) -> Result<(), String> {
         use std::os::fd::AsRawFd;
         let mut fd = libc::pollfd {
             fd: self.ready.as_raw_fd(),
             events: libc::POLLIN,
             revents: 0,
         };
-        assert_eq!(
-            unsafe { libc::poll(&mut fd, 1, probe::PROBE_RUNTIME.as_millis() as i32) },
-            1,
-            "child readiness was not observed"
-        );
+        if unsafe {
+            libc::poll(
+                &mut fd,
+                1,
+                probe::test_readiness::SETUP_DEADLINE.as_millis() as i32,
+            )
+        } != 1
+        {
+            return Err("child readiness was not observed".into());
+        }
         let mut buffer = [0u8; 32];
         let length = unsafe {
             libc::read(
@@ -283,7 +292,10 @@ impl Fixture {
                 buffer.len(),
             )
         };
-        assert_eq!(&buffer[..length as usize], b"ready\n");
+        if length != 6 || &buffer[..6] != b"ready\n" {
+            return Err("invalid child readiness marker".into());
+        }
+        Ok(())
     }
 }
 
@@ -502,27 +514,24 @@ impl Fixture {
         }
     }
 
-    fn wait_ready(&self) {
+    fn wait_ready(&self) -> Result<(), String> {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::{
             Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
         };
         let failure = self.dir.path().join("fixture-error.txt");
-        assert_eq!(
-            unsafe {
-                WaitForSingleObject(
-                    self.ready.as_raw_handle(),
-                    probe::PROBE_RUNTIME.as_millis() as u32,
-                )
-            },
-            WAIT_OBJECT_0,
-            "child readiness was not observed: {}",
-            std::fs::read_to_string(&failure).unwrap_or_else(|error| error.to_string())
-        );
-        assert!(
-            !failure.exists(),
-            "fixture readiness failed: {}",
-            std::fs::read_to_string(failure).unwrap_or_else(|error| error.to_string())
-        );
+        let observed = unsafe {
+            WaitForSingleObject(
+                self.ready.as_raw_handle(),
+                probe::test_readiness::SETUP_DEADLINE.as_millis() as u32,
+            )
+        };
+        if observed != WAIT_OBJECT_0 || failure.exists() {
+            return Err(format!(
+                "child readiness failed: {}",
+                std::fs::read_to_string(failure).unwrap_or_else(|error| error.to_string())
+            ));
+        }
+        Ok(())
     }
 }
