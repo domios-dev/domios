@@ -53,7 +53,7 @@ impl Store {
         transaction.commit().map_err(|e| e.to_string())
     }
 
-    pub(super) fn install(
+    pub fn install(
         &self,
         verified: &VerifiedManifest,
         signature: &str,
