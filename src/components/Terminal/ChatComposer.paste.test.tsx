@@ -5,6 +5,8 @@ import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
+import { parseAttachmentMarkers } from "@codeterm/chat-core";
+import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
 import { useAttachments } from "./useAttachments";
 
@@ -69,10 +71,12 @@ it.each([[true, true, true], [true, true, false], [true, false, true], [false, t
     expect(fixture.stored[0].type).toBe(image.type);
     expect(await fixture.stored[0].text()).toBe("image");
     expect(editor.value).toContain("Inspect this image");
+    expect(capsuleSpans(editor.value)).toHaveLength(1);
     await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true })));
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain("Inspect this image");
-    expect(sent[0]).toContain("/uploads/pasted.png");
+    expect(parseAttachmentMarkers(sent[0]).attachments.map(({ path }) => path)).toEqual(["/uploads/pasted.png"]);
+    expect(sent[0].split("/uploads/pasted.png")).toHaveLength(2);
     expect(read).not.toHaveBeenCalled();
     expect(readText).not.toHaveBeenCalled();
   } finally {

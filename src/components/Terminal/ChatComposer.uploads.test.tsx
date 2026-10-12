@@ -6,12 +6,13 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
-import { formatAttachmentMarker } from "@codeterm/chat-core";
+import { parseAttachmentMarkers } from "@codeterm/chat-core";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { configureLocalPreviews } from "../../lib/configureLocalPreviews";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
+import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,6 +72,12 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
   }
   try {
     await act(async () => root.render(<Harness />));
+    const editor = host.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "Please inspect here");
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      editor.setSelectionRange(15, 15);
+    });
     const input = host.querySelector<HTMLInputElement>('[data-testid="composer-attach-input"]')!;
     const file = new File(["image"], "photo.png", { type: "image/png" });
     if (failure === "NotReadableError") {
@@ -87,14 +94,16 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
       expect(retry, host.textContent ?? "").not.toBeNull();
       await act(async () => retry!.click());
     }
-    const editor = host.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"]')!;
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "Please inspect the image");
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, `${editor.value} after upload`);
       editor.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(host.querySelector<HTMLImageElement>('[role="group"][aria-label="Message composer"] img')?.src, host.textContent ?? "").toBe(pixels);
+    expect(capsuleSpans(editor.value)).toHaveLength(1);
     await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
-    expect(sent).toEqual([`Please inspect the image ${formatAttachmentMarker(path)}`]);
+    expect(sent).toHaveLength(1);
+    expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([path]);
+    expect(sent[0].indexOf(path)).toBeGreaterThan(sent[0].indexOf("inspect"));
+    expect(sent[0].indexOf(path)).toBeLessThan(sent[0].indexOf("here"));
     expect(host.querySelector<HTMLImageElement>('[aria-label="Sent message"] img')?.src).toBe(pixels);
     expect(previews).toContain(path);
   } finally {

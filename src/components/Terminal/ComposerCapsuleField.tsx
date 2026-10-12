@@ -11,6 +11,9 @@ import {
   type ComposerCapsule,
 } from "./composerCapsules";
 
+import { canRetryUpload } from "./attachmentUploadModel";
+import type { ComposerUpload } from "./composerUploadModel";
+
 interface Hover {
   span: CapsuleSpan;
   capsule: ComposerCapsule;
@@ -35,7 +38,7 @@ function PaintedCapsule({ span, capsule, hovered }: { span: CapsuleSpan; capsule
  * The composer textarea with its capsules painted on an inert mirror; the textarea keeps
  * editing, IME and undo while its own glyphs go transparent under the mirror.
  */
-export function ComposerCapsuleField({ tabId, value, registry, active, textareaRef, marginPx, onRemove, children }: {
+export function ComposerCapsuleField({ tabId, value, registry, active, textareaRef, marginPx, onRemove, uploads = [], onRetryUpload, children }: {
   tabId: string;
   value: string;
   registry: CapsuleRegistry;
@@ -44,6 +47,8 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
   marginPx: number;
   onRemove: (span: CapsuleSpan) => void;
   children: ReactNode;
+  uploads?: ComposerUpload[];
+  onRetryUpload?: (id: number) => void;
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -84,10 +89,26 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
     setHover({ span: span.span, capsule: span.capsule, left: Math.max(0, hit.rect.left - field.left), bottom: field.bottom - hit.rect.top });
   };
 
+  const hoverCapsule = hover ? registry[hover.span.label] : undefined;
+  const hoveredUpload = uploads.find((upload) => upload.id === hoverCapsule?.uploadId);
   const segments = active ? capsuleSegments(value, registry) : [];
   return (
     <div ref={fieldRef} className="relative min-w-0 flex-1 self-center" onMouseMove={track} onMouseLeave={() => setHover(null)}>
       {children}
+      {uploads.map((upload) => {
+        const span = capsuleSegments(value, registry).find((segment) => "span" in segment && segment.span.label === upload.label);
+        if (!span || !("span" in span)) return null;
+        const visible = hoveredUpload?.id === upload.id;
+        return <div key={upload.id} ref={visible ? cardRef : undefined}
+          className={visible ? "absolute z-30 pb-1.5" : "sr-only focus-within:not-sr-only focus-within:absolute focus-within:bottom-full focus-within:z-30"}
+          style={visible && hover ? { left: hover.left, bottom: hover.bottom } : undefined}>
+          <div role="status" className="ct-capsule-button">
+            <span>{upload.state === "uploading" ? "Uploading…" : upload.failure?.message}</span>
+            {canRetryUpload(upload) && <button type="button" aria-label={`Retry attachment ${upload.name}`} onClick={() => onRetryUpload?.(upload.id)}>Retry</button>}
+            <button type="button" aria-label={`Remove attachment ${upload.name}`} onClick={() => { onRemove(span.span); setHover(null); }}>Remove</button>
+          </div>
+        </div>;
+      })}
       {active && (
         <div
           ref={mirrorRef}
@@ -102,7 +123,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
           {value.endsWith("\n") ? " " : null}
         </div>
       )}
-      {active && hover && (
+      {active && hover && hoverCapsule && hoverCapsule.uploadId === undefined && (
         <div
           ref={cardRef}
           data-testid="composer-capsule-card"
@@ -111,8 +132,8 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
         >
           <LocalArtifactScope tabId={tabId}>
             <CapsulePreview
-              kind={hover.capsule.kind}
-              path={hover.capsule.path}
+              kind={hoverCapsule.kind}
+              path={hoverCapsule.path}
               label={hover.span.label}
               actions={(
                 <button
