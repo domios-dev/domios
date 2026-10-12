@@ -54,7 +54,28 @@ impl ServiceContext {
     }
 
     pub(crate) fn record_product_tab_created(&self, tab_id: &str) {
-        let events = {
+        let event = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return;
+            };
+            Event::TabOpened {
+                kind: if tab.agent_type.is_some() {
+                    TabKind::Agent
+                } else {
+                    TabKind::Shell
+                },
+                provider_id: tab
+                    .agent_type
+                    .as_deref()
+                    .map(|value| ProviderId::from_catalog(value).unwrap_or(ProviderId::Other)),
+            }
+        };
+        self.record_product_event(event);
+    }
+
+    pub(crate) fn record_product_agent_spawned(&self, tab_id: &str, model: Option<&str>) {
+        let event = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
@@ -64,10 +85,12 @@ impl ServiceContext {
                 tab.role_profile
                     .as_deref()
                     .or_else(|| tab.role.map(|role| role.label())),
-                tab.agent_provider_resolved_model.as_deref(),
+                model.or(tab.agent_provider_resolved_model.as_deref()),
             )
+            .into_iter()
+            .find(|event| matches!(event, Event::AgentSpawned { .. }))
         };
-        for event in events {
+        if let Some(event) = event {
             self.record_product_event(event);
         }
     }
