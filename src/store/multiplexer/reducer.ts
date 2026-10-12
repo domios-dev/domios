@@ -1,3 +1,4 @@
+import { admitBellNotification } from "../../lib/notificationAdmission";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
 import { reconcilePageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
@@ -516,6 +517,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     // A coalesced notification is re-emitted under its existing id; replacing it
     // keeps one row instead of stacking a second copy of the same event.
     case "ADD_NOTIFICATION": {
+      const notifications = admitBellNotification(state.notifications, action.notification, "agent_notification");
+      if (notifications === state.notifications) return state;
       const replaceById = <T extends { id: string }>(list: T[], next: T): T[] => {
         const index = list.findIndex((entry) => entry.id === next.id);
         if (index === -1) return [...list, next];
@@ -525,7 +528,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       };
       return {
         ...state,
-        notifications: replaceById(state.notifications, action.notification),
+        notifications,
         toasts: capToasts(replaceById(state.toasts, action.notification)),
       };
     }
@@ -545,8 +548,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const toasts = !existing && archived && toast.update_only ? state.toasts : existing
         ? state.toasts.map((entry) => matches(entry) ? toast : entry)
         : capToasts([...state.toasts, toast]);
-      const notifications = toast.ephemeral ? state.notifications
-        : [...state.notifications.filter((entry) => entry.id !== toast.id && !matches(entry)), toast];
+      const notifications = admitBellNotification(state.notifications, toast, "local_notice");
       return { ...state, toasts, notifications };
     }
 
@@ -602,7 +604,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "HYDRATE_NOTIFICATIONS": {
       const notifications = new Map(action.notifications.map((notification) => [notification.id, notification]));
       for (const notification of state.notifications) notifications.set(notification.id, notification);
-      return { ...state, notifications: [...notifications.values()] };
+      return { ...state, notifications: [...notifications.values()].reduce<Notification[]>((records, notification) => admitBellNotification(records, notification, "agent_notification"), []) };
     }
 
     case "DELETE_NOTIFICATION":

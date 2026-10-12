@@ -49,13 +49,13 @@ const EXPECTED = [
   "build the release",
   "Starting the release build.",
   "call:toolu_fixture_build",
-  "also run the linter",
   "result:toolu_fixture_build",
+  "also run the linter",
   "Running the linter as requested.",
   "call:toolu_fixture_lint",
+  "result:toolu_fixture_lint",
   "then update the changelog",
   "and tag the release",
-  "result:toolu_fixture_lint",
   "Changelog updated and release tagged.",
 ];
 
@@ -140,19 +140,19 @@ async function main(): Promise<void> {
           eq(after[now]?.id !== send?.id, true, `the echo of "${echo.content}" replaces the send's identity`);
         }
         sends = recordEchoes(sends, state);
-        steps.push(after.map(label));
+        steps.push(after.filter((row) => !row.id.startsWith("opt-")).map(label));
       }
       for (const send of SENT_AFTER_LINE.get(index) ?? []) {
         sends = [...sends, send];
-        steps.push(projectTranscript(state, sends).rows.map(label));
+        steps.push(projectTranscript(state, sends).rows.filter((row) => !row.id.startsWith("opt-")).map(label));
       }
     });
     const final = projectTranscript(state, sends);
-    eq(final.rows.map(label), EXPECTED, "sends interleave with the replies they triggered, not file arrival order");
+    eq(final.rows.map(label), EXPECTED, "committed echoes follow transcript sequence");
     eq(
       steps.every((step) => isSubsequence(step, EXPECTED)),
       true,
-      "no row ever changes place relative to another across the live replay",
+      "no committed row changes relative order across live replay",
     );
     eq(final.pending.length, 0, "every send reconciles with its queued echo");
     eq(final.rows.filter((row) => row.type === "user").length, 4, "no user row duplicates");
@@ -172,8 +172,8 @@ async function main(): Promise<void> {
     const committed = hydrate();
     eq(
       transcriptRows(committed).map(label).join("|") === EXPECTED.join("|"),
-      false,
-      "file order alone misplaces the late queued echoes",
+      true,
+      "transcript sequence determines committed order",
     );
     const recorded = recordEchoes(SENDS, committed);
     eq(recorded.every((send) => send.echo != null), true, "every send records its echo identity");
@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     eq(
       projectTranscript(hydrate()).rows.map(label),
       EXPECTED,
-      "without stored sends the echoes keep their provider enqueue time",
+      "without stored sends the echoes keep their transcript position",
     );
   }
 

@@ -264,7 +264,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         save_session: (a: Args = {}) => clientFor(a).json("POST", "/api/session/save"),
         restart_general_agent: (a: Args = {}) => clientFor(a).json("POST", "/api/agents/general/restart"),
         spawn_general_agent_session: (a: Args) => clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
-        restart_agent_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/restart`, { fresh: a.fresh === true }),
+        restart_agent_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/restart`, { fresh: a.fresh === true, ...(a.providerId ? { provider: a.providerId } : {}) }),
         refresh_provider_capabilities: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/capabilities/refresh`),
         fork_agent_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/fork`),
         switch_agent_model: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/model`, {

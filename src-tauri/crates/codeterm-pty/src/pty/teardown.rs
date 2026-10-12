@@ -122,7 +122,15 @@ impl PtyReaper {
         self.session
             .teardown
             .wait_for_boundary(Instant::now() + timeout, require_cleanup)
-            .map_err(|error| format!("PTY {} reap failed: {error}", self.pty_id))
+            .map_err(|error| format!("PTY {} reap failed: {error}", self.pty_id))?;
+        let state = self.session.teardown.state.lock();
+        if !require_cleanup && !(state.reader_finished && state.console_closed) {
+            log::warn!(
+                "PTY {} process tree terminated; reader/console cleanup still pending in background",
+                self.pty_id
+            );
+        }
+        Ok(())
     }
 
     pub fn reap_in_background(self) {

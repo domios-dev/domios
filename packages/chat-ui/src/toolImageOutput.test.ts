@@ -55,6 +55,21 @@ test("isImageOnlyToolOutput detects image-only payloads", () => {
   assert(!isImageOnlyToolOutput("done"), "plain text is not image-only");
 });
 
+test("structured image results preserve every payload and surrounding text", () => {
+  const url = `data:image/png;base64,${PNG_1X1_BASE64}`;
+  for (const image of [
+    { type: "input_image", image_url: url, detail: "original" },
+    { type: "image_url", image_url: { url } },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_1X1_BASE64 } },
+  ]) {
+    const parsed = parseToolOutputImages(JSON.stringify([{ type: "text", text: "opaque-before" }, image, { type: "text", text: "opaque-after" }]));
+    assert(parsed.images.length === 1, "one image survives structured parsing");
+    assert(parsed.images[0].dataUrl === url, "all image bytes survive");
+    assert(parsed.remainder === "opaque-before\nopaque-after", "text blocks survive alongside images");
+    assert(!isImageOnlyToolOutput(JSON.stringify([{ type: "text", text: "opaque" }, image])), "mixed output retains its text identity");
+  }
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {

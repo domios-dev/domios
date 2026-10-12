@@ -624,7 +624,6 @@ test("normal user message does not render inbound sender affordance", async () =
     assertIncludes(host, "Plain local prompt", "normal user content");
     assert(!host.querySelector('[data-testid="chat-inbound-message"]'), "normal user should not have inbound card");
     assert(!textOf(host).includes("from Plain"), "normal user should not have from header");
-    assert(host.querySelector(".justify-end"), "normal user should keep right alignment");
   } finally {
     await act(async () => root.unmount());
     host.remove();

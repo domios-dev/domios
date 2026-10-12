@@ -9,7 +9,7 @@ export interface SendEcho {
   timestampMs: number | null;
 }
 
-/** A send the host accepted; `sentAtMs` is its order key, captured once and never replaced. */
+/** A send the host accepted; `sentAtMs` bounds matching to its source echo. */
 export interface ChatSend {
   id: string;
   content: string;
@@ -45,17 +45,14 @@ export function sendRow(send: ChatSend): NormalizedChatMessage {
   };
 }
 
-/** Maps each echoing row index to its earliest send key. A reconciled send finds its echo by
- *  recorded identity, never content; a recorded echo that is not loaded hides the send. */
+/** A recorded echo outside the loaded window still hides its reconciled send. */
 export function reconcileSends(
   sends: readonly ChatSend[],
   rows: readonly NormalizedChatMessage[],
-): { keys: Map<number, number>; echoes: Map<string, SendEcho>; pending: ChatSend[] } {
-  const keys = new Map<number, number>();
+): { echoes: Map<string, SendEcho>; pending: ChatSend[] } {
   const echoes = new Map<string, SendEcho>();
   const pending: ChatSend[] = [];
   const claim = (send: ChatSend, index: number) => {
-    keys.set(index, Math.min(keys.get(index) ?? send.sentAtMs, send.sentAtMs));
     echoes.set(send.id, sendEchoOf(rows[index]));
   };
   const users = rows.flatMap((row, index) => (isUserAuthored(row) ? [index] : []));
@@ -76,7 +73,7 @@ export function reconcileSends(
     recorded.add(index);
     claim(send, index);
   }
-  if (open.length === 0) return { keys, echoes, pending };
+  if (open.length === 0) return { echoes, pending };
   const candidates = users.filter((index) => !recorded.has(index));
   const { claims, pendingIds } = matchedOptimisticEchoes(
     open.map((send) => ({
@@ -94,5 +91,5 @@ export function reconcileSends(
   }
   const waiting = new Set(pendingIds);
   for (const send of open) if (waiting.has(send.id)) pending.push(send);
-  return { keys, echoes, pending };
+  return { echoes, pending };
 }
