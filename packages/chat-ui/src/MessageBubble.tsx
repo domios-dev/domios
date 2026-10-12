@@ -144,8 +144,8 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming = false, onContentLayout, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
-  const renderingStream = useDeferredValue(streaming);
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, onContentLayout, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+  const renderedText = useDeferredValue(message.content);
   useLayoutEffect(() => { onContentLayout?.(); });
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
@@ -163,18 +163,17 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
-      if (renderingStream) return <div className="whitespace-pre-wrap">{message.content}</div>;
       return (
         <>
           <ChatBlockMessageProvider messageId={message.id}>
-            <RichMarkdown text={message.content} fontScale={fontScale} />
+            <RichMarkdown text={renderedText} fontScale={fontScale} />
           </ChatBlockMessageProvider>
-          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+          <PlanRefCards text={renderedText} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         </>
       );
     }
     return null;
-  }, [message.id, message.type, message.content, renderingStream, fontScale, onOpenPlan, resolvePlanRef]);
+  }, [message.id, message.type, renderedText, fontScale, onOpenPlan, resolvePlanRef]);
 
   useEffect(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
@@ -206,7 +205,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   if (message.type === "image") {
     return (
-      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+      <div className="mb-1.5 w-full min-w-0">
         <ImageBadge />
       </div>
     );
@@ -387,9 +386,9 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
     return (
       <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
-        <div className="ct-chat-message-column w-full max-w-4xl min-w-0 mx-auto">
-          <div className={`group flex w-full min-w-0 ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
-            <div className="relative min-w-0 w-full max-w-full sm:w-auto sm:max-w-[75%]">
+        <div className="ct-chat-message-column w-full min-w-0">
+          <div className="group flex w-full min-w-0">
+            <div className="relative min-w-0 w-full">
               {originHeader}
               {showUserBubble && <div
                 className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 px-4 py-2 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
@@ -399,7 +398,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             </div>
           </div>
           {tasksSpec && (
-            <div className="flex w-full min-w-0 justify-end">
+            <div className="flex w-full min-w-0">
               <TasksBlock spec={tasksSpec} source={tasksBlockSource(tasksSpec)} />
             </div>
           )}
@@ -412,7 +411,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const assistantText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
     return (
       <div className="ct-chat-message-row ct-chat-message-row--agent mb-3 w-full min-w-0">
-        <div className="ct-chat-message-column relative w-full max-w-4xl min-w-0 mx-auto">
+        <div className="ct-chat-message-column relative w-full min-w-0">
           <div
             className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
             style={{ color: "var(--ct-fg)" }}
@@ -426,7 +425,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   if (message.type === "system" || message.type === "local_command") {
     if (message.systemSubtype === "api_error") {
-      return <div role="alert" aria-label="Provider API error" className="mb-2 w-full max-w-4xl mx-auto rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}>{message.content}</div>;
+      return <div role="alert" aria-label="Provider API error" className="mb-2 w-full rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}>{message.content}</div>;
     }
     if (message.systemSubtype === "context_epoch_boundary") {
       return (
@@ -435,7 +434,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           aria-label={message.content}
           data-testid="chat-context-epoch-divider"
           data-context-epoch={message.contextEpoch}
-          className="mb-3 flex w-full max-w-4xl min-w-0 items-center gap-3 mx-auto"
+          className="mb-3 flex w-full min-w-0 items-center gap-3"
           style={{ color: "var(--ct-muted-fg)" }}
         >
           <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
@@ -465,7 +464,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     if (isTurnAborted) {
       // chat turn. Render as the centered status chip, never the raw XML text.
       return (
-        <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">
+        <div className="flex w-full min-w-0 justify-center mb-2">
           <span
             className="inline-flex items-center gap-1 text-[10px] px-2.5 py-0.5 rounded-full"
             style={{ color: "var(--ct-muted-fg)", background: "var(--ct-surface)" }}
@@ -499,7 +498,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     }
     if (!isCaveat && message.content) {
       return (
-        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+        <div className="mb-1.5 w-full min-w-0">
           <ThoughtLine
             text={message.content}
             label={label}
@@ -511,7 +510,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
       );
     }
     return (
-      <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
+      <div className="mb-2 w-full min-w-0">
         <div
           className="inline-flex max-w-full min-w-0 flex-col gap-1 rounded-md px-2.5 py-1.5 text-xs border"
           style={{
@@ -582,7 +581,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const standaloneResult = message.toolResult || message.content;
     if (isImageOnlyToolOutput(standaloneResult)) {
       return (
-        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
+        <div className="mb-1.5 w-full min-w-0 pl-4">
           <ToolOutputContent text={standaloneResult} />
         </div>
       );
@@ -602,7 +601,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const hasMore = contentLines.length > 2;
 
     return (
-      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
+      <div className="mb-1.5 w-full min-w-0 pl-4">
         <button
           onClick={() => setExpandedPersistent(!expanded)}
           className="inline-flex max-w-full min-w-0 items-start gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110 sm:max-w-md"
@@ -631,7 +630,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   if (message.type === "thinking") {
     return (
-      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+      <div className="mb-1.5 w-full min-w-0">
         <ThoughtLine text={message.content} expanded={expanded} onToggle={setExpandedPersistent} />
       </div>
     );
@@ -650,7 +649,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   if (message.type === "status") {
     return (
-      <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">
+      <div className="flex w-full min-w-0 justify-center mb-2">
         <span
           className="text-[10px] px-2.5 py-0.5 rounded-full"
           style={{
@@ -670,6 +669,10 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 export const MessageBubble = React.memo(function MessageBubble(props: MessageBubbleProps) {
   const time = messageRowTime(props.message, props.item, props.origin);
   const content = <MessageBubbleContent {...props} />;
-  if (props.showTimestamp === false || !time || !isRenderableMessage(props.message)) return content;
-  return <MessageTimeFrame timestamp={String(time.timestamp)} side={time.side}>{content}</MessageTimeFrame>;
+  if (!isRenderableMessage(props.message)) return null;
+  return (
+    <MessageTimeFrame timestamp={props.showTimestamp === false || !time ? undefined : String(time.timestamp)} side={time?.side ?? "left"}>
+      {content}
+    </MessageTimeFrame>
+  );
 });
