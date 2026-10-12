@@ -540,7 +540,9 @@ impl ServiceContext {
             ) {
                 // A post-creation hierarchy failure must not leave an orphan tab.
                 if tab_created_by_spawn {
-                    let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                    let _ = self
+                        .close_tab_with_reason_async(&tab_id, TabCloseReason::SpawnRollback)
+                        .await;
                 }
                 return Err(error);
             }
@@ -549,27 +551,29 @@ impl ServiceContext {
         // Role placement can clear a Tab's Team; a bootstrapped manager must
         // launch with its reserved, host-resolved Team in env. Never mint.
         if let Some(team_id) = bootstrap_bound_team_id(params.manager_bootstrap.as_ref()) {
-            let mut mux = self.mux.write();
-            // Membership door 6: the bootstrap-bound Team write. Unreachable for
-            // the General Agent kind today, guarded so it stays that way.
-            let shape = shape_for_tab(&mux, &tab_id);
-            let guard = refuse_general_agent_team_membership(
-                &mux,
-                &tab_id,
-                MembershipAttempt::Join,
-                &shape,
-            );
-            if let Err(refusal) = guard {
-                drop(mux);
+            let membership = {
+                let mut mux = self.mux.write();
+                let shape = shape_for_tab(&mux, &tab_id);
+                let membership = refuse_general_agent_team_membership(
+                    &mux,
+                    &tab_id,
+                    MembershipAttempt::Join,
+                    &shape,
+                );
+                if membership.is_ok() && mux.get_team(team_id).is_some() {
+                    if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                        tab.team_id = Some(team_id.to_string());
+                    }
+                }
+                membership
+            };
+            if let Err(refusal) = membership {
                 if tab_created_by_spawn {
-                    let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                    let _ = self
+                        .close_tab_with_reason_async(&tab_id, TabCloseReason::SpawnRollback)
+                        .await;
                 }
                 return Err(refusal.to_string());
-            }
-            if mux.get_team(team_id).is_some() {
-                if let Some(tab) = mux.get_tab_mut(&tab_id) {
-                    tab.team_id = Some(team_id.to_string());
-                }
             }
         }
 
@@ -631,7 +635,9 @@ impl ServiceContext {
         if params.task_launch_authority.is_some() && !startup_supervised && !remote_task_bound {
             if tab_created_by_spawn {
                 self.cancel_agent_startup_supervision(&tab_id);
-                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                let _ = self
+                    .close_tab_with_reason_async(&tab_id, TabCloseReason::SpawnRollback)
+                    .await;
             }
             return Err(format!(
                 "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
@@ -812,7 +818,14 @@ impl ServiceContext {
                 .as_deref(),
         );
         if let Some(spec) = fallback_spec.as_ref() {
-            create_pending_delivery_or_rollback_dispatch(self, &params, &tab_id, spec)?;
+            let service = self.clone();
+            let params = params.clone();
+            let tab_id = tab_id.clone();
+            let spec = spec.clone();
+            crate::service::blocking::run(move || {
+                create_pending_delivery_or_rollback_dispatch(&service, &params, &tab_id, &spec)
+            })
+            .await?;
         }
         let startup_turn = crate::service::startup_turn::resolve(
             &self.agent_registry,

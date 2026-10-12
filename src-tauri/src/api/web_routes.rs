@@ -92,7 +92,8 @@ pub async fn tab_close(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
-        .close_tab(&tab_id)
+        .close_tab_async(&tab_id)
+        .await
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -1037,9 +1038,9 @@ pub async fn open_chat_backend_tab(
     }
     crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let handle = state
-        .svc
-        .spawn_tab(SpawnTabSpec {
+    let svc = state.svc.clone();
+    let handle = crate::service::blocking::run(move || {
+        svc.spawn_tab(SpawnTabSpec {
             shell: None,
             workspace_id: req.workspace_id,
             visibility: TabVisibility::Visible,
@@ -1053,7 +1054,9 @@ pub async fn open_chat_backend_tab(
             },
             ..Default::default()
         })
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    })
+    .await
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "tab_id": handle.tab_id })))
 }
 

@@ -21,7 +21,8 @@ pub async fn mem_delete(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let changed_by = changed_by_from_headers(&headers);
     let before = state.svc.mem.extraction_authority().open_generations(&id);
-    let removed = crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.delete(&id))
+    let removed = delete_item(state.svc.mem.clone(), id.clone(), changed_by)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "delete", vec![id.clone()]);
     Ok(Json(serde_json::json!({
@@ -36,10 +37,8 @@ pub async fn mem_forget_area(
     Path(area): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let outcome = state
-        .svc
-        .mem
-        .delete_by_area(&area)
+    let outcome = delete_area(state.svc.mem.clone(), area.clone())
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "delete", vec![format!("area:{}", area)]);
     Ok(Json(serde_json::json!({
@@ -68,3 +67,24 @@ fn cancelled_report(
         })
         .collect()
 }
+
+async fn delete_item(
+    mem: std::sync::Arc<crate::mem::MemManager>,
+    id: String,
+    changed_by: String,
+) -> Result<bool, String> {
+    crate::service::blocking::run(move || {
+        crate::mem::store::with_changed_by(&changed_by, || mem.delete(&id))
+    })
+    .await
+}
+
+async fn delete_area(
+    mem: std::sync::Arc<crate::mem::MemManager>,
+    area: String,
+) -> Result<codeterm_mem::AreaForgetOutcome, String> {
+    crate::service::blocking::run(move || mem.delete_by_area(&area)).await
+}
+
+#[cfg(test)]
+mod tests;
