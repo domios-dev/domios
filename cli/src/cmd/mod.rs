@@ -1,6 +1,7 @@
 pub mod agent;
 pub(crate) mod agent_restart;
 mod agent_spawn;
+pub mod analytics;
 pub mod blueprint;
 pub mod bridge;
 pub mod capabilities;

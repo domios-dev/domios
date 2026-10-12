@@ -523,6 +523,12 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Plugin test compilation cannot read an include_str! fixture | The relative fixture path traversed one directory beyond the repository root. | Resolve the path from the owning Rust source directory, correct the traversal, and rerun the same focused plugin gate before proceeding. |
 
+## Focused analytics checks
+
+`./build.sh test-one analytics tests::` runs the isolated product analytics crate
+through the capped Rust runner in canonical. Workers only format its Rust sources;
+its HTTP fixtures use a local fake destination with synthetic retry timestamps.
+
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `.agents/skills/build-reference/SKILL.md`. Test workflows: `.agents/skills/testing/SKILL.md`.
