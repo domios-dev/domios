@@ -6,6 +6,7 @@ fn entry(pid: u32, parent_pid: u32) -> ProcessEntry {
         parent_pid,
         image_name: String::new(),
         argv0_basename: None,
+        script_basename: None,
     }
 }
 
@@ -15,6 +16,7 @@ fn named_entry(pid: u32, parent_pid: u32, image_name: &str) -> ProcessEntry {
         parent_pid,
         image_name: image_name.into(),
         argv0_basename: None,
+        script_basename: None,
     }
 }
 
@@ -279,4 +281,51 @@ fn image_name_matches_when_argv0_is_unavailable_or_different() {
     assert!(process_name_matches(&provider, "agent-cli"));
     provider.argv0_basename = Some("other".into());
     assert!(process_name_matches(&provider, "agent-cli"));
+}
+
+#[test]
+fn shebang_script_matches_only_in_its_own_tab_tree() {
+    let names = argv0::names_from_cmdline(b"/venv/bin/python3.12\0-u\0/venv/bin/aider\0").unwrap();
+    let mut provider = named_entry(20, 10, "Python");
+    provider.argv0_basename = Some(names.argv0_basename);
+    provider.script_basename = names.script_basename;
+    assert!(process_name_matches(&provider, "aider"));
+    assert!(!process_name_matches(&provider, "other"));
+    let entries = [
+        named_entry(10, 1, "zsh"),
+        provider,
+        named_entry(30, 1, "zsh"),
+    ];
+    assert!(tree_has_named_process(
+        10,
+        &entries,
+        |pid| Some(pid.into()),
+        "aider"
+    ));
+    assert!(!tree_has_named_process(
+        30,
+        &entries,
+        |pid| Some(pid.into()),
+        "aider"
+    ));
+    assert!(matches!(
+        named_process_snapshot_from_entries(10, &entries, |pid| Some(pid.into()), "aider"),
+        ProviderProcessTreeSnapshot::Present(processes) if processes.contains(&ProcessIdentity { pid: 20, start_token: "20".into() })
+    ));
+}
+
+#[test]
+fn python_running_another_script_does_not_match_provider_argument() {
+    let names = argv0::names_from_cmdline(b"python\0other.py\0aider\0").unwrap();
+    let mut provider = named_entry(20, 10, "python");
+    provider.argv0_basename = Some(names.argv0_basename);
+    provider.script_basename = names.script_basename;
+    assert!(!process_name_matches(&provider, "aider"));
+    let entries = [named_entry(10, 1, "zsh"), provider];
+    assert!(!tree_has_named_process(
+        10,
+        &entries,
+        |pid| Some(pid.into()),
+        "aider"
+    ));
 }

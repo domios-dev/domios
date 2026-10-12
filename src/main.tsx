@@ -1,3 +1,7 @@
+import { installRequestDiagnostics } from "./lib/requestDiagnostics";
+import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
+import { DaemonFrontendBootstrap } from "./components/DaemonFrontendBootstrap";
+import { ensureDaemonRuntime } from "./lib/daemonRuntime";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { FrontendCrashBoundary } from "./components/FrontendCrashBoundary";
@@ -21,6 +25,10 @@ import "./components/Canvas/missionControl/missionControl.css";
 import "./components/Canvas/missionControl/missionControlBoard.css";
 import "./components/Usage/styles.css";
 import "./components/Snake/SnakeGame.css";
+
+installRequestDiagnostics();
+frontendBootDiagnostic("module-entry");
+ensureDaemonRuntime();
 
 const root = document.getElementById("root")!;
 const missionControlPrototype = isMissionControlPrototypeRoute();
@@ -54,7 +62,7 @@ if (isGalleryRoute) {
         <MissionControlPrototype />
       ) : (
         <WebGate>
-          <App />
+          <DaemonFrontendBootstrap><App /></DaemonFrontendBootstrap>
         </WebGate>
       )}
     </FrontendCrashBoundary>,

@@ -169,6 +169,30 @@ mod tests {
     use codeterm_types::sentinel_input::{DataRef, MediaKind};
 
     #[test]
+    fn probe_cadence_never_backs_off_on_unchanged_results() {
+        let job: Sentinel = serde_json::from_value(serde_json::json!({
+            "id":"watch", "creator_tab_id":"creator", "team_id":null, "workspace_id":"ws", "cwd":".",
+            "probe":"status", "question":"status?", "buckets":["waiting"], "routes":{"waiting":[]},
+            "matches":{}, "until":null, "expires_at":null, "interval_ms":60000, "next_run":1000,
+            "machine":{"stopped":false,"paused":false,"last_hash":"same","last_bucket":"waiting"},
+            "last_reason":"unchanged"
+        })).unwrap();
+        let mut jobs = vec![job];
+        let mut active = HashMap::new();
+        let mut wakes = BTreeSet::new();
+        for now in [1000, 61000, 121000] {
+            active.clear();
+            let (leases, _, _) = plan_due(&mut jobs, &mut active, &mut wakes, now);
+            assert_eq!(leases.len(), 1);
+            assert_eq!(jobs[0].next_run, now + 60000);
+        }
+        active.clear();
+        let (leases, _, _) = plan_due(&mut jobs, &mut active, &mut wakes, 541000);
+        assert_eq!(leases.len(), 1);
+        assert_eq!(jobs[0].next_run, 601000);
+    }
+
+    #[test]
     fn blueprint_input_due_is_once_per_activation_and_amendment_without_interval_runs() {
         let temp = tempfile::tempdir().unwrap();
         let clock = crate::cron::clock::MockClock::starting_at(1_000);

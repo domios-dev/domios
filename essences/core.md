@@ -90,19 +90,9 @@ Providers may declare live model and effort commands. These run only at an idle 
 
 #### Provider lifecycle
 
-The planned coordinator extends the existing provider update responsibility under deterministic provider and session evidence. A declared update check or classified update prompt initiates one automatic update per provider and target version, deduplicated across tabs and restarts, without a consent click. The coordinator is a deterministic host operation; model availability changes its classification path, not its authority to perform the declared update. It uses the provider's declared update operation; only production participates by default, with explicit opt-in for another instance.
+Provider CLI updates are silent host operations using the provider's declared updater and compatibility verdict. Production participates by default; other instances opt in. A default-on setting allows opting out. An active provider turn defers the update to an idle event. Running agents are never restarted to apply an update; subsequent launches use the updated CLI.
 
-While an update runs, prompts receive only the provider-declared safe option, such as Skip; a working tab is never told to choose Update now. Success restarts idle tabs through session-aware recovery, including the General Agent. A turn in flight or an in-progress task keeps a tab pending until its next eligible idle event. Each tab restarts at most once per update. Failure restarts nothing and leaves the old version running. One summary reports restarted and pending tabs, is updated as pending work finishes, and retains failure evidence; update and restart actions are journaled.
-
-Provider updates use the provider's declared command and target version, shared
-across tabs and instances. The production instance coordinates automatically;
-other instances opt in. A classified update prompt answers only the declared
-safe option. A successful update resumes each idle tab, including the General
-Agent; an active turn or task attempt defers that tab to its next idle event.
-There is at most one automatic restart per tab per update. A failed command
-restarts nothing, preserves working tabs and reports its captured error. One
-summary tracks restarted and pending tabs, and the Supporter journal records
-the run and restart outcomes.
+A classified update prompt receives only the provider-declared safe option. A declared-incompatible target is refused. Results and captured failures go to logs and the provider's Settings status, without a bell entry or an owner action prompt. The host retains durable update claims and process ownership evidence to prevent concurrent or replayed operations.
 
 ### Prompts {#core:prompts}
 

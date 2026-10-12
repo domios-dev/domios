@@ -32,20 +32,45 @@ pub fn observe(
             sidecar
                 .busy
                 .store(false, std::sync::atomic::Ordering::Release);
-            svc.mark_agent_turn_complete(tab);
         }
         "turn/started" => {
             sidecar
                 .busy
                 .store(true, std::sync::atomic::Ordering::Release);
+        }
+        "serverRequest/pending" => {}
+        _ => return,
+    }
+    observe_event(svc, tab, thread, event);
+}
+
+pub(crate) fn observe_event(
+    svc: &crate::service::ServiceContext,
+    tab: &str,
+    thread: &str,
+    event: &str,
+) {
+    let owns_thread = svc.mux.read().get_tab(tab).is_some_and(|tab| {
+        tab.agent_type.is_some() && tab.agent_session_id.as_deref() == Some(thread)
+    });
+    if !owns_thread {
+        log::debug!("[rpc/status] tab={tab} thread={thread} event={event} rejected=unbound_thread");
+        return;
+    }
+    let verdict = crate::agent::state_verdict::observe_declared_event(svc, tab, thread, event);
+    log::debug!("[rpc/status] tab={tab} thread={thread} event={event} verdict={verdict:?}");
+    match event {
+        "turn/started" => {
             svc.mark_agent_turn_started(tab);
+        }
+        "turn/completed" => {
+            svc.mark_agent_turn_complete(tab);
         }
         "serverRequest/pending" => {
             svc.mark_agent_waiting(tab);
         }
-        _ => return,
+        _ => {}
     }
-    crate::agent::state_verdict::observe_declared_event(svc, tab, thread, event);
 }
 
 #[cfg(test)]

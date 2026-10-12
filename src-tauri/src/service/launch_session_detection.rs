@@ -663,6 +663,32 @@ pub(crate) fn registered_launch_marker(tab_id: &str) -> Option<String> {
     LAUNCH_MARKERS.lock().get(tab_id).cloned()
 }
 
+fn resumed_session_target<'a>(
+    tab: &'a crate::multiplexer::types::Tab,
+    marker: Option<&str>,
+) -> Option<&'a str> {
+    let target = tab.agent_session_id.as_deref().or_else(|| {
+        tab.prior_session_binding_nonces
+            .iter()
+            .rev()
+            .find(|entry| Some(entry.nonce.as_str()) == tab.session_binding_nonce.as_deref())
+            .and_then(|entry| entry.resume_target_session_id.as_deref())
+    });
+    target.filter(|session| !session.is_empty() && marker == Some(*session))
+}
+
+fn resume_session_binding_allowed(session_exists: Option<bool>) -> bool {
+    session_exists == Some(true)
+}
+
+fn provider_owns_resume_session(
+    provider: &dyn crate::agent::provider::AgentProvider,
+    cwd: &str,
+    session_id: &str,
+) -> bool {
+    resume_session_binding_allowed(provider.session_exists(cwd, session_id))
+}
+
 impl ServiceContext {
     /// One detection per tab at a time. A live current-PTY provider record can
     /// re-authenticate a restored session after its launch nonce has rotated.
@@ -676,11 +702,13 @@ impl ServiceContext {
                 .and_then(|tab| Some((tab.agent_type.clone()?, tab.session_binding_nonce.clone()?)))
         }
         .filter(|(provider_id, _)| {
-            self.agent_registry
-                .with_provider(provider_id, |provider| {
-                    !provider.has_hooks() && provider.supports_launch_session_detection()
-                })
-                .unwrap_or(false)
+            !self.launch_has_resume_target(tab_id)
+                && self
+                    .agent_registry
+                    .with_provider(provider_id, |provider| {
+                        !provider.has_hooks() && provider.supports_launch_session_detection()
+                    })
+                    .unwrap_or(false)
         });
         let svc = self.clone();
         let tab_id = tab_id.to_string();
@@ -721,7 +749,83 @@ impl ServiceContext {
         });
     }
 
+    pub(crate) fn launch_has_resume_target(&self, tab_id: &str) -> bool {
+        let mux = self.mux.read();
+        mux.get_tab(tab_id).is_some_and(|tab| {
+            resumed_session_target(tab, LAUNCH_MARKERS.lock().get(tab_id).map(String::as_str))
+                .is_some()
+        })
+    }
+
+    pub(crate) fn resumed_provider_is_live(&self, tab_id: &str, pty_id: &str) -> bool {
+        let current = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).is_some_and(|tab| {
+                tab.pty_id.as_deref() == Some(pty_id)
+                    && resumed_session_target(
+                        tab,
+                        LAUNCH_MARKERS.lock().get(tab_id).map(String::as_str),
+                    )
+                    .is_some()
+            })
+        };
+        current
+            && self
+                .observe_provider_process_tree(tab_id, pty_id)
+                .is_some_and(|tree| tree.state() == super::process_tree::ProviderTreeState::Present)
+    }
+
+    pub(crate) fn confirm_resumed_launch_session(&self, tab_id: &str) -> bool {
+        if let Some(detected) = self.probe_resumed_launch_session(tab_id) {
+            tauri::async_runtime::block_on(self.commit_detected_launch_session(tab_id, detected));
+        }
+        self.mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.launch_session_authenticated())
+    }
+
+    fn probe_resumed_launch_session(&self, tab_id: &str) -> Option<DetectedLaunchSession> {
+        let (provider_id, pty_id, binding_nonce, cwd, session_id) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id)?;
+            if tab.launch_session_authenticated() || tab.fork_source_session_id.is_some() {
+                return None;
+            }
+            let marker = LAUNCH_MARKERS.lock().get(tab_id).cloned();
+            let session_id = resumed_session_target(tab, marker.as_deref())?;
+            (
+                tab.agent_type.clone()?,
+                tab.pty_id.clone()?,
+                tab.session_binding_nonce.clone()?,
+                tab.cwd.clone().unwrap_or_default(),
+                session_id.to_string(),
+            )
+        };
+        if !self.resumed_provider_is_live(tab_id, &pty_id) {
+            return None;
+        }
+        let owns_session = self
+            .agent_registry
+            .with_provider(&provider_id, |provider| {
+                provider_owns_resume_session(provider, &cwd, &session_id)
+            })
+            .unwrap_or(false);
+        log::debug!("[resume-session-evidence] tab={tab_id} session={session_id} owns_session={owns_session}");
+        owns_session.then_some(DetectedLaunchSession {
+            provider_id,
+            binding_nonce,
+            detection: LaunchSessionDetection {
+                session_id,
+                source: LaunchSessionSource::LaunchMarker,
+            },
+        })
+    }
+
     fn probe_launch_session(&self, tab_id: &str) -> Option<DetectedLaunchSession> {
+        if self.launch_has_resume_target(tab_id) {
+            return self.probe_resumed_launch_session(tab_id);
+        }
         let (provider_id, pty_id, binding_nonce, cwd, launched_at_ms) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
@@ -794,7 +898,6 @@ impl ServiceContext {
             "[launch-session-detection] Tab {tab_id} bound {provider_id} session {session_id} from {}",
             source_label(source),
         );
-        LAUNCH_MARKERS.lock().remove(tab_id);
         if let Err((status, message)) = crate::api::hook_routes::finish_session_binding(
             self,
             tab_id,
@@ -813,6 +916,14 @@ impl ServiceContext {
             log::warn!(
                 "[launch-session-detection] Tab {tab_id} binding follow-up failed ({status}): {message}"
             );
+        }
+        let mux = self.mux.read();
+        if mux.get_tab(tab_id).is_some_and(|tab| {
+            tab.session_binding_nonce.as_deref() == Some(binding_nonce.as_str())
+                && tab.agent_session_id.as_deref() == Some(session_id.as_str())
+                && tab.launch_session_authenticated()
+        }) {
+            LAUNCH_MARKERS.lock().remove(tab_id);
         }
     }
 }

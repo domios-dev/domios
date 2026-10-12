@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { parseMarker } from "@codeterm/chat-core";
 import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH } from "./aiHelperSpawn";
 import { buildConfigureTask, configureWithAI, PLUGIN_CONFIG_RULES } from "./pluginConfigure";
@@ -35,6 +36,7 @@ async function asyncTests() {
   const focusEvents: Array<{ type: string; detail?: { tabId?: string; workspaceId?: string } }> = [];
   const g = globalThis as unknown as Record<string, unknown>;
   g.window = {
+    location: { origin: "http://127.0.0.1:7686" },
     dispatchEvent: (e: { type: string; detail?: { tabId?: string; workspaceId?: string } }) => (focusEvents.push(e), true),
   };
   g.CustomEvent = class<T> {
@@ -45,6 +47,8 @@ async function asyncTests() {
       this.detail = init?.detail as T;
     }
   };
+  configureDaemonTransport({ origin: "http://127.0.0.1:7686", token: "fixture-token" });
+
   const opaqueToken = process.env.PROVIDER_SETUP_TASK_TOKEN ?? "configure-token-7f91b";
   let requestUrl = "";
   let requestBody: Record<string, unknown> = {};

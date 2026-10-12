@@ -153,6 +153,7 @@ impl AgentProvider for LazyFirstTurnProvider {
                 .cloned()
                 .unwrap_or_default(),
             done: None,
+            observations: Vec::new(),
         }
     }
 }

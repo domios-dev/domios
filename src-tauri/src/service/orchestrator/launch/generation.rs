@@ -124,9 +124,8 @@ impl LaunchGeneration {
         self.transition(BootStage::AgentReady);
     }
 
-    pub(super) fn replace(&mut self, pty_id: String) {
-        let tab_id = self.tab_id.clone();
-        *self = Self::begin(&tab_id, pty_id);
+    pub(super) fn replace(&mut self, pty_id: String) -> bool {
+        LAUNCH_REGISTRY.lock().replace_pty(self, pty_id)
     }
 
     pub(super) fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
@@ -147,6 +146,33 @@ impl LaunchGeneration {
     }
 
     pub(super) fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
+        if !LAUNCH_REGISTRY.lock().owns(self) {
+            return false;
+        }
+        if matches!(failure, LaunchFailure::SessionBindingNotObserved(_))
+            && self.await_provider_ack(std::time::Duration::ZERO)
+            && svc
+                .observe_provider_process_tree(&self.tab_id, &self.pty_id)
+                .is_some_and(|tree| {
+                    tree.state() == crate::service::process_tree::ProviderTreeState::Present
+                })
+        {
+            return self.commit_if_current(|| {
+                svc.emit_boot_stage(&self.tab_id, BootStage::AgentReady, None)
+            });
+        }
+        if matches!(failure, LaunchFailure::SessionBindingNotObserved(_))
+            && svc.resumed_provider_is_live(&self.tab_id, &self.pty_id)
+        {
+            if let Some(attempt) = self.attempt() {
+                svc.record_provisional_launch(
+                    &attempt,
+                    BootStage::LaunchBindingUnconfirmed,
+                    &failure.reason(),
+                );
+                return true;
+            }
+        }
         if let Some(nonce) = self.binding_nonce.as_deref() {
             if crate::service::codex_rpc::recovery::recovering(&self.tab_id, nonce) {
                 return true;
@@ -159,10 +185,6 @@ impl LaunchGeneration {
             ) {
                 return true;
             }
-        }
-        // A fault proving process death voids its binding, so it cannot outrank the failure.
-        if failure.proves_process_gone() {
-            svc.void_launch_session_proof(&self.tab_id);
         }
         let reason = failure.reason();
         crate::service::launch_diagnostics::log_failure_screen(
@@ -180,13 +202,16 @@ impl LaunchGeneration {
         if let Some(attempt) = self.attempt() {
             svc.retire_public_send_launch_attempt(&attempt);
         }
-        let failed = self.finish_if_current(|| {
+        self.finish_if_current(|| {
+            if failure.proves_process_gone() {
+                svc.void_launch_session_proof(&self.tab_id);
+            }
+            if let Some(tab) = svc.mux.write().get_tab_mut(&self.tab_id) {
+                tab.agent_booting = false;
+            }
             svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
-        });
-        if failed {
             crate::service::task_files::release_tab(svc, &self.tab_id);
-        }
-        failed
+        })
     }
 
     pub(super) fn await_remote_attachment(&self, svc: &ServiceContext) -> bool {

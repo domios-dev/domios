@@ -243,6 +243,10 @@ fn config_stub(id: &str, config: &std::path::Path) -> ConfigFileStub {
 fn real_opencode_listing_keeps_custom_provider_models() {
     let id = "test-opencode-listing-xiaomi";
     cleanup(id);
+    register_catalogue_capability(
+        id,
+        &crate::provider::ModelCatalogueCapability::authoritative_live(),
+    );
     register(
         id,
         RegisteredDefaults {
@@ -282,6 +286,9 @@ display_name = "Big Pickle (custom)"
     .unwrap();
 
     let listing = resolve_models(id);
+    assert!(!listing
+        .iter()
+        .any(|model| model.id == "opencode/deepseek-v4-flash-free"));
     let pro = listing
         .iter()
         .find(|m| m.id == XIAOMI_PRO)
@@ -302,6 +309,7 @@ display_name = "Big Pickle (custom)"
         .find(|m| m.id == XIAOMI_FLASH)
         .expect("an overlayed id the override never names keeps its base entry");
     assert_eq!(flash.group.as_deref(), Some("xiaomi-token-plan-sgp"));
+    unregister(id);
     cleanup(id);
 }
 

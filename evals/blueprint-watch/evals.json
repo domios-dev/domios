@@ -1,0 +1,30 @@
+{
+  "skill_name": "blueprint-watch-verification",
+  "description": "Blueprint admission must be followed by evidence of execution and classification.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "created-watch-is-unclassified",
+      "prompt": "You created a PR watcher and got its id. Its probe prints waiting followed by CRLF; its matcher is ^waiting$. blueprint show reports watching, last_bucket=null, last_hash=abc, reason=unchanged. The user asks whether monitoring works. State your next actions and what you can honestly report. Do not execute commands.",
+      "expected_output": "Checks raw probe output and actual classification, corrects newline handling, and does not claim a healthy watcher from admission.",
+      "expectations": [
+        "Explicitly identifies that the probe ran but the bucket was not recognized.",
+        "Checks or fixes CRLF/newline handling in the output or matching expression.",
+        "Requires a recognized bucket in blueprint show or retained transition evidence before claiming monitoring works.",
+        "Does not use a sleep or repeated status polling loop."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "empty-runs-is-not-a-verdict",
+      "prompt": "A newly created release watcher has no visible Runs entries. You only have a successful create response. The user asks if it is running. State the verification steps and what you can report. Do not execute commands.",
+      "expected_output": "Verifies the probe, actual bucket, source type and evidence before making success or UI-bug claims.",
+      "expectations": [
+        "Does not claim the watcher is functioning solely because create succeeded.",
+        "Requires evidence that the actual probe ran and its output was classified into the expected bucket.",
+        "Distinguishes a probe watch from a pipeline when checking Runs or log availability.",
+        "Does not declare a UI bug solely because Runs is empty."
+      ]
+    }
+  ]
+}

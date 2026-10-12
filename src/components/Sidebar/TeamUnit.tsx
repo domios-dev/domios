@@ -438,6 +438,8 @@ export interface TeamUnitProps {
   workers: ReactNode;
   workerCount: number;
   workingWorkerCount: number;
+  agents?: ReactNode;
+  agentCount?: number;
   terminals?: ReactNode;
   terminalCount?: number;
   crons?: ReactNode;
@@ -466,6 +468,8 @@ export function TeamUnit({
   workers,
   workerCount,
   workingWorkerCount,
+  agents,
+  agentCount = 0,
   terminals,
   terminalCount = 0,
   crons,
@@ -488,7 +492,7 @@ export function TeamUnit({
   const [name, setName] = useState(team.name?.trim() || "Team");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
-  const teamTabCount = managerCount + workerCount + terminalCount;
+  const teamTabCount = managerCount + workerCount + agentCount + terminalCount;
   const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
@@ -752,6 +756,12 @@ export function TeamUnit({
                   <span className="sidebar-team-summary-kebab"><KebabGlyph /></span>
                 </div>
               )}
+            </div>
+          )}
+          {agentCount > 0 && (
+            <div role="group" aria-label={`${displayTitle} agents`} className="sidebar-team-section">
+              <div className="sidebar-team-section-label">AGENTS {agentCount}</div>
+              <div className="sidebar-team-member-list">{agents}</div>
             </div>
           )}
           {terminalCount > 0 && (

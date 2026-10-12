@@ -381,12 +381,22 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
         .unwrap()
         .pending_prompt
         .is_none());
+    let redacted_id = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&id).unwrap();
+        let tab_id = mux.create_tab(&workspace).unwrap();
+        mux.link_pty(&tab_id, "redacted-safe-choice-pty".into());
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.role = Some(codeterm_types::agent::AgentRole::Worker);
+        tab_id
+    };
     let (mut redacted, redacted_calls, seen) = StubHost::new(
         "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\ntoken=private-value",
         StubModel::answering(Ok(choice(OTHER, 0.99))),
     );
     redacted.metadata_service = Some(fixture.service.clone());
-    candidates::spawn(&redacted, &config, &id, None, |_, _, _| {})
+    candidates::spawn(&redacted, &config, &redacted_id, None, |_, _, _| {})
         .unwrap()
         .join()
         .unwrap();
@@ -396,7 +406,7 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
     assert!(!serde_json::to_string(&request)
         .unwrap()
         .contains("private-value"));
-    assert!(candidates::spawn(&redacted, &config, &id, None, |_, _, _| {}).is_none());
+    assert!(candidates::spawn(&redacted, &config, &redacted_id, None, |_, _, _| {}).is_none());
     assert_eq!(redacted_calls.load(Ordering::SeqCst), 1);
 }
 
@@ -410,11 +420,8 @@ fn supporter_first_opinion_is_admitted_once_per_launch_after_periodic_observatio
     let config = enabled();
     run(&host, &id, ObservationTrigger::WorkerIdle).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
-        .unwrap()
-        .join()
-        .unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(candidates::spawn(&host, &config, &id, None, |_, _, _| {}).is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(candidates::spawn(&host, &config, &id, None, |_, _, _| {}).is_none());
     assert!(candidates::spawn_with_origin(
         &host,
@@ -427,13 +434,13 @@ fn supporter_first_opinion_is_admitted_once_per_launch_after_periodic_observatio
         |_, _, _| {},
     )
     .is_none());
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     host.session_key = Some("next-launch".into());
     candidates::spawn(&host, &config, &id, None, |_, _, _| {})
         .unwrap()
         .join()
         .unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
 struct CandidateModel {

@@ -19,6 +19,8 @@ import {
   canAdoptTranscriptAuthority,
   attachmentActivity,
   attachmentStateForSnapshot,
+  needsTranscriptAttachment,
+  type TranscriptAuthority,
   type ChatAttachmentState,
   type ChatBackfillResult,
   type ChatMsgEvent,
@@ -42,8 +44,8 @@ import {
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
-import type { ChatSendStatus } from "./chatSendStatus";
-import { chatSendAt, observeDeliveryStatus, reconcileDeliveryStatuses } from "./chatSendStore";
+import { reconcileTrackedChatMessages, type ChatSendStatus } from "./chatSendStatus";
+import { chatSendAt, observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -117,10 +119,7 @@ export function useChatSession({
   const allowUnboundAuthorityRef = useRef(allowUnboundAuthority);
   const attachmentStateRef = useRef(attachmentState);
   const windowKeyRef = useRef(windowKey);
-  const previousAuthorityRef = useRef({
-    sessionId: agentSessionId,
-    sessionBindingNonce: sessionBindingNonce ?? null,
-  });
+  const requestedAuthorityRef = useRef<TranscriptAuthority | null>(null);
   const adoptedAuthorityRef = useRef<{
     sourceSessionId: string | null;
     sessionBindingNonce: string | null;
@@ -135,7 +134,6 @@ export function useChatSession({
   const hadBoundSessionRef = useRef(agentSessionId != null);
   const internalFollowTailRef = useRef(true);
   const followTailRef = suppliedFollowTailRef ?? internalFollowTailRef;
-  const rotationQueuedRef = useRef(false);
   const recoveryQueuedRef = useRef(false);
   const pendingLiveEventsRef = useRef<ChatMsgEvent[]>([]);
   const preserveSnapshotAnchorRef = useRef(false);
@@ -180,6 +178,28 @@ export function useChatSession({
     rows: ChatMessage[],
   ) => commitTranscriptBatch(windowKeyRef.current, { kind, authority, range, rows }), []);
 
+  const reconcileSendStatuses = useCallback(async () => {
+    if (sendStatusInFlightRef.current) {
+      sendStatusQueuedRef.current = true;
+      return;
+    }
+    sendStatusInFlightRef.current = true;
+    try {
+      do {
+        sendStatusQueuedRef.current = false;
+        const statuses = await reconcileTrackedChatMessages(tabId);
+        for (const status of statuses) {
+          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
+          stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        }
+      } while (sendStatusQueuedRef.current);
+    } catch {
+      return;
+    } finally {
+      sendStatusInFlightRef.current = false;
+    }
+  }, [tabId]);
+
   const requestAttach = useCallback((preserveViewport = false) => {
     pendingLiveEventsRef.current = [];
     preserveSnapshotAnchorRef.current = preserveViewport;
@@ -196,8 +216,13 @@ export function useChatSession({
     setTranscriptUnavailable(null);
     attachmentStateRef.current = "attaching";
     setAttachmentState("attaching");
+    requestedAuthorityRef.current = {
+      source_session_id: agentSessionIdRef.current,
+      session_binding_nonce: sessionBindingNonceRef.current ?? null,
+    };
     beginAttach();
-  }, [beginAttach]);
+    void reconcileSendStatuses();
+  }, [beginAttach, reconcileSendStatuses]);
 
   /** Coalesce recovery to one re-attach per tick; the trigger is always an
    *  observed outcome, never elapsed time. */
@@ -238,29 +263,6 @@ export function useChatSession({
       preserveSnapshotAnchorRef.current,
     );
   }, [commitBatch, tabId]);
-
-  const reconcileSendStatuses = useCallback(async () => {
-    if (sendStatusInFlightRef.current) {
-      sendStatusQueuedRef.current = true;
-      return;
-    }
-    sendStatusInFlightRef.current = true;
-    try {
-      do {
-        sendStatusQueuedRef.current = false;
-        const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
-        reconcileDeliveryStatuses(tabId, statuses);
-        for (const status of statuses) {
-          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
-          stampConfirmedTranscriptRow(windowKeyRef.current, status);
-        }
-      } while (sendStatusQueuedRef.current);
-    } catch {
-      return;
-    } finally {
-      sendStatusInFlightRef.current = false;
-    }
-  }, [tabId]);
 
   const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
     observeDeliveryStatus(status);
@@ -431,6 +433,18 @@ export function useChatSession({
   ]);
 
   useEffect(() => {
+    if (!needsTranscriptAttachment(
+      requestedAuthorityRef.current, agentSessionId, sessionBindingNonce, active, listenerReady,
+    )) return;
+    const adopted = adoptedAuthorityRef.current;
+    if (adopted.sourceSessionId !== agentSessionId
+      || adopted.sessionBindingNonce !== (sessionBindingNonce ?? null)) {
+      attachmentRef.current.adopt(null);
+    }
+    requestAttach();
+  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
+
+  useEffect(() => {
     if (!active || !listenerReady) return;
     const owner = attachmentRef.current;
     const generationAtRequest = generation;
@@ -577,37 +591,6 @@ export function useChatSession({
     tabId,
   ]);
 
-  useEffect(() => {
-    const previous = previousAuthorityRef.current;
-    const next = {
-      sessionId: agentSessionId,
-      sessionBindingNonce: sessionBindingNonce ?? null,
-    };
-    previousAuthorityRef.current = next;
-    if (
-      (
-        previous.sessionId === next.sessionId
-        && previous.sessionBindingNonce === next.sessionBindingNonce
-      )
-      || !active
-      || !listenerReady
-    ) return;
-    if (rotationQueuedRef.current) return;
-    rotationQueuedRef.current = true;
-    queueMicrotask(() => {
-      rotationQueuedRef.current = false;
-      if (!activeRef.current) return;
-      const adopted = adoptedAuthorityRef.current;
-      if (
-        adopted.sourceSessionId !== agentSessionIdRef.current
-        || adopted.sessionBindingNonce !== (sessionBindingNonceRef.current ?? null)
-      ) {
-        attachmentRef.current.adopt(null);
-      }
-      requestAttach();
-    });
-  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
-
   const retry = useCallback(() => requestRecoveryAttach(), [requestRecoveryAttach]);
 
   useEffect(() => {
@@ -641,7 +624,7 @@ export function useChatSession({
   }, [committedRows, emitDiagnostic, tabId, transcript]);
 
   return {
-    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current),
+    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
     error,
     attachmentState,
     /** Set = the wait is over and it failed; the view reports it rather than
@@ -652,6 +635,7 @@ export function useChatSession({
     allMessages: view.allMessages,
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
+    newerMessageCount: view.newerMessageCount,
     canBackfillOlder: view.canBackfillOlder,
     backfillLoading: view.backfillLoading,
     loadOlder: view.loadOlder,

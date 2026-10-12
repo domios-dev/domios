@@ -1,14 +1,4 @@
 #[tauri::command]
-pub fn frontend_ready(generation: u64) -> bool {
-    crate::startup::mark_frontend_ready(generation)
-}
-
-#[tauri::command]
-pub fn frontend_readiness_generation() -> u64 {
-    crate::startup::frontend_readiness_generation()
-}
-
-#[tauri::command]
 pub fn open_folder(path: String) -> Result<(), String> {
     let resolved = if path.starts_with("~/") || path.starts_with("~\\") {
         dirs::home_dir()
@@ -36,29 +26,6 @@ pub fn open_folder(path: String) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-#[tauri::command]
-pub fn test_notification(_app: tauri::AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                "display notification \"Notifications are working!\" with title \"Domios\"",
-            ])
-            .spawn();
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        use tauri_plugin_notification::NotificationExt;
-        let _ = _app
-            .notification()
-            .builder()
-            .title("Domios")
-            .body("Notifications are working!")
-            .show();
-    }
 }
 
 /// What the OS says about desktop toasts right now, without raising a prompt.

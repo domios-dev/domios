@@ -163,3 +163,181 @@ fn prompt_line_launch_brief_uses_one_frame_even_when_live_paste_mode_is_disabled
         assert!(crate::service::launch_delivery::launch_input_frame_prefix(composer).is_none());
     }
 }
+
+#[test]
+fn declared_paste_refusal_overrides_live_mode_multiline_and_typed_frames() {
+    let declaration = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": false
+    }))
+    .unwrap();
+    for strategy in [tui(), VerifySubmitStrategy::None] {
+        let capability = PasteEncodingCapability::for_provider(&strategy, Some(&declaration));
+        for live_mode in [None, Some(false), Some(true)] {
+            for (text, expected) in [
+                ("opaque", "opaque"),
+                ("a\r\nb\nc", "a\rb\rc"),
+                ("{opaque\none\ntwo\nopaque}", "{opaque\rone\rtwo\ropaque}"),
+            ] {
+                for (prefix, suffix) in [
+                    (None, None),
+                    (Some("<opaque>"), None),
+                    (None, Some("</opaque>")),
+                    (Some("<opaque>"), Some("</opaque>")),
+                ] {
+                    assert_eq!(
+                        encode_paste_frame(text, prefix, suffix, live_mode, capability),
+                        format!(
+                            "{}{expected}{}",
+                            prefix.unwrap_or_default(),
+                            suffix.unwrap_or_default()
+                        )
+                        .as_bytes()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn absent_or_supported_paste_declarations_preserve_tui_framing() {
+    let supported = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": true
+    }))
+    .unwrap();
+    for declaration in [None, Some(&supported)] {
+        let capability = PasteEncodingCapability::for_provider(&tui(), declaration);
+        assert_eq!(
+            encode_paste_frame("a\nb", Some("<opaque>"), None, Some(false), capability),
+            b"<opaque>\x1b[200~a\nb\x1b[201~"
+        );
+    }
+}
+
+fn tagged_declaration() -> crate::agent::provider::PasteCapability {
+    serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": false, "multiline": "tagged_block"
+    }))
+    .unwrap()
+}
+
+fn tagged_plain_reader(frames: &[Vec<u8>]) -> Vec<String> {
+    let mut turns = Vec::new();
+    let mut tag = None;
+    let mut body = Vec::new();
+    let mut line = String::new();
+    let input = frames.concat();
+    for character in std::str::from_utf8(&input).unwrap().chars() {
+        if character != '\r' {
+            line.push(character);
+            continue;
+        }
+        let current = std::mem::take(&mut line);
+        if let Some(closing_tag) = &tag {
+            if current == format!("{closing_tag}}}") {
+                turns.push(body.join("\n"));
+                body.clear();
+                tag = None;
+            } else {
+                body.push(current);
+            }
+        } else if let Some(open) = current.strip_prefix('{') {
+            tag = Some(open.to_string());
+        } else {
+            turns.push(current);
+        }
+    }
+    assert!(line.is_empty());
+    assert!(tag.is_none());
+    turns
+}
+
+#[test]
+fn refused_bracketed_multiline_uses_one_declared_submission_for_every_frame_shape() {
+    let declaration = tagged_declaration();
+    let capability = PasteEncodingCapability::for_provider(&tui(), Some(&declaration));
+    for live_mode in [None, Some(false), Some(true)] {
+        for body in [
+            "one\ntwo\nthree",
+            "one\r\ntwo\nthree\n",
+            "one\rtwo",
+            "one\ndomios}\ndomios1}",
+            "one\nλ😀",
+        ] {
+            for (prefix, suffix) in [
+                (None, None),
+                (Some("<route>"), Some("</route>")),
+                (Some("<route>\n"), Some("\n</route>")),
+                (Some(""), None),
+            ] {
+                let frame = encode_paste_frame(body, prefix, suffix, live_mode, capability);
+                assert!(!frame.contains(&0x1b));
+                let expected = format!(
+                    "{}{}{}",
+                    prefix.unwrap_or_default(),
+                    body,
+                    suffix.unwrap_or_default()
+                )
+                .replace("\r\n", "\n")
+                .replace('\r', "\n");
+                let frames = vec![frame, b"\r".to_vec()];
+                assert_eq!(tagged_plain_reader(&frames), vec![expected]);
+            }
+        }
+        assert_eq!(
+            encode_paste_frame("opaque", None, None, live_mode, capability),
+            b"opaque"
+        );
+    }
+}
+
+#[test]
+fn cli_pty_send_resolves_multiline_declaration_without_chat_preprocessors() {
+    use crate::agent::registry::AgentRegistry;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_plugin::js_runtime::{JsProvider, PluginVm};
+
+    let raw = serde_json::json!({
+        "id": "plain-reader", "version": "0.1.0", "displayName": "Plain Reader",
+        "spawn": {
+            "paste": {"supportsBracketedPaste": false, "multiline": "tagged_block"},
+            "readinessStrategy": {"kind": "fixed_delay", "durationMs": 0},
+            "taskDelivery": "pty_input", "verifySubmit": {"kind": "none"}
+        }
+    })
+    .to_string();
+    let manifest = serde_json::from_str(&raw).unwrap();
+    let vm = PluginVm::from_source_with(
+        "plain-reader",
+        "module.exports.default = {};".into(),
+        Some(raw),
+    )
+    .unwrap();
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(JsProvider::new(manifest, Arc::new(vm))));
+    let (mut mux, tab) = MultiplexerState::new();
+    mux.link_pty(&tab, "cli-target-pty".into());
+    mux.get_tab_mut(&tab).unwrap().agent_type = Some("plain-reader".into());
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let sibling = mux.create_tab(&workspace).unwrap();
+    mux.link_pty(&sibling, "sibling-pty".into());
+    mux.get_tab_mut(&sibling).unwrap().agent_type = Some("other-reader".into());
+    let mux = Arc::new(codeterm_util::lock_hold::TimedRwLock::new("test-mux", mux));
+    let (provider, capability) = paste_encoding::resolve_pty_paste_capability(
+        &mux,
+        &registry,
+        "cli-target-pty",
+        &VerifySubmitStrategy::None,
+    );
+    assert_eq!(provider.as_deref(), Some("plain-reader"));
+    let payload = "one\ntwo\nthree\n";
+    let frames = initial_submit_frames(payload, b"\r", Some(true), capability);
+    assert_eq!(tagged_plain_reader(&frames), vec![payload]);
+    let (_, sibling_capability) = paste_encoding::resolve_pty_paste_capability(
+        &mux,
+        &registry,
+        "sibling-pty",
+        &VerifySubmitStrategy::None,
+    );
+    assert_eq!(sibling_capability, PasteEncodingCapability::LiveModeOnly);
+}

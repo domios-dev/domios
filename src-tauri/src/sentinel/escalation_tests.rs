@@ -207,6 +207,7 @@ fn sentinel_escalate_resolve_clears_hash_and_re_evaluates_once() {
         &store,
         &lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -280,10 +281,9 @@ fn sentinel_escalate_expiry_persists_held_release_and_preserves_hash() {
         super::provenance::Stage::EscalationExpired,
     )
     .unwrap();
-    let journal = std::fs::read_to_string(dir.path().join("supporter/journal.jsonl")).unwrap();
-    let event: serde_json::Value = serde_json::from_str(journal.lines().next().unwrap()).unwrap();
-    assert_eq!(event["reason"], "escalation_expired");
-    assert_eq!(event["stage"], "escalation_expired");
+    // A pattern-declared Blueprint is deterministic and never writes Supporter activity.
+    assert!(!job.model_classification);
+    assert!(!dir.path().join("supporter/journal.jsonl").exists());
 }
 
 #[test]
@@ -361,6 +361,7 @@ fn sentinel_escalate_cause_cooldown_refuses_and_journals_until_five_minutes() {
         &store,
         &limited_lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -417,6 +418,7 @@ fn sentinel_escalate_cause_cooldown_refuses_and_journals_until_five_minutes() {
         &store,
         &allowed_lease,
         &super::probe::Output {
+            success: true,
             bytes: b"unknown".to_vec(),
             text: "unknown".into(),
             ..Default::default()
@@ -464,6 +466,7 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
 
     let job = create_escalating(&mut store);
     let update = super::amend::Update {
+        model_classification: false,
         name: Some("escalation-watch".into()),
         question: job.question.clone(),
         buckets: job.buckets.clone(),

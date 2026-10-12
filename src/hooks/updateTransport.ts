@@ -1,4 +1,4 @@
-import { invoke } from "../lib/bridge";
+import { nativeBridge, NativeCapabilityUnavailable } from "../lib/nativeBridge";
 import { daemonFetch, type DaemonApiConfig } from "../lib/webApi";
 
 export function requestUpdateChannel(api: DaemonApiConfig, channel?: string): Promise<Response> {
@@ -10,13 +10,13 @@ export function requestUpdateChannel(api: DaemonApiConfig, channel?: string): Pr
 }
 
 export function checkForUpdate(force: boolean): Promise<unknown> {
-  return invoke("check_for_update", { force });
+  return nativeBridge.updater?.check(force) ?? Promise.reject(new NativeCapabilityUnavailable("app updater"));
 }
 
 export function getUpdateStatus(): Promise<unknown> {
-  return invoke("get_update_status");
+  return nativeBridge.updater?.status() ?? Promise.reject(new NativeCapabilityUnavailable("app updater"));
 }
 
 export function installAppUpdate(): Promise<unknown> {
-  return invoke("install_app_update");
+  return nativeBridge.updater?.install() ?? Promise.reject(new NativeCapabilityUnavailable("app updater"));
 }

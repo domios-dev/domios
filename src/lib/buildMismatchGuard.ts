@@ -1,19 +1,16 @@
-/**
- * Build-hash mismatch guard.
- *
- * Compares the frontend's compile-time build stamp against the backend's
- * /api/health.build. When they differ, the Rust daemon is running a stale
- * build that doesn't know about newly-added commands — the root cause of
- * cryptic "Command X not found" errors in dev.
- */
-import { appVersion, buildHash } from "./buildStamp";
+import { buildHash } from "./buildStamp";
+import { baseDaemonTransport } from "./daemonBootstrap";
+import { frontendApiCompatible, frontendApiContract } from "./frontendApiContract";
 
 export interface BuildMismatch {
   frontendHash: string;
   backendHash: string;
   frontendVersion: string;
   backendVersion: string;
-  reason: "build" | "version";
+  reason: "api";
+  apiVersion: number | null;
+  minApiVersion: number;
+  maxApiVersion: number;
 }
 
 type MismatchListener = (m: BuildMismatch | null) => void;
@@ -31,36 +28,29 @@ function getFrontendHash(): string {
 
 function getFrontendVersion(): string {
   if (_frontendVersionOverride !== null) return _frontendVersionOverride;
-  return appVersion();
+  return frontendApiContract.version;
 }
 
 export async function checkBuildMismatch(apiBase?: string): Promise<BuildMismatch | null> {
   if (_checked) return _mismatch;
-  _checked = true;
-
   const frontendHash = getFrontendHash();
   const frontendVersion = getFrontendVersion();
-  if ((!frontendHash || frontendHash === "dev") && (!frontendVersion || frontendVersion === "dev")) {
-    return null;
-  }
-
   const backendIdentity = await fetchBackendIdentity(apiBase);
   if (!backendIdentity) return null;
+  _checked = true;
   const backendHash = backendIdentity.build ?? null;
   const backendVersion = backendIdentity.version ?? null;
 
-  const versionMismatch =
-    frontendVersion !== "dev" && backendVersion !== null && backendVersion !== frontendVersion;
-  const buildMismatch =
-    frontendHash !== "dev" && backendHash !== null && backendHash !== frontendHash;
-
-  if (versionMismatch || buildMismatch) {
+  if (!frontendApiCompatible(backendIdentity.apiVersion)) {
     _mismatch = {
       frontendHash,
       backendHash: backendHash ?? "unknown",
       frontendVersion,
       backendVersion: backendVersion ?? "unknown",
-      reason: versionMismatch ? "version" : "build",
+      reason: "api",
+      apiVersion: typeof backendIdentity.apiVersion === "number" ? backendIdentity.apiVersion : null,
+      minApiVersion: frontendApiContract.minApiVersion,
+      maxApiVersion: frontendApiContract.maxApiVersion,
     };
     for (const fn of _listeners) fn(_mismatch);
   }
@@ -78,12 +68,12 @@ export function onMismatch(fn: MismatchListener): () => void {
   };
 }
 
-async function fetchBackendIdentity(apiBase?: string): Promise<{ build?: string; version?: string } | null> {
+interface BackendIdentity { build?: string; version?: string; apiVersion?: unknown }
+async function fetchBackendIdentity(apiBase?: string): Promise<BackendIdentity | null> {
   try {
-    const base = apiBase ?? (typeof window !== "undefined" ? window.location.origin : "");
-    const res = await fetch(`${base}/api/health`);
-    if (!res.ok) return null;
-    return await res.json() as { build?: string; version?: string };
+    if (apiBase === undefined) return await baseDaemonTransport().localJson<BackendIdentity>("GET", "/api/health");
+    const res = await fetch(`${apiBase}/api/health`);
+    return res.ok ? await res.json() as BackendIdentity : null;
   } catch {
     return null;
   }

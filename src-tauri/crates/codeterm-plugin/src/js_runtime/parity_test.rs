@@ -27,12 +27,16 @@ mod control_keys;
 mod decision_model;
 #[path = "parity_test/delivery_modal.rs"]
 mod delivery_modal;
+#[path = "parity_test/folder_trust_record.rs"]
+mod folder_trust_record;
 #[path = "parity_test/model_catalogue.rs"]
 mod model_catalogue;
 #[path = "parity_test/model_providers.rs"]
 mod model_providers;
 #[path = "parity_test/model_switch.rs"]
 mod model_switch;
+#[path = "parity_test/paste_capability.rs"]
+mod paste_capability;
 #[path = "parity_test/provider_compat.rs"]
 mod provider_compat;
 #[path = "parity_test/sqlite_fixture.rs"]
@@ -49,6 +53,10 @@ mod account_home;
 
 #[path = "parity_test/access_errors.rs"]
 mod access_errors;
+#[path = "parity_test/agent_tasks.rs"]
+mod agent_tasks;
+#[path = "parity_test/project_files.rs"]
+mod project_files;
 
 type PluginsDir = PathBuf;
 

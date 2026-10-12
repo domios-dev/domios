@@ -1,3 +1,4 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 /**
  * Generic settings panel renderer driven by `SettingField[]` from a plugin.
  *
@@ -604,7 +605,7 @@ function InfoField({
 
 function PathLinkField({ label, path }: { label: string; path: string }) {
   const onClick = useCallback(() => {
-    invoke("open_folder", { path }).catch(() => {});
+    nativeBridge.openFolder(path).catch(() => {});
   }, [path]);
   return (
     <div className="flex min-w-0 items-center gap-3 text-[11px] text-[var(--ct-muted)]" data-testid="settings-schema-path-link">

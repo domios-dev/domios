@@ -1,0 +1,1 @@
+document.documentElement.dataset.frontendVersion="1.0.0";

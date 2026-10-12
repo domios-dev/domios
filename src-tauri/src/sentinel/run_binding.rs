@@ -181,6 +181,9 @@ fn journal_replacement(
     binding: &PendingRunBinding,
     previous: &RunBinding,
 ) {
+    if !job.model_classification {
+        return;
+    }
     let event = replacement_event(job, binding, previous);
     if let Err(error) =
         crate::service::supporter::runtime_with_notifications(svc).sentinel_event(event)
@@ -487,6 +490,7 @@ fn reset_for_binding(
     job.next_run = now;
     job.machine.last_hash = None;
     job.machine.last_bucket = None;
+    job.progress = super::progress::Progress::default();
     job.machine.held = None;
     job.last_reason = reason;
 }

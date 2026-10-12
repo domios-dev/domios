@@ -186,16 +186,19 @@ pub async fn create_notification(
         intent.level,
     )
     .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let (id, unseen) = state.svc.create_notification_ext_reported(
-        title,
-        body.body,
-        body.severity.as_deref(),
-        actions,
-        body.sticky,
-        origin,
-        intent,
-        offer,
-    );
+    let (id, unseen) = state
+        .svc
+        .create_agent_notification_reported(
+            title,
+            body.body,
+            body.severity.as_deref(),
+            actions,
+            body.sticky,
+            origin,
+            intent,
+            offer,
+        )
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     Ok(Json(created_result(&id, unseen)))
 }
 

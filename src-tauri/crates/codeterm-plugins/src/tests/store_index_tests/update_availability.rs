@@ -139,3 +139,33 @@ fn system_sync_repairs_equal_versions_but_never_downgrades() {
         );
     });
 }
+
+#[test]
+fn record_free_bundled_browser_updates_from_system_channel() {
+    with_data_root(|root| {
+        let source = root.join("system-source");
+        write_channel(&source, SYSTEM_CHANNEL_NAME, &[("browser", "browser")]);
+        std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", &source);
+        let installed = plugins_root().join("browser");
+        fs::create_dir_all(&installed).unwrap();
+        fs::write(
+            installed.join("plugin.json"),
+            serde_json::json!({ "id": "browser", "version": "0.0.1", "entry": "plugin.js" })
+                .to_string(),
+        )
+        .unwrap();
+        fs::write(installed.join("plugin.js"), "module.exports = {};").unwrap();
+        assert!(read_install_record("browser").is_err());
+        update_one("browser").unwrap();
+        assert_eq!(
+            manifest_version(&installed).unwrap().as_deref(),
+            Some("1.0.0")
+        );
+        let record = read_install_record("browser").unwrap();
+        assert_eq!(record.id, "browser");
+        assert!(
+            matches!(record.source, InstallSource::SystemChannel { channel, path }
+            if channel == SYSTEM_CHANNEL_NAME && path == "browser")
+        );
+    });
+}

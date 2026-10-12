@@ -1,3 +1,4 @@
+import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import QRCode from "qrcode";
 import { Check, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
@@ -309,7 +310,7 @@ function WebUiModal({
             <button
               type="button"
               data-testid="web-ui-open"
-              onClick={() => void invoke("open_url", { url: link })}
+              onClick={() => void nativeBridge.openUrl(link)}
               className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} gap-1.5`}
             >
               <ExternalLink size={14} />
@@ -537,7 +538,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                     accessUrl={serve?.snapshot?.url
                       ? webLinkWithTokenAndRelay(serve.snapshot.url, config.api.token, null)
                       : null}
-                    onOpenUrl={(url) => void invoke("open_url", { url })}
+                    onOpenUrl={(url) => void nativeBridge.openUrl(url)}
                     onAction={runWebUiAction}
                     touchUi={touchUi}
                     menuAlign="right"
@@ -554,7 +555,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                     accessUrl={serve?.snapshot?.url
                       ? webLinkWithTokenAndRelay(serve.snapshot.url, config.api.token, null)
                       : null}
-                    onOpenUrl={(url) => void invoke("open_url", { url })}
+                    onOpenUrl={(url) => void nativeBridge.openUrl(url)}
                     onAction={runWebUiAction}
                     touchUi={touchUi}
                   />
@@ -570,7 +571,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                   onAddPeerClick={() => setActiveTab("network")}
                   meshEnabled={config.mesh.enabled}
                   onGoOnline={goOnline}
-                  onOpenPeerWebUi={(url) => void invoke("open_url", { url })}
+                  onOpenPeerWebUi={(url) => void nativeBridge.openUrl(url)}
                   webUiBaseUrl={serve?.snapshot?.url ?? null}
                   webUiToken={config.api.token}
                 />

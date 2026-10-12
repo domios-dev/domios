@@ -20,6 +20,8 @@ pub mod delayed_send;
 pub mod dispatch;
 mod fdlimit;
 mod flow_trace;
+pub mod frontend_bundle;
+pub mod frontend_bundle_api_version;
 pub mod glance;
 mod instance_lifetime;
 mod keepawake;
@@ -144,7 +146,7 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_notification::init())
+        .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
         .plugin({
             let mut updater = tauri_plugin_updater::Builder::new();
@@ -189,7 +191,9 @@ pub fn run() {
         .manage(states.rest_api.clone());
     command_registration::register_commands(builder)
         .setup(move |app| {
-            if let Some(window) = app.get_webview_window("main") {
+            {
+                let api_config = states.config.lock().api.clone();
+                let window = startup::frontend_shell::create_window(app, &api_config)?;
                 startup::setup_window_styling(&window);
                 #[cfg(windows)]
                 native_resize::install(&window)?;
@@ -278,6 +282,7 @@ pub fn run() {
                 chat_preprocessor: chat_preprocessor_registry.clone(),
                 agent_command: agent_command_registry.clone(),
                 webhook_receiver: webhook_registry.clone(),
+                local_recording: Arc::new(codeterm_plugin::local_recording::LocalRecordingRegistry::default()),
                 tab_menu: tab_menu_registry.clone(),
                 surfaces: surface_registry.clone(),
             };
@@ -670,6 +675,9 @@ pub fn run() {
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),
                 webhook_registry: webhook_registry.clone(),
+                local_recording_registry: cap_registries.local_recording.clone(),
+                local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
+                local_recording_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(crate::paths::data_dir().join("local-recording-targets.json"))),
                 tab_menu_registry: tab_menu_registry.clone(),
                 surface_registry,
                 surface_runtimes: crate::service::surface::builtin_runtimes(),
@@ -679,6 +687,7 @@ pub fn run() {
                 )),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
+                published_tab_statuses: Arc::new(Default::default()),
                 output_stream_activity: crate::service::output_stream_activity::channel(),
                 session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(services_store),
@@ -846,6 +855,7 @@ pub fn run() {
             startup::install_bundled_cli(app);
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
+            startup::frontend_shell::start(app_handle.clone(), states.rest_api.clone());
             service_state.schedule_restored_agent_delivery_reconciliation();
             commands::ensure_integrations_for_all(
                 &service_state.agent_registry,
@@ -948,7 +958,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(startup::handle_window_event)
-        .build(tauri::generate_context!())
+        .build(startup::frontend_shell::application_context(
+            tauri::generate_context!(),
+        ))
         .expect("error while building tauri application")
         .run(|_app, _event| {
             #[cfg(target_os = "macos")]

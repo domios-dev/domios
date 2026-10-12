@@ -5,6 +5,9 @@ use crate::agent::test_provider::MockProvider;
 #[path = "tests/reserved_nonce.rs"]
 mod reserved_nonce;
 
+#[path = "tests/restored_continue.rs"]
+mod restored_continue;
+
 #[test]
 fn trust_frame_is_never_composer_evidence() {
     let input = codeterm_pty::pty::screen_state::ComposerInputState {
@@ -968,6 +971,7 @@ fn structured_chat_serves_rows_without_a_session_id() {
                 }],
                 cursor: Some("1".into()),
                 done: Some(false),
+                observations: Vec::new(),
             }
         }
     }

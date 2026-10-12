@@ -1,3 +1,5 @@
+import { AttachmentCapsule } from "@codeterm/chat-ui";
+import { attachmentKindForPath } from "@codeterm/chat-core";
 import { Image as ImageIcon, Paperclip, X } from "lucide-react";
 
 export function AttachmentChip({ path, label, thumbnail, onRemove }: { path: string; label?: string; thumbnail?: string | null; onRemove: () => void }) {
@@ -47,7 +49,12 @@ export function ComposerBubbleRow({
       className="contents"
     >
       {visible.map((p) => (
-        <AttachmentChip key={p} path={p} onRemove={() => onRemove(p)} />
+        <span key={p} className="inline-flex items-center gap-1">
+          {attachmentKindForPath(p) === "image"
+            ? <AttachmentCapsule attachment={{ path: p, kind: "image" }} />
+            : <AttachmentChip path={p} onRemove={() => onRemove(p)} />}
+          {attachmentKindForPath(p) === "image" && <button type="button" aria-label={`Remove ${p.split(/[\\/]/).pop()}`} onClick={() => onRemove(p)}><X size={12} aria-hidden /></button>}
+        </span>
       ))}
       {overflow > 0 && (
         <span

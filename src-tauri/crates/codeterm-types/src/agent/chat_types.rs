@@ -332,6 +332,8 @@ pub struct ChatMsg {
 /// `messages` means nothing new.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StructuredChat {
+    #[serde(default)]
+    pub observations: Vec<RichMessage>,
     pub messages: Vec<ChatMsg>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cursor: Option<String>,

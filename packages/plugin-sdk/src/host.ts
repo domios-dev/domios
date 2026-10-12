@@ -344,9 +344,9 @@ export interface HostAnalytics {
 // The calling plugin's own receiver binding. Only host chrome (tab menu, API, CLI) assigns a tab.
 export interface ReceiverTargetView {
   pluginId: string;
-  // null means events take the General Agent path.
+  // null resolves General at recording START; an explicit stale recording target refuses.
   tabId: string | null;
-  // false when the bound tab is absent or not live; events then take the General Agent path.
+  // Webhooks retain their General fallback; local recording requires a live frozen recipient.
   live: boolean;
 }
 
@@ -358,6 +358,26 @@ export interface ReceiverTargetRefusal {
 export interface HostReceiverTarget {
   get(): ReceiverTargetView | ReceiverTargetRefusal | null;
   clear(): ReceiverTargetView | ReceiverTargetRefusal | null;
+}
+
+export interface LocalRecordingStatus {
+  pluginId: string;
+  granted: boolean;
+  enabled: boolean;
+  devicesSelected: boolean;
+  available: boolean;
+  captureActive: boolean;
+  generation: number;
+}
+
+export interface LocalRecordingRefusal {
+  error: string;
+}
+
+export interface HostLocalRecording {
+  statusReport(): number[] | LocalRecordingRefusal | null;
+  status(): LocalRecordingStatus | LocalRecordingRefusal | null;
+  setEnabled(enabled: boolean): LocalRecordingStatus | LocalRecordingRefusal | null;
 }
 
 // Acts on the calling agent's own stream surface; only inside onAgentCommand, with the `surfaces` grant.
@@ -394,6 +414,7 @@ export interface Host {
   writeFile(path: string, contents: string): boolean;
   writeFileAtomic(path: string, contents: string): boolean;
   canonicalPath(path: string): string | null;
+  projectWriteAllowed(root: string): boolean;
   jsonBooleanRecord(path: string, keysJson: string, grant: boolean): string;
   lockFile(path: string): string | null;
   unlockFile(id: string): boolean;
@@ -449,6 +470,9 @@ export interface Host {
   receiverTargetGet(): string;
   receiverTargetClear(): string;
   receiverTarget: HostReceiverTarget;
+  localRecordingStatus(): string;
+  localRecordingSetEnabled(enabled: boolean): string;
+  localRecording: HostLocalRecording;
   surfaceCall(verb: string, argsJson: string): string;
   surface: HostSurface;
 }

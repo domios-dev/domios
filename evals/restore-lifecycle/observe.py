@@ -3,6 +3,7 @@
 Every wait re-evaluates its condition on each daemon event and gives up at a
 failure deadline; elapsed time never counts as success.
 """
+import collections
 import json
 import os
 import pathlib
@@ -14,7 +15,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE = "http://127.0.0.1:7686"
+BASE = os.environ.get("CODETERM_API_URL", "")
+PARSED_BASE = urllib.parse.urlparse(BASE)
+if PARSED_BASE.scheme != "http" or PARSED_BASE.hostname != "127.0.0.1" or PARSED_BASE.port in (None, 7685) or PARSED_BASE.path:
+    raise RuntimeError("observe.py requires the dev_run loopback DEV connection")
 AGENT_FIELDS = ("agent_type", "agent_session_id", "role", "role_profile", "team_id", "parent_tab_id", "title")
 SETUP_EXIT = 3
 
@@ -41,7 +45,10 @@ def api(method, path, payload=None):
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         raw = response.read().decode("utf-8")
-        return json.loads(raw) if raw.strip() else {}
+        value = json.loads(raw) if raw.strip() else {}
+        if isinstance(value, dict) and value.get("ok") is False:
+            fail(f"{method} {path}: refused: {json.dumps(value)}")
+        return value
 
 
 def status(tab_id):
@@ -199,14 +206,33 @@ def cmd_send_marker(deadline, tab_id, marker, prompt):
     print(f"marker {tab_id} {marker}")
 
 
-def cmd_send_long_turn(deadline, tab_id, prompt):
+def cmd_send_long_turn(deadline, tab_id, prompt, observation_path=None):
+    before_send = status(tab_id) or {}
+    if before_send.get('status', '').lower() != 'idle':
+        fail(f'{tab_id}: expected Idle before numeric task, got {before_send.get("status")}')
     wait = EventWait(deadline)
-    api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
+    api("POST", f"/api/tabs/{tab_id}/chat-raw/start", {"subscriptionId": f"restore-lifecycle-working-{tab_id}"})
+    receipt = api("POST", f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
+    frames = []
+    events = collections.deque(maxlen=1000)
+    event_count = 0
+
+    def record():
+        if observation_path:
+            pathlib.Path(observation_path).write_text(json.dumps({'status_before_send': before_send, 'send_receipt': receipt, 'states': frames, 'event_count': event_count, 'last_events': list(events)}, indent=2).replace(os.environ.get('CODETERM_API_TOKEN', 'no-token'), '[redacted]'))
 
     def working(_event):
-        return (status(tab_id) or {}).get("status") == "Working"
+        nonlocal event_count
+        if _event is not None:
+            event_count += 1
+            events.append({'at': time.time(), 'event': _event})
+        state = status(tab_id) or {}
+        if not frames or frames[-1]['status'] != state.get('status'):
+            frames.append({'at': time.time(), 'status': state.get('status'), 'session': state.get('agent_session_id')})
+            record()
+        return state.get("status", "").lower() == "working"
 
-    wait.until(working, f"tab {tab_id} to report Working")
+    wait.until(working, f"tab {tab_id} to report Working", on_deadline=record)
     print(f"working {tab_id}")
 
 

@@ -7,10 +7,11 @@ interface Props {
   className?: string;
   style?: CSSProperties;
   title?: string;
+  ariaLabel?: string;
   working?: boolean;
 }
 
-export function AgentIcon({ providerId, className, style, title, working }: Props) {
+export function AgentIcon({ providerId, className, style, title, ariaLabel, working }: Props) {
   const descriptor = useAgentDescriptor(providerId);
   return (
     <ProviderGlyph
@@ -20,6 +21,7 @@ export function AgentIcon({ providerId, className, style, title, working }: Prop
       className={className}
       style={style}
       title={title}
+      ariaLabel={ariaLabel}
       working={working}
     />
   );

@@ -47,6 +47,10 @@ pub(crate) enum UserDrain {
 
 type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
 
+mod continuity;
+mod owner_wake;
+use owner_wake::OwnerWakeBoundary;
+
 fn is_prelaunch_stage(stage: Option<codeterm_types::pty::BootStage>) -> bool {
     matches!(
         stage,
@@ -292,7 +296,13 @@ impl super::ServiceContext {
         let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
         let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
         let in_flight_prelaunch = prelaunch_authority_matches_current_launch(tab, authority);
-        prelaunch_authority_matches_failed_launch(tab, authority)
+        let session_changed =
+            super::pending_delivery_payloads::user_sends::continuity::known_session_changed(
+                authority.observed_session_id.as_deref(),
+                tab.agent_session_id.as_deref(),
+            );
+        session_changed
+            || prelaunch_authority_matches_failed_launch(tab, authority)
             || (!in_flight_prelaunch
                 && (!same_pty
                     || tab.session_binding_nonce.as_deref()
@@ -550,21 +560,19 @@ impl super::ServiceContext {
         tauri::async_runtime::spawn_blocking(move || {
             loop {
                 let generation = owner.wake_generation.load(Ordering::Acquire);
-                let refusal_generation = match service.drain_user_owner(&tab_id) {
-                    Ok(UserDrain::ZeroWriteRefusal {
-                        dispatch_generation,
-                    }) => Some(dispatch_generation),
-                    Ok(UserDrain::Idle) => None,
-                    Err(error) => {
-                        log::warn!("[chat-send] tab={tab_id} owner held: {error}");
-                        Some(owner.dispatch_generation.load(Ordering::Acquire))
-                    }
-                };
-                let changed = || match refusal_generation {
-                    Some(refused_at) => {
-                        owner.dispatch_generation.load(Ordering::Acquire) != refused_at
-                    }
-                    None => owner.wake_generation.load(Ordering::Acquire) != generation,
+                let dispatch_generation = owner.dispatch_generation.load(Ordering::Acquire);
+                let outcome = service.drain_user_owner(&tab_id);
+                if let Err(error) = &outcome {
+                    log::warn!("[chat-send] tab={tab_id} owner held: {error}");
+                }
+                let boundary =
+                    OwnerWakeBoundary::after_drain(generation, dispatch_generation, &outcome);
+                let refusal_generation = boundary.refusal_generation();
+                let changed = || {
+                    boundary.changed(
+                        owner.wake_generation.load(Ordering::Acquire),
+                        owner.dispatch_generation.load(Ordering::Acquire),
+                    )
                 };
                 if !owner.revoked.load(Ordering::Acquire) && changed() {
                     continue;
@@ -644,8 +652,8 @@ impl super::ServiceContext {
         if let Err(outcome) = self.deliver_parked_bootstrap_record(tab_id) {
             return Ok(outcome);
         }
-        self.drain_user_owner_with(tab_id, |record, text, readiness| {
-            self.submit_owned_user(record, text, readiness)
+        self.drain_user_owner_with(tab_id, |record, text, readiness, capture_send| {
+            self.submit_owned_user(record, text, readiness, capture_send)
         })
     }
 
@@ -656,6 +664,7 @@ impl super::ServiceContext {
             &UserSendRecord,
             &str,
             Option<&UserReadiness>,
+            bool,
         ) -> Result<(), DeliveryError>,
     ) -> Result<UserDrain, String> {
         let store = &self.pending_delivery_payloads.user_sends;
@@ -663,6 +672,13 @@ impl super::ServiceContext {
             let Some(mut head) = store.queued(tab_id)?.into_iter().next() else {
                 return Ok(UserDrain::Idle);
             };
+            self.chat_send_ledger.restore_user_record(&head);
+            if let Some(carried) = self.carry_held_user_send(&head)? {
+                head = carried;
+            }
+            if self.held_user_identity_is_unresolved(&head) {
+                return Ok(self.pending_user_send(&head, "held_launch_identity_pending"));
+            }
             if let Some(rebound) = self.advance_prelaunch_user_authority(&head)? {
                 head = rebound;
             }
@@ -697,6 +713,7 @@ impl super::ServiceContext {
                                 head.authority.tab_id,
                                 head.send_id,
                             );
+                            self.local_recordings.retire_write_ticket(&head.send_id);
                             continue;
                         }
                         Ok(false) => {
@@ -714,6 +731,22 @@ impl super::ServiceContext {
                             );
                         }
                     }
+                }
+                if self.local_recordings.has_write_ticket(&head.send_id)
+                    && store.discard_queued_from_ended_launch(&head)?
+                {
+                    if let Some(status) = self.chat_send_ledger.expire_owned_before_write(
+                        &head.send_id,
+                        "recording_recipient_changed_before_write",
+                    ) {
+                        crate::api::events::emit_everywhere(
+                            &self.app_handle,
+                            "chat-send-status",
+                            &status,
+                        );
+                    }
+                    self.local_recordings.retire_write_ticket(&head.send_id);
+                    continue;
                 }
                 return Ok(self.pending_user_send(&head, "user_launch_identity_unavailable"));
             }
@@ -803,6 +836,27 @@ impl super::ServiceContext {
                 .live_binding
                 .as_ref()
                 .and_then(|binding| binding.session_id.as_deref());
+            let submit_claim = if let Some(pty_id) = head.authority.pty_id.as_deref() {
+                let claim = self
+                    .chat_send_ledger
+                    .take_user_submit_claim(&head.send_id)
+                    .unwrap_or_else(|| {
+                        super::pty_io::submit_transaction::claim_submit_cycle(pty_id)
+                    });
+                if let Some(wait) = claim.command_wait() {
+                    let dispatch_generation = store
+                        .tab(tab_id)
+                        .dispatch_generation
+                        .load(Ordering::Acquire);
+                    self.hold_user_send_for_model_command(tab_id, &head.send_id, wait);
+                    return Ok(UserDrain::ZeroWriteRefusal {
+                        dispatch_generation,
+                    });
+                }
+                Some(claim)
+            } else {
+                None
+            };
             if !store.claim(&head, session)? {
                 return Ok(self.pending_user_send(&head, "owner_claim_refused"));
             }
@@ -824,9 +878,14 @@ impl super::ServiceContext {
                 .tab(tab_id)
                 .dispatch_generation
                 .load(Ordering::Acquire);
+            let capture_send = self.local_recordings.has_write_ticket(&head.send_id);
             let outcome =
                 if self.user_send_readiness_is_current(&claimed.authority, readiness.as_ref()) {
-                    submit(&claimed, &text, readiness.as_ref())
+                    if let Some(claim) = submit_claim {
+                        self.chat_send_ledger
+                            .store_user_submit_claim(&head.send_id, claim);
+                    }
+                    submit(&claimed, &text, readiness.as_ref(), capture_send)
                 } else {
                     self.pending_user_send(&claimed, "readiness_changed_before_payload_write");
                     Err(DeliveryError::TabBusyRefused {
@@ -834,6 +893,7 @@ impl super::ServiceContext {
                         detail: "user owner authority revoked before handoff".into(),
                     })
                 };
+            self.chat_send_ledger.take_user_submit_claim(&head.send_id);
             let zero_write = outcome
                 .as_ref()
                 .err()
@@ -852,6 +912,11 @@ impl super::ServiceContext {
                 crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
             }
             if zero_write {
+                if capture_send {
+                    store.discard_queued_from_ended_launch(&head)?;
+                    self.local_recordings.retire_write_ticket(&head.send_id);
+                    continue;
+                }
                 let reason = self
                     .chat_send_ledger
                     .status(&head.send_id)
@@ -861,6 +926,9 @@ impl super::ServiceContext {
                 return Ok(UserDrain::ZeroWriteRefusal {
                     dispatch_generation,
                 });
+            }
+            if capture_send {
+                self.local_recordings.retire_write_ticket(&head.send_id);
             }
             if !store.complete(&head)? {
                 log::warn!(
@@ -912,9 +980,13 @@ impl super::ServiceContext {
         record: &UserSendRecord,
         text: &str,
         readiness: Option<&UserReadiness>,
+        capture_send: bool,
     ) -> Result<(), DeliveryError> {
         let authority = &record.authority;
         let tab_id = authority.tab_id.as_str();
+        let admitted_claim = self
+            .chat_send_ledger
+            .take_user_submit_claim(&record.send_id);
         if !self.user_send_readiness_is_current(authority, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),
@@ -929,7 +1001,15 @@ impl super::ServiceContext {
                 detail: "user owner readiness changed before guarded input".into(),
             });
         }
-        if let Some(result) = super::codex_rpc::send::try_send_owned(self, record) {
+        if let Some(result) = super::codex_rpc::send::try_send_owned(self, record, capture_send) {
+            if capture_send
+                && result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| !error.bytes_written())
+            {
+                self.pending_user_send(record, "recording_capture_rpc_refused_before_handoff");
+            }
             return result;
         }
         let pty_id = authority
@@ -939,6 +1019,16 @@ impl super::ServiceContext {
                 tab: tab_id.into(),
                 detail: "user owner has no resolved PTY authority".into(),
             })?;
+        let claim = admitted_claim
+            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id))
+            .with_trace_id(&record.send_id);
+        if let Some(wait) = claim.command_wait() {
+            self.hold_user_send_for_model_command(tab_id, &record.send_id, wait);
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.into(),
+                detail: "model command owns PTY input".into(),
+            });
+        }
         // Resolved after readiness was observed, so a hook installed before readiness is never missed.
         let permit = {
             let mux = self.mux.read();
@@ -997,11 +1087,6 @@ impl super::ServiceContext {
                 detail: "user owner revoked before submit cycle".into(),
             });
         }
-        let claim = self
-            .chat_send_ledger
-            .take_user_submit_claim(&record.send_id)
-            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id))
-            .with_trace_id(&record.send_id);
         if !self.user_send_readiness_is_current(authority, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),
@@ -1014,12 +1099,21 @@ impl super::ServiceContext {
         let readiness = readiness.cloned().map(std::sync::Arc::new);
         let pre_write_guard: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
             std::sync::Arc::new(move || {
-                let current =
-                    service.user_send_readiness_is_current(&guard_authority, readiness.as_deref());
+                let capture_current = !capture_send
+                    || service
+                        .local_recordings
+                        .write_ticket_matches_authority(&pending_record.send_id, &guard_authority);
+                let current = capture_current
+                    && service
+                        .user_send_readiness_is_current(&guard_authority, readiness.as_deref());
                 if !current {
                     service.pending_user_send(
                         &pending_record,
-                        "readiness_changed_before_payload_write",
+                        if capture_current {
+                            "readiness_changed_before_payload_write"
+                        } else {
+                            "recording_capture_invalid_before_payload_write"
+                        },
                     );
                 }
                 current

@@ -117,6 +117,51 @@ fn sentinel_probe_native_output_is_bounded_and_drained() {
 
 #[cfg(unix)]
 #[test]
+fn sentinel_probe_native_exited_group_retirement_is_idempotent() {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "IFS= read -r _; exit 0"])
+        .process_group(0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let event =
+        unsafe { OwnedFd::from_raw_fd(super::cancellation::unix::parent_event(pid).unwrap()) };
+    drop(child.stdin.take());
+    let mut pending = libc::pollfd {
+        fd: event.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    assert_eq!(unsafe { libc::poll(&mut pending, 1, 3000) }, 1);
+    assert_ne!(pending.revents & libc::POLLIN, 0);
+    let ownership = super::process::LeaderOwnership::Retained(pid);
+    for _ in 0..2 {
+        super::group_retirement::signal_owned_group(ownership, pid).unwrap();
+        super::group_retirement::retire(ownership, pid, std::time::Instant::now() + PROBE_RUNTIME)
+            .unwrap();
+    }
+    assert!(child.wait().unwrap().success());
+    assert!(super::group_retirement::observe_retired(
+        super::process::LeaderOwnership::Retired(pid),
+        pid
+    )
+    .unwrap());
+    assert!(super::group_retirement::signal_owned_group(
+        super::process::LeaderOwnership::Retired(pid),
+        pid
+    )
+    .is_err());
+}
+
+#[cfg(unix)]
+#[test]
 fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
     let fixture = ControlFixture::new(true, false);
     let owner = Arc::new(ProbeResourceOwner::new());
@@ -163,6 +208,37 @@ fn sentinel_probe_native_inherited_stream_deadline() {
         .unconfirmed
         .contains(&super::process::ResourceKind::Capture));
     assert!(owner.wait_for_free_slots_with_timeout(MAX_RESOURCE_SLOTS, Duration::from_secs(3)));
+}
+
+#[cfg(unix)]
+#[test]
+fn sentinel_probe_timeout_retires_sigterm_ignoring_child_and_reuses_owner() {
+    let mut fixture = ControlFixture::new(false, false);
+    fixture.ignore_term = true;
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let (failure, receipt) = super::run_with_receipt(
+        &fixture.command(),
+        fixture.dir.path(),
+        Duration::from_secs(1),
+        &owner,
+    )
+    .expect_err("SIGTERM-ignoring child must reach the probe deadline");
+    assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
+    assert!(fixture.dir.path().join("term-ignored").exists());
+    assert_eq!(failure.primary, "probe_timeout");
+    assert!(failure.processes_confirmed, "{failure:?}");
+    assert!(!failure.is_unconfirmed(), "{failure:?}");
+    assert_eq!(owner.snapshot().free, MAX_RESOURCE_SLOTS);
+    let recovered = super::run(
+        "printf recovered",
+        fixture.dir.path(),
+        PROBE_RUNTIME,
+        &owner,
+    )
+    .unwrap();
+    assert!(recovered.success);
+    assert!(recovered.text.contains("recovered"));
+    assert_eq!(owner.snapshot().free, MAX_RESOURCE_SLOTS);
 }
 
 #[cfg(windows)]
@@ -239,6 +315,18 @@ fn probe_native_control_child() {
     let started = std::env::var("SENTINEL_PROBE_NATIVE_STARTED").unwrap();
     let detached = std::env::var_os("SENTINEL_PROBE_NATIVE_DETACH").is_some();
     let close_streams = std::env::var_os("SENTINEL_PROBE_NATIVE_CLOSE_STREAMS").is_some();
+    if std::env::var_os("SENTINEL_PROBE_NATIVE_IGNORE_TERM").is_some() {
+        assert_ne!(
+            unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) },
+            libc::SIG_ERR
+        );
+        assert_eq!(unsafe { libc::raise(libc::SIGTERM) }, 0);
+        std::fs::write(
+            std::env::var("SENTINEL_PROBE_NATIVE_TERM_MARKER").unwrap(),
+            b"ignored",
+        )
+        .unwrap();
+    }
     if detached {
         assert_eq!(unsafe { libc::setsid() }, std::process::id() as i32);
     }
@@ -275,6 +363,7 @@ struct ControlFixture {
     ack_path: std::path::PathBuf,
     close_streams: bool,
     detached: bool,
+    ignore_term: bool,
 }
 
 #[cfg(unix)]
@@ -310,6 +399,7 @@ impl ControlFixture {
             ack_path,
             close_streams,
             detached,
+            ignore_term: false,
         }
     }
 
@@ -318,7 +408,7 @@ impl ControlFixture {
         format!(
             concat!(
                 "SENTINEL_PROBE_NATIVE_CONTROL={} SENTINEL_PROBE_NATIVE_ACK={} ",
-                "SENTINEL_PROBE_NATIVE_STARTED={}{}{} {} ",
+                "SENTINEL_PROBE_NATIVE_STARTED={}{}{}{} {} ",
                 "--ignored --nocapture probe_native_control_child & ",
                 "IFS= read -r _ < {}; exit 0"
             ),
@@ -334,6 +424,14 @@ impl ControlFixture {
                 " SENTINEL_PROBE_NATIVE_CLOSE_STREAMS=1"
             } else {
                 ""
+            },
+            if self.ignore_term {
+                format!(
+                    " SENTINEL_PROBE_NATIVE_IGNORE_TERM=1 SENTINEL_PROBE_NATIVE_TERM_MARKER={}",
+                    shell_quote(&self.dir.path().join("term-ignored"))
+                )
+            } else {
+                String::new()
             },
             shell_quote(&executable),
             shell_quote(&self.dir.path().join("started.fifo")),

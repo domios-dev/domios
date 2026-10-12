@@ -226,27 +226,6 @@ pub(crate) fn owner_prompt_notice_title(prompt: &PendingPrompt) -> &'static str 
     notice_title(&prompt_notice_kind(prompt))
 }
 
-pub(crate) fn owner_prompt_notice_actions() -> Vec<codeterm_types::notification::CallerAction> {
-    use codeterm_types::notification::CallerAction;
-
-    vec![
-        CallerAction::Answer {
-            label: "I will resolve it in Domios".into(),
-        },
-        CallerAction::Dismiss {
-            label: "Dismiss".into(),
-        },
-    ]
-}
-
-pub(crate) fn owner_prompt_condition_actions(
-) -> Vec<codeterm_types::notification::NotificationAction> {
-    owner_prompt_notice_actions()
-        .into_iter()
-        .map(Into::into)
-        .collect()
-}
-
 impl super::ServiceContext {
     fn prompt_chain_key(&self, tab_id: &str) -> Option<ChainKey> {
         let mux = self.mux.read();
@@ -452,29 +431,10 @@ impl super::ServiceContext {
         }
         let subject = self.prompt_notice_subject(&key.tab_id);
         let body = notice_body(&subject, message_kind);
-        if dedupe_kind.starts_with("prompt:") {
-            self.create_condition_notification_with_key(
-                &key.tab_id,
-                crate::notification::dedupe::TabCondition::PendingPrompt,
-                notice_title(message_kind).into(),
-                Some(body),
-                Some(owner_prompt_condition_actions()),
-                notice_event_key(key, dedupe_kind),
-            );
-            return;
-        }
-        self.create_notification_ext(
+        self.log_system_notice(
             notice_title(message_kind).into(),
             Some(body),
             Some("warning"),
-            Some(owner_prompt_notice_actions()),
-            Some(true),
-            crate::service::notification::NotificationOrigin::local_tab(key.tab_id.clone()),
-            crate::service::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-                event_key: Some(notice_event_key(key, dedupe_kind)),
-            },
-            None,
         );
     }
 
@@ -707,21 +667,6 @@ mod tests {
         assert!(body.contains("Nightly QA"));
         assert!(body.contains("login"));
         assert!(!body.contains("Bizet"));
-    }
-
-    #[test]
-    fn login_notice_has_login_title_and_owner_choices() {
-        use codeterm_types::notification::CallerAction;
-
-        assert_eq!(notice_title("login"), "Agent login needs your attention");
-        assert_eq!(
-            notice_title("multi_select"),
-            "Agent prompt needs your attention"
-        );
-        let actions = owner_prompt_notice_actions();
-        assert_eq!(actions.len(), 2);
-        assert!(matches!(&actions[0], CallerAction::Answer { .. }));
-        assert!(matches!(&actions[1], CallerAction::Dismiss { .. }));
     }
 
     #[test]

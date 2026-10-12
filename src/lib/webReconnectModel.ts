@@ -17,3 +17,16 @@ export function transitionWebReconnect(
   if (state === "probing" && event === "probe-failed") return { state: "pending", action: "wait" };
   return { state, action: "none" };
 }
+
+export const RECONNECT_FIRST_MS = 1_000;
+export const RECONNECT_CAP_MS = 15_000;
+
+/** A lost stream gets a bounded attempt schedule: elapsed time only triggers the next
+ *  probe, and only a real connection counts as recovery. */
+export function reconnectDelay(backoffMs: number, random: number): number {
+  return backoffMs / 2 + random * (backoffMs / 2);
+}
+
+export function nextReconnectBackoff(backoffMs: number): number {
+  return Math.min(backoffMs * 2, RECONNECT_CAP_MS);
+}

@@ -24,6 +24,7 @@ fn delta(n: usize, cursor: Option<&str>) -> StructuredChat {
             .collect(),
         cursor: cursor.map(|c| c.to_string()),
         done: None,
+        observations: Vec::new(),
     }
 }
 
@@ -214,6 +215,7 @@ fn watcher_verdict_apply_path_clears_inflight_updates_state_and_yields_actions()
         }],
         cursor: Some("c1".into()),
         done: Some(true),
+        observations: Vec::new(),
     };
     let verdicts = extract_watcher_verdicts(&delta);
     assert_eq!(verdicts.len(), 1);

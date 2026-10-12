@@ -1,3 +1,4 @@
+import { RECONNECT_FIRST_MS } from "./webReconnectModel";
 import assert from "node:assert/strict";
 
 class MemoryStorage {
@@ -27,31 +28,26 @@ async function main(): Promise<void> {
   globalThis.setTimeout = ((callback: () => void, delay: number) => {
     const id = ++nextTimer;
     deadlines.set(id, { callback, delay });
-    if (delay < 30_000) pendingWait?.();
     return id;
   }) as unknown as typeof setTimeout;
   globalThis.clearTimeout = ((id: number) => deadlines.delete(id)) as unknown as typeof clearTimeout;
   const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
   let requestArrived: (() => void) | undefined;
   const requested = () => new Promise<void>((resolve) => { requestArrived = resolve; });
-  const probes: Array<(response: Response) => void> = [];
+  browser.addEventListener("codeterm-event-stream-disconnected", () => pendingWait?.());
+  let refusal = false;
   globalThis.fetch = async (_input, options) => {
-    if (options?.method === "HEAD") {
-      const response = new Promise<Response>((resolve) => probes.push(resolve));
-      requestArrived?.();
-      return response;
-    }
+    assert.notEqual(options?.method, "HEAD");
+    assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer fixture-token");
+    if (refusal) { requestArrived?.(); return new Response(null, { status: 503 }); }
     const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        streams.push(controller);
-        options?.signal?.addEventListener("abort", () => {
-          try { controller.error(new Error("aborted")); } catch { /* already closed */ }
-        }, { once: true });
-      },
+      start(controller) { streams.push(controller); },
     });
     requestArrived?.();
     return new Response(stream, { status: 200 });
   };
+  const api = await import("./webApi");
+  api.setTokenFor(api.apiHost(), "fixture-token");
   const events = await import("./webEvents");
   storage.removeItem("codeterm-capability:web-reconnect-probe");
   assert.equal(events.webReconnectEnabled(), false);
@@ -73,39 +69,24 @@ async function main(): Promise<void> {
     const failure = waiting();
     streams[0].error(new Error("offline"));
     await failure;
-    const probe = requested();
-    browser.dispatchEvent(new Event("online"));
-    await probe;
-    assert.equal(streams.length, 1);
-    assert.equal(reconnects, 0);
-    browser.dispatchEvent(new Event("online"));
-    assert.equal(probes.length, 1);
     const connection = requested();
-    probes[0](new Response(null, { status: 200 }));
+    browser.dispatchEvent(new Event("online"));
     await connection;
+    assert.equal(reconnects, 0, "opening HTTP is not readiness");
     delivery = received();
     streams[1].enqueue(frame);
     await delivery;
     assert.equal(reconnects, 1);
-    documentTarget.hidden = true;
-    documentTarget.dispatchEvent(new Event("visibilitychange"));
-    documentTarget.hidden = false;
-    documentTarget.dispatchEvent(new Event("visibilitychange"));
-    assert.equal(streams.length, 2);
     const secondFailure = waiting();
     streams[1].error(new Error("server restarted"));
     await secondFailure;
-    const visibleProbe = requested();
+    const visibleConnection = requested();
     documentTarget.hidden = true;
     documentTarget.dispatchEvent(new Event("visibilitychange"));
     documentTarget.hidden = false;
     documentTarget.dispatchEvent(new Event("visibilitychange"));
-    await visibleProbe;
-    assert.equal(streams.length, 2);
-    assert.equal(reconnects, 1);
-    const visibleConnection = requested();
-    probes[1](new Response(null, { status: 200 }));
     await visibleConnection;
+    assert.equal(reconnects, 1);
     delivery = received();
     streams[2].enqueue(frame);
     await delivery;
@@ -113,22 +94,27 @@ async function main(): Promise<void> {
     const finalFailure = waiting();
     streams[2].error(new Error("offline again"));
     await finalFailure;
-    const deadlineProbe = requested();
-    const retryDeadline = [...deadlines.values()].find((entry) => entry.delay < 30_000);
-    assert.ok(retryDeadline);
-    retryDeadline.callback();
-    await deadlineProbe;
-    assert.equal(streams.length, 3);
+    assert.equal(deadlines.size, 1, "a disconnected stream owns one failure deadline");
+    const retry = [...deadlines.values()][0];
+    assert.ok(retry.delay >= RECONNECT_FIRST_MS / 2 && retry.delay <= RECONNECT_FIRST_MS);
+    refusal = true;
+    const rejected = waiting();
+    retry.callback();
+    await rejected;
     assert.equal(reconnects, 2);
-    const rejectedProbe = waiting();
-    probes[2](new Response(null, { status: 503 }));
-    await rejectedProbe;
-    assert.equal(reconnects, 2);
+    refusal = false;
+    const eofReady = requested();
+    browser.dispatchEvent(new Event("online"));
+    await eofReady;
+    const eofConnection = requested();
+    streams[3].close();
+    await eofConnection;
+    assert.equal(streams.length, 5, "clean EOF reconnects without a timer or a frame");
     events.__resetWebEventsForTest();
     assert.equal(deadlines.size, 0);
     browser.dispatchEvent(new Event("online"));
-    assert.equal(streams.length, 3);
-    console.log("16 passed, 0 failed");
+    assert.equal(streams.length, 5);
+    console.log("Reconnect runtime event barriers passed");
   } finally {
     stop();
     unlisten();

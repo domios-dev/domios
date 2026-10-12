@@ -1,3 +1,5 @@
+import { sessionObservations, turnError } from "./turnErrors";
+import { checkOpencodeUpdate } from "./update";
 import { modelProviderExports } from "./modelProviders";
 import { modelSwitch } from "./modelSwitch";
 import { decisionModel } from "./decisionModel";
@@ -95,6 +97,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,
   ...decisionModel,
   ...modelProviderExports,
@@ -159,9 +162,9 @@ const plugin: PluginModule = {
     try {
       const event = JSON.parse(t) as {
         type?: string;
-        properties?: { status?: { type?: string } };
+        properties?: { status?: { type?: string }; info?: unknown };
       };
-      if (event?.type === "session.error") events.push("turn_error");
+      if (event?.type === "session.error" || (event?.type === "message.updated" && turnError(event.properties?.info))) events.push("turn_error");
       if (event?.type === "session.idle") events.push("task_complete");
       if (event?.type === "session.status" && event.properties?.status?.type === "busy") {
         events.push("turn_started");
@@ -180,7 +183,6 @@ const plugin: PluginModule = {
     return events;
   },
 
-  // off hot reads. `null` when the CLI cannot answer: the host keeps its seed.
   discoverModels(): ModelInfo[] | null {
     return discoverOpencodeModels();
   },
@@ -512,6 +514,8 @@ const plugin: PluginModule = {
     return toolFileDiffs(part as OpencodePart);
   },
 
+  parseSessionObservations: sessionObservations,
+
   usesStructuredChat(): boolean { return true; },
 
   readStructuredChat(_cwd: string, sessionId: string, cursor?: string | null): unknown {
@@ -522,16 +526,20 @@ const plugin: PluginModule = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     // Track `time_updated`, not `time_created`: a streamed part keeps its creation
     // instant while its text/output grows, so a creation window skips every update.
-    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null }>(
+    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null; message?: string }>(
       db,
       "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
         "CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role " +
-        "FROM part p JOIN message m ON m.id = p.message_id " +
-        "WHERE p.session_id = ?1 AND p.time_updated >= ?2 " +
-        "ORDER BY p.time_updated ASC, p.id ASC",
+        " , NULL AS message FROM part p JOIN message m ON m.id = p.message_id " +
+        "WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 " +
+        "UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data " +
+        "FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 " +
+        "AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
+        "ORDER BY ts_updated ASC, id ASC",
       [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
     );
     const messages: unknown[] = [];
+    const observations: unknown[] = [];
     let lastTs = sinceMs;
     let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
@@ -544,6 +552,14 @@ const plugin: PluginModule = {
       }
       if (seenAtLastTs.indexOf(id) !== -1) continue;
       seenAtLastTs.push(id);
+      const message = safeJson(rows[i].message);
+      const observation = sessionObservations(message);
+      if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
+      const error = turnError(message);
+      if (error) {
+        messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+        continue;
+      }
       const part = safeJson(rows[i].part);
       if (!part) continue;
       const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role as string : "assistant";
@@ -551,7 +567,7 @@ const plugin: PluginModule = {
       if (cm) messages.push(cm);
     }
     seenAtLastTs.sort();
-    return { messages: messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+    return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
 

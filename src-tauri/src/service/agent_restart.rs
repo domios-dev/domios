@@ -191,7 +191,6 @@ struct TabRestartSnapshot {
 enum RestartMode {
     Standard,
     SkipExit,
-    ProviderUpdate,
     Fresh,
 }
 
@@ -212,46 +211,6 @@ impl From<AgentRestartError> for RestartAttemptError {
 }
 
 impl ServiceContext {
-    pub(crate) fn agent_restart_for_provider_update(
-        &self,
-        tab_id: &str,
-        expected_provider: &str,
-    ) -> Result<RestartOutcome, RestartAttemptError> {
-        self.require_provider_update_idle(tab_id)?;
-        let provider_matches = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(|tab| tab.agent_type.as_deref() == Some(expected_provider));
-        if !provider_matches {
-            return Err(AgentRestartError::BadRequest(
-                "provider changed before update restart".into(),
-            )
-            .into());
-        }
-        if let Some(outcome) = self.restart_general_agent_if_target(tab_id, false, true)? {
-            return outcome;
-        }
-        let snap = self.snapshot_tab_for_restart(tab_id)?;
-        self.restart_live_agent(
-            snap,
-            false,
-            DEFAULT_GRACE_SECS,
-            None,
-            RestartMode::ProviderUpdate,
-        )
-    }
-
-    fn require_provider_update_idle(&self, tab: &str) -> Result<(), AgentRestartError> {
-        if super::provider_update::restart_eligible(self, tab) {
-            Ok(())
-        } else {
-            Err(AgentRestartError::BadRequest(
-                super::provider_update::IDLE_REFUSAL.into(),
-            ))
-        }
-    }
-
     fn tab_is_idle(&self, tab_id: &str) -> bool {
         let Some(snapshot) = self.try_snapshot_with_reconciled_status() else {
             return false;
@@ -346,7 +305,7 @@ impl ServiceContext {
     /// own resume command and commits its launch record once the old PTY is gone.
     fn restart_live_agent(
         &self,
-        snap: TabRestartSnapshot,
+        mut snap: TabRestartSnapshot,
         force: bool,
         grace_secs: u64,
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
@@ -365,10 +324,20 @@ impl ServiceContext {
             }
         }
 
-        let restart_claim =
-            self.claim_restart(&snap.tab_id, mode == RestartMode::ProviderUpdate)?;
-        if mode == RestartMode::ProviderUpdate {
-            self.require_provider_update_idle(&snap.tab_id)?;
+        let restart_claim = self.claim_restart(&snap.tab_id, false)?;
+        if mode == RestartMode::Fresh {
+            self.require_fresh_restart_allowed(&snap, force)?;
+        }
+        let pty_claim = self.pty_ownership.acquire(&snap.tab_id);
+        {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
+                AgentRestartError::NotFound(format!("Tab {} not found", snap.tab_id))
+            })?;
+            snap.pty_id = tab.pty_id.clone().unwrap_or_default();
+            if mode == RestartMode::Fresh {
+                snap.session_id = tab.agent_session_id.clone();
+            }
         }
         if mode == RestartMode::Fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
@@ -422,9 +391,6 @@ impl ServiceContext {
             });
         };
 
-        if mode == RestartMode::ProviderUpdate {
-            self.require_provider_update_idle(&snap.tab_id)?;
-        }
         if mode != RestartMode::SkipExit && mode != RestartMode::Fresh {
             self.require_background_work_safe(&snap.tab_id, force)?;
             crate::service::agent_restart::timing::stage(
@@ -447,6 +413,11 @@ impl ServiceContext {
                 &super::background_work::running(self, &snap.tab_id),
             );
         }
+        if mode == RestartMode::Fresh {
+            self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
+                .map_err(AgentRestartError::Internal)?;
+        }
+        crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
@@ -518,6 +489,7 @@ impl ServiceContext {
                 None
             },
         );
+        drop(pty_claim);
         drop(restart_claim);
 
         let ready = self.finish_observed_restart(
@@ -581,7 +553,6 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         force: bool,
-        require_idle: bool,
     ) -> Result<Option<Result<RestartOutcome, RestartAttemptError>>, AgentRestartError> {
         let Some(mut target) = self.general_agent_restart_snapshot(tab_id) else {
             return Ok(None);
@@ -589,16 +560,11 @@ impl ServiceContext {
         self.require_background_work_safe(&target.tab_id, force)?;
         if self.is_unverified_launch_shell(&target) {
             target.session_id = None;
-        } else if require_idle {
-            self.require_tab_restart_liveness(&target.tab_id)?;
         }
         if let Some(reason) = evidenced_transcript_block(&target) {
             return Err(AgentRestartError::BadRequest(reason));
         }
-        let restart_claim = self.claim_restart(&target.tab_id, require_idle)?;
-        if require_idle {
-            self.require_provider_update_idle(&target.tab_id)?;
-        }
+        let restart_claim = self.claim_restart(&target.tab_id, false)?;
 
         let claimed =
             crate::service::general_agent::claim_general_agent_tab_retry(&target.tab_id, &self.mux)

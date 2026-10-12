@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { nativeBridge } from "../lib/nativeBridge";
 import { clearStateSnapshot } from "../lib/stateCache";
 import { clearRelayTarget } from "../lib/webApi";
 
@@ -59,7 +59,7 @@ function crashDetails(error: Error): { message: string; stack: string } {
 }
 
 function CrashWindowChrome() {
-  const appWindow = "__TAURI_INTERNALS__" in window ? getCurrentWindow() : null;
+  const appWindow = nativeBridge.window;
   return (
     <header className="frontend-crash__chrome" data-tauri-drag-region>
       <span data-tauri-drag-region>Domios</span>

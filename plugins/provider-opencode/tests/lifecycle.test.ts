@@ -145,6 +145,7 @@ test("resumed_server_worker_binds_the_launch_session_without_parent_argv", async
 
 test("provider_lifecycle_events_report_the_bound_session", async () => {
   const binding = await loadBinding();
+  await binding.hooks.event({ event: { type: "session.created", properties: { info: { id: "ses_failed" } } } });
   const error: Event = {
     type: "session.error",
     properties: { sessionID: "ses_failed", error: { name: "ProviderError" } },
@@ -203,4 +204,15 @@ test("sqlite_read_failure_is_unknown_and_only_empty_success_is_absent", () => {
     new vm.Script(source).runInNewContext(context);
     assert.equal(context.module.exports.default!.sessionExists("/work", "ses_owned"), expected);
   }
+});
+
+test("assistant APIError events forward only the session already claimed by this tab", async () => {
+  const binding = await loadBinding({ resumeSession: "ses_owned", sessionGet: async () => ({ data: { id: "ses_owned" } }) });
+  const error = { role: "assistant", sessionID: "ses_owned", error: { name: "APIError", data: { statusCode: 410, isRetryable: false, message: "Model exo-free has been deprecated" } } };
+  await binding.hooks.event({ event: { type: "message.updated", properties: { info: { ...error, sessionID: "ses_foreign" } } } });
+  assert.equal(binding.posts.length, 1);
+  await binding.hooks.event({ event: { type: "message.updated", properties: { info: error } } });
+  assert.equal(binding.posts.length, 2);
+  assert.equal(binding.posts[1].body.session_id, "ses_owned");
+  assert.equal(binding.posts[1].url, "http://dev/api/tabs/tab-1/hook/provider_event");
 });

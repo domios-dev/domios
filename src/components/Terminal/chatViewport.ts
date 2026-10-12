@@ -1,3 +1,7 @@
+import { chatViewportLayoutChanged } from "./chatScrollDecisions";
+import { editFrontendScroll } from "../../lib/frontendUpdate/appState";
+import type { ChatContentAnchor } from "./chatAnchorModel";
+
 const VIEWPORT_TOLERANCE_PX = 0.5;
 
 export interface ChatViewportGeometry {
@@ -29,14 +33,15 @@ export function isChatViewportNearBottom(viewport: ChatViewportGeometry): boolea
 
 export function chatViewportModeAfterScroll(
   currentMode: ChatViewportMode,
-  previousScrollTop: number,
+  previous: ChatViewportGeometry,
   viewport: ChatViewportGeometry,
 ): ChatViewportMode {
-  if (isChatViewportAtBottom(viewport)) return "pinned";
-  if (currentMode === "detached") {
-    return isChatViewportNearBottom(viewport) && viewport.scrollTop >= previousScrollTop ? "pinned" : "detached";
-  }
-  return previousScrollTop - viewport.scrollTop > VIEWPORT_TOLERANCE_PX ? "detached" : "pinned";
+  const layoutChanged = chatViewportLayoutChanged(previous, viewport);
+  if (layoutChanged) return currentMode;
+  if (currentMode === "pinned" && isChatViewportAtBottom(viewport)) return "pinned";
+  if (viewport.scrollTop < previous.scrollTop) return "detached";
+  if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 0) return "pinned";
+  return currentMode;
 }
 
 export interface ChatPrependSnapshot {
@@ -62,6 +67,7 @@ export function shouldRestoreChatViewport(
 }
 
 export interface ChatScrollState {
+  anchor?: ChatContentAnchor | null;
   mode: ChatViewportMode;
   scrollTop: number;
 }
@@ -74,6 +80,7 @@ export function getPersistedChatScrollState(key: string): ChatScrollState | null
 }
 
 export function setPersistedChatScrollState(key: string, state: ChatScrollState): void {
+  editFrontendScroll(key, "chat", JSON.stringify(state));
   persistedChatScrollStates.delete(key);
   persistedChatScrollStates.set(key, state);
   while (persistedChatScrollStates.size > MAX_PERSISTED_CHAT_SCROLL_STATES) {

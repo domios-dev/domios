@@ -202,10 +202,21 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 ## Troubleshooting log (grow this as things break)
 
+- **`dev-prebuilt` refuses a recorded build commit that differs from HEAD** —
+  saved provenance belongs to another source revision. Run the normal `dev`
+  operation with `--notify-tab`; require its fresh build/health receipt before
+  testing. Preserve the refusal and never rewrite provenance to bypass it.
+
 > When you hit a dev-startup issue on any platform, add a dated entry below with: symptom, root cause, fix. Keep entries short.
 
 If the failure is caused by the dev-run procedure itself, fix the procedure as
 well as the immediate environment before declaring recovery complete.
+
+### Desktop bootstrap and packaged fallback (all platforms)
+
+- **2026-10-11: Vite loads but the desktop root never acknowledges readiness** — the resize owner uses `client:<id>`, while frontend checkpoint scopes reject colons. The frontend uses a distinct filename-safe checkpoint ID. Optional update initialization failures carry a closed reason and HTTP status to the DEV log and render App with swapping disabled.
+- **2026-10-11: fallback logs `AssetNotFound("index.html")` with no module entry** — Tauri generates an empty asset provider in debug builds with `devUrl`. The shell supplies a snapshot of the prepared `dist/` to that provider; release continues to use generated embedded assets. Rebuilding `dist/` alone cannot repair the empty provider.
+- **Recovery** — integrate the repair and let the instance owner restart DEV through its existing scoped launcher. Verify `prepared development fallback assets installed`, the exact Vite navigation URL, frontend initialization or its typed refusal, and `ready-accepted`. Verify the packaged fallback also reaches module entry and readiness, and confirm Vite hot reload still works. Workers leave DEV lifecycle control with the owner.
 
 ### DEV browser terminal diagnostics (all platforms)
 
@@ -286,4 +297,8 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
+
+### REST listener bind recovery
+
+When the local socket works but HTTP is down, run `codeterm rest-api status` on the owning instance. A `bind_ownership_failed` diagnostic includes the address and OS error. Release the foreign port owner, then run `codeterm rest-api restart`; it waits for health proof and fails if binding still fails. These commands never fall back to HTTP or cross mesh. Confirm the actual Browser surface renders after Retry surface lookup. Never kill production to repair a listener collision.

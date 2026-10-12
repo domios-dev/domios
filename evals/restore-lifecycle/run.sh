@@ -160,14 +160,14 @@ restart_dev() {
   echo "== [$label] full dev stop (reboot analogue) and start"
   (
     cd "$REPO_ROOT" || exit 1
-    bash build.sh kill
-    bash build.sh dev-prebuilt --wait
+    CODETERM_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" bash build.sh kill
+    CODETERM_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" bash build.sh dev-prebuilt --wait
   ) || fail "[$label] dev restart"
 }
 
 new_marker() { python3 -c 'import uuid; print("RESTORE-LIFECYCLE-" + uuid.uuid4().hex[:12])'; }
 
-dev_get /api/health > /dev/null || { echo "dev 7686 unavailable; start it with ./build.sh dev --wait" >&2; exit 7; }
+dev_get /api/health > /dev/null || { echo "selected DEV unavailable; start it with ./build.sh dev --wait" >&2; exit 7; }
 plan_snapshot "$PLAN_BASELINE" || exit 1
 
 CLAUDE_MODEL="$(provider_model claude "$RL_CLAUDE_MODEL")" || exit 1

@@ -25,6 +25,7 @@ export interface ResumeHistoryCapability {
 }
 
 export interface TabContext {
+  tabId?: string;
   cwd?: string | null;
 }
 
@@ -848,9 +849,29 @@ export interface ChatSessionInfo {
 }
 
 // `spawnable` makes the backend user-openable; `watcher` opts into host-driven watcher ticks.
-export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean };
+export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean; sessionConfig?: boolean; agentTasks?: boolean };
+
+export interface AgentTaskInput {
+  runId: string;
+  tabId: string;
+  workspaceId: string;
+  profile: string;
+  task: string;
+  input: string;
+  timeoutMs: number;
+  maxTokens: number;
+  maxTurns: number;
+}
+
+export interface AgentTaskResult {
+  status: "done" | "failed" | "cancelled" | "deadline_exceeded";
+  output: unknown;
+  error?: string;
+}
 
 export interface ChatBackend {
+  runAgentTask?(input: AgentTaskInput): AgentTaskResult;
+  abortAgentTask?(runId: string): void;
   openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
   sendMessage(sessionId: string, text: string): void;
   // Optional turn-advance, called each tick before `poll` so an async backend drains its tickets. Best-effort; omit if synchronous.
@@ -889,6 +910,26 @@ export interface ChatPreprocessor {
 
 // Declared in plugin.json as `capabilities.webhookReceiver`. `audio: true` lets the
 // host accept one bounded `audio/*` part and transcribe it with the installed Transcriber.
+export interface ReceiverStatusQueryCapability {
+  usagePage: number;
+  usage: number;
+  reportId: number;
+  request: number[];
+}
+
+export interface LocalRecordingButtonCapability {
+  interfaceNumber: number; collectionId: string; reportId: number; reportBytes: number; usagePage: number;
+  pressUsage: number; buttonUsages: number[]; bitField: number; linkCollection: number; debounceMs: number;
+}
+
+export interface LocalRecordingTriggerCapability {
+  vendorId: number;
+  productId: number;
+  usagePage: number;
+  usage: number;
+  button?: LocalRecordingButtonCapability;
+}
+
 export interface WebhookReceiverCapability {
   kind: "pebble";
   audio?: boolean;
@@ -920,7 +961,7 @@ export interface WebhookReceiver {
 
 // ── tabMenu (plugin.json `capabilities.tabMenu`; no export runs on click) ──
 
-// Closed set of host-owned actions. `receiverTarget` requires `webhookReceiver`.
+// `receiverTarget` requires webhookReceiver or localRecordingTrigger.
 export type TabMenuAction = "receiverTarget";
 
 export interface TabMenuContribution {

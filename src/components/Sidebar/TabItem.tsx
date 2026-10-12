@@ -381,6 +381,7 @@ function TabItemInner({
 
   const runMenuAction = (action: TabMenuAction) => {
     performTabMenuAction(tab.id, action, {
+      sessionBindingNonce: tab.session_binding_nonce,
       rename: () => { setEditName(canonicalTitle); setEditing(true); },
       close: onClose,
     }).catch((error) => console.warn("Tab action failed:", error));

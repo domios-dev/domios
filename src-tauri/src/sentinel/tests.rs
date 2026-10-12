@@ -235,7 +235,7 @@ fn sentinel_regex_fallback_without_adapter() {
 fn sentinel_line_anchored_pattern_matches_crlf_probe_output() {
     let patterns = BTreeMap::from([
         ("passed".into(), "(?m)^passed$".into()),
-        ("waiting".into(), "(?m)^waiting$".into()),
+        ("waiting".into(), "^waiting$".into()),
     ]);
     let crlf = "exit=0\nstdout:\npassed\r\n\nstderr:\n";
     assert_eq!(
@@ -286,6 +286,7 @@ fn create_params() -> super::store::Create {
         every: "10s".into(),
         routes: BTreeMap::new(),
         matches: BTreeMap::new(),
+        model_classification: true,
         rearm_on_change: Default::default(),
         until: None,
         timeout: None,
@@ -741,4 +742,16 @@ fn blueprint_route_catalog_equals_enum_and_scenario_root_ignores_author_transpor
     assert!(job.is_scenario_root());
     job.scenario_id = Some("blueprint_parent".into());
     assert!(!job.is_scenario_root());
+}
+
+#[test]
+fn probe_patterns_normalize_lf_crlf_and_trailing_spaces() {
+    let patterns = BTreeMap::from([("waiting".into(), "^waiting$".into())]);
+    for output in [
+        "exit=0\nstdout:\nwaiting\nstderr:\n",
+        "exit=0\r\nstdout:\r\nwaiting  \r\nstderr:\r\n",
+    ] {
+        assert_eq!(regex_verdict(&patterns, output).bucket, "waiting");
+    }
+    assert_eq!(regex_verdict(&patterns, "unmatched").bucket, "other");
 }

@@ -30,6 +30,7 @@ pub struct JsChatBackend {
     watcher_capable: bool,
     session_config: bool,
     context_owner: ContextOwner,
+    agent_tasks: bool,
     model_catalogue: ModelCatalogueCapability,
     model_catalogue_input_files: Vec<PathBuf>,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
@@ -48,6 +49,7 @@ impl JsChatBackend {
             watcher_capable: false,
             session_config: false,
             context_owner: ContextOwner::Plugin,
+            agent_tasks: false,
             model_catalogue: ModelCatalogueCapability::default(),
             model_catalogue_input_files: Vec::new(),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
@@ -65,6 +67,7 @@ impl JsChatBackend {
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
             context_owner: manifest.capabilities.chat_backend.context_owner(),
+            agent_tasks: manifest.capabilities.chat_backend.agent_tasks,
             model_catalogue: manifest.model_catalogue.clone(),
             model_catalogue_input_files: manifest.model_catalogue.fingerprint_files(
                 super::host_credentials::declared_files(&manifest.credentials),
@@ -191,6 +194,52 @@ impl ChatBackendProvider for JsChatBackend {
         &self.id
     }
 
+    fn supports_agent_tasks(&self) -> bool {
+        self.agent_tasks
+            && super::vm::has_method(&self.vm, "runAgentTask")
+            && super::vm::has_method(&self.vm, "abortAgentTask")
+    }
+
+    fn run_agent_task(
+        &self,
+        request: &crate::agent_task::AgentTaskRequest,
+    ) -> Result<crate::agent_task::AgentTaskResult, String> {
+        crate::agent_task::validate_input(&request.input)?;
+        if !self.supports_agent_tasks() {
+            return Err("provider does not support bounded agent tasks".into());
+        }
+        if request.cancellation.is_cancelled() || std::time::Instant::now() >= request.deadline {
+            return Err("agent task cancelled or expired".into());
+        }
+        let context = serde_json::to_value(&request.input).map_err(|e| e.to_string())?;
+        let _scope =
+            super::host_exec::host_env_scope(chatbackend_host_exec_env(&self.vm, &context));
+        let output = super::vm::call_json_interruptible(
+            &self.vm,
+            "runAgentTask",
+            &[context],
+            request.cancellation.clone(),
+            request.deadline,
+        )
+        .map_err(|e| format!("agent task failed: {e:?}"))?;
+        crate::agent_task::validate_result(output)
+    }
+
+    fn abort_agent_task(&self, run_id: &str) -> Result<(), String> {
+        if !self.supports_agent_tasks() {
+            return Err("provider does not support bounded agent tasks".into());
+        }
+        super::vm::call_json_interruptible::<serde_json::Value>(
+            &self.vm,
+            "abortAgentTask",
+            &[json!(run_id)],
+            crate::converter::ConversionCancellation::default(),
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .map(|_| ())
+        .map_err(|e| format!("agent abort failed: {e:?}"))
+    }
+
     fn display_name(&self) -> &str {
         &self.display_name
     }
@@ -298,6 +347,7 @@ impl ChatBackendProvider for JsChatBackend {
                     cursor: None,
                     // Legacy list pollers do not advertise busy state, so watcher arming is host-gated only.
                     done: None,
+                    ..Default::default()
                 }
             }
             PollOut::Wrapped {
@@ -310,6 +360,7 @@ impl ChatBackendProvider for JsChatBackend {
                     messages,
                     cursor,
                     done,
+                    ..Default::default()
                 }
             }
         })

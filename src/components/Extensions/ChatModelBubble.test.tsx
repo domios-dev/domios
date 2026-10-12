@@ -1,5 +1,4 @@
-// Run: npx tsx src/components/Extensions/ChatModelBubble.test.tsx
-
+import { test, beforeAll } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -10,13 +9,6 @@ import {
 } from "./chatModelBubbleApi";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
-
-type TestFn = () => void | Promise<void>;
-
-const tests: Array<[string, TestFn]> = [];
-function test(name: string, fn: TestFn) {
-  tests.push([name, fn]);
-}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -132,7 +124,7 @@ async function pick(host: HTMLElement, modelId: string) {
   await flush();
 }
 
-setupDom();
+beforeAll(setupDom);
 __setInvokeForTest(async <T,>(command: string): Promise<T> => {
   if (command === "list_agent_providers") return [catalogProvider()] as unknown as T;
   throw new Error(`Unexpected command: ${command}`);
@@ -171,26 +163,6 @@ test("renders the session model instead of the provider default", async () => {
   assert(catalogProvider().default_model === "model-a", "fixture provider default should differ");
   assert(b.textContent?.includes("Model B"), `bubble should show the session model, got: ${b.textContent}`);
   assert(!b.textContent?.includes("Model A"), "bubble must not fall back to the provider default");
-
-  __setChatModelBubbleApiForTest(null);
-  await act(async () => root.unmount());
-});
-
-test("renders as an inline composer-row pill", async () => {
-  const { api } = fakeApi();
-  __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
-  await flush();
-
-  const b = bubble(host);
-  assert(b, "bubble should render");
-  assert(b.classList.contains("ct-chat-model-bubble"), "bubble should expose the composer pill class");
-  assert(b.classList.contains("h-7"), "bubble should match composer pill height");
-  const wrap = b.parentElement as HTMLDivElement | null;
-  assert(wrap, "bubble should have an inline wrapper");
-  assert(wrap.classList.contains("inline-flex"), "bubble should fit in the composer pill row");
-  assert(wrap.style.right === "", `bubble should not use Tab right edge, got: ${wrap.style.right}`);
-  assert(wrap.style.left === "", `bubble should not use Tab left edge, got: ${wrap.style.left}`);
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -240,104 +212,7 @@ test("picking a model invokes switch_model and updates the bubble", async () => 
   );
   assert(bubble(host)?.textContent?.includes("Model B"), "bubble should reflect the newly selected model");
   assert(options(host).length === 0, "dropdown should close after picking");
-
-  __setChatModelBubbleApiForTest(null);
-  await act(async () => root.unmount());
-});
-
-test("picking a model that needsConfirm shows the plugin confirm and only switches on OK", async () => {
-  const describeCalls: string[] = [];
-  const { api, switchCalls } = fakeApi({
-    describeModelSwitch: async (_p, _s, model) => {
-      describeCalls.push(model);
-      return { needsConfirm: true, message: "Loading Model B will unload Model A (VRAM-tight)." };
-    },
-  });
-  __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
-  await flush();
-
-  await pick(host, "model-b");
-
-  assert(describeCalls.length === 1 && describeCalls[0] === "model-b", `describeModelSwitch should be asked first, got ${JSON.stringify(describeCalls)}`);
-  const switchesBeforeOk = switchCalls.length;
-  assert(switchesBeforeOk === 0, "switch must NOT fire before the user confirms");
-  const dialog = confirmDialog();
-  assert(dialog, "confirm dialog should appear when needsConfirm");
-  assert(
-    dialog.textContent?.includes("Loading Model B will unload Model A"),
-    `dialog should show the PLUGIN message, got: ${dialog.textContent}`,
-  );
-
-  const ok = document.querySelector('[data-testid="chat-model-switch-confirm-confirm"]') as HTMLButtonElement | null;
-  assert(ok, "confirm OK button should render");
-  await act(async () => {
-    ok.click();
-  });
-  await flush();
-
-  assert(switchCalls.length === 1 && switchCalls[0].model === "model-b", `switch should fire once on OK, got ${JSON.stringify(switchCalls)}`);
-  assert(!confirmDialog(), "confirm dialog should close after OK");
-  assert(bubble(host)?.textContent?.includes("Model B"), "bubble should reflect the switched model");
-
-  __setChatModelBubbleApiForTest(null);
-  await act(async () => root.unmount());
-});
-
-test("cancelling the confirm leaves the model unchanged", async () => {
-  const { api, switchCalls } = fakeApi({
-    describeModelSwitch: async () => ({ needsConfirm: true, message: "disruptive" }),
-  });
-  __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
-  await flush();
-
-  await pick(host, "model-b");
-  const cancel = document.querySelector('[data-testid="chat-model-switch-confirm-cancel"]') as HTMLButtonElement | null;
-  assert(cancel, "confirm cancel button should render");
-  await act(async () => {
-    cancel.click();
-  });
-  await flush();
-
-  assert(switchCalls.length === 0, "switch must NOT fire on cancel");
-  assert(!confirmDialog(), "confirm dialog should close after cancel");
-  assert(bubble(host)?.textContent?.includes("Model A"), "bubble should keep the original model");
-
-  __setChatModelBubbleApiForTest(null);
-  await act(async () => root.unmount());
-});
-
-test("needsConfirm=false switches directly with no confirm dialog", async () => {
-  const { api, switchCalls } = fakeApi({
-    describeModelSwitch: async () => ({ needsConfirm: false, message: "" }),
-  });
-  __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
-  await flush();
-
-  await pick(host, "model-b");
-
-  assert(!confirmDialog(), "no confirm dialog when needsConfirm=false");
-  assert(switchCalls.length === 1 && switchCalls[0].model === "model-b", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
-  assert(bubble(host)?.textContent?.includes("Model B"), "bubble should reflect the switched model");
-
-  __setChatModelBubbleApiForTest(null);
-  await act(async () => root.unmount());
-});
-
-test("a plugin without describeModelSwitch falls back to a direct switch (no crash)", async () => {
-  // No describeModelSwitch on the api at all — the optional hook is simply absent.
-  const { api, switchCalls } = fakeApi();
-  assert(api.describeModelSwitch === undefined, "this case models the hook being absent");
-  __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
-  await flush();
-
-  await pick(host, "model-b");
-
-  assert(!confirmDialog(), "no confirm dialog without the hook");
-  assert(switchCalls.length === 1 && switchCalls[0].model === "model-b", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
+  assert(confirmDialog() === null, "unsupported confirmation control stays absent");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -379,24 +254,22 @@ test("shows an explicit empty state when the catalog publishes no models", async
   await act(async () => root.unmount());
 });
 
-async function main() {
-  const started = performance.now();
-  let failed = 0;
-  for (const [name, fn] of tests) {
-    try {
-      await fn();
-      console.log(`✓ ${name}`);
-    } catch (error) {
-      failed += 1;
-      console.error(`✗ ${name}`);
-      console.error(error);
-    }
-  }
-  const elapsedMs = performance.now() - started;
-  console.log(`ChatModelBubble tests: ${tests.length - failed}/${tests.length} passed in ${elapsedMs.toFixed(1)}ms`);
-  __setInvokeForTest(null);
-  __setListenForTest(null);
-  if (failed > 0) throw new Error(`${failed} test(s) failed`);
-}
 
-void main();
+
+test("the default API switches directly through the mapped daemon command", async () => {
+  __setChatModelBubbleApiForTest(null);
+  const calls: string[] = [];
+  __setInvokeForTest(async <T,>(command: string) => {
+    calls.push(command);
+    if (command === "list_agent_providers") return [catalogProvider()] as T;
+    if (command === "chatbackend_session_info") return { model: "model-a" } as T;
+    if (command === "chatbackend_switch_model") return { model: "model-b" } as T;
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
+  await pick(host, "model-b");
+  assert(calls.filter(c => c.startsWith("chatbackend_")).join(",") === "chatbackend_session_info,chatbackend_switch_model", "only supported session and switch commands run");
+  assert(bubble(host)?.textContent?.includes("Model B"), "selected model is rendered");
+  assert(confirmDialog() === null, "unsupported confirmation control stays absent");
+  await act(async () => root.unmount());
+});

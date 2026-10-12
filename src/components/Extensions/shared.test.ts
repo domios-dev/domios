@@ -1,9 +1,11 @@
+import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import { apiBaseOf, type AppConfigShape } from "./shared";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+configureDaemonTransport({ origin: "http://fixture.test", token: "tok-a" });
 const configA: AppConfigShape = { api: { host: "127.0.0.1", port: 7686, token: "tok-a" } };
 const { headers: headersA1 } = apiBaseOf(configA);
 const { headers: headersA2 } = apiBaseOf(configA);
@@ -14,11 +16,13 @@ const configA2: AppConfigShape = { api: { host: "127.0.0.1", port: 7686, token: 
 const { headers: headersA3 } = apiBaseOf(configA2);
 assert(headersA1 === headersA3, "apiBaseOf must return the same headers reference for a structurally-equal but distinct config object");
 
+configureDaemonTransport({ origin: "http://fixture.test", token: "tok-b" });
 const configB: AppConfigShape = { api: { host: "127.0.0.1", port: 7686, token: "tok-b" } };
 const { headers: headersB } = apiBaseOf(configB);
 assert(headersB !== headersA1, "apiBaseOf must return a new headers reference when the auth token changes");
 assert(headersB.Authorization === "Bearer tok-b", "headers must carry the new token's Authorization header");
 
+configureDaemonTransport({ origin: "http://fixture.test", token: () => null });
 const { headers: headersNoAuth1 } = apiBaseOf(null);
 const { headers: headersNoAuth2 } = apiBaseOf({});
 assert(headersNoAuth1 === headersNoAuth2, "apiBaseOf must return the same headers reference across configs with no token");

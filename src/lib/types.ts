@@ -812,6 +812,11 @@ export interface UiConfig {
 }
 
 export interface AppConfig {
+  updater?: {
+    channel?: string;
+    allow_provider_updates_in_non_prod?: boolean;
+    auto_update_provider_clis?: boolean;
+  };
   theme: ThemeConfig;
   font: FontConfig;
   terminal: TerminalConfigSettings;

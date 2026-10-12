@@ -14,7 +14,6 @@ import {
   renameSync,
   rmSync,
   statSync,
-  utimesSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
@@ -96,12 +95,6 @@ function outputRaw(cmd, args) {
   if (res.error) throw res.error;
   if (res.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed`);
   return res.stdout;
-}
-
-function touch(path) {
-  const full = join(repo, path);
-  const now = new Date();
-  utimesSync(full, now, now);
 }
 
 function parseOptions(args) {
@@ -496,7 +489,6 @@ function runRegularPrep() {
   }
 
   const embedBundle = join(repo, "src-tauri", "bundled-embed", `codeterm-embed-${host}${isWin ? ".exe" : ""}`);
-  touch("cli/src/main.rs");
   run(cargo, ["build", "--release", "--manifest-path", "cli/Cargo.toml"]);
   process.env.CODETERM_DEV = "1";
   run(node, ["scripts/bundle-cli.js"]);

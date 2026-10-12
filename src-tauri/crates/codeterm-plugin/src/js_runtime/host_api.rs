@@ -23,6 +23,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
+mod filesystem;
 mod sqlite;
 
 use super::manifest::{CredentialConfig, PluginManifest};
@@ -111,6 +112,9 @@ pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    project_read_roots: Vec<PathBuf>,
+    project_write_roots: Vec<PathBuf>,
+    denied_writes: Vec<PathBuf>,
     /// Read-roots granted at runtime for tab cwds the HOST hands the plugin
     /// (bubble/glance ctx). Never fed from plugin-authored values (view args).
     granted_read_roots: parking_lot::Mutex<Vec<PathBuf>>,
@@ -143,6 +147,8 @@ pub(super) struct PluginSandbox {
     /// Whether `host.analytics` is permitted (`analytics` grant).
     analytics_allowed: bool,
     graph_events_allowed: bool,
+    local_recording_allowed: bool,
+    receiver_status_query: Option<crate::local_recording::ReceiverStatusQuery>,
     /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
     /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
     settings_json: parking_lot::Mutex<String>,
@@ -157,6 +163,9 @@ impl PluginSandbox {
             unrestricted: true,
             read_roots: Vec::new(),
             write_roots: Vec::new(),
+            project_read_roots: Vec::new(),
+            project_write_roots: Vec::new(),
+            denied_writes: Vec::new(),
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             denied_reads: Vec::new(),
             credentials: Vec::new(),
@@ -172,6 +181,8 @@ impl PluginSandbox {
             spawn_agents_allowed: true,
             analytics_allowed: true,
             graph_events_allowed: true,
+            local_recording_allowed: false,
+            receiver_status_query: None,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -182,6 +193,9 @@ impl PluginSandbox {
             unrestricted: false,
             read_roots,
             write_roots,
+            project_read_roots: Vec::new(),
+            project_write_roots: Vec::new(),
+            denied_writes: Vec::new(),
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             denied_reads: Vec::new(),
             credentials: Vec::new(),
@@ -197,6 +211,8 @@ impl PluginSandbox {
             spawn_agents_allowed: false,
             analytics_allowed: false,
             graph_events_allowed: false,
+            local_recording_allowed: false,
+            receiver_status_query: None,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -219,6 +235,7 @@ impl PluginSandbox {
         self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
         self.analytics_allowed = self.unrestricted || perms.analytics;
         self.graph_events_allowed = self.unrestricted || perms.graph_events;
+        self.local_recording_allowed = perms.local_recording;
         self
     }
 
@@ -322,6 +339,24 @@ impl PluginSandbox {
         self.graph_events_allowed
     }
 
+    pub(super) fn with_receiver_status_query(
+        mut self,
+        query: Option<crate::local_recording::ReceiverStatusQuery>,
+    ) -> Self {
+        self.receiver_status_query = query.filter(|query| query.valid());
+        self
+    }
+
+    pub(super) fn receiver_status_query(
+        &self,
+    ) -> Option<&crate::local_recording::ReceiverStatusQuery> {
+        self.receiver_status_query.as_ref()
+    }
+
+    pub(super) fn local_recording_allowed(&self) -> bool {
+        self.local_recording_allowed
+    }
+
     /// Attach the plugin's settings blob (`config.yaml` → JSON) at load.
     pub(super) fn with_settings(self, settings_json: String) -> Self {
         *self.settings_json.lock() = settings_json;
@@ -345,24 +380,6 @@ impl PluginSandbox {
     /// Resolve the host `ServiceContext`, or `None` if not yet populated / gone.
     pub(super) fn service(&self) -> Option<Arc<dyn PluginHostCtx>> {
         self.svc.get()
-    }
-
-    fn path_under(roots: &[PathBuf], path: &str) -> bool {
-        // to the lexical path when the target doesn't exist yet (writes).
-        let target = std::fs::canonicalize(path)
-            .ok()
-            .or_else(|| {
-                Path::new(path)
-                    .parent()
-                    .and_then(|p| std::fs::canonicalize(p).ok())
-                    .map(|p| p.join(Path::new(path).file_name().unwrap_or_default()))
-            })
-            .unwrap_or_else(|| PathBuf::from(path));
-        roots.iter().any(|root| {
-            std::fs::canonicalize(root)
-                .map(|r| target.starts_with(&r))
-                .unwrap_or(false)
-        })
     }
 
     /// Oldest grant is evicted past this; a tab rarely visits this many cwds.
@@ -399,28 +416,6 @@ impl PluginSandbox {
             let denied = std::fs::canonicalize(denied).unwrap_or_else(|_| denied.clone());
             denied == target
         })
-    }
-
-    pub(super) fn can_read(&self, path: &str) -> bool {
-        if self.is_denied_read(path) {
-            self.record_denial();
-            return false;
-        }
-        let allowed = self.unrestricted
-            || Self::path_under(&self.read_roots, path)
-            || Self::path_under(&self.granted_read_roots.lock(), path);
-        if !allowed {
-            self.record_denial();
-        }
-        allowed
-    }
-
-    pub(super) fn can_write(&self, path: &str) -> bool {
-        let allowed = self.unrestricted || Self::path_under(&self.write_roots, path);
-        if !allowed {
-            self.record_denial();
-        }
-        allowed
     }
 
     /// `envGet` policy: unrestricted plugins read anything; confined ones can't
@@ -616,6 +611,10 @@ pub(super) fn install(
         std::fs::canonicalize(&path)
             .ok()
             .map(|path| codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+    });
+    let sb = sandbox.clone();
+    bind!("projectWriteAllowed", move |root: String| -> bool {
+        sb.project_write_allowed(&root)
     });
     let sb = sandbox.clone();
     bind!("jsonBooleanRecord", move |path: String,

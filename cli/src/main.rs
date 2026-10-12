@@ -232,7 +232,12 @@ fn main_impl() {
         return;
     };
 
-    let (mut client, resolved_socket) = match SocketClient::connect_local() {
+    let connection = if matches!(&cli.command, Commands::RestApi { .. }) {
+        SocketClient::connect_socket_only()
+    } else {
+        SocketClient::connect_local()
+    };
+    let (mut client, resolved_socket) = match connection {
         Ok(connection) => connection,
         Err(e) => {
             crate::cmd::print::fail(1, e.to_string());
@@ -511,6 +516,18 @@ fn main_impl() {
 
         Commands::Cron { action } => {
             cmd::cron::handle_cron(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::RestApi { action } => {
+            let result = cmd::rest_api::command_result(
+                &action,
+                client.call_detailed(cmd::rest_api::rpc_method(&action), None),
+            );
+            match result {
+                Ok(value) if !cli.json => print!("{}", cmd::rest_api::render_status(&value)),
+                result => cmd::print::handle_cli_result(cli.json, result),
+            }
             return;
         }
 

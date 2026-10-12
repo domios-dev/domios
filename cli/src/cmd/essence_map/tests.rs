@@ -111,7 +111,7 @@ fn essence_map_contract_accepts_valid_document_anchor_sets() {
     assert_eq!(summary.core, 13);
     assert_eq!(summary.clients, 2);
     assert_eq!(summary.runs_on, 94);
-    assert_eq!(summary.feeds, 71);
+    assert_eq!(summary.feeds, 70);
     assert_eq!(summary.part_of, 12);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
@@ -276,7 +276,7 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
     assert_eq!(summary.nodes, 64);
-    assert_eq!(summary.edges, 179);
+    assert_eq!(summary.edges, 178);
 }
 
 #[test]

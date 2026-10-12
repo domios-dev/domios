@@ -43,7 +43,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     && (!tab.backing || tab.backing.kind === "pty");
   const readyShell = utility && shell && tab?.boot_stage === "shell_ready";
   const launching = tab?.agent_booting === true || (startingStages.has(tab?.boot_stage) && !readyShell)
-    || tab?.boot_stage === "awaiting_owner_prompt" || (declaresAgent && !sessionBound);
+    || tab?.boot_stage === "awaiting_owner_prompt" || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready");
   const authoritativeStatus = status ?? (live?.state === "working" ? "Working"
     : live?.state === "question" ? "Waiting" : "Idle");
   let kind: TabActivity["kind"];

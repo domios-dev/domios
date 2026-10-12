@@ -1,3 +1,4 @@
+import { daemonFetch } from "../../lib/webApi";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import {
@@ -10,7 +11,7 @@ import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import type { MemActivityEvent } from "./useActivityPulses";
-import { baseUrl, authHeaders } from "./memoryApi";
+import { authHeaders } from "./memoryApi";
 import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
@@ -80,7 +81,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
 
   useEffect(() => {
     let active = true;
-    fetch(`${baseUrl(api)}/api/mem/activity/recent?since_ms=0`, { headers: authHeaders(api) })
+    daemonFetch(api, `/api/mem/activity/recent?since_ms=0`, { headers: authHeaders(api) })
       .then((r) => r.json())
       .then((data) => {
         if (!active) return;
@@ -435,6 +436,7 @@ export function WorkerCard({ worker, onOpen, onKill, count = 1 }: WorkerCardProp
           providerId={worker.agent_provider}
           className="text-[12px] shrink-0"
           title={`Executed by ${worker.agent_provider}`}
+          ariaLabel={`Executed by ${worker.agent_provider}`}
         />
       )}
       {worker.model && (

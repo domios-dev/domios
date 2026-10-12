@@ -1,3 +1,4 @@
+import { retainedSendReceipt } from "./send-receipt.mjs";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -79,7 +80,7 @@ async function api(path, method = "GET", body, signal = AbortSignal.timeout(30_0
   return text ? JSON.parse(text) : null;
 }
 
-async function command(args) {
+async function command(args, retainSend = false) {
   return new Promise((accept, reject) => {
     const child = spawn(process.env.ENDURE_BASH ?? "bash", args, {
       cwd: root, stdio: ["ignore", "pipe", "pipe"], signal: AbortSignal.timeout(deadlineMs),
@@ -88,7 +89,8 @@ async function command(args) {
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", reject);
-    child.on("close", (code) => code === 0 ? accept(stdout.trim()) : reject(new Error(`CLI exit ${code}: ${stdout} ${stderr}`)));
+    child.on("close", (code) => code === 0 || (retainSend && retainedSendReceipt(code, stdout))
+      ? accept(stdout.trim()) : reject(new Error(`CLI exit ${code}: ${stdout} ${stderr}`)));
   });
 }
 async function dc(...args) {
@@ -250,8 +252,10 @@ async function probe(fixture, n, observeOnly = false) {
     row.prompt_file = payload.relativePath;
     row.send_started_at = new Date().toISOString();
     row.phase = "sending";
-    row.send_response = await dcJson("--as-tab", fixture.id, "send", "--tab", fixture.id,
-      "--require-agent", "--from-pad", payload.relativePath);
+    row.send_response = unwrap(JSON.parse(await command([
+      join(root, "evals/restart-endurance/run.sh"), "--dc", "--as-tab", fixture.id, "send", "--tab", fixture.id,
+      "--require-agent", "--from-pad", payload.relativePath, "--json",
+    ], true)));
     row.phase = "waiting_for_session_binding";
     const bound = await waitReady(events, fixture.id, signal, fixture.first_turn_policy, true);
     row.bound_session = bound.agent_session_id;

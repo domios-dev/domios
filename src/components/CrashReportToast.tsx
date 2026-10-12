@@ -1,3 +1,4 @@
+import { nativeBridge } from "../lib/nativeBridge";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
@@ -122,7 +123,7 @@ export function RecoveryStatusBanner() {
         crash.work_policy.ambiguous_execution ? `Ambiguous work: ${crash.work_policy.ambiguous_execution.missing_bindings} bindings not restored | ${crash.work_policy.ambiguous_execution.disposition}` : null,
       ].filter(Boolean).join("\n"),
       severity: "Error", level: "failure", lifetime_ms: 15_000, update_only: true,
-      local_actions: payload?.dir ? [{ label: "Open folder", run: () => invoke<void>("open_folder", { path: payload.dir }) }] : undefined,
+      local_actions: payload?.dir ? [{ label: "Open folder", run: () => nativeBridge.openFolder(payload.dir!) }] : undefined,
     });
   }, [crashKey, payloadKey, recovery?.crash_presentation, upsertToast, dismissToast]);
 

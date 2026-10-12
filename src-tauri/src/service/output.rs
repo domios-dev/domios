@@ -71,7 +71,7 @@ fn store_agent_state_and_record_turn_resume_edge(
     start_epoch: Option<&str>,
     shutting_down: bool,
 ) -> (bool, bool) {
-    if tab.agent_state.as_ref() == Some(&new_state) {
+    if tab.structured_control_active || tab.agent_state.as_ref() == Some(&new_state) {
         return (false, false);
     }
     tab.agent_state = Some(new_state);
@@ -150,6 +150,7 @@ impl ServiceContext {
             );
         }
 
+        self.process_shell_markers_for_pty(pty_id, data);
         // Single read lock captures all tab data needed for this chunk.
         // Concurrent PTY handlers for different tabs can read in parallel.
         let (
@@ -157,7 +158,6 @@ impl ServiceContext {
             agent_type,
             has_active_prompt,
             is_auto_approve,
-            shell_nonce,
             tab_cwd,
             agent_session_id,
             directory_trust_eligible,
@@ -170,7 +170,6 @@ impl ServiceContext {
             let at = tab.and_then(|p| p.agent_type.clone());
             let active_prompt = tab.and_then(|p| p.pending_prompt.as_ref()).is_some();
             let auto_approve = tab.map(|p| p.auto_approve).unwrap_or(false);
-            let nonce = tab.and_then(|p| p.shell_integration_nonce.clone());
             let cwd = tab.and_then(|p| p.cwd.clone());
             let sid = tab.and_then(|p| p.agent_session_id.clone());
             let trust = tab.is_some_and(super::directory_trust::directory_trust_check_applies);
@@ -182,7 +181,6 @@ impl ServiceContext {
                 at,
                 active_prompt,
                 auto_approve,
-                nonce,
                 cwd,
                 sid,
                 trust,
@@ -194,7 +192,6 @@ impl ServiceContext {
         if let Some(tab_id) = tab_id.as_deref() {
             super::structured_prompt::wake_for_tab(tab_id);
         }
-        self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
         if tab_id
             .as_deref()
             .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
@@ -907,7 +904,7 @@ impl ServiceContext {
                                 ack.kind.label(),
                                 tab_id
                             );
-                            self.create_notification(
+                            self.log_system_notice(
                                 "General Agent auto-acknowledged a blocker".to_string(),
                                 Some(format!(
                                     "Main selected option {} for {}.",

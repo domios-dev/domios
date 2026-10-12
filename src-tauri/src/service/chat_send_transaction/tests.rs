@@ -793,3 +793,146 @@ fn emitted_wire_field_matches_chat_core_consumer_correlation_id() {
     // ca6aebc5) reads as NormalizedChatMessage.correlationId.
     assert_eq!(json["correlationId"], serde_json::json!("tok-Z"));
 }
+
+#[test]
+fn model_command_hold_is_queued_until_written_and_exact_turn_delivered() {
+    let ledger = ChatSendLedger::default();
+    let record: UserSendRecord = serde_json::from_value(serde_json::json!({
+        "send_id": "send-1",
+        "client_token": "token-1",
+        "acceptance_sequence": 1,
+        "ledger_sequence": 1,
+        "authority": {
+            "tab_id": "tab-1",
+            "pty_id": "pty-1",
+            "binding_nonce": "nonce-1",
+            "pty_session_generation": 1,
+            "provider_id": "provider",
+            "session_id": "session-1",
+            "observed_session_id": "session-1",
+            "prelaunch": false
+        },
+        "owner_epoch": "epoch-1",
+        "reservation": 1,
+        "held_before_readiness": false,
+        "state": "queued",
+        "handoff_session": null,
+        "typed_follow_up": null,
+        "original_digest": "original",
+        "original_bytes": 14,
+        "prepared_digest": "prepared",
+        "prepared_bytes": 14,
+        "body_digest": null,
+        "body_path": null,
+        "body_bytes": 0
+    }))
+    .unwrap();
+    let pending = ledger.admit_user(&record);
+    let held = ledger
+        .set_user_pending_reason(&pending.send_id, Some("awaiting_model_command"))
+        .unwrap();
+    assert_eq!(held.state, ChatSendState::Pending);
+    assert_eq!(serde_json::to_value(&held).unwrap()["state"], "held");
+    assert_eq!(
+        held.pending_reason.as_deref(),
+        Some("awaiting_model_command")
+    );
+    assert!(!ledger.user_payload_may_have_been_written(&held.send_id));
+    assert!(ledger.begin_user_handoff(
+        &record,
+        "opaque payload",
+        crate::service::chat_send_evidence::CapturedSendEvidence {
+            anchor: Some(SendEvidenceAnchor {
+                provider_id: "provider".into(),
+                cwd: "/opaque".into(),
+                session_id: "session-1".into(),
+                window: EvidenceWindow::Jsonl {
+                    transcript_offset: 100,
+                },
+                turn_normalization: Default::default(),
+            }),
+            live_binding: Some(SendLiveBinding {
+                session_id: Some("session-1".into()),
+                binding_nonce: Some("nonce-1".into()),
+            }),
+            ..Default::default()
+        },
+    ));
+    let written = ledger.mark_user_written(&held.send_id).unwrap();
+    assert_eq!(written.state, ChatSendState::Written);
+    assert!(written.pending_reason.is_none());
+    let messages = [crate::agent::chat_types::ChatMsg {
+        id: "turn-1".into(),
+        kind: "user".into(),
+        content: "opaque payload".into(),
+        ..Default::default()
+    }];
+    let provenance = LiveProvenance {
+        source_session_id: "session-1".into(),
+        source_binding_nonce: Some("nonce-1".into()),
+        range: crate::service::tab_chat::tailer::SourceRange {
+            start_offset: 100,
+            offset: 200,
+            incarnation: Some(crate::service::tab_chat::registry::SourceIncarnation {
+                id: "incarnation-1".into(),
+                absence_witness: None,
+            }),
+        },
+        positions: vec![TurnPosition {
+            record_start: Some(100),
+            record_row: 0,
+        }],
+    };
+    let confirm = |session, nonce, provenance: &LiveProvenance| {
+        ledger.advance_live_evidence("tab-1", session, Some(nonce), provenance);
+        ledger.confirm_owned_live_turns_with(
+            "tab-1",
+            (session, Some(nonce)),
+            &messages[0],
+            provenance.positions[0],
+            provenance,
+            |authority, session, nonce| {
+                authority == &record.authority && session == "session-1" && nonce == "nonce-1"
+            },
+        )
+    };
+    assert!(confirm("foreign-session", "nonce-1", &provenance).is_empty());
+    assert!(confirm("session-1", "foreign-nonce", &provenance).is_empty());
+    let mut stale = provenance.clone();
+    stale.range.start_offset = 0;
+    stale.range.offset = 100;
+    stale.positions[0].record_start = Some(99);
+    assert!(confirm("session-1", "nonce-1", &stale).is_empty());
+    assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Written);
+    let delivered = confirm("session-1", "nonce-1", &provenance);
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].state, ChatSendState::Sent);
+    assert_eq!(delivered[0].send_id, held.send_id);
+    assert!(confirm("session-1", "nonce-1", &provenance).is_empty());
+}
+
+#[test]
+fn failed_user_admission_restore_is_retried_before_next_reservation() {
+    let ledger = ChatSendLedger::default();
+    let attempts = std::cell::Cell::new(0);
+    let admit = || {
+        ledger.restore_before_user_admission("tab-1", || {
+            attempts.set(attempts.get() + 1);
+            if attempts.get() == 1 {
+                Err("opaque-transient-storage-error".into())
+            } else {
+                Ok(())
+            }
+        })?;
+        Ok::<_, String>(ledger.reserve_identity())
+    };
+
+    assert_eq!(admit().unwrap_err(), "opaque-transient-storage-error");
+    assert_eq!(attempts.get(), 1);
+    let first = admit().unwrap();
+    assert_eq!(attempts.get(), 2);
+    let second = admit().unwrap();
+    assert_eq!(attempts.get(), 2);
+    assert_ne!(first.0, second.0);
+    assert_eq!(second.1, first.1 + 1);
+}

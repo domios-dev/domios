@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import type { ApiConfig, ProviderDescriptor } from "../../lib/types";
 import { resolveCanvasSpawnProvider, spawnOrchestrator } from "./canvasApi";
 
@@ -21,6 +22,7 @@ function provider(id: string, transport: ProviderDescriptor["transport"]): Provi
 }
 
 async function run() {
+  configureDaemonTransport({ origin: "http://fixture.test", token: "fixture-token" });
   const originalFetch = globalThis.fetch;
   const payloads: unknown[] = [];
   globalThis.fetch = (async (_input, init) => {

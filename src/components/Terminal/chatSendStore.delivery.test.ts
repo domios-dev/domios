@@ -2,7 +2,7 @@ import "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  addChatSend, beginChatSendRetry, failChatSendRequest, forgetChatSendsInMemory,
+  addChatSend, beginChatSendRetry, failChatSendRequest, forgetChatSendsInMemory, removeChatSend,
   observeDeliveryStatus, readChatSends, reconcileDeliveryStatuses, setChatSendDraft,
 } from "./chatSendStore";
 import { deliveryState } from "./chatDeliveryModel";
@@ -28,13 +28,21 @@ test("Retry preserves the row, guards repeated clicks, and accepts only the fres
   assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
 });
 
+test("voice cancellation removes only its exact optimistic row", () => {
+  const tabId = "voice-cancel-store";
+  addChatSend(tabId, { id: "voice-row", correlationId: "voice-token", content: "voice", sentAtMs: 10 });
+  addChatSend(tabId, { id: "other-row", correlationId: "other-token", content: "other", sentAtMs: 11 });
+  removeChatSend(tabId, "voice-token");
+  assert.deepEqual(readChatSends(tabId).map((send) => send.id), ["other-row"]);
+});
+
 test("unconfirmed writes never offer Retry even after a late request rejection", () => {
   const tabId = "uncertain-store";
   addChatSend(tabId, { id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1700000000000 });
   observeDeliveryStatus({ tab_id: tabId, send_id: "tx", correlationId: "token", state: "submit_unconfirmed",
     error: null, ledger_id: "ledger", sequence: 3, retained_from: 1 });
   failChatSendRequest(tabId, "token");
-  assert.equal(deliveryState(readChatSends(tabId)[0]), "sending");
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
   assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
 });
 

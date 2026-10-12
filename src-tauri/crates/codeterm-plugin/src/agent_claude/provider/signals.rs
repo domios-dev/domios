@@ -39,6 +39,7 @@ pub(super) fn session(record: &Value) -> Option<SessionObservations> {
         && !is_error
         && record.get("message").is_some_and(Value::is_object);
     (is_error || permission_mode.is_some() || clears_api_error).then_some(SessionObservations {
+        unavailable_model: None,
         api_error,
         permission_mode,
         clears_api_error,

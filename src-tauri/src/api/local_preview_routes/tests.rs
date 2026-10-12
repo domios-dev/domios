@@ -55,9 +55,10 @@ async fn referenced_images_documents_and_pages_match_desktop_shape_and_headers()
         assert_eq!(response.status(), StatusCode::OK);
         assert_headers(&response);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
-        let desktop = crate::commands::html_preview::read_local_preview_file_core(
+        let desktop = crate::commands::html_preview::read_local_preview_file_guarded(
             path.to_str().unwrap(),
             kind,
+            |_, _| Ok(()),
         )
         .unwrap();
         assert_eq!(json(response).await, serde_json::to_value(desktop).unwrap());
@@ -180,11 +181,14 @@ async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals
         (&large_image, "image"),
     ] {
         fixture.reference(&fixture.owner, path);
-        assert!(crate::commands::html_preview::read_local_preview_file_core(
-            path.to_str().unwrap(),
-            kind
-        )
-        .is_err());
+        assert!(
+            crate::commands::html_preview::read_local_preview_file_guarded(
+                path.to_str().unwrap(),
+                kind,
+                |_, _| Ok(()),
+            )
+            .is_err()
+        );
         let response = fixture.read(&fixture.owner, path, kind).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_headers(&response);
@@ -237,24 +241,39 @@ async fn batch_check_filters_unreferenced_secret_missing_and_unsupported_paths()
     assert_eq!(json(response).await["data"], "opaque");
 }
 
-#[test]
-fn admission_bounds_concurrency_and_requests_without_timer_coordination() {
-    let admission = Admission::default();
+#[tokio::test]
+async fn admission_queues_a_burst_and_still_bounds_requests() {
+    let admission = Arc::new(Admission::default());
     let now = Instant::now();
-    let permits: Vec<_> = (0..4).map(|_| admission.admit(now).unwrap()).collect();
-    assert_eq!(
-        admission.admit(now).unwrap_err(),
-        StatusCode::TOO_MANY_REQUESTS
-    );
-    drop(permits);
-    for _ in 4..REQUESTS_PER_WINDOW {
-        drop(admission.admit(now).unwrap());
+    let mut permits = Vec::new();
+    for _ in 0..4 {
+        permits.push(admission.admit(now).await.unwrap());
     }
     assert_eq!(
-        admission.admit(now).unwrap_err(),
+        admission
+            .admit_within(now, Duration::ZERO)
+            .await
+            .unwrap_err(),
         StatusCode::TOO_MANY_REQUESTS
     );
-    assert!(admission.admit(now + WINDOW).is_ok());
+    let queued = {
+        let admission = admission.clone();
+        tokio::spawn(async move { admission.admit(now).await.is_ok() })
+    };
+    drop(permits.pop());
+    assert!(
+        queued.await.unwrap(),
+        "a queued read is admitted once a permit frees"
+    );
+    drop(permits);
+    for _ in 6..REQUESTS_PER_WINDOW {
+        drop(admission.admit(now).await.unwrap());
+    }
+    assert_eq!(
+        admission.admit(now).await.unwrap_err(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert!(admission.admit(now + WINDOW).await.is_ok());
 }
 
 #[tokio::test]

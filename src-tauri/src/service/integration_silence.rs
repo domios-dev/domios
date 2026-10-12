@@ -21,7 +21,8 @@ use crate::notification::dedupe::{
 use crate::session::lifecycle::BindingSource;
 use codeterm_types::notification::NotifyLevel;
 
-use super::notification::{NotificationOrigin, PushIntent};
+#[cfg(test)]
+use super::notification::PushIntent;
 use super::ServiceContext;
 
 #[cfg(test)]
@@ -550,6 +551,7 @@ impl IntegrationSilence {
         lines.join("\n")
     }
 
+    #[cfg(test)]
     /// The declared level is the whole routing decision the user configures;
     /// the condition doubles as the coalescing key.
     pub fn intent(&self) -> PushIntent {
@@ -766,7 +768,7 @@ pub fn evaluate(provider_id: &str, facts: &IntegrationFacts) -> LaunchVerdict {
 impl ServiceContext {
     /// Announce once per transition, from the tab that launched. Called on the
     /// launch thread: reading the provider's install report touches disk.
-    pub(crate) fn announce_integration_silence(&self, tab_id: &str, provider_id: &str) {
+    pub(crate) fn announce_integration_silence(&self, _tab_id: &str, provider_id: &str) {
         let consent_recorded = crate::config::load_config()
             .agents
             .get(provider_id)
@@ -810,15 +812,10 @@ impl ServiceContext {
                     return;
                 }
                 record_announced(provider_id, &observed);
-                self.create_notification_ext(
+                self.log_system_notice(
                     silence.title(&display_name),
                     Some(silence.body()),
                     Some("warning"),
-                    None,
-                    None,
-                    NotificationOrigin::local_tab(tab_id.to_string()),
-                    silence.intent(),
-                    None,
                 );
             }
         }

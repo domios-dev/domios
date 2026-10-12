@@ -78,7 +78,8 @@ jobs:
   changed:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
     name: tree is new
-    runs-on: [self-hosted, linux-build]
+    # Every job waits on this gate; keep it off the long Linux Rust queue.
+    runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 5
     outputs:
       run: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.host == 'true' }}
@@ -226,7 +227,12 @@ jobs:
       - name: Rust lib tests
         # Whole workspace — app + every extracted crate. Warm execution ~33s;
         # cold cost is compilation, absorbed by sccache + incremental caches.
-        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib
+        run: 'cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib -- --skip startup::rest_api::tests::'
+
+      # A concurrent test's fork holds a copy of the listener until exec, so listener
+      # rebind tests run in their own process (#620).
+      - name: Rust REST listener lifecycle tests
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
 
       - name: CLI tests
         run: cargo test --manifest-path cli/Cargo.toml
@@ -264,7 +270,12 @@ jobs:
       - name: Rust lib tests
         # Whole workspace — app + every extracted crate. Warm execution ~33s;
         # cold cost is compilation, absorbed by sccache + incremental caches.
-        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib
+        run: 'cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib -- --skip startup::rest_api::tests::'
+
+      # A concurrent test's fork holds a copy of the listener until exec, so listener
+      # rebind tests run in their own process (#620).
+      - name: Rust REST listener lifecycle tests
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
 
       - name: CLI tests
         run: cargo test --manifest-path cli/Cargo.toml
@@ -349,7 +360,12 @@ jobs:
 
       - name: Rust lib tests
         shell: pwsh
-        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib
+        run: 'cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib -- --skip startup::rest_api::tests::'
+
+      # Same rebind isolation as Unix (#620): on Windows a concurrent child launch also holds the listener.
+      - name: Rust REST listener lifecycle tests
+        shell: pwsh
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
 
       - name: CLI tests
         shell: pwsh

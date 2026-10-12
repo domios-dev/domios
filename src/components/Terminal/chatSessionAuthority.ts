@@ -5,6 +5,25 @@ export interface TranscriptAuthority {
   session_binding_nonce: string | null;
 }
 
+export function transcriptAuthorityMatches(
+  listener: TranscriptAuthority | null,
+  sessionId: string | null,
+  nonce: string | null | undefined,
+): boolean {
+  return listener != null && listener.source_session_id === sessionId
+    && (listener.session_binding_nonce ?? null) === (nonce ?? null);
+}
+
+export function needsTranscriptAttachment(
+  requested: TranscriptAuthority | null,
+  sessionId: string | null,
+  nonce: string | null | undefined,
+  active: boolean,
+  listenerReady: boolean,
+): boolean {
+  return active && listenerReady && !transcriptAuthorityMatches(requested, sessionId, nonce);
+}
+
 export type ChatAttachmentState =
   | "idle"
   | "attaching"
@@ -23,10 +42,11 @@ export function attachmentActivity(
   state: ChatAttachmentState,
   loading: boolean,
   hadBoundSession: boolean,
+  hasBoundSession = hadBoundSession,
 ): { loading: boolean; recovering: boolean } {
   return {
     loading: state !== "attached" && loading,
-    recovering: hadBoundSession && (state === "awaiting_store" || state === "awaiting_session"),
+    recovering: hadBoundSession && (state === "awaiting_store" || (state === "awaiting_session" && hasBoundSession)),
   };
 }
 
@@ -69,6 +89,5 @@ export function canAdoptTranscriptAuthority(
   allowUnboundAuthority = false,
 ): boolean {
   if (tabSessionId == null && !allowUnboundAuthority) return false;
-  return incoming.source_session_id === tabSessionId
-    && (incoming.session_binding_nonce ?? null) === tabSessionBindingNonce;
+  return transcriptAuthorityMatches(incoming, tabSessionId, tabSessionBindingNonce);
 }

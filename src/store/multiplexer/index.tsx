@@ -1,3 +1,4 @@
+import { teamCallerClaim } from "../../lib/teamActions";
 import {
   useCallback,
   useMemo,
@@ -36,6 +37,7 @@ import type {
 } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
+import { acceptsPageFocus } from "./pageSelection";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -162,7 +164,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
-    dispatch({ type: "SET_STATE", state: guarded });
+    dispatch({ type: "SET_STATE", state: guarded, pageOwnedSelection: IS_WEB });
     const remoteTabs = Object.fromEntries(
       Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
     );
@@ -540,20 +542,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("codeterm-web-boot-changed", onBootChanged);
     unlisteners.push(() => window.removeEventListener("codeterm-web-boot-changed", onBootChanged));
 
-    // Backend owns `focused_tab_id`; background events don't emit `tab-focused`.
-    // Focus updates come only from CLI/REST or service fallback when the tab closes.
     listen<{ tab_id: string }>("tab-focused", (event) => {
       const tabId = event.payload.tab_id;
-      if (stateRef.current.tabs[tabId]) {
-        dispatch({ type: "SET_FOCUSED_TAB", tabId });
-      } else {
-        // Focus may arrive before full state merge; retry once after a short delay.
-        setTimeout(() => {
-          if (stateRef.current.tabs[tabId]) {
-            dispatch({ type: "SET_FOCUSED_TAB", tabId });
-          }
-        }, 100);
-      }
+      if (!acceptsPageFocus(stateRef.current, tabId, IS_WEB)) return;
+      if (stateRef.current.tabs[tabId]) dispatch({ type: "SET_FOCUSED_TAB", tabId });
+      else void refreshFromBackend();
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<unknown>(SURFACE_ACTIVITY_EVENT, (event) => recordSurfaceActivity(event.payload))
@@ -798,7 +791,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (spawnInFlight.current.has(guardKey)) return null;
       spawnInFlight.current.add(guardKey);
       try {
-        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke);
+        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke, { model, reasoningEffort, preset });
         applyBackendState(result.snapshot);
         return { workspaceId: result.workspace_id, tabId: result.tab_id };
       } catch (error) {
@@ -806,25 +799,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         return null;
       } finally {
         spawnInFlight.current.delete(guardKey);
-      }
-    }
-    const useRestSpawn = IS_WEB;
-    if (useRestSpawn) {
-      try {
-        const res = await guardedWebJson<{ tab_id: string }>("POST", "/api/agents/spawn", {
-          agent: agentId,
-          workspace_id: workspaceId,
-          cwd,
-          model,
-          reasoning_effort: reasoningEffort,
-          preset,
-          activate: true,
-        });
-        await refreshFromBackend();
-        return { workspaceId, tabId: res.tab_id };
-      } catch (e) {
-        notifySpawnFailure(workspaceId, agentId, e);
-        return null;
       }
     }
     const guardKey = `${workspaceId}:${agentId}`;
@@ -872,9 +846,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         title: input.title,
         existing_tab_id: input.existingTabId,
       };
-      const result = IS_WEB
-        ? await guardedWebJson<OrchestrationPairResult>("POST", "/api/orchestration/new", body)
-        : await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body });
+      const callerTabId = input.existingTabId ?? stateRef.current.focused_tab_id;
+      const claim = teamCallerClaim(callerTabId, callerTabId ? stateRef.current.tabs[callerTabId]?.session_binding_nonce ?? undefined : undefined);
+      const result = await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body, ...claim });
       refreshFromBackend();
       return result;
     },
@@ -928,6 +902,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
+    if (IS_WEB) dispatch({ type: "SET_FOCUSED_TAB", tabId });
   }, [guardedInvoke, refreshFromBackend]);
 
   // Select + focus a just-spawned tab by resolving its owning tab; a fresh

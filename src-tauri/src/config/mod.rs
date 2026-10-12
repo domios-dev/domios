@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::AppHandle;
 
 pub use load::load_config;
 #[cfg(test)]
@@ -198,6 +197,19 @@ pub fn canonical_api_bind_addr(api: &schema::ApiConfig) -> Result<SocketAddr, St
     Ok(SocketAddr::new(host, api.port))
 }
 
+pub(crate) fn exact_cors_origin(origin: &str) -> bool {
+    if origin.contains('*') {
+        return false;
+    }
+    let Ok(url) = url::Url::parse(origin) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.origin().ascii_serialization() == origin
+}
+
 pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String> {
     let bind = canonical_api_bind_addr(api)?;
     let has_token = api
@@ -210,14 +222,14 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
             api.host
         ));
     }
-    if api.cors_allow_origins.iter().any(|origin| {
-        origin == "*"
-            || !(origin.starts_with("http://") || origin.starts_with("https://"))
-            || origin.parse::<axum::http::HeaderValue>().is_err()
-    }) {
-        return Err(
-            "api.cors_allow_origins must contain explicit HTTP(S) origins, never '*'".into(),
-        );
+    if let Some((index, _)) = api
+        .cors_allow_origins
+        .iter()
+        .enumerate()
+        .find(|(_, origin)| !exact_cors_origin(origin))
+    {
+        log::warn!("[rest-cors] refused api.cors_allow_origins entry={index}: expected an exact HTTP(S) origin");
+        return Err("api.cors_allow_origins must contain exact HTTP(S) origins, never '*'".into());
     }
     Ok(())
 }
@@ -623,6 +635,15 @@ sound = false
 
         permissive_cors.cors_allow_origins = vec!["*".into()];
         assert!(validate_api_trust_boundary(&permissive_cors).is_err());
+        for invalid in [
+            "https://*.example",
+            "https://trusted.example/path",
+            "https://user:secret@trusted.example",
+            "https://trusted.example?token=secret",
+        ] {
+            permissive_cors.cors_allow_origins = vec![invalid.into()];
+            assert!(validate_api_trust_boundary(&permissive_cors).is_err());
+        }
     }
 
     #[test]
@@ -940,131 +961,4 @@ fn serialize_config(config: &AppConfig) -> Result<String, String> {
     sanitize_plugin_settings(&mut sanitized);
     bounds::validate_app_config(&sanitized)?;
     toml::to_string_pretty(&sanitized).map_err(|e| format!("Failed to serialize config: {}", e))
-}
-
-// Tauri commands
-
-#[tauri::command]
-pub async fn get_config(state: tauri::State<'_, ConfigState>) -> Result<AppConfig, String> {
-    Ok(state.lock().clone())
-}
-
-#[tauri::command]
-pub async fn update_config(
-    state: tauri::State<'_, ConfigState>,
-    mesh_state: tauri::State<'_, crate::MeshStateHandle>,
-    app: AppHandle,
-    config: AppConfig,
-) -> Result<(), String> {
-    let previous_config = state.lock().clone();
-    let mut resolved = config;
-    sanitize_plugin_settings(&mut resolved);
-    bounds::validate_app_config(&resolved)?;
-    validate_api_trust_boundary(&resolved.api)?;
-
-    // If the theme name changed, load the builtin theme fresh instead of trying to detect overrides.
-    // The frontend sends old colors with the new name, so override detection breaks after the first switch.
-    let current_name = state.lock().theme.name.clone();
-    if resolved.theme.name != current_name {
-        let requested_name = resolved.theme.name.clone();
-        if let Some(mut builtin) = schema::get_any_theme(&requested_name) {
-            builtin.name = requested_name;
-            resolved.theme = builtin;
-        }
-    } else {
-        resolve_theme(&mut resolved);
-    }
-
-    // this, paired peers stay on the old instance_name forever (the alias-propagation bug seen after an instance rename).
-    let prev_name = state.lock().mesh.instance_name.clone();
-    let new_name = resolved.mesh.instance_name.clone();
-    let renamed = !new_name.is_empty() && new_name != prev_name;
-
-    let changed_catalogue_settings = changed_provider_settings(&previous_config, &resolved);
-    save_config_and_apply(state.inner(), resolved.clone())?;
-
-    if !changed_catalogue_settings.is_empty() {
-        use tauri::Manager;
-        if let Some(service) = app.try_state::<crate::service::ServiceState>() {
-            crate::agent::model_binary_watch::refresh_after_settings_change(
-                &service.agent_registry,
-                &service.chatbackend_registry,
-                changed_catalogue_settings,
-            );
-        }
-    }
-
-    if renamed {
-        let mesh_arc = mesh_state.inner().clone();
-        {
-            let mut m = mesh_arc.lock();
-            m.ident.instance_name = new_name.clone();
-        }
-        log::info!(
-            "[mesh] instance renamed: {:?} -> {}, broadcasting announce",
-            prev_name,
-            new_name
-        );
-        tauri::async_runtime::spawn(async move {
-            let report = crate::mesh::broadcast_announce(&mesh_arc, None).await;
-            log::info!(
-                "[mesh] post-rename announce sent={} ok={} stale={} errors={}",
-                report.sent,
-                report.ok,
-                report.stale_peers.len(),
-                report.errors.len()
-            );
-        });
-    }
-
-    crate::api::events::emit_everywhere(&app, "config-changed", &resolved);
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_theme(state: tauri::State<'_, ConfigState>) -> Result<ThemeConfig, String> {
-    Ok(state.lock().theme.clone())
-}
-
-#[tauri::command]
-pub async fn list_themes() -> Result<Vec<String>, String> {
-    Ok(schema::list_all_theme_ids())
-}
-
-#[tauri::command]
-pub async fn get_config_path() -> Result<String, String> {
-    config_path().map(|p| p.to_string_lossy().to_string())
-}
-
-/// Save a custom theme TOML file to the user themes directory.
-#[tauri::command]
-pub async fn save_custom_theme(theme_id: String, toml_content: String) -> Result<(), String> {
-    let dir =
-        schema::user_themes_dir().ok_or_else(|| "Cannot determine themes directory".to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create themes dir: {}", e))?;
-    let path = dir.join(format!("{}.toml", theme_id));
-    schema::parse_builtin_theme(&toml_content)?;
-    std::fs::write(&path, &toml_content).map_err(|e| format!("Failed to write theme: {}", e))?;
-    log::info!("Custom theme saved: {} at {:?}", theme_id, path);
-    Ok(())
-}
-
-/// Delete a custom theme.
-#[tauri::command]
-pub async fn delete_custom_theme(theme_id: String) -> Result<(), String> {
-    let dir =
-        schema::user_themes_dir().ok_or_else(|| "Cannot determine themes directory".to_string())?;
-    let path = dir.join(format!("{}.toml", theme_id));
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| format!("Failed to delete theme: {}", e))?;
-    }
-    Ok(())
-}
-
-/// Get the user themes directory path.
-#[tauri::command]
-pub async fn get_themes_dir() -> Result<String, String> {
-    schema::user_themes_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .ok_or_else(|| "Cannot determine themes directory".to_string())
 }

@@ -1,6 +1,5 @@
 import { invoke } from "./bridge";
 import { uid } from "./uid";
-import { IS_WEB } from "./webApi";
 
 const CLIENT_ID_KEY = "codeterm.client_id.v1";
 
@@ -25,7 +24,7 @@ export function resizeOwnerChangedEvent(tabId?: string | null): string {
 }
 
 export function getResizeClientId(): string {
-  const prefix = IS_WEB ? "web:" : "tauri:";
+  const prefix = "client:";
   if (typeof window === "undefined") return "server";
   try {
     const existing = window.localStorage.getItem(CLIENT_ID_KEY);

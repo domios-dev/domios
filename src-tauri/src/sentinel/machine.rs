@@ -448,11 +448,18 @@ pub fn regex_verdict_if_matched(
     output: &str,
 ) -> Option<Verdict> {
     // Windows probes end lines with CRLF, and `(?m)$` only matches before `\n`.
-    let output = output.replace("\r\n", "\n");
+    let normalized = output.replace("\r\n", "\n");
+    let output = normalized
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
     let matches: Vec<_> = patterns
         .iter()
         .filter_map(|(bucket, pattern)| {
-            regex::Regex::new(pattern)
+            regex::RegexBuilder::new(pattern)
+                .multi_line(true)
+                .build()
                 .ok()
                 .filter(|regex| regex.is_match(&output))
                 .map(|_| bucket.clone())

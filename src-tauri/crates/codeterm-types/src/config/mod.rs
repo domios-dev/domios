@@ -12,3 +12,5 @@ pub use supporter::{
 };
 
 pub mod utility_tabs;
+
+mod updater;
