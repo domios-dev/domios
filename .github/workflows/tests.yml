@@ -149,7 +149,7 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - run: node scripts/check-plugin.mjs '${{ matrix.plugin.id }}'
 
   # Formatting is platform-independent, so it does not belong inside a platform
@@ -527,7 +527,8 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: TS strict typecheck (prod build gate)
         run: pnpm exec tsc --noEmit
       - name: TypeScript unused exports
@@ -574,7 +575,8 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Check Rust generated TypeScript types
         run: pnpm types:check
 
@@ -599,7 +601,8 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Run TS unit tests
         run: pnpm test:unit
 
@@ -624,7 +627,8 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
       # job is the only thing that runs them.
       # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
@@ -652,7 +656,8 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Check generated plugin bundles
         run: pnpm check:plugin-bundles
       - name: Run plugin tests
@@ -680,7 +685,8 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Release metadata contract tests
         run: python3 -m unittest scripts.tests.test_release_issue_contract
       - name: Release workflow signature-gate contract tests
