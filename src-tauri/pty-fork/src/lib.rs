@@ -143,11 +143,20 @@ pub trait Child: std::fmt::Debug + ChildKiller + Downcast + Send {
     /// Only available on Windows.
     #[cfg(windows)]
     fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle>;
+
+    #[cfg(windows)]
+    fn contains_process(&self, _process: std::os::windows::io::RawHandle) -> IoResult<bool> {
+        Ok(false)
+    }
 }
 impl_downcast!(Child);
 
 /// Represents the ability to signal a Child to terminate
 pub trait ChildKiller: std::fmt::Debug + Downcast + Send {
+    fn kill_tree(&mut self) -> std::io::Result<()> {
+        self.kill()
+    }
+
     /// Terminate the child process
     fn kill(&mut self) -> IoResult<()>;
 
@@ -337,6 +346,25 @@ impl ChildKiller for ProcessSignaller {
 }
 
 impl ChildKiller for std::process::Child {
+    #[cfg(unix)]
+    fn kill_tree(&mut self) -> IoResult<()> {
+        if self.try_wait()?.is_some() {
+            return Ok(());
+        }
+        let pid = self.id();
+        if pid <= 1 || pid > i32::MAX as u32 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid PTY process group",
+            ));
+        }
+        if unsafe { libc::kill(-(pid as i32), libc::SIGKILL) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
     fn kill(&mut self) -> IoResult<()> {
         #[cfg(unix)]
         {
@@ -399,3 +427,6 @@ pub fn native_pty_system() -> Box<dyn PtySystem + Send> {
 pub type NativePtySystem = unix::UnixPtySystem;
 #[cfg(windows)]
 pub type NativePtySystem = win::conpty::ConPtySystem;
+
+#[cfg(all(test, unix))]
+mod tree_tests;

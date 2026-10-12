@@ -14,7 +14,7 @@ import { NotificationPanel } from "./Notifications/NotificationPanel";
 const fakes = vi.hoisted(() => ({
   upsert: vi.fn(), add: vi.fn(), dismiss: vi.fn(), invoke: vi.fn(),
   listeners: new Map<string, (event: { payload: unknown }) => void>(),
-  update: { status: "up-to-date", latestVersion: "2", error: null, toastOpen: true, blocking: false, dismissUpdateToast: vi.fn() },
+  update: { status: "up-to-date", latestVersion: "2", error: null as string | null, toastOpen: true, blocking: false, dismissUpdateToast: vi.fn(), applyUpdate: vi.fn() },
   graphChanged: undefined as (() => void) | undefined,
 }));
 vi.mock("../store/multiplexer", () => ({
@@ -59,6 +59,7 @@ beforeEach(() => {
   fakes.listeners.clear();
   fakes.invoke.mockImplementation(async (command: string) => command === "get_recovery_state" ? recoveryState() : {});
   fakes.update.status = "up-to-date";
+  fakes.update.error = null;
   fakes.update.blocking = false;
   fakes.update.toastOpen = true;
   host = document.createElement("div");
@@ -166,4 +167,15 @@ test("secret backend confirmation renders through the host", async () => {
   expect(select).toBeTruthy();
   await act(async () => { select.value = "mock"; select.dispatchEvent(new Event("change", { bubbles: true })); });
   await showCapturedToast("add");
+});
+
+test("failed update Retry reaches the installer once", async () => {
+  fakes.update.status = "error";
+  fakes.update.error = "opaque blocker";
+  await render(<UpdateProgressLayer />);
+  await showCapturedToast();
+  const retry = [...host.querySelectorAll("button")].find(button => button.textContent === "Retry");
+  expect(retry).toBeDefined();
+  await act(async () => retry!.click());
+  expect(fakes.update.applyUpdate).toHaveBeenCalledTimes(1);
 });
