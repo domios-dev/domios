@@ -12,8 +12,20 @@ codeterm account status
 codeterm account logout
 ```
 
+## Subscription
+
+```bash
+codeterm account plan
+codeterm account upgrade pro
+codeterm account portal
+```
+
+Settings > Account shows the same plan, status, period end, cancellation flag and stale marker. Upgrade and Manage subscription open the system browser. The client reads only the signed-in user's server record using the in-memory ID token. Signed-out users get free. A failed fetch retains the last known entitlement marked stale. Sign-in, explicit app focus (at most once per minute), and checkout return refresh the cache; browser return alone never grants access. Returning from checkout to the app bypasses the focus throttle once. Hosted completion may also open `domios://billing/return`.
+
+`billing.provider` defaults to `cloud`; `billing.endpoint` defaults to `https://us-central1-domios-d9357.cloudfunctions.net/` and must be an HTTPS base URL ending in `/`. Providers are selected when billing first starts. DEV also supports `local` and `fake`. Local reads `billing.entitlements` on every refresh, so a local config change plus app focus exercises the full plan display without a vendor account. Configure `plan`, `status`, `current_period_end` (Unix seconds), and `cancel_at_period_end`; missing local entitlements return free. Local checkout and portal open the loopback simulator at `billing.origin` (default `http://127.0.0.1:15100/`); run the standalone local accounts backend for its pages. Local config is the entitlement authority for this adapter; simulator payment does not change that config. Release builds refuse dev providers.
+
 ## Product analytics
 
 Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store and holds the queue while it is missing. Every sink shares the consent gate, the closed catalog (feature enums, counts, durations, booleans, numeric versions; never paths, prompts, names or terminal output), the persisted queue and the bounded retry policy.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

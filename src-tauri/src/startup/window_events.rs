@@ -3,6 +3,19 @@ use crate::session::SessionState;
 use tauri::Manager;
 
 pub(crate) fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {
+        if let Some(service) = window
+            .app_handle()
+            .try_state::<crate::service::ServiceState>()
+        {
+            let service = service.inner().clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = service
+                    .refresh_billing(codeterm_billing::RefreshEvent::Focus)
+                    .await;
+            });
+        }
+    }
     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
         if window.label() != "main" {
             return;

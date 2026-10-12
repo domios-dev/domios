@@ -701,6 +701,13 @@ pub fn create_router_with_frontend(
             post(super::analytics_routes::consent),
         )
         .route("/api/analytics/event", post(super::analytics_routes::event))
+        .route("/api/account/plan", get(super::account_routes::plan))
+        .route("/api/account/upgrade", post(super::account_routes::upgrade))
+        .route("/api/account/portal", post(super::account_routes::portal))
+        .route(
+            "/api/account/plan/refresh",
+            post(super::account_routes::refresh_plan),
+        )
         .route("/api/account/status", get(super::account_routes::status))
         .route("/api/account/login", post(super::account_routes::login))
         .route("/api/account/logout", post(super::account_routes::logout))

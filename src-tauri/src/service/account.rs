@@ -120,11 +120,16 @@ impl super::ServiceContext {
         Ok(account.clone())
     }
     pub async fn account_login(&self) -> Result<codeterm_account::Status, String> {
-        self.account()
+        let status = self
+            .account()
             .await?
             .login(&SystemBrowser(self.app_handle.clone()))
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        let _ = self
+            .refresh_billing(codeterm_billing::RefreshEvent::SignIn)
+            .await;
+        Ok(status)
     }
 }
 pub fn register_deep_links(
@@ -138,6 +143,15 @@ pub fn register_deep_links(
         let service = service.clone();
         tauri::async_runtime::spawn(async move {
             for url in urls {
+                if url.scheme() == "domios"
+                    && url.host_str() == Some("billing")
+                    && url.path() == "/return"
+                {
+                    let _ = service
+                        .refresh_billing(codeterm_billing::RefreshEvent::CheckoutReturned)
+                        .await;
+                    continue;
+                }
                 if let Ok(callback) = codeterm_account::Callback::parse(url.as_str()) {
                     if let Ok(account) = service.account().await {
                         let _ = account.complete(callback).await;
