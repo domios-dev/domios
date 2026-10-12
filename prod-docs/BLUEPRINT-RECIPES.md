@@ -25,13 +25,14 @@ Each pattern names the source, buckets and handlers; put silent buckets as `[]` 
 8. **Watching a whole Team.** A General Agent probes `codeterm tab status --tab <orchestrator-tab>` (it reports `not found` once the tab is gone; `orchestrator status` does not) and `codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>` filtered to its `live_lanes` and `drift` lines (the reminder line changes every tick). Buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`: `"healthy": []`; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; leave `other` quiet, since an escalation hold would hide later changes. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the Team Orchestrator with `codeterm send` and takes `needs_owner` to the owner.
 
 ## Built-in recipes
-`codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints the handlers JSON and create
-command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
+`codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints the handlers JSON and create command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
 <!-- blueprint-recipe:github-pr-ci-watch -->
-### github-pr-ci-watch
-**Purpose:** Route `failed` on the first failed or cancelled check of one PR, `passed` when every check passed; `waiting` stays silent. Create it from the repository checkout: the probe runs in the creator's cwd.
+**Purpose:** Route `failed` on the first failed or cancelled check of one PR and `passed` when all passed; `waiting` stays silent. From the repository checkout, the probe prints one verdict line: `gh pr checks <PR> --json bucket -q 'if any(.[]; .bucket=="fail" or .bucket=="cancel") then "failed" elif any(.[]; .bucket=="pending") then "waiting" else "passed" end'`.
+```json
+{"waiting":[],"passed":[{"type":"notify","parameters":{}}],"failed":[{"type":"notify","parameters":{}}]}
+```
 ```bash
-codeterm blueprint create --name pr-ci --probe 'gh pr checks <PR> --json bucket -q "if any(.[]; .bucket==\"fail\" or .bucket==\"cancel\") then \"failed\" elif any(.[]; .bucket==\"pending\") then \"waiting\" else \"passed\" end"' --question 'waiting while checks run; passed when all passed; failed when any failed or was cancelled' --buckets waiting,passed,failed --match 'waiting=(?m)^waiting\r?$' --match 'passed=(?m)^passed\r?$' --match 'failed=(?m)^failed\r?$' --until passed --route waiting=none --route passed=notify --route failed=notify --rearm-on-change failed --every 60s --timeout 3h --dry-run
+codeterm blueprint create --name pr-ci-watch --probe "<PR_VERDICT_PROBE>" --question classify-pr-checks --buckets waiting,passed,failed --match 'waiting=(?m)^waiting\r?$' --match 'passed=(?m)^passed\r?$' --match 'failed=(?m)^failed\r?$' --until passed --rearm-on-change failed --handlers-file handlers.json --every 60s --timeout 3h --dry-run
 ```
 <!-- /blueprint-recipe -->
 <!-- blueprint-recipe:team-watch -->
@@ -103,8 +104,7 @@ codeterm blueprint create --name launch-prompt-gate --observe 'cron-run:<CRON_NA
 Patterns match the observed prompt kind (`\x22` is a shell-safe regex quote); rearm answers each new prompt. Onboarding and permission share `provider`, so the handler not matching the live screen records `sentinel_prompt_target_refused`. Owned launch tabs answer trust and onboarding without a graph through the same writer, one answer per prompt; the graph adds a journaled branch per prompt and escalates the rest.
 
 ## Pipeline authoring
-Create a pipeline from one JSON or YAML file, or start with a named recipe and replace its declared placeholders. Use `--dry-run` to see the normalized chain and each validation check before creating it.
-Use `codeterm blueprint nodes [--json]` to inspect the available trigger, step, converter and event-source capabilities; use `codeterm blueprint log <ID> [--limit N] [--json]` to inspect bounded per-step run history.
+Create a pipeline from one JSON or YAML file, or start with a named recipe and replace its declared placeholders. Use `--dry-run` to see the normalized chain and each validation check before creating it. Use `codeterm blueprint nodes [--json]` to inspect the available trigger, step, converter and event-source capabilities; use `codeterm blueprint log <ID> [--limit N] [--json]` to inspect bounded per-step run history.
 
 <!-- blueprint-pipeline-recipe:echo -->
 ### echo
