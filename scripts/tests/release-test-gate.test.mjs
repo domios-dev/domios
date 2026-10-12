@@ -17,23 +17,23 @@ const dependencies = job => [job.needs].flat();
 
 test("release tests and platform builds share preparation and publication waits for every gate", () => {
   assert.equal(release.jobs.tests.uses, "./.github/workflows/tests.yml");
-  assert.deepEqual(release.jobs.tests.with, { source_ref: "${{ needs.prepare.outputs.source_sha }}" });
+  assert.deepEqual(release.jobs.tests.with, { source_ref: "${{ needs.prepare.outputs.source_sha }}", scope: "${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}" });
   for (const id of ["tests", ...builds]) {
     assert.deepEqual(dependencies(release.jobs[id]), ["prepare"]);
     assert.notEqual(release.jobs[id]["continue-on-error"], true);
   }
   assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "tests", ...builds]));
-  assert.equal(release.jobs["release-manifest"].if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'");
+  assert.equal(release.jobs["release-manifest"].if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
 });
 
 test("dry runs still build every platform while skipping the tests and publisher", () => {
   assert.equal(release.jobs.tests.if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'");
   for (const id of builds) {
     assert.equal(release.jobs[id].with.dry_run, "${{ needs.prepare.outputs.dry_run == 'true' }}");
-    assert.equal(release.jobs[id].if, "needs.prepare.outputs.published != 'true'");
+    assert.equal(release.jobs[id].if, "needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
   }
   const draft = release.jobs.prepare.steps.find(step => step.name === "Create draft releases before parallel uploads");
-  assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true'");
+  assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'");
 });
 
 test("a push to release/X.Y.Z by the owner account is the release, and a published version never rebuilds", () => {
@@ -49,8 +49,9 @@ test("a push to release/X.Y.Z by the owner account is the release, and a publish
 
 test("only a successful publication merges the release into master and back into develop", () => {
   const promote = release.jobs.promote;
-  assert.deepEqual(new Set(dependencies(promote)), new Set(["prepare", "release-manifest"]));
-  assert.equal(promote.if, "needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'");
+  assert.deepEqual(new Set(dependencies(promote)), new Set(["prepare", "release-manifest", "frontend"]));
+  assert.match(promote.if, /^always\(\) && needs\.prepare\.outputs\.branch != '' && needs\.prepare\.outputs\.published != 'true'/);
+  assert.match(promote.if, /needs\.release-manifest\.result == 'success' \|\| needs\.frontend\.result == 'success'/);
   const scripts = promote.steps.map(step => step.run ?? "").join("\n");
   assert.match(scripts, /gh pr merge "\$pr" --repo "\$REPO" --merge/);
   assert.match(scripts, /git merge-base --is-ancestor "\$SOURCE_SHA" origin\/master/);
@@ -72,12 +73,13 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.ok(Object.hasOwn(tests.on, "workflow_dispatch"));
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
-  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref"]);
+  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope"]);
   const changed = tests.jobs.changed;
   assert.equal(changed.if, undefined, "the scope gate runs for every trigger, including release calls");
-  for (const id of ["tree", "scope"]) {
-    assert.equal(changed.steps.find(step => step.id === id).env.CI_FULL_MATRIX, "${{ inputs.source_ref != '' || github.event_name == 'schedule' }}");
-  }
+  assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' || github.event_name == 'schedule' }}");
+  const scopeEnv = changed.steps.find(step => step.id === "scope").env;
+  assert.equal(scopeEnv.CI_FULL_MATRIX, "${{ (inputs.source_ref != '' && inputs.scope != 'frontend') || github.event_name == 'schedule' }}");
+  assert.equal(scopeEnv.CI_FRONTEND_ONLY, "${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}");
   for (const job of Object.values(tests.jobs)) {
     for (const step of job.steps.filter(step => step.uses?.startsWith("actions/checkout@"))) {
       assert.equal(step.with.ref, "${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}");
@@ -92,7 +94,7 @@ test("release pushes cannot skip an unchanged tree", () => {
   const output = join(mkdtempSync(join(tmpdir(), "release-gate-")), "output");
   execFileSync("bash", ["-euo", "pipefail", "-c", script], {
     encoding: "utf8",
-    env: { ...process.env, CI_FULL_MATRIX: "true", GITHUB_OUTPUT: output },
+    env: { ...process.env, CI_RELEASE_CALL: "true", GITHUB_OUTPUT: output },
   });
   assert.equal(readFileSync(output, "utf8").trim(), "run=true");
 });
@@ -108,4 +110,18 @@ test("platform builders do not push release tags before the test gate", () => {
   assert.ok(stamp);
   assert.match(stamp.run, /git push --force origin/);
   assert.match(stamp.run, /test .* = "\$SOURCE_SHA"/);
+});
+
+test("a frontend-only release builds and publishes only the frontend after the frontend tests", () => {
+  const frontend = release.jobs.frontend;
+  assert.equal(frontend.uses, "./.github/workflows/frontend-release.yml");
+  assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "tests"]));
+  assert.equal(frontend.if, "needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'");
+  assert.deepEqual(frontend.with, { tag: "${{ needs.prepare.outputs.tag }}", source_sha: "${{ needs.prepare.outputs.source_sha }}" });
+  const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
+  assert.match(resolve, /kind=\$\(node scripts\/ci-scope\.mjs --release-kind \$previous "\$sha"\)/);
+  assert.match(resolve, /tag="frontend-v\$version"/);
+  const called = workflow("frontend-release");
+  assert.deepEqual(Object.keys(called.on.workflow_call.inputs), ["tag", "source_sha"]);
+  assert.equal(called.on.push, undefined, "a frontend tag push no longer publishes outside the release run");
 });

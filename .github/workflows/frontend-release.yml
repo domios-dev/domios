@@ -25,8 +25,17 @@ on:
       - 'scripts/ts-unit-tests.sh'
       - 'scripts/ts-test-assets.mjs'
       - 'scripts/ts-test-asset-hook.mjs'
-  push:
-    tags: ['frontend-v*']
+  # The release run calls this for a frontend-only release/X.Y.Z, after the frontend tests pass.
+  workflow_call:
+    inputs:
+      tag:
+        description: Frontend tag frontend-vX.Y.Z matching frontend-release-contract.json
+        required: true
+        type: string
+      source_sha:
+        description: Exact release branch SHA to build
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       dry_run:
@@ -48,11 +57,12 @@ jobs:
     runs-on: [self-hosted, Linux, light]
     environment: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'frontend-dry-run' || 'frontend-signing' }}
     env:
-      FRONTEND_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
       FRONTEND_DRY_RUN: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.source_sha || github.ref }}
           fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
@@ -68,8 +78,8 @@ jobs:
         run: node scripts/frontend-release/release.mjs resolve-pr-tag
       - name: Validate independent frontend tag
         run: node scripts/frontend-release/release.mjs validate "$FRONTEND_TAG"
-      - name: Require reviewed production tag on master
-        if: env.FRONTEND_DRY_RUN != 'true'
+      - name: Require reviewed production tag on master for a manual publication
+        if: env.FRONTEND_DRY_RUN != 'true' && github.event_name == 'workflow_dispatch'
         run: |
           test "$(git rev-parse "$FRONTEND_TAG^{commit}")" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
@@ -112,9 +122,11 @@ jobs:
     runs-on: [self-hosted, Linux, light]
     environment: frontend-publication
     env:
-      FRONTEND_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_sha || github.ref }}
       - uses: actions/setup-node@v5
         with:
           node-version: '22.22.0'
