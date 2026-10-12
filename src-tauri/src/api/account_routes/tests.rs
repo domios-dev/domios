@@ -21,6 +21,7 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
         std::sync::Arc::new(crate::secrets::mock::MockStore::new());
     let state = crate::api::transport_tabs::fixture::app_state(&fixture);
     state.config.lock().api.token = Some("fixture-token".into());
+    state.config.lock().account = serde_json::json!({"provider":"local"});
     {
         use tauri::Manager;
         assert!(fixture._app.manage(state.config.clone()));
@@ -101,6 +102,7 @@ async fn account_plan_routes_local_journey() {
         .is_ok());
     let state = crate::api::transport_tabs::fixture::app_state(&fixture);
     state.config.lock().api.token = Some("fixture-token".into());
+    state.config.lock().account = serde_json::json!({"provider":"local"});
     {
         use tauri::Manager;
         assert!(fixture._app.manage(state.config.clone()));

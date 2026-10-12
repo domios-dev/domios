@@ -4,6 +4,7 @@ use tokio::sync::{oneshot, Mutex};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Status {
+    pub provider: String,
     pub identity: Option<Identity>,
     pub pending: bool,
 }
@@ -38,6 +39,7 @@ impl Account {
     pub async fn status(&self) -> Status {
         let state = self.state.lock().await;
         Status {
+            provider: self.provider.id().into(),
             identity: state.session.as_ref().map(|s| s.identity.clone()),
             pending: state.busy,
         }

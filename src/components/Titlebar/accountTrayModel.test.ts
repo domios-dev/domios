@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { accountTrayModel } from "./accountTrayModel";
+const out = accountTrayModel({kind:"signed_out"}, null);
+assert.equal(out.name, "Sign in");
+assert.equal(out.disabled, false);
+assert.equal(accountTrayModel({kind:"pending"}, null).disabled, true);
+assert.equal(accountTrayModel({kind:"error",message:"Request failed"}, null).error, "Request failed");
+const identity = {uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"};
+const signedIn = accountTrayModel({kind:"signed_in",identity}, {plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false});
+assert.equal(signedIn.initial, "A");
+assert.equal(signedIn.identity, "Ada");
+assert.equal(signedIn.plan, "pro (active)");
+assert.equal(accountTrayModel({kind:"signed_in",identity:{...identity,display_name:null}}, null).identity, identity.email);
+console.log("8 account tray model assertions passed");
