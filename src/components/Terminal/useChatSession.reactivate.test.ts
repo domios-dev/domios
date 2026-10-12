@@ -382,8 +382,7 @@ async function main(): Promise<void> {
     await act(async () => app.root.unmount());
   }
 
-  // --- 7. a mid-turn send whose echo lands after leave/return projects the same
-  // chronological order and snapshot identities as a fresh mount, without a remount ---
+  // A late mid-turn echo follows transcript sequence through reactivation and remount.
   {
     const row = (
       base: number,
@@ -409,10 +408,10 @@ async function main(): Promise<void> {
       "reading config",
       "Read config.json",
       "config ok",
-      "also check the logs",
       "running the build",
       "Bash build.sh",
       "build ok",
+      "also check the logs",
       "logs are clean",
     ].join("|");
     const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
@@ -439,8 +438,8 @@ async function main(): Promise<void> {
     server.emit(afterSend);
     await flush();
     assert(
-      contents(app.messages()) === expected.split("|").slice(0, 8).join("|"),
-      `a pending mid-turn send holds its send slot while later output follows (${contents(app.messages())})`,
+      contents(app.messages()) === [...history, ...beforeSend, ...afterSend].map((message) => message.content).concat("also check the logs").join("|"),
+      `a pending mid-turn send follows the committed transcript (${contents(app.messages())})`,
     );
 
     await app.render(server.sessionId, false);
@@ -453,7 +452,7 @@ async function main(): Promise<void> {
     assert(server.log.starts.length === 2, `leave/return reattaches once without a remount (starts=${server.log.starts.length})`);
     assert(
       contents(reactivated) === expected,
-      `re-activation projects the chronological order (${contents(reactivated)})`,
+      `re-activation projects transcript sequence (${contents(reactivated)})`,
     );
     assert(!reactivated.some((message) => message.id === optimisticId), "the echo reconciles the pre-leave optimistic row");
     assert(
@@ -479,8 +478,7 @@ async function main(): Promise<void> {
     await act(async () => fresh.root.unmount());
   }
 
-  // --- 8. three sends during one long turn keep send order through away/back, remount and
-  // restart before their echoes are written; late echoes neither move nor duplicate them ---
+  // Late echoes replace pending sends at their source positions through remount and restart.
   {
     const { forgetChatSendsInMemory } = await import("./chatSendStore");
     const realNow = Date.now;
@@ -508,10 +506,10 @@ async function main(): Promise<void> {
       ];
       const finalReply = [row("t-5", "assistant", "all done", 13_000)];
       const expected = [
-        "ship it", "on it", "Bash build", "also run tests", "build ok", "linting",
-        "then bump version", "Bash lint", "and tag it", "lint ok", "all done",
+        "ship it", "on it", "Bash build", "build ok", "linting", "Bash lint",
+        "lint ok", "also run tests", "then bump version", "and tag it", "all done",
       ];
-      const beforeEchoes = expected.slice(0, 9).join("|");
+      const beforeEchoes = [...history, ...turnA, ...turnB, ...turnC, ...echoes].map((message) => message.content).join("|");
       const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
       const shape = (rows: NormalizedChatMessage[]) => JSON.stringify(rows.map(({ id, type, content }) => ({ id, type, content })));
 
@@ -537,7 +535,7 @@ async function main(): Promise<void> {
         app.addOptimistic("and tag it");
       });
       await flush();
-      assert(contents(app.messages()) === beforeEchoes, `pending sends interleave in send order (${contents(app.messages())})`);
+      assert(contents(app.messages()) === beforeEchoes, `pending sends follow the transcript in admission order (${contents(app.messages())})`);
 
       await app.render(server.sessionId, false);
       server.snapshot = [...history, ...turnA, ...turnB, ...turnC];
@@ -546,7 +544,7 @@ async function main(): Promise<void> {
 
       await act(async () => app.root.unmount());
       app = await mount(server);
-      const pendingPlaces = app.messages().map((message) => message.content);
+      const committedPlaces = app.messages().filter((message) => !message.id.startsWith("opt-")).map((message) => message.content);
       assert(contents(app.messages()) === beforeEchoes, `a remount keeps pending sends in place (${contents(app.messages())})`);
 
       server.emit([...lateTail, ...echoes, ...finalReply]);
@@ -554,8 +552,8 @@ async function main(): Promise<void> {
       const echoed = app.messages();
       assert(contents(echoed) === expected.join("|"), `late echoes keep send order (${contents(echoed)})`);
       assert(
-        pendingPlaces.every((content, index) => echoed[index]?.content === content),
-        "late echoes move no row that was already projected",
+        committedPlaces.every((content, index) => echoed[index]?.content === content),
+        "late echoes preserve every prior committed row position",
       );
       assert(echoed.filter((message) => message.type === "user").length === 4, "late echoes never duplicate a send");
       assert(new Set(echoed.map((message) => message.id)).size === echoed.length, "every echoed row keeps a unique identity");
