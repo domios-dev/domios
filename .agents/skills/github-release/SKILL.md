@@ -10,6 +10,28 @@ description: >-
 
 # End-to-end Domios release to GitHub
 
+## Choose the release type first
+
+| What changed | Release | Reaches installed apps through |
+|---|---|---|
+| Only `src/`, `packages/` and other frontend inputs | frontend release `frontend-vX.Y.Z` | `frontend-latest` discovery, no app reinstall |
+| Only `plugins/<id>/` | plugin release `plugin-<id>-vX.Y.Z` | the official plugin channel |
+| Any Rust (`src-tauri/`, `cli/`), including the frontend downloader itself | app release `release-X.Y.Z` | the app updater (`latest.json`) |
+
+Mixed work ships as separate releases from separate PRs. Start frontend lanes from `origin/master`, never from an integration branch, or the frontend PR inherits Rust and runs the Rust matrix. `scripts/ci-scope.mjs` runs only the TS checks and the frontend build for frontend-only diffs. The broad gate runs once, on the app release SHA.
+
+## Independent frontend release
+
+The procedure and signing contract live in `scripts/frontend-release/README.md`; this is the operating summary.
+
+1. Bump `frontend-release-contract.json` `version` and `BUNDLED_FRONTEND_VERSION` in `src-tauri/src/frontend_bundle_api_version.rs` together (a test pins them equal). An app accepts only a release strictly newer than its bundled frontend and its active bundle, so an app release that bundles the same frontend bumps both to the app version.
+2. Merge the frontend PR to master after the TS checks and the `frontend-release / build` dry run pass. Rust jobs are not required for a frontend-only diff.
+3. Tag the exact master commit `frontend-vX.Y.Z` and push it. The production job refuses a tag that is not on master. `build` packs and minisigns the bundle; `publish` creates a draft in `rollacode/codeterm-releases`, uploads the archive, manifest and signature, reads each back byte-for-byte, publishes with `latest=false`, then replaces the `frontend-latest` discovery assets. App `latest` never changes.
+4. Both jobs run on `[self-hosted, Linux, light]`. Every Linux runner has `minisign` and `gh` installed; the workflow also fetches pinned, SHA256-checked copies when a runner lacks them.
+5. A failed publish leaves an unpublished draft. Delete that draft (`gh release delete frontend-vX.Y.Z -R rollacode/codeterm-releases -y`, only while `isDraft` is true), fix the cause on master, move the unpublished tag to the new master head and push it again. Never move a tag whose release is published.
+
+How an installed app picks it up (`src-tauri/src/startup/frontend_bundles.rs`, `src-tauri/src/frontend_bundle/`): the daemon checks `frontend-latest/frontend-manifest.json` at start and on every app update check (desktop native check and `GET /api/update/check`, 30-minute UI cadence), or on `POST /api/frontend/check`. It verifies the minisign signature with the baked key, the API range and the version floor, follows GitHub's signed asset redirect, checks the archive SHA256, stages it, and emits `frontend-update-ready`. The UI activates it with `/api/frontend/activate`, reloads only the window, reports `/api/frontend/healthy`, and rolls back on failure. Apps up to 1.14.2 rejected the signed redirect URL and cannot receive any frontend release; 1.14.4 is the first app that can.
+
 ## Independent official plugin release
 
 Provider and capability plugin versions are independent of the app. For a plugin-only change, do not bump the app, run app release-preflight, build installers, or push an app release tag.
