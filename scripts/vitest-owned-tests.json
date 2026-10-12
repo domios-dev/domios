@@ -182,5 +182,8 @@
   "src/lib/aggregateOutputRegistry.test.ts",
   "src/components/Notifications/NotificationBody.test.tsx",
   "src/components/Settings/generalAgentSettingsModel.test.ts",
-  "src/components/Settings/GeneralAgentCard.test.tsx"
+  "src/components/Settings/GeneralAgentCard.test.tsx",
+  "src/components/Titlebar/AccountTray.test.tsx",
+  "src/components/Settings/useAccount.test.tsx",
+  "src/components/shared/CommunityLinks.test.tsx"
 ]
