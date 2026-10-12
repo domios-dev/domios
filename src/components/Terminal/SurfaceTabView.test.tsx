@@ -7,6 +7,7 @@ vi.mock("../../lib/bridge", () => ({
   listen: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 vi.mock("../../lib/webApi", () => ({
+  relayTarget: vi.fn(() => null),
   IS_WEB: false,
   GATEWAY_STATE_EVENT: "codeterm-gateway-state",
   daemonHttpBase: () => "http://127.0.0.1:7686",
@@ -16,6 +17,7 @@ const pluginDocument = vi.hoisted(() => vi.fn((_path: string) => ({ html: "<html
 vi.mock("../Extensions/usePluginDocument", () => ({ usePluginDocument: pluginDocument }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
+import { relayTarget } from "../../lib/webApi";
 import { invoke } from "../../lib/bridge";
 import { openInSystemBrowser, SurfaceTabView, type SurfaceTransportFactory } from "./SurfaceTabView";
 import { recordSurfaceActivity, SURFACE_PULSE_MS, surfaceActivityStore } from "../../lib/surfaceActivity";
@@ -36,6 +38,7 @@ afterEach(async () => {
   host?.remove();
   root = null;
   host = null;
+  vi.mocked(relayTarget).mockReturnValue(null);
   pluginDocument.mockClear();
   surfaceActivityStore.reset();
   surfaceControlStore.reset();
@@ -111,6 +114,13 @@ describe("surface tab view", () => {
     expect(host!.querySelector("iframe")).toBeNull();
     expect(byRole("toolbar", "Jev's Board controls")).not.toBeNull();
     expect(created).toEqual([{ baseUrl: "http://127.0.0.1:7686", token: "token", tabId: "surface-tab" }]);
+  });
+
+  it("binds the live stream and controls to the selected daemon", async () => {
+    vi.mocked(relayTarget).mockReturnValue({ id: "eight", name: "Eight" });
+    const { created, factory } = fakeTransports();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={streamDecl} createTransport={factory} />);
+    expect(created).toEqual([{ baseUrl: "http://127.0.0.1:7686", token: "token", tabId: "surface-tab", peerId: "eight" }]);
   });
 
   it("holds no stream while the stream tab is hidden", async () => {
