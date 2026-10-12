@@ -1,3 +1,5 @@
+import { getOwnEntitlements } from "./entitlements";
+import { collectionName, type Entitlement } from "./model";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { defineSecret, defineString } from "firebase-functions/params";
@@ -57,4 +59,17 @@ export const stripeWebhook = onRequest({...options,cors:false},async (request,re
     await service.store.apply(event);
     response.status(200).json({received:true});
   } catch { response.status(500).json({error:"Billing unavailable"}); }
+});
+
+export const getEntitlements = onCall({region:"us-central1",maxInstances:10}, async request => {
+  const uid = await verifiedUid(request.rawRequest.get("authorization"));
+  try {
+    const mode = modeParam.value();
+    if (mode !== "test" && mode !== "live") throw new Error("Invalid billing mode");
+    return await getOwnEntitlements(uid,request.data,async owner =>
+      (await getFirestore().doc(`${collectionName(mode,"entitlements")}/${owner}`).get()).data() as Entitlement | undefined);
+  } catch (error) {
+    if (error instanceof BillingError) throw new HttpsError(error.code,error.message);
+    throw new HttpsError("internal","Entitlements unavailable");
+  }
 });

@@ -32,4 +32,4 @@ export const redeemDesktopLoginCode = onRequest({ ...options, cors: false, invok
   }
 });
 
-export { createCheckoutSession, createPortalSession, stripeWebhook } from "../../billing";
+export { getEntitlements, createCheckoutSession, createPortalSession, stripeWebhook } from "../../billing";
