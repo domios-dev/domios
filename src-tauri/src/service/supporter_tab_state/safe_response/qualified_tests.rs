@@ -647,6 +647,10 @@ fn qualified_fixture_capture_summary_survives_diagnostic_truncation() {
 fn qualified_fixture_stage_timeout_retains_actual_last_snapshot() {
     let mut evidence = ReaderEvidence::new();
     evidence.record_screen("fixture output without a stage marker");
+    let pending = "opaque startup output".repeat(MAX_STAGE_SCREEN_BYTES);
+    evidence.record_pending_frame(pending.as_bytes());
+    assert_eq!(evidence.sequence, 1);
+    assert!(evidence.stage_events.is_empty());
     let failure = stage_failure(
         ModalStage::Focus,
         StageFailureReason::Deadline,
@@ -676,6 +680,13 @@ fn qualified_fixture_stage_timeout_retains_actual_last_snapshot() {
             Some("fixture output without a stage marker")
         )
     );
+    let diagnostic = failure.pending_output.unwrap();
+    assert!(diagnostic.truncated);
+    assert!(diagnostic.text.len() <= MAX_STAGE_SCREEN_BYTES);
+    let tail = diagnostic.text.strip_prefix("[truncated]\n").unwrap();
+    assert!(pending.ends_with(tail));
+    evidence.record_screen("completed frame");
+    assert!(evidence.pending_output.is_none());
 }
 #[test]
 fn qualified_fixture_reader_end_distinguishes_eof_from_read_error() {
