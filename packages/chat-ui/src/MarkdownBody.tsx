@@ -57,16 +57,6 @@ function wrapsCodeElement(node: unknown): boolean {
   return children.some((child) => child.type === "element" && child.tagName === "code");
 }
 
-function sourceForNode(source: string, node: unknown): string | null {
-  const position = (node as {
-    position?: { start?: { offset?: number }; end?: { offset?: number } };
-  } | undefined)?.position;
-  const start = position?.start?.offset;
-  const end = position?.end?.offset;
-  if (typeof start !== "number" || typeof end !== "number") return null;
-  return source.slice(start, end);
-}
-
 function sourceForStandaloneLine(source: string, node: unknown): string | null {
   const position = (node as {
     position?: { start?: { offset?: number }; end?: { offset?: number } };
