@@ -14,6 +14,7 @@ fn lark_recording_contract_local_recipient_without_webhook_and_closed_choice_tom
             product_id: 2,
             usage_page: 3,
             usage: 4,
+            button: None,
         },
         true,
     );
@@ -39,6 +40,7 @@ fn lark_recording_contract_local_recipient_without_webhook_and_closed_choice_tom
             product_id: 2,
             usage_page: 3,
             usage: 4,
+            button: None,
         },
         true,
     );

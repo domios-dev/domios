@@ -104,6 +104,7 @@ const PLUGIN_PREAMBLE: &str = r#"
     clear: function () { return parseJson(host.receiverTargetClear()); },
   };
   host.localRecording = {
+    statusReport: function () { return parseJson(host.receiverStatusReport()); },
     status: function () { return parseJson(host.localRecordingStatus()); },
     setEnabled: function (enabled) { return parseJson(host.localRecordingSetEnabled(enabled === true)); },
   };

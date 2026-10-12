@@ -1,6 +1,6 @@
-import type { LarkCaptureState } from "./larkCaptureModel";
+import type { LocalRecordingCaptureState } from "./localRecordingCaptureModel";
 
-function statusMessage(state: LarkCaptureState): string {
+function statusMessage(state: LocalRecordingCaptureState): string {
   switch (state.phase) {
     case "starting": return "Starting hardware voice recording.";
     case "recording": return "Hardware voice recording is active.";
@@ -12,8 +12,8 @@ function statusMessage(state: LarkCaptureState): string {
   }
 }
 
-export function LarkCaptureStatus({ state }: {
-  state: LarkCaptureState;
+export function LocalRecordingCaptureStatus({ state }: {
+  state: LocalRecordingCaptureState;
 }) {
   if (state.phase === "disabled" || state.phase === "armed") return null;
   return (

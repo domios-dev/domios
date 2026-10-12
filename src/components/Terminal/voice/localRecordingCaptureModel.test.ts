@@ -4,12 +4,12 @@ import {
   currentCaptureOwner,
   exactMicrophoneConstraints,
   hasExactLiveMicrophone,
-  initialLarkCaptureState,
-  larkCaptureTransition,
+  initialLocalRecordingCaptureState,
+  localRecordingCaptureTransition,
   releaseCaptureOwnership,
   resetCaptureOwnershipForTest,
-  type LarkCaptureLease,
-} from "./larkCaptureModel";
+  type LocalRecordingCaptureLease,
+} from "./localRecordingCaptureModel";
 
 const status = {
   pluginId: "lark",
@@ -19,7 +19,7 @@ const status = {
   generation: 12,
 };
 
-const capture: LarkCaptureLease = {
+const capture: LocalRecordingCaptureLease = {
   lease: "lease-1",
   pluginId: "lark",
   tabId: "tab-A",
@@ -28,7 +28,7 @@ const capture: LarkCaptureLease = {
 };
 
 function armed() {
-  return larkCaptureTransition(initialLarkCaptureState(), { type: "STATUS", status });
+  return localRecordingCaptureTransition(initialLocalRecordingCaptureState(), { type: "STATUS", status });
 }
 
 function exactTrack(deviceId: string, readyState: MediaStreamTrackState = "live") {
@@ -51,41 +51,41 @@ function assertExactDevices() {
 function assertCaptureOwnership() {
   resetCaptureOwnershipForTest();
   assert.equal(claimCaptureOwnership("manual"), true);
-  assert.equal(claimCaptureOwnership("lark"), false);
+  assert.equal(claimCaptureOwnership("hardware"), false);
   assert.equal(currentCaptureOwner(), "manual");
   releaseCaptureOwnership("manual");
-  assert.equal(claimCaptureOwnership("lark"), true);
+  assert.equal(claimCaptureOwnership("hardware"), true);
   assert.equal(claimCaptureOwnership("manual"), false);
-  releaseCaptureOwnership("lark");
+  releaseCaptureOwnership("hardware");
   assert.equal(currentCaptureOwner(), null);
 }
 
 function assertGenerationAndStopOrdering() {
-  const disabled = initialLarkCaptureState();
-  assert.equal(larkCaptureTransition(disabled, { type: "START", capture }).phase, "disabled");
-  const starting = larkCaptureTransition(armed(), { type: "START", capture });
+  const disabled = initialLocalRecordingCaptureState();
+  assert.equal(localRecordingCaptureTransition(disabled, { type: "START", capture }).phase, "disabled");
+  const starting = localRecordingCaptureTransition(armed(), { type: "START", capture });
   assert.equal(starting.phase, "starting");
-  assert.equal(larkCaptureTransition(starting, { type: "START", capture }), starting);
-  const recording = larkCaptureTransition(starting, {
+  assert.equal(localRecordingCaptureTransition(starting, { type: "START", capture }), starting);
+  const recording = localRecordingCaptureTransition(starting, {
     type: "RECORDER_STARTED",
     operation: starting.operation,
   });
   assert.equal(recording.phase, "recording");
-  assert.equal(larkCaptureTransition(recording, { type: "INVALIDATED", event: {
+  assert.equal(localRecordingCaptureTransition(recording, { type: "INVALIDATED", event: {
     pluginId: "other-plugin", generation: capture.generation, reason: "deviceRemoved",
   } }), recording);
 
-  const stopping = larkCaptureTransition(recording, { type: "STOP", operation: recording.operation, intent: "send" });
+  const stopping = localRecordingCaptureTransition(recording, { type: "STOP", operation: recording.operation, intent: "send" });
   assert.equal(stopping.phase, "stopping");
-  const nativeAckOnly = larkCaptureTransition(stopping, { type: "RECORDER_STOPPED", operation: recording.operation });
+  const nativeAckOnly = localRecordingCaptureTransition(stopping, { type: "RECORDER_STOPPED", operation: recording.operation });
   assert.equal(nativeAckOnly.phase, "stopping", "recorder stop alone does not finish track release");
-  const released = larkCaptureTransition(nativeAckOnly, { type: "TRACKS_RELEASED", operation: recording.operation });
+  const released = localRecordingCaptureTransition(nativeAckOnly, { type: "TRACKS_RELEASED", operation: recording.operation });
   assert.equal(released.phase, "stopping", "browser cleanup waits for explicit stopped-lease acknowledgement");
-  const transcribing = larkCaptureTransition(released, { type: "CAPTURE_STOP_ACK", operation: recording.operation });
+  const transcribing = localRecordingCaptureTransition(released, { type: "CAPTURE_STOP_ACK", operation: recording.operation });
   assert.equal(transcribing.phase, "transcribing");
 
   for (const reason of ["deviceRemoved", "accessLost"] as const) {
-    const invalidated = larkCaptureTransition(recording, { type: "INVALIDATED", event: {
+    const invalidated = localRecordingCaptureTransition(recording, { type: "INVALIDATED", event: {
       pluginId: capture.pluginId,
       generation: capture.generation,
       reason,
@@ -93,44 +93,44 @@ function assertGenerationAndStopOrdering() {
     assert.equal(invalidated.phase, "stopping");
     assert.equal(invalidated.stopIntent, "discard");
     assert.equal(invalidated.invalidation, reason);
-    const stopped = larkCaptureTransition(invalidated, {
+    const stopped = localRecordingCaptureTransition(invalidated, {
       type: "RECORDER_STOPPED", operation: recording.operation,
     });
     assert.equal(stopped.phase, "stopping");
-    assert.equal(larkCaptureTransition(stopped, {
+    assert.equal(localRecordingCaptureTransition(stopped, {
       type: "TRACKS_RELEASED", operation: recording.operation,
     }).phase, "error", "host invalidation plus actual recorder and track release finishes as error");
-    assert.equal(larkCaptureTransition(invalidated, {
+    assert.equal(localRecordingCaptureTransition(invalidated, {
       type: "INVALIDATED", event: { ...capture, reason: "disabled" },
     }), invalidated);
   }
 
-  const lost = larkCaptureTransition(transcribing, { type: "INVALIDATED", event: {
+  const lost = localRecordingCaptureTransition(transcribing, { type: "INVALIDATED", event: {
     pluginId: capture.pluginId, generation: capture.generation, reason: "accessLost",
   } });
   assert.equal(lost.phase, "error");
-  assert.equal(larkCaptureTransition(lost, {
+  assert.equal(localRecordingCaptureTransition(lost, {
     type: "COMMIT_SUCCEEDED", operation: released.operation,
   }), lost, "late commit callback is inert after invalidation");
 
   const newerCapture = { ...capture, lease: "lease-new", generation: 13 };
-  const newerArmed = larkCaptureTransition(armed(), {
+  const newerArmed = localRecordingCaptureTransition(armed(), {
     type: "STATUS", status: { ...status, generation: 13 },
   });
-  const newerStarting = larkCaptureTransition(newerArmed, { type: "START", capture: newerCapture });
-  const staleInvalidation = larkCaptureTransition(newerStarting, { type: "INVALIDATED", event: {
+  const newerStarting = localRecordingCaptureTransition(newerArmed, { type: "START", capture: newerCapture });
+  const staleInvalidation = localRecordingCaptureTransition(newerStarting, { type: "INVALIDATED", event: {
     pluginId: capture.pluginId, generation: capture.generation, reason: "deviceRemoved",
   } });
   assert.equal(staleInvalidation, newerStarting, "the old generation cannot invalidate a replacement capture");
 
-  const cancelled = larkCaptureTransition(recording, {
+  const cancelled = localRecordingCaptureTransition(recording, {
     type: "CANCEL", operation: recording.operation, message: "Voice recording cancelled.",
   });
   assert.equal(cancelled.phase, "stopping");
-  assert.equal(larkCaptureTransition(cancelled, {
+  assert.equal(localRecordingCaptureTransition(cancelled, {
     type: "RECORDER_STOPPED", operation: recording.operation,
   }).phase, "stopping", "cancel command completion is not recorder teardown acknowledgement");
-  assert.equal(larkCaptureTransition(larkCaptureTransition(cancelled, {
+  assert.equal(localRecordingCaptureTransition(localRecordingCaptureTransition(cancelled, {
     type: "RECORDER_STOPPED", operation: recording.operation,
   }), {
     type: "TRACKS_RELEASED", operation: recording.operation,
@@ -140,4 +140,4 @@ function assertGenerationAndStopOrdering() {
 assertExactDevices();
 assertCaptureOwnership();
 assertGenerationAndStopOrdering();
-console.log("larkCaptureModel: 3 fixtures passed");
+console.log("localRecordingCaptureModel: 3 fixtures passed");

@@ -1,4 +1,4 @@
-use super::tests::{TestRegistrar, set_mtime, test_caps, write};
+use super::tests::{set_mtime, test_caps, write, TestRegistrar};
 use super::*;
 use crate::local_recording::{
     LocalInputSubscription, LocalRecordingTrigger, SelectedDevices, SubscriptionTeardown,
@@ -43,6 +43,7 @@ fn lark_recording_contract_native_js_declaration_and_reload_grant_parity() {
             product_id: 2,
             usage_page: 3,
             usage: 4,
+            button: None,
         },
         false,
     );

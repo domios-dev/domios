@@ -1,4 +1,4 @@
-export type LarkCapturePhase =
+export type LocalRecordingCapturePhase =
   | "disabled"
   | "armed"
   | "starting"
@@ -7,7 +7,7 @@ export type LarkCapturePhase =
   | "transcribing"
   | "error";
 
-export type LarkInvalidationReason =
+export type LocalRecordingInvalidationReason =
   | "disabled"
   | "grantRevoked"
   | "unregistered"
@@ -17,7 +17,7 @@ export type LarkInvalidationReason =
   | "deviceUnavailable"
   | "cancelled";
 
-export interface LarkCaptureLease {
+export interface LocalRecordingCaptureLease {
   lease: string;
   pluginId: string;
   tabId: string;
@@ -25,13 +25,13 @@ export interface LarkCaptureLease {
   generation: number;
 }
 
-export interface LarkCaptureInvalidation {
+export interface LocalRecordingCaptureInvalidation {
   pluginId: string;
   generation: number;
-  reason: LarkInvalidationReason;
+  reason: LocalRecordingInvalidationReason;
 }
 
-export interface LarkRecordingStatus {
+export interface LocalRecordingStatus {
   pluginId: string;
   granted: boolean;
   enabled: boolean;
@@ -40,14 +40,14 @@ export interface LarkRecordingStatus {
   devicesSelected?: boolean;
 }
 
-export interface LarkCaptureState {
-  phase: LarkCapturePhase;
+export interface LocalRecordingCaptureState {
+  phase: LocalRecordingCapturePhase;
   operation: number;
   pluginId?: string;
   generation?: number;
-  capture?: LarkCaptureLease;
+  capture?: LocalRecordingCaptureLease;
   stopIntent?: "send" | "discard";
-  invalidation?: LarkInvalidationReason;
+  invalidation?: LocalRecordingInvalidationReason;
   recorderStarted: boolean;
   recorderStopped: boolean;
   tracksReleased: boolean;
@@ -55,13 +55,13 @@ export interface LarkCaptureState {
   error?: string;
 }
 
-export type LarkCaptureAction =
-  | { type: "STATUS"; status: LarkRecordingStatus }
-  | { type: "START"; capture: LarkCaptureLease }
+export type LocalRecordingCaptureAction =
+  | { type: "STATUS"; status: LocalRecordingStatus }
+  | { type: "START"; capture: LocalRecordingCaptureLease }
   | { type: "RECORDER_STARTED"; operation: number }
   | { type: "STOP"; operation: number; intent: "send" | "discard"; error?: string }
-  | { type: "CANCEL"; operation: number; message: string; reason?: LarkInvalidationReason }
-  | { type: "INVALIDATED"; event: LarkCaptureInvalidation }
+  | { type: "CANCEL"; operation: number; message: string; reason?: LocalRecordingInvalidationReason }
+  | { type: "INVALIDATED"; event: LocalRecordingCaptureInvalidation }
   | { type: "CAPTURE_STOP_ACK"; operation: number }
   | { type: "RECORDER_STOPPED"; operation: number }
   | { type: "TRACKS_RELEASED"; operation: number }
@@ -69,7 +69,7 @@ export type LarkCaptureAction =
   | { type: "FAILED"; operation: number; message: string }
   | { type: "RESET" };
 
-export function initialLarkCaptureState(): LarkCaptureState {
+export function initialLocalRecordingCaptureState(): LocalRecordingCaptureState {
   return {
     phase: "disabled",
     operation: 0,
@@ -80,7 +80,7 @@ export function initialLarkCaptureState(): LarkCaptureState {
   };
 }
 
-function settleStop(state: LarkCaptureState): LarkCaptureState {
+function settleStop(state: LocalRecordingCaptureState): LocalRecordingCaptureState {
   if (state.phase !== "stopping" || !state.recorderStopped || !state.tracksReleased) return state;
   if (state.invalidation) {
     return { ...state, phase: "error", capture: undefined, error: invalidationMessage(state.invalidation) };
@@ -104,10 +104,10 @@ function settleStop(state: LarkCaptureState): LarkCaptureState {
   };
 }
 
-export function larkCaptureTransition(
-  state: LarkCaptureState,
-  action: LarkCaptureAction,
-): LarkCaptureState {
+export function localRecordingCaptureTransition(
+  state: LocalRecordingCaptureState,
+  action: LocalRecordingCaptureAction,
+): LocalRecordingCaptureState {
   switch (action.type) {
     case "STATUS": {
       const { status } = action;
@@ -215,11 +215,11 @@ export function larkCaptureTransition(
       if (state.phase === "stopping") return settleStop({ ...state, error: action.message });
       return { ...state, phase: "error", capture: undefined, error: action.message };
     case "RESET":
-      return { ...initialLarkCaptureState(), operation: state.operation + 1 };
+      return { ...initialLocalRecordingCaptureState(), operation: state.operation + 1 };
   }
 }
 
-function invalidateState(state: LarkCaptureState, event: LarkCaptureInvalidation): LarkCaptureState {
+function invalidateState(state: LocalRecordingCaptureState, event: LocalRecordingCaptureInvalidation): LocalRecordingCaptureState {
   if (state.invalidation) return state;
   if (state.phase === "transcribing") {
     return {
@@ -241,13 +241,13 @@ function invalidateState(state: LarkCaptureState, event: LarkCaptureInvalidation
 }
 
 export function matchesCaptureInvalidation(
-  state: LarkCaptureState,
-  event: LarkCaptureInvalidation,
+  state: LocalRecordingCaptureState,
+  event: LocalRecordingCaptureInvalidation,
 ): boolean {
   return state.capture?.pluginId === event.pluginId && state.capture.generation === event.generation;
 }
 
-export function invalidationMessage(reason: LarkInvalidationReason): string {
+export function invalidationMessage(reason: LocalRecordingInvalidationReason): string {
   switch (reason) {
     case "deviceRemoved": return "The selected LARK device was removed.";
     case "accessLost": return "Microphone or device access was lost.";
@@ -272,7 +272,7 @@ export function hasExactLiveMicrophone(stream: MediaStream, deviceId: string): b
     && tracks[0].getSettings().deviceId === deviceId;
 }
 
-export type CaptureOwner = "manual" | "lark";
+export type CaptureOwner = "manual" | "hardware";
 let captureOwner: CaptureOwner | null = null;
 
 export function claimCaptureOwnership(owner: CaptureOwner): boolean {

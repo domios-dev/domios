@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Surface/PointAndAsk.test.tsx
 
 import "./surfaceDomGlobals.testdata";
-import { resetCaptureOwnershipForTest } from "../Terminal/voice/larkCaptureModel";
+import { resetCaptureOwnershipForTest } from "../Terminal/voice/localRecordingCaptureModel";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { PointAndAsk, SNIP_IMAGE_LABEL, type AskSubject } from "./PointAndAsk";

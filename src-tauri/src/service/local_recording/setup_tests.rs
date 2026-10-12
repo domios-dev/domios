@@ -13,6 +13,7 @@ fn declaration() -> codeterm_plugin::local_recording::LocalRecordingTrigger {
         product_id: 2,
         usage_page: 3,
         usage: 4,
+        button: None,
     }
 }
 
@@ -503,6 +504,7 @@ fn lark_recording_contract_production_macos_adapter_requires_reviewed_element_ma
             product_id: 2,
             usage_page: 0x000c,
             usage: 1,
+            button: None,
         },
         &selected,
         7,

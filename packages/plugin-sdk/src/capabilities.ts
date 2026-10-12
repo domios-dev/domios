@@ -25,6 +25,7 @@ export interface ResumeHistoryCapability {
 }
 
 export interface TabContext {
+  tabId?: string;
   cwd?: string | null;
 }
 
@@ -909,11 +910,24 @@ export interface ChatPreprocessor {
 
 // Declared in plugin.json as `capabilities.webhookReceiver`. `audio: true` lets the
 // host accept one bounded `audio/*` part and transcribe it with the installed Transcriber.
+export interface ReceiverStatusQueryCapability {
+  usagePage: number;
+  usage: number;
+  reportId: number;
+  request: number[];
+}
+
+export interface LocalRecordingButtonCapability {
+  interfaceNumber: number; collectionId: string; reportId: number; reportBytes: number; usagePage: number;
+  pressUsage: number; buttonUsages: number[]; bitField: number; linkCollection: number; debounceMs: number;
+}
+
 export interface LocalRecordingTriggerCapability {
   vendorId: number;
   productId: number;
   usagePage: number;
   usage: number;
+  button?: LocalRecordingButtonCapability;
 }
 
 export interface WebhookReceiverCapability {

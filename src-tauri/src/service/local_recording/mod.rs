@@ -5,6 +5,7 @@ mod completion;
 mod inventory;
 pub(crate) mod leases;
 pub(crate) mod platform;
+mod receiver_status;
 
 pub(crate) use admission::LocalRecordingCommitOutcome;
 pub(crate) use clip::CaptureClipDescriptor;

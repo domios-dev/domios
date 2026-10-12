@@ -1,3 +1,30 @@
+const CONSUMER_CONTROL_PAGE: u16 = 12;
+const CONSUMER_CONTROL_USAGE: u16 = 1;
+const COLLECTION_ID: &str = "Col01";
+const BUTTON_REPORT_ID: u8 = 6;
+const BUTTON_REPORT_BYTES: usize = 3;
+
+fn declaration() -> codeterm_plugin::local_recording::LocalRecordingTrigger {
+    codeterm_plugin::local_recording::LocalRecordingTrigger {
+        vendor_id: 0x3547,
+        product_id: 8,
+        usage_page: 12,
+        usage: 1,
+        button: Some(codeterm_plugin::local_recording::LocalRecordingButton {
+            interface_number: 0,
+            collection_id: "Col01".into(),
+            report_id: 6,
+            report_bytes: 3,
+            usage_page: 12,
+            press_usage: 0xe9,
+            button_usages: vec![0xb7, 0xb1, 0xb6, 0xb5, 0xcd, 0xe2, 0xea, 0xe9],
+            bit_field: 0x42,
+            link_collection: 0,
+            debounce_ms: 40,
+        }),
+    }
+}
+
 use super::*;
 use std::cell::Cell;
 use std::time::Duration;
@@ -5,12 +32,7 @@ use std::time::Duration;
 #[test]
 fn lark_input_windows_inventory_requires_exact_trigger_capability() {
     use codeterm_plugin::local_recording::LocalRecordingTrigger;
-    let approved = LocalRecordingTrigger {
-        vendor_id: 0x3547,
-        product_id: 8,
-        usage_page: CONSUMER_CONTROL_PAGE,
-        usage: CONSUMER_CONTROL_USAGE,
-    };
+    let approved = declaration();
     assert!(supports_trigger(&approved));
     for foreign in [
         LocalRecordingTrigger {
@@ -22,11 +44,11 @@ fn lark_input_windows_inventory_requires_exact_trigger_capability() {
             ..approved.clone()
         },
         LocalRecordingTrigger {
-            usage_page: 0x000B,
+            usage_page: 0,
             ..approved.clone()
         },
         LocalRecordingTrigger {
-            usage: 0x00E9,
+            usage: 0,
             ..approved.clone()
         },
     ] {
@@ -40,6 +62,7 @@ fn identity() -> SelectedInputIdentity {
             r"\\?\HID#VID_3547&PID_0008&MI_00&Col01#fixture#{4d1e55b2-f16f-11cf-88cb-001111000030}"
                 .into(),
         collection_id: COLLECTION_ID.into(),
+        trigger: declaration(),
     }
 }
 
@@ -53,7 +76,12 @@ fn raw_button_capability(usage: u16, data_index: u16) -> ButtonCapability {
 }
 
 fn supported_test_decoder(generation: u64) -> SelectedReportDecoder {
-    SelectedReportDecoder::new(identity(), HidDescriptor::supported(), generation).unwrap()
+    SelectedReportDecoder::new(
+        identity(),
+        HidDescriptor::declared(&declaration()).unwrap(),
+        generation,
+    )
+    .unwrap()
 }
 
 fn decode(
@@ -76,16 +104,16 @@ fn decode(
 
 #[test]
 fn lark_input_windows_descriptor_caps_match_only_the_observed_schema() {
-    let descriptor = HidDescriptor::supported();
-    assert!(descriptor.matches_supported_schema());
+    let descriptor = HidDescriptor::declared(&declaration()).unwrap();
+    assert!(descriptor.matches_supported_schema(&declaration()));
 
     let mut unknown = descriptor.clone();
     unknown.input_report_bytes += 1;
-    assert!(!unknown.matches_supported_schema());
+    assert!(!unknown.matches_supported_schema(&declaration()));
 
     let mut wrong_usage = descriptor;
     wrong_usage.button_capabilities[7] = raw_button_capability(0x00EA, 7);
-    assert!(!wrong_usage.matches_supported_schema());
+    assert!(!wrong_usage.matches_supported_schema(&declaration()));
 }
 
 #[test]
@@ -404,4 +432,46 @@ fn lark_input_windows_teardown_ack_follows_resource_release() {
         teardown_acknowledgement(Some(5), receiver.recv().unwrap()),
         Err(TeardownError::WindowDestroy(5))
     );
+}
+
+#[test]
+fn local_input_declared_different_vendor_interface_and_button_work_without_host_identity_branches()
+{
+    let mut trigger = declaration();
+    trigger.vendor_id = 0x1234;
+    trigger.product_id = 0x4321;
+    let pattern = trigger.button.as_mut().unwrap();
+    pattern.interface_number = 2;
+    pattern.collection_id = "Col07".into();
+    pattern.report_id = 9;
+    pattern.press_usage = 7;
+    pattern.button_usages = vec![7];
+    pattern.usage_page = 0xff01;
+    pattern.debounce_ms = 0;
+    assert!(supports_trigger(&trigger));
+    let identity = SelectedInputIdentity {
+        input_id: r"\\?\HID#VID_1234&PID_4321&MI_02&Col07#fixture#{guid}".into(),
+        collection_id: "Col07".into(),
+        trigger: trigger.clone(),
+    };
+    let descriptor = HidDescriptor::declared(&trigger).unwrap();
+    let mut decoder = SelectedReportDecoder::new(identity.clone(), descriptor, 17).unwrap();
+    assert_eq!(
+        decoder.decode(17, &identity, &[9, 1, 0], 0xff01, &[7], 0),
+        DecodeResult::Press
+    );
+    assert_eq!(
+        decoder.decode(17, &identity, &[9, 0, 0], 0xff01, &[], 1),
+        DecodeResult::Ignored
+    );
+}
+
+#[test]
+fn local_input_declaration_refuses_keyboard_and_mouse_registration() {
+    for (page, usage) in [(1, 1), (1, 2), (1, 6), (1, 7), (7, 1)] {
+        let mut trigger = declaration();
+        trigger.usage_page = page;
+        trigger.usage = usage;
+        assert!(!supports_trigger(&trigger));
+    }
 }

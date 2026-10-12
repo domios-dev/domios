@@ -39,6 +39,9 @@ function localRecordingConformance(host: Host) {
     void [granted, generation];
   }
   host.localRecording.setEnabled(true);
+  host.localRecording.statusReport();
+  // @ts-expect-error The status query is immutable manifest metadata.
+  host.localRecording.statusReport({ request: [1], path: "foreign" });
   // @ts-expect-error START is host-owned.
   host.localRecording.start();
   // @ts-expect-error A plugin cannot select arbitrary devices.

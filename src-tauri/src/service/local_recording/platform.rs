@@ -34,7 +34,7 @@ pub(crate) fn input_devices(
         if !windows::supports_trigger(trigger) {
             return Ok(Vec::new());
         }
-        return windows::selectable_inputs().map(|inputs| {
+        return windows::selectable_inputs(trigger).map(|inputs| {
             inputs
                 .into_iter()
                 .map(|input| RecordingInputDevice {
@@ -125,6 +125,7 @@ impl LocalInputAdapter for WindowsInputAdapter {
         let identity = windows::SelectedInputIdentity {
             input_id: selected.input_id.clone(),
             collection_id: selected.collection_id.clone(),
+            trigger: trigger.clone(),
         };
         let native_callback = move |event| callback(map_windows_event(event));
         let pending =

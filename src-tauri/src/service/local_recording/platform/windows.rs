@@ -13,6 +13,8 @@ use std::time::Instant;
 mod ffi;
 #[path = "windows/lifecycle.rs"]
 mod lifecycle;
+#[path = "windows/receiver_status.rs"]
+pub(crate) mod receiver_status;
 use ffi::*;
 pub(super) use lifecycle::{
     receive_completion, request_stop_wake, setup_entry_result, teardown_acknowledgement,
@@ -21,20 +23,12 @@ pub(super) use lifecycle::{
     WindowsInputTeardown,
 };
 
-const SELECTED_VENDOR_PRODUCT_COLLECTION: &str = "VID_3547&PID_0008&MI_00&COL01";
-const COLLECTION_ID: &str = "Col01";
-const CONSUMER_CONTROL_PAGE: u16 = 0x000C;
-const CONSUMER_CONTROL_USAGE: u16 = 0x0001;
-const VOLUME_INCREMENT_USAGE: u16 = 0x00E9;
-const BUTTON_REPORT_ID: u8 = 0x06;
-const BUTTON_REPORT_BYTES: usize = 3;
-const MAX_BUTTONS: usize = 8;
+const MAX_BUTTONS: usize = 64;
 const MAX_INPUT_DEVICES: usize = 4096;
 const MAX_DEVICE_NAME_CHARS: usize = 4096;
 const MAX_PREPARSED_BYTES: usize = 65_536;
 const MAX_REPORTS_PER_INPUT: usize = 8;
 const MAX_REPORT_BYTES: usize = 64;
-const DUPLICATE_WINDOW_MS: u64 = 40;
 const HIDP_STATUS_SUCCESS: i32 = 0x0011_0000;
 const RIM_TYPE_HID: u32 = 2;
 const RID_INPUT: u32 = 0x1000_0003;
@@ -61,16 +55,20 @@ static CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 pub(super) fn supports_trigger(
     trigger: &codeterm_plugin::local_recording::LocalRecordingTrigger,
 ) -> bool {
-    trigger.vendor_id == 0x3547
-        && trigger.product_id == 0x0008
-        && trigger.usage_page == CONSUMER_CONTROL_PAGE
-        && trigger.usage == CONSUMER_CONTROL_USAGE
+    trigger.vendor_id != 0
+        && trigger.product_id != 0
+        && trigger.usage_page != 7
+        && !(trigger.usage_page == 1 && matches!(trigger.usage, 1 | 2 | 6 | 7))
+        && trigger.usage_page != 0
+        && trigger.usage != 0
+        && trigger.button.as_ref().is_some_and(|button| button.valid())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct SelectedInputIdentity {
     pub input_id: String,
     pub collection_id: String,
+    pub trigger: codeterm_plugin::local_recording::LocalRecordingTrigger,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -130,10 +128,25 @@ struct SelectedReportDecoder {
 
 impl SelectedInputIdentity {
     fn is_supported_collection(&self) -> bool {
+        let Some(button) = self.trigger.button.as_ref() else {
+            return false;
+        };
         let path = self.input_id.to_ascii_uppercase();
-        self.collection_id.eq_ignore_ascii_case(COLLECTION_ID)
+        supports_trigger(&self.trigger)
+            && self
+                .collection_id
+                .eq_ignore_ascii_case(&button.collection_id)
             && path.starts_with(r"\\?\HID#")
-            && path.contains(SELECTED_VENDOR_PRODUCT_COLLECTION)
+            && path.split('#').nth(1).is_some_and(|hardware| {
+                hardware
+                    == format!(
+                        "VID_{:04X}&PID_{:04X}&MI_{:02X}&{}",
+                        self.trigger.vendor_id,
+                        self.trigger.product_id,
+                        button.interface_number,
+                        self.collection_id.to_ascii_uppercase()
+                    )
+            })
     }
 
     fn matches(&self, actual: &Self) -> bool {
@@ -145,33 +158,37 @@ impl SelectedInputIdentity {
 }
 
 impl HidDescriptor {
-    fn supported() -> Self {
-        let usages = [
-            0x00B7, 0x00B1, 0x00B6, 0x00B5, 0x00CD, 0x00E2, 0x00EA, 0x00E9,
-        ];
-        Self {
-            usage_page: CONSUMER_CONTROL_PAGE,
-            usage: CONSUMER_CONTROL_USAGE,
-            input_report_bytes: BUTTON_REPORT_BYTES,
-            input_button_caps: MAX_BUTTONS as u16,
+    fn declared(trigger: &codeterm_plugin::local_recording::LocalRecordingTrigger) -> Option<Self> {
+        let button = trigger.button.as_ref().filter(|button| button.valid())?;
+        Some(Self {
+            usage_page: trigger.usage_page,
+            usage: trigger.usage,
+            input_report_bytes: button.report_bytes as usize,
+            input_button_caps: button.button_usages.len() as u16,
             input_value_caps: 0,
-            input_data_indices: MAX_BUTTONS as u16,
+            input_data_indices: button.button_usages.len() as u16,
             link_collections: 1,
-            button_capabilities: usages
-                .into_iter()
+            button_capabilities: button
+                .button_usages
+                .iter()
                 .enumerate()
                 .map(|(index, usage)| ButtonCapability {
-                    usage_page: CONSUMER_CONTROL_PAGE,
-                    report_id: BUTTON_REPORT_ID,
-                    usage,
+                    usage_page: button.usage_page,
+                    report_id: button.report_id,
+                    usage: *usage,
                     data_index: index as u16,
                 })
                 .collect(),
-        }
+        })
     }
 
-    fn matches_supported_schema(&self) -> bool {
-        let expected = Self::supported();
+    fn matches_supported_schema(
+        &self,
+        trigger: &codeterm_plugin::local_recording::LocalRecordingTrigger,
+    ) -> bool {
+        let Some(expected) = Self::declared(trigger) else {
+            return false;
+        };
         self.usage_page == expected.usage_page
             && self.usage == expected.usage
             && self.input_report_bytes == expected.input_report_bytes
@@ -197,16 +214,16 @@ impl SelectedReportDecoder {
         descriptor: HidDescriptor,
         generation: u64,
     ) -> Option<Self> {
-        (identity.is_supported_collection() && descriptor.matches_supported_schema()).then_some(
-            Self {
-                identity,
-                descriptor,
-                generation,
-                armed: true,
-                pressed: false,
-                last_press_ms: None,
-            },
-        )
+        (identity.is_supported_collection()
+            && descriptor.matches_supported_schema(&identity.trigger))
+        .then_some(Self {
+            identity,
+            descriptor,
+            generation,
+            armed: true,
+            pressed: false,
+            last_press_ms: None,
+        })
     }
 
     fn decode(
@@ -221,10 +238,15 @@ impl SelectedReportDecoder {
         if !self.armed || generation != self.generation || !self.identity.matches(actual_identity) {
             return DecodeResult::Ignored;
         }
-        if !self.descriptor.matches_supported_schema()
-            || report.len() != BUTTON_REPORT_BYTES
-            || report.first() != Some(&BUTTON_REPORT_ID)
-            || active_usage_page != CONSUMER_CONTROL_PAGE
+        let Some(button) = self.identity.trigger.button.as_ref() else {
+            return DecodeResult::Malformed;
+        };
+        if !self
+            .descriptor
+            .matches_supported_schema(&self.identity.trigger)
+            || report.len() != button.report_bytes as usize
+            || report.first() != Some(&button.report_id)
+            || active_usage_page != button.usage_page
             || active_usages.len() > MAX_BUTTONS
             || active_usages.iter().any(|usage| {
                 !self
@@ -239,7 +261,7 @@ impl SelectedReportDecoder {
             return DecodeResult::Malformed;
         }
 
-        let is_pressed = active_usages.contains(&VOLUME_INCREMENT_USAGE);
+        let is_pressed = active_usages.contains(&button.press_usage);
         if !is_pressed {
             self.pressed = false;
             return DecodeResult::Ignored;
@@ -250,7 +272,7 @@ impl SelectedReportDecoder {
         self.pressed = true;
 
         if let Some(last) = self.last_press_ms {
-            if monotonic_ms < last || monotonic_ms - last <= DUPLICATE_WINDOW_MS {
+            if monotonic_ms < last || monotonic_ms - last <= u64::from(button.debounce_ms) {
                 return DecodeResult::Ignored;
             }
         }
@@ -302,6 +324,8 @@ fn unavailable_reason_for_win32(error: u32) -> UnavailableReason {
 struct NativeListener {
     window: Hwnd,
     registered: bool,
+    registration_usage_page: u16,
+    registration_usage: u16,
     release_attempted: bool,
     context: Option<Box<ThreadContext>>,
 }
@@ -311,6 +335,8 @@ impl NativeListener {
         Self {
             window: null_mut(),
             registered: false,
+            registration_usage_page: 0,
+            registration_usage: 0,
             release_attempted: false,
             context: None,
         }
@@ -328,8 +354,8 @@ impl NativeListener {
         }
         let selected =
             find_selected_collection(&identity).map_err(ListenerStartError::Unavailable)?;
-        let descriptor = descriptor_from_preparsed(&selected.preparsed)
-            .filter(|descriptor| descriptor.matches_supported_schema())
+        let descriptor = descriptor_from_preparsed(&selected.preparsed, &identity.trigger)
+            .filter(|descriptor| descriptor.matches_supported_schema(&identity.trigger))
             .ok_or(ListenerStartError::Unavailable(UnavailableReason::Error))?;
         let decoder = SelectedReportDecoder::new(identity.clone(), descriptor.clone(), generation)
             .ok_or(ListenerStartError::Unavailable(UnavailableReason::Error))?;
@@ -339,6 +365,8 @@ impl NativeListener {
         register_window_class()
             .map_err(unavailable_reason_for_win32)
             .map_err(ListenerStartError::Unavailable)?;
+        self.registration_usage_page = identity.trigger.usage_page;
+        self.registration_usage = identity.trigger.usage;
         let mut context = Box::new(ThreadContext {
             device: selected.device,
             identity,
@@ -347,7 +375,7 @@ impl NativeListener {
             decoder,
             callback,
         });
-        let class_name = wide_null("LarkSelectedRawInputWindow");
+        let class_name = wide_null("SelectedLocalRawInputWindow");
         let title = wide_null("");
         let instance = unsafe { GetModuleHandleW(null()) };
         if instance.is_null() {
@@ -381,14 +409,14 @@ impl NativeListener {
         if stop_requested.load(Ordering::Acquire) {
             return Err(ListenerStartError::Stopped);
         }
-        if has_raw_input_registration(CONSUMER_CONTROL_PAGE, CONSUMER_CONTROL_USAGE)
+        if has_raw_input_registration(self.registration_usage_page, self.registration_usage)
             .map_err(ListenerStartError::Unavailable)?
         {
             return Err(ListenerStartError::Unavailable(UnavailableReason::Error));
         }
         let registration = RawInputDevice {
-            usage_page: CONSUMER_CONTROL_PAGE,
-            usage: CONSUMER_CONTROL_USAGE,
+            usage_page: self.registration_usage_page,
+            usage: self.registration_usage,
             flags: RIDEV_INPUTSINK | RIDEV_DEVNOTIFY,
             target: window,
         };
@@ -432,8 +460,8 @@ impl NativeListener {
         self.release_attempted = true;
         let unregister_error = if self.registered {
             let registration = RawInputDevice {
-                usage_page: CONSUMER_CONTROL_PAGE,
-                usage: CONSUMER_CONTROL_USAGE,
+                usage_page: self.registration_usage_page,
+                usage: self.registration_usage,
                 flags: RIDEV_REMOVE,
                 target: null_mut(),
             };
@@ -630,7 +658,9 @@ fn raw_input_devices() -> Result<Vec<RawInputDeviceList>, UnavailableReason> {
     Ok(devices)
 }
 
-pub(super) fn selectable_inputs() -> Result<Vec<SelectedInputIdentity>, String> {
+pub(super) fn selectable_inputs(
+    trigger: &codeterm_plugin::local_recording::LocalRecordingTrigger,
+) -> Result<Vec<SelectedInputIdentity>, String> {
     let devices =
         raw_input_devices().map_err(|_| "local_input_inventory_unavailable".to_string())?;
     let mut inputs = Vec::new();
@@ -643,7 +673,13 @@ pub(super) fn selectable_inputs() -> Result<Vec<SelectedInputIdentity>, String> 
         };
         let identity = SelectedInputIdentity {
             input_id: path,
-            collection_id: COLLECTION_ID.into(),
+            collection_id: trigger
+                .button
+                .as_ref()
+                .ok_or("local_input_descriptor_unsupported")?
+                .collection_id
+                .clone(),
+            trigger: trigger.clone(),
         };
         if !identity.is_supported_collection() {
             continue;
@@ -651,10 +687,10 @@ pub(super) fn selectable_inputs() -> Result<Vec<SelectedInputIdentity>, String> 
         let Ok(preparsed) = raw_device_preparsed_data(device.device) else {
             continue;
         };
-        let Some(descriptor) = descriptor_from_preparsed(&preparsed) else {
+        let Some(descriptor) = descriptor_from_preparsed(&preparsed, trigger) else {
             continue;
         };
-        if descriptor != HidDescriptor::supported() {
+        if !descriptor.matches_supported_schema(trigger) {
             continue;
         }
         inputs.push(identity);
@@ -748,7 +784,10 @@ fn has_raw_input_registration(usage_page: u16, usage: u16) -> Result<bool, Unava
         .any(|device| device.usage_page == usage_page && device.usage == usage))
 }
 
-fn descriptor_from_preparsed(data: &AlignedPreparsedData) -> Option<HidDescriptor> {
+fn descriptor_from_preparsed(
+    data: &AlignedPreparsedData,
+    trigger: &codeterm_plugin::local_recording::LocalRecordingTrigger,
+) -> Option<HidDescriptor> {
     if size_of::<HidpCaps>() != 64 || size_of::<HidpButtonCaps>() != 72 {
         return None;
     }
@@ -756,7 +795,7 @@ fn descriptor_from_preparsed(data: &AlignedPreparsedData) -> Option<HidDescripto
     if unsafe { HidP_GetCaps(data.as_ptr(), &mut caps) } != HIDP_STATUS_SUCCESS {
         return None;
     }
-    if caps.input_button_caps as usize != MAX_BUTTONS {
+    if caps.input_button_caps == 0 || caps.input_button_caps as usize > MAX_BUTTONS {
         return None;
     }
     let mut raw_caps =
@@ -781,7 +820,7 @@ fn descriptor_from_preparsed(data: &AlignedPreparsedData) -> Option<HidDescripto
     };
     let button_capabilities = raw_button_caps
         .iter()
-        .map(|cap| unsafe { button_capability_from_raw(cap) })
+        .map(|cap| unsafe { button_capability_from_raw(cap, trigger) })
         .collect::<Option<Vec<_>>>()?;
     Some(HidDescriptor {
         usage_page: caps.usage_page,
@@ -795,12 +834,16 @@ fn descriptor_from_preparsed(data: &AlignedPreparsedData) -> Option<HidDescripto
     })
 }
 
-unsafe fn button_capability_from_raw(raw: &HidpButtonCaps) -> Option<ButtonCapability> {
+unsafe fn button_capability_from_raw(
+    raw: &HidpButtonCaps,
+    trigger: &codeterm_plugin::local_recording::LocalRecordingTrigger,
+) -> Option<ButtonCapability> {
+    let button = trigger.button.as_ref()?;
     if raw.is_alias != 0
-        || raw.bit_field != 0x0042
-        || raw.link_collection != 0
-        || raw.link_usage != CONSUMER_CONTROL_USAGE
-        || raw.link_usage_page != CONSUMER_CONTROL_PAGE
+        || raw.bit_field != button.bit_field
+        || raw.link_collection != button.link_collection
+        || raw.link_usage != trigger.usage
+        || raw.link_usage_page != trigger.usage_page
         || raw.is_range != 0
         || raw.is_absolute == 0
         || raw.report_count != 1
@@ -816,16 +859,20 @@ unsafe fn button_capability_from_raw(raw: &HidpButtonCaps) -> Option<ButtonCapab
     })
 }
 
-unsafe fn parse_active_usages(preparsed: *mut c_void, report: &[u8]) -> Option<Vec<u16>> {
-    if report.len() != BUTTON_REPORT_BYTES {
+unsafe fn parse_active_usages(
+    preparsed: *mut c_void,
+    report: &[u8],
+    button: &codeterm_plugin::local_recording::LocalRecordingButton,
+) -> Option<Vec<u16>> {
+    if report.len() != button.report_bytes as usize {
         return None;
     }
     let mut usages = [0u16; MAX_BUTTONS];
     let mut usage_count = usages.len() as u32;
     let status = HidP_GetUsages(
         HIDP_INPUT,
-        CONSUMER_CONTROL_PAGE,
-        0,
+        button.usage_page,
+        button.link_collection,
         usages.as_mut_ptr(),
         &mut usage_count,
         preparsed,
@@ -857,8 +904,12 @@ fn process_raw_input(raw_input: Handle, context: &mut ThreadContext) {
     ) else {
         return;
     };
+    let Some(button) = context.identity.trigger.button.as_ref() else {
+        return;
+    };
     for report in reports {
-        let Some(usages) = (unsafe { parse_active_usages(context.preparsed.as_ptr(), report) })
+        let Some(usages) =
+            (unsafe { parse_active_usages(context.preparsed.as_ptr(), report, button) })
         else {
             continue;
         };
@@ -866,7 +917,7 @@ fn process_raw_input(raw_input: Handle, context: &mut ThreadContext) {
             context.decoder.generation,
             &context.identity,
             report,
-            CONSUMER_CONTROL_PAGE,
+            button.usage_page,
             &usages,
             monotonic_millis(),
         );
@@ -967,7 +1018,7 @@ fn monotonic_millis() -> u64 {
 
 fn register_window_class() -> Result<(), u32> {
     *WINDOW_CLASS.get_or_init(|| unsafe {
-        let class_name = WINDOW_CLASS_NAME.get_or_init(|| wide_null("LarkSelectedRawInputWindow"));
+        let class_name = WINDOW_CLASS_NAME.get_or_init(|| wide_null("SelectedLocalRawInputWindow"));
         let instance = GetModuleHandleW(null());
         if instance.is_null() {
             return Err(last_error_code());

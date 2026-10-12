@@ -69,18 +69,18 @@ impl WindowsInputSubscription {
         callback: impl Fn(WindowsInputEvent) + Send + Sync + 'static,
     ) -> Result<WindowsInputPendingSubscription, String> {
         if !identity.is_supported_collection() {
-            return Err("selected input identity is not the supported LARK Col01 path".into());
+            return Err("selected input identity is not the declared receiver collection".into());
         }
         LISTENER_CLAIMED
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| "a LARK Raw Input subscription is already active".to_string())?;
+            .map_err(|_| "a selected Raw Input subscription is already active".to_string())?;
         let control = Arc::new(ThreadControl::default());
         let (startup_tx, startup_rx) = mpsc::channel();
         let (completion_tx, completion_rx) = mpsc::channel();
         let callback: Arc<dyn Fn(WindowsInputEvent) + Send + Sync> = Arc::new(callback);
         let thread_control = Arc::clone(&control);
         let thread = thread::Builder::new()
-            .name("lark-selected-raw-input".into())
+            .name("selected-local-raw-input".into())
             .spawn(move || {
                 super::run_listener(
                     thread_control,

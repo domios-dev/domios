@@ -103,6 +103,14 @@ pub trait PluginHostCtx: Send + Sync {
         RECEIVER_TARGET_UNAVAILABLE.to_string()
     }
 
+    fn receiver_status_report_json(
+        &self,
+        _plugin_id: &str,
+        _query: &crate::local_recording::ReceiverStatusQuery,
+    ) -> String {
+        r#"{"error":"receiver_status_unavailable"}"#.into()
+    }
+
     fn local_recording_status_json(&self, _plugin_id: &str) -> String {
         r#"{"error":"local_recording_unavailable"}"#.into()
     }

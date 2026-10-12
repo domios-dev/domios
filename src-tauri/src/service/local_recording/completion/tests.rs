@@ -2,8 +2,8 @@ use super::*;
 use crate::service::local_recording::chat::ChatIdentity;
 use crate::service::local_recording::leases::{CapturePhase, FrozenTarget};
 use std::cell::Cell;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn capture() -> Capture {
@@ -90,7 +90,7 @@ async fn lark_recording_contract_failure_empty_cancel_and_target_change_transcri
 #[tokio::test]
 async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_handoff() {
     use crate::service::chat_send_transaction::{
-        ChatSendLedger, ChatSendState, SendLiveBinding, run_chat_send,
+        run_chat_send, ChatSendLedger, ChatSendState, SendLiveBinding,
     };
     use crate::service::local_recording::chat::CapturedChat;
     use crate::service::local_recording::leases::RecordingLeases;
@@ -105,6 +105,7 @@ async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_hand
             product_id: 2,
             usage_page: 3,
             usage: 4,
+            button: None,
         },
         true,
     );
