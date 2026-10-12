@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { adminService, pageResult, sessionCookie } from "../../../src/server/admin";
-import { changeEntitlement } from "../actions";
+import Link from "next/link";
+import { changeAccount, changeEntitlement } from "../actions";
 import { entitlementDiagnostics } from "../../../src/domain/diagnostics";
-export default async function UserPage({ params }: { params: Promise<{ uid: string }> }) {
+export default async function UserPage({ params, searchParams }: { params: Promise<{ uid: string }>; searchParams: Promise<{ action?: string; saved?: string }> }) {
   const { uid } = await params;
+  const { action, saved } = await searchParams;
   const cookie = await sessionCookie();
   const service = adminService();
   const detail = await pageResult(() => service.detail(cookie, uid));
@@ -23,6 +25,21 @@ export default async function UserPage({ params }: { params: Promise<{ uid: stri
       <dt>Provenance</dt><dd>{diagnostics.provenance}</dd>
       <dt>Source event</dt><dd>{diagnostics.eventId ?? "None"}</dd>
     </dl><details><summary>Entitlement record (read-only)</summary><pre>{JSON.stringify(entitlement, null, 2)}</pre></details>
+    {saved && <p role="status">Changes saved.</p>}
+    <h2>Account actions</h2>
+    <form method="get">
+      <label>Action<select name="action">
+        <option value={user.disabled ? "enable" : "disable"}>{user.disabled ? "Enable account" : "Disable account"}</option>
+        <option value={user.claims.admin === true ? "revoke-admin" : "grant-admin"}>{user.claims.admin === true ? "Revoke admin role" : "Grant admin role"}</option>
+      </select></label><button>Review action</button>
+    </form>
+    {action && ["disable", "enable", "grant-admin", "revoke-admin"].includes(action) && <form action={changeAccount}>
+      <p>Confirm {action} for {user.email ?? "No email"} (UID: {user.uid}).</p>
+      <input type="hidden" name="uid" value={uid} /><input type="hidden" name="action" value={action} />
+      <input type="hidden" name="confirmUid" value={user.uid} /><input type="hidden" name="confirmEmail" value={user.email ?? ""} />
+      <label>Reason<textarea name="reason" required maxLength={2000} /></label>
+      <button name="confirmed" value="yes">Confirm {action}</button><Link href={`/users/${encodeURIComponent(uid)}`}>Cancel</Link>
+    </form>}
     <h2>Change plan</h2><form action={changeEntitlement}>
       <input type="hidden" name="uid" value={uid} />
       <label>Plan<select name="plan">{service.plans.map(plan => <option key={plan}>{plan}</option>)}</select></label>
