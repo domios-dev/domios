@@ -1,5 +1,6 @@
 use crate::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{BufRead, BufReader, Write};
+use std::os::windows::io::FromRawHandle;
 use std::sync::{mpsc, Condvar, Mutex};
 use std::time::Duration;
 

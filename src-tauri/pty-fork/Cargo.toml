@@ -114,6 +114,7 @@ features = [
     "fileapi",
     "namedpipeapi",
     "synchapi",
+    "jobapi",
     "jobapi2",
 ]
 

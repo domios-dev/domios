@@ -76,7 +76,7 @@ pub(super) fn run_with_environment(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(super) fn run_with_receipt(
     command: &str,
     cwd: &Path,

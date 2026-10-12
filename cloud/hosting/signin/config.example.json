@@ -1,0 +1,11 @@
+{
+  "provider": "firebase",
+  "firebase": {
+    "apiKey": "COPY_WEB_API_KEY",
+    "authDomain": "domios.firebaseapp.com",
+    "projectId": "domios",
+    "appId": "COPY_WEB_APP_ID"
+  },
+  "appCheckSiteKey": "COPY_RECAPTCHA_ENTERPRISE_SITE_KEY",
+  "appleEnabled": false
+}

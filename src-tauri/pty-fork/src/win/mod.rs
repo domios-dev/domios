@@ -36,7 +36,12 @@ impl WinChild {
     }
 
     fn is_complete(&mut self) -> IoResult<Option<ExitStatus>> {
-        let proc = self.proc.lock().unwrap().try_clone()?;
+        let proc = self
+            .proc
+            .lock()
+            .unwrap()
+            .try_clone()
+            .map_err(|error| IoError::new(std::io::ErrorKind::Other, error))?;
         match unsafe { WaitForSingleObject(proc.as_raw_handle() as _, 0) } {
             WAIT_OBJECT_0 => {}
             winapi::shared::winerror::WAIT_TIMEOUT => return Ok(None),
@@ -121,7 +126,7 @@ impl Child for WinChild {
     fn contains_process(&self, process: RawHandle) -> IoResult<bool> {
         let mut belongs = 0;
         if unsafe {
-            winapi::um::jobapi2::IsProcessInJob(
+            winapi::um::jobapi::IsProcessInJob(
                 process as _,
                 self.job.as_raw_handle() as _,
                 &mut belongs,
