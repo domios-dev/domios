@@ -232,6 +232,7 @@ kill_dev() {
     fi
     windows_dev_leftover_cleanup
   fi
+  node scripts/reap-dev-sidecars.mjs "$CT_DATA_DIR"
 }
 
 request_dev_clean_restart() {
