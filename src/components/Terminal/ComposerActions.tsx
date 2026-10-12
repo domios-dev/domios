@@ -21,6 +21,7 @@ interface Props {
   cardHeader?: ReactNode;
   cardFooter?: ReactNode;
   canAttach?: boolean;
+  uploadFiles?: (files: File[]) => Promise<void>;
 }
 
 export function ComposerActions({
@@ -36,6 +37,7 @@ export function ComposerActions({
   cardHeader,
   cardFooter,
   canAttach = true,
+  uploadFiles,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const uploads = useAttachmentUploads(onAttach);
@@ -61,7 +63,7 @@ export function ComposerActions({
         onChange={(e) => {
           const files = e.target.files;
           if (!files || files.length === 0) return;
-          void uploads.addFiles(Array.from(files)).finally(() => {
+          void (uploadFiles ?? uploads.addFiles)(Array.from(files)).finally(() => {
             if (fileRef.current) fileRef.current.value = "";
           });
         }}
