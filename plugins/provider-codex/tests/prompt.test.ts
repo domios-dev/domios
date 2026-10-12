@@ -1,3 +1,4 @@
+import "./active-prompt.test";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -84,6 +85,10 @@ function loadHostPlugin() {
 console.log("\n--- numbered prompts remain available to tab respond ---\n");
 {
   const bundled = loadHostPlugin();
+  const routed = fixtureText("tab-state/routed-numbered-list.txt");
+  eq(bundled.parsePrompt(routed), null, "host bundle rejects routed numbered steps");
+  eq(bundled.parsePrompt(`${fixtureText("model-picker.txt")}\n${routed}`), null,
+    "host bundle rejects historical picker followed by routed steps");
   const modelScreen = fixtureText("model-picker.txt");
   const parsed = bundled.parsePrompt(modelScreen);
   eq(parsed?.question, "Select Reasoning Level for gpt-5.5", "model picker remains a numbered prompt");
@@ -120,14 +125,7 @@ console.log("\n--- numbered prompts remain available to tab respond ---\n");
     "  B) Minor release with bundled fixes",
     "  C) Delay for more testing",
   ].join("\n");
-  const letteredPrompt = bundled.parsePrompt(lettered);
-  eq(letteredPrompt?.question, "Which release strategy should we use?", "lettered prose question extracts");
-  eq(letteredPrompt?.options, [
-    ["Fast patch release now", "A"],
-    ["Minor release with bundled fixes", "B"],
-    ["Delay for more testing", "C"],
-  ], "lettered prose choices extract");
-  eq(bundled.buildPromptResponse(1, lettered), ["Qg0="], "lettered response sends the selected value");
+  eq(bundled.parsePrompt(lettered), null, "lettered prose has no interactive prompt region");
 
   const numbered = [
     "• Which test strategy should we use?",
@@ -136,9 +134,8 @@ console.log("\n--- numbered prompts remain available to tab respond ---\n");
     "  2. Integration smoke tests",
     "  3. Full end-to-end suite",
   ].join("\n");
-  const prose = plugin.parsePrompt?.(numbered);
-  eq(prose?.question, "Which test strategy should we use?", "numbered answer prompt remains supported by parsePrompt");
-  eq(bundled.buildPromptResponse(2, numbered), ["Mw0="], "numbered prose response sends option three");
+  eq(plugin.parsePrompt?.(numbered), null, "numbered prose has no interactive prompt region");
+  eq(bundled.parsePrompt(numbered), null, "bundled parser rejects numbered prose");
 }
 
 console.log("\n--- Codex folder trust prompt classification ---\n");
