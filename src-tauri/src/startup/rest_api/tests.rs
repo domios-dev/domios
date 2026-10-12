@@ -1,5 +1,7 @@
 use super::*;
 
+static LISTENER_FIXTURES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 async fn reserve_initial_listener(control: &RestApiControl) -> SocketAddr {
@@ -88,6 +90,7 @@ fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
 
 #[tokio::test]
 async fn mesh_tailnet_production_runtime_binds_serves_and_publishes_both_listeners() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     control
         .listeners
@@ -149,6 +152,7 @@ async fn mesh_tailnet_production_runtime_binds_serves_and_publishes_both_listene
 
 #[tokio::test]
 async fn health_proof_deadline_fails_the_bound_generation_with_address_diagnostic() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
@@ -172,6 +176,7 @@ async fn health_proof_deadline_fails_the_bound_generation_with_address_diagnosti
 
 #[tokio::test]
 async fn occupied_port_release_event_rebinds_the_real_listener() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     control.force_bind_error();
@@ -196,6 +201,7 @@ async fn occupied_port_release_event_rebinds_the_real_listener() {
 
 #[tokio::test]
 async fn manual_restart_rebinds_a_real_listener() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
@@ -222,6 +228,7 @@ async fn manual_restart_rebinds_a_real_listener() {
 
 #[tokio::test]
 async fn port_release_while_listening_keeps_the_real_listener_running() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
@@ -246,6 +253,7 @@ async fn port_release_while_listening_keeps_the_real_listener_running() {
 
 #[tokio::test]
 async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let exit = control.install_server_exit();
     let mut lifecycle = control.subscribe_lifecycle();
@@ -308,6 +316,7 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
 
 #[tokio::test]
 async fn shutdown_error_fails_its_restart_completion_then_recovers() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     control.force_shutdown_error();
@@ -343,6 +352,7 @@ async fn shutdown_error_fails_its_restart_completion_then_recovers() {
 
 #[tokio::test]
 async fn overlapping_restarts_complete_from_their_own_listener_generations() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
@@ -442,6 +452,7 @@ fn worker_gated_router(gates: Arc<WorkerGates>) -> axum::Router {
 
 #[tokio::test]
 async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let exit_control = Arc::new(RestApiControl::new());
     let exit_address = reserve_initial_listener(&exit_control).await;
     let exit = exit_control.install_server_exit();
@@ -548,6 +559,7 @@ async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
 
 #[tokio::test]
 async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = RestApiControl::new();
     let mut recovery_events = control.take_recovery_events().unwrap();
     let generation = control.begin_generation();
@@ -581,6 +593,7 @@ async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
 
 #[tokio::test]
 async fn api_host_change_reports_active_listener() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
@@ -608,6 +621,7 @@ async fn api_host_change_reports_active_listener() {
 
 #[tokio::test]
 async fn unbindable_configured_value_is_disclosed_not_assumed_applied() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
@@ -637,6 +651,7 @@ async fn pending_bind_is_silent_without_a_bound_listener() {
 
 #[tokio::test]
 async fn socket_restart_recovers_after_foreign_port_owner_is_released() {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     let occupier = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = occupier.local_addr().unwrap();
     let control = Arc::new(RestApiControl::new());
@@ -685,6 +700,7 @@ async fn socket_restart_recovers_after_foreign_port_owner_is_released() {
 #[tokio::test]
 async fn listener_restart_contract_response_ack_drains_sse_then_health_proves_reserved_generation()
 {
+    let _listeners = LISTENER_FIXTURES.lock().await;
     use futures_util::StreamExt;
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
