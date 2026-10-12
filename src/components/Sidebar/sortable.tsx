@@ -4,19 +4,19 @@ import {
   DndContext,
   type Modifier,
   type DragEndEvent,
-  KeyboardSensor,
-  PointerSensor,
   type UniqueIdentifier,
   closestCenter,
+  useDndContext,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
 import {
   arrayMove,
-  sortableKeyboardCoordinates,
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { sortableSensorConfiguration } from "./sortableSensors";
+export { POINTER_DRAG_ACTIVATION_DISTANCE } from "./sortableSensors";
 
 /** Each sortable item carries the group it belongs to. A reorder is applied
  *  only when active + over share the same group, so an item can never cross
@@ -36,8 +36,6 @@ export interface SortableGroupData {
 interface SortableEventData extends SortableGroupData {
   sortable?: { items: UniqueIdentifier[] };
 }
-
-export const POINTER_DRAG_ACTIVATION_DISTANCE = 4;
 
 export const WS_PREFIX = "ws:";
 export const TAB_PREFIX = "tab:";
@@ -88,6 +86,8 @@ export function SortableRow({
 }) {
   const { setNodeRef, transform, transition, attributes, listeners, isDragging } =
     useSortable({ id, data, disabled });
+  const { activatorEvent } = useDndContext();
+  const isTouchDragging = isDragging && activatorEvent?.type === "touchstart";
   return (
     <div
       ref={setNodeRef}
@@ -96,11 +96,14 @@ export function SortableRow({
       data-dnd-disabled={disabled ? "true" : undefined}
       style={{
         ...layoutStyle,
+        touchAction: "auto",
         transform: CSS.Translate.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : undefined,
         position: "relative",
         zIndex: isDragging ? 10 : undefined,
+        boxShadow: isTouchDragging ? "0 3px 8px rgb(0 0 0 / 18%)" : undefined,
+        scale: isTouchDragging ? "1.02" : undefined,
       }}
       {...attributes}
       {...listeners}
@@ -123,11 +126,12 @@ export function SidebarDnd({
   handlers: ReorderHandlers;
   children: ReactNode;
 }) {
+  const mouse = sortableSensorConfiguration("mouse");
+  const touch = sortableSensorConfiguration("touch");
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: POINTER_DRAG_ACTIVATION_DISTANCE },
-    }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(mouse.sensor, mouse.options),
+    useSensor(touch.sensor, touch.options),
+    useSensor(mouse.keyboard.sensor, mouse.keyboard.options),
   );
 
   const onDragEnd = useMemo(

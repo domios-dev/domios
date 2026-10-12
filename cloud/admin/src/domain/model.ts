@@ -28,18 +28,31 @@ export interface Audit {
   before: Entitlement | null;
   after: Entitlement;
 }
-export interface UserDetail { user: User; entitlement: Entitlement | null; customerUrl: string | null; audit: Audit[] }
+export type AccountAction = "disable" | "enable" | "grant-admin" | "revoke-admin";
+export interface AccountAudit {
+  id: string; uid: string; actor: string; reason: string; action: AccountAction; created_at: number;
+  before: User; after: User;
+}
+export type AuditEntry = Audit | AccountAudit;
+export interface UserPage { users: User[]; nextPageToken?: string }
+export interface UserSummary extends User { hasProfile: boolean }
+export interface UserDetail { user: User; entitlement: Entitlement | null; customerUrl: string | null; audit: AuditEntry[] }
 export interface AuthProvider {
   verifySession(cookie: string): Promise<Identity>;
   verifyIdToken(token: string): Promise<Identity>;
   createSession(token: string, expiresIn: number): Promise<string>;
   getUser(uid: string): Promise<User>;
   setClaims(uid: string, claims: Claims): Promise<void>;
+  listUsers(pageSize: number, pageToken?: string): Promise<UserPage>;
+  setDisabled(uid: string, disabled: boolean): Promise<void>;
+  revokeTokens(uid: string): Promise<void>;
 }
 export interface DataProvider {
   findUser(query: string): Promise<User | null>;
   detail(uid: string): Promise<UserDetail | null>;
   change(uid: string, build: (before: Entitlement | null) => Audit): Promise<Audit>;
+  profiles(uids: string[]): Promise<string[]>;
+  appendAccountAudit(entry: AccountAudit): Promise<void>;
 }
 export interface Backend { auth: AuthProvider; data: DataProvider }
 export class AdminError extends Error {

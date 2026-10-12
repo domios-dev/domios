@@ -1,5 +1,9 @@
 use super::{auth::CallerIdentity, routes::AppState};
-use axum::{extract::State, http::StatusCode, Extension, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Extension, Json,
+};
 use codeterm_account::Status;
 type Error = (StatusCode, String);
 fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
@@ -29,10 +33,13 @@ pub async fn status(
 }
 pub async fn login(
     State(state): State<AppState>,
+    Query(hint): Query<codeterm_account::LoginHint>,
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<Status>, Error> {
     admit(caller.as_ref())?;
-    Ok(Json(state.svc.account_login().await.map_err(unavailable)?))
+    Ok(Json(
+        state.svc.account_login(hint).await.map_err(unavailable)?,
+    ))
 }
 pub async fn logout(
     State(state): State<AppState>,

@@ -28,6 +28,27 @@ describe("local adapter", () => {
       await expect(first.login("admin@localhost", "wrong")).rejects.toMatchObject({ status: 403 });
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
+  it("persists account status, merged claims, audit and token revocation", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "domios-admin-account-"));
+    try {
+      const path = join(directory, "state.json");
+      const backend = new LocalBackend(path, "secret", "password");
+      const cookie = await createAdminSession(backend.auth, await backend.login("admin@localhost", "password"));
+      const target = { uid: "local-user", email: "user@localhost" };
+      await backend.setClaims("local-user", { beta: true });
+      const userCookie = await backend.createSession(await backend.login("user@localhost", "password"), 3600000);
+      const service = new AdminService(backend, ["pro"]);
+      await service.account(cookie, "local-user", "disable", "Support", target);
+      await service.account(cookie, "local-user", "enable", "Restore", target);
+      await service.account(cookie, "local-user", "grant-admin", "Approved", target);
+      await service.account(cookie, "local-user", "revoke-admin", "Removed", target);
+      const restarted = new LocalBackend(path, "secret", "password");
+      expect((await restarted.getUser("local-user")).claims).toEqual({ beta: true, admin: false });
+      expect((await restarted.getUser("local-user")).disabled).toBe(false);
+      expect((await restarted.detail("local-user"))?.audit).toHaveLength(4);
+      await expect(restarted.verifySession(userCookie)).rejects.toThrow("Revoked");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it("prevents development providers on deployed or production processes", () => {
     expect(() => providerName({ NODE_ENV: "production", ADMIN_PROVIDER: "local" })).toThrow();
     expect(() => providerName({ VERCEL: "1", ADMIN_PROVIDER: "fake" })).toThrow();
