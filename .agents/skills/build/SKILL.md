@@ -73,6 +73,8 @@ The isolated billing crate uses `./build.sh test-one billing <selector>`; worker
 
 The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
 
+The repository watcher crate uses `./build.sh test-one repowatch tests::`; its Tauri event adapter remains in the app.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.

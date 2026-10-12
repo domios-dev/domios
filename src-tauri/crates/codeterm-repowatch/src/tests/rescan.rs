@@ -1,9 +1,7 @@
 use super::support::*;
-use crate::repowatch::backend::{
-    is_observation_only, is_rescan, RescanRelay, RescanSink, WatchSignal,
-};
-use crate::repowatch::events::RepoWatchUnavailable;
-use crate::repowatch::identity::RepoIdentity;
+use crate::backend::{is_observation_only, is_rescan, RescanRelay, RescanSink, WatchSignal};
+use crate::events::RepoWatchUnavailable;
+use crate::identity::RepoIdentity;
 use notify::event::{AccessKind, AccessMode, Flag};
 use notify::{Event, EventHandler, EventKind};
 use std::sync::atomic::{AtomicUsize, Ordering};

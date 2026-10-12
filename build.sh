@@ -287,6 +287,7 @@ run_nextest_scope() {
     analytics|codeterm-analytics) package="codeterm-analytics"; targets+=(--lib) ;;
     billing|codeterm-billing) package="codeterm-billing"; targets+=(--lib) ;;
     account|codeterm-account) package="codeterm-account"; targets+=(--lib) ;;
+    repowatch|codeterm-repowatch) package="codeterm-repowatch"; targets+=(--lib) ;;
     plan|codeterm-plan) package="codeterm-plan"; targets+=(--lib) ;;
     pty|codeterm-pty) package="codeterm-pty" ;;
     types|codeterm-types) package="codeterm-types"; targets+=(--all-targets) ;;
@@ -1795,7 +1796,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli}"
+    test_scope="${2:?test-one requires billing, account, analytics, app, frontend-bundle, repowatch, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -1816,6 +1817,10 @@ EOF
       billing) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-billing/Cargo.toml -p codeterm-billing --lib "$test_filter" ;;
       account) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-account/Cargo.toml -p codeterm-account --lib "$test_filter" ;;
       analytics) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
+      repowatch|codeterm-repowatch)
+        enter_build_gateway "$CMD ${*:2}"
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-repowatch --lib "$test_filter"
+        ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
       # pty-fork is excluded from the workspace (its own Cargo.lock) but owns
@@ -1832,7 +1837,7 @@ EOF
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, frontend-bundle, repowatch, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
     esac
     ;;
   nextest)

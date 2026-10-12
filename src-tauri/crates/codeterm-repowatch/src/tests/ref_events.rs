@@ -1,6 +1,6 @@
 use super::support::*;
-use crate::repowatch::filter::{batch_is_relevant, WatchHalf};
-use crate::repowatch::identity::RepoIdentity;
+use crate::filter::{batch_is_relevant, WatchHalf};
+use crate::identity::RepoIdentity;
 
 /// R3 — branch and index events, including a ref update that lands in
 /// `packed-refs`. Each case owns a fresh watch, so no stale event can pass it.
@@ -67,17 +67,17 @@ fn lane_merge_offer_repo_watch_classifies_head_and_shared_ref_changes() {
     let repo = primary_repo();
     let identity = RepoIdentity::resolve(repo.path()).expect("identity resolves");
 
-    assert!(crate::repowatch::registry::head_ref_changed(
+    assert!(crate::registry::head_ref_changed(
         &identity,
         WatchHalf::Worktree,
         &[identity.gitdir.join("HEAD")],
     ));
-    assert!(!crate::repowatch::registry::head_ref_changed(
+    assert!(!crate::registry::head_ref_changed(
         &identity,
         WatchHalf::Worktree,
         &[identity.gitdir.join("index")],
     ));
-    assert!(crate::repowatch::registry::head_ref_changed(
+    assert!(crate::registry::head_ref_changed(
         &identity,
         WatchHalf::SharedRefs,
         &[identity.common_dir.join("refs").join("heads").join("main")],
