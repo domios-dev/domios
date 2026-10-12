@@ -51,6 +51,17 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn carries_startup_attempt(
+    svc: &ServiceContext,
+    provider: &str,
+    extra_args: bool,
+) -> bool {
+    crate::service::startup_turn::launch_carries_startup_attempt(
+        requested(svc, provider),
+        extra_args,
+    )
+}
+
 fn selected(svc: &ServiceContext, tab: &str, provider: &str, extra_args: bool) -> bool {
     if !requested(svc, provider) {
         return false;
