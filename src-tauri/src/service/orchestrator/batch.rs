@@ -14,7 +14,7 @@ impl ServiceContext {
                 "spawn" => self.batch_spawn(&params).await,
                 "send" => self.batch_send(&params),
                 "rename" => self.batch_rename(&params),
-                "close" => self.batch_close(&params),
+                "close" => self.batch_close(&params).await,
                 "role" => self.batch_role(&params),
                 "notify" => self.batch_notify(&params),
                 "can-spawn" => self.batch_can_spawn(&params),
@@ -76,9 +76,9 @@ impl ServiceContext {
         Ok(serde_json::json!({"ok": true}))
     }
 
-    fn batch_close(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    async fn batch_close(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
         let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
-        self.close_tab(&tab_id)?;
+        self.close_tab_async(&tab_id).await?;
         Ok(serde_json::json!({"ok": true}))
     }
 
