@@ -29,9 +29,9 @@ Each pattern names the source, buckets and handlers; put silent buckets as `[]` 
 command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
 <!-- blueprint-recipe:github-pr-ci-watch -->
 ### github-pr-ci-watch
-**Purpose:** Route `failed` on the first failed or cancelled check of one PR, `passed` when every check passed; `waiting` stays silent.
+**Purpose:** Route `failed` on the first failed or cancelled check of one PR, `passed` when every check passed; `waiting` stays silent. Create it from the repository checkout: the probe runs in the creator's cwd.
 ```bash
-codeterm blueprint create --name pr-ci --probe 'gh pr checks <PR> --repo <OWNER/REPO> --json bucket -q "if any(.[]; .bucket==\"fail\" or .bucket==\"cancel\") then \"failed\" elif any(.[]; .bucket==\"pending\") then \"waiting\" else \"passed\" end"' --question 'waiting while checks run; passed when all passed; failed when any failed or was cancelled' --buckets waiting,passed,failed --match 'waiting=(?m)^waiting\r?$' --match 'passed=(?m)^passed\r?$' --match 'failed=(?m)^failed\r?$' --until passed --route waiting=none --route passed=notify --route failed=notify --rearm-on-change failed --every 60s --timeout 3h --dry-run
+codeterm blueprint create --name pr-ci --probe 'gh pr checks <PR> --json bucket -q "if any(.[]; .bucket==\"fail\" or .bucket==\"cancel\") then \"failed\" elif any(.[]; .bucket==\"pending\") then \"waiting\" else \"passed\" end"' --question 'waiting while checks run; passed when all passed; failed when any failed or was cancelled' --buckets waiting,passed,failed --match 'waiting=(?m)^waiting\r?$' --match 'passed=(?m)^passed\r?$' --match 'failed=(?m)^failed\r?$' --until passed --route waiting=none --route passed=notify --route failed=notify --rearm-on-change failed --every 60s --timeout 3h --dry-run
 ```
 <!-- /blueprint-recipe -->
 <!-- blueprint-recipe:team-watch -->
