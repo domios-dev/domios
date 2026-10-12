@@ -31,7 +31,7 @@ pub struct BrowserProcess {
     exit: watch::Receiver<Option<ProcessExit>>,
     kill: watch::Sender<bool>,
     #[cfg(windows)]
-    _job: Option<crate::service::windows_job::Job>,
+    _job: Option<codeterm_util::windows_job::Job>,
 }
 
 impl std::fmt::Debug for BrowserProcess {
@@ -57,9 +57,9 @@ impl BrowserProcess {
     ) -> Result<Self, String> {
         let mut command = tokio::process::Command::new(binary);
         #[cfg(windows)]
-        crate::process_util::no_window_tokio_suspended(&mut command);
+        codeterm_util::process_util::no_window_tokio_suspended(&mut command);
         #[cfg(not(windows))]
-        crate::process_util::no_window_tokio(&mut command);
+        codeterm_util::process_util::no_window_tokio(&mut command);
         command
             .args(args)
             .stdin(stdin)
@@ -187,11 +187,11 @@ impl Drop for BrowserProcess {
 #[cfg(windows)]
 fn contain(
     child: &tokio::process::Child,
-) -> Result<Option<crate::service::windows_job::Job>, String> {
-    let job = crate::service::windows_job::Job::contain(child)
+) -> Result<Option<codeterm_util::windows_job::Job>, String> {
+    let job = codeterm_util::windows_job::Job::contain(child)
         .inspect_err(|error| log::warn!("[browser-process] no kill-on-close job: {error}"))
         .ok();
-    crate::service::windows_job::resume(child)?;
+    codeterm_util::windows_job::resume(child)?;
     Ok(job)
 }
 

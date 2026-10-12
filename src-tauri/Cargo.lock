@@ -1101,6 +1101,7 @@ dependencies = [
  "codeterm-analytics",
  "codeterm-billing",
  "codeterm-bridge",
+ "codeterm-browser",
  "codeterm-frontend-bundle",
  "codeterm-mem",
  "codeterm-mem-store",
@@ -1244,6 +1245,27 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-browser"
+version = "1.6.2"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "codeterm-util",
+ "futures-util",
+ "libc",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
  "uuid",
 ]
 
@@ -1481,9 +1503,11 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+ "tokio",
  "uuid",
  "vt100",
  "winapi",
+ "windows-sys 0.61.2",
  "winreg 0.10.1",
 ]
 

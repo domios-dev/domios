@@ -15,13 +15,13 @@ struct Operation {
     next_read: AtomicU64,
 }
 
-pub(super) struct Scope {
+pub struct Scope {
     pty: String,
     operation: Arc<Operation>,
 }
 
 impl Scope {
-    pub(super) fn begin(pty: &str, tab: &str) -> Self {
+    pub fn begin(pty: &str, tab: &str) -> Self {
         let operation = Arc::new(Operation {
             id: NEXT.fetch_add(1, Ordering::Relaxed),
             tab: tab.into(),
@@ -55,14 +55,14 @@ impl Drop for Scope {
     }
 }
 
-pub(super) struct Receipt {
+pub struct Receipt {
     operation: Arc<Operation>,
     sequence: u64,
     read: Instant,
 }
 
 impl Receipt {
-    pub(super) fn read_completed(pty: &str, bytes: usize) -> Option<Self> {
+    pub fn read_completed(pty: &str, bytes: usize) -> Option<Self> {
         let read = Instant::now();
         if ACTIVE.load(Ordering::Relaxed) == 0 {
             return None;
@@ -78,13 +78,13 @@ impl Receipt {
         Some(receipt)
     }
 
-    pub(super) fn phase(&self, phase: &str, bytes: usize) {
+    pub fn phase(&self, phase: &str, bytes: usize) {
         log::info!("[agent-model/frame] tab={} operation={} read={} phase={phase} at_ms={} since_read_us={} bytes={bytes}",
             self.operation.tab, self.operation.id, self.sequence, unix_ms(), self.read.elapsed().as_micros());
     }
 }
 
-pub(super) fn parsed(pty: &str, bytes: usize, accepted: bool) {
+pub fn parsed(pty: &str, bytes: usize, accepted: bool) {
     if ACTIVE.load(Ordering::Relaxed) == 0 {
         return;
     }
@@ -94,7 +94,7 @@ pub(super) fn parsed(pty: &str, bytes: usize, accepted: bool) {
     }
 }
 
-pub(super) fn unix_ms() -> u128 {
+pub fn unix_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

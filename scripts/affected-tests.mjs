@@ -17,6 +17,8 @@ const scopeAliases = new Map([
   ["codeterm-plugin", "plugin"],
   ["codeterm-plugins", "plugins"],
   ["codeterm-types", "types"],
+  ["codeterm-util", "util"],
+  ["codeterm-browser", "browser"],
   ["codeterm-mem", "mem"],
   ["codeterm-mesh", "mesh"],
 ]);
