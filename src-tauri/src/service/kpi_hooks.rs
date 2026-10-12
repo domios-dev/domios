@@ -115,6 +115,7 @@ impl ServiceContext {
     /// One row per tab a service path creates. Restores re-open recorded tabs through
     /// the multiplexer and never reach this, so they are not counted as new tabs.
     pub(crate) fn record_kpi_tab_created(&self, tab_id: &str, kind: TabCreatedKind) {
+        self.record_product_tab_created(tab_id);
         if !self.kpi.is_enabled() {
             return;
         }

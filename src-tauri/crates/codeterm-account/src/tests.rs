@@ -258,3 +258,34 @@ async fn provider_refuses_wrong_verifier_and_duplicate_redemption() {
         Err(Error::Provider)
     ));
 }
+
+#[derive(Default)]
+struct Observer(Mutex<Vec<Option<String>>>);
+#[async_trait]
+impl IdentityObserver for Observer {
+    async fn changed(&self, identity: Option<&Identity>) {
+        self.0
+            .lock()
+            .await
+            .push(identity.map(|value| value.uid.clone()));
+    }
+}
+#[tokio::test]
+async fn identity_observer_tracks_committed_sign_in_and_sign_out() {
+    let observer = Arc::new(Observer::default());
+    let account = Arc::new(
+        Account::new(
+            Arc::new(adapters::local::Local),
+            Arc::new(Store::default()),
+            Duration::from_secs(1),
+        )
+        .with_identity_observer(observer.clone()),
+    );
+    let status = account.login(&NoBrowser).await.unwrap();
+    assert_eq!(
+        *observer.0.lock().await,
+        vec![status.identity.map(|value| value.uid)]
+    );
+    account.logout().await.unwrap();
+    assert_eq!(observer.0.lock().await.last(), Some(&None));
+}

@@ -156,6 +156,7 @@ impl ServiceContext {
         self.emit_state_changed();
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        self.record_product_event(codeterm_analytics::Event::WorkspaceCreated {});
         Ok(ws)
     }
 

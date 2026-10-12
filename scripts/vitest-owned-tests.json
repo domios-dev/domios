@@ -186,5 +186,6 @@
   "plugins/provider-opencode/tests/turnErrors.test.ts",
   "packages/chat-ui/src/MessageBubble.api-error.test.tsx",
   "src/lib/aggregateOutputRegistry.test.ts",
-  "src/components/Notifications/NotificationBody.test.tsx"
+  "src/components/Notifications/NotificationBody.test.tsx",
+  "src/components/Settings/PrivacyTab.test.tsx"
 ]

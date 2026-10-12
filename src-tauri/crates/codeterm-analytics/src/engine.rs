@@ -25,6 +25,7 @@ pub(crate) struct Engine {
 impl Engine {
     pub fn open(path: PathBuf, config: Config) -> Result<Self, String> {
         let mut state = State::read(&path)?;
+        state.user_id = None;
         if state.consent == Consent::Off {
             state.clear();
         }

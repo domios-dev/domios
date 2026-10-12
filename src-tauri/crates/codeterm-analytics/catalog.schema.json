@@ -1,0 +1,103 @@
+{
+  "enums": {
+    "Platform": [
+      "macos",
+      "windows",
+      "linux"
+    ],
+    "UpdateChannel": [
+      "stable",
+      "rc",
+      "nightly"
+    ],
+    "UpdateKind": [
+      "app",
+      "frontend"
+    ],
+    "TabKind": [
+      "shell",
+      "agent"
+    ],
+    "Role": [
+      "general",
+      "orchestrator",
+      "planner",
+      "worker",
+      "manager",
+      "supporter",
+      "none",
+      "other"
+    ],
+    "RestoreOutcome": [
+      "resumed",
+      "fresh_launch",
+      "failed"
+    ],
+    "ExecutionIntent": [
+      "read_only",
+      "mutating"
+    ],
+    "AuthProvider": [
+      "local",
+      "fake",
+      "firebase"
+    ],
+    "PlanKey": [
+      "free",
+      "pro"
+    ],
+    "SubscriptionStatus": [
+      "active",
+      "past_due",
+      "canceled",
+      "revoked",
+      "incomplete",
+      "trialing",
+      "unpaid",
+      "paused"
+    ]
+  },
+  "events": {
+    "app_started": {
+      "version": "Version",
+      "platform": "Platform",
+      "update_channel": "UpdateChannel"
+    },
+    "update_installed": {
+      "from_version": "Version",
+      "to_version": "Version",
+      "kind": "UpdateKind",
+      "attempt_count": "u32"
+    },
+    "workspace_created": {},
+    "tab_opened": {
+      "kind": "TabKind",
+      "provider_id": "Option<ProviderId>"
+    },
+    "agent_spawned": {
+      "provider_id": "ProviderId",
+      "role": "Role",
+      "model_family": "ModelFamily"
+    },
+    "agent_restored": {
+      "provider_id": "ProviderId",
+      "outcome": "RestoreOutcome"
+    },
+    "plan_created": {},
+    "task_dispatched": {
+      "execution_intent": "ExecutionIntent"
+    },
+    "mesh_peer_paired": {},
+    "signed_in": {
+      "auth_provider": "AuthProvider"
+    },
+    "checkout_started": {
+      "plan_key": "PlanKey"
+    },
+    "subscription_changed": {
+      "plan": "PlanKey",
+      "status": "SubscriptionStatus"
+    },
+    "analytics_opted_in": {}
+  }
+}
