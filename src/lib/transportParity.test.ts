@@ -38,7 +38,8 @@ describe("transportParity", () => {
     const unknown = sites.filter(site => site.kind === "audited-command" && site.target !== "<dynamic>" && !known.has(site.target));
     expect(unknown).toEqual([]);
     console.info(`[transportParity mode=enforce] ${bypasses.length} non-native bypasses; ${unknown.length} unknown named commands`);
-  });
+    // Parses every source file in src and packages; a light CI runner needs about 7 s.
+  }, 60_000);
   it("detects raw native globals and CommonJS imports", () => {
     const source = `window.__TAURI_INTERNALS__.invoke('get_config'); window['__TAURI__'].core.invoke('get_config'); require('@tauri-apps/api/core');`;
     expect(scanTransportSource("fixture.ts", source).map(site => site.kind)).toEqual(["native-global", "native-global", "tauri-import"]);
