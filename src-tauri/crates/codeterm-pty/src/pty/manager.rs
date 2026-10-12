@@ -851,17 +851,24 @@ impl PtyManager {
     }
 
     pub fn begin_kill(&mut self, pty_id: &str) -> Result<PtyReaper, String> {
+        self.begin_kill_with(pty_id, false)
+    }
+
+    fn begin_kill_with(&mut self, pty_id: &str, entire_tree: bool) -> Result<PtyReaper, String> {
         let session = self
             .sessions
             .remove(pty_id)
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
         session.guarded_input.invalidate();
         let kill_error = match session.child.lock() {
-            Ok(mut child) => child
-                .kill()
-                .err()
-                .filter(kill_failure_blocks_teardown)
-                .map(|error| error.to_string()),
+            Ok(mut child) => (if entire_tree {
+                child.kill_tree()
+            } else {
+                child.kill()
+            })
+            .err()
+            .filter(kill_failure_blocks_teardown)
+            .map(|error| error.to_string()),
             Err(error) => Some(format!("child mutex poisoned: {error}")),
         };
         session.write_queue.close();
@@ -882,12 +889,29 @@ impl PtyManager {
         })
     }
 
+    #[cfg(windows)]
+    pub fn owning_pty(
+        &self,
+        process: std::os::windows::io::RawHandle,
+    ) -> Result<Option<String>, String> {
+        for (id, session) in &self.sessions {
+            let child = session.child.lock().map_err(|error| error.to_string())?;
+            if child
+                .contains_process(process)
+                .map_err(|error| error.to_string())?
+            {
+                return Ok(Some(id.clone()));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn begin_shutdown(&mut self) -> Result<Vec<PtyReaper>, String> {
         self.spawn_gate.quiesce();
         let pty_ids = self.sessions.keys().cloned().collect::<Vec<_>>();
         pty_ids
             .into_iter()
-            .map(|pty_id| self.begin_kill(&pty_id))
+            .map(|pty_id| self.begin_kill_with(&pty_id, true))
             .collect()
     }
 

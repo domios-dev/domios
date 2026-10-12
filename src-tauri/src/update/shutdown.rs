@@ -4,7 +4,6 @@ use tokio::task::JoinSet;
 use crate::service::ServiceState;
 
 const SPAWN_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const PTY_REAP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Steps 2-9 of the auto-update sequence. Step 1 (user confirmation) and
 /// step 6 (binary swap, handled by `tauri-plugin-updater` before this runs)
@@ -16,14 +15,6 @@ pub async fn graceful_shutdown(
     _initiating_tab_id: Option<&str>,
 ) -> Result<Vec<String>, String> {
     log::info!("[updater] graceful_shutdown: starting");
-
-    let stale_conpty_hosts = super::conpty_cleanup::cleanup_stale_before_shutdown().await?;
-    if stale_conpty_hosts > 0 {
-        log::info!(
-            "[updater] cleared {} stale bundled ConPTY host(s) before PTY shutdown",
-            stale_conpty_hosts
-        );
-    }
 
     // Arms the watchdog's clean-quit signal AND role-based tab-prune suppression
     // before any PTY can die, so teardown EOFs never read as agent crashes.
@@ -45,7 +36,6 @@ pub async fn graceful_shutdown(
     );
 
     let (desk, reaped) = capture_desk_before(&svc, reap_owned_ptys(&svc)).await?;
-    let conpty_hosts = super::conpty_cleanup::cleanup_before_installer().await?;
 
     let persist_result = persist_desk_off_runtime(app, &svc.mux, desk).await;
     let shutdown_result = shutdown_storage_off_runtime(app).await;
@@ -64,11 +54,8 @@ pub async fn graceful_shutdown(
         log::warn!("[updater] mem WAL checkpoint failed: {}", e);
     }
 
-    log::info!(
-        "[updater] graceful_shutdown: complete; {} PTY session(s) reaped, {} bundled ConPTY host(s) reaped",
-        reaped,
-        conpty_hosts
-    );
+    super::install_holders::release_before_installer().await?;
+    log::info!("[updater] graceful_shutdown: complete; {reaped} PTY session(s) reaped and install holders released");
     Ok(swept)
 }
 
@@ -120,10 +107,30 @@ async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
         .collect::<Vec<_>>();
     svc.pty_ownership.release_ptys(&pty_ids);
 
+    let blockers = svc
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .values()
+        .filter_map(|tab| {
+            tab.pty_id
+                .as_ref()
+                .map(|pty| (pty.clone(), format!("Tab {} ({})", tab.title, tab.id)))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
     let count = reapers.len();
     let mut set = JoinSet::new();
     for reaper in reapers {
-        set.spawn_blocking(move || reaper.wait_for_termination_bounded(PTY_REAP_TIMEOUT));
+        let blocker = blockers
+            .get(reaper.pty_id())
+            .cloned()
+            .unwrap_or_else(|| format!("PTY {}", reaper.pty_id()));
+        set.spawn_blocking(move || {
+            reaper
+                .wait_for_termination()
+                .map_err(|error| format!("{blocker}: {error}"))
+        });
     }
     let mut failures = Vec::new();
     while let Some(result) = set.join_next().await {

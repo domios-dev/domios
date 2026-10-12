@@ -2,11 +2,25 @@ import type { TransportClient } from "../transportClient";
 import { COMPOSER_DRAFT_PREFIX } from "../composerDraftGc";
 import { setPersistedChatScrollState, type ChatScrollState } from "../../components/Terminal/chatViewport";
 import { frontendSignals, setCheckpointRestorer } from "./appState";
-import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions } from "./runtime";
+import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions, type FrontendUpdateOffer } from "./runtime";
 
 let runtime: Awaited<ReturnType<typeof initializeFrontendUpdateRuntime>> | null = null;
+let offer: FrontendUpdateOffer | null = null;
+const offerListeners = new Set<() => void>();
 
 export function frontendRootRendered(): void { runtime?.rootRendered(); }
+export function frontendUpdateOffer(): FrontendUpdateOffer | null { return offer; }
+export function subscribeFrontendUpdateOffer(listener: () => void): () => void {
+  offerListeners.add(listener);
+  return () => { offerListeners.delete(listener); };
+}
+export function acceptFrontendUpdate(): void { runtime?.consent(); }
+
+function publishOffer(next: FrontendUpdateOffer | null): void {
+  if (next?.releaseId === offer?.releaseId) return;
+  offer = next;
+  for (const listener of offerListeners) listener();
+}
 
 export async function initializeBrowserFrontendUpdates(client: TransportClient, context: Pick<FrontendRuntimeOptions, "clientId" | "boot" | "bundled" | "onError">) {
   const checkpoint = frontendSignals.checkpoint();
@@ -36,7 +50,7 @@ export async function initializeBrowserFrontendUpdates(client: TransportClient, 
   modals.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "open"] });
   try {
     runtime = await initializeFrontendUpdateRuntime(client, { ...context, signals: frontendSignals, storage: sessionStorage,
-      navigate: path => location.assign(path), events: window,
+      navigate: path => location.assign(path), events: window, onOffer: publishOffer,
       event: detail => new CustomEvent(ROOT_RENDERED_EVENT, { detail }),
     });
   } catch (error) {

@@ -578,6 +578,11 @@ impl ServiceContext {
             self.agent_registry
                 .with_provider(&agent_cmd, |provider| provider.is_tool_less())
                 .unwrap_or(false),
+            super::codex_rpc::launch::carries_startup_attempt(
+                self,
+                &agent_cmd,
+                !agent.extra_args.is_empty(),
+            ),
         );
         let mut legacy_params = spec.to_agent_launch_params(resolved_cwd.clone())?;
         let input_provider = self.agent_registry.provider_arc(&agent_cmd);

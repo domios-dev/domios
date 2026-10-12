@@ -258,8 +258,12 @@ impl PlanStore {
         worktree_path: &str,
         base: &str,
         provider: &str,
+        session_binding_nonce: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if session_binding_nonce.trim().is_empty() {
+            return Err(PlanError::Io("remote worker binding nonce is empty".into()));
+        }
         self.with_plan(plan_id, now_ms, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -276,6 +280,7 @@ impl PlanStore {
                 ));
             }
             attempt.executor_tab_id = worker_tab_id.to_string();
+            attempt.session_binding_nonce = Some(session_binding_nonce.to_string());
             attempt.provider = Some(provider.to_string());
             attempt.branch = Some(branch.to_string());
             attempt.remote_worktree_path = Some(worktree_path.to_string());
@@ -456,9 +461,16 @@ mod tests {
                 "D:/peer/repo-worktrees/lane",
                 "base-sha",
                 "codex",
+                "worker-nonce",
                 3,
             )
             .unwrap();
+        assert_eq!(
+            store.show_task(&task_id).unwrap().task.execution_attempts[0]
+                .session_binding_nonce
+                .as_deref(),
+            Some("worker-nonce")
+        );
         assert!(store
             .acknowledge_remote_dispatch(
                 &plan_id,
@@ -524,6 +536,7 @@ mod tests {
                 "D:/peer/repo-worktrees/lane",
                 "base-sha",
                 "codex",
+                "worker-nonce",
                 4,
             )
             .unwrap();
@@ -621,6 +634,7 @@ mod tests {
                 "D:/peer/repo-worktrees/lane",
                 "base-sha",
                 "codex",
+                "worker-nonce",
                 4,
             )
             .unwrap();
@@ -677,6 +691,7 @@ mod tests {
                 "D:/peer/repo-worktrees/lane",
                 "base-sha",
                 "codex",
+                "worker-nonce",
                 4,
             )
             .unwrap();
@@ -754,6 +769,7 @@ mod tests {
                 "D:/peer/repo-worktrees/lane",
                 "base-sha",
                 "codex",
+                "worker-nonce",
                 4,
             )
             .unwrap();

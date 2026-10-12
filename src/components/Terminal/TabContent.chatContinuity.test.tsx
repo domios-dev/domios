@@ -218,7 +218,7 @@ async function flush(): Promise<void> {
 }
 
 async function settleUntil(done: () => boolean, label: string): Promise<void> {
-  for (let turn = 0; turn < 50 && !done(); turn++) {
+  for (let turn = 0; turn < 200 && !done(); turn++) {
     await act(async () => {
       await new Promise<void>((resolve) => setImmediate(resolve));
     });

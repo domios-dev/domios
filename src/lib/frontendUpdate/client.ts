@@ -39,13 +39,14 @@ export function releaseIndex(ticket: Ticket): string {
   return `/frontend/${encodeURIComponent(ticket.releaseId)}/index.html?generation=${ticket.generation}`;
 }
 
-export function createSwapController(initial: SwapState, api: ReturnType<typeof createFrontendUpdateClient>, reloadPage: (ticket: Ticket) => void) {
+export function createSwapController(initial: SwapState, api: ReturnType<typeof createFrontendUpdateClient>, reloadPage: (ticket: Ticket) => void, onChange: (state: SwapState) => void = () => {}) {
   let state = initial;
   let disposed = false;
   const dispatch = (event: SwapEvent): void => {
     if (disposed) return;
     const transition = swapEvent(state, event);
     state = transition.state;
+    onChange(state);
     for (const effect of transition.effects) {
       if (effect.type === "persist") {
         void api.persist(effect.write).then(write => dispatch({ type: "persisted", write }), () => dispatch({ type: "failed" }));

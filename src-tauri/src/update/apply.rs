@@ -243,7 +243,8 @@ async fn check_and_apply_plugin(
                 super::viability::plugin_install_viability(verified_len)
             })
             .await
-            .map_err(|e| format!("viability probe task failed: {e}"))?
+            .map_err(|e| format!("viability probe task failed: {e}"))??;
+            super::install_holders::check_before_shutdown(app).await
         },
         || async {
             shutdown::graceful_shutdown(app, initiating_tab_id.as_deref())

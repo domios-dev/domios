@@ -15,13 +15,19 @@ fn sentinel_probe_native_success_and_nonzero() {
     let dir = tempfile::tempdir().unwrap();
     let owner = Arc::new(ProbeResourceOwner::new());
     for status in [0, 1, 2] {
-        let command = finite_command(status);
-        let (output, receipt) =
-            super::run_with_receipt(&command, dir.path(), PROBE_RUNTIME, &owner).unwrap_or_else(
-                |(failure, receipt)| {
-                    panic!("exit {status}: {failure:?}; deadline receipt={receipt:?}")
-                },
-            );
+        let readiness = super::test_readiness::Readiness::new();
+        let (signal, receipts) = readiness.signal(PROBE_RUNTIME, PROBE_RUNTIME);
+        let (output, receipt) = run_ready(
+            &readiness.finite_command(status),
+            dir.path(),
+            PROBE_RUNTIME,
+            &owner,
+            &signal,
+            receipts,
+        )
+        .unwrap_or_else(|(failure, receipt)| {
+            panic!("exit {status}: {failure:?}; deadline receipt={receipt:?}")
+        });
         assert_deadline_receipt(receipt, PROBE_RUNTIME, PROBE_RUNTIME);
         assert_eq!(
             i32::from_le_bytes(output.bytes[..4].try_into().unwrap()),
@@ -165,16 +171,10 @@ fn sentinel_probe_native_exited_group_retirement_is_idempotent() {
 fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
     let fixture = ControlFixture::new(true, false);
     let owner = Arc::new(ProbeResourceOwner::new());
-    let started = std::time::Instant::now();
-    let result = super::run_with_receipt(
-        &fixture.command(),
-        fixture.dir.path(),
-        Duration::from_secs(1),
-        &owner,
-    );
+    let result = fixture.run(&owner);
     let (failure, receipt) = result.expect_err("a live process group cannot be reported complete");
     assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
-    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(receipt.unwrap().admitted.elapsed() < Duration::from_secs(3));
     assert_eq!(failure.primary, "probe_group_completion_unconfirmed");
     assert!(failure.is_unconfirmed());
     assert!(failure
@@ -190,18 +190,12 @@ fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
 fn sentinel_probe_native_inherited_stream_deadline() {
     let fixture = ControlFixture::new(false, true);
     let owner = Arc::new(ProbeResourceOwner::new());
-    let started = std::time::Instant::now();
-    let result = super::run_with_receipt(
-        &fixture.command(),
-        fixture.dir.path(),
-        Duration::from_secs(1),
-        &owner,
-    );
-    fixture.release_and_wait();
+    let result = fixture.run(&owner);
     let (failure, receipt) = result.expect_err("inherited output keeps capture incomplete");
     assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
-    assert!(started.elapsed() >= Duration::from_millis(500));
-    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(receipt.unwrap().admitted.elapsed() >= Duration::from_millis(500));
+    assert!(receipt.unwrap().admitted.elapsed() < Duration::from_secs(3));
+    fixture.release_and_wait();
     assert_eq!(failure.primary, "probe_timeout");
     assert!(failure.is_unconfirmed());
     assert!(failure
@@ -216,13 +210,9 @@ fn sentinel_probe_timeout_retires_sigterm_ignoring_child_and_reuses_owner() {
     let mut fixture = ControlFixture::new(false, false);
     fixture.ignore_term = true;
     let owner = Arc::new(ProbeResourceOwner::new());
-    let (failure, receipt) = super::run_with_receipt(
-        &fixture.command(),
-        fixture.dir.path(),
-        Duration::from_secs(1),
-        &owner,
-    )
-    .expect_err("SIGTERM-ignoring child must reach the probe deadline");
+    let (failure, receipt) = fixture
+        .run(&owner)
+        .expect_err("SIGTERM-ignoring child must reach the probe deadline");
     assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
     assert!(fixture.dir.path().join("term-ignored").exists());
     assert_eq!(failure.primary, "probe_timeout");
@@ -336,6 +326,9 @@ fn probe_native_control_child() {
             libc::close(libc::STDERR_FILENO);
         }
     }
+    if let Ok(address) = std::env::var("SENTINEL_FIXTURE_READY") {
+        super::test_readiness::child_ready(&address);
+    }
     std::fs::OpenOptions::new()
         .write(true)
         .open(started)
@@ -364,6 +357,7 @@ struct ControlFixture {
     close_streams: bool,
     detached: bool,
     ignore_term: bool,
+    readiness: Arc<super::test_readiness::Readiness>,
 }
 
 #[cfg(unix)]
@@ -400,6 +394,7 @@ impl ControlFixture {
             close_streams,
             detached,
             ignore_term: false,
+            readiness: super::test_readiness::Readiness::new(),
         }
     }
 
@@ -408,7 +403,7 @@ impl ControlFixture {
         format!(
             concat!(
                 "SENTINEL_PROBE_NATIVE_CONTROL={} SENTINEL_PROBE_NATIVE_ACK={} ",
-                "SENTINEL_PROBE_NATIVE_STARTED={}{}{}{} {} ",
+                "SENTINEL_PROBE_NATIVE_STARTED={}{}{}{} SENTINEL_FIXTURE_READY={} {} ",
                 "--ignored --nocapture probe_native_control_child & ",
                 "IFS= read -r _ < {}; exit 0"
             ),
@@ -433,8 +428,31 @@ impl ControlFixture {
             } else {
                 String::new()
             },
+            self.readiness.address(),
             shell_quote(&executable),
             shell_quote(&self.dir.path().join("started.fifo")),
+        )
+    }
+
+    fn run(
+        &self,
+        owner: &Arc<ProbeResourceOwner>,
+    ) -> Result<
+        (super::Output, super::process::DeadlineReceipt),
+        (
+            super::process::ProbeFailure,
+            Option<super::process::DeadlineReceipt>,
+        ),
+    > {
+        let limit = Duration::from_secs(1);
+        let (signal, receipts) = self.readiness.signal(limit, PROBE_RUNTIME);
+        run_ready(
+            &self.command(),
+            self.dir.path(),
+            limit,
+            owner,
+            &signal,
+            receipts,
         )
     }
 
@@ -468,16 +486,6 @@ fn shell_quote(path: &Path) -> String {
 }
 
 #[cfg(unix)]
-fn finite_command(status: i32) -> String {
-    format!("printf out; printf err >&2; exit {status}")
-}
-
-#[cfg(windows)]
-fn finite_command(status: i32) -> String {
-    format!("[Console]::Out.Write('out'); [Console]::Error.Write('err'); exit {status}")
-}
-
-#[cfg(unix)]
 fn large_command() -> String {
     "head -c 100000 /dev/zero | tr '\\000' x; head -c 100000 /dev/zero | tr '\\000' y >&2".into()
 }
@@ -500,4 +508,33 @@ fn assert_deadline_receipt(
         receipt.operation.duration_since(receipt.admitted),
         duration - reserve
     );
+}
+
+fn run_ready(
+    command: &str,
+    cwd: &std::path::Path,
+    limit: Duration,
+    owner: &Arc<ProbeResourceOwner>,
+    signal: &super::cancellation::Cancellation,
+    receipts: std::sync::mpsc::Receiver<super::process::DeadlineReceipt>,
+) -> Result<
+    (super::Output, super::process::DeadlineReceipt),
+    (
+        super::process::ProbeFailure,
+        Option<super::process::DeadlineReceipt>,
+    ),
+> {
+    let result = super::run_transaction(
+        command,
+        cwd,
+        super::process::Deadlines::start(limit, PROBE_RUNTIME).unwrap(),
+        owner,
+        signal,
+        false,
+        &Environment::default(),
+    );
+    let receipt = receipts.try_recv().ok();
+    result
+        .map(|output| (output, receipt.expect("child readiness receipt")))
+        .map_err(|failure| (failure, receipt))
 }

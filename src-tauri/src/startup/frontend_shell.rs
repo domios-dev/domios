@@ -326,7 +326,7 @@ async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, Strin
         return Ok(url.clone());
     }
     let bundles = app
-        .try_state::<Arc<crate::frontend_bundle::FrontendBundles>>()
+        .try_state::<Arc<codeterm_frontend_bundle::FrontendBundles>>()
         .map(|bundles| bundles.inner().clone());
     let index = super::frontend_bundles::navigation_index(bundles.as_deref());
     let target = Url::parse(origin)

@@ -899,6 +899,7 @@ pub(super) fn run_task(
                     "task_id": task_id,
                     "attempt_id": attempt_id,
                     "worker_tab_id": worker_tab_id,
+                    "session_binding_nonce": remote_worker_nonce()?,
                 }),
             )
             .map(Some)
@@ -929,6 +930,8 @@ pub(super) fn run_task(
                     "plan_id": plan_id,
                     "task_id": task_id,
                     "attempt_id": attempt_id,
+                    "worker_tab_id": reporter_tab_id,
+                    "session_binding_nonce": remote_worker_nonce()?,
                     "report": {
                         "id": report_id,
                         "message": message,
@@ -1115,3 +1118,10 @@ pub(super) fn run_task(
 
 #[cfg(test)]
 mod tests;
+
+fn remote_worker_nonce() -> Result<String, String> {
+    std::env::var("CODETERM_SESSION_BINDING_NONCE")
+        .ok()
+        .filter(|nonce| !nonce.trim().is_empty())
+        .ok_or_else(|| "remote worker requires CODETERM_SESSION_BINDING_NONCE".into())
+}

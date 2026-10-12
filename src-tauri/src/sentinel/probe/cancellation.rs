@@ -13,9 +13,14 @@ pub(in crate::sentinel) trait Wake: Send + Sync {
     fn wake(&self);
 }
 
+#[cfg(test)]
+type ReadinessHook = Arc<dyn Fn() -> Result<super::process::Deadlines, String> + Send + Sync>;
+
 #[derive(Default)]
 struct State {
     cancelled: bool,
+    #[cfg(test)]
+    readiness: Option<ReadinessHook>,
     wake: Option<Weak<dyn Wake>>,
     #[cfg(test)]
     wait_observer: Option<std::sync::mpsc::Sender<WaitPhase>>,
@@ -147,6 +152,47 @@ pub(in crate::sentinel) enum WaitPhase {
 
 #[cfg(test)]
 impl Cancellation {
+    pub(in crate::sentinel) fn with_readiness(
+        ready: impl Fn() -> Result<super::process::Deadlines, String> + Send + Sync + 'static,
+    ) -> Self {
+        let signal = Self::default();
+        signal.set_readiness(ready);
+        signal
+    }
+
+    pub(in crate::sentinel) fn set_readiness(
+        &self,
+        ready: impl Fn() -> Result<super::process::Deadlines, String> + Send + Sync + 'static,
+    ) {
+        self.state.lock().readiness = Some(Arc::new(ready));
+    }
+
+    pub(in crate::sentinel) fn setup_deadlines(
+        &self,
+        deadlines: super::process::Deadlines,
+    ) -> super::process::Deadlines {
+        if self.state.lock().readiness.is_some() {
+            super::process::Deadlines::start(
+                super::test_readiness::SETUP_DEADLINE,
+                super::test_readiness::SETUP_DEADLINE,
+            )
+            .unwrap()
+        } else {
+            deadlines
+        }
+    }
+
+    pub(in crate::sentinel) fn child_ready(
+        &self,
+        deadlines: super::process::Deadlines,
+    ) -> Result<super::process::Deadlines, String> {
+        let readiness = self.state.lock().readiness.clone();
+        match readiness {
+            Some(ready) => ready(),
+            None => Ok(deadlines),
+        }
+    }
+
     pub(in crate::sentinel) fn observe_waits(&self) -> std::sync::mpsc::Receiver<WaitPhase> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.state.lock().wait_observer = Some(tx);

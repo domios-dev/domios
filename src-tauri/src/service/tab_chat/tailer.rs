@@ -135,6 +135,28 @@ pub(crate) fn spawn_sourced_tailer(
     registry: Arc<AgentRegistry>,
     sink: Arc<dyn DeltaSink>,
 ) -> TailerHandle {
+    spawn_sourced_tailer_inner(cfg, source, registry, sink, || {})
+}
+
+#[cfg(test)]
+pub(super) fn spawn_tailer_with_ready(
+    cfg: TailConfig,
+    registry: Arc<AgentRegistry>,
+    sink: Arc<dyn DeltaSink>,
+    ready: mpsc::Sender<()>,
+) -> TailerHandle {
+    spawn_sourced_tailer_inner(cfg, None, registry, sink, move || {
+        let _ = ready.send(());
+    })
+}
+
+fn spawn_sourced_tailer_inner(
+    cfg: TailConfig,
+    source: Option<Arc<JsonlSource>>,
+    registry: Arc<AgentRegistry>,
+    sink: Arc<dyn DeltaSink>,
+    on_ready: impl FnOnce() + Send + 'static,
+) -> TailerHandle {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let offset = Arc::new(AtomicU64::new(cfg.start_offset));
 
@@ -162,6 +184,7 @@ pub(crate) fn spawn_sourced_tailer(
                 }
             };
             log::info!("[tab_chat] tab={} tailing {}", cfg.tab_id, path.display());
+            on_ready();
             let _ = thread_wake.try_send(());
             let mut source_incarnation: Option<SourceIncarnation> = None;
             while events.recv().is_ok() {

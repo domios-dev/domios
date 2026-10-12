@@ -127,6 +127,15 @@ pub(super) fn run(
         }
     }
     process.set_nonblocking();
+    #[cfg(test)]
+    match cancellation.child_ready(process.deadlines) {
+        Ok(deadlines) => process.deadlines = deadlines,
+        Err(error) => {
+            process.set_failure("probe_fixture_readiness_failed");
+            process.add_cleanup_error(error);
+            return process.finish_failure();
+        }
+    }
     process.drive()
 }
 

@@ -4,6 +4,7 @@ pub mod checker;
 pub(crate) mod conpty_cleanup;
 mod debian_verify;
 pub mod failure_report;
+mod install_holders;
 pub mod manifest;
 pub mod orchestrate;
 pub mod post_update;
