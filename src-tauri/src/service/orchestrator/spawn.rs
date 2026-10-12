@@ -75,10 +75,16 @@ fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
     );
 }
 
-fn apply_startup_handshake(params: &mut SpawnAgentParams, supervised: bool) {
-    if let Some(prompt) = crate::service::launch_delivery::startup_starter_prompt(
+fn apply_startup_handshake(
+    params: &mut SpawnAgentParams,
+    supervised: bool,
+    carries_startup_attempt: bool,
+) {
+    if let Some(prompt) = crate::service::launch_delivery::startup_starter_prompt_for_class(
         supervised,
         params.task_launch_authority.is_some(),
+        false,
+        carries_startup_attempt,
     ) {
         params.starter_prompt = prompt;
     }
@@ -724,7 +730,13 @@ impl ServiceContext {
             .with_provider(&agent_cmd, |provider| provider.is_tool_less())
             .unwrap_or(false)
         {
-            apply_startup_handshake(&mut params, startup_supervised);
+            let carries_startup_attempt =
+                crate::service::codex_rpc::launch::carries_startup_attempt(
+                    self,
+                    &agent_cmd,
+                    params.args.as_ref().is_some_and(|args| !args.is_empty()),
+                );
+            apply_startup_handshake(&mut params, startup_supervised, carries_startup_attempt);
         }
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));

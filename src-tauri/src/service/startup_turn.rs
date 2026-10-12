@@ -67,3 +67,23 @@ pub(crate) fn resolve(
         first_turn_will_be_delivered,
     }
 }
+
+pub(crate) fn launch_carries_startup_attempt(
+    structured_runtime: bool,
+    extra_terminal_args: bool,
+) -> bool {
+    !structured_runtime || extra_terminal_args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_carries_startup_attempt;
+
+    #[test]
+    fn structured_runtime_without_terminal_fallback_has_no_startup_attempt_env() {
+        assert!(!launch_carries_startup_attempt(true, false));
+        for (structured, extra_args) in [(false, false), (false, true), (true, true)] {
+            assert!(launch_carries_startup_attempt(structured, extra_args));
+        }
+    }
+}

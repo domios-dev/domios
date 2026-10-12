@@ -354,8 +354,9 @@ pub(crate) fn startup_starter_prompt_for_class(
     supervised: bool,
     task_bound: bool,
     tool_less: bool,
+    carries_startup_attempt: bool,
 ) -> Option<crate::agent::provider::StarterPrompt> {
-    (!tool_less)
+    (!tool_less && carries_startup_attempt)
         .then(|| startup_starter_prompt(supervised, task_bound))
         .flatten()
 }
@@ -682,6 +683,28 @@ mod tests {
     #[test]
     fn native_starter_capable_startup_handshake_is_not_confirmed_a_second_time() {
         assert_eq!(startup_handshake_confirmed_first_turn(true), None);
+    }
+
+    #[test]
+    fn startup_ack_prompt_requires_a_carried_startup_attempt() {
+        for supervised in [false, true] {
+            for task_bound in [false, true] {
+                for tool_less in [false, true] {
+                    for carries_attempt in [false, true] {
+                        assert_eq!(
+                            startup_starter_prompt_for_class(
+                                supervised,
+                                task_bound,
+                                tool_less,
+                                carries_attempt
+                            ),
+                            (supervised && !task_bound && !tool_less && carries_attempt)
+                                .then_some(crate::agent::provider::StarterPrompt::StartupHandshake),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

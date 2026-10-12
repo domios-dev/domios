@@ -764,13 +764,18 @@ fn cartographer_attach_injects_handshake_only_with_armed_attempt() {
         ..Default::default()
     };
 
-    apply_startup_handshake(&mut params, false);
+    apply_startup_handshake(&mut params, false, true);
     assert_eq!(
         params.starter_prompt,
         crate::agent::provider::StarterPrompt::AssignedTask
     );
 
-    apply_startup_handshake(&mut params, true);
+    apply_startup_handshake(&mut params, true, false);
+    assert_eq!(
+        params.starter_prompt,
+        crate::agent::provider::StarterPrompt::AssignedTask
+    );
+    apply_startup_handshake(&mut params, true, true);
     assert_eq!(
         params.starter_prompt,
         crate::agent::provider::StarterPrompt::StartupHandshake
@@ -874,7 +879,7 @@ fn supervised_task_spawn_keeps_the_assigned_task_starter() {
         ..Default::default()
     };
 
-    apply_startup_handshake(&mut params, true);
+    apply_startup_handshake(&mut params, true, true);
 
     assert_eq!(
         params.starter_prompt,
