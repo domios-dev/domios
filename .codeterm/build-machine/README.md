@@ -13,6 +13,8 @@ succeed. Nothing is cross-built where a native runner exists.
 | **`linux-build`** | ubunta, Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native; also plugin publication and release preparation |
 | **`linux-ci`** | ubunta and BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs and the PR lint workflows | test pool only: either idle runner takes the job; never packaging or signing |
 
+Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `fmt` ask for `light` and run on any free one; the heavy Rust jobs start only after `fmt` passes.
+
 Why this split:
 - **macOS** must be native (Developer ID + notarization need a Mac keychain).
 - **arm64 Linux** is native-in-Docker on the ARM Mac.
