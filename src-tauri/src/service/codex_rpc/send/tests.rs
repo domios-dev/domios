@@ -44,6 +44,7 @@ fn active_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
             product_id: 2,
             usage_page: 3,
             usage: 4,
+            button: None,
         },
         true,
     );
@@ -146,27 +147,21 @@ fn admitted_capture_rpc_fixture() -> (
     let status = fixture.service.chat_send_ledger.admit_user(&record);
     assert_eq!(status.correlation_id.as_deref(), Some("capture-client"));
     drop(reservation);
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .claim(&record, authority.session_id.as_deref())
-            .unwrap()
-    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .claim(&record, authority.session_id.as_deref())
+        .unwrap());
     let evidence = fixture.service.chat_send_anchor(&tab);
-    assert!(
-        fixture
-            .service
-            .chat_send_ledger
-            .begin_user_handoff(&record, "voice marker", evidence)
-    );
-    assert!(
-        fixture
-            .service
-            .local_recordings
-            .write_ticket_matches_authority(&send_id, &authority)
-    );
+    assert!(fixture
+        .service
+        .chat_send_ledger
+        .begin_user_handoff(&record, "voice marker", evidence));
+    assert!(fixture
+        .service
+        .local_recordings
+        .write_ticket_matches_authority(&send_id, &authority));
     (fixture, tab, capture, generation, authority, send_id)
 }
 
@@ -235,12 +230,10 @@ fn invalidate_capture_rpc(
             .service
             .local_recording_registry
             .unregister("trigger"),
-        CaptureRpcInvalidation::DeviceLoss => assert!(
-            fixture
-                .service
-                .local_recording_registry
-                .mark_unavailable("trigger", generation)
-        ),
+        CaptureRpcInvalidation::DeviceLoss => assert!(fixture
+            .service
+            .local_recording_registry
+            .mark_unavailable("trigger", generation)),
         CaptureRpcInvalidation::Deadline => fixture
             .service
             .local_recordings
@@ -363,16 +356,14 @@ async fn lark_recording_contract_rpc_capture_valid_ticket_tracks_one_request() {
         GuardedSubmit::Attempted(result) => result,
         GuardedSubmit::RefusedBeforeRequest { .. } => unreachable!(),
     };
-    assert!(
-        finish_handoff(
-            &fixture.service,
-            &tab,
-            authority.session_id.as_deref().unwrap(),
-            &send_id,
-            result,
-        )
-        .is_ok()
-    );
+    assert!(finish_handoff(
+        &fixture.service,
+        &tab,
+        authority.session_id.as_deref().unwrap(),
+        &send_id,
+        result,
+    )
+    .is_ok());
     let status = fixture.service.chat_send_ledger.status(&send_id).unwrap();
     assert_eq!(
         status.state,
@@ -754,33 +745,23 @@ async fn codex_rpc_send_two_busy_messages_are_two_independently_confirmed_steers
         );
         assert_eq!(calls[index].1["clientUserMessageId"], ids[index]);
     }
-    assert!(
-        ledger
-            .confirm_rpc_send("tab-a", "foreign", "nonce-a", &ids[0])
-            .is_none()
-    );
-    assert!(
-        ledger
-            .confirm_rpc_send("tab-a", "thread-a", "stale", &ids[0])
-            .is_none()
-    );
-    assert!(
-        ledger
-            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
-            .is_some()
-    );
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "foreign", "nonce-a", &ids[0])
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "stale", &ids[0])
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+        .is_some());
     assert_eq!(
         ledger.status(&ids[1]).unwrap().state,
         ChatSendState::Written
     );
-    assert!(
-        ledger
-            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
-            .is_none()
-    );
-    assert!(
-        ledger
-            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[1])
-            .is_some()
-    );
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[1])
+        .is_some());
 }

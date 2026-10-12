@@ -11,9 +11,9 @@ import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { TabContent } from "./components/Terminal/TabContent";
-import { LarkCaptureStatus } from "./components/Terminal/voice/LarkCaptureStatus";
+import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
 import { LocalRecordingSetup } from "./components/Terminal/voice/LocalRecordingSetup";
-import { useLarkCapture } from "./components/Terminal/voice/useLarkCapture";
+import { useLocalRecordingCapture } from "./components/Terminal/voice/useLocalRecordingCapture";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
 import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
@@ -233,7 +233,7 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
-  const larkCapture = useLarkCapture({ tabs: state.tabs });
+  const larkCapture = useLocalRecordingCapture({ tabs: state.tabs });
   useEffect(() => {
     if (!IS_WEB) {
       void (async () => {
@@ -672,7 +672,7 @@ function AppInner() {
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
         className="flex flex-1 min-h-0 relative"
       >
-        <LarkCaptureStatus state={larkCapture.state} />
+        <LocalRecordingCaptureStatus state={larkCapture.state} />
         {larkCapture.setupPluginId && <LocalRecordingSetup pluginId={larkCapture.setupPluginId} onClose={larkCapture.closeSetup} />}
         {sidebarMounted && (
           <>

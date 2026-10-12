@@ -33,6 +33,7 @@ pub(in crate::service::local_recording) fn armed() -> (LocalRecordingRegistry, S
             product_id: 2,
             usage_page: 3,
             usage: 4,
+            button: None,
         },
         true,
     );
@@ -76,22 +77,18 @@ fn lark_recording_contract_selected_device_manual_parallel_and_actual_stop() {
     let (registry, devices, generation) = armed();
     let leases = RecordingLeases::default();
     leases.set_manual_capture(true).unwrap();
-    assert!(
-        leases
-            .start("trigger", &devices, generation, target(), &registry)
-            .is_err()
-    );
+    assert!(leases
+        .start("trigger", &devices, generation, target(), &registry)
+        .is_err());
     leases.set_manual_capture(false).unwrap();
     let lease = leases
         .start("trigger", &devices, generation, target(), &registry)
         .unwrap();
     assert_eq!(lease.microphone_id, "selected-mic");
     assert!(leases.set_manual_capture(true).is_err());
-    assert!(
-        leases
-            .start("trigger", &devices, generation, target(), &registry)
-            .is_err()
-    );
+    assert!(leases
+        .start("trigger", &devices, generation, target(), &registry)
+        .is_err());
     assert!(leases.transcribing(&lease.lease).is_err());
     leases.stopped(&lease.lease).unwrap();
     leases.transcribing(&lease.lease).unwrap();
@@ -133,22 +130,16 @@ fn lark_recording_contract_wrong_subscription_and_device_are_refused() {
     let leases = RecordingLeases::default();
     let mut wrong = devices.clone();
     wrong.collection_id = "foreign-collection".into();
-    assert!(
-        leases
-            .start("trigger", &wrong, generation, target(), &registry)
-            .is_err()
-    );
-    assert!(
-        leases
-            .start("trigger", &devices, generation + 1, target(), &registry)
-            .is_err()
-    );
+    assert!(leases
+        .start("trigger", &wrong, generation, target(), &registry)
+        .is_err());
+    assert!(leases
+        .start("trigger", &devices, generation + 1, target(), &registry)
+        .is_err());
     assert!(registry.mark_unavailable("trigger", generation));
-    assert!(
-        leases
-            .start("trigger", &devices, generation, target(), &registry)
-            .is_err()
-    );
+    assert!(leases
+        .start("trigger", &devices, generation, target(), &registry)
+        .is_err());
 }
 
 #[test]

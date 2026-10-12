@@ -9,7 +9,7 @@ import {
   createVoiceRecorder,
   storeBlob,
 } from "./audio";
-import { claimCaptureOwnership, releaseCaptureOwnership, exactMicrophoneConstraints, hasExactLiveMicrophone } from "./larkCaptureModel";
+import { claimCaptureOwnership, releaseCaptureOwnership, exactMicrophoneConstraints, hasExactLiveMicrophone } from "./localRecordingCaptureModel";
 import type { RecordedVoiceClip, RecordingRuntime } from "./composerRecording";
 
 export interface VoicePreviewData {

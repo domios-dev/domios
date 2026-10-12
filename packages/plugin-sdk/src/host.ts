@@ -375,6 +375,7 @@ export interface LocalRecordingRefusal {
 }
 
 export interface HostLocalRecording {
+  statusReport(): number[] | LocalRecordingRefusal | null;
   status(): LocalRecordingStatus | LocalRecordingRefusal | null;
   setEnabled(enabled: boolean): LocalRecordingStatus | LocalRecordingRefusal | null;
 }

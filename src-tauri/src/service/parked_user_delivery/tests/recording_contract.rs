@@ -10,6 +10,7 @@ fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
             product_id: 2,
             usage_page: 3,
             usage: 4,
+            button: None,
         },
         true,
     );

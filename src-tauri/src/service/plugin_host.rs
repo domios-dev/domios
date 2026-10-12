@@ -536,6 +536,14 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         host_json(self.clear_receiver_target(plugin_id))
     }
 
+    fn receiver_status_report_json(
+        &self,
+        plugin_id: &str,
+        query: &codeterm_plugin::local_recording::ReceiverStatusQuery,
+    ) -> String {
+        super::local_recording::host_json(self.read_receiver_status_report(plugin_id, query))
+    }
+
     fn local_recording_status_json(&self, plugin_id: &str) -> String {
         super::local_recording::host_json(self.local_recording_status(plugin_id))
     }

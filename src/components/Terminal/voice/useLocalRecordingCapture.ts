@@ -14,23 +14,23 @@ import {
 } from "./audio";
 import {
   claimCaptureOwnership,
-  initialLarkCaptureState,
-  larkCaptureTransition,
+  initialLocalRecordingCaptureState,
+  localRecordingCaptureTransition,
   releaseCaptureOwnership,
-  type LarkCaptureAction,
-  type LarkCaptureInvalidation,
-  type LarkCaptureLease,
-  type LarkCaptureState,
-  type LarkRecordingStatus,
-} from "./larkCaptureModel";
+  type LocalRecordingCaptureAction,
+  type LocalRecordingCaptureInvalidation,
+  type LocalRecordingCaptureLease,
+  type LocalRecordingCaptureState,
+  type LocalRecordingStatus,
+} from "./localRecordingCaptureModel";
 
 import { composerRecording, type ComposerRecording, type RecordedVoiceClip } from "./composerRecording";
 
 type CaptureEvent =
-  | { kind: "start"; capture: LarkCaptureLease }
+  | { kind: "start"; capture: LocalRecordingCaptureLease }
   | { kind: "stop"; lease: string };
 
-export interface LarkCaptureRuntime {
+export interface LocalRecordingCaptureRuntime {
   isDesktop: boolean;
   listen: <T>(event: string, handler: (event: { payload: T }) => void) => Promise<UnlistenFn>;
   invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -42,9 +42,9 @@ export interface LarkCaptureRuntime {
   createId: () => string;
 };
 
-export interface UseLarkCaptureOptions {
+export interface UseLocalRecordingCaptureOptions {
   tabs: Record<string, Tab>;
-  runtime?: Partial<LarkCaptureRuntime>;
+  runtime?: Partial<LocalRecordingCaptureRuntime>;
 }
 
 type LocalRecordingCommitOutcome =
@@ -64,7 +64,7 @@ function tabBinding(tab: Tab | undefined): string | null {
   ]);
 }
 
-function statusPayload(value: unknown): value is LarkRecordingStatus {
+function statusPayload(value: unknown): value is LocalRecordingStatus {
   if (!value || typeof value !== "object") return false;
   const status = value as Record<string, unknown>;
   return typeof status.pluginId === "string"
@@ -87,7 +87,7 @@ function captureEvent(value: unknown): value is CaptureEvent {
     && Number.isSafeInteger(capture.generation);
 }
 
-function invalidationPayload(value: unknown): value is LarkCaptureInvalidation {
+function invalidationPayload(value: unknown): value is LocalRecordingCaptureInvalidation {
   if (!value || typeof value !== "object") return false;
   const event = value as Record<string, unknown>;
   return typeof event.pluginId === "string"
@@ -99,14 +99,14 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function microphoneFailureReason(error: unknown): LarkCaptureInvalidation["reason"] {
+function microphoneFailureReason(error: unknown): LocalRecordingCaptureInvalidation["reason"] {
   if (error instanceof DOMException && ["NotAllowedError", "SecurityError"].includes(error.name)) return "accessLost";
   if (error instanceof DOMException && error.name === "NotFoundError") return "deviceRemoved";
   return "deviceUnavailable";
 }
 
-export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptureOptions) {
-  const [state, setState] = useState<LarkCaptureState>(initialLarkCaptureState);
+export function useLocalRecordingCapture({ tabs, runtime: runtimeOverrides }: UseLocalRecordingCaptureOptions) {
+  const [state, setState] = useState<LocalRecordingCaptureState>(initialLocalRecordingCaptureState);
   const [setupPluginId, setSetupPluginId] = useState<string | null>(null);
   const listenerReadyRef = useRef<Promise<void> | null>(null);
   const resolveListenerReadyRef = useRef<(() => void) | null>(null);
@@ -117,7 +117,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   }
   const stateRef = useRef(state);
   const tabsRef = useRef(tabs);
-  const runtimeRef = useRef<LarkCaptureRuntime>({
+  const runtimeRef = useRef<LocalRecordingCaptureRuntime>({
     isDesktop: !IS_WEB,
     listen,
     invoke,
@@ -148,18 +148,19 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   const recorderRef = useRef<{ operation: number; recorder: ComposerRecording } | null>(null);
   const clipsRef = useRef(new Map<number, RecordedVoiceClip | null>());
   const pendingMediaRef = useRef(new Set<number>());
+  const pendingStartsRef = useRef(new Map<string, { capture: LocalRecordingCaptureLease; cancelled: boolean }>());
   const startupRequestsRef = useRef(new Map<number, Promise<boolean>>());
   const stopRequestedRef = useRef(new Set<number>());
-  const completeAfterHostStopRef = useRef<((operation: number, capture: LarkCaptureLease) => void) | null>(null);
+  const completeAfterHostStopRef = useRef<((operation: number, capture: LocalRecordingCaptureLease) => void) | null>(null);
   const cancelRequestsRef = useRef(new Map<string, Promise<void>>());
   const captureStoppedRequestsRef = useRef(new Set<number>());
   const bindingByLeaseRef = useRef(new Map<string, string>());
   const sendIdByOperationRef = useRef(new Map<number, string>());
   const finalizedOperationsRef = useRef(new Set<number>());
 
-  const transition = useCallback((action: LarkCaptureAction): LarkCaptureState => {
+  const transition = useCallback((action: LocalRecordingCaptureAction): LocalRecordingCaptureState => {
     const previous = stateRef.current;
-    const next = larkCaptureTransition(previous, action);
+    const next = localRecordingCaptureTransition(previous, action);
     if (next !== previous) {
       stateRef.current = next;
       if (mountedRef.current) setState(next);
@@ -168,10 +169,10 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   }, []);
 
   const releaseOwner = useCallback(() => {
-    releaseCaptureOwnership("lark");
+    releaseCaptureOwnership("hardware");
   }, []);
 
-  const cancelHostLease = useCallback((capture: LarkCaptureLease, _operation?: number) => {
+  const cancelHostLease = useCallback((capture: LocalRecordingCaptureLease, _operation?: number) => {
     let request = cancelRequestsRef.current.get(capture.lease);
     if (!request) {
       request = runtimeRef.current.invoke<void>("local_recording_cancel", { lease: capture.lease });
@@ -183,7 +184,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     }
   }, []);
 
-  const operationIs = useCallback((operation: number, ...phases: LarkCaptureState["phase"][]) => {
+  const operationIs = useCallback((operation: number, ...phases: LocalRecordingCaptureState["phase"][]) => {
     const current = stateRef.current;
     return current.operation === operation && (phases.length === 0 || phases.includes(current.phase));
   }, []);
@@ -216,7 +217,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     });
   }, [releaseOwner, transition]);
 
-  const cancelCapture = useCallback((message = "Voice recording cancelled.", reason?: LarkCaptureInvalidation["reason"]) => {
+  const cancelCapture = useCallback((message = "Voice recording cancelled.", reason?: LocalRecordingCaptureInvalidation["reason"]) => {
     const current = stateRef.current;
     const capture = current.capture;
     if (!capture || current.phase === "disabled" || current.phase === "armed" || current.phase === "error") return;
@@ -231,7 +232,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
 
   const completeCapture = useCallback(async (
     operation: number,
-    capture: LarkCaptureLease,
+    capture: LocalRecordingCaptureLease,
     blob: Blob,
     mime: string,
   ) => {
@@ -338,7 +339,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     }
   }, [cancelHostLease, operationIs, releaseOwner, transition]);
 
-  const completeAfterHostStop = useCallback((operation: number, capture: LarkCaptureLease) => {
+  const completeAfterHostStop = useCallback((operation: number, capture: LocalRecordingCaptureLease) => {
     if (!operationIs(operation, "stopping") || captureStoppedRequestsRef.current.has(operation)) return;
     captureStoppedRequestsRef.current.add(operation);
     void runtimeRef.current.invoke<void>("local_recording_capture_stopped", { lease: capture.lease }).then(() => {
@@ -368,17 +369,35 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   }, [cancelHostLease, completeCapture, operationIs, releaseOwner, transition]);
   completeAfterHostStopRef.current = completeAfterHostStop;
 
-  const startCapture = useCallback(async (capture: LarkCaptureLease) => {
+  const startCapture = useCallback(async (capture: LocalRecordingCaptureLease) => {
     const before = stateRef.current;
+    if (["disabled", "armed", "error"].includes(before.phase)) {
+      const pending = { capture, cancelled: false };
+      pendingStartsRef.current.set(capture.lease, pending);
+      try {
+        const status = await runtimeRef.current.invoke<LocalRecordingStatus>("local_recording_status", { pluginId: capture.pluginId });
+        if (pending.cancelled || !mountedRef.current || !statusPayload(status) || !status.granted || !status.enabled || !status.available || status.generation !== capture.generation || status.pluginId !== capture.pluginId) {
+          cancelHostLease(capture);
+          return;
+        }
+        transition({ type: "STATUS", status });
+      } catch {
+        cancelHostLease(capture);
+        return;
+      } finally {
+        pendingStartsRef.current.delete(capture.lease);
+      }
+    }
+    const readyState = stateRef.current;
     const started = transition({ type: "START", capture });
-    if (started === before) {
-      if (before.capture?.lease !== capture.lease) cancelHostLease(capture);
+    if (started === readyState) {
+      if (readyState.capture?.lease !== capture.lease) cancelHostLease(capture);
       return;
     }
     const operation = started.operation;
     const recorder = composerRecording(capture.tabId);
     const binding = tabBinding(tabsRef.current[capture.tabId]);
-    if (!recorder || !binding || !claimCaptureOwnership("lark")) {
+    if (!recorder || !binding || !claimCaptureOwnership("hardware")) {
       transition({ type: "CANCEL", operation, message: "The recipient recorder is unavailable or another voice capture is active." });
       cancelHostLease(capture);
       transition({ type: "RECORDER_STOPPED", operation });
@@ -430,6 +449,8 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
   }, [cancelCapture, cancelHostLease, operationIs, requestRecorderStop, transition]);
 
   const stopCapture = useCallback((lease: string) => {
+    const pending = pendingStartsRef.current.get(lease);
+    if (pending) { pending.cancelled = true; cancelHostLease(pending.capture); return; }
     const current = stateRef.current;
     if (current.capture?.lease !== lease || !["starting", "recording"].includes(current.phase)) return;
     const next = transition({ type: "STOP", operation: current.operation, intent: "send" });
@@ -440,7 +461,13 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     requestRecorderStop(current.operation);
   }, [cancelHostLease, requestRecorderStop, transition]);
 
-  const handleInvalidation = useCallback((event: LarkCaptureInvalidation) => {
+  const handleInvalidation = useCallback((event: LocalRecordingCaptureInvalidation) => {
+    for (const pending of pendingStartsRef.current.values()) {
+      if (pending.capture.pluginId === event.pluginId && pending.capture.generation === event.generation) {
+        pending.cancelled = true;
+        cancelHostLease(pending.capture);
+      }
+    }
     const current = stateRef.current;
     const capture = current.capture;
     if (!capture || capture.pluginId !== event.pluginId || capture.generation !== event.generation) return;
@@ -457,6 +484,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      for (const pending of pendingStartsRef.current.values()) { pending.cancelled = true; cancelHostLease(pending.capture); }
       const capture = stateRef.current.capture;
       if (capture) cancelHostLease(capture);
       const recorder = recorderRef.current?.recorder;
@@ -464,7 +492,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
       if (recorder) void Promise.all([startup?.catch(() => false), recorder.stop(true)]).finally(releaseOwner);
       else releaseOwner();
       clipsRef.current.clear();
-      stateRef.current = { ...initialLarkCaptureState(), operation: stateRef.current.operation + 1 };
+      stateRef.current = { ...initialLocalRecordingCaptureState(), operation: stateRef.current.operation + 1 };
     };
   }, [cancelHostLease, releaseOwner]);
 
@@ -478,9 +506,10 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
     let statusRevision = 0;
     const refreshStatus = async () => {
       const revision = ++statusRevision;
+      if (!stateRef.current.pluginId) return;
       try {
-        const status = await runtimeRef.current.invoke<LarkRecordingStatus>("local_recording_status", {
-          pluginId: stateRef.current.pluginId ?? "lark",
+        const status = await runtimeRef.current.invoke<LocalRecordingStatus>("local_recording_status", {
+          pluginId: stateRef.current.pluginId,
         });
         if (!disposed && revision === statusRevision && statusPayload(status)) {
           transition({ type: "STATUS", status });
@@ -490,7 +519,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
       }
     };
     void Promise.all([
-      runtimeRef.current.listen<LarkRecordingStatus>("local-recording-status", ({ payload }) => {
+      runtimeRef.current.listen<LocalRecordingStatus>("local-recording-status", ({ payload }) => {
         if (!statusPayload(payload)) return;
         statusRevision += 1;
         transition({ type: "STATUS", status: payload });
@@ -502,7 +531,7 @@ export function useLarkCapture({ tabs, runtime: runtimeOverrides }: UseLarkCaptu
         if (payload.kind === "start") void startCapture(payload.capture);
         else stopCapture(payload.lease);
       }),
-      runtimeRef.current.listen<LarkCaptureInvalidation>("local-recording-capture-invalidated", ({ payload }) => {
+      runtimeRef.current.listen<LocalRecordingCaptureInvalidation>("local-recording-capture-invalidated", ({ payload }) => {
         if (invalidationPayload(payload)) {
           statusRevision += 1;
           handleInvalidation(payload);

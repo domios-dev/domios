@@ -1,19 +1,19 @@
-// Run: npx tsx src/components/Terminal/voice/useLarkCapture.test.tsx
+// Run: npx tsx src/components/Terminal/voice/useLocalRecordingCapture.test.tsx
 import assert from "node:assert/strict";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Tab } from "../../../lib/types";
-import type { LarkCaptureRuntime } from "./useLarkCapture";
+import type { LocalRecordingCaptureRuntime } from "./useLocalRecordingCapture";
 import type { ChatSendStatus } from "../chatSendStatus";
 import {
   claimCaptureOwnership,
   currentCaptureOwner,
   releaseCaptureOwnership,
   resetCaptureOwnershipForTest,
-  type LarkCaptureLease,
-  type LarkRecordingStatus,
-} from "./larkCaptureModel";
+  type LocalRecordingCaptureLease,
+  type LocalRecordingStatus,
+} from "./localRecordingCaptureModel";
 
 const hookWindow = new Window({ url: "http://localhost/" });
 const originalGlobals = new Map<string, PropertyDescriptor | undefined>();
@@ -115,19 +115,19 @@ function tab(id: string, session: string): Tab {
   };
 }
 
-function recordingStatus(generation: number): LarkRecordingStatus {
+function recordingStatus(generation: number): LocalRecordingStatus {
   return { pluginId: "lark", granted: true, enabled: true, available: true, generation };
 }
 
-function lease(leaseId: string, generation: number): LarkCaptureLease {
+function lease(leaseId: string, generation: number): LocalRecordingCaptureLease {
   return { lease: leaseId, pluginId: "lark", tabId: "A", microphoneId: "mic-A", generation };
 }
 
 async function main() {
   const bridge = await import("../../../lib/bridge");
-  const { useLarkCapture } = await import("./useLarkCapture");
+  const { useLocalRecordingCapture } = await import("./useLocalRecordingCapture");
   const { useComposerVoice } = await import("./useComposerVoice");
-  const { LarkCaptureStatus } = await import("./LarkCaptureStatus");
+  const { LocalRecordingCaptureStatus } = await import("./LocalRecordingCaptureStatus");
   const { readChatSends, forgetChatSendsInMemory } = await import("../chatSendStore");
   resetCaptureOwnershipForTest();
   const listeners = new Map<string, (event: { payload: unknown }) => void>();
@@ -156,8 +156,9 @@ async function main() {
     };
   } | { kind: "preHandoffFailure"; message: string } | { kind: "possibleHandoff"; message: string }>>> = [];
   let deferNextStore = false;
+  let deferredStatus: ReturnType<typeof deferred<LocalRecordingStatus>> | null = null;
   let hostStatus = { ...recordingStatus(1), enabled: false, available: false };
-  const runtime: Partial<LarkCaptureRuntime> = {
+  const runtime: Partial<LocalRecordingCaptureRuntime> = {
     isDesktop: true,
     getUserMedia: async (constraints) => {
       mediaCalls.push(constraints);
@@ -190,7 +191,7 @@ async function main() {
   });
   bridge.__setInvokeForTest(async <T,>(command: string, args: Record<string, unknown> = {}) => {
     invocations.push({ command, args });
-    if (command === "local_recording_status") return hostStatus as T;
+    if (command === "local_recording_status") return (deferredStatus ? deferredStatus.promise : hostStatus) as T;
     if (command === "local_recording_cancel") {
       return undefined as T;
     }
@@ -223,7 +224,7 @@ async function main() {
     throw new Error(`Unexpected command ${command}`);
   });
 
-  let latest: ReturnType<typeof useLarkCapture> | null = null;
+  let latest: ReturnType<typeof useLocalRecordingCapture> | null = null;
   let composer: ReturnType<typeof useComposerVoice> | null = null;
   const current = () => {
     assert(latest, "hook rendered");
@@ -235,20 +236,24 @@ async function main() {
       onSendWithAttachments: () => { throw new Error("Hardware completion must retain frozen lease admission."); },
       onError: () => {},
     });
-    latest = useLarkCapture({ tabs, runtime });
-    return React.createElement(LarkCaptureStatus, { state: current().state });
+    latest = useLocalRecordingCapture({ tabs, runtime });
+    return React.createElement(LocalRecordingCaptureStatus, { state: current().state });
   }
   const host = document.createElement("div");
   document.body.append(host);
   const root: Root = createRoot(host);
   let currentTabs = { A: tab("A", "session-A"), B: tab("B", "session-B") };
 
-  const emit = (event: string, payload: unknown) => listeners.get(event)?.({ payload });
+  const emit = (event: string, payload: unknown) => {
+    if (event === "local-recording-status") hostStatus = payload as typeof hostStatus;
+    listeners.get(event)?.({ payload });
+  };
   const invokeCount = (command: string) => invocations.filter((item) => item.command === command).length;
   const statusRow = () => host.querySelector('[role="status"]')?.textContent ?? "";
   const alertText = () => host.querySelector('[role="alert"]')?.textContent ?? "";
   const render = async () => act(async () => { root.render(React.createElement(Harness, { tabs: currentTabs })); });
-  const startCapture = async (capture: LarkCaptureLease) => {
+  const startCapture = async (capture: LocalRecordingCaptureLease) => {
+    hostStatus = { ...recordingStatus(capture.generation), pluginId: capture.pluginId };
     await act(async () => emit("local-recording-capture", { kind: "start", capture }));
     await flushAct();
   };
@@ -508,7 +513,7 @@ async function main() {
     await emitRecorderStarted(10);
     recorders[10].state = "inactive";
     await act(async () => recorders[10].onerror?.(new Event("error")));
-    assert.equal(currentCaptureOwner(), "lark", "inactive error still waits for the actual stop event");
+    assert.equal(currentCaptureOwner(), "hardware", "inactive error still waits for the actual stop event");
     await stopRecorder(10);
     assert.equal(current().state.phase, "error", "active recorder failure cancels through the same controller");
     assert.equal(currentCaptureOwner(), null);
@@ -529,9 +534,27 @@ async function main() {
     await act(async () => root.render(null));
     await render();
     await flushAct();
-    assert.equal(current().state.phase, "armed", "frontend remount restores an already armed receiver without waiting for a new host status event");
-    assert.equal(current().state.generation, 24);
-    console.log("useLarkCapture: 16 wiring fixtures passed");
+    await startCapture({ ...lease("foreign-plugin-start", 24), pluginId: "other-recording-plugin" });
+    assert.equal(current().state.phase, "starting", "a declared different plugin starts after frontend remount without identity-specific boot assumptions");
+    await act(async () => current().cancel());
+    await stopRecorder(12);
+    assert.equal(currentCaptureOwner(), null);
+    const streamCount = streams.length;
+    for (const cancellation of ["stop", "invalidation"] as const) {
+      await act(async () => emit("local-recording-status", recordingStatus(25)));
+      const pending = deferred<LocalRecordingStatus>();
+      deferredStatus = pending;
+      await startCapture(lease(`lease-before-status-${cancellation}`, 25));
+      assert.equal(streams.length, streamCount, "pending authority lookup acquires no microphone");
+      if (cancellation === "stop") await stopByHost(`lease-before-status-${cancellation}`);
+      else await act(async () => emit("local-recording-capture-invalidated", {pluginId:"lark", generation:25, reason:"deviceRemoved"}));
+      deferredStatus = null;
+      pending.resolve(recordingStatus(25));
+      await flushAct();
+      assert.equal(streams.length, streamCount, "STOP or invalidation before lookup completion prevents late capture");
+      assert.equal(currentCaptureOwner(), null);
+    }
+    console.log("useLocalRecordingCapture: 18 wiring fixtures passed");
   } finally {
     await act(async () => root.unmount());
     hookWindow.happyDOM.abort();

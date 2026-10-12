@@ -218,6 +218,19 @@ pub(super) fn install_handles(
     });
 
     let sb = sandbox.clone();
+    bind!("receiverStatusReport", move || -> String {
+        if !sb.local_recording_allowed() {
+            return err("local_recording_grant_required");
+        }
+        let Some(query) = sb.receiver_status_query() else {
+            return err("receiver_status_not_declared");
+        };
+        match sb.service() {
+            Some(svc) => svc.receiver_status_report_json(sb.plugin_id(), query),
+            None => err("host service unavailable"),
+        }
+    });
+    let sb = sandbox.clone();
     bind!("localRecordingStatus", move || -> String {
         match sb.service() {
             Some(svc) => svc.local_recording_status_json(sb.plugin_id()),

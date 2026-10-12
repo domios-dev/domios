@@ -409,6 +409,8 @@ pub struct Capabilities {
     pub webhook_receiver: Option<WebhookReceiverCap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_recording_trigger: Option<crate::local_recording::LocalRecordingTrigger>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiver_status_query: Option<crate::local_recording::ReceiverStatusQuery>,
     /// Items the host renders in every tab's kebab menu; each action is host-owned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tab_menu: Vec<TabMenuItem>,
