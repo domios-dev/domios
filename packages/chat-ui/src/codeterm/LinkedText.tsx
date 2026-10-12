@@ -1,4 +1,6 @@
 import React from "react";
+import { localArtifactTextParts } from "@codeterm/chat-core";
+import { RichMarkdown } from "../MarkdownBody";
 import { ClipboardList, FileText, ListChecks } from "lucide-react";
 import { extractPlanRefs, linkifyPlanRefs, type PlanRefLinkSegment } from "./planRefs";
 
@@ -59,7 +61,14 @@ function stateSuffix(state: ResolvedChatPlanRef["state"] | undefined): string {
   }
 }
 
-export function LinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props) {
+export function LinkedText(props: Props) {
+  const parts = localArtifactTextParts(props.text);
+  return <>{parts.map((part, index) => part.directive
+    ? <RichMarkdown key={index} text={part.text} />
+    : <PlainLinkedText key={index} {...props} text={part.text} />)}</>;
+}
+
+function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props) {
   const segments = linkifyPlanRefs(text);
   return (
     <span className={className} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
