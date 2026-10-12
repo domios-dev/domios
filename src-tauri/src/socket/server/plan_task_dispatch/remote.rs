@@ -239,13 +239,11 @@ pub(super) fn dispatch(
             "paired peer has no reachable signed route",
         ));
     };
-    let response = tauri::async_runtime::block_on(
-        client.auth_post_json_within(
-            "/api/mesh/worker-dispatch",
-            &request,
-            Some(WORKER_DISPATCH_DEADLINE),
-        ),
-    );
+    let response = tauri::async_runtime::block_on(client.auth_post_json_within(
+        "/api/mesh/worker-dispatch",
+        &request,
+        Some(WORKER_DISPATCH_DEADLINE),
+    ));
     let response = match response {
         Ok(response) => response,
         Err(error) => {
