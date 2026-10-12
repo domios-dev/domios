@@ -22,7 +22,7 @@ describe("local adapter", () => {
       const revoked = await new AdminService(second, ["pro"]).change(cookie, "local-user", "revoke", "", "Local revoke");
       const third = new LocalBackend(path, "test-secret", "password");
       expect((await third.detail("local-user"))?.audit).toEqual([revoked, granted]);
-      expect((await third.detail("local-user"))?.entitlement.status).toBe("revoked");
+      expect((await third.detail("local-user"))?.entitlement?.status).toBe("revoked");
       await expect(requireAdmin(third.auth, cookie + "tampered")).rejects.toMatchObject({ status: 403 });
       await expect(requireAdmin(third.auth, token)).rejects.toMatchObject({ status: 403 });
       await expect(first.login("admin@localhost", "wrong")).rejects.toMatchObject({ status: 403 });

@@ -5,7 +5,7 @@ import { FakeBackend } from "./fake";
 import { LocalBackend } from "./local";
 import type { Backend } from "../domain/model";
 
-export function providerName(env = process.env) {
+export function providerName(env: Record<string, string | undefined> = process.env) {
   const name = env.ADMIN_PROVIDER ?? (env.NODE_ENV === "production" || env.VERCEL ? "firebase" : "local");
   if (!["firebase", "local", "fake"].includes(name)) throw new Error("Unknown admin provider");
   if (name !== "firebase" && (env.NODE_ENV === "production" || env.VERCEL)) throw new Error("Development providers cannot run in production");

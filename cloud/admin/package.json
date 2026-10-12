@@ -8,7 +8,7 @@
     "dev": "next dev --experimental-https",
     "build": "next build",
     "start": "next start",
-    "check": "tsc --noEmit",
+    "check": "next typegen && tsc --noEmit",
     "test": "node test/run-emulators.mjs",
     "test:unit": "vitest run test/domain.test.ts test/routes.test.ts test/local.test.ts test/actions.test.ts",
     "set-admin": "tsx scripts/set-admin.ts"
