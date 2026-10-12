@@ -73,34 +73,41 @@ impl RepoWatchRegistry {
             }
         };
 
-        let mut inner = self.inner.lock();
-        let fresh_entry = !inner.entries.contains_key(&identity.key);
-        if fresh_entry {
-            let watch = self.build_worktree_watch(&identity)?;
-            inner.entries.insert(
-                identity.key.clone(),
-                WorktreeEntry {
-                    refcount: 0,
-                    _watch: watch,
-                },
-            );
-        }
-        if let Err(e) = self.retain_shared(&mut inner, &identity) {
+        let result = (|| {
+            let mut inner = self.inner.lock();
+            let fresh_entry = !inner.entries.contains_key(&identity.key);
             if fresh_entry {
-                inner.entries.remove(&identity.key);
+                let watch = self.build_worktree_watch(&identity)?;
+                inner.entries.insert(
+                    identity.key.clone(),
+                    WorktreeEntry {
+                        refcount: 0,
+                        _watch: watch,
+                    },
+                );
             }
-            return Err(e);
-        }
-        if let Some(entry) = inner.entries.get_mut(&identity.key) {
-            entry.refcount += 1;
-        }
+            if let Err(e) = self.retain_shared(&mut inner, &identity) {
+                if fresh_entry {
+                    inner.entries.remove(&identity.key);
+                }
+                return Err(e);
+            }
+            if let Some(entry) = inner.entries.get_mut(&identity.key) {
+                entry.refcount += 1;
+            }
 
-        let token = format!("rw_{}", self.next_token.fetch_add(1, Ordering::Relaxed));
-        inner.tokens.insert(token.clone(), identity.clone());
-        Ok(RepoWatchSubscription {
-            token,
-            identity: identity.id,
-        })
+            let token = format!("rw_{}", self.next_token.fetch_add(1, Ordering::Relaxed));
+            inner.tokens.insert(token.clone(), identity.clone());
+            Ok(RepoWatchSubscription {
+                token,
+                identity: identity.id,
+            })
+        })();
+        if let Err(error) = &result {
+            self.sink
+                .repository_unavailable(&error.identity, error.reason);
+        }
+        result
     }
 
     /// Release one reference. The last release for an identity drops its
@@ -189,7 +196,7 @@ impl RepoWatchRegistry {
         });
         self.backend
             .build(&specs, handler)
-            .map_err(|detail| self.refuse(&identity.id, detail))
+            .map_err(|detail| RepoWatchError::watch_refused(&identity.id, detail))
     }
 
     fn retain_shared(
@@ -242,7 +249,7 @@ impl RepoWatchRegistry {
         let watch = self
             .backend
             .build(&specs, handler)
-            .map_err(|detail| self.refuse(&identity.id, detail))?;
+            .map_err(|detail| RepoWatchError::watch_refused(&identity.id, detail))?;
         inner.shared.insert(
             identity.common_key.clone(),
             SharedEntry {
@@ -252,13 +259,6 @@ impl RepoWatchRegistry {
             },
         );
         Ok(())
-    }
-
-    fn refuse(&self, identity: &str, detail: String) -> RepoWatchError {
-        let error = RepoWatchError::watch_refused(identity, detail);
-        self.sink
-            .repository_unavailable(&error.identity, RepoWatchUnavailable::WatchRefused);
-        error
     }
 
     pub fn entry_count(&self) -> usize {

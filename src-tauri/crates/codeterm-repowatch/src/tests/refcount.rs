@@ -1,6 +1,6 @@
 use super::support::*;
-use crate::repowatch::identity::RepoIdentity;
-use crate::repowatch::open_handle_count;
+use crate::identity::RepoIdentity;
+use crate::open_handle_count;
 use std::sync::Arc;
 
 /// R1 — one registry entry and one owning watcher per canonical identity,

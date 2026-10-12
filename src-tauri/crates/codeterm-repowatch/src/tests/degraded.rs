@@ -1,7 +1,7 @@
 use super::support::*;
-use crate::repowatch::backend::WatchSignal;
-use crate::repowatch::events::RepoWatchUnavailable;
-use crate::repowatch::identity::RepoIdentity;
+use crate::backend::WatchSignal;
+use crate::events::RepoWatchUnavailable;
+use crate::identity::RepoIdentity;
 use std::sync::Arc;
 
 /// R6 — every degraded path fails closed and loudly, with a named
@@ -109,4 +109,67 @@ fn repository_watch_failures_are_explicit() {
         "the unavailable signal names the watched identity ({reported} vs {})",
         sub.identity
     );
+}
+
+#[test]
+fn refusal_sink_can_reenter_registry_after_both_watch_failures() {
+    use std::sync::{mpsc, Weak};
+
+    struct ReentrantSink {
+        registry: parking_lot::Mutex<Weak<crate::RepoWatchRegistry>>,
+    }
+
+    impl crate::RepoEventSink for ReentrantSink {
+        fn repository_changed(&self, _identity: &str) {}
+
+        fn repository_unavailable(&self, _identity: &str, _reason: RepoWatchUnavailable) {
+            let registry = self.registry.lock().upgrade().unwrap();
+            assert_eq!(registry.entry_count(), 0);
+            assert_eq!(registry.shared_count(), 0);
+        }
+    }
+
+    struct FailAt {
+        call: std::sync::atomic::AtomicUsize,
+        fail_at: usize,
+    }
+
+    impl crate::WatchBackend for FailAt {
+        fn build(
+            &self,
+            specs: &[crate::WatchSpec],
+            handler: crate::BatchHandler,
+        ) -> Result<Box<dyn crate::ActiveWatch>, String> {
+            if self.call.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == self.fail_at {
+                Err("injected refusal".into())
+            } else {
+                InertBackend.build(specs, handler)
+            }
+        }
+    }
+
+    for fail_at in [0, 1] {
+        let repo = primary_repo();
+        let sink = Arc::new(ReentrantSink {
+            registry: parking_lot::Mutex::new(Weak::new()),
+        });
+        let registry = Arc::new(crate::RepoWatchRegistry::with_backend(
+            sink.clone(),
+            Arc::new(FailAt {
+                call: std::sync::atomic::AtomicUsize::new(0),
+                fail_at,
+            }),
+        ));
+        *sink.registry.lock() = Arc::downgrade(&registry);
+        let (tx, rx) = mpsc::channel();
+        let join = std::thread::spawn(move || {
+            let result = registry.subscribe(repo.path());
+            tx.send(result.unwrap_err().reason).unwrap();
+        });
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+            RepoWatchUnavailable::WatchRefused
+        );
+        join.join().unwrap();
+    }
 }
