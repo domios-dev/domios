@@ -325,9 +325,16 @@ jobs:
                 boundary_json=$(cat "$boundary_file")
                 run_id=$(jq -r '.validator_run_id // empty' "$boundary_file")
                 if [ -n "$run_id" ]; then
-                  run_json=$(gh api "repos/${SOURCE_REPO}/actions/runs/$run_id" \
-                    --jq '{id: .id, path: .path, conclusion: .conclusion, head_sha: .head_sha}' \
-                    2>/dev/null || printf 'null')
+                  # gh prints an error body to stdout and exits non-zero, so only a
+                  # successful, object-shaped answer counts; anything else is unconfirmed (#622).
+                  if run_json=$(gh api "repos/${SOURCE_REPO}/actions/runs/$run_id" \
+                      --jq '{id: .id, path: .path, conclusion: .conclusion, head_sha: .head_sha}' \
+                      2>/dev/null) \
+                    && printf '%s' "$run_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
+                    :
+                  else
+                    run_json=null
+                  fi
                 fi
               fi
             fi

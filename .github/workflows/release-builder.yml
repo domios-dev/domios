@@ -101,6 +101,10 @@ jobs:
             for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
           fi
           docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available after wait"; exit 1; }
+          # A missing baked image makes docker run pull through Docker Desktop's credential helper,
+          # which hung the 1.14.2 release for 54 minutes; fail at once instead.
+          docker image inspect codeterm-build-linux-arm64 >/dev/null 2>&1 \
+            || { echo "::error::codeterm-build-linux-arm64 is missing; bake it (bake-linux-images.yml or .codeterm/build-machine/README.md)"; exit 1; }
 
       - name: Build macOS + Linux (2 engines × 2 waves)
         env:
