@@ -1,11 +1,20 @@
 import { useState } from "react";
-import { ChevronDown, UserRound } from "lucide-react";
+import { ChevronDown, LogIn, Mail, UserPlus, UserRound } from "lucide-react";
 import { useAccount } from "../Settings/useAccount";
 import { useAccountPlan } from "../Settings/useAccountPlan";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
 import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
+
+const googleIcon = new URL("../../../web/public/account/google.svg", import.meta.url).href;
+const facebookIcon = new URL("../../../web/public/account/facebook.svg", import.meta.url).href;
+
+function BrandIcon({ source, badge }: { source: string; badge?: string }) {
+  if (!badge) return <img src={source} alt="" width={16} height={16} className="shrink-0" />;
+  return <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+    style={{ backgroundColor: badge }}><img src={source} alt="" width={10} height={10} /></span>;
+}
 
 export function AccountTray() {
   const account = useAccount();
@@ -19,12 +28,12 @@ export function AccountTray() {
     { label: "Manage subscription", onClick: () => void billing.manage() },
     { label: "Sign out", onClick: () => void account.signOut() },
   ] : [
-    { label: "Sign in", disabled: pending, onClick: () => void account.signIn({mode:"signin"}) },
-    { label: "Create account", disabled: pending, onClick: () => void account.signIn({mode:"signup"}) },
+    { label: "Sign in", icon: <LogIn size={16} />, disabled: pending, onClick: () => void account.signIn({mode:"signin"}) },
+    { label: "Create account", icon: <UserPlus size={16} />, disabled: pending, onClick: () => void account.signIn({mode:"signup"}) },
     { separator: true, key: "account-methods" },
-    { label: "Continue with Google", disabled: pending, onClick: () => void account.signIn({provider:"google",mode:"signin"}) },
-    { label: "Continue with Facebook", disabled: pending, onClick: () => void account.signIn({provider:"facebook",mode:"signin"}) },
-    { label: "Continue with email", disabled: pending, onClick: () => void account.signIn({provider:"email",mode:"signin"}) },
+    { label: "Continue with Google", icon: <BrandIcon source={googleIcon} />, disabled: pending, onClick: () => void account.signIn({provider:"google",mode:"signin"}) },
+    { label: "Continue with Facebook", icon: <BrandIcon source={facebookIcon} badge="#1877F2" />, disabled: pending, onClick: () => void account.signIn({provider:"facebook",mode:"signin"}) },
+    { label: "Continue with email", icon: <Mail size={16} />, disabled: pending, onClick: () => void account.signIn({provider:"email",mode:"signin"}) },
   ];
   items.push({separator:true,key:"community"},communityMenu());
   const error = model.kind === "signed_in" ? billing.error : model.error;
