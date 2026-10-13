@@ -1,3 +1,4 @@
+import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
@@ -286,6 +287,9 @@ function TabItemInner({
   attachmentToggle = null,
   startedBy = null,
 }: TabItemProps) {
+  const updates = useOptionalUpdatePanel();
+  const pluginId = surfaceBacking(tab)?.plugin_id ?? tab.agent_type ?? backingPluginId(tab);
+  const pluginUpdate = !!pluginId && (updates?.pluginHasUpdate(pluginId) ?? false);
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
@@ -505,6 +509,7 @@ function TabItemInner({
             }}
           >
             {displayTitle}
+            {pluginUpdate && <span aria-label="Plugin update available" className="ml-1 text-[10px] text-[var(--ct-accent)]">Update</span>}
           </span>
           {hasAgent && (
             <TabWorkingActivity activity={tabState} />

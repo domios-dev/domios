@@ -5,6 +5,7 @@ import { frontendSignals, setCheckpointRestorer } from "./appState";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions, type FrontendUpdateOffer } from "./runtime";
 
 let runtime: Awaited<ReturnType<typeof initializeFrontendUpdateRuntime>> | null = null;
+let held = typeof localStorage !== "undefined" && localStorage.getItem("codeterm.update-all.intent") !== null;
 let offer: FrontendUpdateOffer | null = null;
 const offerListeners = new Set<() => void>();
 
@@ -14,7 +15,8 @@ export function subscribeFrontendUpdateOffer(listener: () => void): () => void {
   offerListeners.add(listener);
   return () => { offerListeners.delete(listener); };
 }
-export function acceptFrontendUpdate(): void { runtime?.consent(); }
+export function setFrontendUpdateHeld(next: boolean): void { held = next; runtime?.hold(next); }
+export function acceptFrontendUpdate(): void { runtime?.consent(); setFrontendUpdateHeld(false); }
 
 function publishOffer(next: FrontendUpdateOffer | null): void {
   if (next?.releaseId === offer?.releaseId) return;
@@ -49,7 +51,7 @@ export async function initializeBrowserFrontendUpdates(client: TransportClient, 
   const modals = new MutationObserver(syncModals);
   modals.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "open"] });
   try {
-    runtime = await initializeFrontendUpdateRuntime(client, { ...context, signals: frontendSignals, storage: sessionStorage,
+    runtime = await initializeFrontendUpdateRuntime(client, { ...context, held, signals: frontendSignals, storage: sessionStorage,
       navigate: path => location.assign(path), events: window, onOffer: publishOffer,
       event: detail => new CustomEvent(ROOT_RENDERED_EVENT, { detail }),
     });

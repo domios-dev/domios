@@ -119,6 +119,7 @@ fn report_general_agent_frontend_deadline(service: &crate::service::ServiceConte
 
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
+    crate::update::bind_status_emitter(app.handle().clone());
     let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
     if let Some(reason) = states.storage.unavailable_reason() {
