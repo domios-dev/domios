@@ -254,7 +254,12 @@
         "/api/tabs/tab/chat-send"
       ]
     ],
-    "chat_send_admissions": [["POST", "/api/tabs/tab/chat-send/admissions"]],
+    "chat_send_admissions": [
+      [
+        "POST",
+        "/api/tabs/tab/chat-send/admissions"
+      ]
+    ],
     "chat_send_status": [
       [
         "GET",
@@ -1215,6 +1220,12 @@
       [
         "POST",
         "/api/workspaces/workspace/cwd"
+      ]
+    ],
+    "check_update_availability": [
+      [
+        "GET",
+        "/api/update/availability?force=false"
       ]
     ]
   }

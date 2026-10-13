@@ -249,3 +249,44 @@ fn retained_model_pickers_reach_live_pending_prompt_with_structural_evidence() {
         );
     }
 }
+
+#[test]
+fn captured_msg07_model_picker_replays_parser_structure_and_prompt_detector() {
+    let provider = bundled_provider();
+    for screen in [
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-after-trigger.txt"),
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt"),
+    ] {
+        let rewritten = screen.replace("Select Model and Effort", "Opaque heading")
+            .replace("enter select · esc back", "enter accept · esc dismiss");
+        for input in [screen, rewritten.as_str()] {
+            let parsed = provider.parse_prompt(input).expect("provider parser accepts captured menu");
+            let (prompt, kind) = parse_live_prompt(&provider, input).expect("classifier admits captured menu");
+            assert_eq!(prompt, parsed);
+            assert_eq!(kind, PromptKind::Provider);
+            assert_eq!(prompt.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+                vec!["1", "2", "3", "4", "5", "6", "7"]);
+            assert!(crate::agent::state_reactor::has_structural_prompt_evidence(input, &prompt));
+            assert!(crate::agent::state_reactor::has_numbered_terminal_choice(input, &prompt));
+            assert!(!crate::agent::state_reactor::prompt_is_composer_text(input, &prompt));
+            let mut detector = crate::agent::prompt::PromptDetector::new();
+            let decision = detector.evaluate_pty_output_parsed("capture", true, true,
+                Some(crate::agent::prompt::ResolvedPrompt {prompt: prompt.clone(), explicit: false}));
+            assert!(matches!(decision, crate::agent::prompt::PromptDecision::NewPrompt { .. }));
+            assert_eq!(detector.active_prompt("capture"), Some(&prompt));
+            assert!(parse_live_prompt(&provider, &format!("{input}\n› ready composer")).is_none());
+        }
+    }
+}
+
+#[test]
+fn directory_trust_capability_is_authoritative_over_generic_classification() {
+    for state in [TabState::Working, TabState::Unknown, TabState::IdleStuck] {
+        let parsed = Some((prompt(), PromptKind::DirectoryTrust));
+        assert_eq!(
+            resolve_live_prompt(parsed.clone(), Some(&classification(state, 0.1))),
+            parsed
+        );
+        assert!(resolve_live_prompt(None, Some(&classification(state, 0.1))).is_none());
+    }
+}

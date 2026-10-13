@@ -24,8 +24,9 @@ export function parseMessageParts(content: string): MessagePart[] {
     parts.push({ kind: "frame", content: frame });
     offset = end;
   }
-  if (offset < content.length || parts.length === 0) {
-    parts.push(...parseAttachmentParts(content.slice(offset)));
+  const remainder = content.slice(offset);
+  if (remainder.trim() || parts.length === 0) {
+    parts.push(...parseAttachmentParts(remainder));
   }
   return parts;
 }
@@ -58,6 +59,7 @@ export function messageRowParts(parts: readonly MessagePart[]): MessagePart[] {
   const rows: MessagePart[] = [];
   let attachmentRow = false;
   for (const part of parts) {
+    if (part.kind === "text" && !part.content.trim()) continue;
     const previous = rows[rows.length - 1];
     if (part.kind !== "frame" && previous?.kind === "text" && previous.correlationId === part.correlationId && (attachmentRow || part.kind === "attachment")) {
       previous.content += part.content;
@@ -98,7 +100,7 @@ export function projectMessageParts(
     const anchor = row.correlationId == null ? -1 : payloads.findIndex((payload) => payload.correlationId === row.correlationId);
     const ownPayloads = anchor < 0 ? [] : payloads.slice(anchor);
     const parts = splitExactSendTexts(row.content, ownPayloads);
-    const projected = parts.length > 1 ? { ...row, messageParts: parts } : row;
+    const projected = parts.length > 1 || parts.some((part) => part.kind === "frame") ? { ...row, messageParts: parts } : row;
     cachedParts.set(row, { key, row: projected });
     return projected;
   });

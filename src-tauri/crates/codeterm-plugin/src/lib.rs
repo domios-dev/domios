@@ -29,6 +29,7 @@ pub mod model_catalog;
 pub mod model_providers;
 pub mod permission_prompt;
 pub mod plugin_icon;
+pub mod plugin_lifecycle;
 pub mod plugin_manager;
 pub mod prompt;
 pub mod prompts;

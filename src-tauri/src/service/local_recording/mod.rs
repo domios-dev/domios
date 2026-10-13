@@ -6,10 +6,12 @@ mod inventory;
 pub(crate) mod leases;
 pub(crate) mod platform;
 mod receiver_status;
+mod selections;
 
 pub(crate) use admission::LocalRecordingCommitOutcome;
 pub(crate) use clip::CaptureClipDescriptor;
 pub(crate) use leases::{CaptureLeaseView, RecordingLeases};
+pub(crate) use selections::RecordingSelectionStore;
 
 use crate::service::ServiceContext;
 use codeterm_plugin::local_recording::{
@@ -207,10 +209,18 @@ impl ServiceContext {
         if !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
-        let generation = self
-            .local_recording_registry
-            .select_devices(plugin_id, devices)
-            .map_err(str::to_string)?;
+        if !self.local_recording_status(plugin_id)?.granted {
+            return Err("local_recording_grant_required".into());
+        }
+        if !devices.valid() {
+            return Err("invalid_device_selection".into());
+        }
+        let selection = devices.clone();
+        let generation =
+            self.local_recording_registry
+                .select_devices_persisted(plugin_id, devices, || {
+                    self.local_recording_selections.set(plugin_id, &selection)
+                })?;
         let status = self.local_recording_status(plugin_id)?;
         if status.enabled && status.granted && !status.available {
             self.schedule_local_recording_subscription(

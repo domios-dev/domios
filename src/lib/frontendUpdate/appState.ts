@@ -1,9 +1,10 @@
+import { editComposerDraft } from "./drafts";
 import type { ClientCheckpoint } from "./checkpoint";
 import { createFrontendSignals } from "./signals";
 import type { Safety } from "./model";
 
 const empty: ClientCheckpoint = { activeWorkspaceId: null, activeTabId: null, drafts: {}, scroll: {} };
-let restoreCheckpoint: (checkpoint: ClientCheckpoint) => void = () => {};
+let restoreCheckpoint: (checkpoint: ClientCheckpoint) => ClientCheckpoint | void = () => {};
 export const frontendSignals = createFrontendSignals(empty, {
   focused: false, idle: false, typing: false, composing: false, modalOpen: false, pendingUploads: 0,
 }, checkpoint => restoreCheckpoint(checkpoint));
@@ -12,7 +13,7 @@ export function setCheckpointRestorer(restore: typeof restoreCheckpoint): void {
 
 export function editFrontendDraft(scope: string, text: string): void {
   const checkpoint = frontendSignals.checkpoint();
-  checkpoint.drafts[scope] = { text, attachmentIds: [], replyTo: null };
+  editComposerDraft(checkpoint.drafts, scope, text);
   frontendSignals.edit(checkpoint);
 }
 

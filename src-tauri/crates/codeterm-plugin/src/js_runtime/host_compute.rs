@@ -247,10 +247,11 @@ pub(super) fn install_handles(
             None => err("host service unavailable"),
         }
     });
+    super::host_recording_devices::install(host, sandbox)?;
     super::host_surface::install(host, sandbox)
 }
 
 #[cfg(test)]
 mod recording_tests;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

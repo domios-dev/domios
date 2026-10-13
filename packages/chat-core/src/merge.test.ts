@@ -163,8 +163,8 @@ function msg(id: string, opts: Partial<M> = {}): M {
   const merged = mergeById(snapshot, transportDuplicate);
   eq(
     merged.map((message) => message.id),
-    snapshot.map((message) => message.id),
-    "whole semantic event batch projects once despite transport id and seq drift",
+    [...snapshot, ...transportDuplicate].map((message) => message.id),
+    "equal-content batches with different ids remain distinct",
   );
 }
 
@@ -175,7 +175,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
   ];
   const duplicate = batch.map((message, index) => ({ ...message, id: `duplicate-${index}`, seq: index + 20 }));
   const merged = mergeById([], [...batch, ...duplicate]);
-  eq(merged.map((message) => message.id), ["assistant-a", "status-a"], "one duplicated incoming batch collapses at projection");
+  eq(merged.map((message) => message.id), ["assistant-a", "status-a", "duplicate-0", "duplicate-1"], "different ids retain equal incoming batches");
 }
 
 {
@@ -186,7 +186,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
     msg("second-status", { type: "status", content: "Ready", sourceSessionId: "batch-session" }),
   ];
   const merged = mergeById([], repeated);
-  eq(merged.map((message) => message.id), ["first-a", "first-status"], "adjacent identical semantic batches project once");
+  eq(merged.map((message) => message.id), ["first-a", "first-status", "second-a", "second-status"], "adjacent equal-text batches retain distinct ids");
 }
 
 {

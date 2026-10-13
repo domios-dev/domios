@@ -104,6 +104,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     clear: function () { return parseJson(host.receiverTargetClear()); },
   };
   host.localRecording = {
+    listInputDevices: function () { return parseJson(host.localRecordingInputs()); },
+    selectDevices: function (devices) { return parseJson(host.localRecordingSelect(JSON.stringify(devices))); },
+    savedSelection: function () { return parseJson(host.localRecordingSavedSelection()); },
     statusReport: function () { return parseJson(host.receiverStatusReport()); },
     status: function () { return parseJson(host.localRecordingStatus()); },
     setEnabled: function (enabled) { return parseJson(host.localRecordingSetEnabled(enabled === true)); },
@@ -466,6 +469,10 @@ impl PluginVm {
     /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
     pub fn agent_commands_allowed(&self) -> bool {
         self.sandbox.agent_commands_allowed()
+    }
+
+    pub(super) fn lifecycle_permission_allowed(&self, permission: &str) -> bool {
+        self.sandbox.lifecycle_permission_allowed(permission)
     }
 
     pub fn graph_events_allowed(&self) -> bool {

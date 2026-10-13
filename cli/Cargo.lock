@@ -339,6 +339,7 @@ dependencies = [
  "chrono",
  "codeterm-util",
  "dirs 5.0.1",
+ "reqwest",
  "semver",
  "serde",
  "serde_json",

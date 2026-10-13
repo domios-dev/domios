@@ -2,6 +2,8 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const documentState = vi.hoisted(() => ({ html: "<html></html>" as string | undefined, error: null as string | null }));
+const documentLoad = vi.hoisted(() => vi.fn(() => documentState));
 const listeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 
 vi.mock("../../lib/bridge", () => ({
@@ -12,10 +14,11 @@ vi.mock("../../lib/bridge", () => ({
   }),
 }));
 vi.mock("../../lib/webApi", () => ({
+  IS_WEB: false,
   daemonHttpBase: () => "http://127.0.0.1:7686",
   daemonAuthToken: () => "token",
 }));
-vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ html: "<html></html>", error: null }) }));
+vi.mock("./usePluginDocument", () => ({ usePluginDocument: documentLoad }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
@@ -32,6 +35,9 @@ afterEach(async () => {
   root = null;
   host = null;
   listeners.clear();
+  documentState.html = "<html></html>";
+  documentState.error = null;
+  documentLoad.mockClear();
 });
 
 function pressEscape() {
@@ -46,6 +52,40 @@ async function mount(ui: ReactElement) {
 }
 
 describe("plugin view activation", () => {
+  it("keeps a plugin mount exception visible and retries a fresh document", async () => {
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    const ownWindow = iframe.contentWindow;
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {
+      source: ownWindow, data: { __ctUiState: { status: "error", reason: "Target container is not a DOM element." } },
+    })));
+    expect(host!.querySelector('[role="alert"]')?.textContent).toContain("Target container is not a DOM element.");
+    await act(async () => host!.querySelector<HTMLButtonElement>("button")!.click());
+    expect(documentLoad).toHaveBeenLastCalledWith(expect.stringContaining("reload=1"));
+    expect(host!.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("does not mount a blank iframe while the bundle is being fetched", async () => {
+    documentState.html = undefined;
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    expect(host!.querySelector("iframe")).toBeNull();
+    expect(host!.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  it("accepts rendered readiness only from its own frame", async () => {
+    await mount(<PluginView pluginId="fixture" api={undefined} />);
+    const frame = host!.querySelector("iframe")!;
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {
+      source: window, data: { __ctUiState: { status: "ready" } },
+    })));
+    expect(host!.querySelector('[role="status"]')).not.toBeNull();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {
+      source: frame.contentWindow, data: { __ctUiState: { status: "ready" } },
+    })));
+    expect(host!.querySelector('[role="status"]')).toBeNull();
+    expect(host!.querySelector('[aria-hidden="false"]')).not.toBeNull();
+  });
+
   it("forwards the theme tokens shared components read, not only the base palette", () => {
     for (const token of ["--ct-bg", "--ct-surface", "--ct-border", "--ct-muted-fg", "--ct-magenta", "--ct-cyan", "--ct-green", "--ct-hover"]) {
       expect(PLUGIN_THEME_VARS).toContain(token);

@@ -1,4 +1,5 @@
 // plugin rows (installed + marketplace) with status/update/installed badges.
+import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useState } from "react";
 import type { CatalogEntry, CatalogFilter } from "./pluginCatalog";
 import { catalogKindLabel } from "./pluginCatalog";
@@ -340,6 +341,8 @@ function PluginRow({
   display: ReturnType<typeof resolvePluginActivityDisplay>;
   onSelect: () => void;
 }) {
+  const updates = useOptionalUpdatePanel();
+  const updateAvailable = updates ? updates.pluginHasUpdate(entry.id) : entry.updateAvailable;
   return (
     <div>
       <div
@@ -347,7 +350,7 @@ function PluginRow({
         data-testid="extensions-plugin-row"
         data-plugin-id={entry.id}
         data-plugin-installed={entry.installed ? "true" : "false"}
-        data-plugin-update-available={entry.updateAvailable ? "true" : "false"}
+        data-plugin-update-available={updateAvailable ? "true" : "false"}
         data-plugin-version={entry.version ?? ""}
         data-plugin-channel={entry.channel ?? ""}
         data-plugin-verified={entry.verified ? "true" : "false"}
@@ -386,7 +389,7 @@ function PluginRow({
             ) : (
               entry.installed && <Badge tone="installed">Installed</Badge>
             )}
-            {entry.updateAvailable && <Badge tone="update">Update</Badge>}
+            {updateAvailable && <Badge tone="update">Update</Badge>}
             {entry.loadError && <Badge tone="error">Error</Badge>}
           </div>
           <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, color: "var(--ct-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

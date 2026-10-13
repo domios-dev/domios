@@ -1,12 +1,11 @@
 import { useCallback, useId, useLayoutEffect, useRef, type ReactNode } from "react";
-import { LocateFixed, Minus, Plus } from "lucide-react";
+import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import type { ViewportTransform } from "../Canvas/useCanvasViewport";
 import { BlueprintNodeCard } from "./BlueprintNodeCard";
 import { blueprintLegend, blueprintNodeKinds } from "./blueprintKinds";
 import type { BlueprintLayout } from "./blueprintLayout";
 import type { ReplayFrame } from "./blueprintRunModel";
 import { nodeStatus } from "./BlueprintNodeCard";
-import { AUTOMATION_TOOL } from "./styles";
 import { useAutomationViewport, type AutomationCamera } from "./useAutomationViewport";
 import { useBlueprintMotion } from "./useBlueprintMotion";
 import type { BlueprintReplayOutcome } from "./blueprintReplayOutcome";
@@ -45,15 +44,9 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
   const types = new Set(layout.nodes.map((entry) => entry.node.type));
   return <div className="bp-scope flex min-h-0 min-w-0 flex-1 flex-col">
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
-      <div className="flex gap-1.5" role="group" aria-label="Graph view controls">
-        <button type="button" className={AUTOMATION_TOOL} aria-label="Zoom out" title="Zoom out" onClick={() => viewport.zoom(-0.2)}><Minus size={14} aria-hidden="true" /></button>
-        <button type="button" className={AUTOMATION_TOOL} aria-label="Zoom in" title="Zoom in" onClick={() => viewport.zoom(0.2)}><Plus size={14} aria-hidden="true" /></button>
-        <button type="button" className={AUTOMATION_TOOL} title="Readable view of the selected node, or the first stage" onClick={viewport.fit}><LocateFixed size={13} aria-hidden="true" />Fit</button>
-      </div>
       <ul aria-label="Node types" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--ct-muted-fg)]">
         {blueprintLegend.filter((type) => types.has(type)).map((type) => <li key={type} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: `var(--bp-${type}, var(--ct-muted))` }} aria-hidden="true" />{blueprintNodeKinds[type].label}</li>)}
       </ul>
-      {toolbar}
     </div>
     <div
       ref={attach}
@@ -69,6 +62,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
       className="bp-canvas relative min-h-[12rem] min-w-0 flex-1 touch-none overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
       style={{ cursor: viewport.isDragging ? "grabbing" : "grab" }}
     >
+      <CanvasToolbar label="Blueprint graph controls" onFit={viewport.fit} onZoomOut={() => viewport.zoom(-0.2)} onZoomIn={() => viewport.zoom(0.2)} extras={toolbar} />
       <p id={hintId} className="sr-only">Arrow keys pan, plus and minus zoom, zero returns to a readable view. Tab moves between nodes.</p>
       <div ref={viewport.layerRef} className="absolute left-0 top-0" style={{ width: layout.bounds.width, height: layout.bounds.height, transformOrigin: "0 0", visibility: viewport.measured ? undefined : "hidden" }}>
         {layout.frames.map((entry) => <div key={entry.stageKey} className="bp-frame" style={{ left: entry.box.x, top: entry.box.y, width: entry.box.width, height: entry.box.height }}>

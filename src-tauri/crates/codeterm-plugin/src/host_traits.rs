@@ -111,6 +111,22 @@ pub trait PluginHostCtx: Send + Sync {
         r#"{"error":"receiver_status_unavailable"}"#.into()
     }
 
+    fn local_recording_inputs_json(&self, _plugin_id: &str) -> String {
+        r#"{"error":"local_recording_unavailable"}"#.into()
+    }
+
+    fn local_recording_select_json(
+        &self,
+        _plugin_id: &str,
+        _devices: crate::local_recording::SelectedDevices,
+    ) -> String {
+        r#"{"error":"local_recording_unavailable"}"#.into()
+    }
+
+    fn local_recording_saved_selection_json(&self, _plugin_id: &str) -> String {
+        r#"{"error":"local_recording_unavailable"}"#.into()
+    }
+
     fn local_recording_status_json(&self, _plugin_id: &str) -> String {
         r#"{"error":"local_recording_unavailable"}"#.into()
     }

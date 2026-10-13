@@ -173,6 +173,7 @@ pub(super) struct LastChange {
 
 #[derive(Debug, Serialize)]
 pub(super) struct ChannelDiffRow {
+    pub(super) availability: super::AvailabilityItem,
     pub(super) payload_version: Option<String>,
     pub(super) channel: String,
     pub(super) id: String,

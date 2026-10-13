@@ -13,11 +13,12 @@ export interface BillingEvent {
   mode: BillingMode;
   created: number;
   customer: string | null;
+  uid?: string;
   change: Partial<Pick<Entitlement, "plan" | "status" | "current_period_end" | "cancel_at_period_end">> | null;
 }
 export interface CheckoutInput { uid: string; customer: string; price: string; successUrl: string; cancelUrl: string }
 export interface PaymentGateway {
-  createCustomer(uid: string, idempotencyKey: string): Promise<string>;
+  createCustomer?(uid: string, idempotencyKey: string): Promise<string>;
   createCheckout(input: CheckoutInput): Promise<string>;
   createPortal(customer: string, returnUrl: string): Promise<string>;
   verifyAndParseWebhook(body: Buffer, signature: string): Promise<BillingEvent>;

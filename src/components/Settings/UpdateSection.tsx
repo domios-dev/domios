@@ -1,3 +1,5 @@
+import { UpdatePanelContents } from "../UpdatePanel";
+import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect } from "react";
 import { AlertCircle, CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useUpdate } from "../../hooks/useUpdate";
@@ -10,6 +12,7 @@ export function UpdateSection({ config, onUpdate }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
+  const unified = useOptionalUpdatePanel();
   const {
     status,
     currentVersion,
@@ -54,9 +57,10 @@ export function UpdateSection({ config, onUpdate }: {
     <SettingsCard
       icon={<Download size={16} />}
       title="Updates"
-      headerRight={<SettingsPill tone={statusTone}>{statusText}</SettingsPill>}
+      headerRight={<SettingsPill tone={unified?.items.length ? "accent" : statusTone}>{unified?.items.length ? "updates available" : statusText}</SettingsPill>}
     >
       <div className="flex flex-col gap-3">
+        {unified && <UpdatePanelContents />}
         <Toggle label="Update provider CLIs automatically"
           checked={config.updater?.auto_update_provider_clis ?? true}
           onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
@@ -72,7 +76,7 @@ export function UpdateSection({ config, onUpdate }: {
           </div>
 
           <div className="flex shrink-0 flex-wrap gap-2">
-            {updateAvailable && (
+            {updateAvailable && !unified && (
               <button
                 type="button"
                 onClick={() => void applyUpdate({ failureSurface: "inline" })}
@@ -85,7 +89,7 @@ export function UpdateSection({ config, onUpdate }: {
             )}
             <button
               type="button"
-              onClick={() => void refresh(true)}
+              onClick={() => { void (unified ? unified.refresh(true) : refresh(true)).catch(() => {}); }}
               disabled={installing || checking}
               className={`${UI_BUTTON.ghost} ${UI_BUTTON.sm} gap-1.5 disabled:opacity-50`}
             >

@@ -141,7 +141,7 @@ test("App provider key invokes the hook prewarm callback exactly once", async ()
   assert.match(appSource, /prewarmTab:\s*prewarmBackendTab/);
   assert.match(
     appSource,
-    /shouldMountTab\s*=\s*isActiveTab\s*\|\|\s*isMainTab\s*\|\|\s*prewarmTabIds\.has\(tabId\)/,
+    /shouldMountTab\s*=\s*!ws\.cwd_missing\s*&&\s*\(isActiveTab\s*\|\|\s*isMainTab\s*\|\|\s*prewarmTabIds\.has\(tabId\)\)/,
   );
 
   const frames = installDom();

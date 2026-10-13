@@ -1,7 +1,10 @@
+import type { CapsuleRegistry } from "../../components/Terminal/composerCapsules";
+
 export interface Draft {
   text: string;
   attachmentIds: string[];
   replyTo: string | null;
+  capsules?: CapsuleRegistry;
 }
 
 export interface ClientCheckpoint {

@@ -91,8 +91,21 @@ pub fn verify_metadata(
     api_version: u32,
     allow_loopback: bool,
 ) -> Result<Manifest, String> {
+    let manifest = verify_discovery(metadata, signature, trusted_public_key, allow_loopback)?;
+    if !manifest.compatible(api_version) {
+        return Err("Incompatible frontend API range".into());
+    }
+    Ok(manifest)
+}
+
+pub fn verify_discovery(
+    metadata: &[u8],
+    signature: &str,
+    trusted_public_key: &str,
+    allow_loopback: bool,
+) -> Result<Manifest, String> {
     let manifest: Manifest = serde_json::from_slice(metadata).map_err(|e| e.to_string())?;
-    if !manifest.compatible(api_version) || !safe_component(&manifest.release_id) {
+    if !safe_component(&manifest.release_id) {
         return Err("Invalid release identity or incompatible API range".into());
     }
     semver::Version::parse(&manifest.version).map_err(|e| e.to_string())?;

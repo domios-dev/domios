@@ -36,11 +36,7 @@ pub(super) fn add_channel(
         fs::remove_dir_all(&cache_path)
             .map_err(|e| format!("clear {}: {e}", cache_path.display()))?;
     }
-    if is_local {
-        copy_dir_filtered(&source.source_dir(), &cache_path)?;
-    } else {
-        clone_git_channel(&source, &cache_path)?;
-    }
+    update_source::discovery_source().materialize_channel(&temp_name, url, &cache_path)?;
     let manifest = match read_channel_manifest(&cache_path) {
         Ok(manifest) => manifest,
         Err(error) => {
@@ -149,6 +145,7 @@ fn materialize_view_channel(channel: &ChannelRecord) -> Result<ChannelRecord, St
 pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, String> {
     let channels = selected_channels(name)?;
     let mut rows = Vec::new();
+    let mut errors = std::collections::BTreeMap::new();
     for ch in channels {
         let result =
             materialize_view_channel(&ch).and_then(|registered| diff_channel_rows(&registered));
@@ -160,20 +157,21 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
                 if name.is_some() {
                     return Err(err);
                 }
+                errors.insert(ch.name.clone(), err.clone());
                 let skipped: Result<(), String> = Err(err);
                 audit_channel_result("diff-skipped", Some(&ch.name), &skipped);
             }
         }
     }
 
-    Ok(serde_json::json!({ "diff": rows }))
+    Ok(serde_json::json!({ "diff": rows, "errors": errors }))
 }
 
 /// Diff a single registered channel. Materializes the channel (local copy or git
 /// clone), reads its manifest, and builds one row per plugin. Any failure here is
 /// returned to the caller so `channel_diff` can decide whether to propagate (named
 /// diff) or skip the channel and continue (aggregate diff for the snapshot).
-fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> {
+pub(crate) fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> {
     let channel_path = materialize_channel_for_diff(ch)?;
     let manifest = read_channel_manifest(&channel_path)?;
     let mut rows = Vec::new();
@@ -218,7 +216,29 @@ fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> 
                 &drift,
             );
         }
+        let record = read_install_record(&plugin.id).ok();
+        let provenance = effective_install_source(&plugin.id, record.as_ref().map(|r| &r.source));
+        let decision = update_availability(
+            local_version.as_deref(),
+            update_source(provenance.as_ref()),
+            Some(UpdateOffer {
+                channel: &ch.name,
+                version: remote_version.as_deref(),
+                payload_version: payload_version.as_deref(),
+                compatible,
+            }),
+        );
+        let availability = AvailabilityItem::plugin(
+            &plugin.id,
+            local_version.as_deref(),
+            remote_version.as_deref(),
+            Some(&ch.name),
+            compatible,
+            matches!(provenance, Some(InstallSource::SystemChannel { .. })),
+            &decision,
+        );
         rows.push(ChannelDiffRow {
+            availability,
             payload_version,
             channel: ch.name.clone(),
             id: plugin.id,
@@ -247,8 +267,11 @@ pub(super) fn materialize_channel_for_diff(ch: &ChannelRecord) -> Result<PathBuf
             }
         }
         ChannelKind::Git => {
-            refresh_channel_record(ch)?;
-            Ok(PathBuf::from(&ch.path))
+            let cache = PathBuf::from(&ch.path);
+            if !cache.exists() {
+                refresh_channel_record(ch)?;
+            }
+            Ok(cache)
         }
     }
 }
@@ -297,6 +320,7 @@ pub(super) fn remove_channel(name: &str, force: bool) -> Result<serde_json::Valu
 }
 
 pub(super) fn refresh_channel(name: Option<&str>) -> Result<(), String> {
+    let mut errors = Vec::new();
     for ch in selected_channels(name)? {
         let result = materialize_view_channel(&ch)
             .and_then(|registered| refresh_channel_record(&registered));
@@ -308,11 +332,16 @@ pub(super) fn refresh_channel(name: Option<&str>) -> Result<(), String> {
                 audit_channel_result("refresh-fetched", name, &result);
                 return result;
             }
+            errors.push(format!("{}: {}", ch.name, err));
             let skipped: Result<(), String> = Err(err);
             audit_channel_result("refresh-fetched", Some(&ch.name), &skipped);
         }
     }
-    let result = Ok(());
+    let result = if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    };
     audit_channel_result("refresh-fetched", name, &result);
     result
 }
@@ -366,11 +395,7 @@ pub(super) fn materialize_registered_channel(
     ch: &ChannelRecord,
     dest: &Path,
 ) -> Result<(), String> {
-    let source = parse_channel_source(&ch.url);
-    match ch.kind {
-        ChannelKind::Local => copy_dir_filtered(&source.source_dir(), dest),
-        ChannelKind::Git => clone_git_channel(&source, dest),
-    }
+    update_source::discovery_source().materialize_channel(&ch.name, &ch.url, dest)
 }
 
 pub(super) struct ChannelCandidate {

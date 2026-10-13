@@ -54,6 +54,7 @@ fn fresh_history(response: &Value) -> Result<(String, History), String> {
         History {
             messages: Vec::new(),
             active_turn: None,
+            open_items: Default::default(),
             completed_turns: Vec::new(),
             final_assistant_ids: Default::default(),
         },

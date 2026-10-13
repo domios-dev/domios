@@ -105,15 +105,7 @@ fn essence_map_contract_accepts_valid_document_anchor_sets() {
     let fixture = fixture_root();
     let (map, decisions, summary) = valid_map(fixture.path());
 
-    assert_eq!(summary.nodes, 64);
-    assert_eq!(summary.vectors, 7);
-    assert_eq!(summary.capabilities, 42);
-    assert_eq!(summary.core, 13);
-    assert_eq!(summary.clients, 2);
-    assert_eq!(summary.runs_on, 94);
-    assert_eq!(summary.feeds, 70);
-    assert_eq!(summary.part_of, 12);
-    assert_eq!(summary.client_of, 2);
+    assert_summary_is_consistent(&summary);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
 }
 
@@ -275,8 +267,31 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let decisions = root.join("essences/decisions.jsonl");
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
-    assert_eq!(summary.nodes, 64);
-    assert_eq!(summary.edges, 178);
+    assert_summary_is_consistent(&summary);
+}
+
+// The map grows with every essence edit, so assert its shape rather than pinned counts.
+fn assert_summary_is_consistent(summary: &MapSummary) {
+    for (kind, count) in [
+        ("vectors", summary.vectors),
+        ("capabilities", summary.capabilities),
+        ("core", summary.core),
+        ("clients", summary.clients),
+        ("runs_on", summary.runs_on),
+        ("feeds", summary.feeds),
+        ("part_of", summary.part_of),
+        ("client_of", summary.client_of),
+    ] {
+        assert!(count > 0, "essence map has no {kind}");
+    }
+    assert_eq!(
+        summary.nodes,
+        summary.vectors + summary.capabilities + summary.core + summary.clients
+    );
+    assert_eq!(
+        summary.edges,
+        summary.runs_on + summary.feeds + summary.part_of + summary.client_of
+    );
 }
 
 #[test]
