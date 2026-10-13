@@ -1,3 +1,4 @@
+import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
@@ -219,7 +220,7 @@ export function TabSessionChat({
   const tabModel = tab?.agent_session_model ?? shellSessionModel;
   const workingModelBadge = formatModelBadge(tab ? statusLineModelName(tab, shellSessionModel) : tabModel ?? "Unknown model");
   const agentSessionId = tab?.agent_session_id ?? null;
-  const runtime = useAgentRuntimeState(tabId, tab?.session_binding_nonce ?? null, tab?.agent_runtime_state);
+  const runtime = useAgentRuntimeState(tabId, tab?.session_binding_nonce ?? null, tab?.agent_runtime_state, tab?.agent_runtime_questions);
   const currentPtyId = tab?.pty_id ?? null;
   const agentActivity = useTabActivity(tabId);
   const sessionBindingSurface = useSessionBindingSurface(tabId, agentSessionId);
@@ -908,6 +909,7 @@ export function TabSessionChat({
           );
         })}
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
+        {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
         {promptPart && <ChatMessageRow
           msg={{ id: promptPart.id, type: "assistant" }}
           ariaLabel={chatMessageAccessibleName("assistant", promptPart.prompt.question)}

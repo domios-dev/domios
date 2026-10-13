@@ -55,7 +55,9 @@
     "assignments": [],
     "cwd": "/cwd",
     "provider_id": "provider",
-    "fresh": true
+    "fresh": true,
+    "itemId": "question",
+    "answers": []
   },
   "commands": {
     "mux_get_state": [
@@ -1232,6 +1234,12 @@
       [
         "POST",
         "/api/tabs/tab/agent/runtime/retry"
+      ]
+    ],
+    "agent_runtime_answer_question": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/questions/question/answer"
       ]
     ]
   }

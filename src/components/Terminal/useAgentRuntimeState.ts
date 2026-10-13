@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import {
-  beginRuntimeRetry, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot,
+  beginRuntimeRetry, runtimeRetryFailed, runtimeViewFromEvent, runtimeStateFromSnapshot,
   type AgentRuntimeState, type AgentRuntimeStateEvent,
 } from "../../lib/agentRuntimeState";
 
-export function useAgentRuntimeState(tabId: string, nonce: string | null, snapshot?: AgentRuntimeState | null) {
+import type { AgentRuntimeQuestion } from "../../lib/agentRuntimeQuestions";
+
+const EMPTY_QUESTIONS: AgentRuntimeQuestion[] = [];
+
+export function useAgentRuntimeState(tabId: string, nonce: string | null, snapshot?: AgentRuntimeState | null, snapshotQuestions: AgentRuntimeQuestion[] = EMPTY_QUESTIONS) {
   const key = JSON.stringify([tabId, nonce]);
-  const [record, setRecord] = useState(() => ({ key, state: runtimeStateFromSnapshot(null, snapshot) }));
+  const [record, setRecord] = useState(() => ({ key, state: runtimeStateFromSnapshot(null, snapshot), questions: snapshotQuestions }));
   const current = useRef(record);
   const revision = useRef(0);
   const generation = useRef(0);
@@ -18,7 +22,7 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   const snapshotDuration = snapshot?.last_turn_duration_ms;
   const pending = useRef(false);
   const publish = (state: AgentRuntimeState | null) => {
-    current.current = { key, state };
+    current.current = { key, state, questions: current.current.key === key ? current.current.questions : snapshotQuestions };
     setRecord(current.current);
   };
 
@@ -28,10 +32,10 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
       ? { state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason,
         active_turn_started_at_ms: snapshotStartedAt, last_turn_duration_ms: snapshotDuration } : null;
     const state = runtimeStateFromSnapshot(current.current.key === key ? current.current.state : null, next);
-    if (current.current.key === key && current.current.state === state) return;
-    current.current = { key, state };
+    if (current.current.key === key && current.current.state === state && current.current.questions === snapshotQuestions) return;
+    current.current = { key, state, questions: snapshotQuestions };
     setRecord(current.current);
-  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration]);
+  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotQuestions]);
 
   useEffect(() => {
     generation.current++;
@@ -41,18 +45,17 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
     const eventName = tabId.startsWith("mesh:") ? `agent-runtime-state:${tabId}` : "agent-runtime-state";
     void listen<AgentRuntimeStateEvent>(eventName, ({ payload }) => {
       if (disposed) return;
-      const previous = current.current.key === key ? current.current.state : null;
-      const state = runtimeStateFromEvent(previous, { tabId, nonce }, payload);
-      if (state === previous) return;
+      const next = runtimeViewFromEvent(current.current, { tabId, nonce }, payload);
+      if (next === current.current) return;
       revision.current++;
-      current.current = { key, state };
+      current.current = { ...next, key };
       setRecord(current.current);
     }).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch((error: unknown) => {
       if (disposed || !current.current.state) return;
       revision.current++;
       const state = { ...current.current.state, state: "degraded" as const,
         reason: error instanceof Error ? error.message : String(error) };
-      current.current = { key, state };
+      current.current = { ...current.current, key, state };
       setRecord(current.current);
     });
     return () => { disposed = true; generation.current++; revision.current++; unlisten?.(); };
@@ -82,5 +85,5 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
     }
   };
 
-  return { state: record.key === key ? record.state : runtimeStateFromSnapshot(null, snapshot), retry };
+  return { questions: record.key === key ? record.questions : snapshotQuestions, state: record.key === key ? record.state : runtimeStateFromSnapshot(null, snapshot), retry };
 }

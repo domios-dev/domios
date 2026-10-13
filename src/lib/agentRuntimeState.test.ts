@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  beginRuntimeRetry, runtimeBannerView, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot,
+  beginRuntimeRetry, runtimeBannerView, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot, runtimeViewFromEvent,
   type AgentRuntimeState,
 } from "./agentRuntimeState";
 
@@ -62,4 +62,14 @@ describe("agent runtime state", () => {
     expect(runtimeRetryFailed(null, "fault")).toBeNull();
     expect(runtimeStateFromSnapshot(null, { state: "degraded", epoch: 0 })?.reason).toBeTruthy();
   });
+});
+
+it("retains durable questions across runtime exit and rejects stale or foreign question changes", () => {
+  const questions = [{ threadId: "thread", itemId: "item", response: "message" as const, createdAt: 1, questions: [] }];
+  const current = { state: { state: "loaded" as const, epoch: 2 }, questions };
+  const event = { tab_id: "owned", session_binding_nonce: "binding", state: { state: "unloaded" as const, epoch: 2, reason: "pipe closed" } };
+  expect(runtimeViewFromEvent(current, authority, event).questions).toBe(questions);
+  expect(runtimeViewFromEvent(current, authority, { ...event, tab_id: "foreign", questions: [] })).toBe(current);
+  expect(runtimeViewFromEvent(current, authority, { ...event, state: { state: "degraded", epoch: 1 }, questions: [] })).toBe(current);
+  expect(runtimeViewFromEvent(current, authority, { ...event, questions: [] }).questions).toEqual([]);
 });

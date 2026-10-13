@@ -7,6 +7,7 @@ export interface AgentRuntimeState {
 }
 
 export interface AgentRuntimeStateEvent {
+  questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   tab_id: string;
   session_binding_nonce: string | null;
   state: AgentRuntimeState;
@@ -58,4 +59,17 @@ export function runtimeBannerView(state: AgentRuntimeState | null) {
     reason: state.reason ?? null,
     canRetry: state.state !== "loading",
   };
+}
+
+export interface AgentRuntimeView {
+  state: AgentRuntimeState | null;
+  questions: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
+}
+
+export function runtimeViewFromEvent(
+  current: AgentRuntimeView, authority: RuntimeAuthority, event: AgentRuntimeStateEvent,
+): AgentRuntimeView {
+  const state = runtimeStateFromEvent(current.state, authority, event);
+  if (state === current.state) return current;
+  return { ...current, state, questions: event.questions ?? current.questions };
 }
