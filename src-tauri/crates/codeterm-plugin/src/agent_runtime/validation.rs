@@ -224,13 +224,11 @@ pub fn validate_runtime_call(
             .target
             .as_ref()
             .ok_or_else(|| mismatch("interrupt request lacks target"))?;
-        let root = ctx.thread_id.as_ref() == Some(&target.thread_id)
-            && target.turn_id == ctx.active_turn_id;
-        let descendant = ctx.active_turns.iter().any(|turn| {
+        let active = ctx.active_turns.iter().any(|turn| {
             turn.thread_id == target.thread_id && target.turn_id.as_ref() == Some(&turn.turn_id)
         });
-        if !root && !descendant {
-            return Err(mismatch("interrupt targets unowned active turn"));
+        if !active {
+            return Err(mismatch("interrupt targets an inactive or unowned turn"));
         }
     } else if let Some(target) = &call.target {
         if ctx.thread_id.as_ref() != Some(&target.thread_id)
@@ -414,10 +412,16 @@ pub fn validate_runtime_reduction(
             "too many runtime events",
         ));
     }
+    validate_active_turns(ctx)?;
     let mut parents: std::collections::HashMap<String, Option<String>> = ctx
-        .active_turns
+        .thread_parents
         .iter()
-        .map(|turn| (turn.thread_id.clone(), turn.parent_thread_id.clone()))
+        .map(|thread| {
+            (
+                thread.thread_id.clone(),
+                Some(thread.parent_thread_id.clone()),
+            )
+        })
         .collect();
     if let Some(root) = &ctx.thread_id {
         parents.insert(root.clone(), None);
@@ -462,6 +466,9 @@ pub fn validate_runtime_reduction(
                     .ok_or_else(|| mismatch("unverified descendant turn"))?;
                 if parent == thread_id || !parents.contains_key(parent) {
                     return Err(mismatch("unverified descendant turn"));
+                }
+                if parents.len() >= 65 {
+                    return Err(invalid("too many known thread parents"));
                 }
                 parents.insert(thread_id.clone(), Some(parent.clone()));
             }
@@ -633,7 +640,43 @@ pub fn validate_rate_limits(limits: &[RuntimeRateLimit]) -> Result<(), RuntimeFa
     Ok(())
 }
 
+pub fn validate_thread_parents(ctx: &RuntimeContext) -> Result<(), RuntimeFailure> {
+    if ctx.thread_parents.len() > 64 {
+        return Err(invalid("too many thread parents"));
+    }
+    let mut known = std::collections::HashMap::new();
+    for thread in &ctx.thread_parents {
+        if !identifier(&thread.thread_id)
+            || !identifier(&thread.parent_thread_id)
+            || ctx.thread_id.as_ref() == Some(&thread.thread_id)
+            || known
+                .insert(&thread.thread_id, &thread.parent_thread_id)
+                .is_some()
+        {
+            return Err(invalid("invalid thread ancestry"));
+        }
+    }
+    for thread in &ctx.thread_parents {
+        let mut current = &thread.thread_id;
+        let mut visited = std::collections::HashSet::new();
+        loop {
+            if !visited.insert(current) {
+                return Err(mismatch("thread ancestry cycle"));
+            }
+            let parent = known
+                .get(current)
+                .ok_or_else(|| mismatch("thread has unknown parent"))?;
+            if ctx.thread_id.as_ref() == Some(parent) {
+                break;
+            }
+            current = parent;
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_active_turns(ctx: &RuntimeContext) -> Result<(), RuntimeFailure> {
+    validate_thread_parents(ctx)?;
     if ctx.active_turns.len() > 32 {
         return Err(invalid("too many active turns"));
     }
@@ -649,26 +692,19 @@ pub fn validate_active_turns(ctx: &RuntimeContext) -> Result<(), RuntimeFailure>
             if turn.parent_thread_id.is_some() {
                 return Err(mismatch("root turn has a parent"));
             }
-            continue;
-        }
-        let mut current = turn;
-        let mut visited = std::collections::HashSet::new();
-        loop {
-            if !visited.insert(&current.thread_id) {
-                return Err(mismatch("active turn ancestry cycle"));
-            }
-            let parent = current
+        } else {
+            let parent = ctx
+                .thread_parents
+                .iter()
+                .find(|thread| thread.thread_id == turn.thread_id)
+                .ok_or_else(|| mismatch("active descendant has no known ancestry"))?;
+            if turn
                 .parent_thread_id
                 .as_ref()
-                .ok_or_else(|| mismatch("active descendant lacks parent"))?;
-            if ctx.thread_id.as_ref() == Some(parent) {
-                break;
+                .is_some_and(|source| source != &parent.parent_thread_id)
+            {
+                return Err(mismatch("active descendant changes proven parent"));
             }
-            current = ctx
-                .active_turns
-                .iter()
-                .find(|candidate| &candidate.thread_id == parent)
-                .ok_or_else(|| mismatch("active descendant has unknown parent"))?;
         }
     }
     Ok(())
