@@ -76,9 +76,8 @@ pub(super) fn send(
         )
         .unwrap_or(status);
     crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
-    let result = super::user_delivery::drain(svc, tab);
     drop(reservation);
-    result?;
+    super::user_delivery::drain(svc, tab)?;
     let status = svc
         .chat_send_ledger
         .status(&record.send_id)
