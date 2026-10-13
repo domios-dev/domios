@@ -347,7 +347,7 @@ run_nextest_scope() {
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass \
     scripts/test-capped.sh \
     --binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json" \
-    "${filter_args[@]}" --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
+    "${filter_args[@]}" --no-fail-fast --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
     run_exit=${PIPESTATUS[0]}
   else
     run_exit=${PIPESTATUS[0]}
