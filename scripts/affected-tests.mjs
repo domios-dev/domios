@@ -22,6 +22,7 @@ const scopeAliases = new Map([
   ["codeterm-types", "types"],
   ["codeterm-util", "util"],
   ["codeterm-browser", "browser"],
+  ["codeterm-usage", "usage"],
   ["codeterm-mem", "mem"],
   ["codeterm-mesh", "mesh"],
 ]);

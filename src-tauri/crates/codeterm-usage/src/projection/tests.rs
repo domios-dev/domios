@@ -1,5 +1,5 @@
 use super::*;
-use crate::usage::store::UsageStore;
+use crate::store::UsageStore;
 
 const RESETS_A: i64 = 9_000_000_000_000;
 const RESETS_B: i64 = RESETS_A + 7 * 24 * 3_600_000;
