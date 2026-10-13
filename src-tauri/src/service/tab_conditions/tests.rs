@@ -11,6 +11,7 @@ use crate::service::test_fixture::ServiceFixture;
 
 fn prompt(label: &str) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "opaque question".into(),
         options: vec![PromptOption {
             label: label.into(),

@@ -199,6 +199,7 @@ fn question_removal_working_corpus_frame_does_not_become_idle() {
 
 fn structured_prompt(question: &str) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: question.to_string(),
         options: vec![
             PromptOption {

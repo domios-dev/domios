@@ -344,6 +344,7 @@ fn supporter_first_opinion_user_response_changes_prompt_receipt_without_a_redraw
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque".into(),
         options: vec![],
         sections: None,
@@ -386,6 +387,7 @@ fn supporter_first_opinion_fixture_cancels_after_user_response_without_a_redraw(
         crate::agent::test_provider::MockProvider::new("fixture-provider"),
     ));
     let prompt = codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque".into(),
         options: vec![],
         sections: None,

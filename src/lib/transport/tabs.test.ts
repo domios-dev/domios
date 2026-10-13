@@ -78,6 +78,13 @@ describe("tab command HTTP contract", () => {
     expect(calls[0]).toMatchObject({ method, path, opts: { callerTabId: "caller" } });
   });
 
+  it("preserves captured prompt identity and native value on the existing response route", async () => {
+    const { transport, calls } = fixture();
+    const identity = { kind: "structured", options: [{ label: "display", value: "native" }], request_id: "opaque" };
+    await transport.mux_respond_prompt({ tabId: "owned", value: "native", identity });
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/prompt/respond", body: { tabId: "owned", value: "native", identity } });
+  });
+
   it("keeps runtime question answers on their item-scoped ledger route", async () => {
     const receipt = { send_id: "receipt", state: "written" };
     const { transport, calls } = fixture([receipt]);

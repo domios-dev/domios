@@ -26,6 +26,7 @@ fn recipe_matches() -> BTreeMap<String, String> {
 
 fn prompt(question: &str) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: question.into(),
         options: vec![PromptOption {
             label: "Yes".into(),

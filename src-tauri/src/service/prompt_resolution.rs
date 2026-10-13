@@ -58,6 +58,7 @@ mod tests {
 
     fn prompt(label: &str, value: &str) -> PendingPrompt {
         PendingPrompt {
+            request_id: None,
             question: "opaque".into(),
             options: vec![PromptOption {
                 label: label.into(),

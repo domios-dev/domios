@@ -161,6 +161,7 @@ fn tab_state_never_answers_prompt() {
     mux.get_tab_mut(&tab_id)
         .expect("fixture tab")
         .pending_prompt = Some(codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque prompt".into(),
         options: vec![codeterm_types::pty::PromptOption {
             label: "Opaque option".into(),

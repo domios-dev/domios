@@ -111,6 +111,7 @@ fn workspace_close_skips_peer_anchored_team_ids() {
 
 fn prompt(question: &str) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: question.into(),
         options: vec![PromptOption {
             label: "accept".into(),

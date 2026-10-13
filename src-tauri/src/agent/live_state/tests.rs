@@ -14,6 +14,7 @@ fn restored_prompt_without_a_session_is_live_with_a_live_pty() {
         tab.agent_session_id = None;
         tab.restored_from_snapshot = true;
         tab.pending_prompt = Some(crate::multiplexer::types::PendingPrompt {
+            request_id: None,
             question: "prompt-token".into(),
             options: Vec::new(),
             sections: None,

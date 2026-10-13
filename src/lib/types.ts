@@ -92,6 +92,7 @@ export interface AutoConfirmedPrompt {
 }
 
 export interface PendingPrompt {
+  request_id?: string | null;
   question: string;
   options: PromptOption[];
   sections?: PromptSection[] | null;

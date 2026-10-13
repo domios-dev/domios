@@ -28,6 +28,14 @@ impl AgentProvider for NativeRuntime {
     fn detect_from_title(&self, _: &str) -> bool {
         false
     }
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
     fn detect_from_output(&self, _: &str) -> bool {
         false
     }

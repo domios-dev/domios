@@ -53,6 +53,7 @@ impl AgentProvider for StartupPromptProvider {
 
     fn parse_directory_trust_prompt(&self, screen: &str) -> Option<PendingPrompt> {
         screen.contains("trust-prompt").then(|| PendingPrompt {
+            request_id: None,
             question: "Trust this directory?".into(),
             options: Vec::new(),
             sections: None,
@@ -64,6 +65,7 @@ impl AgentProvider for StartupPromptProvider {
 
     fn parse_prompt(&self, screen: &str) -> Option<PendingPrompt> {
         screen.contains("permission-prompt").then(|| PendingPrompt {
+            request_id: None,
             question: "Allow this action?".into(),
             options: Vec::new(),
             sections: None,

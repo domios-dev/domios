@@ -2,6 +2,12 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("preserves the opaque prompt identity in peer approval replies", () => {
+    const identity = { kind: "structured", options: [{ label: "display", value: "native" }], request_id: "opaque" };
+    const args = { tabId: "mesh:peer/owned", value: "native", identity };
+    expect(remoteTransportCall("mux_respond_prompt", args)).toMatchObject({ peerId: "peer", remoteTabId: "owned", suffix: "/prompt/respond", body: args });
+  });
+
   it("routes native question answers to the exact peer and item", () => {
     const answers = [{ questionId: "q", values: ["native-a"] }];
     expect(remoteTransportCall("agent_runtime_answer_question", { tabId: "mesh:peer/owned", itemId: "item/a", answers }))
