@@ -833,16 +833,9 @@ export interface WatcherVerdict {
   actions?: WatcherAction[];
 }
 
-export interface ChatBackendRestoreContext {
-  sessionId: string;
-  messages: NormalizedChatMessage[];
-}
-
 export interface ChatBackendOpenSessionCtx {
   tabId: string;
   config: unknown;
-  /** Exact persisted session rows, supplied only when reopening after restore. */
-  restore?: ChatBackendRestoreContext;
   systemPrompt?: string;
   preset?: string;
   model?: string;
