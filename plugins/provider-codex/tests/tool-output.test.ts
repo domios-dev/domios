@@ -25,3 +25,6 @@ for (const parser of [plugin as unknown as Parser, context.module.exports.defaul
   assert.deepEqual(JSON.parse(blocks[0].data.content as string), output);
 }
 console.log("codex tool-output: 10 preservation assertions passed");
+assert.equal(codexToolOutputText({z:[{type:"text",text:"value"}],a:{z:2,a:1}}),'{'+'"a":{"a":1,"z":2},"z":[{"text":"value","type":"text"}]'+'}');
+assert.equal(codexToolOutputText({a:{a:1,z:2},z:[{text:"value",type:"text"}]}),codexToolOutputText({z:[{type:"text",text:"value"}],a:{z:2,a:1}}));
+console.log("codex canonical tool-output: 2 ordering assertions passed");

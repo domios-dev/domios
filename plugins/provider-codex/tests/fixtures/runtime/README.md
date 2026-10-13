@@ -36,3 +36,5 @@ Run the built-plugin replay with `pnpm exec tsx plugins/provider-codex/tests/run
 Additional captured scenarios and real receipt-rate measurement live in [captured/README.md](captured/README.md). The feature audit and reference approach inventory live in [FEATURE-PARITY.md](FEATURE-PARITY.md).
 
 A9b historyPage.questions contains RuntimeHistoryQuestion records without a kind discriminator. Native async question snapshots are collected across item pages. Only an exact later user answer envelope with matching itemId, question IDs and native option values marks resolved; assistant text and labels do not. History never supplies delivery evidence, and core receipts remain authoritative across separate turns-page operations.
+
+Plugin-generated JSON display strings use recursively lexically sorted object keys, preserve array order, and use fixed indentation. Expected display strings therefore do not depend on Node insertion order or serde_json object ordering. Native source strings are retained verbatim.

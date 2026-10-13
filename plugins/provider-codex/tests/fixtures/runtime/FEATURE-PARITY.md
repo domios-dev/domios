@@ -72,6 +72,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | Steering | CodexAdapterV2.ts steerTurn | expectedTurnId retained; Domios exact correlated pre-acceptance refusal additionally permits one new-turn fallback, required by its exclusive ledger |
 | Token usage | CodexAdapterV2.ts codexProviderTurnTokenUsage | Cumulative counters plus last-turn context window; no reference orchestration accounting model copied |
 | Rate limits | codexUsageLimits.ts mergeCodexRateLimits / codexRateLimitsToWindows | Merge sparse main allowance snapshots; preserve reported durations only instead of guessing plan-dependent durations |
+| JSON display | CodexAdapterV2.ts dynamic tool JSON presentation | Recursively sorted keys make Node and the serde/QuickJS bridge render identically; source string results remain verbatim |
 | Errors | CodexAdapterV2.ts error handler | Retain retryable/class metadata on stable system row; avoid classifying a retry notice as terminal failure |
 | Timing | CodexAdapterV2.ts codexTimestamp / turn handlers | Seconds to ms, host stamps receipt time; plugin never reads a clock |
 | Resume/archive/history | CodexAdapterV2.ts resumeThread; CodexThreadRevert.ts pagination | excludeTurns and archive recovery retained; no rollback/fork action implemented without approved UI/result contract |
