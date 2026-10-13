@@ -21,6 +21,7 @@ pub struct Session {
     pub provider: String,
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
+    pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
     pub auth: Mutex<RuntimeAuthState>,
@@ -93,6 +94,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                 Arc::new(Session {
                     provider: provider.clone(),
                     adapter: Mutex::new(None),
+                    completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
                         epoch: 0,
                         tab_id: tab.into(),
@@ -186,6 +188,7 @@ async fn ensure_locked(
         session
             .thread_loaded
             .store(false, std::sync::atomic::Ordering::Release);
+        *session.completions.lock() = Default::default();
         session.initialization.reset();
         *session.auth.lock() = RuntimeAuthState::Unknown;
         publish(svc, tab, session);
@@ -603,6 +606,12 @@ async fn run_inner(
         }
     }
     Err(RuntimeFailure::HookFailed("Operation step limit".into()))
+}
+
+pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Option<&str>) {
+    if let Some(turn) = turn {
+        session.completions.lock().record(thread, turn);
+    }
 }
 
 pub fn validate_binding(svc: &ServiceContext, session: &Session) -> Result<(), RuntimeFailure> {

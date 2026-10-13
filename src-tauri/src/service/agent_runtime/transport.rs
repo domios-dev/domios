@@ -128,6 +128,8 @@ pub(crate) async fn submit_loaded(
         thread_id: thread.clone(),
         input: input.clone(),
     });
+    let before_completion = session.completions.lock().sequence();
+    let submitted_turn = context.active_turn_id.clone();
     let operation = RuntimeOperation::SubmitTurn {
         thread_id: thread.clone(),
         active_turn_id: context.active_turn_id,
@@ -138,8 +140,24 @@ pub(crate) async fn submit_loaded(
     let result = engine::run(svc, &session.provider, session, process, operation).await;
     match result {
         Ok(RuntimeResult::TurnAccepted {
-            thread_id, send_id, ..
+            thread_id,
+            send_id,
+            turn_id,
         }) if thread_id == thread && send_id == pending.send_id => {
+            if let Some(turn) = turn_id {
+                let mut current = session.context.lock();
+                if current.epoch == context.epoch
+                    && session.completions.lock().permits_receipt(
+                        &thread,
+                        &turn,
+                        current.active_turn_id.as_deref(),
+                        submitted_turn.as_deref(),
+                        before_completion,
+                    )
+                {
+                    current.active_turn_id = Some(turn);
+                }
+            }
             if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
                 crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
             }
