@@ -10,6 +10,17 @@ pub struct Process {
     stop: watch::Sender<bool>,
 }
 impl Process {
+    #[cfg(test)]
+    pub(super) fn for_test(client: Client) -> Self {
+        let (stop, _) = watch::channel(false);
+        let ended = client.ended();
+        Self {
+            client,
+            ended,
+            stop,
+        }
+    }
+
     pub fn stop(&self) {
         self.stop.send_replace(true);
     }

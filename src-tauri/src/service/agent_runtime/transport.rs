@@ -87,6 +87,12 @@ pub(crate) async fn submit_loaded(
 ) -> Result<(), DeliveryError> {
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
+    if session.compaction.lock().held(context.epoch) {
+        return Err(before_write(
+            tab,
+            RuntimeFailure::Refused("Context restoration pending or failed; sends held".into()),
+        ));
+    }
     let thread = context
         .thread_id
         .clone()

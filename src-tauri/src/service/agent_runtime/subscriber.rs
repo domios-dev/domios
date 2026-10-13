@@ -7,6 +7,10 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::Arc;
 
+#[path = "subscriber/compaction.rs"]
+mod compaction;
+pub(super) use compaction::CompactionState;
+
 pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, process: Arc<Process>) {
     let mut events = process.client.subscribe();
     let mut ended = process.client.ended();
@@ -61,32 +65,52 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             {
                 break;
             }
-            if let RuntimeFrame::Request {
-                request_id,
-                method,
-                params,
-            } = &frame
-            {
-                let mut pending = session.prompts.lock();
-                if pending.contains_key(request_id) {
-                    process.client.close(RuntimeFailure::InvalidFrame(
-                        "Duplicate pending request ID".into(),
-                    ));
-                    break;
+            let request_id = match &frame {
+                RuntimeFrame::Request {
+                    request_id,
+                    method,
+                    params,
+                } => {
+                    let refused = {
+                        let mut pending = session.prompts.lock();
+                        if outstanding_bound_exceeded(pending.len())
+                            || pending.contains_key(request_id)
+                        {
+                            true
+                        } else {
+                            pending.insert(
+                                request_id.clone(),
+                                engine::OutstandingRequest {
+                                    request: PendingRuntimeRequest {
+                                        request_id: request_id.clone(),
+                                        method: method.clone(),
+                                        params: params.clone(),
+                                    },
+                                    prompt: None,
+                                },
+                            );
+                            false
+                        }
+                    };
+                    if refused {
+                        if let Err(reason) =
+                            reply_unhandled(&process.client, request_id, -32601).await
+                        {
+                            process.client.close(reason);
+                            break;
+                        }
+                        continue;
+                    }
+                    Some(request_id.clone())
                 }
-                pending.insert(
-                    request_id.clone(),
-                    engine::OutstandingRequest {
-                        request: PendingRuntimeRequest {
-                            request_id: request_id.clone(),
-                            method: method.clone(),
-                            params: params.clone(),
-                        },
-                        prompt: None,
-                    },
-                );
-            }
-            let Some(adapter) = session.adapter.lock().clone() else {
+                _ => None,
+            };
+            let adapter = session.adapter.lock().clone();
+            let Some(adapter) = adapter else {
+                if let Some(id) = &request_id {
+                    let _ = reply_unhandled(&process.client, id, -32601).await;
+                    session.prompts.lock().remove(id);
+                }
                 break;
             };
             let (context, state) = (
@@ -101,6 +125,13 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             let reduced = match result {
                 Ok(Ok(reduced)) => reduced,
                 other => {
+                    if let Some(id) = &request_id {
+                        session.prompts.lock().remove(id);
+                        if let Err(reason) = reply_unhandled(&process.client, id, -32602).await {
+                            process.client.close(reason);
+                            break;
+                        }
+                    }
                     process.client.close(RuntimeFailure::HookFailed(format!(
                         "Event mapping failed: {other:?}"
                     )));
@@ -111,13 +142,39 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             if session.context.lock().epoch != epoch {
                 break;
             }
+            let valid_events = reduced
+                .events
+                .iter()
+                .cloned()
+                .map(|event| HostAgentRuntimeEvent {
+                    at: received_at,
+                    event,
+                })
+                .collect::<Vec<_>>();
             if super::model::validate_state_size(&reduced.state).is_err()
                 || reduced.events.len() > MAX_RUNTIME_BATCH
+                || validate_host_runtime_events(&context, &valid_events).is_err()
             {
+                if let Some(id) = &request_id {
+                    session.prompts.lock().remove(id);
+                    if let Err(reason) = reply_unhandled(&process.client, id, -32602).await {
+                        process.client.close(reason);
+                        break;
+                    }
+                }
                 process.client.close(RuntimeFailure::Refused(
                     "Reducer state or event limit".into(),
                 ));
                 break;
+            }
+            if let Some(id) = &request_id {
+                if let Some(error) = unmapped_request_error(&context, id, &reduced.events) {
+                    session.prompts.lock().remove(id);
+                    if let Err(reason) = process.client.reply(id, Err(error)).await {
+                        process.client.close(reason);
+                        break;
+                    }
+                }
             }
             *session.hook_state.lock() = reduced.state;
             if let Err(reason) =
@@ -166,9 +223,44 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
     });
 }
 
+const MAX_OUTSTANDING_REQUESTS: usize = 64;
+
+fn outstanding_bound_exceeded(outstanding: usize) -> bool {
+    outstanding >= MAX_OUTSTANDING_REQUESTS
+}
+
+fn request_error(code: i64) -> RpcFailure {
+    RpcFailure {
+        code,
+        message: "Request not handled by host".into(),
+        data: None,
+    }
+}
+
+fn unmapped_request_error(
+    context: &RuntimeContext,
+    id: &RpcId,
+    events: &[AgentRuntimeEvent],
+) -> Option<RpcFailure> {
+    let surfaced = events.iter().any(|event| {
+        matches!(event,
+        AgentRuntimeEvent::Prompt { thread_id, request_id, .. }
+        if Some(thread_id) == context.thread_id.as_ref() && request_id == id)
+    });
+    (!surfaced).then(|| request_error(-32601))
+}
+
+async fn reply_unhandled(
+    client: &super::rpc::Client,
+    id: &RpcId,
+    code: i64,
+) -> Result<(), RuntimeFailure> {
+    client.reply(id, Err(request_error(code))).await
+}
+
 pub(super) async fn publish_events(
     svc: &ServiceContext,
-    session: &Session,
+    session: &Arc<Session>,
     epoch: u64,
     events: Vec<AgentRuntimeEvent>,
     at: u64,
@@ -246,7 +338,12 @@ pub(super) async fn publish_events(
     Ok(())
 }
 
-fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgentRuntimeEvent) {
+fn apply(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    epoch: u64,
+    enriched: HostAgentRuntimeEvent,
+) {
     let at = enriched.at;
     let event = enriched.event;
     let context = session.context.lock().clone();
@@ -426,7 +523,9 @@ fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgen
         } if owned(&thread_id) => {
             super::projections::controls(svc, session, settings);
         }
-        AgentRuntimeEvent::ContextCompacted { thread_id, .. } if owned(&thread_id) => {}
+        AgentRuntimeEvent::ContextCompacted { thread_id, item_id } if owned(&thread_id) => {
+            let _ = compaction::schedule(svc, session, epoch, &thread_id, &item_id);
+        }
         _ => {}
     }
     if !matches!(session.state.lock().phase, RuntimePhase::Loading) {
@@ -453,3 +552,7 @@ fn unload_retaining_degradation(
 #[cfg(test)]
 #[path = "subscriber/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "subscriber/fixtures.rs"]
+mod fixtures;

@@ -166,6 +166,7 @@ pub enum RuntimeOperation {
     },
     ResumeThread {
         thread_id: String,
+        instructions: String,
         settings: RuntimeSettings,
     },
     ReadHistory {
@@ -497,4 +498,30 @@ pub struct RuntimeCallTarget {
 pub struct RuntimeThreadParent {
     pub thread_id: String,
     pub parent_thread_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resume_instructions_round_trip_as_required_thread_context() {
+        let operation = RuntimeOperation::ResumeThread {
+            thread_id: "own".into(),
+            instructions: "opaque instructions".into(),
+            settings: RuntimeSettings::default(),
+        };
+        let value = serde_json::to_value(&operation).unwrap();
+        assert_eq!(value["instructions"], "opaque instructions");
+        assert_eq!(
+            serde_json::from_value::<RuntimeOperation>(value).unwrap(),
+            operation
+        );
+        assert!(
+            serde_json::from_value::<RuntimeOperation>(serde_json::json!({
+                "kind":"resumeThread","threadId":"own","settings":{}
+            }))
+            .is_err()
+        );
+    }
 }
