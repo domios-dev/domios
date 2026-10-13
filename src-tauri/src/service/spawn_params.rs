@@ -160,8 +160,8 @@ impl SpawnTabSpec {
         };
         let agent = agent.clone();
         let mut config = chatbackend_spawn_config(
-            None,
-            None,
+            params.system_prompt.as_deref(),
+            params.preset.as_deref(),
             agent.model.as_deref(),
             agent.role_profile.as_deref(),
             None,

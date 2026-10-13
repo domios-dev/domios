@@ -314,6 +314,17 @@ fn runtime_launch_mode(full_access: bool) -> &'static str {
     }
 }
 
+fn runtime_pending_payload(
+    existing: Option<&crate::multiplexer::types::PendingDeliveryRecord>,
+    agent: &super::spawn::AgentSpawnSpec,
+) -> Option<String> {
+    if existing.is_some() {
+        None
+    } else {
+        runtime_initial_payload(agent)
+    }
+}
+
 fn runtime_initial_payload(agent: &super::spawn::AgentSpawnSpec) -> Option<String> {
     let task = agent
         .task
@@ -353,7 +364,16 @@ impl ServiceContext {
         if super::agent_runtime::engine::requested(self, &plugin_id) {
             let full_access =
                 super::permission_policy::configured_full_access_for(&self.app_handle)?;
-            config["mode"] = serde_json::json!(runtime_launch_mode(full_access));
+            if config.is_null() {
+                config = serde_json::json!({});
+            }
+            config
+                .as_object_mut()
+                .ok_or("Runtime spawn config must be an object")?
+                .insert(
+                    "mode".into(),
+                    serde_json::json!(runtime_launch_mode(full_access)),
+                );
         } else if spec
             .chatbackend_launch
             .as_ref()
@@ -570,22 +590,20 @@ impl ServiceContext {
         }
         self.prepare_runtime_worker_binding(&metadata.params, tab_id)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
-        let has_pending = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(|tab| tab.pending_delivery.is_some());
-        if !has_pending {
-            if let Some(payload) = runtime_initial_payload(&metadata.agent) {
-                let payload = self.spawn_task_message(tab_id, &payload).unwrap_or(payload);
-                self.create_pending_delivery_with_send_id(
-                    tab_id,
-                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                    &payload,
-                    Some(&uuid::Uuid::new_v4().to_string()),
-                )
-                .map_err(|error| error.to_string())?;
-            }
+        let payload = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id).ok_or("Runtime launch tab absent")?;
+            runtime_pending_payload(tab.pending_delivery.as_ref(), &metadata.agent)
+        };
+        if let Some(payload) = payload {
+            let payload = self.spawn_task_message(tab_id, &payload).unwrap_or(payload);
+            self.create_pending_delivery_with_send_id(
+                tab_id,
+                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                &payload,
+                Some(&uuid::Uuid::new_v4().to_string()),
+            )
+            .map_err(|error| error.to_string())?;
         }
         Ok(())
     }
