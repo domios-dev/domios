@@ -1,6 +1,6 @@
 use super::support::*;
-use crate::repowatch::backend::WatchSignal;
-use crate::repowatch::identity::RepoIdentity;
+use crate::backend::WatchSignal;
+use crate::identity::RepoIdentity;
 
 /// The shared-ref fanout must follow the identity's own watcher, not a single
 /// token: a partial release used to silence every remaining subscriber.
