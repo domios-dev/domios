@@ -30,6 +30,9 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     let bundle = home.path().join("bundle");
     std::fs::create_dir_all(&bundle).unwrap();
     let data = home.path().join(".codeterm-dev/rotterdom");
+    let project = home.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let project_root = project.to_string_lossy().into_owned();
     let manifest = crate::js_runtime::PluginManifest::from_json_str(include_str!(
         "fixtures/rotterdom/plugin.json"
     ))
@@ -37,7 +40,7 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     let (reads, writes) = crate::js_runtime::loader::confined_roots(&manifest, &bundle, &data);
     let settings = json!({
         "endpoints": [{"id": "local", "baseUrl": "http://127.0.0.1:1234/v1", "models": ["fixture-model"]}],
-        "profiles": [{"id": "coding", "endpoint": "local", "model": "fixture-model", "root": ""}],
+        "profiles": [{"id": "coding", "endpoint": "local", "model": "fixture-model", "root": project_root}],
         "defaultProfile": "coding"
     });
     let sandbox = Arc::new(
@@ -66,7 +69,7 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     )
     .unwrap();
     assert_eq!(history["id"], "history-fixture");
-    assert_eq!(history["profile"]["root"], "");
+    assert_eq!(history["profile"]["root"], project_root);
     assert_eq!(history["turns"], json!([]));
     assert!(!home.path().join(".codeterm").exists());
 }
