@@ -34,6 +34,17 @@ pub(crate) fn restore_attempt_binding_for_caller(
     caller: &AuthenticatedPlanCaller,
     now_ms: u64,
 ) -> Result<AttemptBindingRestoreResult, String> {
+    let mux = service.mux.read();
+    restore_attempt_binding_for_mux(&service.plan_store, &mux, target, caller, now_ms)
+}
+
+pub(crate) fn restore_attempt_binding_for_mux(
+    store: &crate::service::plan::PlanStore,
+    mux: &crate::multiplexer::state::MultiplexerState,
+    target: AttemptBindingRestoreTarget<'_>,
+    caller: &AuthenticatedPlanCaller,
+    now_ms: u64,
+) -> Result<AttemptBindingRestoreResult, String> {
     let tab_id = caller
         .tab_id
         .as_deref()
@@ -49,7 +60,6 @@ pub(crate) fn restore_attempt_binding_for_caller(
         .as_deref()
         .filter(|value| !value.is_empty())
         .ok_or_else(refusal)?;
-    let mux = service.mux.read();
     let tab = mux.get_tab(tab_id).ok_or_else(refusal)?;
     if !is_current_worker_role(tab)
         || !crate::service::plan_reconcile::tab_has_live_agent(tab)
@@ -70,10 +80,7 @@ pub(crate) fn restore_attempt_binding_for_caller(
     if binding.session_id != session_id || binding.session_binding_nonce != current_nonce {
         return Err(refusal());
     }
-    let detail = service
-        .plan_store
-        .show_task(target.task_id)
-        .ok_or_else(refusal)?;
+    let detail = store.show_task(target.task_id).ok_or_else(refusal)?;
     if detail.plan_id != target.plan_id || detail.task.id != target.task_id {
         return Err(refusal());
     }
@@ -85,7 +92,7 @@ pub(crate) fn restore_attempt_binding_for_caller(
     if mux.get_team(team_id).is_none() {
         return Err(refusal());
     }
-    let plan = service.plan_store.get(target.plan_id).ok_or_else(refusal)?;
+    let plan = store.get(target.plan_id).ok_or_else(refusal)?;
     if plan.team_id.as_deref() != Some(team_id) {
         return Err(refusal());
     }
@@ -128,8 +135,7 @@ pub(crate) fn restore_attempt_binding_for_caller(
         lineage_proof_kind: LINEAGE_PROOF_KIND.into(),
         lineage_proof_digest: proof.digest,
     };
-    let result = service
-        .plan_store
+    let result = store
         .restore_current_attempt_binding(
             RestoreCurrentAttemptBinding {
                 plan_id: target.plan_id.into(),
@@ -147,7 +153,6 @@ pub(crate) fn restore_attempt_binding_for_caller(
             now_ms,
         )
         .map_err(|_| refusal())?;
-    drop(mux);
     match result {
         RestoreCurrentAttemptBindingResult::Restored(receipt) => {
             Ok(AttemptBindingRestoreResult::Restored(receipt))

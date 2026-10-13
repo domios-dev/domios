@@ -96,7 +96,7 @@ impl PlanStore {
                 || attempt.interruption.interrupted_at.is_some()
                 || attempt.interruption.reason.is_some()
                 || attempt.interruption.checkpoint_digest.is_some()
-                || attempt.continuation != Default::default()
+                || !continuation_allows_binding_restore(task, attempt)
                 || attempt.competition_group_id.is_some()
                 || attempt.competition_lane.is_some()
                 || attempt.mesh_peer.is_some()
@@ -131,6 +131,29 @@ impl PlanStore {
         })
         .map(|result| result.unwrap_or(RestoreCurrentAttemptBindingResult::AlreadyCurrent))
     }
+}
+
+fn continuation_allows_binding_restore(
+    task: &crate::plan::Task,
+    attempt: &crate::plan::TaskExecutionAttempt,
+) -> bool {
+    let mut idle = attempt.continuation.clone();
+    idle.epoch = 0;
+    idle == Default::default()
+        && (attempt.continuation.epoch == 0
+            || (task.status == TaskStatus::InReview
+                && task.review_round > 0
+                && attempt.continuation.epoch >= 2
+                && attempt
+                    .report
+                    .as_ref()
+                    .is_some_and(|report| report.status.as_deref() == Some("in_review"))
+                && task.review_evidence.iter().any(|evidence| {
+                    evidence.verdict == crate::plan::ReviewVerdict::Bounce
+                        && attempt
+                            .reported_at
+                            .is_some_and(|reported_at| evidence.at < reported_at)
+                })))
 }
 
 fn valid_receipt(request: &RestoreCurrentAttemptBinding, now_ms: u64) -> bool {

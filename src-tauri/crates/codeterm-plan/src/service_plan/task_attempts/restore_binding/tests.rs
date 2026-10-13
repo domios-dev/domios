@@ -729,3 +729,113 @@ fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
     let reloaded = PlanStore::open(database_path).unwrap();
     assert_eq!(reloaded.show_task(&fixture.task_id).unwrap().task, before);
 }
+
+#[test]
+fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report() {
+    let mut fixture = fixture();
+    fixture
+        .store
+        .record_task_attempt_report(
+            &fixture.plan_id,
+            &fixture.task_id,
+            &crate::plan::AgentRef::from_tab(TAB_ID),
+            "durable report",
+            Some(codeterm_types::agent::ReportStatus::InReview),
+            7,
+        )
+        .unwrap();
+    fixture
+        .store
+        .with_plan(&fixture.plan_id, 7, |plan| {
+            plan.tasks[0].status = TaskStatus::InReview;
+            Ok(())
+        })
+        .unwrap();
+    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let database = fixture.store.database_path_for_test();
+    drop(fixture.store);
+    fixture.store = PlanStore::open(database).unwrap();
+    assert_eq!(
+        fixture.store.show_task(&fixture.task_id).unwrap().task,
+        before
+    );
+    let restore = request(&fixture, 8);
+    fixture
+        .store
+        .restore_current_attempt_binding(restore, 8)
+        .unwrap();
+    let bounce = fixture
+        .store
+        .bounce_review(
+            &fixture.plan_id,
+            &fixture.task_id,
+            "repair",
+            true,
+            true,
+            crate::plan::AgentRef::from_tab("owner"),
+            9,
+        )
+        .unwrap();
+    let continuation = bounce.continuation.unwrap();
+    assert_eq!(continuation.attempt_id, fixture.attempt_id);
+    fixture
+        .store
+        .claim_review_continuation_delivery(
+            &fixture.plan_id,
+            &fixture.task_id,
+            &fixture.attempt_id,
+            continuation.epoch,
+            10,
+        )
+        .unwrap();
+    fixture
+        .store
+        .finish_review_continuation(
+            &fixture.plan_id,
+            &fixture.task_id,
+            &fixture.attempt_id,
+            continuation.epoch,
+            true,
+            11,
+        )
+        .unwrap();
+    let ack = fixture
+        .store
+        .acknowledge_live_task_attempt_for_tab(TAB_ID, None, None, 12)
+        .unwrap();
+    assert!(ack.already_acknowledged);
+    assert_eq!(ack.attempt.id, fixture.attempt_id);
+    assert_eq!(ack.attempt.report, before.execution_attempts[0].report);
+    assert_eq!(
+        fixture
+            .store
+            .current_plan_skill_attempt(TAB_ID, SESSION_ID, CURRENT_NONCE)
+            .unwrap(),
+        Some((
+            fixture.plan_id.clone(),
+            fixture.task_id.clone(),
+            fixture.attempt_id.clone()
+        ))
+    );
+    fixture
+        .store
+        .announce_current_plan_skill_manifest(
+            &fixture.plan_id,
+            &fixture.task_id,
+            &fixture.attempt_id,
+            TAB_ID,
+            SESSION_ID,
+            CURRENT_NONCE,
+            12,
+        )
+        .unwrap();
+    let after = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    assert_eq!(after.status, TaskStatus::InProgress);
+    assert_eq!(after.execution_attempts.len(), 1);
+    assert!(after.execution_attempts[0].closed_at.is_none());
+    assert!(after.execution_attempts[0].retired_at.is_none());
+    assert!(fixture
+        .store
+        .current_plan_skill_attempt(TAB_ID, SESSION_ID, OLD_NONCE)
+        .is_err());
+}
