@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../../lib/bridge";
-import { BusyState } from "../shared/BusyState";
+import { PluginUiHost } from "./PluginUiHost";
+import type { PluginUiHostState } from "../../lib/pluginUiHostModel";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import { GearIcon } from "../Icons";
@@ -47,18 +48,24 @@ export function GlancePopover({
 }) {
   const [view, setView] = useState<GlanceView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(
     async (action?: string) => {
+      const ownGeneration = ++generation.current;
+      setView(null);
+      setError(null);
       try {
         const snapshot = await ensurePluginSnapshot();
         const v = pluginHasGlance(snapshot.plugins, pluginId)
           ? await invoke<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} })
           : null;
+        if (generation.current !== ownGeneration) return;
         setView(buildGlanceView(v, configHelp));
         setError(null);
       } catch (e) {
+        if (generation.current !== ownGeneration) return;
         setError(String(e));
       }
     },
@@ -67,6 +74,7 @@ export function GlancePopover({
 
   useEffect(() => {
     void load();
+    return () => { generation.current++; };
   }, [load]);
 
   // Dismiss on outside click + Escape.
@@ -127,6 +135,11 @@ export function GlancePopover({
     [pluginId, displayName, configHelp, load, onOpenSettings, onClose, ctx],
   );
 
+  const hostState: PluginUiHostState = error ? { status: "error", reason: error }
+    : !view ? { status: "loading" }
+    : view.nodes.length ? { status: "ready" }
+    : { status: "empty", reason: "This plugin has no status to show." };
+
   return createPortal(
     <div
       ref={menuRef}
@@ -157,15 +170,9 @@ export function GlancePopover({
           <GearIcon size={14} />
         </button>
       </div>
-      {error ? (
-        <div role="alert" style={{ fontSize: 12, color: "var(--ct-err)" }}>{error}</div>
-      ) : view?.nodes.length === 0 ? (
-        <div role="status" aria-busy={false} style={{ fontSize: 12, color: "var(--ct-muted)" }}>No status available</div>
-      ) : view ? (
-        <GlanceBody view={view} onAction={onAction} />
-      ) : (
-        <BusyState labelKey="settingsPending" inline style={{ fontSize: 12 }} />
-      )}
+      <PluginUiHost pluginId={pluginId} state={hostState} onRetry={() => void load()} height={240}>
+        {view && <GlanceBody view={view} onAction={onAction} />}
+      </PluginUiHost>
       {footer}
     </div>,
     document.body,

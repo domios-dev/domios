@@ -9,6 +9,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { type DaemonApiConfig } from "../../lib/webApi";
+import { PluginUiHost } from "./PluginUiHost";
+import { pluginUiDocumentState, pluginUiHostTransition, pluginUiRuntimeEvent, type PluginUiHostState } from "../../lib/pluginUiHostModel";
 import { usePluginDocument } from "./usePluginDocument";
 import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
@@ -56,8 +58,7 @@ export function PluginView({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
-  // bridge's __ctResize). Fullscreen views fill their container instead.
-  const [contentHeight, setContentHeight] = useState<number | null>(null);
+  const [runtime, setRuntime] = useState<{ path: string; state: PluginUiHostState } | null>(null);
 
   // A hot-reloaded plugin ships a new bundle, but the iframe keeps the one it
   // already loaded until its src changes, so the reload has to bust it.
@@ -82,21 +83,23 @@ export function PluginView({
   }, [pluginId]);
 
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
-  const { html, error: documentError } = usePluginDocument(`${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`);
+  const documentPath = `${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`;
+  const { html, error: documentError } = usePluginDocument(documentPath);
+  const state = pluginUiDocumentState(html, documentError, runtime?.path === documentPath ? runtime.state : { status: "loading" });
 
   const onMessage = useCallback(
     async (e: MessageEvent) => {
       const win = iframeRef.current?.contentWindow;
       if (!win || e.source !== win) return; // only our iframe
       const m = e.data || {};
+      const event = pluginUiRuntimeEvent(m.__ctUiState);
+      if (event) {
+        setRuntime((current) => ({ path: documentPath, state: pluginUiHostTransition(current?.path === documentPath ? current.state : { status: "loading" }, event) }));
+        return;
+      }
       if (m.__ctReady) {
         win.postMessage({ __ctTheme: themeCss() }, "*");
         win.postMessage({ __ctActive: activeRef.current }, "*");
-        return;
-      }
-      if (typeof m.__ctResize === "number" && embedded) {
-        // Clamp so a misbehaving plugin can't collapse to nothing or run away.
-        setContentHeight(Math.min(720, Math.max(72, Math.ceil(m.__ctResize))));
         return;
       }
       if (m.__ctClose) {
@@ -120,7 +123,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose, embedded],
+    [pluginId, cwd, onClose, documentPath],
   );
 
   useEffect(() => {
@@ -148,8 +151,8 @@ export function PluginView({
 
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage({ __ctActive: active }, "*");
-    if (active && focusOnActive && !embedded) iframeRef.current?.focus();
-  }, [active, focusOnActive, embedded]);
+    if (active && focusOnActive && !embedded && state.status === "ready") iframeRef.current?.focus();
+  }, [active, focusOnActive, embedded, state.status]);
 
   // Universal escape (host-side focus); in-iframe Esc/close routes via __ctClose.
   useEffect(() => {
@@ -161,16 +164,19 @@ export function PluginView({
     return () => window.removeEventListener("keydown", onKey);
   }, [active, embedded, onClose]);
 
-  const frame = documentError ? <div role="alert">{documentError}</div> : (
-    <iframe
-      ref={iframeRef}
-      data-testid="extensions-plugin-iframe"
-      data-plugin-id={pluginId}
-      srcDoc={html}
-      title={`${pluginId} view`}
-      sandbox="allow-scripts"
-      style={{ flex: 1, width: "100%", border: "none", background: "var(--ct-bg)", display: "block" }}
-    />
+  const frame = (
+    <PluginUiHost pluginId={pluginId} state={state} onRetry={() => setReloadNonce((n) => n + 1)}>
+      {html !== undefined && html.trim() && <iframe
+        key={documentPath}
+        ref={iframeRef}
+        data-testid="extensions-plugin-iframe"
+        data-plugin-id={pluginId}
+        srcDoc={html}
+        title={`${pluginId} view`}
+        sandbox="allow-scripts"
+        style={{ flex: 1, width: "100%", border: "none", background: "var(--ct-bg)", display: "block", height: "100%" }}
+      />}
+    </PluginUiHost>
   );
 
   if (embedded) {
@@ -180,13 +186,12 @@ export function PluginView({
         data-plugin-id={pluginId}
         style={{
           width: "100%",
-          height: contentHeight ?? 120,
+          height: 360,
           display: "flex",
           borderRadius: 8,
           overflow: "hidden",
           background: "var(--ct-bg)",
           border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.08))",
-          transition: "height 0.12s ease",
         }}
       >
         {frame}
