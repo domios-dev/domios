@@ -84,7 +84,14 @@ const CONFIG_BOUNDS: &[ConfigBound] = &[
     ),
     enumeration(
         "orchestration.digests.rules[].condition",
-        &["in_review_gt", "in_progress_pressure"],
+        &[
+            "in_review_gt",
+            "in_progress_pressure",
+            "jobs_gt",
+            "agent_tabs_gt",
+            "idle_utility_shells_gt",
+            "finished_lanes_gt",
+        ],
     ),
     integer("orchestration.reflect.every_gates", 0.0, 10000.0),
     integer("usage.freshness_secs", 1.0, 86400.0),
