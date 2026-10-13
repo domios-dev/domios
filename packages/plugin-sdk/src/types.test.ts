@@ -67,10 +67,6 @@ const openShellSession = backend.openSession({
   systemPrompt: "You are CodeTerm.",
   preset: "codeterm",
   model: "qwen",
-  restore: {
-    sessionId: "old-session",
-    messages: [{ id: "old-1", type: "assistant", content: "prior answer" }],
-  },
 });
 void openShellSession;
 
