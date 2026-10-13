@@ -108,6 +108,25 @@ fn chat_start_inner(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
+    if crate::service::agent_runtime::requested_for_tab(svc, &tab_id) {
+        let (session, messages) = crate::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
+        let context = session.context.lock().clone();
+        let total = messages.len();
+        let start = total.saturating_sub(200);
+        return Ok(ChatStartResult {
+            text: String::new(),
+            offset_kind: ChatOffsetKind::Items,
+            start_offset: start as u64,
+            offset: total as u64,
+            pending: false,
+            messages: Some(messages.into_iter().skip(start).collect()),
+            cursor: None,
+            source_session_id: context.thread_id,
+            session_binding_nonce: Some(context.binding_nonce),
+            subscription_id: Some(subscription_id),
+            source_missing: false,
+        });
+    }
     if crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
         return crate::service::codex_rpc::transcript::start(svc, &tab_id, subscription_id);
     }
@@ -514,6 +533,23 @@ pub fn chat_backfill_core(
     tab_id: String,
     before_offset: u64,
 ) -> Result<ChatBackfillResult, String> {
+    if crate::service::agent_runtime::requested_for_tab(svc, &tab_id) {
+        let (session, messages) = crate::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
+        let context = session.context.lock().clone();
+        let end = usize::try_from(before_offset)
+            .unwrap_or(usize::MAX)
+            .min(messages.len());
+        let start = end.saturating_sub(200);
+        return Ok(ChatBackfillResult {
+            text: String::new(),
+            offset_kind: ChatOffsetKind::Items,
+            start_offset: start as u64,
+            end_offset: end as u64,
+            messages: messages.into_iter().skip(start).take(end - start).collect(),
+            source_session_id: context.thread_id,
+            session_binding_nonce: Some(context.binding_nonce),
+        });
+    }
     if crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
         return crate::service::codex_rpc::transcript::backfill(svc, &tab_id, before_offset);
     }

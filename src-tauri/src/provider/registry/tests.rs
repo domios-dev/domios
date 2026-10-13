@@ -219,3 +219,46 @@ fn chat_backend_cli_status_requires_no_binary_or_installer() {
     assert_eq!(status.updater, None);
     assert!(registry.cli_status("missing", "linux").is_err());
 }
+
+#[test]
+fn runtime_capability_selects_chat_transport_and_retains_cli_controls() {
+    use crate::agent::provider::AgentProvider;
+    let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
+        "id":"runtime-fixture", "version":"1.0.0", "displayName":"Runtime fixture", "cliBinary":"fixture-cli",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":["serve"]},
+                "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
+        "permissions":{"subprocess":{"allow":["fixture-cli"]}}, "installer":{"macos":"install fixture-cli"}
+    }).to_string()).unwrap();
+    let vm = Arc::new(
+        codeterm_plugin::js_runtime::PluginVm::from_source(
+            "runtime-fixture",
+            "module.exports={}".into(),
+        )
+        .unwrap(),
+    );
+    let provider = codeterm_plugin::js_runtime::JsProvider::new(manifest, vm);
+    assert_eq!(
+        provider.describe().transport,
+        ProviderTransport::ChatBackend
+    );
+    assert!(provider.describe().agent_runtime.is_some());
+    let agents = Arc::new(AgentRegistry::new());
+    agents.register_provider(Box::new(provider));
+    let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
+    assert_eq!(
+        registry.transport_of("runtime-fixture"),
+        Some(ProviderTransport::ChatBackend)
+    );
+    assert!(registry.is_spawnable_chat_backend("runtime-fixture"));
+    assert_eq!(
+        registry.describe_all()[0].cli_binary.as_deref(),
+        Some("fixture-cli")
+    );
+    assert!(
+        registry
+            .cli_status("runtime-fixture", "macos")
+            .unwrap()
+            .required
+    );
+}

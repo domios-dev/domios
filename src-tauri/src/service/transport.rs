@@ -220,6 +220,13 @@ impl AgentTransport for ChatTransport {
         } else {
             ctx.config.clone()
         };
+        if let Some(obj) = config.as_object_mut() {
+            if let Some(effort) = ctx.reasoning_effort {
+                obj.entry("effort")
+                    .or_insert_with(|| serde_json::json!(effort));
+            }
+            obj.insert("fullAccess".into(), serde_json::json!(ctx.skip_permissions));
+        }
         if let (Some(model), Some(obj)) = (ctx.model, config.as_object_mut()) {
             obj.entry("model")
                 .or_insert_with(|| serde_json::Value::String(model.to_string()));
@@ -473,8 +480,10 @@ impl ServiceContext {
                 },
             ),
             || {
-                self.rollback_provisional_tab(&ws_id, &tab_id);
-                let _ = self.revoke_agent_pad(&tab_id);
+                if !super::agent_runtime::engine::requested(self, provider) {
+                    self.rollback_provisional_tab(&ws_id, &tab_id);
+                    let _ = self.revoke_agent_pad(&tab_id);
+                }
                 self.emit_state_changed();
             },
         )?;

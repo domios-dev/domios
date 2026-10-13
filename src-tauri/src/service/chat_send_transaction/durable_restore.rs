@@ -5,6 +5,22 @@ use crate::service::pending_delivery_payloads::user_sends::{
 };
 
 impl ChatSendLedger {
+    pub(crate) fn reserved_user_status(&self, reservation: &UserReservation) -> ChatSendStatus {
+        let state = self.state.lock();
+        ChatSendStatus {
+            send_id: reservation.send_id.clone(),
+            tab_id: reservation.authority.tab_id.clone(),
+            state: ChatSendState::Pending,
+            error: None,
+            ledger_id: state.ledger_id.clone(),
+            sequence: reservation.ledger_sequence,
+            retained_from: reservation.ledger_sequence,
+            correlation_id: reservation.client_token.clone(),
+            pending_reason: None,
+            system_send: None,
+        }
+    }
+
     pub(crate) fn admit_user(&self, record: &UserSendRecord) -> ChatSendStatus {
         Self::admit_user_locked(&mut self.state.lock(), record)
     }
