@@ -75,9 +75,6 @@ Plan skills — the plan's own know-how:
 
 pub const PLAN_SKILLS_WORKER_LINE: &str = "This plan has skills — procedures earlier agents proved out. Check before inventing: `codeterm plan skill list`. Learned something reusable yourself? `codeterm plan skill new <slug>` — future workers inherit it.";
 
-pub const PLAN_SKILLS_REGISTRY_LINE: &str =
-    "Plan skills ({n}): {slug1}, {slug2}, … — codeterm plan skill show <slug> | new | edit.";
-
 pub fn worker_suffix() -> String {
     format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
 }
