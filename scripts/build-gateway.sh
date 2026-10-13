@@ -153,43 +153,18 @@ ct_gateway_mutex_timeout() {
 }
 
 ct_gateway_mutex_acquire() {
-  local dir="$1" mutex="$1/state.lock" deadline stale_pid stale_start tombstone self_pid incomplete_seen=0
-  self_pid="${CT_GATEWAY_MUTEX_PID:-$$}"
-  deadline=$(( $(date +%s) + 30 ))
-  while ! mkdir "$mutex" 2>/dev/null; do
-    stale_pid="$(cat "$mutex/pid" 2>/dev/null || true)"
-    stale_start="$(cat "$mutex/start_token" 2>/dev/null || true)"
-    if [ -z "$stale_pid" ] || [ -z "$stale_start" ]; then
-      incomplete_seen=$((incomplete_seen + 1))
-      if [ "$incomplete_seen" -lt 20 ]; then
-        sleep 0.05
-        continue
-      fi
-    else
-      incomplete_seen=0
-    fi
-    if ! ct_gateway_identity_alive "$stale_pid" "$stale_start"; then
-      tombstone="$dir/state.lock.stale.$self_pid.$RANDOM"
-      if mv "$mutex" "$tombstone" 2>/dev/null; then
-        rm -rf "$tombstone"
-        continue
-      fi
-    fi
-    [ "$(date +%s)" -le "$deadline" ] || { ct_gateway_mutex_timeout; return $?; }
-    sleep 0.05
-  done
-  printf '%s\n' "$self_pid" > "$mutex/pid"
+  local dir="$1" self_pid="${CT_GATEWAY_MUTEX_PID:-$$}" rc=0 timeout=30000
   CT_GATEWAY_MUTEX_START="$(ct_gateway_process_start_token "$self_pid")"
-  [ -n "$CT_GATEWAY_MUTEX_START" ] || { rm -rf "$mutex"; return 2; }
-  printf '%s\n' "$CT_GATEWAY_MUTEX_START" > "$mutex/start_token"
+  [ -n "$CT_GATEWAY_MUTEX_START" ] || return 2
+  if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
+    timeout="${CT_GATEWAY_MUTEX_TIMEOUT_MS:-30000}"
+  fi
+  node "$(ct_repo_root)/scripts/build-gateway-mutex.mjs" acquire "$dir" "$self_pid" "$CT_GATEWAY_MUTEX_START" "$timeout" "${CT_BUILD_GATEWAY_SCOPE:-production}" || rc=$?
+  [ "$rc" -eq 0 ] || { ct_gateway_mutex_timeout; return $?; }
 }
 
 ct_gateway_mutex_release() {
-  local mutex="$1/state.lock" self_pid="${CT_GATEWAY_MUTEX_PID:-$$}"
-  if [ "$(cat "$mutex/pid" 2>/dev/null || true)" = "$self_pid" ] &&
-      [ "$(cat "$mutex/start_token" 2>/dev/null || true)" = "${CT_GATEWAY_MUTEX_START:-}" ]; then
-    rm -rf "$mutex"
-  fi
+  node "$(ct_repo_root)/scripts/build-gateway-mutex.mjs" release "$1" "${CT_GATEWAY_MUTEX_PID:-$$}" "${CT_GATEWAY_MUTEX_START:-}"
 }
 
 ct_gateway_status() {
