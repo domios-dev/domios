@@ -127,7 +127,8 @@
         "threadId": "thread-a",
         "settings": {
           "model": "fixture-model"
-        }
+        },
+        "instructions": "fixture-instructions"
       },
       "reply": {
         "kind": "success",
@@ -143,7 +144,8 @@
               "threadId": "thread-a",
               "settings": {
                 "model": "fixture-model"
-              }
+              },
+              "instructions": "fixture-instructions"
             }
           }
         },
