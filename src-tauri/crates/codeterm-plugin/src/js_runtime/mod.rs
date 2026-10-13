@@ -22,6 +22,7 @@ pub mod loader;
 pub mod manifest;
 mod model_providers;
 pub mod plugin_config;
+mod plugin_lifecycle;
 mod provider;
 mod provider_observation;
 pub(crate) mod toolcall_parse;

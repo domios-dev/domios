@@ -1,3 +1,4 @@
+import { invokePluginWithConsent } from "../../lib/pluginConsent";
 /**
  * Host for a plugin's iframe UI (the `view` capability). Renders the plugin's
  * `ui/index.html` in a sandboxed iframe (origin-null, CSP-locked) and relays the
@@ -7,7 +8,7 @@
  * forward each call to the host (which stamps the plugin id + checks permissions).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
+import { listen, type UnlistenFn } from "../../lib/bridge";
 import { type DaemonApiConfig } from "../../lib/webApi";
 import { PluginUiHost } from "./PluginUiHost";
 import { pluginUiDocumentState, pluginUiHostTransition, pluginUiRuntimeEvent, type PluginUiHostState } from "../../lib/pluginUiHostModel";
@@ -113,12 +114,14 @@ export function PluginView({
             cwd && m.args && typeof m.args === "object" && (m.args as { cwd?: unknown }).cwd == null
               ? { ...m.args, cwd }
               : m.args;
-          const result = await invoke("plugin_view_call", { pluginId, method: m.method, args });
+          const result = await invokePluginWithConsent("plugin_view_call", { pluginId, method: m.method, args }, () => iframeRef.current?.contentWindow === win);
+          if (iframeRef.current?.contentWindow !== win) return;
           // In-panel actions invalidate their bubble immediately.
           const usedCwd = (args as { cwd?: unknown } | undefined)?.cwd;
           if (typeof usedCwd === "string") invalidatePluginBubble(pluginId, usedCwd);
           win.postMessage({ __ctReply: m.__ctInvoke, result }, "*");
         } catch (err) {
+          if (iframeRef.current?.contentWindow !== win) return;
           win.postMessage({ __ctReply: m.__ctInvoke, error: String(err) }, "*");
         }
       }

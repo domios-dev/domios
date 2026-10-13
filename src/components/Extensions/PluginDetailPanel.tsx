@@ -1,3 +1,4 @@
+import { PluginPermissions } from "./PluginPermissions";
 import { PluginNetworkAccess } from "./PluginNetworkAccess";
 import {
   capabilityKeys,
@@ -50,6 +51,7 @@ export function PluginDetailPanel({
   // Keys off the transport-tagged descriptor, never a provider id.
   const descriptor = useAgentDescriptor(entry.id);
   const supportsPresets = descriptor?.behavior_config?.model === "presets_and_system_prompt";
+  const permissions = entry.installed ? <PluginPermissions pluginId={entry.id} permissions={entry.sensitivePermissions} /> : null;
   const networkConfig = config?.plugins?.[entry.id];
   const networkBaseUrl = networkConfig?.baseUrl ?? networkConfig?.serverUrl;
   const networkAccess = entry.installed && entry.networkRequested ? (
@@ -71,6 +73,7 @@ export function PluginDetailPanel({
           onUpdateFullConfig={(next) => void onUpdateFullConfig(next)}
           onProviderGone={onGone}
         />
+        {permissions}
         {networkAccess}
       </div>
     );
@@ -81,6 +84,7 @@ export function PluginDetailPanel({
     return (
       <div>
         <SecretBackendDetail entry={entry} config={config} onAction={onAction} actionBusy={busy} activity={activity} activityDisplayMap={activityDisplayMap} />
+        {permissions}
         {networkAccess}
       </div>
     );
@@ -191,6 +195,7 @@ export function PluginDetailPanel({
         </div>
       )}
 
+      {permissions}
       {networkAccess}
 
       {entry.installed && schema.length > 0 && config && (

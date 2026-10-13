@@ -1,3 +1,5 @@
+import { installConsentRequests } from "./pluginConsentModel";
+import { requestPluginConsent } from "./pluginConsentStore";
 import { useSyncExternalStore } from "react";
 import { invoke } from "./bridge";
 import type { PluginSnapshot } from "../components/Extensions/types";
@@ -137,7 +139,15 @@ export async function runPluginSnapshotAction(action: Record<string, unknown>): 
     hasLoaded: true,
     lastLoadedAt: Date.now(),
   });
-  return next;
+  if (["install", "update", "update-system"].includes(String(action.kind))) {
+    for (const plugin of next.plugins.filter((item) => !action.pluginId || item.id === action.pluginId)) {
+      for (const request of installConsentRequests(plugin)) {
+        const allowed = await requestPluginConsent(request);
+        await runPluginSnapshotAction({ kind: "permission", pluginId: plugin.id, permission: request.permission, allowed, permissionSource: "install" });
+      }
+    }
+  }
+  return snapshotState.snapshot;
 }
 
 export function invalidatePluginSnapshotStore() {

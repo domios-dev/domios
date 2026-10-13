@@ -2,6 +2,7 @@ mod action;
 mod cli;
 mod diff_cache;
 mod snapshot;
+mod permissions;
 mod view;
 
 pub(crate) use action::{run_action, PluginManagerAction};

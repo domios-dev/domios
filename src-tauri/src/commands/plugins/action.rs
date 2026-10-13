@@ -48,6 +48,11 @@ pub struct PluginManagerAction {
     pub channel: Option<String>,
     pub url: Option<String>,
     pub name: Option<String>,
+    pub permission: Option<String>,
+    #[serde(default)]
+    pub permission_source: codeterm_plugin::plugin_lifecycle::PermissionChangeSource,
+    #[serde(default)]
+    pub allowed: bool,
     #[serde(default)]
     pub allow_hosts: Vec<String>,
     #[serde(default)]
@@ -137,6 +142,21 @@ pub(crate) fn run_action(
     action: PluginManagerAction,
     svc: &ServiceContext,
 ) -> Result<Value, String> {
+    if action.kind == "permission" {
+        let output = super::permissions::permission_action(
+            action
+                .plugin_id
+                .as_deref()
+                .ok_or("permission requires pluginId")?,
+            action
+                .permission
+                .as_deref()
+                .ok_or("permission requires permission")?,
+            action.allowed,
+            action.permission_source,
+        )?;
+        return build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()));
+    }
     if action.kind == "remove-channel" {
         let channel = action
             .channel
@@ -497,6 +517,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -535,6 +558,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -554,6 +580,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: vec!["api.example.test".into()],
@@ -582,6 +611,9 @@ mod tests {
             channel: None,
             url: None,
             name: Some("demo".into()),
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -598,6 +630,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -640,6 +675,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -658,6 +696,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -674,6 +715,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -690,6 +734,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -709,6 +756,9 @@ mod tests {
             channel: None,
             url: Some("https://example.test/channel.json".into()),
             name: Some("demo".into()),
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -725,6 +775,9 @@ mod tests {
             channel: Some("demo".into()),
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),

@@ -23,6 +23,16 @@ at subscription setup and freezes an authenticated ready recipient at
 START, transcribes with the configured voice stage, and admits ordinary tracked
 voice through the existing permission/text pipeline and client token.
 
+Plugins may export synchronous `onPermissionChanged(event)` to observe an
+approved grant after it is persisted and applied. The event is
+`{ permission, allowed: true, source: "install" | "action" | "settings" }`.
+Install and update consent uses `source: "install"`; a plugin can initialize
+itself there. An action-time grant uses `source: "action"` and the original action
+still retries once, so the callback must not separately activate that action.
+The callback receives only its own allowed permission; Not now and revocation
+emit no approval event. This callback grants no additional host access and may
+return `{ error }` if initialization fails. A missing export is a no-op.
+
 An explicit closed recipient stays stale until the owner clears or replaces it.
 General resolves only at START when there is no explicit selection. Cancellation,
 device loss, grant revocation on reload, and unload invalidate subscription and

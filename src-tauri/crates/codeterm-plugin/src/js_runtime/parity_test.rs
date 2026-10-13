@@ -37,6 +37,8 @@ mod model_providers;
 mod model_switch;
 #[path = "parity_test/paste_capability.rs"]
 mod paste_capability;
+#[path = "parity_test/plugin_lifecycle.rs"]
+mod plugin_lifecycle;
 #[path = "parity_test/provider_compat.rs"]
 mod provider_compat;
 #[path = "parity_test/rotterdom.rs"]
