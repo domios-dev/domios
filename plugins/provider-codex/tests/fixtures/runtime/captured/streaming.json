@@ -29396,6 +29396,10 @@
     ],
     "events": [
       {
+        "kind": "auth",
+        "state": "signedIn"
+      },
+      {
         "kind": "turnState",
         "threadId": "01a135b9-7064-74a1-be0b-8185b6f9bfe8",
         "state": "working"
