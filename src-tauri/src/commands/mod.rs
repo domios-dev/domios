@@ -1,5 +1,4 @@
 mod agent;
-pub(crate) mod agent_runtime;
 mod clipboard;
 mod context_epochs;
 mod essence_map;
