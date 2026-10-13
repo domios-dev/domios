@@ -180,6 +180,7 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         super::capture::retire(&record.send_id);
         if let Some(status) = svc.chat_send_ledger.status(&record.send_id) {
             store.persist_runtime_status(&status)?;
+            super::envelope_delivery::record_write(svc, &status)?;
         }
     }
     Ok(UserDrain::Idle)

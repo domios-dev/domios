@@ -27,7 +27,18 @@ impl UserSendStore {
         text: &str,
         held: bool,
     ) -> Result<UserSendRecord, String> {
-        self.admit_with_question(reservation, text, text, None, None, held, None, true)
+        self.admit_with_question(
+            reservation,
+            text,
+            text,
+            None,
+            None,
+            held,
+            RuntimeAdmission {
+                capture_required: true,
+                ..Default::default()
+            },
+        )
     }
 }
 
