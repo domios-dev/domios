@@ -158,6 +158,10 @@ impl SpawnTabSpec {
         let TabCommand::Agent(agent) = &self.command else {
             return Err("Runtime routing requires agent launch metadata".into());
         };
+        super::spawn_capability::validate_runtime_launch_arguments(
+            &agent.provider,
+            &agent.extra_args,
+        )?;
         let agent = agent.clone();
         let mut config = chatbackend_spawn_config(
             params.system_prompt.as_deref(),
@@ -403,6 +407,12 @@ impl ServiceContext {
             agent_cmd,
             params,
         )?;
+        if super::agent_runtime::engine::requested(self, agent_cmd) {
+            super::spawn_capability::validate_runtime_launch_arguments(
+                agent_cmd,
+                params.args.as_deref().unwrap_or_default(),
+            )?;
+        }
         let watcher = params.role_profile.as_deref() == Some("watcher");
         match self.provider_registry.transport_of(agent_cmd) {
             Some(crate::agent::provider::ProviderTransport::ChatBackend) => {
