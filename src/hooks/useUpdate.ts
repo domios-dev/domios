@@ -101,7 +101,7 @@ interface UpdateContextValue {
   installing: boolean;
   setChannel: (next: UpdateChannel) => Promise<void>;
   refresh: (force?: boolean, opts?: { silent?: boolean }) => Promise<void>;
-  applyUpdate: () => Promise<InstallResponse | null>;
+  applyUpdate: (opts?: { failureSurface: "inline" | "toast" }) => Promise<InstallResponse | null>;
   dismissUpdateToast: () => void;
   error: string | null;
 }
@@ -248,17 +248,13 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [downloadTotalBytes, setDownloadTotalBytes] = useState<number | null>(null);
   const installingRef = useRef(false);
-  const toastOpenRef = useRef(false);
+  const userInstallRef = useRef(false);
   const activeInstallPhaseRef = useRef(false);
   const installCallReturnedRef = useRef(false);
 
   useEffect(() => {
     installingRef.current = installing;
   }, [installing]);
-
-  useEffect(() => {
-    toastOpenRef.current = toastOpen;
-  }, [toastOpen]);
 
   const handleInfo = useCallback((next: UpdateInfo) => {
     setInfo(next);
@@ -330,12 +326,10 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const shouldAdopt =
         opts?.adopt === true &&
         (next.phase === "downloading" || next.phase === "applying" || next.phase === "success");
-      const nextInstalling =
-        installingRef.current || shouldAdopt || (observation.activePhaseObserved && toastOpenRef.current);
+      const nextInstalling = installingRef.current || shouldAdopt;
 
       if (shouldAdopt) {
         installingRef.current = true;
-        toastOpenRef.current = true;
       }
 
       if (observation.keepVisible && installingRef.current) {
@@ -363,7 +357,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (shouldAdopt) {
         setInstalling(true);
-        setToastOpen(true);
       }
 
       if (next.phase === "error") {
@@ -374,7 +367,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         setError(message);
         setStatus("error");
         setInstalling(false);
-        setToastOpen(true);
+        setToastOpen(userInstallRef.current);
+        userInstallRef.current = false;
         return;
       }
 
@@ -389,7 +383,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "idle" && installingRef.current && observation.finished) {
         installingRef.current = false;
-        toastOpenRef.current = false;
+        userInstallRef.current = false;
         activeInstallPhaseRef.current = false;
         installCallReturnedRef.current = false;
         setInstalling(false);
@@ -411,32 +405,33 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     [applyRuntimeStatus],
   );
 
-  const applyUpdate = useCallback(async (): Promise<InstallResponse | null> => {
+  const applyUpdate = useCallback(async (opts?: { failureSurface: "inline" | "toast" }): Promise<InstallResponse | null> => {
     if (installingRef.current) return { status: "already_in_flight" };
     installingRef.current = true;
-    toastOpenRef.current = true;
+    userInstallRef.current = opts?.failureSurface !== "inline";
     activeInstallPhaseRef.current = false;
     installCallReturnedRef.current = false;
     setInstalling(true);
-    setToastOpen(true);
+    setToastOpen(false);
     setStatus("checking");
     setPhase("checking");
     setProgress((prev) => Math.max(prev, 8));
     setError(null);
     try {
       const response = normalizeInstallResponse(await installAppUpdate());
+      if (response.status === "already_in_flight") userInstallRef.current = false;
       if (response.status !== "already_in_flight") installCallReturnedRef.current = true;
       return response;
     } catch (e) {
       installingRef.current = false;
       activeInstallPhaseRef.current = false;
       installCallReturnedRef.current = true;
-      toastOpenRef.current = true;
+      setToastOpen(userInstallRef.current);
+      userInstallRef.current = false;
       setError(e instanceof Error ? e.message : String(e));
       setStatus("error");
       setPhase("error");
       setInstalling(false);
-      setToastOpen(true);
       return null;
     }
   }, []);
@@ -470,7 +465,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         setStatus("error");
         setPhase("error");
         setInstalling(false);
-        setToastOpen(true);
+        setToastOpen(userInstallRef.current);
+        userInstallRef.current = false;
       }
     };
 
