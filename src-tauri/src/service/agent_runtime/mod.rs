@@ -1,4 +1,5 @@
 pub(crate) mod authority;
+pub(crate) mod blocking;
 mod bootstrap;
 pub(crate) mod capture;
 mod completions;
@@ -17,6 +18,7 @@ pub(crate) mod projections;
 pub(crate) mod prompt_answers;
 mod question_delivery;
 pub mod questions;
+pub(crate) mod restore;
 mod rpc;
 mod subscriber;
 pub mod transport;

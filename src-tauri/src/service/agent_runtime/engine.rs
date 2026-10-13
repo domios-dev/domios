@@ -55,6 +55,7 @@ pub fn stop(tab: &str) {
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
+    super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
     let (provider, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
