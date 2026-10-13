@@ -645,6 +645,9 @@ fn mem_worker_report(
     crate::mem::dream_runs::record_reported_finalization(svc, &id, &reported);
     let info = svc.workers.complete(&id, summary).map_err(not_found)?;
     crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-reported", &info);
+    if svc.run_watcher.runtime_worker_reported(&info.tab_id, &id) {
+        return Ok(serde_json::json!({ "ok": true, "info": info }));
+    }
     let svc_close = svc.clone();
     let tab_id = info.tab_id.clone();
     tauri::async_runtime::spawn(async move {

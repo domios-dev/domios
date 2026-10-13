@@ -171,6 +171,9 @@ impl From<AgentRestartError> for ModelSwitchError {
             AgentRestartError::RateLimited { retry_after_secs } => {
                 Self::RateLimited { retry_after_secs }
             }
+            AgentRestartError::RuntimeProviderHandoffUnsupported => Self::NotSwitchable(
+                "provider handoff into or out of an agent runtime is unsupported".to_string(),
+            ),
         }
     }
 }

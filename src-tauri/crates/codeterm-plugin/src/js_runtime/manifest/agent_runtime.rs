@@ -129,6 +129,25 @@ impl AgentRuntimeCapability {
         {
             return Err(RuntimeManifestError::InvalidEnvironmentExclusion);
         }
+        if let Some(login) = &self.login {
+            if login.methods.is_empty()
+                || login.methods.len() > 3
+                || login
+                    .methods
+                    .iter()
+                    .enumerate()
+                    .any(|(index, method)| login.methods[..index].contains(method))
+                || login.terminal_command.as_ref().is_some_and(|terminal| {
+                    terminal.len() > 4096
+                        || terminal.split_whitespace().next() != Some(command.binary.as_str())
+                        || !terminal
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || b" -_./\\:".contains(&byte))
+                })
+            {
+                return Err(RuntimeManifestError::InvalidCommand);
+            }
+        }
         let kinds = [
             "initialize",
             "openThread",

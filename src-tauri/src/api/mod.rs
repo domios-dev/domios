@@ -8,6 +8,7 @@ pub mod blueprint_portable_routes;
 mod cors_diagnostics;
 pub mod events;
 pub mod routes;
+mod runtime_login;
 
 pub mod agent_done_routes;
 pub mod agent_fork_routes;

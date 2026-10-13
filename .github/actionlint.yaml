@@ -6,3 +6,5 @@ self-hosted-runner:
     - rust-shard
     - codeterm-builder
     - linux-build
+    - windows-build
+    - windows-x64-build

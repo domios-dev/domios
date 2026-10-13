@@ -52,16 +52,7 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
         tab.reported_session_binding_nonce = Some("owner-nonce".into());
     }
     let fixture = ServiceFixture::new(mux);
-    let storage = crate::storage::Storage::open(
-        &fixture.temp.path().join("runtime-desk"),
-        crate::storage::StorageConfig::default(),
-    )
-    .unwrap();
-    crate::service::session_persist::install_storage_desk_adapter(
-        fixture._app.handle(),
-        crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
-    )
-    .unwrap();
+    let storage = fixture.install_seeded_storage_desk();
     let methods = [
         "initialize",
         "openThread",
@@ -75,6 +66,7 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
     let manifest = PluginManifest::from_json_str(&json!({
         "id": PROVIDER, "version":"1.0.0", "displayName":"Fixture",
         "capabilities":{"agentProvider":true,
+            "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc",
                 "command":{"binary":"node","args":[format!("{}/../tests/fixtures/agent-runtime/fake-peer.mjs",env!("CARGO_MANIFEST_DIR"))]},
                 "requestMethods":methods,"notificationMethods":[]}},

@@ -604,6 +604,10 @@ pub(super) fn create_router_with_preview_admission(
             get(web_routes::peer_cron_history),
         )
         .route(
+            "/api/tabs/{id}/agent/runtime/login",
+            post(super::runtime_login::login),
+        )
+        .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),
         )

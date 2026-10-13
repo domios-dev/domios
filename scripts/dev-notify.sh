@@ -22,6 +22,10 @@ dev_notify_capture_parent() {
 
 dev_notify_send() {
   local tab_id="$1" body_file="$2" name
+  if [ -n "${REPORT_NOTIFY_FUNCTION:-}" ]; then
+    "$REPORT_NOTIFY_FUNCTION" "$tab_id" "$body_file"
+    return $?
+  fi
   if [ -z "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
     echo "ERROR: parent codeterm CLI was not available when notifications were captured" >&2
     return 127
@@ -61,6 +65,11 @@ dev_notify_write_failed() {
   else
     printf 'FAILED stage=%s instance=%s api_port=%s\n' "$stage" "$instance" "$api_port" > "$body_file"
   fi
+  case "$rc" in
+    75) printf 'Reason: gateway refused (exit 75)\n' >> "$body_file" ;;
+    124) printf 'Reason: timeout cap (exit 124)\n' >> "$body_file" ;;
+  esac
+  printf 'Log: %s\n' "$log_file" >> "$body_file"
   if [ -f "$log_file" ]; then tail -n 25 "$log_file" >> "$body_file" 2>/dev/null || true; fi
 }
 
@@ -184,6 +193,7 @@ dev_notify_wait_stream() {
         break
         ;;
     esac
+    if dev_notify_is_sent "$DEV_NOTIFY_SENT_MARKER"; then break; fi
     if type dev_notify_health_proof >/dev/null 2>&1 && dev_notify_health_proof "$tab_id"; then
       result=0
       break
@@ -210,7 +220,7 @@ dev_notify_exit_report() {
     fi
     DEV_NOTIFY_WAITER_PID=
   fi
-  if [ -n "${DEV_NOTIFY_SENT_MARKER:-}" ]; then rm -rf "$DEV_NOTIFY_SENT_MARKER"; fi
+  if [ -n "${DEV_NOTIFY_SENT_MARKER:-}" ] && [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ]; then rm -rf "$DEV_NOTIFY_SENT_MARKER"; fi
 }
 
 dev_notify_stop_stream_waiter() {
@@ -218,4 +228,77 @@ dev_notify_stop_stream_waiter() {
   [ -n "$pid" ] || return 0
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
+}
+
+report_failure_line() {
+  local line="$1"
+  line="$(printf '%s' "$line" | sed $'s/\\033\\[[0-9;]*[mK]//g')"
+  [[ "$line" =~ error\[E[0-9]+\] ]] ||
+    [[ "$line" == *"error: could not compile"* ]] ||
+    [[ "$line" =~ (^|[[:space:]])FAIL[[:space:]] ]] ||
+    [[ "$line" =~ ^[[:space:]]*not[[:space:]]ok[[:space:]] ]] ||
+    [[ "$line" =~ (Tests|Test[[:space:]]Files)[[:space:]].*[1-9][0-9]*[[:space:]]failed ]]
+}
+
+report_alert_once() {
+  local marker="$1" tab="$2" label="$3" step="$4" line="$5" log="$6" body
+  [ -n "$tab" ] || return 0
+  [ ! -d "$marker" ] || return 0
+  body="$(dev_notify_new_body_file)" || return 1
+  printf 'EARLY FAILURE label=%s step=%s\nFirst failure: %s\nLog: %s\n' "$label" "$step" "$line" "$log" > "$body"
+  dev_notify_send_once "$marker" "$tab" "$body"
+}
+
+report_read_stream() {
+  local marker="$1" tab="$2" label="$3" step="$4" log="$5" line
+  local health="${6:-}" deadline=$((SECONDS + 600)) remaining status
+  while :; do
+    line=
+    status=0
+    if [ "$health" = dev ] && ! dev_notify_is_sent "$marker"; then
+      remaining=$((deadline - SECONDS))
+      if [ "$remaining" -gt 0 ]; then
+        IFS= read -r -t "$remaining" line || status=$?
+      else
+        status=124
+      fi
+      if [ "$status" -ne 0 ] && [ "$SECONDS" -ge "$deadline" ]; then
+        report_alert_once "$marker" "$tab" "$label" "$step" "timeout cap (exit 124)" "$log" || true
+        health=
+        continue
+      fi
+    else
+      IFS= read -r line || status=$?
+    fi
+    if [ "$status" -ne 0 ] && [ -z "$line" ]; then break; fi
+    printf '%s\n' "$line"
+    if report_failure_line "$line"; then
+      report_alert_once "$marker" "$tab" "$label" "$step" "$line" "$log" || true
+    fi
+    if [ "$health" = dev ] && ! dev_notify_is_sent "$marker"; then
+      dev_notify_health_proof "$tab" || true
+    fi
+  done
+}
+
+report_run_stream() {
+  local marker="$1" tab="$2" label="$3" step="$4" log="$5" rc reason
+  local statuses
+  shift 5
+  if "$@" 2>&1 | tee -a "$log" | report_read_stream "$marker" "$tab" "$label" "$step" "$log"; then
+    statuses=("${PIPESTATUS[@]}")
+  else
+    statuses=("${PIPESTATUS[@]}")
+  fi
+  rc="${statuses[0]}"
+  if [ "$rc" -eq 0 ]; then rc="${statuses[1]}"; fi
+  if [ "$rc" -eq 0 ]; then rc="${statuses[2]}"; fi
+  case "$rc" in
+    0) return 0 ;;
+    75) reason="gateway refused (exit 75)" ;;
+    124) reason="timeout cap (exit 124)" ;;
+    *) reason="step exited non-zero (exit $rc)" ;;
+  esac
+  report_alert_once "$marker" "$tab" "$label" "$step" "$reason" "$log" || true
+  return "$rc"
 }

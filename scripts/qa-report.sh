@@ -91,7 +91,7 @@ while [ "$#" -gt 0 ]; do
   shift
   QA_COMMAND_LOG="$QA_RUN_DIR/command-$QA_INDEX.log"
   printf '===== [%s/%s] %s =====\n' "$QA_INDEX" "$QA_TOTAL" "$QA_COMMAND" >> "$QA_FULL_LOG"
-  if bash -o pipefail -c "$QA_COMMAND" > "$QA_COMMAND_LOG" 2>&1; then
+  if report_run_stream "$QA_RUN_DIR/.early-$QA_INDEX" "${QA_NOTIFY_TAB:-}" "$QA_LABEL" "[$QA_INDEX/$QA_TOTAL] $QA_COMMAND" "$QA_COMMAND_LOG" bash -o pipefail -c "$QA_COMMAND"; then
     QA_RC=0
   else
     QA_RC=$?

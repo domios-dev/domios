@@ -234,20 +234,6 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
     Ok(())
 }
 
-/// Resolve effective per-provider config for the given agent id.
-///
-/// Lookup order:
-///   1. Explicit `[agents.<id>]` section in config.
-///   2. Fallback to the global `[agent]` resume setting.
-///   3. Built-in defaults from `ProviderConfig::default()`.
-///
-/// This is the single read path for provider-scoped settings — call sites
-/// that previously read `cfg.agent.resume_sessions` should call this with
-/// the actual provider id of the tab.
-pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
-    provider_config_from(&load_config(), provider_id)
-}
-
 pub(crate) fn provider_config_from(
     config: &schema::AppConfig,
     provider_id: &str,
@@ -258,18 +244,6 @@ pub(crate) fn provider_config_from(
         out.resume_sessions = Some(config.agent.resume_sessions);
     }
     out
-}
-
-pub fn resume_sessions_enabled(provider_id: &str) -> bool {
-    provider_config(provider_id).resume_sessions.unwrap_or(true)
-}
-
-/// Whether the usage tracker should probe this provider's `/usage` endpoint.
-/// Master switch: `[usage].enabled`. Per-provider override via
-/// `agents.<id>.usage_tracking_enabled`; when unset, usage-capable providers
-/// default to on.
-pub fn usage_tracking_enabled(provider_id: &str) -> bool {
-    usage_tracking_enabled_from(&load_config(), provider_id)
 }
 
 pub(crate) fn usage_tracking_enabled_from(cfg: &schema::AppConfig, provider_id: &str) -> bool {

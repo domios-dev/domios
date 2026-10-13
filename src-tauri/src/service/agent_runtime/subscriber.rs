@@ -192,6 +192,8 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 .or_else(|| ended.borrow().clone())
                 .unwrap_or(RuntimeFailure::PipeEof);
             let expired = session.context.lock().clone();
+            super::login::forget(&session);
+            session.login.lock().login = None;
             super::prompt_answers::clear(&svc, &expired);
             session.prompts.lock().clear();
             if unload_retaining_degradation(&mut session.state.lock(), epoch, &reason) {
@@ -218,6 +220,15 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 engine::publish(&svc, &context.tab_id, &session);
                 svc.emit_state_changed();
             }
+            let owner = svc.clone();
+            let ending = expired;
+            let detail = format!("runtime process ended: {reason}");
+            let _ = tokio::task::spawn_blocking(move || {
+                owner
+                    .run_watcher
+                    .runtime_process_exited(&owner, &ending, detail);
+            })
+            .await;
             process.stop();
         }
     });
@@ -277,6 +288,8 @@ pub(super) async fn publish_events(
         .collect::<Vec<_>>();
     validate_host_runtime_events(&context, &enriched)
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+    let mut run_completed = false;
+    let mut run_chat_item = false;
     for event in enriched {
         if matches!(&event.event, AgentRuntimeEvent::SendEvidence { send_id, .. } if !evidence.contains(send_id))
         {
@@ -320,7 +333,28 @@ pub(super) async fn publish_events(
             AgentRuntimeEvent::SendEvidence { send_id, .. } => Some(send_id.clone()),
             _ => None,
         };
+        let completed_turn = match &event.event {
+            AgentRuntimeEvent::TurnState {
+                thread_id,
+                turn_id: Some(turn),
+                state: RuntimeTurnState::Idle,
+                ..
+            } if Some(thread_id) == context.thread_id.as_ref()
+                && super::model::accepts_turn_transition(
+                    session.context.lock().active_turn_id.as_deref(),
+                    Some(turn),
+                    &RuntimeTurnState::Idle,
+                ) =>
+            {
+                Some((thread_id.clone(), turn.clone()))
+            }
+            _ => None,
+        };
+        let chat_item = matches!(&event.event, AgentRuntimeEvent::ChatItem { .. });
         apply(svc, session, epoch, event);
+        run_completed |= completed_turn
+            .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));
+        run_chat_item |= chat_item;
         if let Some(status) = send_id.and_then(|id| svc.chat_send_ledger.status(&id)) {
             let owner = svc.clone();
             tokio::task::spawn_blocking(move || {
@@ -334,6 +368,18 @@ pub(super) async fn publish_events(
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::HookFailed)?;
         }
+    }
+    if (run_completed || run_chat_item) && svc.run_watcher.has_runtime_run(&context.tab_id) {
+        let owner = svc.clone();
+        let binding = session.context.lock().clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if run_completed {
+                owner.run_watcher.runtime_turn_completed(&owner, &binding);
+            } else {
+                owner.run_watcher.check_runtime_completion(&owner, &binding);
+            }
+        })
+        .await;
     }
     Ok(())
 }
@@ -352,6 +398,7 @@ fn apply(
     }
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
     match event {
+        AgentRuntimeEvent::AuthLogin { login } => super::login::apply(svc, session, epoch, login),
         AgentRuntimeEvent::Auth { state, detail } => {
             let previous = std::mem::replace(&mut *session.auth.lock(), state.clone());
             if matches!(state, RuntimeAuthState::SignedIn)
