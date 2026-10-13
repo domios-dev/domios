@@ -468,6 +468,13 @@ pub(crate) fn init_states() -> AppStates {
         }
     }
 
+    for workspace in mux_state_inner.list_workspaces() {
+        let missing =
+            crate::service::spawn_cwd::validate_spawn_cwd(workspace.cwd.as_deref()).is_err();
+        if let Some(ws) = mux_state_inner.get_workspace_mut(&workspace.id) {
+            ws.cwd_missing = missing;
+        }
+    }
     let mux_state: MuxState = Arc::new(TimedRwLock::new("mux", mux_state_inner));
 
     AppStates {

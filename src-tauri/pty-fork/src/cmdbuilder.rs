@@ -548,7 +548,6 @@ impl CommandBuilder {
             .cwd
             .as_ref()
             .map(|dir| dir.as_os_str())
-            .filter(|dir| std::path::Path::new(dir).is_dir())
             .unwrap_or(home.as_ref());
         let shell = self.get_shell();
 
@@ -651,7 +650,7 @@ impl CommandBuilder {
         let home: Option<&OsStr> = self
             .get_env("USERPROFILE")
             .filter(|path| Path::new(path).is_dir());
-        let cwd: Option<&OsStr> = self.cwd.as_deref().filter(|path| Path::new(path).is_dir());
+        let cwd: Option<&OsStr> = self.cwd.as_deref();
         let dir: Option<&OsStr> = cwd.or(home);
 
         dir.map(|dir| {
@@ -806,6 +805,27 @@ mod tests {
         assert!(is_cwd_relative_path("../foo"));
         assert!(!is_cwd_relative_path("foo"));
         assert!(!is_cwd_relative_path("/foo"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn invalid_explicit_cwd_is_preserved_for_os_refusal() {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.cwd("/codeterm-test-missing-cwd-9a891");
+        let mut process = cmd.as_command().unwrap();
+        assert!(process.spawn().is_err());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn invalid_explicit_cwd_is_preserved_for_os_refusal() {
+        use std::os::windows::ffi::OsStrExt;
+        let path = OsStr::new(r"Z:\codeterm-test-missing-cwd-9a891");
+        let mut cmd = CommandBuilder::new("cmd.exe");
+        cmd.cwd(path);
+        let mut expected: Vec<u16> = path.encode_wide().collect();
+        expected.push(0);
+        assert_eq!(cmd.current_directory(), Some(expected));
     }
 
     #[test]
