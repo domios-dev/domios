@@ -60,11 +60,14 @@ async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
     .unwrap();
     let result = process
         .client
-        .request(&RpcCall {
-            target: None,
-            method: "fixture/environment".into(),
-            params: serde_json::json!({"keys":env.keys().collect::<Vec<_>>()}),
-        })
+        .request_guarded(
+            &RpcCall {
+                target: None,
+                method: "fixture/environment".into(),
+                params: serde_json::json!({"keys":env.keys().collect::<Vec<_>>()}),
+            },
+            None,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -84,11 +87,14 @@ async fn child_exit_reports_status_and_stderr_and_pipe_drop_is_not_success() {
     .unwrap();
     let _ = process
         .client
-        .request(&RpcCall {
-            target: None,
-            method: "fixture/exit".into(),
-            params: serde_json::json!({"code":23}),
-        })
+        .request_guarded(
+            &RpcCall {
+                target: None,
+                method: "fixture/exit".into(),
+                params: serde_json::json!({"code":23}),
+            },
+            None,
+        )
         .await;
     let mut ended = process.ended.clone();
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -112,11 +118,14 @@ async fn child_exit_reports_status_and_stderr_and_pipe_drop_is_not_success() {
     assert_eq!(
         process
             .client
-            .request(&RpcCall {
-                target: None,
-                method: "fixture/drop".into(),
-                params: serde_json::json!({})
-            })
+            .request_guarded(
+                &RpcCall {
+                    target: None,
+                    method: "fixture/drop".into(),
+                    params: serde_json::json!({})
+                },
+                None
+            )
             .await,
         Err(RuntimeFailure::PipeEof)
     );

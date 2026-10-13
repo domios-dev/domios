@@ -41,12 +41,10 @@ pub fn send(
     }
     let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
         .map_err(|error| before_write(tab, error))?;
-    let _permit = tauri::async_runtime::block_on(tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        session.gate.acquire(),
-    ))
-    .map_err(|_| before_write(tab, RuntimeFailure::Deadline))?
-    .map_err(|_| before_write(tab, RuntimeFailure::Superseded))?;
+    let _permit =
+        super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
+            .map_err(|_| before_write(tab, RuntimeFailure::Deadline))?
+            .map_err(|_| before_write(tab, RuntimeFailure::Superseded))?;
     let context = session.context.lock().clone();
     if context.binding_nonce != expected {
         return Err(before_write(tab, RuntimeFailure::Superseded));
@@ -89,6 +87,12 @@ pub(crate) async fn submit_loaded(
 ) -> Result<(), DeliveryError> {
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
+    if session.compaction.lock().held(context.epoch) {
+        return Err(before_write(
+            tab,
+            RuntimeFailure::Refused("Context restoration pending or failed; sends held".into()),
+        ));
+    }
     let thread = context
         .thread_id
         .clone()
@@ -217,12 +221,10 @@ pub fn control(
 ) -> Result<RuntimeResult, String> {
     let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
         .map_err(|error| error.to_string())?;
-    let _permit = tauri::async_runtime::block_on(tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        session.gate.acquire(),
-    ))
-    .map_err(|_| "Runtime permit deadline")?
-    .map_err(|_| "Runtime stopped")?;
+    let _permit =
+        super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
+            .map_err(|_| "Runtime permit deadline")?
+            .map_err(|_| "Runtime stopped")?;
     let process = session
         .process
         .lock()
@@ -276,17 +278,5 @@ pub fn snapshot(
 mod tests;
 
 pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
-    let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
-        .map_err(|reason| reason.to_string())?;
-    let context = session.context.lock().clone();
-    let thread_id = context.thread_id.ok_or("Runtime thread unavailable")?;
-    control(
-        svc,
-        tab,
-        RuntimeOperation::Interrupt {
-            thread_id,
-            active_turn_id: context.active_turn_id,
-        },
-    )
-    .map(|_| ())
+    super::controls::interrupt(svc, tab)
 }

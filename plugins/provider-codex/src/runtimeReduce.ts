@@ -3,9 +3,9 @@ import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
 import { json, runtimeItem, runtimeItems } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
 import { notificationAuth } from "./runtimeAuth";
-import { runtimeTurnDiff } from "./runtimeDiffs";
 import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
+import { codexReportedSettings } from "./runtimeSettings";
 
 interface ReduceState {
   epoch: number;
@@ -119,7 +119,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents,parent))) state.parents[id]=parent;
       continue;
     }
-    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents,params.threadId)) {
+    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents,params.threadId) && frame.method !== "serverRequest/resolved") {
       const threadId=params.threadId;const turnId=text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId) continue;
       state.childActive ??= {};state.childCompleted ??= [];
@@ -148,15 +148,21 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       if (windows.length) events.push({kind:"rateLimits",rateLimits:windows});
       continue;
     }
+    const descendant = typeof params.threadId === "string" && ctx.threadParents.some(parent => parent.threadId === params.threadId);
+    if (ctx.threadId && (params.threadId === ctx.threadId || descendant) && frame.kind === "request") {
+      if (!(serverRequestMethods as readonly string[]).includes(frame.method)) continue;
+      const prompt = runtimePrompt(frame.method,params,frame.requestId);
+      const turnId = descendant ? ctx.activeTurnId : text(params.turnId);
+      if (prompt) events.push({kind:"prompt",threadId:ctx.threadId,requestId:frame.requestId,prompt},{kind:"turnState",threadId:ctx.threadId,state:"needs_input",...(turnId ? {turnId} : {})});
+      continue;
+    }
+    if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
+      if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({kind:"promptResolved",threadId:ctx.threadId,requestId:params.requestId});
+      continue;
+    }
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
-    if (frame.kind === "request") {
-      if (!(serverRequestMethods as readonly string[]).includes(frame.method)) continue;
-      const prompt = runtimePrompt(frame.method,params,frame.requestId);
-      if (prompt) events.push({kind:"prompt",threadId,requestId:frame.requestId,prompt},{kind:"turnState",threadId,state:"needs_input",...(turnId ? {turnId} : {})});
-      continue;
-    }
     switch (frame.method) {
       case "turn/started":
         if (!turnId || state.completed.includes(turnId)) break;
@@ -167,8 +173,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
         delete state.activeTurnId;
-        const error = text(object(object(params.turn).error).message);
-        if (error) events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error,systemSubtype:"api_error"},params)});
+        const failure = object(object(params.turn).error);
+        if (text(failure.message)) {
+          const error = runtimeError(failure);
+          events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:"api_error",toolInput:error.metadata},params)});
+        }
         events.push({kind:"turnState",threadId,turnId,state:"idle",...timing(params)}); break;
       }
       case "thread/status/changed": {
@@ -182,14 +191,8 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         const mapped = usage(params); if (mapped) events.push({kind:"usage",threadId,usage:mapped}); break;
       }
       case "thread/settings/updated": {
-        const settings = object(params.threadSettings);
-        const model = text(settings.model); const effort = text(settings.effort);
-        const sandbox = object(settings.sandboxPolicy).type;
-        const mode = settings.approvalPolicy === "untrusted" ? "approval-required"
-          : settings.approvalPolicy === "never" && sandbox === "dangerFullAccess" ? "full-access"
-          : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "auto_review" ? "auto"
-          : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : undefined;
-        if (model || effort || mode) events.push({kind:"controlsConfirmed",threadId,settings:{...(model ? {model} : {}),...(effort ? {effort} : {}),...(mode ? {mode} : {})}});
+        const settings = codexReportedSettings(params);
+        if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         break;
       }
       case "serverRequest/resolved":
@@ -206,7 +209,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         events.push({kind:"chatItem",threadId,item:stamp(state,{id:"thread:goal",seq:state.seq+1,type:"custom",content:"",sessionIntent:{}},params)}); break;
       case "turn/diff/updated": {
         const diff = text(params.diff);
-        if (diff && turnId) events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:diff`,seq:state.seq+1,type:"tool_call",content:"",toolKind:"edit",toolName:"turn_diff",fileDiffs:runtimeTurnDiff(diff),toolResult:diff,collapsed:true},params)});
+        if (diff && turnId) events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:diff`,seq:state.seq+1,type:"tool_call",content:"",toolKind:"edit",toolName:"turn_diff",toolResult:diff,collapsed:true},params)});
         break;
       }
       case "thread/goal/updated": {

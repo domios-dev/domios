@@ -239,3 +239,52 @@ fn old_completion_cannot_remove_an_auto_started_goal_turn() {
     }
     assert_eq!(context.active_turns[0].turn_id, "new");
 }
+
+#[test]
+fn failure_display_preserves_supplied_details_without_debug_wrapper() {
+    let detail = "opaque supplied failure";
+    let failures = [
+        RuntimeFailure::SpawnFailed {
+            reason: detail.into(),
+        },
+        RuntimeFailure::ProcessExited {
+            code: Some(7),
+            signal: None,
+            stderr: detail.into(),
+            requested: false,
+        },
+        RuntimeFailure::ProcessExited {
+            code: None,
+            signal: Some(9),
+            stderr: detail.into(),
+            requested: false,
+        },
+        RuntimeFailure::PipeFailure {
+            stream: "stdout".into(),
+            reason: detail.into(),
+        },
+        RuntimeFailure::InvalidFrame(detail.into()),
+        RuntimeFailure::HookFailed(detail.into()),
+        RuntimeFailure::Refused(detail.into()),
+        RuntimeFailure::PrewriteRefused(detail.into()),
+    ];
+    for failure in failures {
+        let display = failure.to_string();
+        assert!(display.contains(detail));
+        assert_ne!(display, format!("{failure:?}"));
+    }
+    for failure in [
+        RuntimeFailure::PipeEof,
+        RuntimeFailure::Deadline,
+        RuntimeFailure::Superseded,
+        RuntimeFailure::ProcessExited {
+            code: None,
+            signal: None,
+            stderr: String::new(),
+            requested: true,
+        },
+    ] {
+        assert!(!failure.to_string().is_empty());
+        assert_ne!(failure.to_string(), format!("{failure:?}"));
+    }
+}

@@ -210,12 +210,10 @@ pub fn respond(
             Ok(answer) => answer,
             Err(_) => return Ok(RespondPromptOutcome::InvalidOption),
         };
-        let _permit = tauri::async_runtime::block_on(tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            session.gate.acquire(),
-        ))
-        .map_err(|_| "Runtime approval permit deadline")?
-        .map_err(|_| "Runtime stopped")?;
+        let _permit =
+            super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
+                .map_err(|_| "Runtime approval permit deadline")?
+                .map_err(|_| "Runtime stopped")?;
         let current = session.context.lock().clone();
         if !matching_entry(&entry, &current, expected)
             || !current_prompt_matches(svc, tab, &current, expected)

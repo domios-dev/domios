@@ -160,10 +160,6 @@ impl Client {
         self.0.ended.send_replace(Some(reason));
     }
 
-    pub async fn request(&self, call: &RpcCall) -> Result<Reply, RuntimeFailure> {
-        self.request_guarded(call, None).await
-    }
-
     pub(crate) async fn request_guarded(
         &self,
         call: &RpcCall,

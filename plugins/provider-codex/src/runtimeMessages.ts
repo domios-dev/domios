@@ -49,7 +49,7 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
     case "sessionIntent": return {...row,type:"custom",sessionIntent:{...(text(item.title) ? {title:String(item.title)} : {}),...(text(item.objective) ? {goal:String(item.objective)} : {})}};
     case "sleep": row.toolSummary = `Wait ${item.durationMs} ms`; break;
     case "agentMessage": case "plan":
-      row.type = "assistant"; row.content = String(item.text ?? "");
+      row.type = "assistant"; row.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
       if (item.delivery === "async" && list(item.questions).length) {
         row.toolInput = item;
         row.interactive = runtimeQuestions(item.questions).map(question=>({type:"question" as const,id:question.id,toolUseId:id,prompt:question.text,options:question.options.map(option=>({...option})),multiSelect:question.multiSelect ?? false}));
@@ -69,6 +69,7 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
       row.toolKind = "command"; row.toolSummary = String(item.command ?? "");
       row.toolDetail = row.toolSummary;
       if (typeof item.aggregatedOutput === "string") row.toolResult = item.aggregatedOutput;
+      else if (previous?.toolResult !== undefined) row.toolResult = previous.toolResult;
       if (typeof item.exitCode === "number") row.toolExitCode = item.exitCode;
       if (item.status === "interrupted") row.toolInterrupted = true;
       break;

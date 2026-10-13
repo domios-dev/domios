@@ -14,6 +14,12 @@ pub async fn spawn_pty_core(
     predicted_id: Option<String>,
     tab_id: Option<String>,
 ) -> Result<String, String> {
+    if let Some(id) = tab_id.as_deref() {
+        if crate::service::agent_runtime::requested_for_tab(svc, id) {
+            crate::service::agent_runtime::restore::tab(svc, id)?;
+            return Err("This agent uses Chat; terminal launch is unavailable".into());
+        }
+    }
     let mut pty_claim = match tab_id.clone() {
         Some(id) => Some(svc.pty_ownership.acquire_async(id).await?),
         None => None,

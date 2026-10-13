@@ -2,13 +2,14 @@ import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
 } from "@codeterm/plugin-sdk";
-import { object, text, list, userThread, steerRefused } from "./runtimeProtocol";
+import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
 import { json, runtimeItems } from "./runtimeMessages";
 import { accountAuth } from "./runtimeAuth";
 import { interruptTargets } from "./runtimeInterrupt";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
-import { codexRuntimePolicy, codexThreadConfig } from "./runtimeSettings";
+import { restoreContextItems } from "./runtimeContext";
+import { codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexReportedSettings } from "./runtimeSettings";
 export { runtimeReduce } from "./runtimeReduce";
 
 function fail(code: RuntimeFailure["code"], message: string): never {
@@ -48,7 +49,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
     case "initialize":
       return request("initialize",{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
-    case "resumeThread": return request("thread/resume",{...settingsParams(ctx,op.settings),threadId:op.threadId,excludeTurns:true});
+    case "resumeThread": return request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true});
     case "readHistory":
       return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:"asc",limit:100,cursor:op.cursor},
         {stage:"turns",turns:[],cursors:[],items:[],openItems:[],seq:0});
@@ -73,12 +74,12 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       if (!thread) fail("binding_mismatch","Control requires the bound thread");
       if (op.action === "auth") return request("account/read",{refreshToken:false},{stage:"auth"});
       if (op.action === "compact") return request("thread/compact/start",{threadId:thread});
-      if (op.action === "restoreContext") return request("thread/inject_items",{threadId:thread,items:op.value});
+      if (op.action === "restoreContext") return request("thread/inject_items",{threadId:thread,items:restoreContextItems(op.value)});
       if (!["model","effort","mode","settings"].includes(op.action)) fail("unsupported",`Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? object(op.value) : {...ctx.settings,[op.action]:op.value};
       for (const key of ["model","effort","mode"]) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
       const parsed = settings as RuntimeSettings;
-      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort});
+      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
     }
   }
 }
@@ -94,12 +95,12 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
   const state = object(raw);
   if (reply.kind === "error") {
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
-    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32601)
+    if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
       return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",items:[],openItems:[],questions:[],seq:0}));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error,op.activeTurnId))
       return continuation(request("turn/start",turnParams(ctx,op)),true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived
-      && (reply.error.message.includes("codex unarchive") || (reply.error.message.includes("session ") && reply.error.message.includes(" is archived"))))
+      && archivedResume(reply.error.message))
       return continuation(request("thread/unarchive",{threadId:op.threadId},{stage:"unarchive"}));
     return refused(reply.error.message,op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error,op.activeTurnId));
   }
@@ -110,17 +111,17 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));
       return {kind:"complete",result:{kind:"initialized"},events:[accountAuth(value)]};
     case "openThread": {
-      if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:op.settings}};
+      if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:state.settings as RuntimeSettings}};
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
       return continuation(request("thread/inject_items",{threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},
-        {stage:"materialize",threadId}));
+        {stage:"materialize",threadId,settings:codexEffectiveSettings(op.settings,value)}));
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
+      if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
       if (!userThread(value,op.threadId)) return refused("Resumed thread identity unverified");
-      if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify"}));
-      return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:op.settings}};
+      if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify",settings:codexEffectiveSettings(op.settings,value)}));
+      return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:state.settings as RuntimeSettings}};
     }
     case "readHistory": return historyResponse(op,state,value);
     case "submitTurn": {
@@ -132,7 +133,11 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       if (turns.length) return continuation(request("turn/interrupt",{threadId:turns[0].threadId,turnId:turns[0].turnId},{stage:"interrupt",remaining:turns.slice(1)}));
       return {kind:"complete",result:{kind:"done"}};
     }
-    case "control": return {kind:"complete",result:{kind:"done"},...(state.stage === "auth" ? {events:[accountAuth(value)]} : {})};
+    case "control": {
+      if (state.stage === "auth") return {kind:"complete",result:{kind:"done"},events:[accountAuth(value)]};
+      const reported = state.stage === "thread/settings/update" ? codexReportedSettings(value) : {};
+      return {kind:"complete",result:{kind:"done"},...(Object.keys(reported).length ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
+    }
     case "answer": case "answerQuestion": return {kind:"complete",result:{kind:"done"}};
   }
 }
