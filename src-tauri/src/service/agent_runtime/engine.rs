@@ -44,6 +44,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 }
 pub fn stop(tab: &str) {
     super::authority::revoke(tab);
+    super::environment::revoke(tab);
     if let Some(session) = SESSIONS.lock().remove(tab) {
         if let Some(process) = session.process.lock().take() {
             process.stop();
@@ -226,7 +227,7 @@ async fn ensure_locked(
                 .ok_or_else(|| RuntimeFailure::SpawnFailed {
                     reason: "Runtime cwd missing".into(),
                 })?;
-            let mut env = owner.tab_env(&target);
+            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce);
             env.extend(
                 owner
                     .model_provider_launch_env(&provider_id)
@@ -337,6 +338,16 @@ async fn ensure_locked(
         context.settings = settings;
     }
     bind(svc, session, &thread_id)?;
+    let owner = svc.clone();
+    let target = tab.to_string();
+    let thread = thread_id.clone();
+    let nonce = session.context.lock().binding_nonce.clone();
+    tokio::task::spawn_blocking(move || {
+        owner.finalize_runtime_worker_session(&target, &thread, &nonce)
+    })
+    .await
+    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
+    .map_err(RuntimeFailure::HookFailed)?;
     let owner = svc.clone();
     let target = tab.to_string();
     let thread = thread_id.clone();
