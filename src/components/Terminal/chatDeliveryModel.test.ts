@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, deliveryState, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, deliveryPresentation, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 
@@ -158,5 +158,60 @@ test("written sends flow above later rows while held and failed sends retain the
     assert.equal(projected.pending.length, 1);
     assert.equal(deliveryState(current), state === "written" ? "sending" : state === "submit_unconfirmed" ? "uncertain"
       : state === "held" ? "queued" : state);
+  }
+});
+
+
+test("written input with later source output has settled presentation without ledger confirmation", () => {
+  const at = 1_800_000_000_000;
+  for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
+    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
+    const before = JSON.stringify(current);
+    for (const type of ["assistant", "thinking", "tool_call", "tool_result", "tool_flow"] as const) {
+      const transcript = reduceTranscript(createTranscriptState(), {
+        kind: "delta", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
+        rows: [{ id: "later", type, content: "output", timestamp: String(at + 1) }],
+      }).state;
+      const projection = projectTranscript(transcript, deliveryProjectionSends([current]));
+      assert.deepEqual(projection.rows.map((row) => row.id), ["bubble", "later"]);
+      assert.equal(deliveryPresentation(current, projection.rows), "settled");
+      assert.equal(projection.pending.length, 1);
+      assert.equal(projection.echoes.size, 0);
+      assert.equal(JSON.stringify(current), before);
+    }
+  }
+});
+
+test("written input remains pending until later output is actually below its bubble", () => {
+  const at = 1_800_000_000_000;
+  const bubble = { id: "bubble", type: "user" as const, content: "opaque", timestamp: String(at) };
+  for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
+    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
+    const expected = ledgerState === "written" ? "sending" : "uncertain";
+    assert.equal(deliveryPresentation(current, [bubble]), expected);
+    for (const timestamp of [undefined, String(at - 1), String(at)]) {
+      assert.equal(deliveryPresentation(current, [bubble,
+        { id: "old", type: "assistant", content: "output", timestamp }]), expected);
+    }
+    for (const type of ["user", "status", "system"] as const) {
+      assert.equal(deliveryPresentation(current, [bubble,
+        { id: "non-output", type, content: "other", timestamp: String(at + 1) }]), expected);
+    }
+    const later = { id: "later", type: "assistant" as const, content: "output", timestamp: String(at + 1) };
+    assert.equal(deliveryPresentation(current, [later, bubble]), expected);
+    assert.equal(deliveryPresentation(current, [later]), expected);
+  }
+});
+
+test("later output never hides proven non-delivery or turns held input into sent presentation", () => {
+  const at = 1_800_000_000_000;
+  const rows = [
+    { id: "bubble", type: "user" as const, content: "opaque", timestamp: String(at) },
+    { id: "later", type: "assistant" as const, content: "output", timestamp: String(at + 1) },
+  ];
+  for (const [ledgerState, expected] of [["failed", "failed"], ["held", "queued"], ["delivered", "delivered"]] as const) {
+    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
+    assert.equal(deliveryPresentation(current, rows), expected);
+    assert.equal(current.status?.state, ledgerState);
   }
 });
