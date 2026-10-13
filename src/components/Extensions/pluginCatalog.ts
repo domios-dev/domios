@@ -32,6 +32,8 @@ export interface CatalogEntry {
   loadError?: { message: string; path: string; atMs: number; keptPrevious: boolean } | null;
   capabilities?: PluginCapabilities | null;
   grantedPermissions?: string[] | null;
+  networkRequested?: boolean;
+  declaredNetworkAllow?: string[] | null;
   networkAllow?: string[] | null;
   effectiveNetworkAllow?: string[] | null;
   settingsSchema?: SettingField[] | null;
@@ -105,6 +107,8 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
       : null,
     capabilities: p.capabilities ?? null,
     grantedPermissions: p.granted_permissions ?? null,
+    networkRequested: p.network_requested ?? false,
+    declaredNetworkAllow: p.declared_network_allow ?? [],
     networkAllow: p.network_allow ?? [],
     effectiveNetworkAllow: p.effective_network_allow ?? [],
     settingsSchema: p.settings_schema ?? null,
@@ -146,6 +150,8 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,
     grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,
+    networkRequested: base?.networkRequested ?? m.network_requested ?? false,
+    declaredNetworkAllow: base?.declaredNetworkAllow ?? m.declared_network_allow ?? [],
     networkAllow: base?.networkAllow ?? m.network_allow ?? [],
     effectiveNetworkAllow: base?.effectiveNetworkAllow ?? m.effective_network_allow ?? [],
     settingsSchema: base?.settingsSchema ?? null,
