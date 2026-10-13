@@ -34,9 +34,8 @@ impl RestoredItems {
         let ids = self
             .open
             .iter()
-            .filter_map(|((owner, id), item_turn)| {
-                (owner == thread && item_turn == turn).then(|| id.clone())
-            })
+            .filter(|((owner, _), item_turn)| owner == thread && *item_turn == turn)
+            .map(|((_, id), _)| id.clone())
             .collect();
         self.open
             .retain(|(owner, _), item_turn| owner != thread || item_turn != turn);
