@@ -164,6 +164,19 @@ pub(crate) fn run_action(
             remove_channel_plugins(channel, action.force)?;
         }
         let output = run_plugin_cli(&args)?;
+        if action.kind == "refresh-channel"
+            && action
+                .channel
+                .as_deref()
+                .is_none_or(|c| c == "codeterm-core")
+        {
+            if let Err(error) = codeterm_plugins::sync_core_cached(codeterm_plugins::PluginCtx {
+                data_root: crate::paths::data_dir(),
+                version: Some(env!("CARGO_PKG_VERSION").into()),
+            }) {
+                log::warn!("[plugin-update] silent core sync failed: {error}");
+            }
+        }
         if action.kind == "install" {
             svc.record_product_feature(codeterm_analytics::Feature::PluginInstalled);
         }
@@ -179,7 +192,9 @@ pub(crate) fn run_action(
         if action_refreshes_catalog(&action.kind) {
             super::snapshot::refresh_channel_diff_now();
         }
-        build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))
+        let snapshot = build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))?;
+        crate::update::discovery::publish_plugin_snapshot(&svc.app_handle, &snapshot);
+        Ok(snapshot)
     })();
 
     let finished = svc

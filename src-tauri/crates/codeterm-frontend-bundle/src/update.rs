@@ -71,6 +71,9 @@ fn download(
     limit: usize,
 ) -> Result<Vec<u8>, String> {
     use std::io::Read;
+    if codeterm_plugins::update_source::fixture_root().is_some() {
+        return codeterm_plugins::update_source::discovery_source().fetch(url, limit);
+    }
     let response = client
         .get(url)
         .send()
@@ -91,4 +94,17 @@ fn download(
         return Err("Download exceeds limit".into());
     }
     Ok(bytes)
+}
+
+pub fn discover(
+    discovery: &str,
+    key: &str,
+    allow_loopback: bool,
+) -> Result<manifest::Manifest, String> {
+    manifest::validate_url(discovery, allow_loopback)?;
+    let source = codeterm_plugins::update_source::discovery_source();
+    let metadata = source.fetch(discovery, 16384)?;
+    let signature = String::from_utf8(source.fetch(&format!("{discovery}.minisig"), 16384)?)
+        .map_err(|e| e.to_string())?;
+    manifest::verify_discovery(&metadata, &signature, key, allow_loopback)
 }

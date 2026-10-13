@@ -58,8 +58,19 @@ pub(super) fn installed_update_status(
         compatible,
     });
     let decision = update_availability(version, update_source(source), offer);
+    let core = matches!(source, Some(InstallSource::SystemChannel { .. }));
+    let availability = AvailabilityItem::plugin(
+        id,
+        version,
+        remote_version.as_deref(),
+        channel_name,
+        compatible,
+        core,
+        &decision,
+    );
     serde_json::json!({
-        "available": decision.available,
+        "available": decision.available && !core,
+        "availability": availability,
         "reason": decision.reason,
         "channel": match update_source(source) { UpdateSource::Channel(channel) => Some(channel), _ => None },
         "remote_version": remote_version,

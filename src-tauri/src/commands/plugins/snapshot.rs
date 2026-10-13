@@ -424,7 +424,7 @@ fn attach_load_errors(
 }
 
 fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
-    use codeterm_plugins::{update_availability, UpdateOffer, UpdateSource};
+    use codeterm_plugins::{update_availability, AvailabilityItem, UpdateOffer, UpdateSource};
     let Some(plugins) = plugins.as_array_mut() else {
         return;
     };
@@ -434,7 +434,6 @@ fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
         let channel = source["channel"].as_str();
         let update_source = match (plugin["state"].as_str(), source["kind"].as_str()) {
             (_, Some("dir")) => UpdateSource::Local,
-            (Some("bundled"), _) => UpdateSource::Unknown,
             (_, Some("channel" | "system_channel")) => channel
                 .map(UpdateSource::Channel)
                 .unwrap_or(UpdateSource::Unknown),
@@ -454,8 +453,19 @@ fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
             })
         });
         let decision = update_availability(plugin["version"].as_str(), update_source, offer);
+        let core = plugin["system"].as_bool() == Some(true);
+        let availability = AvailabilityItem::plugin(
+            id,
+            plugin["version"].as_str(),
+            row.and_then(|r| r["remote_version"].as_str()),
+            channel,
+            row.is_some_and(|r| r["compatible"].as_bool() == Some(true)),
+            core,
+            &decision,
+        );
         let update = serde_json::json!({
-            "available": decision.available,
+            "available": decision.available && !core,
+            "availability": availability,
             "reason": decision.reason,
             "channel": channel,
             "remote_version": row.and_then(|row| row["remote_version"].as_str()),
@@ -1000,5 +1010,27 @@ mod tests {
             serde_json::json!(false)
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod availability_regressions {
+    use super::*;
+
+    #[test]
+    fn same_versions_and_core_plugins_never_offer_actions() {
+        let mut plugins = serde_json::json!([
+            {"id":"lark", "version":"0.1.3", "system":false, "source":{"kind":"channel","channel":"store"}, "update":{"available":true}},
+            {"id":"core", "version":"0.1.2", "system":true, "state":"bundled", "source":{"kind":"system_channel","channel":"official"}, "update":{"available":true}}
+        ]);
+        let diff = serde_json::json!([
+            {"id":"lark","channel":"store","remote_version":"0.1.3","payload_version":"0.1.3","compatible":true,"drift":"hash_drift"},
+            {"id":"core","channel":"official","remote_version":"0.1.3","payload_version":"0.1.3","compatible":true,"drift":"update_available"}
+        ]);
+        reconcile_update_availability(&mut plugins, &diff);
+        assert_eq!(plugins[0]["update"]["available"], false);
+        assert_eq!(plugins[0]["update"]["availability"]["state"], "up_to_date");
+        assert_eq!(plugins[1]["update"]["available"], false);
+        assert_eq!(plugins[1]["update"]["availability"]["state"], "core_silent");
     }
 }

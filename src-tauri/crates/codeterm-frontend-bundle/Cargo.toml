@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+codeterm-plugins = { path = "../codeterm-plugins" }
 flate2 = "1"
 minisign-verify = "0.2"
 parking_lot = "0.12"

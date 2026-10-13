@@ -192,5 +192,6 @@
   "src/lib/promptAnswers.test.ts",
   "src/lib/pluginUiHostModel.test.ts",
   "src/lib/pluginUiMonitor.test.ts",
-  "src/components/Extensions/PluginUiHost.test.tsx"
+  "src/components/Extensions/PluginUiHost.test.tsx",
+  "src/lib/updateAvailability.test.ts"
 ]
