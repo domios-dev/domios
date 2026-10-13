@@ -2,6 +2,7 @@
   min-width: 0;
 }
 .ct-chat-surface {
+  padding-left: 5.5rem;
   overflow-x: hidden;
   overflow-wrap: anywhere;
 }
