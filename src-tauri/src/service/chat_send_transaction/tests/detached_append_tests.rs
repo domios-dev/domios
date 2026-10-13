@@ -18,16 +18,19 @@ const PAYLOAD: &str = "Reply with exactly this token and nothing else: DETACH-LD
 struct EvidenceSink {
     ledger: Arc<ChatSendLedger>,
     confirmed: mpsc::Sender<ChatSendStatus>,
+    observed: mpsc::Sender<()>,
 }
 impl DeltaSink for EvidenceSink {
     fn emit(&self, _: &str, _: Vec<RichMessage>, _: u64, _: u64) {
         panic!("append evidence must carry source provenance");
     }
     fn emit_sourced(&self, tab: &str, messages: Vec<RichMessage>, range: SourceRange) {
+        let mut saw_own_user = false;
         for rich in messages {
             if rich.provider_session_id.as_deref() != Some(SESSION) || rich.role != "user" {
                 continue;
             }
+            saw_own_user = true;
             for message in crate::service::tab_chat::rich_to_chat_msgs_live(&rich, 0) {
                 let position = TurnPosition {
                     record_start: rich.record_start,
@@ -57,19 +60,50 @@ impl DeltaSink for EvidenceSink {
                 }
             }
         }
+        if saw_own_user {
+            self.observed.send(()).unwrap();
+        }
     }
 }
 
-#[test]
-fn detached_first_materialization_confirms_owned_send_without_chat_subscription() {
+fn detached_append_state(existing: bool, wrong_witness: bool, content: &str) -> ChatSendState {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join(format!("{SESSION}.jsonl"));
     let chat = ChatRegistry::default();
+    let row = |session: &str, content: &str| {
+        serde_json::json!({
+            "type":"user","message":{"role":"user","content":content},
+            "uuid":"e4fbd52f-aa99-4437-8e0d-bad8f8345771","sessionId":session
+        })
+    };
+    if existing {
+        std::fs::write(&path, format!("{}\n", row(SESSION, PAYLOAD))).unwrap();
+    }
     let source = chat.jsonl_source(TAB);
-    let crate::service::tab_chat::registry::SourceCapture::Absent { witness } =
-        source.capture(SESSION, &path)
-    else {
-        panic!("fixture must begin before the first materialization");
+    let (anchor, witness, start_offset) = match source.capture(SESSION, &path) {
+        crate::service::tab_chat::registry::SourceCapture::Absent { witness } => (
+            None,
+            Some(if wrong_witness {
+                Arc::<str>::from("foreign-witness")
+            } else {
+                witness
+            }),
+            0,
+        ),
+        crate::service::tab_chat::registry::SourceCapture::Present { len } => (
+            Some(SendEvidenceAnchor {
+                provider_id: "windowed".into(),
+                cwd: root.path().to_string_lossy().into(),
+                session_id: SESSION.into(),
+                window: EvidenceWindow::Jsonl {
+                    transcript_offset: len,
+                },
+                turn_normalization: Default::default(),
+            }),
+            None,
+            len,
+        ),
+        _ => panic!("fixture source must be readable"),
     };
     let ledger = Arc::new(ChatSendLedger::default());
     let record: UserSendRecord = serde_json::from_value(serde_json::json!({
@@ -89,7 +123,8 @@ fn detached_first_materialization_confirms_owned_send_without_chat_subscription(
         &record,
         PAYLOAD,
         CapturedSendEvidence {
-            absence_witness: Some(witness),
+            anchor,
+            absence_witness: witness,
             live_binding: Some(SendLiveBinding {
                 session_id: Some(SESSION.into()),
                 binding_nonce: Some(NONCE.into())
@@ -107,40 +142,87 @@ fn detached_first_materialization_confirms_owned_send_without_chat_subscription(
         root: root.path().into(),
     }));
     let (tx, rx) = mpsc::channel();
+    let (observed, appended) = mpsc::channel();
     assert!(ensure_append_stream(
         TailConfig {
             tab_id: TAB.into(),
             provider_id: "windowed".into(),
             cwd: root.path().to_string_lossy().into(),
             session_id: SESSION.into(),
-            start_offset: 0,
+            start_offset,
         },
         Some(NONCE),
         registry,
         &chat,
         Arc::new(EvidenceSink {
             ledger: ledger.clone(),
-            confirmed: tx
+            confirmed: tx,
+            observed,
         })
     ));
-    let row = serde_json::json!({"type":"user","message":{"role":"user","content":PAYLOAD},
-        "uuid":"e4fbd52f-aa99-4437-8e0d-bad8f8345771","sessionId":SESSION});
-    std::fs::write(&path, format!("{row}\n")).unwrap();
-    let confirmed = rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
-    assert_eq!(confirmed.send_id, send.send_id);
-    assert_eq!(confirmed.state, ChatSendState::Sent);
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .unwrap();
+    writeln!(file, "{}", row("foreign-session", PAYLOAD)).unwrap();
+    writeln!(file, "{}", row(SESSION, content)).unwrap();
+    file.flush().unwrap();
+    appended
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .unwrap();
+    chat.shutdown_tab(TAB);
+    let state = ledger.status(&send.send_id).unwrap().state;
+    if state == ChatSendState::Sent {
+        let confirmed = rx.try_recv().unwrap();
+        assert_eq!(confirmed.send_id, send.send_id);
+        assert_eq!(confirmed.state, ChatSendState::Sent);
+        assert_eq!(
+            ledger
+                .finish(
+                    &send.send_id,
+                    Err("submit_unconfirmed: late transport".into())
+                )
+                .unwrap()
+                .state,
+            ChatSendState::Sent
+        );
+    }
+    assert!(rx.try_recv().is_err());
+    state
+}
+
+#[test]
+fn detached_first_materialization_confirms_owned_send_without_chat_subscription() {
     assert_eq!(
-        ledger
-            .finish(
-                &send.send_id,
-                Err("submit_unconfirmed: late transport".into())
-            )
-            .unwrap()
-            .state,
+        detached_append_state(false, false, PAYLOAD),
         ChatSendState::Sent
     );
-    chat.shutdown_tab(TAB);
-    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn detached_existing_store_does_not_confirm_from_pre_send_history_or_partial_payload() {
+    assert_eq!(
+        detached_append_state(true, false, "DETACH-LD1791877676667"),
+        ChatSendState::Unknown
+    );
+    assert_eq!(
+        detached_append_state(true, false, PAYLOAD),
+        ChatSendState::Sent
+    );
+}
+
+#[test]
+fn detached_first_materialization_requires_the_captured_absence_witness_and_whole_payload() {
+    assert_eq!(
+        detached_append_state(false, true, PAYLOAD),
+        ChatSendState::Unknown
+    );
+    assert_eq!(
+        detached_append_state(false, false, "DETACH-LD1791877676667"),
+        ChatSendState::Unknown
+    );
 }
 
 struct ArtifactProvider {
