@@ -371,3 +371,33 @@ fn spent_question_a_record_no_channel_carried_rewrites_nothing() {
         "nothing was placed, so nothing is rewritten"
     );
 }
+
+#[test]
+fn overlapping_taps_deliver_through_messenger_once() {
+    let (store, id) = asked_from(Some(ASKING_TAB));
+    store.lock().record_answer(&id, CHOSEN);
+    let spy = Spy::default();
+    let first = deliver(&store, &id, |to_tab, envelope, body| {
+        for label in [CHOSEN, "Merge"] {
+            assert!(matches!(
+                store.lock().record_answer(&id, label),
+                crate::notification::answer::AnswerAdmission::AlreadyAnswered(_)
+            ));
+            assert_eq!(
+                deliver(&store, &id, |tab, envelope, body| spy
+                    .accept(tab, envelope, body)),
+                AnswerDeliveryOutcome::Pending
+            );
+        }
+        spy.accept(to_tab, envelope, body)
+    });
+    assert_eq!(first, AnswerDeliveryOutcome::Delivered);
+    assert_eq!(
+        deliver(&store, &id, |tab, envelope, body| spy
+            .accept(tab, envelope, body)),
+        AnswerDeliveryOutcome::AlreadyDelivered
+    );
+    assert_eq!(spy.calls().len(), 1);
+    assert_eq!(spy.calls()[0].0, ASKING_TAB);
+    assert!(store.lock().answer_slot(&id).unwrap().delivered);
+}

@@ -94,6 +94,8 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
             </div>
           )}
 
+          {notification.answer_pending && <div role="status">Sending answer…</div>}
+          {notification.answer_error && <div role="alert">{notification.answer_error}</div>}
           {notification.resolved ? (
             <div
               data-testid="chat-ask-resolved"
@@ -102,7 +104,7 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
             >
               Resolved in tab.
             </div>
-          ) : chosen ? (
+          ) : chosen && !notification.answer_error && !notification.answer_pending ? (
             <div
               data-testid="chat-ask-answered"
               className="flex items-center gap-1.5 border-t px-3 py-2 text-[11px]"
@@ -138,6 +140,7 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
                     key={`${choice.label}-${index}`}
                     type="button"
                     data-testid="chat-ask-choice"
+                    disabled={notification.answer_pending || (chosen !== null && chosen !== choice.label)}
                     aria-label={choiceAccessibleName(level, notification.title, choice.label)}
                     onClick={() => onAnswer(notification.id, choice.label)}
                     className="min-h-7 rounded-md border px-3 text-xs transition-colors hover:brightness-110"
@@ -164,7 +167,7 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
         </div>
       </div>
 
-      {chosen && askedFrom && (
+      {chosen && askedFrom && slot?.delivered && (
         <SentMessageBubble
           inv={sentInvocation(askedFrom, chosen)}
           resolveTabName={resolveTabName}

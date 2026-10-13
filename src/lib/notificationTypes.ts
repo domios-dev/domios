@@ -61,6 +61,8 @@ export interface Notification {
   actions?: NotificationAction[];
   /** Present when the notification offers a choice */
   answer?: NotificationAnswer;
+  answer_pending?: boolean;
+  answer_error?: string;
   resolved?: boolean;
   /** Sender hint; the host still caps every toast lifetime. */
   sticky?: boolean;

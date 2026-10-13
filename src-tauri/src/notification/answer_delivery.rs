@@ -25,6 +25,7 @@ pub enum AnswerDeliveryOutcome {
     AlreadyDelivered,
     /// Nothing was owed, so nothing was attempted.
     NotAttempted,
+    Pending,
     /// The envelope path refused it, with the reason it gave.
     Failed(String),
 }
@@ -52,7 +53,10 @@ pub fn deliver(
     id: &str,
     send: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>,
 ) -> AnswerDeliveryOutcome {
-    let due = { store.lock().answer_delivery_plan(id) };
+    let Some(due) = store.lock().claim_answer_delivery(id) else {
+        return AnswerDeliveryOutcome::Pending;
+    };
+    log::debug!("[notify-answer] {id} delivery claim: {due:?}");
     let plan = match due {
         AnswerDeliveryPlan::Owed(plan) => plan,
         AnswerDeliveryPlan::AlreadyDelivered => return AnswerDeliveryOutcome::AlreadyDelivered,
@@ -63,7 +67,10 @@ pub fn deliver(
             store.lock().mark_answer_delivered(id);
             AnswerDeliveryOutcome::Delivered
         }
-        Err(detail) => AnswerDeliveryOutcome::Failed(detail),
+        Err(detail) => {
+            store.lock().release_answer_delivery(id);
+            AnswerDeliveryOutcome::Failed(detail)
+        }
     }
 }
 
@@ -81,6 +88,9 @@ pub fn settle(
     spend: impl FnOnce(&SpentQuestion),
 ) -> AnswerDeliveryOutcome {
     let outcome = deliver(store, id, send);
+    if outcome == AnswerDeliveryOutcome::Pending {
+        return outcome;
+    }
     let spent = { store.lock().spent_question(id) };
     if let Some(spent) = spent {
         spend(&spent);
