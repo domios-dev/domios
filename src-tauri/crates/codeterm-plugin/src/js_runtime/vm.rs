@@ -21,6 +21,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     if (s === null || s === undefined) return null;
     try { return JSON.parse(s); } catch (_) { return null; }
   }
+  // The SDK declares readFile as string | null; the native binding yields undefined.
+  var nativeReadFile = host.readFile;
+  host.readFile = function (p) { var s = nativeReadFile(p); return s === undefined ? null : s; };
   host.fs = {
     readFile:      host.readFile,
     readFileHead:  host.readFileHead,

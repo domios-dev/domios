@@ -24,9 +24,10 @@ fn recording_selection_round_trips_per_plugin_without_exposing_foreign_selection
 #[test]
 fn recording_selection_failed_save_does_not_change_memory() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("blocked");
-    let store = RecordingSelectionStore::open(path.clone());
-    std::fs::create_dir(&path).unwrap();
+    // A file where the parent folder should be fails every platform's create and rename.
+    let blocker = dir.path().join("not-a-folder");
+    std::fs::write(&blocker, b"").unwrap();
+    let store = RecordingSelectionStore::open(blocker.join("selections.json"));
     assert!(store.set("own", &devices("input")).is_err());
     assert_eq!(store.get("own").unwrap(), None);
 }
