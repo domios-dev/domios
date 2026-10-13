@@ -544,6 +544,27 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         super::local_recording::host_json(self.read_receiver_status_report(plugin_id, query))
     }
 
+    fn local_recording_inputs_json(&self, plugin_id: &str) -> String {
+        super::local_recording::host_json(self.local_recording_inputs(plugin_id))
+    }
+
+    fn local_recording_select_json(
+        &self,
+        plugin_id: &str,
+        devices: codeterm_plugin::local_recording::SelectedDevices,
+    ) -> String {
+        super::local_recording::host_json(self.local_recording_select_devices(plugin_id, devices))
+    }
+
+    fn local_recording_saved_selection_json(&self, plugin_id: &str) -> String {
+        super::local_recording::host_json((|| {
+            if !self.local_recording_status(plugin_id)?.granted {
+                return Err("local_recording_grant_required".into());
+            }
+            self.local_recording_selections.get(plugin_id)
+        })())
+    }
+
     fn local_recording_status_json(&self, plugin_id: &str) -> String {
         super::local_recording::host_json(self.local_recording_status(plugin_id))
     }

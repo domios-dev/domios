@@ -47,8 +47,8 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
 /// Answers analytics with the query it received and a missing total, and receiver
 /// targets with the plugin id it was asked for; every other host surface is inert.
 #[derive(Default)]
-pub(super) struct AnalyticsHost {
-    pub(super) recordings: crate::local_recording::LocalRecordingRegistry,
+pub(crate) struct AnalyticsHost {
+    pub(crate) recordings: crate::local_recording::LocalRecordingRegistry,
 }
 
 fn recording_reply(
@@ -139,6 +139,44 @@ impl PluginHostCtx for AnalyticsHost {
         query: &crate::local_recording::ReceiverStatusQuery,
     ) -> String {
         json!({ "pluginId": plugin_id, "query": query }).to_string()
+    }
+    fn local_recording_inputs_json(&self, plugin_id: &str) -> String {
+        match self.recordings.status(plugin_id) {
+            Ok(status) if status.granted => {
+                serde_json::to_string(&vec![crate::local_recording::RecordingInputDevice {
+                    id: "input".into(),
+                    label: "Input".into(),
+                    kind: crate::local_recording::RecordingInputKind::Hid,
+                    connected: true,
+                    input_id: "input".into(),
+                    collection_id: "collection".into(),
+                }])
+                .unwrap()
+            }
+            Ok(_) => json!({ "error": "local_recording_grant_required" }).to_string(),
+            Err(error) => json!({ "error": error }).to_string(),
+        }
+    }
+    fn local_recording_select_json(
+        &self,
+        plugin_id: &str,
+        devices: crate::local_recording::SelectedDevices,
+    ) -> String {
+        match self.recordings.select_devices(plugin_id, devices) {
+            Ok(generation) => json!(generation).to_string(),
+            Err(error) => json!({ "error": error }).to_string(),
+        }
+    }
+    fn local_recording_saved_selection_json(&self, plugin_id: &str) -> String {
+        match self.recordings.status(plugin_id) {
+            Ok(status) if status.granted => json!(self
+                .recordings
+                .selected_devices(plugin_id)
+                .map(|(devices, _)| devices))
+            .to_string(),
+            Ok(_) => json!({ "error": "local_recording_grant_required" }).to_string(),
+            Err(error) => json!({ "error": error }).to_string(),
+        }
     }
     fn local_recording_status_json(&self, plugin_id: &str) -> String {
         recording_reply(self.recordings.status(plugin_id))

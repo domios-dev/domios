@@ -23,8 +23,6 @@ use super::{load_one, JsProvider};
 mod agent_commands;
 #[path = "parity_test/control_keys.rs"]
 mod control_keys;
-#[path = "parity_test/rotterdom.rs"]
-mod rotterdom;
 #[path = "parity_test/decision_model.rs"]
 mod decision_model;
 #[path = "parity_test/delivery_modal.rs"]
@@ -41,6 +39,8 @@ mod model_switch;
 mod paste_capability;
 #[path = "parity_test/provider_compat.rs"]
 mod provider_compat;
+#[path = "parity_test/rotterdom.rs"]
+mod rotterdom;
 #[path = "parity_test/sqlite_fixture.rs"]
 mod sqlite_fixture;
 #[path = "parity_test/structured_control.rs"]
@@ -1175,3 +1175,6 @@ mod usage_sources;
 mod launch_session_support;
 
 mod reply_relay;
+
+#[path = "parity_test/local_recording_devices.rs"]
+mod local_recording_devices;

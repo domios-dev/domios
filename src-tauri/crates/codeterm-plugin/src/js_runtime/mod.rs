@@ -15,6 +15,7 @@ mod host_compute;
 mod host_credentials;
 mod host_exec;
 mod host_net;
+mod host_recording_devices;
 mod host_surface;
 pub mod hot_reload;
 pub mod loader;

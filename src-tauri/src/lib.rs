@@ -680,6 +680,7 @@ pub fn run() {
                 webhook_registry: webhook_registry.clone(),
                 local_recording_registry: cap_registries.local_recording.clone(),
                 local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
+                local_recording_selections: Arc::new(crate::service::local_recording::RecordingSelectionStore::open(crate::paths::data_dir().join("local-recording-selections.json"))),
                 local_recording_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(crate::paths::data_dir().join("local-recording-targets.json"))),
                 tab_menu_registry: tab_menu_registry.clone(),
                 surface_registry,
