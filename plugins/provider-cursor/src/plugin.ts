@@ -1,6 +1,7 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { recordedTextDiff } from "@codeterm/plugin-sdk";
+import { cursorLaunchCommand, detectCursorLaunchSession } from "./launchSession";
 
 const TITLE_RE = /cursor/i;
 // Structural fingerprints of the cursor-agent TUI — functional UI strings, not vendor-churned marketing copy.
@@ -113,7 +114,10 @@ const plugin: PluginModule = {
     if (launchTask) {
       parts.push(host.shell.quoteFor(launchTask, host.platform()));
     }
-    return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return cursorLaunchCommand(
+      disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" "),
+      p.launchMarker,
+    );
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
@@ -144,31 +148,15 @@ const plugin: PluginModule = {
     return typeof ms === "number" ? ms : null;
   },
 
-  // "newest-for-cwd" (capability rule #3): with 2+ viable candidates, refuse rather than hand over a sibling's session.
-  detectSessionId(cwd: string, exclude?: string | string[], maxAgeMs?: number): string | null {
-    const dir = cursorChatsDir(cwd);
-    if (!dir || !host.fs.fileExists(dir)) return null;
-    const entries = host.fs.readDir(dir) || [];
-    const ex = toExcludeList(exclude);
-    const now = host.unixNowMs ? host.unixNowMs() : 0;
-    const maxAge = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 0;
-    const sep = pathSep();
-    const candidates: { id: string; ts: number }[] = [];
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      if (!e || !e.isDir) continue;
-      const sid = e.name;
-      if (!looksLikeUuid(sid)) continue;
-      if (ex.indexOf(sid) !== -1) continue;
-      // Only real sessions (same existence contract as sessionExists); ignore stale/empty temp dirs.
-      const meta = readMetaJson(e.path + sep + "meta.json");
-      if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
-      const ts = meta ? (meta.updatedAtMs || meta.createdAtMs || 0) : (e.modifiedMs || 0);
-      if (maxAge && now && (!ts || (now - ts) > maxAge)) continue;
-      candidates.push({ id: sid, ts: ts });
-    }
-    if (candidates.length !== 1) return null;
-    return candidates[0].id;
+  detectSessionId(): null {
+    return null;
+  },
+
+  detectLaunchSession(evidence) {
+    return detectCursorLaunchSession(evidence, (cwd, sid) => {
+      const dir = cursorSessionDir(cwd, sid);
+      return !!dir && host.fs.fileExists(dir + pathSep() + "store.db");
+    });
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {
@@ -950,12 +938,6 @@ function numFrom(v: unknown): number | null {
 }
 
 // ── misc helpers ──
-
-function toExcludeList(exclude?: string | string[]): string[] {
-  if (Array.isArray(exclude)) return exclude;
-  if (typeof exclude === "string" && exclude) return [exclude];
-  return [];
-}
 
 function looksLikeUuid(s: string): boolean {
   return typeof s === "string" && s.length >= 32 && s.indexOf("-") !== -1;
