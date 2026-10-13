@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useR
 import { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
 import { createPortal } from "react-dom";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2, RotateCcw, Scan } from "lucide-react";
+import { copyCodeText } from "./copyCodeText";
 import { SyntaxHighlighter } from "./syntaxHighlighter";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { HIGHLIGHT_LINE_LIMIT, highlightSourceEligible } from "./highlightBudget";
@@ -354,18 +355,7 @@ export function CodeBlock({
   const mermaidSize = useMemo(() => mermaidSvgSize(mermaidSvg), [mermaidSvg]);
   const copyText = useCallback(async (event: React.MouseEvent) => {
     event.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(normalizedText);
-    } catch {
-      const fallback = document.createElement("textarea");
-      fallback.value = normalizedText;
-      fallback.style.position = "fixed";
-      fallback.style.opacity = "0";
-      document.body.appendChild(fallback);
-      fallback.select();
-      document.execCommand("copy");
-      document.body.removeChild(fallback);
-    }
+    await copyCodeText(text);
     setCopied(true);
     if (copyTimer.current) {
       window.clearTimeout(copyTimer.current);
@@ -373,7 +363,7 @@ export function CodeBlock({
     copyTimer.current = window.setTimeout(() => {
       setCopied(false);
     }, 1400);
-  }, [normalizedText]);
+  }, [text]);
 
   useEffect(() => {
     return subscribeMobileViewport((value) => {
@@ -827,6 +817,8 @@ export function CodeBlock({
           <button
             type="button"
             onClick={copyText}
+            aria-label="Copy code"
+            title={copied ? "Copied" : "Copy code"}
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
             style={{ color: "var(--ct-muted-fg)" }}
           >
@@ -925,6 +917,8 @@ export function CodeBlock({
               <button
                 type="button"
                 onClick={copyText}
+                aria-label="Copy code"
+                title={copied ? "Copied" : "Copy code"}
                 className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
                 style={{ color: "var(--ct-muted-fg)" }}
               >
