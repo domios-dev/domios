@@ -157,6 +157,7 @@ fn recorder(
 
 fn prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "opaque question".into(),
         options: vec![PromptOption {
             label: "opaque".into(),

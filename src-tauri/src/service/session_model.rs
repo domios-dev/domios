@@ -4,6 +4,30 @@
 use super::ServiceContext;
 
 impl ServiceContext {
+    pub(crate) fn record_runtime_controls(
+        &self,
+        provider: &str,
+        context: &codeterm_plugin::agent_runtime::RuntimeContext,
+        settings: &codeterm_plugin::agent_runtime::RuntimeSettings,
+    ) {
+        let Some(thread) = context.thread_id.as_deref() else {
+            return;
+        };
+        let mut mux = self.mux.write();
+        let Some(tab) = mux.get_tab_mut(&context.tab_id) else {
+            return;
+        };
+        if !runtime_model_update_matches_binding(
+            tab,
+            provider,
+            thread,
+            Some(&context.binding_nonce),
+        ) {
+            return;
+        }
+        apply_runtime_controls(tab, thread, settings);
+    }
+
     pub(crate) fn start_focused_tab_model_poller(&self) {
         let svc = self.clone();
         std::thread::spawn(move || {
@@ -152,6 +176,9 @@ impl ServiceContext {
         if recorded.is_some() {
             return recorded;
         }
+        if super::agent_runtime::requested_for_tab(self, tab_id) {
+            return None;
+        }
         let detected = self
             .agent_registry
             .with_provider(&agent_id, |p| p.detect_session_model(&cwd, &session_id))
@@ -185,6 +212,9 @@ impl ServiceContext {
         cwd: &str,
         detect_active_session: bool,
     ) {
+        if super::agent_runtime::requested_for_tab(self, tab_id) {
+            return;
+        }
         let session_id = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
@@ -973,5 +1003,29 @@ fn runtime_model_update_matches_binding(
         })
 }
 
+fn apply_runtime_controls(
+    tab: &mut crate::multiplexer::types::Tab,
+    thread: &str,
+    settings: &codeterm_plugin::agent_runtime::RuntimeSettings,
+) {
+    if let Some(model) = settings.model.as_ref() {
+        tab.agent_session_model = Some(model.clone());
+        tab.agent_provider_resolved_model = Some(model.clone());
+        tab.agent_session_model_identity = session_model_identity(tab, thread, None, true);
+    }
+    if let Some(effort) = settings.effort.as_ref() {
+        tab.reasoning_effort_identity.actual = Some(effort.clone());
+        tab.reasoning_effort_identity.resolved = Some(effort.clone());
+        tab.reasoning_effort_identity.actual_source = Some("session-owned".into());
+    }
+    if let Some(mode) = settings.mode.as_ref() {
+        tab.structured_runtime_mode = Some(mode.clone());
+    }
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "session_model/runtime_controls_tests.rs"]
+mod runtime_controls_tests;

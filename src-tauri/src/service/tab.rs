@@ -728,6 +728,11 @@ impl ServiceContext {
         value: &str,
         expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Result<RespondPromptOutcome, String> {
+        if let Some(result) =
+            super::agent_runtime::prompt_answers::respond(self, tab_id, value, expected_identity)
+        {
+            return result;
+        }
         if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
             self,
             tab_id,

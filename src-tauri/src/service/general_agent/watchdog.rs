@@ -81,6 +81,9 @@ impl ServiceContext {
         if !super::session_contract::owns_main(&self.mux.read(), tab) {
             return;
         }
+        if crate::service::agent_runtime::requested_for_tab(self, &tab.id) {
+            return;
+        }
         let provider_absent = tree_key.as_ref().is_some_and(|key| {
             self.observe_provider_process_tree_for_key(key).state()
                 == crate::service::process_tree::ProviderTreeState::GoneAfterSeen
