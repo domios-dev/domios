@@ -363,3 +363,49 @@ fn signed_asset_redirects_are_followed_but_published_urls_stay_query_free() {
         assert!(manifest::validate_redirect_url(unsafe_redirect, false).is_err());
     }
 }
+
+#[test]
+fn frontend_discovery_stages_once_and_emits_one_ready_event_while_unapplied() {
+    let root = tempfile::tempdir().unwrap();
+    Store::open(root.path())
+        .unwrap()
+        .install(&verified(), SIGNATURE, ARCHIVE)
+        .unwrap();
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let emitted = events.clone();
+    let bundles = super::FrontendBundles::open(
+        root.path(),
+        2,
+        "0.0.0",
+        Some(PUBLIC_KEY.into()),
+        "https://example.test/frontend-manifest.json".into(),
+        false,
+        std::sync::Arc::new(move |name, payload| {
+            emitted.lock().unwrap().push((name.to_owned(), payload))
+        }),
+    )
+    .unwrap();
+    let item = codeterm_plugins::AvailabilityItem::release(
+        "frontend",
+        codeterm_plugins::UpdateKind::Frontend,
+        "0.0.0",
+        &fixture().version,
+        true,
+    );
+    let mut staged = 0;
+    for _ in 0..2 {
+        let status = bundles.status();
+        if codeterm_plugins::frontend_stage_needed(&item, status["pending"]["version"].as_str()) {
+            staged += 1;
+            bundles.stage_verified(&verified()).unwrap();
+        }
+    }
+    assert_eq!(staged, 1);
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, "frontend-update-ready");
+    assert_eq!(events[0].1["releaseId"], "frontend-v1.0.0");
+    assert_eq!(bundles.status()["pending"]["releaseId"], "frontend-v1.0.0");
+    assert!(bundles.status()["active"].is_null());
+    assert!(bundles.status()["loading"].is_null());
+}

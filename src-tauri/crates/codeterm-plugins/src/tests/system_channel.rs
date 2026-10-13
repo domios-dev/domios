@@ -284,3 +284,20 @@ fn system_channel_list_stays_virtual_without_network() {
         assert!(!channels_root().exists());
     });
 }
+
+#[test]
+fn git_diff_uses_validated_cache_without_a_second_fetch() {
+    with_data_root(|root| {
+        let cache = root.join("cache");
+        write_channel(&cache, "cached", &[("demo", "demo")]);
+        let channel = ChannelRecord {
+            name: "cached".into(),
+            path: cache.to_string_lossy().into_owned(),
+            url: format!("file://{}", root.join("unreachable-origin").display()),
+            kind: ChannelKind::Git,
+        };
+        let rows = diff_channel_rows(&channel).expect("completed cache stays available offline");
+        assert_eq!(rows[0].remote_version.as_deref(), Some("1.0.0"));
+        assert_eq!(rows[0].id, "demo");
+    });
+}
