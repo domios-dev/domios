@@ -193,10 +193,12 @@ pub(crate) fn create_notification_with_delivery(
         NotificationAdmission::Explicit => NoticeSource::AgentNotifySend,
     };
     if destination(source, true) == NoticeDestination::Log {
-        log::debug!(
-            "[system-notice] severity={severity:?} {title}: {}",
-            body.as_deref().unwrap_or_default()
-        );
+        let detail = body.as_deref().unwrap_or_default();
+        match notification_severity(severity) {
+            NotificationSeverity::Error => log::error!("[system-notice] {title}: {detail}"),
+            NotificationSeverity::Warning => log::warn!("[system-notice] {title}: {detail}"),
+            NotificationSeverity::Info => log::info!("[system-notice] {title}: {detail}"),
+        }
         return uuid::Uuid::new_v4().to_string();
     }
     let actions = ask.actions.clone();
