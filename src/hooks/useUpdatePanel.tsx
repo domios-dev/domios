@@ -61,29 +61,32 @@ function useUpdatePanelController() {
     setIntent(next);
   }, []);
 
+  const hostVersion = snapshot.items.find(item => item.kind === "app")?.installed;
+  const nextStep = ready && intent && !error && Object.keys(snapshot.errors).length === 0 && hostVersion
+    ? nextUpdateStep(intent, hostVersion, items) : null;
+  const stepKind = nextStep?.kind === "interface" && !offer ? "waitForApp" : nextStep?.kind;
+  const pluginId = nextStep?.kind === "plugin" ? nextStep.id : null;
+  const intentKey = intent ? JSON.stringify(intent) : null;
+
   useEffect(() => {
-    if (!ready || !intent || running.current || error || Object.keys(snapshot.errors).length > 0) return;
-    const host = snapshot.items.find(item => item.kind === "app")?.installed;
-    if (!host) return;
-    const step = nextUpdateStep(intent, host, items);
-    if (step.kind === "waitForApp") return;
-    if (step.kind === "interface" && !offer) return;
+    const currentIntent = readUpdateIntent(intentKey);
+    if (!currentIntent || !stepKind || stepKind === "waitForApp" || running.current) return;
     running.current = true;
     void (async () => {
       try {
-        if (step.kind === "plugin") {
-          await runPluginSnapshotAction({ kind: "update", pluginId: step.id });
+        if (stepKind === "plugin" && pluginId) {
+          await runPluginSnapshotAction({ kind: "update", pluginId });
           await refresh(true);
           running.current = false;
-          save({ ...intent, stage: "plugins", pluginIds: intent.pluginIds.filter(id => id !== step.id) });
-        } else if (step.kind === "interface") {
+          save({ ...currentIntent, stage: "plugins", pluginIds: currentIntent.pluginIds.filter(id => id !== pluginId) });
+        } else if (stepKind === "interface") {
           save(null);
           acceptFrontendUpdate();
         } else save(null);
       } catch (failure) { setError(String(failure)); }
       finally { running.current = false; }
     })();
-  }, [ready, intent, snapshot, offer, error, items, refresh, save]);
+  }, [intentKey, stepKind, pluginId, refresh, save]);
 
   const updateAll = async () => {
     if (intent || running.current || app.installing) return;
