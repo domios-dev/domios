@@ -1,7 +1,7 @@
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThemeConfig, Workspace } from "../../lib/types";
@@ -85,13 +85,16 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+function Shell({ initiallyMounted }: { initiallyMounted: boolean }) {
+  const [mounted, setMounted] = useState(initiallyMounted);
+  return <>
+    <Titlebar theme={{} as ThemeConfig} showSidebarToggle onToggleSidebar={() => setMounted(!mounted)} />
+    {mounted && <Sidebar />}
+  </>;
+}
+
 async function renderShell(sidebarMounted = true) {
-  await act(async () => root!.render(
-    <>
-      <Titlebar theme={{} as ThemeConfig} showSidebarToggle={!sidebarMounted} onToggleSidebar={vi.fn()} />
-      {sidebarMounted && <Sidebar />}
-    </>,
-  ));
+  await act(async () => root!.render(<Shell initiallyMounted={sidebarMounted} />));
 }
 
 function pickerButton() {
@@ -136,8 +139,8 @@ describe("web host picker placement", () => {
     await renderShell();
     expect(host.querySelector('[data-testid="general-section"]')).not.toBeNull();
     const trigger = pickerButton();
-    await act(async () => sidebarHandle().click());
-    expect(sidebarHandle().getAttribute("aria-expanded")).toBe("false");
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Open sidebar"]')!.click());
+    expect(host.querySelector('aside[aria-label="Sidebar"]')).toBeNull();
     expect(host.querySelector('[data-testid="general-section"]')).toBeNull();
     expect(pickerButton()).toBe(trigger);
   });
@@ -146,11 +149,10 @@ describe("web host picker placement", () => {
     fixture.state!.workspaces = [general];
     await renderShell();
     const trigger = pickerButton();
-    await act(async () => sidebarHandle().dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 220 })));
-    await act(async () => document.dispatchEvent(new MouseEvent("mousemove", { clientX: 80 })));
-    await act(async () => document.dispatchEvent(new MouseEvent("mouseup")));
-    expect(host.querySelector<HTMLElement>('[data-testid="sidebar"]')!.parentElement!.style.width).toBe("64px");
-    expect(sidebarHandle().getAttribute("aria-expanded")).toBe("true");
+    await act(async () => sidebarHandle().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 220 })));
+    await act(async () => document.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 80 })));
+    await act(async () => document.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 })));
+    expect(sidebarHandle().getAttribute("aria-valuenow")).toBe("64");
     expect(host.querySelector('[data-testid="general-section"]')).toBeNull();
     expect(pickerButton()).toBe(trigger);
   });
