@@ -336,11 +336,11 @@ async fn start(
             .read()
             .get_tab(tab)
             .and_then(|tab| tab.restorable_launch.structured_runtime_mode.clone())
-            .and_then(|mode| serde_json::from_value::<super::model::RuntimeMode>(json!(mode)).ok())
+            .and_then(|mode| serde_json::from_value::<crate::service::agent_runtime::model::RuntimeMode>(json!(mode)).ok())
             .unwrap_or(if spawn.full_access {
-                super::model::RuntimeMode::FullAccess
+                crate::service::agent_runtime::model::RuntimeMode::FullAccess
             } else {
-                super::model::RuntimeMode::AutoAcceptEdits
+                crate::service::agent_runtime::model::RuntimeMode::AutoAcceptEdits
             });
         let mut params = super::thread_start::parameters(&spawn, runtime_mode);
         let resume = spawn
