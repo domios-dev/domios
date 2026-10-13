@@ -348,4 +348,61 @@ check("display JSON is identical for recursively reordered frame keys",()=> {
   const prompt:RuntimeFrame={kind:"request",requestId:"permissions",method:"item/permissions/requestApproval",params:{threadId:ctx.threadId!,permissions:{z:{b:2,a:1},a:3}}};
   assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[prompt]).events),plain(hooks.runtimeReduce(ctx,null,[{...prompt,params:reorder(prompt.params)}]).events));
 });
+check("structured A12 launch options preserve PTY settings",()=> {
+  const settings={model:"chosen-model",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"]};
+  const context={...ctx,settings};
+  const thread=plain(hooks.runtimePlan(context,{kind:"openThread",instructions:"task",settings}));
+  assert.equal(thread.action.kind,"request");
+  if(thread.action.kind !== "request")throw new Error("Expected thread request");
+  assert.deepEqual(thread.action.call.params,{cwd:ctx.cwd,model:"chosen-model",threadSource:"user",config:{check_for_update_on_startup:false,project_doc_max_bytes:65536,"sandbox_workspace_write.writable_roots":["/work/shared"],model_reasoning_effort:"high"},approvalPolicy:"never",approvalsReviewer:"user",sandbox:"danger-full-access",developerInstructions:"task"});
+  const workspace={...settings,mode:"auto-accept-edits"};
+  const op={...submit,settings:workspace} as Extract<Operation,{kind:"submitTurn"}>;
+  const turn=plain(hooks.runtimePlan({...ctx,settings:workspace},op));
+  assert.equal(turn.action.kind,"request");
+  if(turn.action.kind !== "request")throw new Error("Expected turn request");
+  assert.deepEqual((turn.action.call.params as Record<string,JsonValue>).sandboxPolicy,{type:"workspaceWrite",writableRoots:["/work/shared"]});
+  const resume=hooks.runtimePlan(context,{kind:"resumeThread",threadId:ctx.threadId!,settings});
+  assert.equal(resume.action.kind,"request");
+  if(resume.action.kind !== "request")throw new Error("Expected resume request");
+  assert.equal((resume.action.call.params as Record<string,JsonValue>).sandbox,"danger-full-access");
+});
+check("provider settings cannot replace the authorized launch mode",()=> {
+  const context={...ctx,providerSettings:{runtimeSettings:{sandbox:"danger-full-access",approvalPolicy:"never",config:{sandbox_mode:"danger-full-access"}},args:["--dangerously-bypass-approvals-and-sandbox"]}};
+  const plan=plain(hooks.runtimePlan(context,{kind:"openThread",settings:{mode:"approval-required"},instructions:"task"}));
+  if(plan.action.kind !== "request")throw new Error("Expected request");
+  const params=plan.action.call.params as Record<string,JsonValue>;
+  assert.equal(params.sandbox,"read-only");assert.equal(params.approvalPolicy,"untrusted");
+  assert.deepEqual(params.config,{check_for_update_on_startup:false,project_doc_max_bytes:65536});
+});
+check("A12b workspace-write network settings preserve false and provider defaults",()=> {
+  for(const networkAccess of [true,false,undefined]) {
+    const settings={mode:"auto-accept-edits",additionalDirectories:["/work/shared"],...(networkAccess !== undefined ? {networkAccess} : {})};
+    const context={...ctx,settings};
+    for(const op of [{kind:"openThread",instructions:"task",settings},{kind:"resumeThread",threadId:ctx.threadId!,settings}] as Operation[]) {
+      const plan=plain(hooks.runtimePlan(context,op));
+      if(plan.action.kind !== "request")throw new Error("Expected thread request");
+      const params=plan.action.call.params as Record<string,JsonValue>;
+      const config=params.config as Record<string,JsonValue>;
+      assert.equal(config["sandbox_workspace_write.network_access"],networkAccess);
+      assert.equal(Object.prototype.hasOwnProperty.call(config,"sandbox_workspace_write.network_access"),networkAccess !== undefined);
+      assert.equal(params.sandbox,"workspace-write");
+    }
+    const plan=plain(hooks.runtimePlan(context,{...submit,settings} as Operation));
+    if(plan.action.kind !== "request")throw new Error("Expected turn request");
+    const policy=(plan.action.call.params as Record<string,JsonValue>).sandboxPolicy as Record<string,JsonValue>;
+    assert.deepEqual(policy,{type:"workspaceWrite",writableRoots:["/work/shared"],...(networkAccess !== undefined ? {networkAccess} : {})});
+  }
+  for(const mode of ["approval-required","full-access"]) {
+    const settings={mode,networkAccess:true};
+    const context={...ctx,settings};
+    const plan=plain(hooks.runtimePlan(context,{kind:"openThread",instructions:"task",settings}));
+    if(plan.action.kind !== "request")throw new Error("Expected thread request");
+    const config=(plan.action.call.params as Record<string,JsonValue>).config as Record<string,JsonValue>;
+    assert.equal(Object.prototype.hasOwnProperty.call(config,"sandbox_workspace_write.network_access"),false);
+    const turn=plain(hooks.runtimePlan(context,{...submit,settings} as Operation));
+    if(turn.action.kind !== "request")throw new Error("Expected turn request");
+    const policy=(turn.action.call.params as Record<string,JsonValue>).sandboxPolicy as Record<string,JsonValue>;
+    assert.equal(Object.prototype.hasOwnProperty.call(policy,"networkAccess"),false);
+  }
+});
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);

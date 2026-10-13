@@ -572,6 +572,34 @@ function runtimeAnswer(method, params, id, answer) {
   }
 }
 
+// plugins/provider-codex/src/runtimeSettings.ts
+function codexRuntimePolicy(settings) {
+  const selected = settings.mode ?? "auto-accept-edits";
+  const policies = {
+    "approval-required": ["untrusted", "user", "readOnly"],
+    "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
+    "auto": ["on-request", "auto_review", "workspaceWrite"],
+    "full-access": ["never", "user", "dangerFullAccess"]
+  };
+  const policy = policies[selected];
+  if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
+  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
+    type: policy[2],
+    ...policy[2] === "workspaceWrite" && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
+    ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
+  } };
+}
+function codexThreadConfig(settings) {
+  const workspaceWrite = codexRuntimePolicy(settings).sandboxPolicy.type === "workspaceWrite";
+  return {
+    check_for_update_on_startup: false,
+    project_doc_max_bytes: 65536,
+    ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
+    ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
+    ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
+  };
+}
+
 // plugins/provider-codex/src/runtimeErrors.ts
 function runtimeError(value, willRetry = false) {
   const error = object(value);
@@ -777,8 +805,8 @@ function runtimeReduce(ctx, raw, frames) {
         const model = text(settings.model);
         const effort = text(settings.effort);
         const sandbox = object(settings.sandboxPolicy).type;
-        const mode2 = settings.approvalPolicy === "untrusted" ? "approval-required" : settings.approvalPolicy === "never" && sandbox === "dangerFullAccess" ? "full-access" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "auto_review" ? "auto" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0;
-        if (model || effort || mode2) events.push({ kind: "controlsConfirmed", threadId, settings: { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode2 ? { mode: mode2 } : {} } });
+        const mode = settings.approvalPolicy === "untrusted" ? "approval-required" : settings.approvalPolicy === "never" && sandbox === "dangerFullAccess" ? "full-access" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "auto_review" ? "auto" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0;
+        if (model || effort || mode) events.push({ kind: "controlsConfirmed", threadId, settings: { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} } });
         break;
       }
       case "serverRequest/resolved":
@@ -872,26 +900,14 @@ function request(method, params, state = { stage: method }) {
   const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
   return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
 }
-function mode(settings) {
-  const selected = settings.mode ?? "auto-accept-edits";
-  const policies = {
-    "approval-required": ["untrusted", "user", "readOnly"],
-    "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
-    "auto": ["on-request", "auto_review", "workspaceWrite"],
-    "full-access": ["never", "user", "dangerFullAccess"]
-  };
-  const policy = policies[selected];
-  if (!policy) fail2("unsupported", `Unsupported runtime mode: ${selected}`);
-  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: { type: policy[2] } };
-}
 function settingsParams(ctx, settings, instructions) {
-  const policies = mode(settings);
+  const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
   return {
     cwd: ctx.cwd,
     model: settings.model,
     threadSource: "user",
-    config: settings.effort ? { model_reasoning_effort: settings.effort } : {},
+    config: codexThreadConfig(settings),
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,
     sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
@@ -911,7 +927,7 @@ function turnParams(ctx, op) {
     clientUserMessageId: op.sendId,
     input,
     cwd: ctx.cwd,
-    ...mode(op.settings),
+    ...codexRuntimePolicy(op.settings),
     model: op.settings.model,
     effort: op.settings.effort
   };
@@ -962,7 +978,7 @@ function runtimePlan(ctx, op) {
       const settings = op.action === "settings" ? object(op.value) : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
       const parsed = settings;
-      return request("thread/settings/update", { threadId: thread, ...mode(parsed), model: parsed.model, effort: parsed.effort });
+      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort });
     }
   }
 }
@@ -1929,9 +1945,9 @@ function parseCodexGaugeLine(line, context, nowMs) {
   const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
   return { pct, resetsMs };
 }
-function codexPctToUsed(value, mode2) {
+function codexPctToUsed(value, mode) {
   if (isNaN(value)) return null;
-  const rawMode = mode2 === "used" ? "used" : "left";
+  const rawMode = mode === "used" ? "used" : "left";
   const pct = rawMode === "used" ? value : 100 - value;
   return Math.min(100, Math.max(0, pct));
 }
