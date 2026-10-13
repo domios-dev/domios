@@ -7,6 +7,10 @@ description: Run Domios's verification gates without burning a session on them. 
 
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 
+Set `QA_NOTIFY_TAB` to receive one immediate alert per failing step while the
+gate continues, followed by its final summary. See the reporting skill above
+for signals and log receipts.
+
 Two shapes, and picking the wrong one is what costs hours.
 
 | What you are proving | How |
@@ -129,4 +133,4 @@ account service selector and bash scripts/clippy-gate.sh in warm canonical.
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
