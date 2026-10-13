@@ -63,8 +63,15 @@ fn insert_then_list_newest_first() {
 
 #[test]
 fn per_workspace_cap_drops_oldest() {
-    let store = ClosedTabsStore::in_memory();
-    for i in 0..(RECENTLY_CLOSED_CAP + 5) {
+    let cap = 3;
+    let store = ClosedTabsStore::in_memory_with_caps(cap, CLOSED_GROUP_CAP);
+    store
+        .insert_group(
+            &group("other-group", GroupKind::Single, "other", 0),
+            &[tab("other-tab", "other", "other", 0)],
+        )
+        .unwrap();
+    for i in 0..(cap + 2) {
         store
             .insert_group(
                 &group(&format!("g{i}"), GroupKind::Single, "w", i as u64),
@@ -72,8 +79,14 @@ fn per_workspace_cap_drops_oldest() {
             )
             .unwrap();
     }
-    assert_eq!(store.count_for_workspace("w"), RECENTLY_CLOSED_CAP);
-    assert_eq!(store.list_for_workspace("w").len(), RECENTLY_CLOSED_CAP);
+    assert_eq!(store.count_for_workspace("w"), cap);
+    let ids: Vec<_> = store
+        .list_for_workspace("w")
+        .into_iter()
+        .map(|tab| tab.tab_id)
+        .collect();
+    assert_eq!(ids, ["p4", "p3", "p2"]);
+    assert_eq!(store.list_for_workspace("other")[0].tab_id, "other-tab");
 }
 
 #[test]
@@ -325,19 +338,28 @@ fn survives_drop_and_reopen() {
 
 #[test]
 fn global_group_cap_drops_oldest_groups() {
-    let store = ClosedTabsStore::in_memory();
-    for i in 0..(CLOSED_GROUP_CAP + 3) {
+    let cap = 3;
+    let store = ClosedTabsStore::in_memory_with_caps(RECENTLY_CLOSED_CAP, cap);
+    for i in 0..(cap + 2) {
         let ws = format!("w{i}");
         store
             .insert_group(
                 &group(&format!("g{i}"), GroupKind::Workspace, &ws, i as u64),
-                &[tab(&format!("p{i}"), &ws, "t", i as u64)],
+                &[
+                    tab(&format!("p{i}-a"), &ws, "t", i as u64),
+                    tab(&format!("p{i}-b"), &ws, "t", i as u64),
+                ],
             )
             .unwrap();
     }
-    let total: usize = store.list_recent(CLOSED_GROUP_CAP + 100).len();
-    assert_eq!(total, CLOSED_GROUP_CAP, "global group cap bounds total");
-    assert!(store.list_for_workspace("w0").is_empty());
+    let rows = store.list_recent(20);
+    let ids: Vec<_> = rows.into_iter().map(|row| row.tab.tab_id).collect();
+    assert_eq!(ids, ["p4-b", "p4-a", "p3-b", "p3-a", "p2-b", "p2-a"]);
+    assert!(store.peek_group("g0").is_none());
+    assert!(store.peek_group("g1").is_none());
+    for id in ["g2", "g3", "g4"] {
+        assert_eq!(store.peek_group(id).unwrap().1.len(), 2);
+    }
 }
 
 /// The exact on-disk shape a fully-migrated pre-rename (v3) install left

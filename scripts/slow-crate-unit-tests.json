@@ -67,21 +67,6 @@
       "measuredSeconds": 1.066
     },
     {
-      "binary": "codeterm-pty",
-      "test": "multiplexer::state::closed::store::tests::global_group_cap_drops_oldest_groups",
-      "measuredSeconds": 1.097
-    },
-    {
-      "binary": "codeterm-pty",
-      "test": "multiplexer::state::closed::store::tests::per_workspace_cap_drops_oldest",
-      "measuredSeconds": 1.4
-    },
-    {
-      "binary": "codeterm-pty",
-      "test": "multiplexer::state::closed::tests::history_is_bounded_at_cap",
-      "measuredSeconds": 1.944
-    },
-    {
       "binary": "codeterm-repowatch",
       "test": "tests::ref_events::repository_watcher_emits_ref_and_index_events",
       "measuredSeconds": 1.741
