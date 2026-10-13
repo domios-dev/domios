@@ -474,6 +474,10 @@ runner from the shared pool or replace its service/global PATH to hide failure.
 
 ## CI archive extraction
 
+CI sets `CODETERM_SCCACHE_VERIFY_ONLY=1`, so build wrappers verify the running
+shared cache without starting or stopping it. The archive builder runs
+`./build.sh cache-verify` before compilation; provisioning belongs to idle setup.
+
 If archive classification rejects a generated `include!`, the classifier needs
 the package's exact Cargo `build-script-executed` OUT_DIR. The archive builder
 captures Cargo JSON and passes that directory to the classifier, which traverses
