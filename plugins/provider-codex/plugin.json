@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.4",
-  "minCodeterm": "1.14.1",
+  "version": "1.14.5",
+  "minCodeterm": "1.14.7",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -11,6 +11,85 @@
     "structuredControl": {
       "protocol": "codex-app-server",
       "minVersion": "0.159.0"
+    },
+    "agentRuntime": {
+      "runtime": "stdio-jsonrpc",
+      "command": {
+        "binary": "codex",
+        "args": [
+          "app-server"
+        ]
+      },
+      "inheritedEnvironmentExclusions": [
+        "CODEX_THREAD_ID",
+        "CODEX_INTERNAL_ORIGINATOR_OVERRIDE"
+      ],
+      "requestMethods": {
+        "initialize": [
+          "initialize",
+          "initialized",
+          "account/read"
+        ],
+        "openThread": [
+          "thread/start",
+          "thread/inject_items"
+        ],
+        "resumeThread": [
+          "thread/resume",
+          "thread/read",
+          "thread/unarchive"
+        ],
+        "readHistory": [
+          "thread/turns/list",
+          "thread/items/list",
+          "thread/goal/get"
+        ],
+        "submitTurn": [
+          "turn/start",
+          "turn/steer"
+        ],
+        "interrupt": [
+          "turn/interrupt"
+        ],
+        "control": [
+          "thread/settings/update",
+          "thread/compact/start",
+          "thread/inject_items",
+          "account/read"
+        ]
+      },
+      "notificationMethods": [
+        "account/updated",
+        "thread/started",
+        "thread/status/changed",
+        "thread/settings/updated",
+        "thread/tokenUsage/updated",
+        "thread/compacted",
+        "thread/goal/updated",
+        "thread/goal/cleared",
+        "model/rerouted",
+        "turn/diff/updated",
+        "account/rateLimits/updated",
+        "turn/started",
+        "turn/completed",
+        "turn/plan/updated",
+        "item/started",
+        "item/completed",
+        "item/agentMessage/delta",
+        "item/plan/delta",
+        "item/reasoning/textDelta",
+        "item/reasoning/summaryTextDelta",
+        "item/commandExecution/outputDelta",
+        "item/fileChange/outputDelta",
+        "item/mcpToolCall/progress",
+        "serverRequest/resolved",
+        "error"
+      ]
+    },
+    "chatBackend": {
+      "spawnable": true,
+      "sessionConfig": true,
+      "agentTasks": true
     }
   },
   "iconColor": "var(--ct-fg)",
