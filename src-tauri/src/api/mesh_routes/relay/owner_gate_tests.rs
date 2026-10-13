@@ -111,7 +111,6 @@ fn refusal_code(response: &crate::mesh::types::RelayResponse) -> Option<&str> {
 
 const TAB_WRITES: [&str; 5] = ["send", "exec", "respond", "prompt/respond", "attachments"];
 
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 #[tokio::test]
 async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
     let (mux, tabs) = mux_with_tabs();
@@ -147,7 +146,6 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 #[tokio::test]
 async fn relayed_writes_into_an_owned_tab_pass_the_shared_owner_check() {
     let (mux, tabs) = mux_with_tabs();
@@ -194,7 +192,6 @@ async fn relayed_writes_into_an_owned_tab_pass_the_shared_owner_check() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 #[tokio::test]
 async fn dot_segments_cannot_retarget_an_authorized_relay() {
     let (mux, tabs) = mux_with_tabs();
@@ -212,7 +209,6 @@ async fn dot_segments_cannot_retarget_an_authorized_relay() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 #[test]
 fn relayed_isolated_listing_keeps_only_owned_rows() {
     let (mux, tabs) = mux_with_tabs();

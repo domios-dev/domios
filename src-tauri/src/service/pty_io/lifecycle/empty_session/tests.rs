@@ -249,7 +249,6 @@ fn quarantine_evidence_is_exact_session_scoped_and_malformed_data_is_unknown() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restore_service_claims_fresh_only_for_an_empty_missing_session() {
     for evidence in [Some(false), Some(true), None] {
         let (mut state, id) = MultiplexerState::new();

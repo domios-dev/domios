@@ -20,7 +20,7 @@ pub type SessionState = Arc<Mutex<SessionStore>>;
 
 #[tauri::command]
 pub async fn save_session(
-    app: tauri::AppHandle,
+    app: crate::app_runtime::AppHandle,
     mux: tauri::State<'_, MuxState>,
     _session: tauri::State<'_, SessionState>,
 ) -> Result<(), String> {
@@ -44,7 +44,7 @@ pub fn list_saved_sessions(session: tauri::State<'_, SessionState>) -> Result<Ve
 
 #[tauri::command]
 pub fn load_session(
-    app: tauri::AppHandle,
+    app: crate::app_runtime::AppHandle,
     session: tauri::State<'_, SessionState>,
     name: Option<String>,
 ) -> Result<Option<SessionSnapshot>, String> {

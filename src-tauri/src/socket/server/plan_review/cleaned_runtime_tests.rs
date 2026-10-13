@@ -308,7 +308,6 @@ fn dispatch_bounce(fixture: &ServiceFixture, params: Value) -> Result<Value, sup
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_review_cleaned_runtime_two_generations_endpoint() {
     let runtime = fixture();
     let store = &runtime.fixture.service.plan_store;

@@ -186,7 +186,6 @@ fn supporter_first_opinion_safe_response_fresh_observation_in_same_occurrence_ha
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_reused_pty_new_nonce_and_user_answer_rejected() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&tab_id, "reused-pty".into());
@@ -223,7 +222,6 @@ fn supporter_first_opinion_reused_pty_new_nonce_and_user_answer_rejected() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_service_ledgers_are_part_of_action_ticket() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -342,7 +340,6 @@ fn supporter_first_opinion_all_named_questions_fit_one_bounded_envelope() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_user_response_changes_prompt_receipt_without_a_redraw() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -377,7 +374,6 @@ fn supporter_first_opinion_user_response_changes_prompt_receipt_without_a_redraw
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_fixture_cancels_after_user_response_without_a_redraw() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     {

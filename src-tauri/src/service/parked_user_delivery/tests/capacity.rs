@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn full_user_owner_refuses_new_admission_without_consuming_backend_ledger_capacity() {
     let (fixture, tab) = queue_fixture(true, None);
     let accepted = (0..crate::service::pending_delivery_payloads::user_sends::MAX_UNSETTLED)
@@ -49,10 +45,6 @@ fn full_user_owner_refuses_new_admission_without_consuming_backend_ledger_capaci
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn zero_write_refusal_retries_head_then_writes_following_sends_after_uncertainty() {
     for reason in [
         UserWake::Housekeeping,

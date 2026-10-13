@@ -75,7 +75,7 @@ fn render_abort(abort: &UpdateAbort) -> String {
 
 /// Retains abort evidence and runtime status without raising a notification.
 pub struct AppFailureSink {
-    pub app: tauri::AppHandle,
+    pub app: crate::app_runtime::AppHandle,
     pub update_state: crate::UpdateStateHandle,
 }
 

@@ -42,10 +42,6 @@ mod tests {
     use crate::multiplexer::state::MultiplexerState;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-    )]
     fn stop_idle_agent_is_noop() {
         let (mut mux, tab_id) = MultiplexerState::new();
         {

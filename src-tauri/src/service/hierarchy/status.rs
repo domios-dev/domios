@@ -68,10 +68,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-    )]
     fn tab_status_single_source() {
         let (mut mux, tab_id) = MultiplexerState::new();
         {
@@ -130,10 +126,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-    )]
     fn provider_turn_error_surfaces_status() {
         let (mut mux, tab_id) = MultiplexerState::new();
         {
@@ -155,10 +147,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-    )]
     fn provider_turn_error_after_user_interrupt_surfaces_idle_status() {
         let (mut mux, tab_id) = MultiplexerState::new();
         {
@@ -181,10 +169,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-    )]
     fn get_tab_status_includes_pending_prompt_for_terminal_choice() {
         let (mut mux, tab_id) = MultiplexerState::new();
         mux.get_tab_mut(&tab_id).unwrap().pending_prompt = Some(PendingPrompt {

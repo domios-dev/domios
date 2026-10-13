@@ -2,7 +2,6 @@ use super::tests::scene;
 use codeterm_plugin::local_recording::LocalRecordingTrigger;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn lark_recording_contract_local_recipient_without_webhook_and_closed_choice_tombstone() {
     let scene = scene();
     let service = &scene.fixture.service;

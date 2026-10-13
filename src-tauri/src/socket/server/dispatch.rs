@@ -490,7 +490,6 @@ mod tests {
     use tauri::Manager;
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn cron_settle_service_rpc_closes_completed_tab() {
         let (mut mux, initial_tab) = MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&initial_tab).unwrap();

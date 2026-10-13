@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn owner_rebound_invalidates_its_prior_reporter_grants() {
     let h = plan_evidence_harness();
     let token = "owner-rebound-refused-a57d143c";
@@ -32,7 +31,6 @@ fn owner_rebound_invalidates_its_prior_reporter_grants() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_root_orchestrator_report_persists_as_plan_stride_without_parent() {
     let h = plan_evidence_harness();
     let token = "root-report-stride-proof";

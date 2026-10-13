@@ -78,7 +78,6 @@ fn team_workspace_is_absent_for_an_unregistered_team() {
     assert_eq!(moved.mux.team_workspace("team_missing"), None);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn team_workspace_names_the_current_project_in_the_manager_bootstrap() {
     let moved = moved_team();

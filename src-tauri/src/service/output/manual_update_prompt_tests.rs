@@ -64,7 +64,6 @@ fn provider(state: TabState, prompt: PendingPrompt) -> MockProvider {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
     let screen = update_frame();
     let visible = menu_options(&screen);
@@ -199,7 +198,6 @@ fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn owner_launched_update_prompt_remains_owner_facing() {
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("fixture".into());
@@ -254,7 +252,6 @@ fn owner_launched_update_prompt_remains_owner_facing() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn codex_update_dialog_is_a_respondable_structured_prompt() {
     let screen = update_frame();
     let prompt = PendingPrompt {
@@ -322,7 +319,6 @@ fn non_update_dialog_does_not_use_the_manual_update_prompt_path() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -430,7 +426,6 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -494,7 +489,6 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_unchanged_screen() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -606,7 +600,6 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn ga_connected_update_prompt_does_not_bypass_model_gate() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

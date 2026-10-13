@@ -216,7 +216,7 @@ async fn probe_local_health(client: &reqwest::Client, api_port: u16) -> bool {
 }
 
 async fn publish_api_recovery(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     mesh: &crate::MeshStateHandle,
     recovery: &crate::startup::RestApiRecovery,
 ) {
@@ -234,7 +234,7 @@ async fn publish_api_recovery(
 }
 
 pub(crate) fn start_api_liveness_watchdog(
-    app: tauri::AppHandle,
+    app: crate::app_runtime::AppHandle,
     mesh: crate::MeshStateHandle,
     rest_api: crate::startup::RestApiControlState,
     api_port: u16,

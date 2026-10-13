@@ -63,10 +63,6 @@ fn startup_recovery_guard_only_applies_to_lane_metadata_updates() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn plan_mutation_requires_plan_role() {
     let harness = authority_fixture();
     let foreign = live_tab(&harness.fixture, "foreign-session", "foreign-nonce");
@@ -98,10 +94,6 @@ fn plan_mutation_requires_plan_role() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn worker_block_update_is_refused_but_plan_owner_may_explicitly_block() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -349,7 +341,6 @@ fn recovery_authority_recovery_verbs_are_a_subset_of_plan_owner_authority() {
 }
 
 /// Mechanism 1: the tab-gone escape hatch fires for dispatch.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn recovery_authority_recovers_a_tab_gone_task_for_dispatch() {
     for method in TAB_GONE_RECOVERY_VERBS {
@@ -395,7 +386,6 @@ fn recovery_authority_recovers_a_tab_gone_task_for_dispatch() {
 
 /// Mechanism 2 (negative control): the same verbs, the same tab-gone task, a
 /// caller that is not the Plan owner — refused, and nothing is retired.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn recovery_authority_still_refuses_a_foreign_caller_for_the_same_verbs() {
     for method in TAB_GONE_RECOVERY_VERBS {
@@ -449,7 +439,6 @@ fn recovery_authority_still_refuses_a_foreign_caller_for_the_same_verbs() {
 
 /// Mechanism 3: every refusal carries the discriminant of the state that
 /// actually blocked it, so a tab-gone task never reports a stale epoch.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn recovery_authority_refusals_name_the_real_condition_by_discriminant() {
     let harness = authority_fixture();
@@ -497,7 +486,6 @@ fn recovery_authority_refusals_name_the_real_condition_by_discriminant() {
 
 /// Mechanism 3, the case the live Orchestrator hit: owner gone, caller IS the
 /// Plan owner, verb outside the recovery list — named as such, not as an epoch.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn recovery_authority_names_verb_ineligibility_on_a_tab_gone_task() {
     let harness = authority_fixture();
@@ -529,7 +517,6 @@ fn recovery_authority_names_verb_ineligibility_on_a_tab_gone_task() {
 /// Mechanism 4: the Plan owner is recognised from the LIVE tab, so a session
 /// that moved without an agent restart no longer locks the owner out; a foreign
 /// tab and an unproven binding stay refused against the same moved record.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn recovery_authority_admits_a_moved_owner_session_but_not_a_foreign_tab() {
     let harness = authority_fixture();
@@ -584,10 +571,6 @@ fn recovery_authority_admits_a_moved_owner_session_but_not_a_foreign_tab() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn task_authority_live_binding_orchestrator_can_close_after_session_move() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -634,10 +617,6 @@ fn task_authority_live_binding_orchestrator_can_close_after_session_move() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn task_authority_live_binding_worker_can_close_after_session_move() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -685,10 +664,6 @@ fn task_authority_live_binding_worker_can_close_after_session_move() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn task_authority_live_binding_stale_tab_is_refused_without_mutation() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -723,10 +698,6 @@ fn task_authority_live_binding_stale_tab_is_refused_without_mutation() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn task_authority_live_binding_refusal_names_both_compared_identities() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -762,10 +733,6 @@ fn task_authority_live_binding_refusal_names_both_compared_identities() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn task_authority_live_binding_plan_owner_methods_converge_after_session_move() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -798,10 +765,6 @@ fn task_authority_live_binding_plan_owner_methods_converge_after_session_move() 
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn task_authority_live_binding_report_path_accepts_a_moved_worker_session() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -883,7 +846,6 @@ fn task_authority_live_binding_report_path_accepts_a_moved_worker_session() {
 /// Mechanism 5: the widened hatch is not a laundering path. A verb that asserts
 /// the CALLER's own task binding gets neither recovery nor the Plan-owner
 /// shortcut, so a stale binding transitions nothing on either owner state.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn recovery_authority_does_not_launder_a_stale_binding_report() {
     for (owner_tab, owner_session, expected) in [

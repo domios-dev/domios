@@ -122,7 +122,6 @@ fn dispatch(harness: &UnplannedFixture, params: &Option<Value>) -> Result<Value,
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
     let harness = fixture();
     let response = dispatch(&harness, &params(&harness, "urgent probe")).unwrap();
@@ -231,7 +230,6 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
     let harness = fixture();
     let provider_id = "live-dispatch-fixture";
@@ -278,7 +276,6 @@ fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unplanned_worker_requires_reason_and_orchestrator_authority() {
     let harness = fixture();
     let empty_reason = dispatch(&harness, &params(&harness, "   ")).unwrap_err();
@@ -342,7 +339,6 @@ fn unplanned_worker_requires_reason_and_orchestrator_authority() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_close_cleans_up_unplanned_worker() {
     let harness = fixture();
     let response = dispatch(&harness, &params(&harness, "urgent probe")).unwrap();
@@ -382,7 +378,6 @@ fn team_close_cleans_up_unplanned_worker() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unplanned_worker_dispatch_failure_removes_created_task() {
     let harness = fixture();
     let before = harness
@@ -416,7 +411,6 @@ fn unplanned_worker_dispatch_failure_removes_created_task() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unplanned_worker_refuses_unbound_team() {
     let harness = fixture();
     let error = super::super::unplanned::dispatch_unplanned_with_spawn(

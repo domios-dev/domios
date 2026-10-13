@@ -90,7 +90,7 @@ type StatusEmitter = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
 static STATUS_EMITTER: std::sync::OnceLock<StatusEmitter> = std::sync::OnceLock::new();
 
-pub fn bind_status_emitter(app: tauri::AppHandle) {
+pub fn bind_status_emitter(app: crate::app_runtime::AppHandle) {
     let _ = STATUS_EMITTER.set(Box::new(move |status| {
         crate::api::events::emit_everywhere(&app, "update-status-changed", status);
     }));

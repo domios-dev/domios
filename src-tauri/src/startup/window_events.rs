@@ -2,7 +2,7 @@ use crate::multiplexer::commands::MuxState;
 use crate::session::SessionState;
 use tauri::Manager;
 
-pub(crate) fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+pub(crate) fn handle_window_event(window: &crate::app_runtime::Window, event: &tauri::WindowEvent) {
     if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {
         if let Some(service) = window
             .app_handle()

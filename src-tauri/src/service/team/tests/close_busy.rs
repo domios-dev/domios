@@ -49,10 +49,6 @@ fn busy_team_fixture() -> (ServiceFixture, String, String, String, String, Strin
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn team_close_refuses_busy_worker() {
     let (fixture, team_id, orchestrator, worker, plan_id, task_id) = busy_team_fixture();
 
@@ -77,10 +73,6 @@ async fn team_close_refuses_busy_worker() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn forced_team_close_reports_killed_work_and_keeps_plan_flagged() {
     let (fixture, team_id, orchestrator, worker, plan_id, task_id) = busy_team_fixture();
 

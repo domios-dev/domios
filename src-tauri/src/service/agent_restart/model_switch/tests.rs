@@ -45,7 +45,6 @@ fn first_post_boundary_model_confirms_match_and_rejects_old_model() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
     for (mode, general) in [
@@ -271,7 +270,6 @@ fn restart_attempted(fixture: &ServiceFixture, tab_id: &str) -> bool {
 /// The capability alone decides the path. An unsupported provider is refused
 /// before a restart claim exists, and the claim is the only road to the
 /// graceful-exit write, so nothing reaches the tab and its record is untouched.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn agent_model_switch_uses_provider_capability() {
     let (mut mux, fixed_tab) = seeded_tab("fixed-7f3a");
@@ -328,7 +326,6 @@ fn agent_model_switch_uses_provider_capability() {
 
 /// The relaunch resumes the tab's own session with the new model's launch
 /// args, and committing it rewrites the spawn record a daemon restore reads.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn agent_model_switch_updates_spawn_record_for_restore() {
     const PROVIDER: &str = "switchable-9d5c";
@@ -395,7 +392,6 @@ fn agent_model_switch_updates_spawn_record_for_restore() {
 }
 
 /// A pre-switch report never satisfies observation for a relaunched model.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn agent_model_switch_observes_only_the_current_binding_report() {
     const PROVIDER: &str = "switchable-2b7e";
@@ -445,7 +441,6 @@ fn agent_model_switch_observes_only_the_current_binding_report() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn agent_model_switch_waits_past_a_mismatching_start_report_for_the_first_turn() {
     const PROVIDER: &str = "switchable-first-turn-2b7e";
@@ -511,7 +506,6 @@ fn agent_model_switch_waits_past_a_mismatching_start_report_for_the_first_turn()
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn model_switch_without_model_evidence_returns_pending_confirmation() {
     const PROVIDER: &str = "switchable-pending-2b7e";
@@ -554,7 +548,6 @@ fn model_switch_without_model_evidence_returns_pending_confirmation() {
     assert_eq!(confirmation, ModelSwitchConfirmation::Pending);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn model_switch_prepares_with_an_unavailable_boundary_and_keeps_confirmation_pending() {
     const PROVIDER: &str = "switchable-no-boundary-2b7e";
