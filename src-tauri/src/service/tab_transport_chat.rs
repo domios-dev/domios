@@ -79,7 +79,9 @@ fn open_chatbackend_session(
         ChatBackendInstructionDelivery::Blocked { code } => Err(serde_json::json!({
             "code": code,
             "delivery": "blocked",
-            "transport": "chat_backend"
+            "transport": "chat_backend",
+            "required_capability": "chatBackend.sessionConfig",
+            "message": "This plugin does not support system instructions. Spawning an agent requires a backend that accepts the launch system prompt through session configuration. Update the plugin or choose a compatible backend."
         })
         .to_string()),
     }
@@ -696,6 +698,7 @@ mod tests {
         let error: serde_json::Value = serde_json::from_str(&error).unwrap();
         assert_eq!(error["code"], "chat_backend_session_config_required");
         assert_eq!(error["delivery"], "blocked");
+        assert_eq!(error["required_capability"], "chatBackend.sessionConfig");
         assert!(opens.lock().is_empty(), "blocked backends are never opened");
     }
 
