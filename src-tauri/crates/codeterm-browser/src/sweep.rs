@@ -174,7 +174,7 @@ fn enumerate_processes() -> Result<Vec<ProcessRow>, String> {
         Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*--user-data-dir=*' } | \
         Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress";
     let mut command = std::process::Command::new("powershell");
-    crate::process_util::no_window_std(&mut command);
+    codeterm_util::process_util::no_window_std(&mut command);
     command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
     let output = command
         .output()
@@ -192,7 +192,7 @@ fn enumerate_processes() -> Result<Vec<ProcessRow>, String> {
 #[cfg(not(windows))]
 fn enumerate_processes() -> Result<Vec<ProcessRow>, String> {
     let mut command = std::process::Command::new("ps");
-    crate::process_util::no_window_std(&mut command);
+    codeterm_util::process_util::no_window_std(&mut command);
     command.args(["-axww", "-o", "pid=,ppid=,args="]);
     let output = command
         .output()
@@ -207,7 +207,7 @@ fn enumerate_processes() -> Result<Vec<ProcessRow>, String> {
 #[cfg(windows)]
 pub fn kill_tree_blocking(pid: u32) -> Result<(), String> {
     let mut command = std::process::Command::new("taskkill");
-    crate::process_util::no_window_std(&mut command);
+    codeterm_util::process_util::no_window_std(&mut command);
     command.args(["/PID", &pid.to_string(), "/T", "/F"]);
     let status = command.status().map_err(|error| error.to_string())?;
     if status.success() {

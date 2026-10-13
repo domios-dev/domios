@@ -1,7 +1,7 @@
 use super::lease_model::LeaseModel;
 use super::ProfileKind;
-use crate::service::browser::cdp::CdpClient;
-use crate::service::browser::process::{BrowserProcess, CloseOutcome, CLOSE_DEADLINE};
+use crate::cdp::CdpClient;
+use crate::process::{BrowserProcess, CloseOutcome, CLOSE_DEADLINE};
 use parking_lot::Mutex;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -55,7 +55,7 @@ fn slots() -> &'static Mutex<HashMap<PathBuf, Weak<Slot>>> {
 }
 
 fn slot_for(dir: &PathBuf) -> Arc<Slot> {
-    let key = if crate::service::browser::sweep::paths_case_insensitive() {
+    let key = if crate::sweep::paths_case_insensitive() {
         PathBuf::from(dir.to_string_lossy().to_ascii_lowercase())
     } else {
         dir.clone()
