@@ -151,3 +151,6 @@ pub fn apply(
         cfg.desktop = true;
     }
 }
+
+#[cfg(test)]
+mod tests;

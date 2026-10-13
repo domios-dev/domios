@@ -134,8 +134,8 @@ pub fn resolved_text(carried: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::notification::push::PushBounds;
-    use crate::notification::store::{NotificationSeverity, NotificationStore};
+    use crate::push::PushBounds;
+    use crate::store::{NotificationSeverity, NotificationStore};
     use codeterm_types::notification::{adopt_caller_actions, answer_actions};
 
     const BOUNDS: PushBounds = PushBounds::for_ceiling(4096);
@@ -147,7 +147,7 @@ mod tests {
             None,
             NotificationSeverity::Info,
             NotificationProvenance::default(),
-            crate::notification::store::Ask::default(),
+            crate::store::Ask::default(),
             None,
             None,
         );
@@ -181,11 +181,11 @@ mod tests {
                 tab_id: Some("tab-asking".into()),
                 ..Default::default()
             },
-            crate::notification::store::Ask::offering(Some(adopt_caller_actions(
+            crate::store::Ask::offering(Some(adopt_caller_actions(
                 answer_actions(&["Ship it".to_string(), "Hold".to_string()]).expect("legal set"),
             ))),
             None,
-            Some(crate::notification::push::NotifyLevel::ActionNeeded),
+            Some(crate::push::NotifyLevel::ActionNeeded),
         );
         store.remember_channel_placement(&id, "telegram", "5:9");
         assert!(

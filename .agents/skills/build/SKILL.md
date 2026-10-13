@@ -71,6 +71,7 @@ installer build into a public release by uploading it manually.
 
 The utility and browser crates use `./build.sh test-one util|browser <selector>`; these focused operations acquire the build gateway and accept `--wait-build`.
 The isolated detection crate uses `./build.sh test-one agent-detect <selector>` through the build gateway.
+The notification domain crate uses `./build.sh test-one notification-core <selector>`; focused runs enter the build gateway and support `--wait-build`.
 
 The isolated billing crate uses `./build.sh test-one billing <selector>`; workers defer Rust execution to canonical.
 
