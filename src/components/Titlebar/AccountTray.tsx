@@ -8,12 +8,10 @@ import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
 
 const googleIcon = new URL("../../../web/public/account/google.svg", import.meta.url).href;
-const facebookIcon = new URL("../../../web/public/account/facebook.svg", import.meta.url).href;
+const facebookIcon = new URL("../../../web/public/account/facebook-badge.svg", import.meta.url).href;
 
-function BrandIcon({ source, badge }: { source: string; badge?: string }) {
-  if (!badge) return <img src={source} alt="" width={16} height={16} className="shrink-0" />;
-  return <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
-    style={{ backgroundColor: badge }}><img src={source} alt="" width={10} height={10} /></span>;
+function BrandIcon({ source }: { source: string }) {
+  return <img src={source} alt="" width={16} height={16} className="shrink-0" />;
 }
 
 export function AccountTray() {
@@ -32,7 +30,7 @@ export function AccountTray() {
     { label: "Create account", icon: <UserPlus size={16} />, disabled: pending, onClick: () => void account.signIn({mode:"signup"}) },
     { separator: true, key: "account-methods" },
     { label: "Continue with Google", icon: <BrandIcon source={googleIcon} />, disabled: pending, onClick: () => void account.signIn({provider:"google",mode:"signin"}) },
-    { label: "Continue with Facebook", icon: <BrandIcon source={facebookIcon} badge="#1877F2" />, disabled: pending, onClick: () => void account.signIn({provider:"facebook",mode:"signin"}) },
+    { label: "Continue with Facebook", icon: <BrandIcon source={facebookIcon} />, disabled: pending, onClick: () => void account.signIn({provider:"facebook",mode:"signin"}) },
     { label: "Continue with email", icon: <Mail size={16} />, disabled: pending, onClick: () => void account.signIn({provider:"email",mode:"signin"}) },
   ];
   items.push({separator:true,key:"community"},communityMenu());

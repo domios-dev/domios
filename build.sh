@@ -82,11 +82,22 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
       echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
       exit 127
     fi
-    DEV_NOTIFY_SENT_MARKER="${TMPDIR:-/tmp}/codeterm-dev-notify.$$.sent"
-    rm -rf "$DEV_NOTIFY_SENT_MARKER"
+    DEV_NOTIFY_SENT_MARKER="${DEV_NOTIFY_SENT_MARKER:-${TMPDIR:-/tmp}/codeterm-dev-notify.$$.sent}"
+    if [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ]; then rm -rf "$DEV_NOTIFY_SENT_MARKER"; fi
     DEV_NOTIFY_STAGE=setup
     trap 'dev_notify_exit_report "$?"' EXIT
   fi
+fi
+
+if [ -n "$DEV_NOTIFY_TAB" ] && [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ]; then
+  DEV_NOTIFY_STREAM_LOG="$(mktemp "${TMPDIR:-/tmp}/codeterm-dev-stream.XXXXXX")"
+  DEV_NOTIFY_EARLY_MARKER="$DEV_NOTIFY_SENT_MARKER"
+  trap - EXIT
+  DEV_NOTIFY_STREAM_STATUS=0
+  report_run_stream "$DEV_NOTIFY_EARLY_MARKER" "$DEV_NOTIFY_TAB" "$CMD" startup "$DEV_NOTIFY_STREAM_LOG" \
+    env DEV_NOTIFY_STREAM_CHILD=1 DEV_NOTIFY_SENT_MARKER="$DEV_NOTIFY_SENT_MARKER" bash "$0" "$@" || DEV_NOTIFY_STREAM_STATUS=$?
+  rm -rf "$DEV_NOTIFY_EARLY_MARKER"
+  exit "$DEV_NOTIFY_STREAM_STATUS"
 fi
 
 # --- Load .env (build secrets like UPDATER_TOKEN) ---
@@ -2194,9 +2205,8 @@ EOF
         DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
         EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
         DEV_NOTIFY_STAGE=launch
-        dev_notify_wait_stream "$INTERACTIVE_LOG" 600 "$$" "$DEV_NOTIFY_TAB" &
-        DEV_NOTIFY_WAITER_PID=$!
-        exec 3> >(tee -a "$INTERACTIVE_LOG")
+        DEV_NOTIFY_WAITER_PID=
+        exec 3> >(tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
         DEV_NOTIFY_TEE_PID=$!
         if ( exec "$(dev_app_path)" ) >&3 2>&1; then
           DEV_NOTIFY_STATUS=0
@@ -2391,9 +2401,8 @@ EOF
         DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
         EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
         DEV_NOTIFY_STAGE=launch
-        dev_notify_wait_stream "$INTERACTIVE_LOG" 600 "$$" "$DEV_NOTIFY_TAB" &
-        DEV_NOTIFY_WAITER_PID=$!
-        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" 2>&1 | tee -a "$INTERACTIVE_LOG"; then
+        DEV_NOTIFY_WAITER_PID=
+        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" 2>&1 | tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev; then
           DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
         else
           DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")

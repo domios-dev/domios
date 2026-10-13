@@ -1241,6 +1241,12 @@
         "POST",
         "/api/tabs/tab/agent/runtime/questions/question/answer"
       ]
+    ],
+    "agent_runtime_login": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/login"
+      ]
     ]
   }
 }

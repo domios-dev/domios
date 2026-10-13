@@ -92,12 +92,14 @@ export type AgentEvent =
   | {kind:"controlsConfirmed"; threadId:string; settings:RuntimeSettings}
   | {kind:"contextCompacted"; threadId:string; itemId:string}
   | {kind:"question"; threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"}
+  | {kind:"authLogin"; login:RuntimeLoginState}
   | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; detail?:string}
   | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]};
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export interface StdioAgentRuntimeCapability {
   runtime:"stdio-jsonrpc";
   command:{binary:string; args:readonly string[]};
+  login?: {methods:readonly RuntimeLoginMethod[]; terminalCommand?:string};
   inheritedEnvironmentExclusions?:readonly string[];
   requestMethods:Partial<Record<Operation["kind"], readonly string[]>>;
   notificationMethods:readonly string[];
@@ -130,3 +132,6 @@ export interface RuntimeHistoryQuestion {threadId:string; itemId:string; questio
 
 export type RuntimeRestoreContext = {instructions:string|null; additionalContext:readonly RuntimeAdditionalContext[]}
 export type RuntimeAdditionalContext = {key:string; kind:"application"|"user"; value:string}
+
+export type RuntimeLoginMethod = "browser"|"device"|"apiKey";
+export interface RuntimeLoginState {status:"pending"|"completed"|"failed"|"canceled"; loginId?:string; method?:RuntimeLoginMethod; url?:string; userCode?:string; error?:string}

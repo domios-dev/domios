@@ -251,12 +251,19 @@ fn unmarked_contract_bounds(existing: &str) -> Option<(usize, usize)> {
     .into_iter()
     .find_map(|primer| {
         let prelude = existing[..heading].strip_suffix("\n\n---\n\n")?;
+        let prelude = without_role_authority(prelude, crate::service::orchestrator::ROLE_AUTHORITY);
         without_built_in_plugins_section(prelude)
             .strip_suffix(primer)
             .map(|notes| notes.len())
     })
     .unwrap_or(heading);
     Some((start, end))
+}
+
+fn without_role_authority<'a>(prelude: &'a str, authority: &str) -> &'a str {
+    prelude
+        .strip_suffix(&format!("\n\n{authority}"))
+        .unwrap_or(prelude)
 }
 
 fn without_built_in_plugins_section(prelude: &str) -> &str {
@@ -660,6 +667,18 @@ mod tests {
             assert_eq!(agents.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 1);
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn role_authority_stripping_preserves_notes_and_accepts_only_an_exact_suffix() {
+        let authority = "opaque-authority";
+        let original = format!("opaque-notes:{authority}\nopaque-primer\nopaque-plugins");
+        let current = format!("{original}\n\n{authority}");
+        assert_eq!(without_role_authority(&current, authority), original);
+        assert_eq!(without_role_authority(&original, authority), original);
+        let foreign = format!("{current}\nopaque-user-note");
+        assert_eq!(without_role_authority(&foreign, authority), foreign);
+        assert_eq!(without_role_authority(authority, authority), authority);
     }
 
     #[test]

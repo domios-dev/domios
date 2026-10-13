@@ -160,7 +160,7 @@ test("qa_report_pipefail_catches_false_pipe_tail", () => {
     assert.equal(result.status, 1);
     assert.match(result.stdout, /\[1\/1\] rc=1 false \| tail -1/);
     assert.match(result.stdout, /QA pipefail: FAIL \(0\/1 ok\)/);
-    assert.equal(records(h.parentRecord).length, 1);
+    assert.equal(records(h.parentRecord).length, 2);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -212,7 +212,7 @@ test("qa_report_failure_includes_tail", () => {
     const command = "i=1; while [ \"$i\" -le 30 ]; do printf '%s\\n' \"$i\"; i=$((i + 1)); done; exit 3";
     const result = runQa(h, "tail", [command], { QA_NOTIFY_TAB: "agent-tab" });
     assert.equal(result.status, 1);
-    const body = records(h.parentRecord)[0].body;
+    const body = records(h.parentRecord).at(-1).body;
     assert.match(body, /\[1\/1\] rc=3/);
     const lastLines = Array.from({ length: 25 }, (_, i) => String(i + 6)).join("\n") + "\n";
     assert.ok(body.includes(":\n" + lastLines), "summary carries exactly the last 25 lines");

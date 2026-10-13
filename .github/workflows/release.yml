@@ -13,6 +13,11 @@ on:
         description: 'Release branch release/X.Y.Z (or vX.Y.Z) to build; with dry_run, any branch'
         required: true
         type: string
+      dry_run_tests:
+        description: Run the full test matrix during a dry run
+        required: false
+        default: true
+        type: boolean
       mirror:
         description: 'Publish to the public mirror'
         required: false
@@ -31,14 +36,15 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: release-${{ inputs.dry_run && 'dry-run-' || '' }}${{ inputs.tag || github.ref_name }}
-  cancel-in-progress: true
+  group: ${{ inputs.dry_run && format('release-dry-run-{0}', inputs.tag || github.ref_name) || 'release-publication' }}
+  cancel-in-progress: ${{ inputs.dry_run }}
 
 jobs:
   prepare:
     name: prepare release
     if: github.event_name != 'push' || github.actor == 'rollacode'
     runs-on: [self-hosted, linux-build]
+    timeout-minutes: 30
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       source_ref: ${{ steps.release.outputs.source_ref }}
@@ -50,13 +56,13 @@ jobs:
       kind: ${{ steps.release.outputs.kind }}
     steps:
       - name: Checkout release source
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.tag || github.sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
@@ -75,16 +81,22 @@ jobs:
           set -euo pipefail
           # Builders check out this exact SHA, so a newer push can never leak into this run.
           sha=$(git rev-parse HEAD)
-          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "source_ref=$sha" >> "$GITHUB_OUTPUT"
-          echo "published=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "source_sha=$sha"
+            echo "source_ref=$sha"
+            echo "published=false"
+          } >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = true ]; then
             version=$(node -p "require('./package.json').version")
-            echo "tag=v$version" >> "$GITHUB_OUTPUT"
-            echo "branch=" >> "$GITHUB_OUTPUT"
-            echo "kind=app" >> "$GITHUB_OUTPUT"
-            echo "mirror=false" >> "$GITHUB_OUTPUT"
-            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            node scripts/check-release-locks.mjs
+            node scripts/sync-plugin-versions.mjs --check
+            {
+              echo "tag=v$version"
+              echo "branch="
+              echo "kind=app"
+              echo "mirror=false"
+              echo "dry_run=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           case "$REQUESTED_REF" in
@@ -98,9 +110,11 @@ jobs:
           fi
           # The diff since the last app release decides: any Rust is an app release, else a frontend release.
           previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$sha" 2>/dev/null || true)
-          kind=$(node scripts/ci-scope.mjs --release-kind $previous "$sha")
+          kind=$(node scripts/ci-scope.mjs --release-kind "$previous" "$sha")
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
           if [ "$kind" = app ]; then
+            node scripts/check-release-locks.mjs
+            node scripts/sync-plugin-versions.mjs --check
             committed=$(node -p "require('./package.json').version")
             tag="v$version"; published_repo="$SOURCE_REPO"
           else
@@ -113,15 +127,24 @@ jobs:
             exit 1
           fi
           if [ "$(gh release view "$tag" --repo "$published_repo" --json isDraft --jq .isDraft 2>/dev/null)" = false ]; then
+            if [ "$kind" = app ]; then
+              boundary_dir="$RUNNER_TEMP/publication-boundary"
+              mkdir -p "$boundary_dir"
+              gh release download "$tag" --repo "$SOURCE_REPO" --pattern issue-closure-boundary.json --dir "$boundary_dir" --clobber \
+                || { echo "::error::Publication is incomplete; rerun the failed manifest job in its original run"; exit 1; }
+              jq -e '.public_mirror_verified == true' "$boundary_dir/issue-closure-boundary.json" >/dev/null
+            fi
             echo "::notice::$tag is already published; a further change needs release/X.Y.(Z+1)"
             echo "published=true" >> "$GITHUB_OUTPUT"
           fi
           mirror=true
           if [ "$EVENT_NAME" = workflow_dispatch ]; then mirror="$MIRROR_INPUT"; fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "branch=release/$version" >> "$GITHUB_OUTPUT"
-          echo "mirror=$mirror" >> "$GITHUB_OUTPUT"
-          echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "branch=release/$version"
+            echo "mirror=$mirror"
+            echo "dry_run=false"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create draft releases before parallel uploads
         if: steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'
@@ -154,19 +177,33 @@ jobs:
   tests:
     name: full release test matrix
     needs: prepare
-    if: needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'
+    if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
     secrets: inherit
 
-  macos-linux-arm64:
-    name: macOS + Linux arm64
+  macos:
+    name: macOS
     needs: prepare
     if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-builder.yml
     with:
+      platform: macos
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+      dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+    secrets: inherit
+
+  linux-arm64:
+    name: Linux arm64
+    needs: prepare
+    if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    uses: ./.github/workflows/release-builder.yml
+    with:
+      platform: linux-arm64
       tag: ${{ needs.prepare.outputs.tag }}
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
@@ -199,7 +236,7 @@ jobs:
 
   release-manifest:
     name: release manifest, mirror, and verification
-    needs: [prepare, macos-linux-arm64, linux-x86_64, windows, tests]
+    needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]
     if: needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
@@ -226,6 +263,7 @@ jobs:
       always() && needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'
       && (needs.release-manifest.result == 'success' || needs.frontend.result == 'success')
     runs-on: [self-hosted, Linux, light]
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
       REPO: ${{ github.repository }}
@@ -233,7 +271,7 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 0
@@ -242,12 +280,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')
-          if [ -z "$pr" ]; then
-            pr=$(gh pr create --repo "$REPO" --base master --head "$BRANCH" --title "release: ${TAG#v}" \
-              --body "Release $TAG, published by the release run." | grep -oE '[0-9]+$')
+          git fetch origin master
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" origin/master; then
+            pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')
+            if [ -z "$pr" ]; then
+              pr=$(gh pr create --repo "$REPO" --base master --head "$BRANCH" --title "release: ${TAG#v}" \
+                --body "Release $TAG, published by the release run." | grep -oE '[0-9]+$')
+            fi
+            head=$(gh pr view "$pr" --repo "$REPO" --json headRefOid --jq .headRefOid)
+            test "$head" = "$SOURCE_SHA"
+            gh pr merge "$pr" --repo "$REPO" --merge --match-head-commit "$SOURCE_SHA"
           fi
-          gh pr merge "$pr" --repo "$REPO" --merge
           git fetch origin master
           git merge-base --is-ancestor "$SOURCE_SHA" origin/master
           # An app release already carries vX.Y.Z from the manifest job; a frontend release is tagged here.
@@ -270,4 +313,4 @@ jobs:
             git checkout -B develop origin/master
           fi
           git push origin develop
-          git push origin --delete "$BRANCH"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then git push origin --delete "$BRANCH"; fi

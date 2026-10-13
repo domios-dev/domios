@@ -118,7 +118,8 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_platform_jobs_run_in_parallel_before_the_final_manifest_job(self):
         caller = read("release.yml")
         for job, workflow in (
-            ("macos-linux-arm64", "release-builder.yml"),
+            ("macos", "release-builder.yml"),
+            ("linux-arm64", "release-builder.yml"),
             ("linux-x86_64", "release-linux.yml"),
             ("windows", "release-windows.yml"),
         ):
@@ -128,14 +129,14 @@ class SingleRunGraphTest(unittest.TestCase):
 
         final = caller[caller.index("  release-manifest:") :]
         self.assertIn(
-            "needs: [prepare, macos-linux-arm64, linux-x86_64, windows, tests]", final
+            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
 
     def test_preparation_creates_drafts_and_cleans_assets_before_parallel_uploads(self):
         caller = read("release.yml")
-        prepare = caller[caller.index("  prepare:") : caller.index("  macos-linux-arm64:")]
+        prepare = caller[caller.index("  prepare:") : caller.index("  macos:")]
         self.assertIn("gh release create", prepare)
         self.assertIn("--draft", prepare)
         self.assertIn("scripts/release-clear-wedged-assets.mjs", prepare)
@@ -143,7 +144,7 @@ class SingleRunGraphTest(unittest.TestCase):
 
     def test_reusable_platform_jobs_can_clear_incomplete_uploads_when_retried_alone(self):
         for name, build_marker in (
-            ("release-builder.yml", "Build macOS + Linux"),
+            ("release-builder.yml", "Build signed and notarized macOS bundle"),
             ("release-linux.yml", "Build release bundle inputs"),
             ("release-windows.yml", "Build release bundle inputs"),
         ):
@@ -160,9 +161,9 @@ class SingleRunGraphTest(unittest.TestCase):
         mac = read("release-builder.yml")
         linux = read("release-linux.yml")
         windows = read("release-windows.yml")
-        self.assertIn("name: macOS + Linux arm64", mac)
-        self.assertIn("CT_BUILD_LINUX: '1'", mac)
-        self.assertIn("DEFER_RELEASE_FINALIZE: '1'", mac)
+        self.assertIn("  macos:", mac)
+        self.assertIn("  linux-arm64:", mac)
+        self.assertIn("release-publish-platform.mjs", mac)
         self.assertIn("name: build (x86_64-unknown-linux-gnu)", linux)
         self.assertIn("Publish AppImage updater fragment", linux)
         self.assertIn("Publish Debian updater fragment", linux)
@@ -192,7 +193,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertIn("sync-release-notes.mjs", manifest)
         self.assertIn("latest-deb.json", manifest)
         self.assertNotIn("release-completion", manifest)
-        self.assertEqual(len(verifier_steps(manifest)), 2)
+        self.assertEqual(len(verifier_steps(manifest)), 3)
         covered = set().union(
             *(set(REQUIRE_PLATFORM.findall(step["run"])) for step in verifier_steps(manifest))
         )
@@ -257,7 +258,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertIn("bundleRoot/nsis", windows)
         self.assertNotIn("bundleRoot/nsis", linux)
         self.assertNotIn("bundle/deb", windows)
-        self.assertIn("build-all.sh", mac)
+        self.assertIn("mac-bundle.sh", mac)
 
         overlap = (ROOT / ".codeterm" / "build-machine" / "scripts" / "mac-overlap.sh").read_text(
             encoding="utf-8"
@@ -269,12 +270,12 @@ class SingleRunGraphTest(unittest.TestCase):
 
     def test_manifest_release_gate_follows_all_parallel_jobs(self):
         caller = read("release.yml")
-        platform_jobs = [caller.index(f"  {name}") for name in ("macos-linux-arm64:", "linux-x86_64:", "windows:")]
+        platform_jobs = [caller.index(f"  {name}") for name in ("macos:", "linux-arm64:", "linux-x86_64:", "windows:")]
         manifest_job = caller.index("  release-manifest:")
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos-linux-arm64, linux-x86_64, windows, tests]",
+            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]",
             caller[manifest_job:],
         )
 
@@ -300,7 +301,7 @@ class DryRunContractTest(unittest.TestCase):
         self.assertIn("dry_run != 'true'", drafts.get("if", ""))
         final = caller[caller.index("  release-manifest:") :]
         self.assertIn("if: needs.prepare.outputs.dry_run != 'true'", final)
-        for job in ("macos-linux-arm64:", "linux-x86_64:", "windows:"):
+        for job in ("macos:", "linux-arm64:", "linux-x86_64:", "windows:"):
             block = caller[caller.index(f"  {job}") :]
             block = block[: block.index("secrets: inherit")]
             self.assertIn("dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}", block, job)
@@ -321,10 +322,8 @@ class DryRunContractTest(unittest.TestCase):
                     with self.subTest(workflow=name, step=step.get("name")):
                         self.assertIn('if [ "$DRY_RUN" != true ]; then', step["run"])
         windows = read("release-windows.yml")
-        self.assertIn("tagName: ${{ !inputs.dry_run && steps.tag.outputs.name || '' }}", windows)
-        mac = read("release-builder.yml")
-        cleanup = next(s for s in steps(mac) if s.get("name") == "Drop the dry-run build tag")
-        self.assertIn("always() && inputs.dry_run", cleanup.get("if", ""))
+        self.assertNotIn("tagName:", windows)
+
 
 
 if __name__ == "__main__":

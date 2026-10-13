@@ -40,7 +40,8 @@ const PROVIDER: &str = "settings-fixture";
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
-    return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
+    const target = op.kind === 'interrupt' ? {threadId:op.threadId,turnId:op.activeTurnId} : undefined;
+    return {action:{kind:'request',call:{method:op.kind,params:op,...(target ? {target} : {})}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
     let result = {kind:'done'};
@@ -96,16 +97,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
     tab.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
     let fixture = ServiceFixture::new(mux);
     fixture.set_agent_full_access(false);
-    let storage = crate::storage::Storage::open(
-        &fixture.temp.path().join("runtime-desk"),
-        crate::storage::StorageConfig::default(),
-    )
-    .unwrap();
-    crate::service::session_persist::install_storage_desk_adapter(
-        fixture._app.handle(),
-        crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
-    )
-    .unwrap();
+    let storage = fixture.install_seeded_storage_desk();
     let methods = [
         "initialize",
         "resumeThread",
@@ -228,4 +220,69 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         Some("mid-turn")
     );
     engine::stop(&id);
+}
+
+#[test]
+fn tab_stop_interrupts_a_working_runtime_and_keeps_the_tab_open() {
+    let (fixture, id) = runtime_fixture();
+    tauri::async_runtime::block_on(async {
+        let session = engine::ensure(&fixture.service, &id).await.unwrap();
+        let epoch = session.context.lock().epoch;
+        super::super::subscriber::publish_events(
+            &fixture.service,
+            &session,
+            epoch,
+            vec![
+                codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState {
+                    thread_id: "own-thread".into(),
+                    turn_id: Some("stop-target".into()),
+                    parent_thread_id: None,
+                    state: codeterm_plugin::agent_runtime::RuntimeTurnState::Working,
+                    started_at: None,
+                    completed_at: None,
+                },
+            ],
+            1,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            fixture.service.stop_decision(&id),
+            crate::service::tab_stop::StopDecision::Interrupt { .. }
+        ));
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .pty_id
+            .is_none());
+        let stopped =
+            crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), id.clone())
+                .await
+                .unwrap();
+        assert_eq!(
+            stopped,
+            json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"})
+        );
+        assert!(session
+            .completions
+            .lock()
+            .contains("own-thread", "stop-target"));
+        assert!(session.context.lock().active_turn_id.is_none());
+        {
+            let mux = fixture.service.mux.read();
+            let tab = mux.get_tab(&id).unwrap();
+            assert!(matches!(&tab.backing, TabBacking::ChatBackend { .. }));
+            assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+            assert!(Arc::ptr_eq(&session, &engine::for_tab(&id).unwrap()));
+        }
+        let idle =
+            crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), id.clone())
+                .await
+                .unwrap();
+        assert_eq!(idle["stopped"], false);
+        assert_eq!(idle["reason"], "not_working");
+    });
 }

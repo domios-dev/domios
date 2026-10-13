@@ -118,6 +118,36 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 }
 
 impl ServiceFixture {
+    pub(crate) fn install_seeded_storage_desk(&self) -> crate::storage::Storage {
+        let storage = crate::storage::Storage::open(
+            &self.temp.path().join("runtime-desk"),
+            crate::storage::StorageConfig::default(),
+        )
+        .expect("open fixture storage desk");
+        let snapshot = self.service.mux.read().to_session_snapshot();
+        let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+        adapter
+            .import_snapshot(&snapshot, Vec::new())
+            .expect("seed fixture storage desk from current mux");
+        let state = adapter.state().expect("read seeded fixture storage desk");
+        assert_eq!(state.snapshot.workspaces.len(), snapshot.workspaces.len());
+        for workspace in &snapshot.workspaces {
+            let persisted = state
+                .snapshot
+                .workspaces
+                .iter()
+                .find(|entry| entry.id == workspace.id)
+                .expect("current mux workspace is persisted");
+            assert_eq!(persisted.tabs.len(), workspace.tabs.len());
+            for tab in &workspace.tabs {
+                assert!(persisted.tabs.iter().any(|entry| entry.id == tab.id));
+            }
+        }
+        super::session_persist::install_storage_desk_adapter(self._app.handle(), adapter)
+            .expect("install seeded fixture storage desk");
+        storage
+    }
+
     pub(crate) fn set_agent_full_access(&self, full_access: bool) {
         self._app
             .state::<crate::config::ConfigState>()
@@ -485,6 +515,43 @@ mod tests {
     }
 
     #[test]
+    fn seeded_storage_desk_preserves_current_mux_and_subsequent_session_writes() {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let workspace = fixture.service.mux.read().list_workspaces()[0].id.clone();
+        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+        let storage = fixture.install_seeded_storage_desk();
+        let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage);
+        let seeded = MultiplexerState::from_session_snapshot(&adapter.snapshot().unwrap());
+        assert!(seeded.get_tab(&tab_id).is_some());
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("supplied-thread".into());
+            tab.session_binding_nonce = Some("supplied-nonce".into());
+            tab.agent_runtime_config =
+                Some(serde_json::json!({"systemPrompt":"supplied-identity"}));
+        }
+        assert!(matches!(
+            super::super::session_persist::write_session_snapshot(
+                fixture._app.handle(),
+                &fixture.service.mux,
+            )
+            .unwrap(),
+            crate::session::store::SaveOutcome::Saved
+        ));
+        let persisted = MultiplexerState::from_session_snapshot(&adapter.snapshot().unwrap());
+        let tab = persisted.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some("supplied-thread"));
+        assert_eq!(tab.session_binding_nonce.as_deref(), Some("supplied-nonce"));
+        assert_eq!(
+            tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
+            "supplied-identity"
+        );
+        super::super::session_persist::stop_worker(fixture._app.handle()).unwrap();
+    }
+
+    #[test]
     fn fixture_journals_isolate_identical_tabs_through_compaction_and_inspection() {
         use crate::multiplexer::types::AgentRole;
         use crate::session::lifecycle::{JournalRecord, LifecycleTransition};
@@ -499,7 +566,7 @@ mod tests {
             .write()
             .get_tab_mut(&tab_id)
             .unwrap()
-            .role = Some(AgentRole::Planner);
+            .role = Some(AgentRole::Manager);
         let first_key = first.service.open_lifecycle_epoch(&tab_id).unwrap();
         assert!(second.service.lifecycle_journal.load().records.is_empty());
         let second_key = second.service.open_lifecycle_epoch(&tab_id).unwrap();

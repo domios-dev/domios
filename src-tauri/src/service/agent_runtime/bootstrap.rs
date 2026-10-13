@@ -87,6 +87,9 @@ pub(super) async fn submit(
         .status(&send_id)
         .ok_or(RuntimeFailure::Superseded)?;
     crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+    let binding = session.context.lock().clone();
+    svc.run_watcher
+        .arm_runtime(&binding.tab_id, &binding.binding_nonce);
     svc.gateway
         .submit_runtime_loaded_turn(
             svc,

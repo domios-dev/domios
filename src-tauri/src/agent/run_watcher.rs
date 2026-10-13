@@ -12,6 +12,7 @@ use crate::service::ServiceContext;
 mod blocking_prompt;
 mod cron_completion;
 mod cron_end;
+mod runtime_runs;
 use blocking_prompt::{
     claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
     tab_trust_has_provenance,
@@ -26,7 +27,7 @@ const RESTART_GRACE_SECS: u64 = 25;
 const RESTART_SETTLE_SECS: u64 = 20;
 const MAX_RESTARTS: u32 = 2;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentRunKind {
     MemWorker { worker_id: String },
     Cron { job_id: String, run_id: String },
@@ -68,6 +69,7 @@ struct RunState {
 
 pub struct RunWatcherRegistry {
     runs: Mutex<HashMap<String, Arc<RunState>>>,
+    runtime_runs: Mutex<HashMap<String, runtime_runs::RuntimeRun>>,
 }
 
 impl Default for RunWatcherRegistry {
@@ -80,6 +82,7 @@ impl RunWatcherRegistry {
     pub fn new() -> Self {
         Self {
             runs: Mutex::new(HashMap::new()),
+            runtime_runs: Mutex::new(HashMap::new()),
         }
     }
 

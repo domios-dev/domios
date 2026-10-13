@@ -13,6 +13,14 @@ Open build shells with `--purpose build` and foreground servers with `--purpose 
 
 Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Normal command completion adds no message.
 
+With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
+failure receipt on the first Cargo compile error, nextest/Vitest failure,
+Node `not ok`, or non-zero exit (including gateway refusal 75 and cap 124).
+The receipt names the label, step, first failure and log path. The command
+continues, and the final summary still arrives. Dev `--notify-tab` uses the
+same stream detector across setup and compilation; compile failure or exit
+before READY reports immediately. No sleep or polling drives failure detection.
+
 ## Commands
 
 For a health-proven dev startup that exits when ready:
@@ -32,7 +40,7 @@ For a visible foreground dev process, use the same flag without `--wait`:
 ./build.sh dev-prebuilt --notify-tab <agent-tab-id>
 ```
 
-The foreground waiter treats each log line as a cue to validate `/api/health`
+The foreground stream reader treats each output line as a cue to validate `/api/health`
 against the expected build and instance. It reports ready only after that proof,
 or reports failure at process exit or the single 600-second deadline.
 
@@ -103,9 +111,9 @@ retain the original receipt instead of rerunning successful Rust tests.
 
 ## Event waits
 
-The foreground waiter consumes log lines as events and validates health on each
+The foreground reader consumes pipe lines as events and validates health on each
 line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

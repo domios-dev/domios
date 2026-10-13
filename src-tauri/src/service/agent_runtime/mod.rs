@@ -11,6 +11,7 @@ mod initialize;
 mod launch_options;
 #[cfg(unix)]
 pub(crate) mod lease;
+pub mod login;
 pub mod model;
 #[cfg(any(unix, test))]
 mod ownership;
@@ -19,6 +20,7 @@ pub(crate) mod projections;
 pub(crate) mod prompt_answers;
 mod question_delivery;
 pub mod questions;
+pub(crate) mod restart;
 pub(crate) mod restore;
 mod rpc;
 mod subscriber;

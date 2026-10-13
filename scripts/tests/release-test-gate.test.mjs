@@ -12,7 +12,7 @@ function workflow(name) {
 
 const release = workflow("release");
 const tests = workflow("tests");
-const builds = ["macos-linux-arm64", "linux-x86_64", "windows"];
+const builds = ["macos", "linux-arm64", "linux-x86_64", "windows"];
 const dependencies = job => [job.needs].flat();
 
 test("release tests and platform builds share preparation and publication waits for every gate", () => {
@@ -26,8 +26,9 @@ test("release tests and platform builds share preparation and publication waits 
   assert.equal(release.jobs["release-manifest"].if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
 });
 
-test("dry runs still build every platform while skipping the tests and publisher", () => {
-  assert.equal(release.jobs.tests.if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true'");
+test("dry runs test every platform by default while skipping publication", () => {
+  assert.equal(release.on.workflow_dispatch.inputs.dry_run_tests.default, true);
+  assert.equal(release.jobs.tests.if, "(needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'");
   for (const id of builds) {
     assert.equal(release.jobs[id].with.dry_run, "${{ needs.prepare.outputs.dry_run == 'true' }}");
     assert.equal(release.jobs[id].if, "needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
@@ -43,8 +44,8 @@ test("a push to release/X.Y.Z by the owner account is the release, and a publish
   const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
   assert.match(resolve, /release\/\*\) version="\$\{REQUESTED_REF#release\/\}"/);
   assert.match(resolve, /committed=\$\(node -p "require\('\.\/package\.json'\)\.version"\)/);
-  assert.match(resolve, /echo "published=true" >> "\$GITHUB_OUTPUT"/);
-  assert.match(resolve, /echo "source_ref=\$sha" >> "\$GITHUB_OUTPUT"/);
+  assert.match(resolve, /echo "published=true"/);
+  assert.match(resolve, /echo "source_ref=\$sha"/);
 });
 
 test("only a successful publication merges the release into master and back into develop", () => {
@@ -119,7 +120,7 @@ test("a frontend-only release builds and publishes only the frontend after the f
   assert.equal(frontend.if, "needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'");
   assert.deepEqual(frontend.with, { tag: "${{ needs.prepare.outputs.tag }}", source_sha: "${{ needs.prepare.outputs.source_sha }}" });
   const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
-  assert.match(resolve, /kind=\$\(node scripts\/ci-scope\.mjs --release-kind \$previous "\$sha"\)/);
+  assert.match(resolve, /kind=\$\(node scripts\/ci-scope\.mjs --release-kind "\$previous" "\$sha"\)/);
   assert.match(resolve, /tag="frontend-v\$version"/);
   const called = workflow("frontend-release");
   assert.deepEqual(Object.keys(called.on.workflow_call.inputs), ["tag", "source_sha"]);

@@ -18,6 +18,7 @@ function fixture(responses: unknown[] = [{}]) {
 
 const simple = [
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
+  ["agent_runtime_login", "POST", "/api/tabs/tab/agent/runtime/login"],
   ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
   ["chat_send_admissions", "POST", "/api/tabs/tab/chat-send/admissions"],
   ["mux_get_state", "GET", "/api/mux/state"],

@@ -312,7 +312,7 @@ export function TabSessionChat({
   const runtimeUnavailable = runtime.state != null && runtime.state.state !== "loaded";
   const runtimeDegraded = runtime.state?.state === "degraded";
   const runtimeReplacement = runtimeDegraded
-    ? <AgentRuntimeBanner state={runtime.state} onRetry={() => { void runtime.retry(); }} /> : undefined;
+    ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} onRetry={() => { void runtime.retry(); }} /> : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));

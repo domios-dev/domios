@@ -17,12 +17,7 @@ jobs:
 
       - name: Ensure Docker is running
         run: |
-          if ! docker info >/dev/null 2>&1; then
-            echo "Docker daemon down — starting Docker Desktop..."
-            open -a Docker || true
-            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
-          fi
-          docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available"; exit 1; }
+          docker info >/dev/null
 
       - name: Bake codeterm-build-linux-arm64
         working-directory: .codeterm/build-machine/docker

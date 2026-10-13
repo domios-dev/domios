@@ -609,3 +609,35 @@ check("verified descendant approvals surface on the root without adopting the ch
   assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[resolved]).events),[]);
 });
 console.log(`runtime descendant prompt regressions: ${count} checks passed`);
+
+check("browser and device login use verified requests without a thread",()=>{
+  for (const [method,type] of [["browser","chatgpt"],["device","chatgptDeviceCode"]]) {
+    const op:Operation={kind:"control",action:"login",value:{method}};
+    const context={...ctx,threadId:undefined};
+    const plan=hooks.runtimePlan(context,op);allowed(op,plan.action);
+    assert.deepEqual(plain(plan.action),{kind:"request",call:{method:"account/login/start",params:{type}}});
+    const response=type === "chatgpt" ? {type,loginId:"fixture-login",authUrl:"https://example.test/oauth"} : {type,loginId:"fixture-login",verificationUrl:"https://example.test/device",userCode:"ABCD-1234"};
+    const step=hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:response});
+    assert.equal(step.kind,"complete");
+    if (step.kind === "complete") assert.deepEqual(plain(step.events),[{kind:"authLogin",login:{status:"pending",method,loginId:"fixture-login",url:type === "chatgpt" ? "https://example.test/oauth" : "https://example.test/device",...(method === "device" ? {userCode:"ABCD-1234"} : {})}}]);
+  }
+});
+check("login cancel maps its exact ID and cancellation result",()=>{
+  const op:Operation={kind:"control",action:"login",value:{action:"cancel",loginId:"own-login"}};
+  const plan=hooks.runtimePlan({...ctx,threadId:undefined},op);allowed(op,plan.action);
+  assert.deepEqual(plain(plan.action),{kind:"request",call:{method:"account/login/cancel",params:{loginId:"own-login"}}});
+  const step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{status:"canceled"}});
+  if (step.kind !== "complete") assert.fail("Cancellation did not complete");
+  assert.deepEqual(plain(step.events),[{kind:"authLogin",login:{status:"canceled",loginId:"own-login"}}]);
+});
+check("login completion is generic and API key is absent from continuation state",()=>{
+  const op:Operation={kind:"control",action:"login",value:{method:"apiKey",apiKey:"opaque-fixture"}};
+  const plan=hooks.runtimePlan(ctx,op);allowed(op,plan.action);
+  assert.deepEqual(plain(plan.state),{stage:"loginStart",method:"apiKey"});
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"account/login/completed",params:{loginId:"own",success:true,error:null,onboardingEntrypoint:null}}]).events),[{kind:"authLogin",login:{status:"completed",loginId:"own"}}]);
+  const step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{type:"apiKey"}});
+  if(step.kind !== "complete") assert.fail("API-key response did not complete");
+  assert.deepEqual(plain(step.events),[{kind:"authLogin",login:{status:"completed",method:"apiKey"}}]);
+});
+
+console.log(`runtime login regressions: ${count} checks passed`);
