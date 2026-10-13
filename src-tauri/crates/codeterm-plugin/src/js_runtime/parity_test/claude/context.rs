@@ -113,7 +113,9 @@ fn parity_claude_per_launch_statusline_settings() {
     );
 }
 
-pub(super) fn settings_command(build: impl FnOnce() -> String) -> (String, serde_json::Value) {
+pub(super) fn settings_command(
+    build: impl FnOnce() -> String,
+) -> (String, serde_json::Value, Option<Vec<u8>>) {
     let temp = tempfile::tempdir().unwrap();
     let (command, paths) =
         codeterm_util::task_files::capture_in(temp.path(), "settings-parity", build);
@@ -127,8 +129,47 @@ pub(super) fn settings_command(build: impl FnOnce() -> String) -> (String, serde
     assert_eq!(command.matches("--settings").count(), 1);
     assert!(!command.contains("showThinkingSummaries"));
     assert!(command.contains(path.to_str().unwrap()));
-    (
-        command.replace(path.to_str().unwrap(), "SETTINGS_PATH"),
-        settings,
-    )
+    let prompt_paths: Vec<_> = paths
+        .iter()
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".ct-task-")
+        })
+        .collect();
+    assert!(prompt_paths.len() <= 1);
+    let mut normalized = command.replace(path.to_str().unwrap(), "SETTINGS_PATH");
+    let prompt = prompt_paths.first().map(|path| {
+        assert_eq!(command.matches("--append-system-prompt-file").count(), 1);
+        assert!(command.contains(path.to_str().unwrap()));
+        normalized = normalized.replace(path.to_str().unwrap(), "PROMPT_PATH");
+        std::fs::read(path).unwrap()
+    });
+    (normalized, settings, prompt)
+}
+
+#[test]
+fn parity_claude_launch_prompt_artifacts() {
+    let (native, js) = pair();
+    for prompt in [None, Some(""), Some("opaque-task\n$literal `literal` λ")] {
+        let launch = crate::provider::AgentLaunchParams {
+            task: prompt.map(str::to_owned),
+            ..Default::default()
+        };
+        let native_launch = settings_command(|| native.build_launch_command(&launch));
+        let js_launch = settings_command(|| js.build_launch_command(&launch));
+        assert!(native_launch.2.is_some());
+        assert_eq!(native_launch, js_launch);
+        let resume = crate::provider::AgentResumeParams {
+            session_id: "fixture".into(),
+            system_prompt: prompt.map(str::to_owned),
+            ..Default::default()
+        };
+        let native_resume =
+            settings_command(|| native.build_resume_command_with_context(&resume).unwrap());
+        let js_resume = settings_command(|| js.build_resume_command_with_context(&resume).unwrap());
+        assert!(native_resume.2.is_some());
+        assert_eq!(native_resume, js_resume);
+    }
 }

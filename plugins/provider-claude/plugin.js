@@ -24,11 +24,13 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/launchPromptRule.json
+var launchPromptRule_default = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
+
 // plugins/provider-claude/src/launchPrompt.ts
-var QUESTION_RULE = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
 function writeClaudeLaunchPrompt(task) {
   const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
-  const fragment = task + "\n\n" + QUESTION_RULE;
+  const fragment = task + "\n\n" + launchPromptRule_default;
   const body = host.platform() === "windows" ? "\uFEFF" + fragment : fragment;
   return host.fs.writeTempFile(body, suffix);
 }
