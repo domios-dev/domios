@@ -29,7 +29,8 @@
       "readHistory": [
         "thread/turns/list",
         "thread/items/list",
-        "thread/goal/get"
+        "thread/goal/get",
+        "thread/read"
       ],
       "submitTurn": [
         "turn/start",
