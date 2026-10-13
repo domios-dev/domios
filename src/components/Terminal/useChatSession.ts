@@ -37,7 +37,7 @@ import {
 import {
   commitTranscriptBatch,
   readTranscriptWindow,
-  replaceTranscriptWindow,
+  reconcileTranscriptWindow,
   resetTranscriptWindow,
   stampConfirmedTranscriptRow,
   trackTranscriptSend,
@@ -136,8 +136,7 @@ export function useChatSession({
   const followTailRef = suppliedFollowTailRef ?? internalFollowTailRef;
   const recoveryQueuedRef = useRef(false);
   const pendingLiveEventsRef = useRef<ChatMsgEvent[]>([]);
-  const preserveSnapshotAnchorRef = useRef(false);
-  const replaceOnNextLiveEventRef = useRef(false);
+  const snapshotOnNextLiveEventRef = useRef(false);
   const sendStatusInFlightRef = useRef(false);
   const sendStatusQueuedRef = useRef(false);
 
@@ -200,10 +199,9 @@ export function useChatSession({
     }
   }, [tabId]);
 
-  const requestAttach = useCallback((preserveViewport = false) => {
+  const requestAttach = useCallback(() => {
     pendingLiveEventsRef.current = [];
-    preserveSnapshotAnchorRef.current = preserveViewport;
-    replaceOnNextLiveEventRef.current = false;
+    snapshotOnNextLiveEventRef.current = false;
     const authority = readTranscriptWindow(windowKeyRef.current).transcript.authority;
     if (authority != null && (
       authority.sourceSessionId !== agentSessionIdRef.current
@@ -231,7 +229,7 @@ export function useChatSession({
     recoveryQueuedRef.current = true;
     queueMicrotask(() => {
       recoveryQueuedRef.current = false;
-      if (activeRef.current) requestAttach(true);
+      if (activeRef.current) requestAttach();
     });
   }, [requestAttach]);
 
@@ -253,14 +251,13 @@ export function useChatSession({
       range: batchRange(payload.start_offset, payload.offset, payload.offset_kind),
       rows: payload.messages,
     };
-    if (!replaceOnNextLiveEventRef.current) {
+    if (!snapshotOnNextLiveEventRef.current) {
       return commitTranscriptBatch(windowKeyRef.current, batch);
     }
-    replaceOnNextLiveEventRef.current = false;
-    return replaceTranscriptWindow(
+    snapshotOnNextLiveEventRef.current = false;
+    return reconcileTranscriptWindow(
       windowKeyRef.current,
-      batch,
-      preserveSnapshotAnchorRef.current,
+      { ...batch, kind: "snapshot" },
     );
   }, [commitBatch, tabId]);
 
@@ -303,7 +300,6 @@ export function useChatSession({
         return false;
       }
       const page = res.messages ?? [];
-      if (page.length === 0) return false;
       return commitBatch(
         "backfill",
         {
@@ -400,7 +396,7 @@ export function useChatSession({
         }
         emitDiagnostic({ edge: "listener_owned", tabId });
         unlistenTest = listenForTestChatReplies(tabId, commitLiveEvent);
-        requestAttach(false);
+        requestAttach();
         setListenerReady(true);
       } catch (e) {
         if (cancelled) return;
@@ -535,8 +531,7 @@ export function useChatSession({
           // The store has no transcript yet; the first live event completes the
           // attach. Nothing here waits on elapsed time.
           if (res.source_missing === true) setTranscriptUnavailable("no_transcript_source");
-          // A pending snapshot delegates the new replay epoch to its first live batch.
-          replaceOnNextLiveEventRef.current = true;
+          snapshotOnNextLiveEventRef.current = true;
           const pending = pendingLiveEventsRef.current.splice(0);
           if (pending.length > 0) {
             for (const event of pending) commitLiveEvent(event);
@@ -544,9 +539,9 @@ export function useChatSession({
           }
           return;
         }
-        replaceOnNextLiveEventRef.current = false;
+        snapshotOnNextLiveEventRef.current = false;
         const snapshotRange = batchRange(res.start_offset, res.offset, res.offset_kind);
-        if (snapshotRange != null || (res.messages?.length ?? 0) > 0) replaceTranscriptWindow(
+        if (snapshotRange != null || (res.messages?.length ?? 0) > 0) reconcileTranscriptWindow(
           windowKeyRef.current,
           {
             kind: "snapshot",
@@ -557,7 +552,6 @@ export function useChatSession({
             range: snapshotRange,
             rows: res.messages ?? [],
           },
-          preserveSnapshotAnchorRef.current,
         );
         const pending = pendingLiveEventsRef.current.splice(0);
         let recover = false;
