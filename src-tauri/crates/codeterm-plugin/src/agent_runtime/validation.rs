@@ -60,6 +60,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     {
         return Err(invalid("invalid runtime authority"));
     }
+    validate_active_turns(ctx)?;
     let mut sends = std::collections::HashSet::new();
     for claim in &ctx.claimed_sends {
         if !identifier(&claim.send_id)
@@ -184,9 +185,9 @@ pub fn validate_runtime_plan(
             }
             validate_runtime_size(input, MAX_RUNTIME_VALUE_BYTES)
         }
-        RuntimeAction::Request { call } => validate_runtime_call(cap, op, call),
+        RuntimeAction::Request { call } => validate_runtime_call(cap, ctx, op, call),
         RuntimeAction::Notification { notification } => {
-            validate_runtime_call(cap, op, notification)
+            validate_runtime_call(cap, ctx, op, notification)
         }
         RuntimeAction::Reply { request_id, result } => {
             if !matches!(op, RuntimeOperation::Answer { request_id: target, .. } if target == request_id)
@@ -214,9 +215,31 @@ pub fn validate_runtime_reply(reply: &RpcReply) -> Result<(), RuntimeFailure> {
 
 pub fn validate_runtime_call(
     cap: &AgentRuntimeCapability,
+    ctx: &RuntimeContext,
     op: &RuntimeOperation,
     call: &RpcCall,
 ) -> Result<(), RuntimeFailure> {
+    if matches!(op, RuntimeOperation::Interrupt { .. }) {
+        let target = call
+            .target
+            .as_ref()
+            .ok_or_else(|| mismatch("interrupt request lacks target"))?;
+        let active = ctx.active_turns.iter().any(|turn| {
+            turn.thread_id == target.thread_id && target.turn_id.as_ref() == Some(&turn.turn_id)
+        });
+        if !active {
+            return Err(mismatch("interrupt targets an inactive or unowned turn"));
+        }
+    } else if let Some(target) = &call.target {
+        if ctx.thread_id.as_ref() != Some(&target.thread_id)
+            || target
+                .turn_id
+                .as_ref()
+                .is_some_and(|id| ctx.active_turn_id.as_ref() != Some(id))
+        {
+            return Err(mismatch("call target is outside operation authority"));
+        }
+    }
     if !cap.permits_method(op, &call.method) {
         return Err(RuntimeFailure::new(
             RuntimeFailureCode::MethodNotAllowed,
@@ -249,9 +272,25 @@ pub fn validate_runtime_step(
         RuntimeStep::Complete {
             result,
             notification,
+            events,
         } => {
+            if let Some(events) = events {
+                if events
+                    .iter()
+                    .any(|event| matches!(event, AgentRuntimeEvent::SendEvidence { .. }))
+                {
+                    return Err(mismatch("correlated response cannot confirm delivery"));
+                }
+                validate_runtime_reduction(
+                    ctx,
+                    &RuntimeReduction {
+                        state: Value::Null,
+                        events: events.clone(),
+                    },
+                )?;
+            }
             if let Some(call) = notification {
-                validate_runtime_call(cap, op, call)?;
+                validate_runtime_call(cap, ctx, op, call)?;
             }
             validate_runtime_result(ctx, op, result)
         }
@@ -293,9 +332,24 @@ fn validate_runtime_result(
                 thread_id,
                 items,
                 open_items,
+                questions,
                 ..
             },
         ) => {
+            if let Some(questions) = questions {
+                if questions.len() > MAX_RUNTIME_BATCH {
+                    return Err(invalid("too many history questions"));
+                }
+                let mut ids = std::collections::HashSet::new();
+                for question in questions {
+                    if &question.thread_id != thread_id || !ids.insert(&question.item_id) {
+                        return Err(mismatch(
+                            "history question retargets thread or duplicates item",
+                        ));
+                    }
+                    validate_question_fields(&question.item_id, &question.questions)?;
+                }
+            }
             target == thread_id
                 && items.len() <= MAX_RUNTIME_BATCH
                 && open_items.len() <= MAX_RUNTIME_BATCH
@@ -373,7 +427,76 @@ pub fn validate_runtime_reduction(
             "too many runtime events",
         ));
     }
+    validate_active_turns(ctx)?;
+    let mut parents: std::collections::HashMap<String, Option<String>> = ctx
+        .thread_parents
+        .iter()
+        .map(|thread| {
+            (
+                thread.thread_id.clone(),
+                Some(thread.parent_thread_id.clone()),
+            )
+        })
+        .collect();
+    if let Some(root) = &ctx.thread_id {
+        parents.insert(root.clone(), None);
+    }
+    let mut active: std::collections::HashSet<String> = ctx
+        .active_turns
+        .iter()
+        .map(|turn| turn.thread_id.clone())
+        .collect();
     for event in &reduction.events {
+        if let AgentRuntimeEvent::Auth { detail, .. } = event {
+            if detail.as_ref().is_some_and(|s| s.len() > 65536) {
+                return Err(invalid("auth detail exceeds bound"));
+            }
+            continue;
+        }
+        if let AgentRuntimeEvent::TurnState {
+            thread_id,
+            parent_thread_id,
+            turn_id,
+            state,
+            ..
+        } = event
+        {
+            if !identifier(thread_id) || turn_id.as_ref().is_some_and(|id| !identifier(id)) {
+                return Err(invalid("invalid turn state identifiers"));
+            }
+            if ctx.thread_id.as_ref() == Some(thread_id) {
+                if parent_thread_id.is_some() {
+                    return Err(mismatch("root turn event has parent"));
+                }
+            } else if let Some(known_parent) = parents.get(thread_id) {
+                if parent_thread_id
+                    .as_ref()
+                    .is_some_and(|parent| known_parent.as_ref() != Some(parent))
+                {
+                    return Err(mismatch("descendant changes proven parent"));
+                }
+            } else {
+                let parent = parent_thread_id
+                    .as_ref()
+                    .ok_or_else(|| mismatch("unverified descendant turn"))?;
+                if parent == thread_id || !parents.contains_key(parent) {
+                    return Err(mismatch("unverified descendant turn"));
+                }
+                if parents.len() >= 65 {
+                    return Err(invalid("too many known thread parents"));
+                }
+                parents.insert(thread_id.clone(), Some(parent.clone()));
+            }
+            if matches!(state, RuntimeTurnState::Idle) {
+                active.remove(thread_id);
+            } else {
+                active.insert(thread_id.clone());
+            }
+            if active.len() > 32 {
+                return Err(invalid("too many active turns"));
+            }
+            continue;
+        }
         if let AgentRuntimeEvent::RateLimits {
             thread_id,
             rate_limits,
@@ -389,7 +512,7 @@ pub fn validate_runtime_reduction(
             continue;
         }
         let thread = match event {
-            AgentRuntimeEvent::RateLimits { .. } => continue,
+            AgentRuntimeEvent::RateLimits { .. } | AgentRuntimeEvent::Auth { .. } => continue,
             AgentRuntimeEvent::ChatItem { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));
@@ -426,27 +549,7 @@ pub fn validate_runtime_reduction(
             AgentRuntimeEvent::Question {
                 item_id, questions, ..
             } => {
-                if !identifier(item_id) || questions.is_empty() || questions.len() > 32 {
-                    return Err(invalid("invalid question event"));
-                }
-                let mut ids = std::collections::HashSet::new();
-                for question in questions {
-                    if !identifier(&question.id)
-                        || !ids.insert(&question.id)
-                        || question.text.len() > 65536
-                        || question.options.len() > 128
-                    {
-                        return Err(invalid("invalid question fields"));
-                    }
-                    let mut options = std::collections::HashSet::new();
-                    if question.options.iter().any(|option| {
-                        !identifier(&option.value)
-                            || !options.insert(&option.value)
-                            || option.label.len() > 65536
-                    }) {
-                        return Err(invalid("invalid question options"));
-                    }
-                }
+                validate_question_fields(item_id, questions)?;
             }
             AgentRuntimeEvent::Prompt { request_id, .. }
             | AgentRuntimeEvent::PromptResolved { request_id, .. }
@@ -460,6 +563,34 @@ pub fn validate_runtime_reduction(
     Ok(())
 }
 
+fn validate_question_fields(
+    item_id: &str,
+    questions: &[RuntimeQuestion],
+) -> Result<(), RuntimeFailure> {
+    if !identifier(item_id) || questions.is_empty() || questions.len() > 32 {
+        return Err(invalid("invalid question event"));
+    }
+    let mut ids = std::collections::HashSet::new();
+    for question in questions {
+        if !identifier(&question.id)
+            || !ids.insert(&question.id)
+            || question.text.len() > 65536
+            || question.options.len() > 128
+        {
+            return Err(invalid("invalid question fields"));
+        }
+        let mut options = std::collections::HashSet::new();
+        if question.options.iter().any(|option| {
+            !identifier(&option.value)
+                || !options.insert(&option.value)
+                || option.label.len() > 65536
+        }) {
+            return Err(invalid("invalid question options"));
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_runtime_state(state: &Value) -> Result<(), RuntimeFailure> {
     validate_runtime_size(state, MAX_RUNTIME_STATE_BYTES)
 }
@@ -468,6 +599,30 @@ pub fn validate_host_runtime_event(
     ctx: &RuntimeContext,
     event: &HostAgentRuntimeEvent,
 ) -> Result<(), RuntimeFailure> {
+    validate_host_runtime_events(ctx, std::slice::from_ref(event))
+}
+
+pub fn validate_host_runtime_events(
+    ctx: &RuntimeContext,
+    events: &[HostAgentRuntimeEvent],
+) -> Result<(), RuntimeFailure> {
+    validate_runtime_size(&events, MAX_RUNTIME_VALUE_BYTES)?;
+    if events.len() > MAX_RUNTIME_BATCH {
+        return Err(invalid("too many host runtime events"));
+    }
+    for event in events {
+        validate_host_timestamp(event)?;
+    }
+    validate_runtime_reduction(
+        ctx,
+        &RuntimeReduction {
+            state: Value::Null,
+            events: events.iter().map(|event| event.event.clone()).collect(),
+        },
+    )
+}
+
+fn validate_host_timestamp(event: &HostAgentRuntimeEvent) -> Result<(), RuntimeFailure> {
     if event.at == 0 || event.at > 9_007_199_254_740_991 {
         return Err(invalid("invalid host receipt timestamp"));
     }
@@ -488,13 +643,7 @@ pub fn validate_host_runtime_event(
             return Err(invalid("invalid provider turn timestamp"));
         }
     }
-    validate_runtime_reduction(
-        ctx,
-        &RuntimeReduction {
-            state: Value::Null,
-            events: vec![event.event.clone()],
-        },
-    )
+    Ok(())
 }
 
 pub fn validate_rate_limits(limits: &[RuntimeRateLimit]) -> Result<(), RuntimeFailure> {
@@ -510,6 +659,76 @@ pub fn validate_rate_limits(limits: &[RuntimeRateLimit]) -> Result<(), RuntimeFa
         })
     {
         return Err(invalid("invalid rate limits"));
+    }
+    Ok(())
+}
+
+pub fn validate_thread_parents(ctx: &RuntimeContext) -> Result<(), RuntimeFailure> {
+    if ctx.thread_parents.len() > 64 {
+        return Err(invalid("too many thread parents"));
+    }
+    let mut known = std::collections::HashMap::new();
+    for thread in &ctx.thread_parents {
+        if !identifier(&thread.thread_id)
+            || !identifier(&thread.parent_thread_id)
+            || ctx.thread_id.as_ref() == Some(&thread.thread_id)
+            || known
+                .insert(&thread.thread_id, &thread.parent_thread_id)
+                .is_some()
+        {
+            return Err(invalid("invalid thread ancestry"));
+        }
+    }
+    for thread in &ctx.thread_parents {
+        let mut current = &thread.thread_id;
+        let mut visited = std::collections::HashSet::new();
+        loop {
+            if !visited.insert(current) {
+                return Err(mismatch("thread ancestry cycle"));
+            }
+            let parent = known
+                .get(current)
+                .ok_or_else(|| mismatch("thread has unknown parent"))?;
+            if ctx.thread_id.as_ref() == Some(parent) {
+                break;
+            }
+            current = parent;
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_active_turns(ctx: &RuntimeContext) -> Result<(), RuntimeFailure> {
+    validate_thread_parents(ctx)?;
+    if ctx.active_turns.len() > 32 {
+        return Err(invalid("too many active turns"));
+    }
+    let mut threads = std::collections::HashSet::new();
+    for turn in &ctx.active_turns {
+        if !identifier(&turn.thread_id)
+            || !identifier(&turn.turn_id)
+            || !threads.insert(&turn.thread_id)
+        {
+            return Err(invalid("invalid active turn roster"));
+        }
+        if ctx.thread_id.as_ref() == Some(&turn.thread_id) {
+            if turn.parent_thread_id.is_some() {
+                return Err(mismatch("root turn has a parent"));
+            }
+        } else {
+            let parent = ctx
+                .thread_parents
+                .iter()
+                .find(|thread| thread.thread_id == turn.thread_id)
+                .ok_or_else(|| mismatch("active descendant has no known ancestry"))?;
+            if turn
+                .parent_thread_id
+                .as_ref()
+                .is_some_and(|source| source != &parent.parent_thread_id)
+            {
+                return Err(mismatch("active descendant changes proven parent"));
+            }
+        }
     }
     Ok(())
 }

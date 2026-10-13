@@ -39,7 +39,9 @@ impl ProviderRegistry {
             if let Some(mut descriptor) = self.chat_backends.descriptor(&id) {
                 descriptor.availability =
                     observe_launch_binary(descriptor.cli_binary.as_deref()).availability;
-                out.push(descriptor);
+                if !out.iter().any(|agent| agent.id == descriptor.id) {
+                    out.push(descriptor);
+                }
             }
         }
         out
@@ -51,13 +53,23 @@ impl ProviderRegistry {
         platform: &str,
     ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
         match self.transport_of(id) {
-            Some(ProviderTransport::ChatBackend) => Ok(codeterm_plugin::provider_cli::no_cli()),
-            Some(ProviderTransport::Pty) => {
+            Some(ProviderTransport::ChatBackend)
+                if self
+                    .agents
+                    .with_provider(id, |p| p.agent_runtime().is_some())
+                    != Some(true) =>
+            {
+                Ok(codeterm_plugin::provider_cli::no_cli())
+            }
+            Some(ProviderTransport::Pty | ProviderTransport::ChatBackend) => {
                 let (binary, installer, updater, compatibility) = self
                     .agents
                     .with_provider(id, |p| {
                         (
-                            p.cli_binary().unwrap_or(p.binary_name()).to_owned(),
+                            p.cli_binary()
+                                .map(str::to_owned)
+                                .or_else(|| p.agent_runtime().map(|runtime| runtime.command.binary))
+                                .unwrap_or_else(|| p.binary_name().to_owned()),
                             p.install_command(platform),
                             p.update_command(platform),
                             p.cli_compatibility(),
@@ -83,14 +95,24 @@ impl ProviderRegistry {
         if self.chat_backends.get(id).is_some() {
             return Some(ProviderTransport::ChatBackend);
         }
-        if self.agents.provider_ids().iter().any(|p| p == id) {
-            return Some(ProviderTransport::Pty);
-        }
-        None
+        self.agents.with_provider(id, |provider| {
+            if provider.agent_runtime().is_some() {
+                ProviderTransport::ChatBackend
+            } else {
+                ProviderTransport::Pty
+            }
+        })
     }
 
     /// True when `id` names a registered chat backend that is user-spawnable.
     pub fn is_spawnable_chat_backend(&self, id: &str) -> bool {
+        if self
+            .agents
+            .with_provider(id, |p| p.agent_runtime().is_some())
+            == Some(true)
+        {
+            return true;
+        }
         self.chat_backends
             .get(id)
             .map(|b| b.spawnable())
