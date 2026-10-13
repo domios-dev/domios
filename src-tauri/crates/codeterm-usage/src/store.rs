@@ -580,7 +580,7 @@ mod tests {
         s
     }
 
-    fn codex_snapshot(
+    fn guarded_snapshot(
         ms: i64,
         session_pct: f32,
         weekly_pct: f32,
@@ -709,7 +709,7 @@ mod tests {
     #[test]
     fn codex_zero_zero_with_backward_resets_is_rejected() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             6.0,
             9.0,
@@ -718,7 +718,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let bad = codex_snapshot(
+        let bad = guarded_snapshot(
             1_783_601_095_000,
             0.0,
             0.0,
@@ -748,7 +748,7 @@ mod tests {
     #[test]
     fn codex_hundred_hundred_with_identical_resets_is_rejected() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             6.0,
             9.0,
@@ -757,7 +757,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let bad = codex_snapshot(
+        let bad = guarded_snapshot(
             1_783_601_095_000,
             100.0,
             100.0,
@@ -783,7 +783,7 @@ mod tests {
         let store = UsageStore::open_in_memory().unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         store
-            .insert_snapshot(&codex_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0))
+            .insert_snapshot(&guarded_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0))
             .unwrap();
         store
             .insert_failure_kind(
@@ -827,7 +827,7 @@ mod tests {
             )
             .unwrap();
         store
-            .insert_snapshot(&codex_snapshot(now + 3_600_000, 12.0, 7.0, 0, 0))
+            .insert_snapshot(&guarded_snapshot(now + 3_600_000, 12.0, 7.0, 0, 0))
             .unwrap();
 
         let row = store
@@ -843,7 +843,7 @@ mod tests {
     #[test]
     fn codex_zero_after_supported_reset_is_accepted() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             98.0,
             9.0,
@@ -852,7 +852,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let reset = codex_snapshot(
+        let reset = guarded_snapshot(
             1_783_610_000_000,
             0.0,
             9.0,
@@ -870,7 +870,7 @@ mod tests {
     #[test]
     fn codex_exhaustion_with_distinct_resets_is_accepted() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             98.0,
             99.0,
@@ -879,7 +879,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let full = codex_snapshot(
+        let full = guarded_snapshot(
             1_783_601_095_000,
             100.0,
             100.0,
@@ -1019,11 +1019,11 @@ mod tests {
     #[test]
     fn validated_runtime_snapshots_accept_extremes_without_text_probe_heuristics() {
         let store = UsageStore::open_in_memory().unwrap();
-        let previous = codex_snapshot(1000, 20.0, 40.0, 5000, 9000);
+        let previous = guarded_snapshot(1000, 20.0, 40.0, 5000, 9000);
         store.insert_snapshot(&previous).unwrap();
-        let full = codex_snapshot(2000, 100.0, 100.0, 9000, 9000);
+        let full = guarded_snapshot(2000, 100.0, 100.0, 9000, 9000);
         store.insert_runtime_snapshot(&full).unwrap();
-        let zero = codex_snapshot(3000, 0.0, 0.0, 4000, 8000);
+        let zero = guarded_snapshot(3000, 0.0, 0.0, 4000, 8000);
         store.insert_runtime_snapshot(&zero).unwrap();
         let rows = store.get_history(&previous.provider, 0, 10, None).unwrap();
         assert_eq!(rows.len(), 3);
