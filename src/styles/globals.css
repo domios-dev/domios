@@ -53,6 +53,11 @@
   --sidebar-disclosure-transition: 160ms ease;
 }
 
+/* Overscroll is not inherited; include nested scrollports and inline containment rules. */
+* {
+  overscroll-behavior: none !important;
+}
+
 html,
 body {
   margin: 0;
