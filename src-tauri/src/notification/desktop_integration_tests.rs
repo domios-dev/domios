@@ -129,4 +129,12 @@ mod no_inference {
             "an explicit notification is opened by the notify verb's transports only"
         );
     }
+
+    #[test]
+    fn notify_gate_production_creators_use_the_admission_seam() {
+        assert_eq!(
+            callers_of("create_notification_with_delivery"),
+            vec!["service/notification.rs".to_string()],
+        );
+    }
 }
