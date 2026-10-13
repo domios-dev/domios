@@ -136,7 +136,7 @@ impl ServiceFixture {
                 .snapshot
                 .workspaces
                 .iter()
-                .find(|entry| entry.id == workspace.id)
+                .find(|entry| entry.record.id.as_str() == workspace.id)
                 .expect("current mux workspace is persisted");
             assert_eq!(persisted.tabs.len(), workspace.tabs.len());
             for tab in &workspace.tabs {

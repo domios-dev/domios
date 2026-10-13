@@ -214,6 +214,33 @@ pub(crate) fn send_envelope(
     super::envelope_delivery::send(svc, tab, input, token, observer)
 }
 
+#[cfg(test)]
+pub(crate) fn control(
+    svc: &ServiceContext,
+    tab: &str,
+    operation: RuntimeOperation,
+) -> Result<RuntimeResult, String> {
+    let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
+        .map_err(|error| error.to_string())?;
+    let _permit =
+        super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
+            .map_err(|_| "Runtime permit deadline")?
+            .map_err(|_| "Runtime stopped")?;
+    let process = session
+        .process
+        .lock()
+        .clone()
+        .ok_or("Runtime process unavailable")?;
+    let provider = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|tab| tab.agent_type.clone())
+        .ok_or("Runtime provider absent")?;
+    tauri::async_runtime::block_on(engine::run(svc, &provider, &session, &process, operation))
+        .map_err(|error| error.to_string())
+}
+
 pub fn launch(
     svc: &ServiceContext,
     provider: &str,

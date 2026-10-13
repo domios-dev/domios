@@ -303,6 +303,54 @@
           "subcommands": []
         },
         {
+          "name": "login",
+          "about": "Sign in to the tab's runtime provider without a terminal",
+          "aliases": [],
+          "args": [
+            {
+              "name": "api-key-stdin",
+              "positional": false,
+              "required": false,
+              "value_name": "API_KEY_STDIN",
+              "possible_values": [],
+              "default": null,
+              "help": "Read the API key from stdin; never supply credentials in argv",
+              "aliases": []
+            },
+            {
+              "name": "cancel",
+              "positional": false,
+              "required": false,
+              "value_name": "CANCEL",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "device",
+              "positional": false,
+              "required": false,
+              "value_name": "DEVICE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "model",
           "about": "Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`",
           "aliases": [],
