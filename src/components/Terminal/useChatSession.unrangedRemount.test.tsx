@@ -80,7 +80,7 @@ async function scenario(source: string, unbound = false) {
   await act(async () => handler?.({ payload: { tab_id: source,
     messages: [{ id: "new-epoch", type: "assistant", content: "new-epoch" }],
     source_session_id: session, session_binding_nonce: nonce } }));
-  assert.deepEqual(rendered(), ["new-epoch"], `${source}: pending replay retained the prior epoch`);
+  assert.deepEqual(rendered(), [...expected.slice(1), "new-epoch"], `${source}: same-authority pending replay lost retained history`);
   await act(async () => root.unmount());
   pending = false;
   nonce = "rotated";
