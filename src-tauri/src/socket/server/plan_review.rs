@@ -350,6 +350,13 @@ pub(super) fn dispatch(
                     ));
                 }
             }
+            {
+                let mux = svc.mux.read();
+                crate::service::restore_review_attempt_binding_for_mux(
+                    store, &mux, &plan_id, &task_id, now,
+                )
+                .map_err(plan_rpc_err)?;
+            }
             let (mut result, recorded) = store
                 .bounce_review_with_recorded_status(
                     &plan_id,
