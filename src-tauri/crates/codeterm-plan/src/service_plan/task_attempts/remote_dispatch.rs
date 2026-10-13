@@ -143,7 +143,9 @@ impl PlanStore {
                 .iter_mut()
                 .find(|attempt| attempt.id == attempt_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if attempt.mesh_peer.as_deref() != Some(peer_id)
+            if attempt.closed_at.is_some()
+                || attempt.retired_at.is_some()
+                || attempt.mesh_peer.as_deref() != Some(peer_id)
                 || !matches!(
                     attempt.remote_dispatch_state,
                     Some(
@@ -194,6 +196,7 @@ impl PlanStore {
             };
             attempt.remote_dispatch_state = Some(RemoteDispatchState::RemoteAckTimeout);
             attempt.closed_at = Some(now_ms);
+            attempt.retired_at = Some(now_ms);
             attempt.closure_reason = Some("remote_ack_timeout".into());
             if task.assigned_tab_id.as_deref() == Some(worker_tab_id) {
                 task.assigned_tab_id = None;
@@ -233,6 +236,7 @@ impl PlanStore {
             };
             attempt.remote_dispatch_state = Some(RemoteDispatchState::PeerOffline);
             attempt.closed_at = Some(now_ms);
+            attempt.retired_at = Some(now_ms);
             attempt.closure_reason = Some("remote_peer_offline_before_ack".into());
             if task.assigned_tab_id.as_deref() == Some(worker_tab_id) {
                 task.assigned_tab_id = None;
@@ -272,7 +276,9 @@ impl PlanStore {
                 .iter_mut()
                 .find(|attempt| attempt.id == attempt_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if attempt.mesh_peer.as_deref() != Some(peer_id)
+            if attempt.closed_at.is_some()
+                || attempt.retired_at.is_some()
+                || attempt.mesh_peer.as_deref() != Some(peer_id)
                 || attempt.remote_dispatch_state != Some(RemoteDispatchState::PeerPreflight)
             {
                 return Err(PlanError::Io(
@@ -326,7 +332,10 @@ impl PlanStore {
             {
                 return Ok(false);
             }
-            if attempt.remote_dispatch_state != Some(RemoteDispatchState::Acknowledged) {
+            if attempt.closed_at.is_some()
+                || attempt.retired_at.is_some()
+                || attempt.remote_dispatch_state != Some(RemoteDispatchState::Acknowledged)
+            {
                 return Err(PlanError::Io(
                     "remote report does not match an acknowledged origin attempt".into(),
                 ));

@@ -616,7 +616,7 @@ pub(super) fn verify_remote_worker_binding(
     params: &Option<Value>,
     svc: &ServiceState,
 ) -> Result<(), JsonRpcError> {
-    let (_, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
+    let (plan_id, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
     let attempt_id = super::get_string_param(params, "attempt_id")?;
     let peer_id = super::get_string_param(params, "authenticated_mesh_peer_id").map_err(|_| {
         JsonRpcError {
@@ -635,16 +635,22 @@ pub(super) fn verify_remote_worker_binding(
             .iter()
             .find(|attempt| attempt.id == attempt_id)
     });
-    if attempt.is_some_and(|attempt| {
-        super::remote_worker_policy::worker_binding_matches(
-            attempt.mesh_peer.as_deref(),
-            &attempt.executor_tab_id,
-            attempt.session_binding_nonce.as_deref(),
-            &peer_id,
-            &worker_tab_id,
-            &nonce,
-        )
-    }) {
+    let valid = attempt.is_some_and(|attempt| {
+        attempt.closed_at.is_none()
+            && attempt.retired_at.is_none()
+            && attempt.mesh_peer.as_deref() == Some(peer_id.as_str())
+            && attempt.executor_tab_id == worker_tab_id
+            && super::plan_task_dispatch::remote_recovery::observe_worker(
+                svc,
+                &plan_id,
+                &task_id,
+                attempt,
+                Some(&nonce),
+                false,
+            )
+            .is_ok_and(|observed| observed["binding_matches"] == true)
+    });
+    if valid {
         Ok(())
     } else {
         Err(JsonRpcError {

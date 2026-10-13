@@ -27,6 +27,7 @@ pub(super) mod lane_safety;
 mod preflight;
 mod recovery;
 pub(super) mod remote;
+pub(crate) mod remote_recovery;
 mod routing;
 mod startup;
 mod tab_reservation;
@@ -460,6 +461,13 @@ where
         message,
         data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
     })?;
+    remote_recovery::recover_remote_attempts(svc, &plan_id, &task_id, now, false)?;
+    let detail = store
+        .show_task(&task_id)
+        .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+    let plan = store
+        .get(&plan_id)
+        .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
     let regression_warning = regression_dispatch_warning(regression_dispatch_decision(&plan));
     // Same frontier policy for the review WIP gate: decide before any tab
