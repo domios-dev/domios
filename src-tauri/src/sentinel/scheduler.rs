@@ -525,7 +525,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             Path::new(&lease.job.cwd),
             remaining,
             &handle.probe_owner,
-            &probe::environment::Environment::current_instance(),
+            &probe::environment::Environment::current_instance(svc.configuration().api),
         )
     };
     let output = resolve_probe_result(

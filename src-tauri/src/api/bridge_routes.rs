@@ -282,8 +282,8 @@ pub struct AnnounceBody {
     pub text: String,
 }
 
-fn first_allowed_bridge_user() -> Option<i64> {
-    crate::config::load_config()
+fn first_allowed_bridge_user(svc: &crate::service::ServiceContext) -> Option<i64> {
+    svc.configuration()
         .integrations
         .telegram_allowed_users
         .iter()
@@ -298,10 +298,13 @@ pub async fn bridge_announce(
     check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
-    let chat_id = body.chat_id.or_else(first_allowed_bridge_user).ok_or((
-        StatusCode::BAD_REQUEST,
-        "No chat_id given and no allow-listed bridge users to default to",
-    ))?;
+    let chat_id = body
+        .chat_id
+        .or_else(|| first_allowed_bridge_user(&state.svc))
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "No chat_id given and no allow-listed bridge users to default to",
+        ))?;
 
     if !state.svc.bridge_supervisor.is_active() {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"));

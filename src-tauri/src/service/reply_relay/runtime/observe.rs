@@ -7,7 +7,7 @@ impl ServiceContext {
             return;
         }
         self.observe_tool_less_startup_ack(target, &entry.binding);
-        let max_hops = crate::config::load_config().agent.reply_relay_max_hops;
+        let max_hops = self.configuration().agent.reply_relay_max_hops;
         let mut pending = entry.worker.lock().pending();
         for relay in entry.model.lock().pending() {
             if !pending

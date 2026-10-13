@@ -13,7 +13,7 @@ impl ServiceContext {
         &self,
         declared: Option<NotifyLevel>,
     ) -> SurfaceDispatch {
-        let notifications = crate::config::load_config().notifications;
+        let notifications = self.configuration().notifications;
         SurfaceDispatch {
             declared,
             desktop: DesktopPolicy::from_config(&notifications),
@@ -24,6 +24,6 @@ impl ServiceContext {
     /// panel keeps every record either way — but it is the difference between a
     /// record a user is shown and one they must go looking for.
     pub(crate) fn bell_visible(&self) -> bool {
-        crate::config::load_config().notifications.show_bell
+        self.configuration().notifications.show_bell
     }
 }

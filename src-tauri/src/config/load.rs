@@ -21,6 +21,12 @@ enum TokenPolicy {
     KeepConfigured,
 }
 
+#[cfg(test)]
+pub fn load_config() -> AppConfig {
+    panic!("Ambient user config is forbidden in unit tests; inject ConfigState or explicit config")
+}
+
+#[cfg(not(test))]
 pub fn load_config() -> AppConfig {
     use std::sync::OnceLock;
     static CACHE: OnceLock<ConfigCache> = OnceLock::new();
@@ -340,3 +346,12 @@ pub(super) fn with_generated_token(mut config: AppConfig) -> (AppConfig, bool) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod isolation_tests {
+    #[test]
+    #[should_panic(expected = "Ambient user config is forbidden in unit tests")]
+    fn ambient_user_config_is_refused_before_reading_home() {
+        super::load_config();
+    }
+}

@@ -8,7 +8,7 @@ impl ServiceContext {
         &self,
         requested: Option<&str>,
     ) -> Result<Option<crate::pty::shell_profiles::ShellProfile>, String> {
-        let default = crate::config::load_config().terminal.default_shell;
+        let default = self.configuration().terminal.default_shell;
         let Some(id) = requested.or(default.as_deref()).filter(|id| !id.is_empty()) else {
             return Ok(None);
         };

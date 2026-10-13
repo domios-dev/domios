@@ -99,6 +99,9 @@ fn build_agent_command_inner(
             params.cwd.as_deref(),
         );
     }
+    let config = notice_context
+        .map(|(service, _)| service.configuration())
+        .unwrap_or_default();
     let resolved_model = params
         .model
         .as_deref()
@@ -106,6 +109,7 @@ fn build_agent_command_inner(
         .and_then(|model| {
             if registry.with_provider(agent_cmd, |_| ()).is_some() {
                 let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+                    &config,
                     registry,
                     agent_cmd,
                     Some(model.to_string()),

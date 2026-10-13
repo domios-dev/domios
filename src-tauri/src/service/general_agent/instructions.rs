@@ -140,6 +140,7 @@ fn cli_without_memory_section() -> String {
 }
 
 pub(super) fn render_system_prompt(
+    capability_hints: bool,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) -> String {
@@ -147,11 +148,11 @@ pub(super) fn render_system_prompt(
         &general_dir(),
         provider_name,
         &render_wake_up_section(mem),
-        runtime_capability_hints(&general_dir()).as_deref(),
+        runtime_capability_hints(&general_dir(), capability_hints).as_deref(),
     )
 }
 
-fn runtime_capability_hints(dir: &std::path::Path) -> Option<String> {
+fn runtime_capability_hints(dir: &std::path::Path, enabled: bool) -> Option<String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
@@ -167,7 +168,7 @@ fn runtime_capability_hints(dir: &std::path::Path) -> Option<String> {
         &crate::service::plugin_prompt::capability_hints(),
         now,
         first_seen,
-        crate::config::load_config().general_agent.capability_hints,
+        enabled,
     )
 }
 
@@ -332,24 +333,26 @@ pub(super) fn ensure_bootstrap_instructions() -> Result<(), String> {
 }
 
 pub fn generate_instructions(
+    capability_hints: bool,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) {
     let dir = general_dir();
-    generate_instructions_at(&dir, provider_name, mem);
+    generate_instructions_at(&dir, provider_name, mem, capability_hints);
 }
 
 fn generate_instructions_at(
     dir: &std::path::Path,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
+    capability_hints: bool,
 ) {
     let wake_up_section = render_wake_up_section(mem);
     let agent_content = compose_general_prompt_at(
         dir,
         provider_name,
         &wake_up_section,
-        runtime_capability_hints(dir).as_deref(),
+        runtime_capability_hints(dir, capability_hints).as_deref(),
     );
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
@@ -573,7 +576,7 @@ mod tests {
         std::fs::write(dir.join("CLAUDE.md"), "@./AGENT.md\n\nUSER_CLAUDE_NOTE\n").unwrap();
         std::fs::write(dir.join("AGENTS.md"), "USER_AGENTS_NOTE\n").unwrap();
 
-        generate_instructions_at(&dir, "codex", None);
+        generate_instructions_at(&dir, "codex", None, false);
 
         let agent = std::fs::read_to_string(dir.join("AGENT.md")).unwrap();
         let claude = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
@@ -610,7 +613,7 @@ mod tests {
         assert!(claude.contains("USER_CLAUDE_NOTE"));
         assert!(agents.contains("USER_AGENTS_NOTE"));
 
-        generate_instructions_at(&dir, "codex", None);
+        generate_instructions_at(&dir, "codex", None, false);
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert_eq!(agents.matches(GENERATED_START).count(), 1);
         assert_eq!(agents.matches("USER_AGENTS_NOTE").count(), 1);
@@ -643,7 +646,7 @@ mod tests {
         .unwrap();
 
         for _ in 0..2 {
-            generate_instructions_at(&dir, "codex", None);
+            generate_instructions_at(&dir, "codex", None, false);
             let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
             assert!(agents.starts_with(prepended_notes));
             assert!(agents.ends_with(appended_notes));
@@ -796,7 +799,7 @@ mod tests {
         let t0 = Instant::now();
         let handle = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
-            generate_instructions_at(&output_dir, "claude", Some(&mem_clone));
+            generate_instructions_at(&output_dir, "claude", Some(&mem_clone), false);
         });
         let elapsed = t0.elapsed();
         assert!(

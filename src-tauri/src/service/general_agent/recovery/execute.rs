@@ -130,7 +130,7 @@ pub(crate) fn recover(
         }
         return false;
     }
-    let config = crate::config::load_config();
+    let config = service.configuration();
     let restart_episode = super::super::recovery_episode::store().snapshot();
     let pty_live = current
         .pty_id

@@ -302,7 +302,7 @@ impl ServiceContext {
             ServiceContext::parse_role(role_str)?;
         }
 
-        let default_provider = crate::config::default_agent_provider();
+        let default_provider = self.configuration().general_agent.agent_provider;
         let model_selection = resolve_agent_model_selection(
             &self.agent_registry,
             (!agent.provider.trim().is_empty()).then_some(agent.provider.as_str()),
@@ -329,6 +329,7 @@ impl ServiceContext {
             log::warn!("[spawn] {}", warning);
         }
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
+            &self.configuration(),
             &self.agent_registry,
             &agent_cmd,
             requested_model,
@@ -773,6 +774,7 @@ impl ServiceContext {
         )
         .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
+            &self.configuration(),
             &self.agent_registry,
             &agent.provider,
             agent.model.clone(),
@@ -900,7 +902,7 @@ impl ServiceContext {
             "CODETERM_SOCKET_PATH".into(),
             crate::socket::server::socket_display_path(),
         );
-        let api_cfg = crate::config::load_config().api;
+        let api_cfg = self.configuration().api;
         let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
         env_vars.insert("CODETERM_API_URL".into(), api_url);
         env_vars.insert("CODETERM_API_PORT".into(), api_port);
@@ -973,7 +975,7 @@ impl ServiceContext {
         }
         // later (after the cron registry links tab→run).
         if let Some(ref worker_id) = agent.worker_id {
-            let mem_cfg = crate::config::memory_config();
+            let mem_cfg = self.configuration().memory;
             let intent = self
                 .workers
                 .get(worker_id)

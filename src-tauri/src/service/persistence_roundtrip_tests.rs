@@ -14,13 +14,6 @@ use tauri::Manager;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
-fn manage_test_config(app: &crate::app_runtime::App) {
-    let config: crate::config::ConfigState = std::sync::Arc::new(parking_lot::Mutex::new(
-        crate::config::schema::AppConfig::default(),
-    ));
-    assert!(app.manage(config));
-}
-
 pub(super) struct ServiceInstance {
     pub(super) fixture: ServiceFixture,
     pub(super) storage: Storage,
@@ -35,7 +28,6 @@ impl ServiceInstance {
             .expect("startup opens ready Storage")
             .clone();
         let fixture = ServiceFixture::new_at(mux, root);
-        manage_test_config(&fixture._app);
         assert!(fixture._app.manage(authority.clone()));
         let app = fixture._app.handle().clone();
         crate::service::session_persist::install_storage_desk_adapter(
@@ -80,7 +72,6 @@ impl ServiceInstance {
             MultiplexerState::from_session_snapshot(&snapshot)
         };
         let fixture = ServiceFixture::new_at(mux, root);
-        manage_test_config(&fixture._app);
         assert!(fixture._app.manage(authority.clone()));
         let app = fixture._app.handle().clone();
         crate::service::session_persist::install_storage_desk_adapter(

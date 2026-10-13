@@ -331,7 +331,7 @@ pub(crate) fn arm(svc: &ServiceContext) {
     if owed.is_empty() {
         return;
     }
-    if !crate::config::load_config().agent.continue_after_restart {
+    if !svc.configuration().agent.continue_after_restart {
         settle_disabled_marks(&svc.mux, &owed, start_epoch);
         log::info!(
             "[turn-resume] disabled; {} owed continue(s) settled as skipped",
@@ -466,7 +466,7 @@ impl ServiceContext {
         tab_id: &str,
         prompt: &str,
     ) -> Result<(), String> {
-        request_enabled(crate::config::load_config().agent.continue_after_restart)?;
+        request_enabled(self.configuration().agent.continue_after_restart)?;
         let start_epoch =
             crate::crash::lifecycle::current_start_epoch().ok_or("start epoch is not recorded")?;
         let mut mux = self.mux.write();

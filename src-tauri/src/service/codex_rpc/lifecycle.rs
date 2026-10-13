@@ -345,7 +345,7 @@ async fn start(
         let mut params = super::thread_start::parameters(&spawn, runtime_mode);
         let resume = spawn
             .resume
-            .filter(|_| crate::config::resume_sessions_enabled(&spawn.provider));
+            .filter(|_| crate::config::provider_config_from(&svc.configuration(), &spawn.provider).resume_sessions.unwrap_or(true));
         let response = if let Some(thread) = resume.as_deref() {
             params["threadId"] = json!(thread);
             params["excludeTurns"] = json!(true);

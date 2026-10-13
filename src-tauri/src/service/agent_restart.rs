@@ -275,7 +275,8 @@ impl ServiceContext {
                 "provider restart requires a PTY source".into(),
             ));
         }
-        snap.auto_approve = crate::service::permission_policy::configured_permission_bypass(
+        snap.auto_approve = crate::service::permission_policy::configured_permission_bypass_for(
+            &self.app_handle,
             &self.agent_registry,
             target_provider,
         )
@@ -851,7 +852,8 @@ fn build_relaunch_command(
         &snap.tab_id,
         snap.cwd.as_deref(),
     );
-    let auto_approve = match crate::service::permission_policy::configured_permission_bypass(
+    let auto_approve = match crate::service::permission_policy::configured_permission_bypass_for(
+        &svc.app_handle,
         &svc.agent_registry,
         provider,
     ) {

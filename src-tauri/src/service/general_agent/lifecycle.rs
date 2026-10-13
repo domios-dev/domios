@@ -224,15 +224,21 @@ pub fn start_general_agent(
     };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
-    let resume_sessions_enabled = crate::config::resume_sessions_enabled(provider_name);
-    let permission_bypass =
-        match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
-            Ok(value) => value,
-            Err(error) => {
-                log::warn!("[general-agent] Start blocked: {error}");
-                return;
-            }
-        };
+    let resume_sessions_enabled =
+        crate::config::provider_config_from(&config.lock(), provider_name)
+            .resume_sessions
+            .unwrap_or(true);
+    let permission_bypass = match general_agent_permission_bypass(
+        &svc.agent_registry,
+        provider_name,
+        config.lock().agent.full_access,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!("[general-agent] Start blocked: {error}");
+            return;
+        }
+    };
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
     // Regenerate AGENT.md in a background thread.
@@ -240,8 +246,9 @@ pub fn start_general_agent(
     {
         let mem = svc.mem.clone();
         let provider_owned = provider_name.clone();
+        let capability_hints = general_config.capability_hints;
         std::thread::spawn(move || {
-            instructions::generate_instructions(&provider_owned, Some(&mem));
+            instructions::generate_instructions(capability_hints, &provider_owned, Some(&mem));
         });
     }
 
@@ -621,9 +628,11 @@ fn restart_general_agent_inner(
     // start_general_agent). Same rationale as the lifecycle::start_general_agent path: do not block restart on mem.wake_up().
     {
         let mem = svc.mem.clone();
-        let provider_name = config.lock().general_agent.agent_provider.clone();
+        let general = config.lock().general_agent.clone();
+        let provider_name = general.agent_provider;
+        let capability_hints = general.capability_hints;
         std::thread::spawn(move || {
-            instructions::generate_instructions(&provider_name, Some(&mem));
+            instructions::generate_instructions(capability_hints, &provider_name, Some(&mem));
         });
     }
 
@@ -764,9 +773,17 @@ fn terminate_pty_before_relaunch(
 fn general_agent_permission_bypass(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
+    choice: Option<bool>,
 ) -> Result<bool, String> {
-    crate::service::permission_policy::configured_permission_bypass(registry, provider)
-        .map(|authorization| authorization.is_some())
+    let full_access = crate::service::permission_policy::require_full_access_choice(choice)?;
+    Ok(
+        crate::service::permission_policy::authorize_permission_bypass(
+            registry,
+            provider,
+            full_access,
+        )
+        .is_some(),
+    )
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {

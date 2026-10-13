@@ -636,7 +636,7 @@ impl ServiceContext {
         {
             return config.clone();
         }
-        crate::config::load_config().supporter
+        self.configuration().supporter
     }
 
     #[cfg(test)]
@@ -762,7 +762,7 @@ impl ServiceContext {
         let Some(prepared) = captured else {
             return;
         };
-        let config = crate::config::load_config().supporter;
+        let config = self.configuration().supporter;
         observer::enqueue_prepared(
             self,
             &config,

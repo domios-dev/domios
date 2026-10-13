@@ -1022,6 +1022,7 @@ fn free_form_unknown_model_is_preserved_in_launch_command() {
         ..Default::default()
     };
     let resolved_model = crate::service::spawn::resolve_fresh_agent_model(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         provider_id,
         Some(requested_model.into()),
