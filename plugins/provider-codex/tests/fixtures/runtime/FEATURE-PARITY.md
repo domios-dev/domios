@@ -14,7 +14,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | thread/items/list | Paginated items per turn | Yes | readHistory continuations and openItems | Host reconciles stable IDs and unfinished items |
 | turn/start | Submit a new turn | Yes | submitTurn with clientUserMessageId, settings, attachments | Exclusive ledger remains host-owned |
 | turn/steer | Add input during active turn | Yes | submitTurn with expectedTurnId; exact refused-before-acceptance fallback | Diverges from reference by attaching our exclusive send ID; never retry uncertainty |
-| turn/interrupt | Stop running turn | Yes, root plus descendants | Root and verified active descendants, deepest first | A10/A10b explicit generic targets are host-validated |
+| turn/interrupt | Stop running turn | Yes, root plus descendants | Root and verified active descendants, deepest first | A10/A10b/A10c generic targets are validated; retained ancestry traverses inactive parents |
 | thread/settings/update | Next-turn model/effort/mode | Old core stages locally | Per-thread control request | Never writes machine config |
 | thread/compact/start | Compact active context | Not exposed as RPC control | compact control | Completion emits contextCompacted |
 | turn/started | Activity and provider start time | Yes | turnState with startedAt in ms | Auto-started goal turns on exact bound thread accepted |
@@ -40,7 +40,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | item/tool/requestUserInput | Blocking questions | Yes | Exact native option values and answers keyed by question ID | Multi-question free text UI requires richer answer shape; one free-text question works |
 | mcpServer/elicitation/request | MCP form/URL elicitation | Limited empty form | Existing empty-form prompt/reply retained | Rich forms and URL launch require UI/contract decision |
 | serverRequest/resolved | Remove live request | Yes | promptResolved with exact ID | String and numeric IDs remain distinct |
-| async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action | A9; durable itemId resolution and ordinary send ledger belong core |
+| async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action; typed historyPage.questions | A9; durable itemId resolution and ordinary send ledger belong core |
 | thread/goal/updated | Provider goal text | Yes | Stable sessionIntent item | Durable goal lifecycle/commands deliberately deferred |
 | thread/goal/cleared | Clear provider goal | Not mapped | Clear stable sessionIntent item | Same thread accepts subsequent goal-native turns |
 | thread/goal/get | Read current goal during history | Yes, optional | Optional final-page history enrichment to sessionIntent | Unsupported optional probe does not fail history |

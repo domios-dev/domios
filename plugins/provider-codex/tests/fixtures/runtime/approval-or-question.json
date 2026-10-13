@@ -14,7 +14,8 @@
     },
     "providerSettings": {},
     "claimedSends": [],
-    "activeTurns": []
+    "activeTurns": [],
+    "threadParents": []
   },
   "operations": [
     {
@@ -51,7 +52,8 @@
             "command": "git status"
           }
         },
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -102,7 +104,8 @@
             ]
           }
         },
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     }
   ],

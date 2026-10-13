@@ -142,6 +142,38 @@ function runtimeQuestions(value) {
 function questionAnswerInput(itemId, answers) {
   return { text: JSON.stringify({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
 }
+function answersMatch(questions, raw) {
+  const answers = list(raw).map(object);
+  if (answers.length !== questions.length || new Set(answers.map((answer) => answer.questionId)).size !== answers.length) return false;
+  return questions.every((question) => {
+    const answer = answers.find((answer2) => answer2.questionId === question.id);
+    if (!answer || !Array.isArray(answer.values)) return false;
+    const values = answer.values;
+    if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
+    if (!question.multiSelect && values.length > 1) return false;
+    const freeText = text(answer.text);
+    if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
+    return values.length > 0 || !!freeText;
+  });
+}
+function reconcileHistoryQuestions(threadId, raw, previous) {
+  const item = object(raw);
+  const itemId = text(item.id);
+  if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
+    const old = previous.find((question2) => question2.itemId === itemId);
+    const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
+    return [...previous.filter((existing) => existing.itemId !== itemId), question];
+  }
+  if (item.type !== "userMessage") return [...previous];
+  const content = list(item.content).map(object).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  let answer;
+  try {
+    answer = object(JSON.parse(content));
+  } catch {
+    return [...previous];
+  }
+  return previous.map((question) => answer.itemId === question.itemId && answersMatch(question.questions, answer.answers) ? { ...question, resolved: true } : question);
+}
 
 // plugins/provider-codex/src/fileDiffs.ts
 var LINE_MARKERS = " +-\\";
@@ -426,9 +458,8 @@ function notificationAuth(value) {
 }
 
 // plugins/provider-codex/src/runtimeInterrupt.ts
-function interruptTargets(ctx, root, active) {
+function interruptTargets(ctx, root) {
   const turns = [...ctx.activeTurns];
-  if (active && !turns.some((turn) => turn.threadId === root && turn.turnId === active)) turns.push({ threadId: root, turnId: active });
   const depth = (thread) => {
     let current = thread;
     let count = 0;
@@ -436,7 +467,7 @@ function interruptTargets(ctx, root, active) {
     while (current !== root) {
       if (seen.has(current)) return -1;
       seen.add(current);
-      const parent = turns.find((turn) => turn.threadId === current)?.parentThreadId;
+      const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
       if (!parent) return -1;
       current = parent;
       count++;
@@ -645,7 +676,7 @@ function runtimeReduce(ctx, raw, frames) {
       events.push(notificationAuth(params));
       continue;
     }
-    state.parents ?? (state.parents = Object.fromEntries(ctx.activeTurns.filter((turn) => turn.parentThreadId).map((turn) => [turn.threadId, turn.parentThreadId])));
+    state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
     if (frame.kind === "notification" && frame.method === "thread/started") {
       const thread = object(params.thread);
       const id = text(thread.id);
@@ -893,7 +924,7 @@ function runtimePlan(ctx, op) {
       return request("turn/steer", { threadId: op.threadId, clientUserMessageId: op.sendId, input: params.input, expectedTurnId: op.activeTurnId });
     }
     case "interrupt": {
-      const turns = interruptTargets(ctx, op.threadId, op.activeTurnId ?? ctx.activeTurnId);
+      const turns = interruptTargets(ctx, op.threadId);
       if (!turns.length) fail2("provider_refused", "No active turn to interrupt");
       return request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) });
     }
@@ -997,9 +1028,11 @@ function historyResponse(op, state, value) {
   const items = list(state.items);
   const openItems = list(state.openItems);
   let seq = Number(state.seq);
+  let questions = list(state.questions);
   for (const entry of value.data) {
     const record4 = object(entry);
     const rawItem = record4.item ?? record4;
+    questions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
     const rows = runtimeItems(rawItem, seq + 1);
     seq += rows.length;
     for (const row2 of rows) {
@@ -1013,7 +1046,7 @@ function historyResponse(op, state, value) {
   const next = text(value.nextCursor);
   const cursors = list(state.cursors);
   if (next && cursors.includes(next)) return refused("Repeated history cursor");
-  const collected = { ...state, items, openItems, seq };
+  const collected = { ...state, items, openItems, seq, questions };
   if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
   const index = Number(state.index) + 1;
   if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
@@ -1034,7 +1067,8 @@ function historyComplete(op, state) {
     threadId: op.threadId,
     items: list(state.items),
     openItems: list(state.openItems),
-    ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {}
+    ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
+    ...list(state.questions).length ? { questions: list(state.questions) } : {}
   } };
 }
 
