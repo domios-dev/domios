@@ -5316,13 +5316,6 @@
     },
     {
       "file": "src-tauri/crates/codeterm-usage/src/store.rs",
-      "token": "codex_snapshot",
-      "count": 11,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-usage/src/store.rs",
       "token": "codex_zero_after_supported_reset_is_accepted",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
