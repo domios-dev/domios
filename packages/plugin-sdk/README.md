@@ -156,3 +156,14 @@ export default plugin;
 `capabilities.receiverStatusQuery` declares one immutable HID status request (2–64bytes), application-collection usage and reportID. `host.localRecording.statusReport()` exchanges only that declaration with a sibling collection belonging to the exact selected receiver; persisted `local_recording` grant and current selection/availability are checked before and after IO. No device path or request argument is exposed. The plugin owns decoding, connection/battery semantics and `statusBubble`; unsupported platforms or unavailable status return a refusal. `TabContext.tabId` identifies the host-supplied bubble recipient.
 
 `localRecordingTrigger.button` supplies the selected interface/collection, report schema, approved singleton button usages, press usage and duplicate window. Native adapters validate that declared shape instead of branching on manufacturer identity. A missing native mapping remains unavailable.
+
+## Chat backend restore
+
+After daemon restore, `openSession(ctx)` receives `ctx.restore` with the exact
+previous `sessionId` and persisted `NormalizedChatMessage[]` in source order.
+Fresh opens omit it. A backend that owns conversation context must hydrate its
+transcript and model input before accepting the next send, preserve message IDs,
+and allocate new IDs without collisions. Restore is historical data, never a
+request to replay tools or pending inputs. Provider response handles are not
+persisted by this contract; rebuild model context from the rows when needed.
+The host passes only this tab's bound session, without granting filesystem access.

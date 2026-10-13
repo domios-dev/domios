@@ -597,6 +597,32 @@ mod tests {
     }
 
     #[test]
+    fn open_session_forwards_exact_restore_context_to_js() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                openSession(ctx) { return { sessionId: JSON.stringify(ctx.restore) }; }
+            }"#,
+        );
+        let backend = JsChatBackend::new(vm, "fixture-backend");
+        let restore = json!({
+            "sessionId": "prior-session",
+            "messages": [
+                { "id": "user-1", "type": "user", "content": "marker-before" },
+                { "id": "assistant-2", "type": "assistant", "content": "reply-before" }
+            ]
+        });
+        let returned = backend
+            .open_session(json!({
+                "tabId": "own-tab", "config": {}, "restore": restore.clone()
+            }))
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&returned).unwrap(),
+            restore
+        );
+    }
+
+    #[test]
     fn open_session_error_propagates() {
         let vm = vm_with(
             r#"module.exports.default = { openSession() { return { error: "no server" }; } }"#,
