@@ -70,7 +70,8 @@ export function verifyCoverage(receipts, shards = 12) {
     counts.tests.add(row.id);
   }
   const reasonCounts = [...reasons].map(([reason, counts]) => `- ${reason}: ${counts.tests.size} distinct tests, ${counts.entries} OS/test entries`).join('\n');
-  return receipts.map((r) => `| ${r.mode === 'shared' ? `shard ${r.shard}/${shards}` : r.os} | ${r.runner} | ${r.os} | ${r.selected.length} | ${r.seconds.toFixed(1)} s |`).join('\n') + (ignored.length ? `\n\nIgnore counts per source reason:\n${reasonCounts}\n\nExplicit source ignores (${ignored.length} OS/test entries):\n${ignored.join('\n')}` : '');
+  const audits = receipts.flatMap((r) => (r.timingAudits || []).filter((a) => a.candidates.length).map((a) => `\n${r.runner}, ${a.parallelLog}:\n\n${a.report}`)).join('\n');
+  return receipts.map((r) => `| ${r.mode === 'shared' ? `shard ${r.shard}/${shards}` : r.os} | ${r.runner} | ${r.os} | ${r.selected.length} | ${r.seconds.toFixed(1)} s |`).join('\n') + (ignored.length ? `\n\nIgnore counts per source reason:\n${reasonCounts}\n\nExplicit source ignores (${ignored.length} OS/test entries):\n${ignored.join('\n')}` : '') + (audits ? `\n\nParallel and alone timing audits:\n${audits}` : '');
 }
 
 export function executionGroups(selected) {
@@ -78,6 +79,27 @@ export function executionGroups(selected) {
     listener,
     selected: selected.filter((test) => test.name.includes('startup::rest_api::tests::') === listener),
   })).filter((group) => group.selected.length > 0);
+}
+
+export function candidateFilter(document, selected) {
+  if (!Array.isArray(document.entries)) throw new Error('Missing timing candidate entries');
+  const allowed = new Set(selected.map((test) => JSON.stringify([test.binary, test.name])));
+  const seen = new Set();
+  return document.entries.map(({ binary, test }) => {
+    if (typeof binary !== 'string' || typeof test !== 'string' ||
+        !/^[A-Za-z0-9_:.\/-]+$/.test(binary) || !/^[A-Za-z0-9_:.\/-]+$/.test(test)) throw new Error('Unsafe timing candidate identity');
+    const key = JSON.stringify([binary, test]);
+    if (!allowed.has(key)) throw new Error(`Timing candidate outside selected subgroup: ${binary} ${test}`);
+    if (seen.has(key)) throw new Error('Duplicate timing candidate');
+    seen.add(key);
+    return `(binary_id(=${binary}) & test(=${test}))`;
+  }).join(' | ');
+}
+
+export function reusedNextestArgs(binaries, metadata, config, partition = [], alone = false) {
+  return ['--binaries-metadata', binaries, '--cargo-metadata', metadata, '--config-file', config,
+    ...partition, '--no-tests=fail', '--status-level', 'pass', '--failure-output', 'immediate-final',
+    ...(alone ? ['--test-threads', '1'] : [])];
 }
 
 export async function captureCommand(command, args, logPath, env = process.env, echo = true) {
@@ -105,7 +127,7 @@ async function run(mode, shard, total) {
   delete process.env.CODETERM_TASK_ID;
   process.env.CODETERM_CONPTY_TEST_ISOLATION = '1';
   const start = performance.now();
-  const receipt = { mode, shard, runner: process.env.RUNNER_NAME, os: process.env.RUNNER_OS, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), all: [], selected: [], exit: 1, seconds: 0 };
+  const receipt = { mode, shard, runner: process.env.RUNNER_NAME, os: process.env.RUNNER_OS, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), all: [], selected: [], timingAudits: [], exit: 1, seconds: 0 };
   fs.mkdirSync('ci-rust-receipts', { recursive: true });
   try {
     for (const required of ['scripts/check-slow-unit-tests.mjs', 'scripts/slow-unit-tests.json']) {
@@ -114,8 +136,14 @@ async function run(mode, shard, total) {
     for (const manifest of manifests) {
       const targets = manifest.startsWith('src-tauri') ? ['--lib'] : [];
       const common = ['--manifest-path', manifest, '--workspace', '--locked', ...targets];
-      const metadata = jsonCommand(['metadata', '--manifest-path', manifest, '--no-deps', '--format-version', '1']);
-      const inventory = jsonCommand(['nextest', 'list', ...common, '--ignore-default-filter', '--message-format', 'json']);
+      const metadata = jsonCommand(['metadata', '--manifest-path', manifest, '--locked', '--format-version', '1']);
+      const lane = manifest.startsWith('src-tauri') ? 'workspace' : 'cli';
+      const cargoMetadata = path.resolve('ci-rust-receipts', `${lane}.cargo-metadata`);
+      const binariesMetadata = path.resolve('ci-rust-receipts', `${lane}.binaries-metadata`);
+      fs.writeFileSync(cargoMetadata, JSON.stringify(metadata));
+      fs.writeFileSync(binariesMetadata, JSON.stringify(jsonCommand(['nextest', 'list', ...common, '--ignore-default-filter', '--list-type', 'binaries-only', '--message-format', 'json'])));
+      const reused = ['--binaries-metadata', binariesMetadata, '--cargo-metadata', cargoMetadata];
+      const inventory = jsonCommand(['nextest', 'list', ...reused, '--ignore-default-filter', '--message-format', 'json']);
       if (manifest.startsWith('src-tauri')) execFileSync('cargo', ['build', '--locked', '--manifest-path', manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
       const sources = {};
       for (const suite of Object.values(inventory['rust-suites'])) {
@@ -131,25 +159,41 @@ async function run(mode, shard, total) {
       const partition = mode === 'shared' ? ['--partition', `hash:${shard}/${total}`] : [];
       const config = path.resolve('ci-rust-receipts', 'selection.toml');
       fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
-      const selected = jsonCommand(['nextest', 'list', ...common, '--config-file', config, ...partition, '--message-format', 'json']);
+      const selected = jsonCommand(['nextest', 'list', ...reused, '--config-file', config, ...partition, '--message-format', 'json']);
       const selectedTests = [];
       for (const suite of Object.values(selected['rust-suites'])) {
         for (const [name, test] of Object.entries(suite.testcases)) {
           if (test['filter-match'].status === 'matches') {
             receipt.selected.push(`${suite['binary-id']}::${name}`);
-            selectedTests.push({ id: `${suite['binary-id']}::${name}`, name });
+            selectedTests.push({ id: `${suite['binary-id']}::${name}`, binary: suite['binary-id'], name });
           }
         }
       }
       // Listener lifecycle cases need a process boundary without concurrent fork holders (#620).
-      for (const { listener } of executionGroups(selectedTests)) {
+      for (const { listener, selected: groupTests } of executionGroups(selectedTests)) {
         const isolation = 'test(/startup::rest_api::tests::/)';
-        fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${filter}) & ${listener ? isolation : `not (${isolation})`}`)}\nretries = 0\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`);
+        const groupFilter = `(${filter}) & ${listener ? isolation : `not (${isolation})`}`;
+        fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(groupFilter)}\nretries = 0\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`);
         console.log(`[${mode} ${shard}/${total} runner=${receipt.runner}] ${manifest} listener=${listener}`);
         const log = path.resolve('ci-rust-receipts', `${mode}-${mode === 'shared' ? shard : receipt.os}-${manifest.startsWith('src-tauri') ? 'workspace' : 'cli'}-${listener ? 'listener' : 'normal'}.log`);
-        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...common, '--config-file', config, ...partition, '--no-tests=fail', '--status-level', 'pass', '--failure-output', 'immediate-final'], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
+        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...reusedNextestArgs(binariesMetadata, cargoMetadata, config, partition)], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
         if (result.error || result.status !== 0) throw new Error(`Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}: ${result.error || result.status}`);
-        execFileSync(process.execPath, ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'], { stdio: 'inherit' });
+        const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
+        const candidatePath = log.replace(/\.log$/, '.candidates');
+        execFileSync(process.execPath, [...guard, '--candidates', candidatePath], { stdio: 'inherit' });
+        const candidates = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
+        const exactFilter = candidateFilter(candidates, groupTests);
+        let aloneLog;
+        if (exactFilter) {
+          aloneLog = log.replace(/\.log$/, '.alone.log');
+          fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${groupFilter}) & (${exactFilter})`)}\nretries = 0\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
+          const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...reusedNextestArgs(binariesMetadata, cargoMetadata, config, [], true)], aloneLog, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
+          if (alone.error || alone.status !== 0) throw new Error(`Candidate rerun failed on ${receipt.runner}: ${alone.error || alone.status}`);
+        }
+        const auditLog = log.replace(/\.log$/, '.audit.log');
+        const audit = await captureCommand(process.execPath, [...guard, ...(aloneLog ? ['--alone', aloneLog] : [])], auditLog);
+        receipt.timingAudits.push({ parallelLog: path.basename(log), aloneLog: aloneLog && path.basename(aloneLog), candidates: candidates.entries, report: fs.readFileSync(auditLog, 'utf8') });
+        if (audit.error || audit.status !== 0) throw new Error(`Alone-measured timing ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
     }
     receipt.exit = 0;
