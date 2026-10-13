@@ -931,3 +931,5 @@ fn failed_user_admission_restore_is_retried_before_next_reservation() {
 }
 
 mod receipt_tests;
+
+mod detached_append_tests;
