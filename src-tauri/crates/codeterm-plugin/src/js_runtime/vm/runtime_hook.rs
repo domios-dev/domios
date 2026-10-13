@@ -7,6 +7,8 @@ const INVOKE: &str = r#"
   const fn = globalThis.__plugin__[method];
   if (typeof fn !== "function") throw new Error("missing runtime hook");
   const value = fn.apply(globalThis.__plugin__, JSON.parse(globalThis.__ct_runtime_args__));
+  if (globalThis.__ct_runtime_denied_binding__ !== undefined)
+    throw new Error("runtime hook host binding unavailable: " + globalThis.__ct_runtime_denied_binding__);
   const result = JSON.stringify(value, function (_key, entry) {
     if (entry === undefined || typeof entry === "function" || typeof entry === "symbol" ||
         typeof entry === "bigint" || (typeof entry === "number" && !Number.isFinite(entry)))
@@ -112,7 +114,7 @@ fn create_runtime_context(
     let platform_literal = serde_json::to_string(crate::provider::current_platform_tag())
         .map_err(|e| failure(RuntimeFailureCode::InvalidSchema, e))?;
     let bootstrap = format!(
-        r#"globalThis.host = new Proxy(Object.freeze({{manifest:()=>JSON.parse({manifest_literal}),platform:()=>{platform_literal}}}),{{get:(target,key)=>{{if(key in target)return target[key];throw new Error('runtime hook host binding unavailable: '+String(key));}}}});
+        r#"globalThis.host = (function(){{let denied;Object.defineProperty(globalThis,'__ct_runtime_denied_binding__',{{get:()=>denied}});return new Proxy(Object.freeze({{manifest:()=>JSON.parse({manifest_literal}),platform:()=>{platform_literal}}}),{{get:(target,key)=>{{if(key in target)return target[key];denied=String(key);throw new Error('runtime hook host binding unavailable: '+denied);}}}});}})();
         globalThis.__plugin__=(function(){{const module={{exports:{{}}}};const exports=module.exports;{bundle_source};return module.exports.default || module.exports;}})();"#
     );
     ctx.with(|ctx| -> Result<(), RuntimeFailure> {
@@ -124,6 +126,16 @@ fn create_runtime_context(
                     format!("runtime bundle: {e:?}"),
                 )
             })?;
+        let denied: Option<String> = ctx
+            .globals()
+            .get("__ct_runtime_denied_binding__")
+            .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+        if let Some(binding) = denied {
+            return Err(failure(
+                RuntimeFailureCode::HookFailed,
+                format!("runtime bundle host binding unavailable: {binding}"),
+            ));
+        }
         #[cfg(test)]
         {
             let gates = rquickjs::Object::new(ctx.clone())
