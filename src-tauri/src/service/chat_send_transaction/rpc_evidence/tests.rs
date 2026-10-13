@@ -236,5 +236,5 @@ fn parked_user_delivery_accepted_rpc_does_not_block_later_held_message() {
         .owned
         .insert(status.send_id.clone(), (authority.clone(), true));
     ledger.mark_rpc_accepted(&status.send_id);
-    assert!(!ledger.has_written_user_send_before(&authority, status.sequence + 1, true));
+    assert!(!ledger.has_unsettled_user_send_before(&authority, status.sequence + 1));
 }
