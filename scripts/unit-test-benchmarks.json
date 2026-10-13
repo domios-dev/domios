@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "binary": "codeterm-plugin",
+      "test": "js_runtime::parity_test::runtime::replay::runtime_quickjs_frame_mapping_benchmark",
+      "reason": "Measures QuickJS frame-mapping throughput and p99 latency across captured runtime fixtures by repeated replay; duration is deliberate benchmark work."
+    }
+  ]
+}

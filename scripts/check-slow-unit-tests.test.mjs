@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
-import { checkSlowTests, parseTimings, validateBaseline, selectCandidates, candidateFilter, timingWarnings, regressionLimit } from './check-slow-unit-tests.mjs';
+import { checkSlowTests, parseTimings, validateBaseline, selectCandidates, candidateFilter, timingWarnings, regressionLimit, validateBenchmarks, checkBenchmarks } from './check-slow-unit-tests.mjs';
 
 const entry = (name, seconds) => ({ binary: 'codeterm_lib', test: name, measuredSeconds: seconds });
 const baseline = (...entries) => ({ version: 1, entries });
@@ -104,6 +104,20 @@ describe('build nextest ratchet', () => {
     }
     assert.equal(parseTimings(readFileSync(join(root, 'alone.log'), 'utf8')).length, 2);
   });
+  test('first crate baseline seeds independently then forbids additions after landing', () => {
+    const path = join(root, 'scripts/slow-crate-unit-tests.json');
+    writeFileSync(path, JSON.stringify(baseline(entry('existing', 2))));
+    assert.equal(run(output('PASS', 0.2), 0).status, 0);
+    execFileSync('git', ['-C', root, 'add', 'scripts/slow-crate-unit-tests.json']);
+    execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'crate baseline']);
+    writeFileSync(path, JSON.stringify(baseline(entry('existing', 2), entry('new', 2))));
+    assert.match(run(output('PASS', 0.2), 0).stderr, /added baseline/);
+    writeFileSync(path, JSON.stringify(baseline(entry('existing', 2.1))));
+    assert.match(run(output('PASS', 0.2), 0).stderr, /increased baseline/);
+    writeFileSync(path, JSON.stringify(baseline()));
+    assert.equal(run(output('PASS', 0.2), 0).status, 0);
+  });
+
   test('serial confirmation refuses duplicates before any execution', () => {
     assert.throws(() => confirmCandidates([entry('a', 2), entry('a', 2)], {output: join(root, 'duplicate.log')},
       () => { throw new Error('must not execute'); }), /duplicate serial candidate/);
@@ -146,4 +160,21 @@ test('regression noise band uses the larger of twenty percent and quarter second
     assert.match(timingWarnings([entry('a', measured)], document)[0], /WARNING/);
     assert.match(checkSlowTests([entry('a', 3)], document, document, [entry('a', regressionLimit(recorded) + 0.001)])[0], /regression/);
   }
+});
+
+test('benchmark exemptions require exact unique identities and an explicit reason', () => {
+  const exemption = {binary: 'codeterm_lib', test: 'throughput', reason: 'Measures throughput by repeated replay'};
+  assert.deepEqual(validateBenchmarks(baseline(exemption)), [exemption]);
+  assert.throws(() => validateBenchmarks(baseline({...exemption, test: '*'})), /exact/);
+  assert.throws(() => validateBenchmarks(baseline({...exemption, reason: ''})), /reason/);
+  assert.throws(() => validateBenchmarks(baseline(exemption, exemption)), /unique/);
+  assert.match(checkBenchmarks(baseline(exemption), baseline())[0], /added/);
+  assert.deepEqual(checkBenchmarks(baseline(), baseline(exemption)), []);
+});
+
+test('an audited benchmark is exempt from timing only and cannot become a baseline allowance', () => {
+  const exemptions = [{binary: 'codeterm_lib', test: 'throughput', reason: 'Measures throughput'}];
+  assert.deepEqual(selectCandidates([entry('throughput', 21), entry('unit', 2)], baseline(), exemptions), [entry('unit', 2)]);
+  assert.deepEqual(checkSlowTests([entry('throughput', 21)], baseline(), baseline(), [], exemptions), []);
+  assert.match(checkSlowTests([], baseline(entry('throughput', 21)), baseline(entry('throughput', 21)), [], exemptions)[0], /must not be baselined/);
 });
