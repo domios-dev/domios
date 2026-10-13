@@ -224,6 +224,7 @@ impl Gate {
         let mut entries = self.entries.lock();
         let entry = self.entry(&mut entries, key)?;
         entry.cadence_anchor = Some(now);
+        entry.admission.judged(now);
         entry.slots.insert(
             snapshot.scope.kind,
             Slot {

@@ -25,6 +25,13 @@ const KINDS: [ReminderKind; 5] = [
     ReminderKind::CompleteWrapup,
     ReminderKind::Worker,
 ];
+/// Kinds whose only path is Supporter approval; the Owner floor is pinned in floor.rs.
+const SUPPORTER_ONLY: [ReminderKind; 4] = [
+    ReminderKind::ModeChange,
+    ReminderKind::StalledTeam,
+    ReminderKind::CompleteWrapup,
+    ReminderKind::Worker,
+];
 const PLAN: &str = "plan-a";
 const DAY: u64 = 24 * 60 * 60;
 const SECRETS: [&str; 3] = ["owner-nonce", "worker-nonce", "view-secret-nonce"];
@@ -544,7 +551,7 @@ fn plan_reminder_choice_unavailable_zero_call_zero_emit() {
                 .insert("fake".into(), connection);
         }),
     ];
-    for kind in KINDS {
+    for kind in SUPPORTER_ONLY {
         for (name, disable) in variants {
             let f = fixture(kind, approve());
             disable(&f);
@@ -587,7 +594,7 @@ fn plan_reminder_choice_invalid_or_unavailable_zero_emit() {
         ),
         (Reply::Error(DecisionError::Http(402)), "credit_exhausted"),
     ];
-    for kind in KINDS {
+    for kind in SUPPORTER_ONLY {
         for (reply, reason) in cases.clone() {
             let f = fixture(kind, reply.clone());
             let case = format!("{kind:?}/{reply:?}");
@@ -633,7 +640,7 @@ fn plan_reminder_choice_invalid_or_unavailable_zero_emit() {
 #[test]
 fn plan_reminder_choice_deny_beats_hard_and_silence() {
     for denial in ["nothing_changed", "status_only"] {
-        for kind in KINDS {
+        for kind in SUPPORTER_ONLY {
             let f = fixture(kind, Reply::Choice(denial, 0.99));
             f.host.owner_view.lock().hard = every_hard_wake();
             f.host.owner_view.lock().workers[0].prompt = Some("opaque-prompt".into());
@@ -800,7 +807,7 @@ fn plan_reminder_choice_approve_exact_scope_once() {
 
 #[test]
 fn plan_reminder_choice_unchanged_observation_no_repeat() {
-    for kind in KINDS {
+    for kind in SUPPORTER_ONLY {
         let f = fixture(kind, approve());
         assert_eq!(f.admit(kind, 100), ReminderOutcome::Accepted);
         f.edit_plan(|plan| {
@@ -1049,25 +1056,31 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
             .map(|emit| (emit.scope.kind, emit.scope.tab_id.clone()))
             .collect();
         kinds.sort();
-        let expected = if emitted {
-            let mut all = vec![
+        // The Owner floor fires at 1800, 3600 and 5400 whatever the verdict.
+        let mut expected = vec![(ReminderKind::Owner, owner.clone()); 3];
+        if emitted {
+            expected.extend([
                 (ReminderKind::Owner, owner.clone()),
                 (ReminderKind::ModeChange, mode_owner.clone()),
                 (ReminderKind::StalledTeam, owner.clone()),
                 (ReminderKind::CompleteWrapup, wrap_owner.clone()),
                 (ReminderKind::Worker, worker.clone()),
-            ];
-            all.sort();
-            all
-        } else {
-            Vec::new()
-        };
+            ]);
+        }
+        expected.sort();
         assert_eq!(kinds, expected);
         assert_eq!(model.calls(), 5, "one verdict per producer kind");
-        for tab in [&owner, worker] {
-            let delivered = counter.time_reminder_telemetry(tab).last_delivery;
-            assert_eq!(delivered.is_some(), emitted, "{tab}");
-        }
+        assert!(counter
+            .time_reminder_telemetry(&owner)
+            .last_delivery
+            .is_some());
+        assert_eq!(
+            counter
+                .time_reminder_telemetry(worker)
+                .last_delivery
+                .is_some(),
+            emitted
+        );
         assert_eq!(counter.complete_wrapup_due("plan-w"), !emitted);
         assert!(counter.complete_wrapup_due("plan-p") && counter.complete_wrapup_due("plan-x"));
     }
@@ -1128,7 +1141,7 @@ fn plan_reminder_choice_bounded_claim_cleanup_and_failure() {
     assert_eq!(f.host.gate.scopes(), 0);
     assert_eq!(f.admit(ReminderKind::Owner, 100), ReminderOutcome::Accepted);
     assert_eq!(f.host.gate.scopes(), 1);
-    for kind in KINDS {
+    for kind in SUPPORTER_ONLY {
         let f = fixture(kind, approve());
         *f.host.emit_error.lock() = Some("opaque transport failure".into());
         assert_eq!(
@@ -1147,3 +1160,4 @@ fn plan_reminder_choice_bounded_claim_cleanup_and_failure() {
 
 mod blocked;
 mod cadence;
+mod floor;
