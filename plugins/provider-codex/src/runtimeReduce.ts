@@ -6,6 +6,7 @@ import { notificationAuth } from "./runtimeAuth";
 import { runtimeTurnDiff } from "./runtimeDiffs";
 import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
+import { codexReportedSettings } from "./runtimeSettings";
 
 interface ReduceState {
   epoch: number;
@@ -182,14 +183,8 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         const mapped = usage(params); if (mapped) events.push({kind:"usage",threadId,usage:mapped}); break;
       }
       case "thread/settings/updated": {
-        const settings = object(params.threadSettings);
-        const model = text(settings.model); const effort = text(settings.effort);
-        const sandbox = object(settings.sandboxPolicy).type;
-        const mode = settings.approvalPolicy === "untrusted" ? "approval-required"
-          : settings.approvalPolicy === "never" && sandbox === "dangerFullAccess" ? "full-access"
-          : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "auto_review" ? "auto"
-          : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : undefined;
-        if (model || effort || mode) events.push({kind:"controlsConfirmed",threadId,settings:{...(model ? {model} : {}),...(effort ? {effort} : {}),...(mode ? {mode} : {})}});
+        const settings = codexReportedSettings(params);
+        if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         break;
       }
       case "serverRequest/resolved":
