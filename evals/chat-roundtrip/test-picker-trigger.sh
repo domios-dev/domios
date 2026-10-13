@@ -9,11 +9,16 @@ PY="$(command -v python3 || command -v python)"
 CAPTURE="$(mktemp)"
 trap 'rm -f "$CAPTURE"' EXIT
 
-source <(awk '
+FUNCTIONS="$(mktemp)"
+trap 'rm -f "$CAPTURE" "$FUNCTIONS"' EXIT
+
+awk '
   /^send_raw_keys\(\) \{/ { capture = 1 }
   capture { print }
   capture && /^}/ { exit }
-' "$RUN_SH")
+' "$RUN_SH" > "$FUNCTIONS"
+source "$FUNCTIONS"
+dev_auth_header() { printf '%s\n' "Authorization: Bearer fixture"; }
 
 curl() {
   local body="" data="" url=""

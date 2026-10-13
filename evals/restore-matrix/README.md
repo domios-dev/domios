@@ -8,10 +8,24 @@ Run from the repo root with bash (Git Bash on Windows; native bash on macOS/Linu
 matrix workspace's scratch `cwd` is `C:/temp/RESTORE-MATRIX-<runid>` on Windows and
 `/tmp/RESTORE-MATRIX-<runid>` on macOS/Linux (`evals/_lib/lib.sh`'s `is_windows` switches it):
 
+Before the first named startup, choose Settings > Agents > Full access for agents
+(or the intended restricted access). A fresh instance has no saved choice and refuses
+agent creation until the operator makes it. Use a non-default API port, for example
+7695. Saved `api.port` takes precedence over `CODETERM_API_PORT`: if this named
+instance already saved 7686, set its own `api.port` to 7695 through the named
+instance's Settings before running the bench. Verify health identifies `restoreqa`
+and 7695; never edit the production instance.
+
+The Orchestrator prepares the canonical checkout in its Team DEV shell. The test
+flags must be identical for the provenance-producing startup and both bench
+restarts. Start with `dev --wait` to record provenance after the frontend is ready;
+foreground `dev` alone does not record it. The bench requires these inherited flags
+and keeps `dev-prebuilt`'s content-hash gate. A stale hash is a prerequisite failure:
+rebuild and record matching artifacts, never rewrite or bypass the record.
+
 ```bash
-env -u CODETERM_API_PORT CODETERM_INSTANCE=restoreqa bash evals/restore-matrix/run.sh
-env -u CODETERM_API_PORT RM_PROVIDERS=cursor RM_PER_PROVIDER=1 CODETERM_INSTANCE=restoreqa bash evals/restore-matrix/run.sh
-env -u CODETERM_INSTANCE -u CODETERM_API_PORT -u CODETERM_SOCKET_PATH RM_ALLOW_DEFAULT_DEV=1 bash evals/restore-matrix/run.sh
+CODETERM_INSTANCE=restoreqa CODETERM_API_PORT=7695 VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 ./build.sh dev --wait
+CODETERM_INSTANCE=restoreqa CODETERM_API_PORT=7695 VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 RM_PROVIDERS=claude RM_PER_PROVIDER=1 /bin/bash evals/restore-matrix/run.sh
 ```
 
 Tunables (env, with defaults):
