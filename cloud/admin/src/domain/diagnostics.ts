@@ -11,7 +11,7 @@ export function entitlementDiagnostics(entitlement: Entitlement | null): Entitle
   if (!entitlement) return { plan: "free", status: "active", provenance: "Default free entitlement", eventId: null };
   const eventId = entitlement.source_event_id || null;
   const provenance = entitlement.source === "admin" ? "Admin grant or revocation"
-    : eventId?.startsWith("evt_") ? "Stripe webhook"
+    : eventId?.startsWith("evt_") ? "Paddle webhook"
     : "Unknown source";
   return { plan: entitlement.plan, status: entitlement.status, provenance, eventId };
 }

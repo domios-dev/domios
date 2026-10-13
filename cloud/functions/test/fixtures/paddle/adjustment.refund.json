@@ -1,0 +1,15 @@
+{
+  "event_id": "evt_00000000000000000000000007",
+  "event_type": "adjustment.updated",
+  "occurred_at": "2030-03-17T17:46:40Z",
+  "notification_id": "ntf_00000000000000000000000007",
+  "data": {
+    "id": "adj_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "customer_id": "ctm_cccccccccccccccccccccccccc",
+    "transaction_id": "txn_tttttttttttttttttttttttttt",
+    "subscription_id": "sub_ssssssssssssssssssssssssss",
+    "action": "refund",
+    "status": "approved",
+    "type": "partial"
+  }
+}
