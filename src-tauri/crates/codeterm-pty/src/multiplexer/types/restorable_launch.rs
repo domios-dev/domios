@@ -54,6 +54,8 @@ pub struct RestorableLaunchParameters {
     pub identity_instructions: Option<String>,
     #[serde(default)]
     pub permission_bypass_requested: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_launch_options: Option<RestorableRuntimeLaunchOptions>,
 }
 
 impl RestorableLaunchParameters {
@@ -72,7 +74,18 @@ impl RestorableLaunchParameters {
             && self.agent_name.is_none()
             && self.identity_instructions.is_none()
             && !self.permission_bypass_requested
+            && self.runtime_launch_options.is_none()
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestorableRuntimeLaunchOptions {
+    pub provider_id: String,
+    pub binding_nonce: String,
+    pub mode: String,
+    pub additional_directories: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_access: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
