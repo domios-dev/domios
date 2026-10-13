@@ -205,5 +205,6 @@
   "packages/chat-core/src/questionSelection.test.ts",
   "src/lib/agentRuntimeQuestions.test.ts",
   "src/components/Terminal/RuntimeQuestionCard.test.tsx",
-  "src/lib/modelSwitchFailure.test.ts"
+  "src/lib/modelSwitchFailure.test.ts",
+  "src/components/Terminal/RuntimeLoginActions.test.tsx"
 ]

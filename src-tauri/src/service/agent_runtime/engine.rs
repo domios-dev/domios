@@ -27,6 +27,7 @@ pub struct Session {
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
     pub auth: Mutex<RuntimeAuthState>,
+    pub(super) login: Mutex<super::login::LoginState>,
     pub thread_loaded: std::sync::atomic::AtomicBool,
     pub hook_state: Mutex<Value>,
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
@@ -51,6 +52,7 @@ pub fn stop(tab: &str) {
     super::environment::revoke(tab);
     super::capture::revoke(tab);
     if let Some(session) = SESSIONS.lock().remove(tab) {
+        super::login::forget(&session);
         session.state.lock().phase = RuntimePhase::Unloaded {
             reason: Some("Runtime stopped".into()),
         };
@@ -132,6 +134,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     state: Mutex::new(state),
                     cache: Mutex::new(ItemCache::default()),
                     auth: Mutex::new(RuntimeAuthState::Unknown),
+                    login: Mutex::new(Default::default()),
                     thread_loaded: std::sync::atomic::AtomicBool::new(false),
                     hook_state: Mutex::new(Value::Null),
                     prompts: Mutex::new(HashMap::new()),
@@ -235,6 +238,8 @@ async fn ensure_locked(
             .store(false, std::sync::atomic::Ordering::Release);
         *session.completions.lock() = Default::default();
         session.initialization.reset();
+        super::login::forget(session);
+        *session.login.lock() = Default::default();
         *session.auth.lock() = RuntimeAuthState::Unknown;
         publish(svc, tab, session);
         let adapter = svc
@@ -745,7 +750,33 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
     session.control_changes.send_replace(());
     let context = session.context.lock().clone();
     let state = session.state.lock().clone();
-    let value = serde_json::to_value(state.snapshot()).unwrap_or(Value::Null);
+    let mut value = serde_json::to_value(state.snapshot()).unwrap_or(Value::Null);
+    if let Some(snapshot) = value.as_object_mut() {
+        snapshot.insert(
+            "auth".into(),
+            serde_json::to_value(session.auth.lock().clone()).unwrap_or(Value::Null),
+        );
+        snapshot.insert(
+            "login".into(),
+            serde_json::to_value(session.login.lock().login.clone()).unwrap_or(Value::Null),
+        );
+        if let Some(adapter) = session.adapter.lock().as_ref() {
+            if let Some(login) = adapter.agent_runtime().and_then(|runtime| runtime.login) {
+                snapshot.insert(
+                    "loginMethods".into(),
+                    serde_json::to_value(login.methods).unwrap_or(Value::Null),
+                );
+                snapshot.insert(
+                    "loginProviderName".into(),
+                    Value::String(adapter.display_name().into()),
+                );
+                snapshot.insert(
+                    "loginTerminal".into(),
+                    Value::Bool(login.terminal_command.is_some()),
+                );
+            }
+        }
+    }
     {
         let mut mux = svc.mux.write();
         let Some(target) = mux.get_tab_mut(tab) else {

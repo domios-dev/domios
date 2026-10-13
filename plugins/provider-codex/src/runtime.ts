@@ -4,6 +4,7 @@ import type {
 } from "@codeterm/plugin-sdk";
 import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
 import { json, runtimeItems } from "./runtimeMessages";
+import { loginPlan, loginResponse } from "./runtimeLogin";
 import { accountAuth } from "./runtimeAuth";
 import { interruptTargets } from "./runtimeInterrupt";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
@@ -70,9 +71,10 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       return {action:{kind:"reply",requestId:op.requestId,result:{kind:"success",value:runtimeAnswer(pending.method,pending.params,op.requestId,op.answer)}},state:null};
     }
     case "control": {
+      if (op.action === "login") return loginPlan(op.value);
+      if (op.action === "auth") return request("account/read",{refreshToken:false},{stage:"auth"});
       const thread = op.threadId ?? ctx.threadId;
       if (!thread) fail("binding_mismatch","Control requires the bound thread");
-      if (op.action === "auth") return request("account/read",{refreshToken:false},{stage:"auth"});
       if (op.action === "compact") return request("thread/compact/start",{threadId:thread});
       if (op.action === "restoreContext") return request("thread/inject_items",{threadId:thread,items:restoreContextItems(op.value)});
       if (!["model","effort","mode","settings"].includes(op.action)) fail("unsupported",`Unsupported control: ${op.action}`);
@@ -94,6 +96,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
   validateBinding(ctx,op);
   const state = object(raw);
   if (reply.kind === "error") {
+    if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
       return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",items:[],openItems:[],questions:[],seq:0}));
@@ -134,6 +137,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       return {kind:"complete",result:{kind:"done"}};
     }
     case "control": {
+      if (op.action === "login") return loginResponse(state,value);
       if (state.stage === "auth") return {kind:"complete",result:{kind:"done"},events:[accountAuth(value)]};
       return {kind:"complete",result:{kind:"done"},...(state.stage === "thread/settings/update" ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
     }
