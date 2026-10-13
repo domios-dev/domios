@@ -112,3 +112,36 @@ fn heartbeat_gate_plan_delta_projection_is_ordered_and_content_addressed() {
     };
     assert_ne!(before["mode"], snapshot::plan_projection(&plan)["mode"]);
 }
+
+#[test]
+fn heartbeat_gate_owner_rules_do_not_consume_situational_selection_slots() {
+    let mut plan = Plan::new(String::new(), String::new(), Default::default());
+    for index in 0..13 {
+        plan.heartbeat
+            .learnings
+            .push(crate::plan::HeartbeatLearning {
+                id: format!("opaque-situation-{index}"),
+                text: format!("opaque-fragment-{index}"),
+                ts: index,
+                tag: None,
+            });
+    }
+    for index in 0..6 {
+        plan.heartbeat
+            .learnings
+            .push(crate::plan::HeartbeatLearning {
+                id: format!("opaque-owner-{index}"),
+                text: format!("opaque-rule-{index}"),
+                ts: index + 20,
+                tag: Some("owner".into()),
+            });
+    }
+    let catalog = snapshot::situational_learning_catalog(&plan);
+    assert_eq!(catalog.len(), 12);
+    for learning in &plan.heartbeat.learnings {
+        assert_eq!(
+            catalog.contains_key(&learning.id),
+            learning.tag.is_none() && learning.ts > 0
+        );
+    }
+}
