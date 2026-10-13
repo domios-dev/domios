@@ -18,6 +18,7 @@ pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
+pub(crate) mod agent_runtime;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod analytics;
