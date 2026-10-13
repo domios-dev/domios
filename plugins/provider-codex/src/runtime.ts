@@ -8,6 +8,7 @@ import { accountAuth } from "./runtimeAuth";
 import { interruptTargets } from "./runtimeInterrupt";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
+import { codexRuntimePolicy, codexThreadConfig } from "./runtimeSettings";
 export { runtimeReduce } from "./runtimeReduce";
 
 function fail(code: RuntimeFailure["code"], message: string): never {
@@ -17,22 +18,10 @@ function request(method: string, params: unknown, state: unknown = {stage:method
   const target = method === "turn/interrupt" ? {threadId:String(object(params).threadId),turnId:String(object(params).turnId)} : undefined;
   return {action:{kind:"request",call:{method,params:json(params),...(target ? {target} : {})}},state:json(state)};
 }
-function mode(settings: RuntimeSettings): Record<string, unknown> {
-  const selected = settings.mode ?? "auto-accept-edits";
-  const policies: Record<string, [string,string,string]> = {
-    "approval-required":["untrusted","user","readOnly"],
-    "auto-accept-edits":["on-request","user","workspaceWrite"],
-    "auto":["on-request","auto_review","workspaceWrite"],
-    "full-access":["never","user","dangerFullAccess"],
-  };
-  const policy = policies[selected];
-  if (!policy) fail("unsupported",`Unsupported runtime mode: ${selected}`);
-  return {approvalPolicy:policy[0],approvalsReviewer:policy[1],sandboxPolicy:{type:policy[2]}};
-}
 function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string): Record<string,unknown> {
-  const policies = mode(settings);
+  const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
-  return {cwd:ctx.cwd,model:settings.model,threadSource:"user",config:settings.effort ? {model_reasoning_effort:settings.effort} : {},
+  return {cwd:ctx.cwd,model:settings.model,threadSource:"user",config:codexThreadConfig(settings),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
     ...(instructions !== undefined ? {developerInstructions:instructions} : {})};
@@ -46,7 +35,7 @@ function turnParams(ctx: RuntimeContext, op: Extract<Operation,{kind:"submitTurn
     else fail("invalid_schema","Attachment has no image source");
   }
   return {threadId:op.threadId,clientUserMessageId:op.sendId,input,cwd:ctx.cwd,
-    ...mode(op.settings),model:op.settings.model,effort:op.settings.effort};
+    ...codexRuntimePolicy(op.settings),model:op.settings.model,effort:op.settings.effort};
 }
 function validateBinding(ctx: RuntimeContext, op: Operation): void {
   if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail("binding_mismatch","Thread differs from the bound thread");
@@ -89,7 +78,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       const settings = op.action === "settings" ? object(op.value) : {...ctx.settings,[op.action]:op.value};
       for (const key of ["model","effort","mode"]) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
       const parsed = settings as RuntimeSettings;
-      return request("thread/settings/update",{threadId:thread,...mode(parsed),model:parsed.model,effort:parsed.effort});
+      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort});
     }
   }
 }
