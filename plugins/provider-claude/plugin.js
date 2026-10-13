@@ -24,6 +24,15 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/launchPrompt.ts
+var QUESTION_RULE = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
+function writeClaudeLaunchPrompt(task) {
+  const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
+  const fragment = task + "\n\n" + QUESTION_RULE;
+  const body = host.platform() === "windows" ? "\uFEFF" + fragment : fragment;
+  return host.fs.writeTempFile(body, suffix);
+}
+
 // plugins/provider-claude/src/imageMetadata.ts
 var IMAGE_GEOMETRY = /^\[Image: original \d+x\d+, displayed at \d+x\d+\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
 function isImageDisplayMetadata(entry) {
@@ -2486,11 +2495,12 @@ var plugin = {
     if (launchArgs.length > 0) {
       for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
-    if (p.task) {
-      const visiblePath = writeTaskTempFile(p.task);
+    {
+      const visiblePath = writeClaudeLaunchPrompt(p.task || "");
+      if (!visiblePath) return "";
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      const prompt = starterPrompt(p.starterPrompt, p.starterPromptText);
+      const prompt = p.task ? starterPrompt(p.starterPrompt, p.starterPromptText) : void 0;
       if (prompt) {
         parts.push("--");
         parts.push(host.shell.quoteFor(prompt, host.platform()));
@@ -2513,12 +2523,11 @@ var plugin = {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
     const systemPrompt = p.systemPrompt;
-    if (systemPrompt && systemPrompt.trim()) {
-      const visiblePath = writeTaskTempFile(systemPrompt);
-      if (visiblePath) {
-        parts.push("--append-system-prompt-file");
-        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      }
+    {
+      const visiblePath = writeClaudeLaunchPrompt(systemPrompt || "");
+      if (!visiblePath) return null;
+      parts.push("--append-system-prompt-file");
+      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
     }
     return parts.join(" ");
   },
@@ -3204,18 +3213,6 @@ function commandOutcome(value) {
 }
 function quoteArg(arg) {
   return /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform());
-}
-function writeTaskTempFile(task) {
-  const suffix = ".ct-task-" + randomShortHex(8);
-  const win = host.platform() === "windows";
-  const body = win ? "\uFEFF" + task : task;
-  return host.fs.writeTempFile(body, suffix);
-}
-function randomShortHex(len) {
-  const hex = "0123456789abcdef";
-  let out = "";
-  for (let i = 0; i < len; i++) out += hex.charAt(Math.random() * 16 | 0);
-  return out;
 }
 function resumeBase(sessionId, skipPermissions) {
   const win = host.platform() === "windows";

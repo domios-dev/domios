@@ -597,7 +597,8 @@ Before Hosting deployment, run node cloud/write-signin-config.mjs with the
 Firebase variables exported; the generated config.json remains ignored.
 
 Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
-found", and the unit runner reports ERR_MODULE_NOT_FOUND for tsx. Run
+found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND for
+esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 21 -->
+<!-- revision: 22 -->

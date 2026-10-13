@@ -127,6 +127,7 @@ fn provider_descriptor_round_trip() {
             supports_stop: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,
+            supports_prompt_answers: true,
             supports_permission_auto_confirm: true,
             supports_watcher: false,
             paste_limit_bytes: Some(4096),
