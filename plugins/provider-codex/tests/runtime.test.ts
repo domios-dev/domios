@@ -93,9 +93,11 @@ const sample = JSON.parse(fs.readFileSync(new URL("multi-turn.json",root),"utf8"
 const ctx = sample.context;
 const submit = sample.operations[0].operation;
 check("manifest inbound notification roster",()=>assert.deepEqual(descriptor.agentRuntime.notificationMethods,[...notificationMethods]));
-check("no live activation before switch-over",()=> {
+check("live activation matches the tested runtime declaration",()=> {
   const manifest = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
-  assert.equal(manifest.capabilities.agentRuntime,undefined);
+  const declaration = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",import.meta.url),"utf8"));
+  assert.deepEqual(manifest.capabilities.agentRuntime,declaration.agentRuntime);
+  assert.deepEqual(manifest.capabilities.chatBackend,declaration.chatBackend);
 });
 check("exact steer refusal only",()=> {
   const steer = {...submit,activeTurnId:"active"} as Operation;
