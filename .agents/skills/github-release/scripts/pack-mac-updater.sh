@@ -50,6 +50,6 @@ rm -rf "$TESTDIR"
 # latest.json. The .sig file itself is NOT uploaded to the release.
 KEY_B64=$(cat "$HOME/.tauri/codeterm.key" | tr -d '\n')
 TAURI_SIGNING_PRIVATE_KEY="$KEY_B64" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-  npx --yes @tauri-apps/cli signer sign "$OUT" >/dev/null
+  pnpm exec tauri signer sign "$OUT" >/dev/null
 
 cat "$OUT.sig" | tr -d '\n'
