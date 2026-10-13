@@ -29,6 +29,7 @@ impl super::ServiceContext {
             store.load_backup(name)?
         };
         let report = self.mux.write().merge_session_snapshot(&snapshot);
+        super::agent_runtime::restore::all(self);
         log::info!(
             "[session-backup] restored '{}': +{} workspace(s), +{} tab(s), {} already present",
             name,

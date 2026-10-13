@@ -49,6 +49,10 @@ function userThread(value, expected) {
 function steerRefused(error, turn) {
   return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
 }
+function archivedResume(message) {
+  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
+  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
+}
 var serverRequestMethods = [
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
@@ -125,14 +129,6 @@ function runtimeFileDiffs(changes) {
     } else rows = recordedPatchDiff(path, diff, "modify");
     const movePath = text(kind.move_path);
     return rows.map((row2) => ({ ...row2, ...movePath ? { kind: "rename", movePath } : {} }));
-  });
-}
-function runtimeTurnDiff(diff) {
-  const groups = diff.split(/(?=^diff --git )/m);
-  return groups.flatMap((group) => {
-    const path = /^\+\+\+ b\/(.+)$/m.exec(group)?.[1] ?? /^--- a\/(.+)$/m.exec(group)?.[1];
-    if (!path) return [];
-    return recordedPatchDiff(path, group, /^deleted file mode /m.test(group) ? "delete" : /^new file mode /m.test(group) ? "add" : "modify");
   });
 }
 
@@ -337,7 +333,7 @@ function runtimeItem(raw, seq, previous) {
     case "agentMessage":
     case "plan":
       row2.type = "assistant";
-      row2.content = String(item.text ?? "");
+      row2.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
       if (item.delivery === "async" && list(item.questions).length) {
         row2.toolInput = item;
         row2.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
@@ -361,6 +357,7 @@ function runtimeItem(raw, seq, previous) {
       row2.toolSummary = String(item.command ?? "");
       row2.toolDetail = row2.toolSummary;
       if (typeof item.aggregatedOutput === "string") row2.toolResult = item.aggregatedOutput;
+      else if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
       if (typeof item.exitCode === "number") row2.toolExitCode = item.exitCode;
       if (item.status === "interrupted") row2.toolInterrupted = true;
       break;
@@ -572,6 +569,35 @@ function runtimeAnswer(method, params, id, answer) {
   }
 }
 
+// plugins/provider-codex/src/runtimeContext.ts
+function invalid(message) {
+  throw { code: "invalid_schema", message };
+}
+function exactObject(raw, keys) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid("Invalid restoreContext object");
+  const value = object(raw);
+  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid("Invalid restoreContext fields");
+  return value;
+}
+function restoreContextItems(raw) {
+  const value = exactObject(raw, ["instructions", "additionalContext"]);
+  if (value.instructions !== null && typeof value.instructions !== "string") invalid("Invalid restoreContext instructions");
+  if (!Array.isArray(value.additionalContext)) invalid("Invalid restoreContext additionalContext");
+  const keys = /* @__PURE__ */ new Set();
+  for (const rawEntry of value.additionalContext) {
+    const entry = exactObject(rawEntry, ["key", "kind", "value"]);
+    if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid("Invalid restoreContext entry");
+    if (keys.has(entry.key)) invalid("Duplicate restoreContext key");
+    keys.add(entry.key);
+  }
+  const context = value;
+  const item = (role, text6) => ({ type: "message", role, content: [{ type: "input_text", text: text6 }] });
+  const items = context.instructions ? [item("developer", context.instructions)] : [];
+  for (const entry of context.additionalContext) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
+  if (!items.length) invalid("Empty restoreContext");
+  return items;
+}
+
 // plugins/provider-codex/src/runtimeSettings.ts
 function codexRuntimePolicy(settings) {
   const selected = settings.mode ?? "auto-accept-edits";
@@ -598,6 +624,21 @@ function codexThreadConfig(settings) {
     ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
     ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
   };
+}
+function codexReportedSettings(raw) {
+  const root = object(raw);
+  const settings = root.threadSettings ? object(root.threadSettings) : root;
+  const thread = object(settings.thread);
+  const model = text(settings.model) ?? text(thread.model);
+  const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
+  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
+  const approval = settings.approvalPolicy ?? thread.approvalPolicy;
+  const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
+  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
+  return { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
+}
+function codexEffectiveSettings(requested, reply) {
+  return { ...requested, ...codexReportedSettings(reply) };
 }
 
 // plugins/provider-codex/src/runtimeErrors.ts
@@ -729,7 +770,7 @@ function runtimeReduce(ctx, raw, frames) {
       if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
       continue;
     }
-    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId)) {
+    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId) && frame.method !== "serverRequest/resolved") {
       const threadId2 = params.threadId;
       const turnId2 = text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId2) continue;
@@ -763,15 +804,21 @@ function runtimeReduce(ctx, raw, frames) {
       if (windows.length) events.push({ kind: "rateLimits", rateLimits: windows });
       continue;
     }
+    const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
+    if (ctx.threadId && (params.threadId === ctx.threadId || descendant) && frame.kind === "request") {
+      if (!serverRequestMethods.includes(frame.method)) continue;
+      const prompt = runtimePrompt(frame.method, params, frame.requestId);
+      const turnId2 = descendant ? ctx.activeTurnId : text(params.turnId);
+      if (prompt) events.push({ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", ...turnId2 ? { turnId: turnId2 } : {} });
+      continue;
+    }
+    if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
+      if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: params.requestId });
+      continue;
+    }
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
-    if (frame.kind === "request") {
-      if (!serverRequestMethods.includes(frame.method)) continue;
-      const prompt = runtimePrompt(frame.method, params, frame.requestId);
-      if (prompt) events.push({ kind: "prompt", threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId, state: "needs_input", ...turnId ? { turnId } : {} });
-      continue;
-    }
     switch (frame.method) {
       case "turn/started":
         if (!turnId || state.completed.includes(turnId)) break;
@@ -783,8 +830,11 @@ function runtimeReduce(ctx, raw, frames) {
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
         delete state.activeTurnId;
-        const error = text(object(object(params.turn).error).message);
-        if (error) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error, systemSubtype: "api_error" }, params) });
+        const failure = object(object(params.turn).error);
+        if (text(failure.message)) {
+          const error = runtimeError(failure);
+          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
+        }
         events.push({ kind: "turnState", threadId, turnId, state: "idle", ...timing(params) });
         break;
       }
@@ -801,12 +851,8 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "thread/settings/updated": {
-        const settings = object(params.threadSettings);
-        const model = text(settings.model);
-        const effort = text(settings.effort);
-        const sandbox = object(settings.sandboxPolicy).type;
-        const mode = settings.approvalPolicy === "untrusted" ? "approval-required" : settings.approvalPolicy === "never" && sandbox === "dangerFullAccess" ? "full-access" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "auto_review" ? "auto" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0;
-        if (model || effort || mode) events.push({ kind: "controlsConfirmed", threadId, settings: { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} } });
+        const settings = codexReportedSettings(params);
+        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
         break;
       }
       case "serverRequest/resolved":
@@ -825,7 +871,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       case "turn/diff/updated": {
         const diff = text(params.diff);
-        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", fileDiffs: runtimeTurnDiff(diff), toolResult: diff, collapsed: true }, params) });
+        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", toolResult: diff, collapsed: true }, params) });
         break;
       }
       case "thread/goal/updated": {
@@ -944,7 +990,7 @@ function runtimePlan(ctx, op) {
     case "openThread":
       return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
     case "resumeThread":
-      return request("thread/resume", { ...settingsParams(ctx, op.settings), threadId: op.threadId, excludeTurns: true });
+      return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
     case "readHistory":
       return request(
         "thread/turns/list",
@@ -973,12 +1019,12 @@ function runtimePlan(ctx, op) {
       if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
       if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
-      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: op.value });
+      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? object(op.value) : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
       const parsed = settings;
-      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort });
+      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
     }
   }
 }
@@ -993,11 +1039,11 @@ function runtimeResponse(ctx, op, raw, reply) {
   const state = object(raw);
   if (reply.kind === "error") {
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
-    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32601)
+    if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
       return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", items: [], openItems: [], questions: [], seq: 0 }));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
-    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && (reply.error.message.includes("codex unarchive") || reply.error.message.includes("session ") && reply.error.message.includes(" is archived")))
+    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
       return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive" }));
     return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
   }
@@ -1008,20 +1054,20 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
       return { kind: "complete", result: { kind: "initialized" }, events: [accountAuth(value)] };
     case "openThread": {
-      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: op.settings } };
+      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
       return continuation(request(
         "thread/inject_items",
         { threadId, items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "Domios thread binding marker." }] }] },
-        { stage: "materialize", threadId }
+        { stage: "materialize", threadId, settings: codexEffectiveSettings(op.settings, value) }
       ));
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
+      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
-      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify" }));
-      return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: op.settings } };
+      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
+      return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings } };
     }
     case "readHistory":
       return historyResponse(op, state, value);
@@ -1034,8 +1080,11 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
       return { kind: "complete", result: { kind: "done" } };
     }
-    case "control":
-      return { kind: "complete", result: { kind: "done" }, ...state.stage === "auth" ? { events: [accountAuth(value)] } : {} };
+    case "control": {
+      if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
+      const reported = state.stage === "thread/settings/update" ? codexReportedSettings(value) : {};
+      return { kind: "complete", result: { kind: "done" }, ...Object.keys(reported).length ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
+    }
     case "answer":
     case "answerQuestion":
       return { kind: "complete", result: { kind: "done" } };
@@ -2959,24 +3008,24 @@ function collectExistingPaths(config) {
   let currentTable = [];
   let rootInline = null;
   let projectsTableSeen = false;
-  let invalid = false;
+  let invalid2 = false;
   for (const line of lines) {
     const parts = headerParts(line);
     if (parts) {
       currentTable = parts;
       if (parts[0] === "projects") {
-        if (rootInline) invalid = true;
+        if (rootInline) invalid2 = true;
         if (parts.length === 1) {
-          if (projectsTableSeen) invalid = true;
+          if (projectsTableSeen) invalid2 = true;
           projectsTableSeen = true;
         } else {
           const key = normalizedPath(parts[1]);
           const headerKey = JSON.stringify([key, ...parts.slice(2)]);
-          if (projectHeaders.has(headerKey)) invalid = true;
+          if (projectHeaders.has(headerKey)) invalid2 = true;
           projectHeaders.add(headerKey);
           paths.add(key);
           if (parts.length === 2) {
-            if (directTables.has(key) || parentKeys.has(key)) invalid = true;
+            if (directTables.has(key) || parentKeys.has(key)) invalid2 = true;
             directTables.add(key);
           } else {
             nestedTables.add(key);
@@ -2987,33 +3036,33 @@ function collectExistingPaths(config) {
     }
     const relevantHeader = withoutComment(line).trim();
     if (relevantHeader.startsWith("[")) {
-      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid = true;
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid2 = true;
       currentTable = [];
       continue;
     }
     const assignment = assignmentParts(line);
     if (!assignment) {
-      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid = true;
-      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid = true;
+      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid2 = true;
+      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid2 = true;
       continue;
     }
     if (currentTable.length === 0 && assignment.key[0] === "projects") {
       if (assignment.key.length === 1) {
         const keys = inlineTableKeys(assignment.value);
         if (!keys || rootInline) {
-          invalid = true;
+          invalid2 = true;
           continue;
         }
         rootInline = /* @__PURE__ */ new Set();
         for (const key of keys) {
           const normalized = normalizedPath(key);
-          if (rootInline.has(normalized)) invalid = true;
+          if (rootInline.has(normalized)) invalid2 = true;
           rootInline.add(normalized);
           paths.add(normalized);
         }
       } else {
         const key = normalizedPath(assignment.key[1]);
-        if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+        if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
         parentKeys.add(key);
         paths.add(key);
       }
@@ -3021,16 +3070,16 @@ function collectExistingPaths(config) {
     }
     if (currentTable.length === 1 && currentTable[0] === "projects") {
       const key = normalizedPath(assignment.key[0]);
-      if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+      if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
       parentKeys.add(key);
       paths.add(key);
     }
   }
   for (const key of parentKeys) {
-    if (nestedTables.has(key)) invalid = true;
+    if (nestedTables.has(key)) invalid2 = true;
   }
-  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid = true;
-  return { paths, rootInline, invalid };
+  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid2 = true;
+  return { paths, rootInline, invalid: invalid2 };
 }
 function mergeTrustedProjectEntries(profile, config) {
   const entries = collectProfileEntries(profile);

@@ -29,7 +29,44 @@ pub enum RuntimeFailure {
 
 impl std::fmt::Display for RuntimeFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::SpawnFailed { reason } => write!(formatter, "Runtime could not start: {reason}"),
+            Self::ProcessExited {
+                code,
+                signal,
+                stderr,
+                requested,
+            } => {
+                formatter.write_str(if *requested {
+                    "Runtime stopped"
+                } else {
+                    "Runtime exited"
+                })?;
+                if let Some(code) = code {
+                    write!(formatter, " (code {code})")?;
+                } else if let Some(signal) = signal {
+                    write!(formatter, " (signal {signal})")?;
+                }
+                if !stderr.trim().is_empty() {
+                    write!(formatter, ": {}", stderr.trim())?;
+                }
+                Ok(())
+            }
+            Self::PipeEof => formatter.write_str("Runtime connection closed"),
+            Self::PipeFailure { stream, reason } => {
+                write!(formatter, "Runtime {stream} connection failed: {reason}")
+            }
+            Self::InvalidFrame(reason) => {
+                write!(formatter, "Runtime sent an invalid response: {reason}")
+            }
+            Self::Deadline => formatter.write_str("Runtime did not respond in time"),
+            Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
+            Self::Refused(reason) => write!(formatter, "Provider refused: {reason}"),
+            Self::PrewriteRefused(reason) => write!(formatter, "Input was not sent: {reason}"),
+            Self::Superseded => {
+                formatter.write_str("Runtime session changed; this operation was cancelled")
+            }
+        }
     }
 }
 

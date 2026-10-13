@@ -18,11 +18,3 @@ export function runtimeFileDiffs(changes: unknown): (RecordedFileDiff & {movePat
     return rows.map(row=>({...row,...(movePath ? {kind:"rename" as const,movePath} : {})}));
   });
 }
-export function runtimeTurnDiff(diff:string): RecordedFileDiff[] {
-  const groups = diff.split(/(?=^diff --git )/m);
-  return groups.flatMap(group=>{
-    const path=/^\+\+\+ b\/(.+)$/m.exec(group)?.[1] ?? /^--- a\/(.+)$/m.exec(group)?.[1];
-    if (!path) return [];
-    return recordedPatchDiff(path,group,/^deleted file mode /m.test(group) ? "delete" : /^new file mode /m.test(group) ? "add" : "modify");
-  });
-}

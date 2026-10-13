@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { sessionChanges } from "../../../packages/chat-core/src/sessionChanges";
+import type { NormalizedChatMessage } from "../../../packages/chat-core/src/types";
 import fs from "node:fs";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
@@ -130,7 +132,7 @@ check("fresh thread materializes before loaded",()=> {
   assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
 });
 check("resume never accepts another thread",()=> {
-  const operation:Operation = {kind:"resumeThread",threadId:ctx.threadId!,settings:ctx.settings};
+  const operation:Operation = {kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   for (const thread of [{id:"foreign"},{id:ctx.threadId,parentThreadId:"parent"},{id:ctx.threadId,source:{subAgent:{}}}])
     assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
@@ -222,7 +224,11 @@ check("file change and turn diff use app-server arrays and exact hunks",()=> {
   const result=hooks.runtimeReduce(ctx,null,[frame]);const event=result.events[0];assert.ok(event.kind === "chatItem");
   assert.deepEqual(event.item.fileDiffs && plain(event.item.fileDiffs),[{path:"file.txt",kind:"modify",additions:1,deletions:1,hunks:[{oldStart:1,oldLines:1,newStart:1,newLines:1,lines:["-old","+new"]}]}]);
   const turn=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"turn/diff/updated",params:{threadId:ctx.threadId!,turnId:"turn-a",diff:`diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n${diff}`}}]).events[0];
-  assert.ok(turn.kind === "chatItem");assert.deepEqual(plain(turn.item.fileDiffs),plain(event.item.fileDiffs));
+  assert.ok(turn.kind === "chatItem");assert.equal(turn.item.fileDiffs,undefined);
+  assert.equal(turn.item.toolResult,`diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n${diff}`);
+  const changes=sessionChanges([event.item,turn.item] as NormalizedChatMessage[]);
+  assert.equal(changes.cumulative.length,1);
+  assert.equal(changes.cumulative[0].additions,1);assert.equal(changes.cumulative[0].deletions,1);
 });
 console.log(`runtime expanded hooks: ${count} checks passed`);
 check("descendant interrupt walks deepest first with explicit targets",()=> {
@@ -363,7 +369,7 @@ check("structured A12 launch options preserve PTY settings",()=> {
   assert.equal(turn.action.kind,"request");
   if(turn.action.kind !== "request")throw new Error("Expected turn request");
   assert.deepEqual((turn.action.call.params as Record<string,JsonValue>).sandboxPolicy,{type:"workspaceWrite",writableRoots:["/work/shared"]});
-  const resume=hooks.runtimePlan(context,{kind:"resumeThread",threadId:ctx.threadId!,settings});
+  const resume=hooks.runtimePlan(context,{kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings});
   assert.equal(resume.action.kind,"request");
   if(resume.action.kind !== "request")throw new Error("Expected resume request");
   assert.equal((resume.action.call.params as Record<string,JsonValue>).sandbox,"danger-full-access");
@@ -380,7 +386,7 @@ check("A12b workspace-write network settings preserve false and provider default
   for(const networkAccess of [true,false,undefined]) {
     const settings={mode:"auto-accept-edits",additionalDirectories:["/work/shared"],...(networkAccess !== undefined ? {networkAccess} : {})};
     const context={...ctx,settings};
-    for(const op of [{kind:"openThread",instructions:"task",settings},{kind:"resumeThread",threadId:ctx.threadId!,settings}] as Operation[]) {
+    for(const op of [{kind:"openThread",instructions:"task",settings},{kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings}] as Operation[]) {
       const plan=plain(hooks.runtimePlan(context,op));
       if(plan.action.kind !== "request")throw new Error("Expected thread request");
       const params=plan.action.call.params as Record<string,JsonValue>;
@@ -447,4 +453,142 @@ check("unsupported item pagination uses bound snapshot history without delivery 
   assert.equal(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32600,message:"invalid request"}}).kind,"refused");
   assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"unsupported read"}}).kind,"refused");
 });
+check("default model and effective effort survive thread launch continuations",()=> {
+  const context={...ctx,settings:{},providerSettings:{model:null}};
+  const op:Operation={kind:"openThread",instructions:"task",settings:{additionalDirectories:["/work/shared"],networkAccess:false}};
+  const plan=hooks.runtimePlan(context,op);
+  const effective={thread:{id:ctx.threadId!},model:"provider-default",reasoningEffort:"medium",approvalPolicy:"on-request",approvalsReviewer:"user",sandbox:{type:"workspaceWrite"}};
+  const step=hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:effective});
+  if(step.kind !== "continue")throw new Error("Expected materialization");
+  const complete=plain(hooks.runtimeResponse(context,op,step.plan.state,{kind:"success",value:{}}));
+  assert.deepEqual(complete,{kind:"complete",result:{kind:"threadLoaded",threadId:ctx.threadId!,settings:{additionalDirectories:["/work/shared"],networkAccess:false,model:"provider-default",effort:"medium",mode:"auto-accept-edits"}}});
+  const resume:Operation={kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}};
+  const resumed=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:effective});
+  if(resumed.kind !== "continue")throw new Error("Expected identity verification");
+  const verified=plain(hooks.runtimeResponse(context,resume,resumed.plan.state,{kind:"success",value:{thread:{id:ctx.threadId!,model:"stale-snapshot-model"}}}));
+  assert.deepEqual(verified,complete);
+  const omitted=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:{thread:{id:ctx.threadId!},model:null,reasoningEffort:null}});
+  if(omitted.kind !== "continue")throw new Error("Expected verification");
+  const fallback=plain(hooks.runtimeResponse(context,resume,omitted.plan.state,{kind:"success",value:{thread:{id:ctx.threadId!}}}));
+  if(fallback.kind !== "complete" || fallback.result.kind !== "threadLoaded")throw new Error("Expected loaded settings");
+  assert.deepEqual(fallback.result.settings,resume.settings);
+});
+check("settings controls confirm provider values and retain omitted requested fields",()=> {
+  const op:Operation={kind:"control",threadId:ctx.threadId!,action:"model",value:"requested-alias"};
+  const plan=hooks.runtimePlan({...ctx,settings:{effort:"high",additionalDirectories:["/work/shared"],networkAccess:false}},op);
+  const reply={threadSettings:{model:"effective-model",effort:"low",approvalPolicy:"never",sandboxPolicy:{type:"dangerFullAccess"}}};
+  const complete=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:reply}));
+  assert.deepEqual(complete,{kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:ctx.threadId!,settings:{model:"effective-model",effort:"low",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}}]});
+  const partial=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{reasoningEffort:"medium"}}));
+  if(partial.kind !== "complete")throw new Error("Expected control completion");
+  const event=partial.events?.[0];if(event?.kind !== "controlsConfirmed")throw new Error("Expected reported settings");
+  assert.equal(event.settings.model,"requested-alias");assert.equal(event.settings.effort,"medium");
+  const empty=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}}));
+  assert.deepEqual(empty,{kind:"complete",result:{kind:"done"}});
+});
+check("resume refreshes instructions on direct and unarchive retry paths",()=> {
+  const instructions='opaque-resume-contract\n${opaque} "value"';
+  for(const value of [instructions,""]) {
+    const op:Operation={kind:"resumeThread",threadId:ctx.threadId!,instructions:value,settings:ctx.settings};
+    const plan=plain(hooks.runtimePlan(ctx,op));
+    if(plan.action.kind !== "request")throw new Error("Expected resume request");
+    assert.equal((plan.action.call.params as Record<string,JsonValue>).developerInstructions,value);
+    const archived=hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32600,message:`session ${ctx.threadId!} is archived`}});
+    if(archived.kind !== "continue")throw new Error("Expected unarchive");
+    const retry=plain(hooks.runtimeResponse(ctx,op,archived.plan.state,{kind:"success",value:{}}));
+    if(retry.kind !== "continue" || retry.plan.action.kind !== "request")throw new Error("Expected resumed retry");
+    assert.equal((retry.plan.action.call.params as Record<string,JsonValue>).developerInstructions,value);
+  }
+});
+check("restoreContext validates and injects developer and user context without evidence",()=> {
+  const instructions='opaque-restored-contract\n${opaque} "value"';
+  const value={instructions,additionalContext:[{key:"app",kind:"application",value:"application-context"},{key:"user",kind:"user",value:"user-context"}]};
+  const op:Operation={kind:"control",threadId:ctx.threadId!,action:"restoreContext",value};
+  const plan=plain(hooks.runtimePlan(ctx,op));
+  assert.deepEqual(plan.action,{kind:"request",call:{method:"thread/inject_items",params:{threadId:ctx.threadId!,items:[
+    {type:"message",role:"developer",content:[{type:"input_text",text:instructions}]},
+    {type:"message",role:"developer",content:[{type:"input_text",text:"application-context"}]},
+    {type:"message",role:"user",content:[{type:"input_text",text:"user-context"}]},
+  ]}}});
+  assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"}});
+  for(const invalid of [null,{},[],{instructions:null,additionalContext:[]},{instructions:"",additionalContext:[]},{instructions:42,additionalContext:[]},{instructions:"x",additionalContext:{}},{instructions:"x",additionalContext:[{key:"k",kind:"system",value:"x"}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x",extra:true}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x"},{key:"k",kind:"user",value:"y"}]}]) {
+    assert.throws(()=>hooks.runtimePlan(ctx,{...op,value:invalid} as Operation),error=>objectError(error).code === "invalid_schema");
+  }
+  const contextOnly=plain(hooks.runtimePlan(ctx,{...op,value:{instructions:null,additionalContext:[{key:"one",kind:"user",value:"payload"}]}}));
+  if(contextOnly.action.kind !== "request")throw new Error("Expected context injection");
+  assert.deepEqual((contextOnly.action.call.params as Record<string,JsonValue>).items,[{type:"message",role:"user",content:[{type:"input_text",text:"payload"}]}]);
+});
+function objectError(value:unknown):{code?:string} {return value as {code?:string};}
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
+
+check("unsupported turn pagination falls back only on method absence",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const plan=hooks.runtimePlan(ctx,op);
+  const fallback=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}));
+  assert.equal(fallback.kind,"continue");
+  if(fallback.kind !== "continue")throw new Error("Expected snapshot fallback");
+  assert.deepEqual(fallback.plan.action,{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId!,includeTurns:true}}});
+  assert.equal(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message:"Permission denied"}}).kind,"refused");
+  assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}).kind,"refused");
+});
+check("archived resume recovery is case insensitive and bounded",()=> {
+  const op:Operation={kind:"resumeThread",threadId:ctx.threadId!,settings:ctx.settings};
+  const plan=hooks.runtimePlan(ctx,op);
+  for(const message of ["Session saved is archived", "Run CODEX UNARCHIVE to recover"]) {
+    const first=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message}}));
+    if(first.kind !== "continue")throw new Error("Expected unarchive");
+    assert.deepEqual(first.plan.action,{kind:"request",call:{method:"thread/unarchive",params:{threadId:ctx.threadId!}}});
+    const second=hooks.runtimeResponse(ctx,op,first.plan.state,{kind:"success",value:{}});
+    if(second.kind !== "continue")throw new Error("Expected resume");
+    assert.equal(hooks.runtimeResponse(ctx,op,second.plan.state,{kind:"error",error:{code:-32000,message}}).kind,"refused");
+  }
+  for(const message of ["session invalid", "An item is archived", "codex unarchiveable"]) {
+    assert.equal(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message}}).kind,"refused");
+  }
+});
+check("item snapshots retain streamed output only when the final field is absent",()=> {
+  for(const type of ["agentMessage", "commandExecution"]) {
+    const method=type === "agentMessage" ? "item/agentMessage/delta" : "item/commandExecution/outputDelta";
+    const frame:RuntimeFrame={kind:"notification",method,params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"streamed",delta:"kept"}};
+    const completed:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed"}}};
+    const result=hooks.runtimeReduce(ctx,null,[frame,completed]);
+    const row=result.events.at(-1);if(row?.kind !== "chatItem")throw new Error("Expected item");
+    assert.equal(type === "agentMessage" ? row.item.content : row.item.toolResult,"kept");
+    const final={...completed,params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed",[type === "agentMessage" ? "text" : "aggregatedOutput"]:""}}} as RuntimeFrame;
+    const authoritative=hooks.runtimeReduce(ctx,null,[frame,final]).events.at(-1);
+    if(authoritative?.kind !== "chatItem")throw new Error("Expected final item");
+    assert.equal(type === "agentMessage" ? authoritative.item.content : authoritative.item.toolResult,"");
+  }
+});
+check("terminal turn errors retain classified failure metadata without a prior error notification",()=> {
+  const result=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:"turn-a",status:"failed",error:{message:"Quota exhausted",codexErrorInfo:"usageLimitExceeded"}}}}]);
+  assert.equal(result.events.length,2);
+  const row=result.events[0];if(row.kind !== "chatItem")throw new Error("Expected error item");
+  assert.equal(row.item.content,"Quota exhausted");
+  assert.deepEqual(plain(row.item.toolInput),{code:"usageLimitExceeded",class:"usage_limit",retryable:false});
+  assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,turnId:"turn-a",state:"idle"});
+});
+console.log(`runtime comparison regressions: ${count} checks passed`);
+
+check("verified descendant approvals surface on the root without adopting the child turn",()=> {
+  const context={...ctx,activeTurnId:"root-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"child",turnId:"child-turn",parentThreadId:ctx.threadId!}],threadParents:[{threadId:"child",parentThreadId:ctx.threadId!}]};
+  for(const method of ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request"]) {
+    const params={threadId:"child",turnId:"child-turn",command:"tool",permissions:{},mode:"form",requestedSchema:{},questions:[{id:"q",question:"Pick",options:[{label:"Yes"}]}]};
+    const request:RuntimeFrame={kind:"request",method,requestId:37,params};
+    const result=hooks.runtimeReduce(context,null,[request]);
+    assert.equal(result.events.length,2);
+    const prompt=result.events[0];if(prompt.kind !== "prompt")throw new Error("Expected root prompt");
+    assert.equal(prompt.threadId,ctx.threadId);assert.equal(prompt.requestId,37);
+    assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,state:"needs_input",turnId:"root-turn"});
+    const value=method === "item/permissions/requestApproval" ? "deny" : method === "item/tool/requestUserInput" ? "Yes" : "decline";
+    const answer=plain(hooks.runtimePlan({...context,pendingRequest:{requestId:37,method,params}},{kind:"answer",requestId:37,answer:{kind:"choice",values:[value]}}));
+    assert.equal(answer.action.kind,"reply");
+    if(answer.action.kind !== "reply")throw new Error("Expected exact reply");
+    assert.equal(answer.action.requestId,37);
+    assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[request]).events),[]);
+  }
+  const resolved:RuntimeFrame={kind:"notification",method:"serverRequest/resolved",params:{threadId:"child",requestId:37}};
+  assert.deepEqual(plain(hooks.runtimeReduce(context,null,[resolved]).events),[{kind:"promptResolved",threadId:ctx.threadId!,requestId:37}]);
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[resolved]).events),[]);
+});
+console.log(`runtime descendant prompt regressions: ${count} checks passed`);

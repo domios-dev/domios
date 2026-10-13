@@ -773,6 +773,7 @@ pub fn run() {
                 }
                 let _ = chatbackend_registry.start_discovery();
             }
+            crate::service::agent_runtime::restore::all(&service_state);
             app.manage(service_state.clone());
             crate::service::account::register_deep_links(&app_handle, service_state.clone())?;
             {

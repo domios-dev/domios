@@ -21,6 +21,8 @@ pub struct Session {
     pub provider: String,
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
+    pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
+    pub(super) control_changes: tokio::sync::watch::Sender<()>,
     pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
@@ -30,7 +32,8 @@ pub struct Session {
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
     pub process: Mutex<Option<Arc<Process>>>,
     pub gate: tokio::sync::Semaphore,
-    initialization: super::initialize::Initialization,
+    pub(super) initialization: super::initialize::Initialization,
+    pub(super) compaction: Mutex<super::subscriber::CompactionState>,
 }
 static SESSIONS: LazyLock<Mutex<HashMap<String, Arc<Session>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -48,6 +51,10 @@ pub fn stop(tab: &str) {
     super::environment::revoke(tab);
     super::capture::revoke(tab);
     if let Some(session) = SESSIONS.lock().remove(tab) {
+        session.state.lock().phase = RuntimePhase::Unloaded {
+            reason: Some("Runtime stopped".into()),
+        };
+        session.control_changes.send_replace(());
         if let Some(process) = session.process.lock().take() {
             process.stop();
         }
@@ -55,6 +62,7 @@ pub fn stop(tab: &str) {
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
+    super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
     let (provider, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
@@ -95,6 +103,8 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                 Arc::new(Session {
                     provider: provider.clone(),
                     adapter: Mutex::new(None),
+                    controls_confirmation: Mutex::new(None),
+                    control_changes: tokio::sync::watch::channel(()).0,
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
                         epoch: 0,
@@ -120,6 +130,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     process: Mutex::new(None),
                     gate: tokio::sync::Semaphore::new(1),
                     initialization: super::initialize::Initialization::default(),
+                    compaction: Mutex::new(Default::default()),
                 })
             })
             .clone()
@@ -165,6 +176,12 @@ async fn ensure_locked(
             return Err(RuntimeFailure::Superseded);
         }
         validate_restored_arguments(provider, Some(&target.restorable_launch))?;
+    }
+    let epoch = session.context.lock().epoch;
+    if session.compaction.lock().held(epoch) {
+        return Err(RuntimeFailure::Refused(
+            "Context restoration pending or failed; sends held".into(),
+        ));
     }
     let old = session.process.lock().clone();
     let registered = svc.agent_registry.provider_arc(provider);
@@ -332,6 +349,7 @@ async fn ensure_locked(
     let operation = match context.thread_id.clone() {
         Some(thread_id) => RuntimeOperation::ResumeThread {
             thread_id,
+            instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
             settings: context.settings.clone(),
         },
         None => RuntimeOperation::OpenThread {
@@ -498,6 +516,13 @@ async fn run_inner(
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
     super::model::validate_operation_thread(&context, &operation)?;
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. })
+        && session.compaction.lock().held(context.epoch)
+    {
+        return Err(RuntimeFailure::Refused(
+            "Context restoration pending or failed; sends held".into(),
+        ));
+    }
     if let RuntimeOperation::Answer { request_id, answer } = &operation {
         let requests = session.prompts.lock();
         let pending = requests.get(request_id).ok_or(RuntimeFailure::Superseded)?;
@@ -553,6 +578,11 @@ async fn run_inner(
                     }
                     validate_binding(&owner, &runtime)?;
                     if let Some(send) = &captured_send {
+                        if runtime.compaction.lock().held(epoch) {
+                            return Err(RuntimeFailure::Refused(
+                                "Context restoration pending or failed; sends held".into(),
+                            ));
+                        }
                         let tab = runtime.context.lock().tab_id.clone();
                         super::capture::validate_if_present(&owner, &tab, send)?;
                     }
@@ -649,6 +679,7 @@ async fn run_inner(
 pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Option<&str>) {
     if let Some(turn) = turn {
         session.completions.lock().record(thread, turn);
+        session.control_changes.send_replace(());
     }
 }
 
@@ -703,6 +734,7 @@ fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), Run
     Ok(())
 }
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
+    session.control_changes.send_replace(());
     let context = session.context.lock().clone();
     let state = session.state.lock().clone();
     let value = serde_json::to_value(state.snapshot()).unwrap_or(Value::Null);
