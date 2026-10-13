@@ -624,6 +624,32 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn record_runtime_delivery_written(
+        &self,
+        tab_id: &str,
+        send_id: &str,
+        observer: DeliveryWriteObserver,
+    ) {
+        let payload = AgentDeliveryPayload {
+            trace_id: None,
+            transport: super::messenger::QueuedAgentPayload::Text {
+                text: String::new(),
+            },
+            observer: Some(observer),
+            idempotency_key: Some(send_id.into()),
+            expected_pty_id: None,
+            expected_session_id: None,
+            expected_binding_nonce: None,
+        };
+        self.record_agent_delivery_written(
+            tab_id,
+            Some(send_id),
+            &payload,
+            true,
+            "runtime-written",
+        );
+    }
+
     fn record_agent_delivery_written(
         &self,
         tab_id: &str,

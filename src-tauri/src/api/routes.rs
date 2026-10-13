@@ -111,10 +111,20 @@ pub fn create_router_with_frontend(
     state: AppState,
     bundles: Option<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>,
 ) -> Router {
-    // Separate budgets: the Documents existence probe re-runs while a reply streams and
-    // must never starve the preview reads that render content.
-    let preview_read_admission = super::local_preview_routes::admission();
-    let preview_check_admission = super::local_preview_routes::admission();
+    create_router_with_preview_admission(
+        state,
+        bundles,
+        super::local_preview_routes::admission(),
+        super::local_preview_routes::admission(),
+    )
+}
+
+pub(super) fn create_router_with_preview_admission(
+    state: AppState,
+    bundles: Option<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>,
+    preview_read_admission: std::sync::Arc<super::local_preview_routes::Admission>,
+    preview_check_admission: std::sync::Arc<super::local_preview_routes::Admission>,
+) -> Router {
     let router = Router::new()
         .route(
             "/api/tabs/{id}/preview/read",
@@ -592,6 +602,14 @@ pub fn create_router_with_frontend(
         .route(
             "/api/mesh/peers/{id}/crons/{cron_id}/history",
             get(web_routes::peer_cron_history),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/retry",
+            post(web_routes::agent_runtime_retry),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/questions/{item}/answer",
+            post(web_routes::agent_runtime_answer_question),
         )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/output/stream", get(output_stream::output_stream))

@@ -1,6 +1,6 @@
+use crate::app_runtime::AppHandle;
 use serde_json::Value;
 use std::time::Instant;
-use tauri::AppHandle;
 
 use crate::plan::{Task, TaskLaneMetadata};
 use crate::service::{

@@ -14,7 +14,6 @@ const CURRENT_NONCE: &str = "current-session-nonce";
 const SESSION_ID: &str = "same-provider-session";
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real_skill_read() {
     let (mut mux, parent_tab_id) = MultiplexerState::new();
     mux.set_orchestrator_role(&parent_tab_id).unwrap();

@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_context_header_fields_present() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = format!("tab-state-context-{}", uuid::Uuid::new_v4().simple());
@@ -114,7 +113,6 @@ impl crate::chatbackend::ChatBackendProvider for TranscriptBackend {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_chat_backend_reads_transcript_by_capability() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     {
@@ -158,12 +156,12 @@ fn tab_state_chat_backend_reads_transcript_by_capability() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_never_answers_prompt() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab_id)
         .expect("fixture tab")
         .pending_prompt = Some(codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque prompt".into(),
         options: vec![codeterm_types::pty::PromptOption {
             label: "Opaque option".into(),

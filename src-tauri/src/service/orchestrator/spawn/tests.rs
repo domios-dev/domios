@@ -52,14 +52,13 @@ fn tab_spawn_spec_carries_matching_remote_binding_to_the_startup_gate() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn sync_spawn_persists_restorable_launch_parameters() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
     let workspace_id = mux.create_workspace("sync restore capture".into(), None).id;
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("sync-restorable")
-            .with_launch_binary("cmd.exe"),
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
 
     let result = fixture
@@ -94,7 +93,6 @@ fn sync_spawn_persists_restorable_launch_parameters() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -119,7 +117,6 @@ fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn task_specific_empty_provider_command_is_refused_before_task_binding_and_cleans_tab() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
     let workspace_id = mux.create_workspace("spawn rollback".into(), None).id;
@@ -131,7 +128,7 @@ fn task_specific_empty_provider_command_is_refused_before_task_binding_and_clean
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "task-sensitive-empty-launch",
         )
-        .with_launch_binary("cmd.exe"),
+        .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture
         .service
@@ -248,7 +245,6 @@ fn task_specific_empty_provider_command_is_refused_before_task_binding_and_clean
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn task_binding_precondition_failure_rolls_back_provisional_tab() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
     let workspace_id = mux.create_workspace("binding rollback".into(), None).id;
@@ -359,7 +355,6 @@ fn task_binding_precondition_failure_rolls_back_provisional_tab() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
     let workspace_id = mux
@@ -371,7 +366,7 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("task-pending-failure")
-            .with_launch_binary("cmd.exe"),
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     let mut plan = fixture
         .service

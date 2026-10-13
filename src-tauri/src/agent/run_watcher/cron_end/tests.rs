@@ -157,7 +157,6 @@ fn assert_retired_with_report(
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_failed_oneshot_keeps_history() {
     let run = oneshot_run(Some(REPORT_TAB));
     let deliveries = Deliveries::default();
@@ -169,7 +168,6 @@ fn cron_failed_oneshot_keeps_history() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn oneshot_stop_hook_end_keeps_history_and_reports() {
     let run = oneshot_run(Some(REPORT_TAB));
     let deliveries = Deliveries::default();
@@ -181,7 +179,6 @@ fn oneshot_stop_hook_end_keeps_history_and_reports() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn oneshot_end_without_report_target_keeps_history() {
     let run = oneshot_run(None);
     let deliveries = Deliveries::default();
@@ -201,7 +198,6 @@ fn oneshot_end_without_report_target_keeps_history() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn storage_cron_consumer_run_end_commits_through_storage() {
     let opened = std::sync::OnceLock::new();
     let run = oneshot_run_in(Some(REPORT_TAB), |fixture| {
@@ -242,7 +238,6 @@ fn storage_cron_consumer_run_end_commits_through_storage() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_settle_async_runtime_progresses_while_cron_writer_is_held() {
     let run = oneshot_run(None);
     let writer = run.cron.lock();

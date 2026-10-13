@@ -1,5 +1,8 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
+mod runtime_hook;
+pub(crate) use runtime_hook::call_runtime_hook;
+
 use std::path::Path;
 
 use parking_lot::Mutex;
@@ -298,6 +301,7 @@ pub const ASYNC_JOB_TIMEOUT_ERROR: &str = "plugin async job exceeded its bounded
 /// `Arc<PluginVm>`.
 pub struct PluginVm {
     inner: Mutex<Inner>,
+    runtime_inner: Mutex<Option<Inner>>,
     /// Outside `inner` on purpose. Nothing here needs the context, so reading it
     /// must not queue behind a slow call; and `host.exec` jobs are keyed by this
     /// identity, so awaiting one must not read it through the lock it releases.
@@ -432,6 +436,7 @@ impl PluginVm {
         })?;
 
         Ok(Self {
+            runtime_inner: Mutex::new(None),
             inner: Mutex::new(Inner {
                 _ctx: ctx,
                 _rt: rt,
@@ -543,6 +548,8 @@ impl PluginVm {
         inner._ctx = ctx;
         inner._rt = rt;
         inner.bundle_source = new_source;
+        drop(inner);
+        *self.runtime_inner.lock() = None;
         Ok(())
     }
 }

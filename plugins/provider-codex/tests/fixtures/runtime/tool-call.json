@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "tool-a",
+            "type": "mcpToolCall",
+            "server": "fixture",
+            "tool": "lookup",
+            "arguments": {
+              "key": "value"
+            },
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/mcpToolCall/progress",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "itemId": "tool-a",
+          "message": "Looking up"
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "tool-a",
+            "type": "mcpToolCall",
+            "server": "fixture",
+            "tool": "lookup",
+            "arguments": {
+              "key": "value"
+            },
+            "status": "completed",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Found"
+                }
+              ],
+              "isError": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "tokenUsage": {
+            "total": {
+              "inputTokens": 80,
+              "outputTokens": 15,
+              "cachedInputTokens": 20
+            },
+            "last": {
+              "totalTokens": 95
+            },
+            "modelContextWindow": 1000
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/settings/updated",
+        "params": {
+          "threadId": "thread-fixture",
+          "threadSettings": {
+            "model": "fixture-model",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "tool-a",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "generic",
+          "toolName": "fixture \u00b7 lookup",
+          "toolInput": {
+            "key": "value"
+          },
+          "toolSummary": "{\n  \"key\": \"value\"\n}",
+          "toolTitle": "fixture \u00b7 lookup",
+          "toolId": "tool-a",
+          "toolArgs": "{\n  \"key\": \"value\"\n}",
+          "collapsed": true,
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "tool-a",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "generic",
+          "toolName": "fixture \u00b7 lookup",
+          "toolInput": {
+            "key": "value"
+          },
+          "toolSummary": "{\n  \"key\": \"value\"\n}",
+          "toolTitle": "fixture \u00b7 lookup",
+          "toolId": "tool-a",
+          "toolArgs": "{\n  \"key\": \"value\"\n}",
+          "collapsed": true,
+          "toolFlowId": "turn-a",
+          "toolDetail": "Looking up"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "tool-a",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "generic",
+          "toolName": "fixture \u00b7 lookup",
+          "toolInput": {
+            "key": "value"
+          },
+          "toolSummary": "{\n  \"key\": \"value\"\n}",
+          "toolTitle": "fixture \u00b7 lookup",
+          "toolId": "tool-a",
+          "toolArgs": "{\n  \"key\": \"value\"\n}",
+          "collapsed": true,
+          "toolFlowId": "turn-a",
+          "toolResult": "{\n  \"content\": [\n    {\n      \"text\": \"Found\",\n      \"type\": \"text\"\n    }\n  ],\n  \"isError\": false\n}",
+          "toolError": false
+        }
+      },
+      {
+        "kind": "usage",
+        "threadId": "thread-fixture",
+        "usage": {
+          "input_tokens": 80,
+          "output_tokens": 15,
+          "cache_read_tokens": 20,
+          "used_tokens": 95,
+          "window_tokens": 1000
+        }
+      },
+      {
+        "kind": "controlsConfirmed",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "idle"
+      }
+    ]
+  }
+}

@@ -960,7 +960,11 @@ mod tests {
 /// Generic over `Serialize` so it is a drop-in for raw `app.emit(name, payload)`
 /// — any raw emit of a frontend-listened event must go through here (guarded by
 /// `event_seam_covers_all_frontend_listeners`).
-pub fn emit_everywhere<S: Serialize>(app: &tauri::AppHandle, event_type: &str, data: S) {
+pub fn emit_everywhere<S: Serialize>(
+    app: &crate::app_runtime::AppHandle,
+    event_type: &str,
+    data: S,
+) {
     use tauri::{Emitter, Manager};
     let value = serde_json::to_value(&data).unwrap_or(serde_json::Value::Null);
     let _ = app.emit(event_type, &value);

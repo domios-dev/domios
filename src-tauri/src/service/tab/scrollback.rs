@@ -79,10 +79,6 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn restored_shell_tab_seeds_sidecar_into_new_pty_before_attach() {
         let (mux, tab_id) = MultiplexerState::new();
         let mut mux = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
@@ -117,7 +113,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
     fn send_first_ensure_seeds_before_starting_the_backend_reader() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tail = b"restored send history\r\n";
@@ -153,10 +148,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn existing_stream_offset_is_not_shifted_by_a_deferred_seed() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let pty_id = "pty-stream-already-linked";
@@ -196,10 +187,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires a desktop runtime"
-    )]
     fn agent_restore_preserves_full_screen_repaint_without_shell_scrolling() {
         let (mut mux, tab_id) = MultiplexerState::new();
         mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("test-tui".into());
@@ -231,10 +218,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires a desktop runtime"
-    )]
     fn chat_backend_restore_never_seeds_shell_viewport_bytes() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();

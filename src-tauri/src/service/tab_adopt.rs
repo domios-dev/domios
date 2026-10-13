@@ -350,7 +350,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn owner_adopt_sets_identity_keeps_pty_and_unlocks_send() {
         let (mut mux, owner_id) = MultiplexerState::new();
         mux.set_orchestrator_role(&owner_id).unwrap();
@@ -395,7 +394,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn adopted_tab_classifies_and_surfaces_its_current_provider_prompt() {
         use codeterm_plugin::tab_state::{
             Surface, TabState, TabStateAction, TabStateClassification,
@@ -406,6 +404,7 @@ mod tests {
         live_shell_tab(&mut mux, &tab_id);
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let prompt = PendingPrompt {
+            request_id: None,
             question: "Which test runner?".into(),
             options: vec![
                 PromptOption {
@@ -466,7 +465,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn force_adopts_login_shell_and_human_owner_is_enough() {
         let (mut mux, tab_id) = MultiplexerState::new();
         live_shell_tab(&mut mux, &tab_id);
@@ -498,7 +496,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn worker_cannot_adopt_and_unknown_provider_is_refused() {
         let (mut mux, owner_id) = MultiplexerState::new();
         mux.set_orchestrator_role(&owner_id).unwrap();

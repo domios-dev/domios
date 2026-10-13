@@ -327,14 +327,69 @@ run_nextest_scope() {
     fi
   fi
 
-  CARGO_TEST_CMD="cargo nextest run" \
-    CARGO_TEST_BUILD_CMD="cargo nextest run" \
-    scripts/test-capped.sh --manifest-path "$manifest" \
-    "${targets[@]}" "${filter_args[@]}" --no-tests=fail
+  local timing_dir run_exit=0 guard_exit=0 alone_exit=0
+  timing_dir="$(mktemp -d)"
+  if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
+    --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
+    :
+  else
+    run_exit=$?
+    rm -rf "$timing_dir"
+    return "$run_exit"
+  fi
+  if cargo metadata --manifest-path "$manifest" --format-version 1 --locked > "$timing_dir/cargo.json"; then
+    :
+  else
+    run_exit=$?
+    rm -rf "$timing_dir"
+    return "$run_exit"
+  fi
+  if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass \
+    scripts/test-capped.sh \
+    --binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json" \
+    "${filter_args[@]}" --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
+    run_exit=${PIPESTATUS[0]}
+  else
+    run_exit=${PIPESTATUS[0]}
+  fi
+  if [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "alone" ]; then
+    if [ "${NEXTEST_TEST_THREADS:-}" != "1" ]; then
+      echo "alone measurement requires NEXTEST_TEST_THREADS=1" >&2
+      guard_exit=2
+    elif node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log" --alone "$timing_dir/parallel.log"; then
+      :
+    else
+      guard_exit=$?
+    fi
+  elif node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log" --candidates "$timing_dir/candidates.json"; then
+    if [ "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1])).entries.length))' "$timing_dir/candidates.json")" != "0" ]; then
+      if node scripts/confirm-slow-unit-tests.mjs "$timing_dir/candidates.json" \
+        "$timing_dir/binaries.json" "$timing_dir/cargo.json" "$timing_dir/alone.log"; then
+        :
+      else
+        alone_exit=$?
+      fi
+      if node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log" --alone "$timing_dir/alone.log"; then
+        :
+      else
+        guard_exit=$?
+      fi
+    elif node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log"; then
+      :
+    else
+      guard_exit=$?
+    fi
+  else
+    guard_exit=$?
+  fi
+  rm -rf "$timing_dir"
+  [ "$run_exit" -eq 0 ] || return "$run_exit"
+  [ "$alone_exit" -eq 0 ] || return "$alone_exit"
+  return "$guard_exit"
 }
 
 case "$CMD" in
-  gateway-*|help|gc) ;;
+  gateway-*|help|gc|cache-status) ;;
   *) setup_env ;;
 esac
 
@@ -451,7 +506,7 @@ fi
 
 # A cold prebuilt refusal must be read-only; every other command keeps the
 # existing hook setup behavior.
-if [ "$CMD" != "dev-prebuilt" ]; then
+if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ]; then
   git config core.hooksPath .githooks 2>/dev/null || true
 fi
 
@@ -757,12 +812,14 @@ prepare_exceptional_worktree_target() {
   local dir identity
   dir="$(ct_gateway_dir)"
   identity="$(printf '%s' "$(pwd -P)" | git hash-object --stdin)"
-  export CARGO_TARGET_DIR="$dir/targets/exceptional/$identity"
+  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "$(pwd -P)" "$dir" "$identity")"
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
   # The marker is retention bookkeeping; a busy gateway mutex must not kill the build.
-  ct_mark_exceptional_target || echo "[cache-policy] mark skipped; target stays protected while running"
+  if [ "$CARGO_TARGET_DIR" != "$(pwd -P)/target-check" ]; then
+    ct_mark_exceptional_target || echo "[cache-policy] mark skipped; target stays protected while running"
+  fi
   ct_verify_target_dir
   ct_require_prestarted_sccache
   echo "[cache-policy] exceptional worktree target=$CARGO_TARGET_DIR"
@@ -1646,6 +1703,7 @@ CodeTerm build commands
   qa-prep                     Prepare a worktree for QA
   install-local               Build and install locally
   build                       Build production artifacts
+  cache-status                Show configured/server cache locations and endpoint health
   gateway-status              Show the machine build owner
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
@@ -1667,6 +1725,9 @@ EOF
   fmt-check)
     cargo fmt --manifest-path src-tauri/Cargo.toml --check
     cargo fmt --manifest-path cli/Cargo.toml --check
+    ;;
+  cache-status)
+    ct_sccache_status
     ;;
   gateway-status)
     ct_gateway_status
@@ -1769,6 +1830,7 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml
     ;;
   check-tests)
+    ct_configure_sccache
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs

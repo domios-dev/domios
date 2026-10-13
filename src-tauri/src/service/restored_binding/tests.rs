@@ -45,7 +45,6 @@ fn fixture_with_plan() -> (ServiceFixture, String, String, String) {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn owner_binding_is_refreshed_to_the_tabs_own_session() {
     let (fixture, owner, _, plan_id) = fixture_with_plan();
 
@@ -65,7 +64,6 @@ fn owner_binding_is_refreshed_to_the_tabs_own_session() {
 /// A restart is not a handover, so refreshing the owner's live session must not
 /// append a transfer record.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn refreshing_the_owner_records_no_transfer_history() {
     let (fixture, owner, _, plan_id) = fixture_with_plan();
     let before = fixture.service.plan_store.get(&plan_id).unwrap();
@@ -80,7 +78,6 @@ fn refreshing_the_owner_records_no_transfer_history() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_binding_is_refreshed_to_the_tabs_own_session() {
     let (fixture, _, planner, plan_id) = fixture_with_plan();
 
@@ -108,7 +105,6 @@ fn planner_binding_is_refreshed_to_the_tabs_own_session() {
 /// The core of the incident: a tab that came back on a different session must
 /// never have plan/task callers re-pointed at it.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn a_foreign_session_fails_the_restore_and_leaves_the_plan_untouched() {
     let (fixture, owner, _, plan_id) = fixture_with_plan();
 
@@ -139,7 +135,6 @@ fn a_foreign_session_fails_the_restore_and_leaves_the_plan_untouched() {
 /// A fresh (non-resumed) launch legitimately returns on a new session, so no
 /// expectation is imposed and the binding still lands.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn a_fresh_launch_binds_without_an_expected_session() {
     let (fixture, owner, _, plan_id) = fixture_with_plan();
 
@@ -154,7 +149,6 @@ fn a_fresh_launch_binds_without_an_expected_session() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn a_roleless_tab_restores_an_empty_binding_without_touching_any_plan() {
     let (fixture, _, _, plan_id) = fixture_with_plan();
     let workspace = fixture.service.mux.read().list_workspaces()[0].id.clone();
@@ -171,7 +165,6 @@ fn a_roleless_tab_restores_an_empty_binding_without_touching_any_plan() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn a_missing_tab_fails_rather_than_resolving_a_global_session() {
     let (fixture, _, _, _) = fixture_with_plan();
 
@@ -189,7 +182,6 @@ fn a_missing_tab_fails_rather_than_resolving_a_global_session() {
 /// A relaunched tab with no reported session yet is "not yet known", never
 /// "wrong" — collapsing the two is the incident this gate closes.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unreported_session_is_not_a_foreign_session() {
     let (fixture, owner, _, plan_id) = fixture_with_plan();
     {

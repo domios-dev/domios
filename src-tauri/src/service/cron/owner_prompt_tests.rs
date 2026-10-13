@@ -157,6 +157,7 @@ fn recorder(
 
 fn prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "opaque question".into(),
         options: vec![PromptOption {
             label: "opaque".into(),
@@ -268,10 +269,6 @@ fn cron_owner_prompt_commit_failure_is_reported_unapplied_and_unpublished() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn cron_owner_prompt_held_writer_does_not_block_route_pending_prompt() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -307,10 +304,6 @@ fn cron_owner_prompt_held_writer_does_not_block_route_pending_prompt() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn cron_owner_prompt_json_backend_commits_before_returning() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

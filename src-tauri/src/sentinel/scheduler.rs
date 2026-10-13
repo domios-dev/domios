@@ -60,7 +60,7 @@ pub struct Handle {
     pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
     pub(super) probe_owner: Arc<probe::owner::ProbeResourceOwner>,
-    app: Option<tauri::AppHandle>,
+    app: Option<crate::app_runtime::AppHandle>,
     _shutdown: Option<Arc<crate::crash::shutdown::ShutdownSubscription>>,
 }
 
@@ -146,7 +146,7 @@ impl Handle {
 }
 
 #[cfg(test)]
-pub(crate) fn fixture_handle(store: Store, app: tauri::AppHandle) -> Handle {
+pub(crate) fn fixture_handle(store: Store, app: crate::app_runtime::AppHandle) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
         inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),
@@ -158,7 +158,7 @@ pub(crate) fn fixture_handle(store: Store, app: tauri::AppHandle) -> Handle {
     }
 }
 
-pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &tauri::AppHandle) {
+pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &crate::app_runtime::AppHandle) {
     let changes = store.lock().take_changes();
     for change in changes {
         crate::api::events::emit_everywhere(app, "automation-graph-changed", change);

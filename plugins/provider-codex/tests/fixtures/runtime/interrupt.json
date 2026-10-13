@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurnId": "turn-a",
+    "activeTurns": [
+      {
+        "threadId": "thread-fixture",
+        "turnId": "turn-a"
+      }
+    ],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "interrupt",
+        "threadId": "thread-fixture",
+        "activeTurnId": "turn-a"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/interrupt",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "turn-a"
+          },
+          "target": {
+            "threadId": "thread-fixture",
+            "turnId": "turn-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "completed"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "interrupted"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "idle"
+      }
+    ]
+  }
+}

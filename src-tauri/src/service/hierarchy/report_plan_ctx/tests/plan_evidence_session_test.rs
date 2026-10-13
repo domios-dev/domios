@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_evidence_resolves_absent_session_from_attested_nonce() {
     let h = plan_evidence_harness();
     let before = h.plan().tasks;
@@ -31,7 +30,6 @@ fn plan_evidence_resolves_absent_session_from_attested_nonce() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_evidence_absent_session_still_requires_nonce_and_grant() {
     for case in [
         "wrong_nonce",

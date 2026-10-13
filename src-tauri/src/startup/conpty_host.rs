@@ -4,7 +4,7 @@
 /// Export CODETERM_CONPTY_DIR for this arch's bundled host. Must run before the
 /// first tab/PTY spawn (the fork reads it on first CreatePseudoConsole).
 #[cfg(windows)]
-pub(crate) fn setup_conpty_host(app: &tauri::App) {
+pub(crate) fn setup_conpty_host(app: &crate::app_runtime::App) {
     use tauri::Manager;
     let arch = if cfg!(target_arch = "aarch64") {
         "arm64"
@@ -27,4 +27,4 @@ pub(crate) fn setup_conpty_host(app: &tauri::App) {
 }
 
 #[cfg(not(windows))]
-pub(crate) fn setup_conpty_host(_app: &tauri::App) {}
+pub(crate) fn setup_conpty_host(_app: &crate::app_runtime::App) {}

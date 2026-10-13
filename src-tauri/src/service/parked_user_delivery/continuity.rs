@@ -37,7 +37,9 @@ impl super::super::ServiceContext {
     }
 
     pub(crate) fn restore_durable_user_statuses(&self, tab_id: &str) -> Result<(), String> {
-        if self.tab_chat_backing(tab_id).is_some() {
+        if self.tab_chat_backing(tab_id).is_some()
+            && !super::super::agent_runtime::requested_for_tab(self, tab_id)
+        {
             return Ok(());
         }
         let store = &self.pending_delivery_payloads.user_sends;

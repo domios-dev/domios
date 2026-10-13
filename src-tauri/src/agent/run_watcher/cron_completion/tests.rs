@@ -74,7 +74,10 @@ fn cron_completion_cannot_close_for_tools_empty_answers_or_previous_turns() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "FSEvents drops appends right after stream start; exact-file watcher in task_1vtxz9"
+)]
 fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     use super::super::{AtomicBool, AtomicU32, ResultEventScanner, RunState};
     use crate::cron::store::{CronCreateParams, CronRunInfo, CronRunStatus, CronStore};
@@ -95,7 +98,12 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         tab.session_binding_nonce = Some("own-nonce".into());
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let path = fixture.temp.path().join("own-session.jsonl");
+    let path = fixture
+        .temp
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("own-session.jsonl");
     std::fs::write(&path, "").unwrap();
     let source = format!(
         r#"module.exports.default = {{
@@ -113,6 +121,10 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         .service
         .agent_registry
         .register_provider(Box::new(JsProvider::new(manifest, Arc::new(vm))));
+    assert!(!crate::service::agent_runtime::requested_for_tab(
+        &fixture.service,
+        &tab_id
+    ));
     let store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
     let cron: crate::CronState = Arc::new(Mutex::new(store));
     let wake: crate::CronWake = Arc::new(std::sync::Condvar::new());
@@ -180,6 +192,7 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         resume_system_prompt: None,
         cron_completion: Mutex::new(None),
     });
+    let diagnostic_state = Arc::downgrade(&state);
     fixture
         .service
         .run_watcher
@@ -232,7 +245,24 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     writer.sync_all().unwrap();
     let recorded = closed_rx
         .recv_timeout(Duration::from_secs(20))
-        .expect("transcript append must release pending completion");
+        .unwrap_or_else(|error| {
+            let state = diagnostic_state.upgrade();
+            let completion = state.as_ref().and_then(|state| state.cron_completion.try_lock()).map(|pending| {
+                pending.as_ref().map(|pending| (
+                    pending.barrier.stopped,
+                    pending.barrier.assistant_ids.clone(),
+                    pending.events.lock().clone(),
+                    pending._watcher.is_some(),
+                    pending.source_path.clone(),
+                    pending.source_path.as_deref().and_then(std::path::Path::parent).map(std::path::Path::to_path_buf),
+                ))
+            });
+            let completed = state.as_ref().map(|state| state.completed.load(Ordering::Acquire));
+            let tab_open = fixture.service.mux.try_read().map(|mux| mux.get_tab(&tab_id).is_some());
+            let run_status = cron.try_lock().map(|store| store.get_history(&job.id)[0].status.clone());
+            let snapshot = crate::service::tab_chat::session_chat_snapshot(&fixture.service, "pending-fixture", "", "own-session", 0);
+            panic!("transcript append must release pending completion: {error}; completion(stopped,prior_ids,events,watcher_present,session_path,watch_dir)={completion:?}; completed={completed:?}; tab_open={tab_open:?}; run_status={run_status:?}; snapshot={snapshot:?}");
+        });
     fixture._app.unlisten(listener);
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(recorded.trim()).unwrap(),

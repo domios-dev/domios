@@ -27,7 +27,6 @@ fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn startup_overdue_notice_is_suppressed_after_binding_is_observed() {
     let (fixture, parent_tab_id, child_tab_id) = lifecycle_fixture(true);
     let authority = StartupAuthority::new(&parent_tab_id, &child_tab_id, "launch-a")
@@ -159,7 +158,6 @@ fn task_startup_failure_detail_is_in_the_short_worker_notice() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn startup_notice_to_unbound_parent_is_withheld_then_delivered_after_binding() {
     let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
     let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
@@ -203,7 +201,6 @@ fn startup_notice_to_unbound_parent_is_withheld_then_delivered_after_binding() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn startup_notice_to_a_plain_shell_parent_is_never_written() {
     let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(false);
     let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
@@ -225,7 +222,6 @@ fn startup_notice_to_a_plain_shell_parent_is_never_written() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_ack_notice_to_unbound_parent_remains_pending() {
     let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
     let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();

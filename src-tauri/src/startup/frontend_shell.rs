@@ -1,9 +1,10 @@
+use crate::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
 
 pub(crate) fn application_context(
-    context: tauri::Context<tauri::Wry>,
-) -> tauri::Context<tauri::Wry> {
+    context: tauri::Context<crate::app_runtime::Runtime>,
+) -> tauri::Context<crate::app_runtime::Runtime> {
     #[cfg(debug_assertions)]
     {
         let mut context = context;
@@ -31,7 +32,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use url::Url;
 
 mod model;
@@ -176,7 +177,7 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
 }
 
 pub(crate) fn create_window(
-    app: &tauri::App,
+    app: &crate::app_runtime::App,
     config: &crate::config::schema::ApiConfig,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
     let development_frontend =
@@ -342,7 +343,7 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
     });
 }
 
-async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, String> {
+async fn frontend_url(app: &crate::app_runtime::AppHandle, origin: &str) -> Result<Url, String> {
     if let Some(url) = &app.state::<ShellSupervisor>().development_frontend {
         log::debug!(
             "[frontend-shell] selecting configured development frontend: {}",
@@ -385,7 +386,7 @@ async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, Strin
     }
 }
 
-pub(crate) fn start(app: tauri::AppHandle, control: RestApiControlState) {
+pub(crate) fn start(app: crate::app_runtime::AppHandle, control: RestApiControlState) {
     let mut status = control.subscribe_status();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -429,7 +430,7 @@ pub(crate) fn start(app: tauri::AppHandle, control: RestApiControlState) {
     });
 }
 
-pub(crate) fn retry(app: &tauri::AppHandle) {
+pub(crate) fn retry(app: &crate::app_runtime::AppHandle) {
     let control = app.state::<RestApiControlState>().inner().clone();
     let observed = control.status();
     if observed.phase != RestApiPhase::Listening {

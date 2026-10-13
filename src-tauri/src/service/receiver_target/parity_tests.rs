@@ -25,7 +25,6 @@ fn native_reply(result: Result<ReceiverTargetView, ReceiverTargetError>) -> Valu
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plugin_parity_receiver_target_host_and_native_paths_agree() {
     let scene = scene();
     let service = &scene.fixture.service;

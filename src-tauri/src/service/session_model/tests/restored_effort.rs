@@ -3,7 +3,6 @@ use crate::multiplexer::{state::MultiplexerState, types::PendingModelSwitchObser
 use crate::service::{reasoning_effort, test_fixture::ServiceFixture};
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restored_next_turn_confirms_effort_without_settings_change() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();

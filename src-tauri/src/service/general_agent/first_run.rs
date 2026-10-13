@@ -1,7 +1,7 @@
 //! First-run General Agent provider picker — tab marker + completion flow.
 
+use crate::app_runtime::AppHandle;
 use crate::multiplexer::types::TabType;
-use tauri::AppHandle;
 
 use super::workspace::{default_chat_view_for_provider, ensure_general_workspace};
 use super::{generate_instructions, start_general_agent, GENERAL_ALIAS};

@@ -112,7 +112,6 @@ fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> S
     serde_json::to_string_pretty(task).unwrap()
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
     for key in ["nonsense_field", "external_ref", "externalRefs"] {
@@ -142,7 +141,6 @@ fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn rest_every_supported_update_key_reaches_the_real_handler() {
     let (fixture, plan_id, task_id, parent_task_id, dependency_task_id, owner) = update_fixture();
@@ -172,7 +170,6 @@ fn rest_every_supported_update_key_reaches_the_real_handler() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn rest_update_external_refs_round_trips_non_null() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -197,7 +194,6 @@ fn rest_update_external_refs_round_trips_non_null() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn rest_cleanup_done_refusal_returns_conflict_for_unmerged_lane_branch() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();

@@ -176,6 +176,9 @@ impl MultiplexerState {
                 agent_type_locked: tab.map(|p| p.agent_type_locked).unwrap_or(false),
                 claude_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
+                    agent_runtime_state: p.agent_runtime_state.clone(),
+                    agent_runtime_config: p.agent_runtime_config.clone(),
+                    agent_runtime_questions: p.agent_runtime_questions.clone(),
                     provisioned_cwd: normalized_snapshot_cwd(p.provisioned_cwd.as_deref()),
                     session_binding_nonce: p.session_binding_nonce.clone(),
                     reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
@@ -647,6 +650,15 @@ fn install_leaf(
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
             structured_control_active: false,
+            agent_runtime_state: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.agent_runtime_state.clone()),
+            agent_runtime_config: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.agent_runtime_config.clone()),
+            agent_runtime_questions: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.agent_runtime_questions.clone()),
             structured_runtime_mode: restorable_launch.structured_runtime_mode.clone(),
             agent_provider_resolved_model: agent_provider_resolved_model.clone(),
             model_fallback: model_fallback.clone(),

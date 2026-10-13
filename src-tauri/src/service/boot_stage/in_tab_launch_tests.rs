@@ -178,10 +178,6 @@ fn observed_provider_process() -> ProviderProcessTreeSnapshot {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_contract_verified_in_tab_relaunch_is_observed_live_and_ready() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
     assert_eq!(
@@ -210,10 +206,6 @@ fn restore_contract_verified_in_tab_relaunch_is_observed_live_and_ready() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
     let key = provider_tree_key(&fixture, &tab_id);
@@ -246,10 +238,6 @@ fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
 /// A provider observed under this tab's shell and then absent from one
 /// finished-marker snapshot proves exit, so the tab no longer claims it.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
     let key = provider_tree_key(&fixture, &tab_id);
@@ -282,10 +270,6 @@ fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
     let key = provider_tree_key(&fixture, &tab_id);
@@ -318,10 +302,6 @@ fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_contract_verified_binding_on_a_dead_pty_is_not_promoted() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
     fixture

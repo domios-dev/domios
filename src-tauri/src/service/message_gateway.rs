@@ -389,6 +389,27 @@ impl Default for MessageGateway {
 }
 
 impl MessageGateway {
+    pub(crate) async fn submit_runtime_loaded_turn(
+        &self,
+        svc: &super::ServiceContext,
+        session: &std::sync::Arc<super::agent_runtime::engine::Session>,
+        process: &std::sync::Arc<super::agent_runtime::process::Process>,
+        send_id: &str,
+        input: codeterm_plugin::agent_runtime::TurnInput,
+    ) -> Result<(), super::delivery_error::DeliveryError> {
+        super::agent_runtime::transport::submit_loaded(svc, session, process, send_id, input).await
+    }
+
+    pub(crate) fn submit_runtime_question_answer(
+        &self,
+        svc: &super::ServiceContext,
+        reservation: super::pending_delivery_payloads::user_sends::UserReservation,
+        input: codeterm_plugin::agent_runtime::TurnInput,
+        resolution: super::pending_delivery_payloads::user_sends::runtime_questions::QuestionResolution,
+    ) -> Result<super::chat_send_transaction::ChatSendStatus, String> {
+        svc.admit_runtime_question_answer(reservation, input, resolution)
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
