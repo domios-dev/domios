@@ -15,6 +15,12 @@ for (const malformed of ['<domios from="report">unclosed', '<domios from=report>
   assert.deepEqual(parseMessageParts(malformed), [text(malformed)]);
 }
 assert.deepEqual(parseMessageParts(""), [text("")]);
+for (const remainder of ["", "\n", " \r\n\t"]) {
+  assert.deepEqual(parseMessageParts(`${frame}${remainder}`), [routed(frame)]);
+  assert.deepEqual(messageRowParts([routed(frame), text(remainder)]), [routed(frame)]);
+  assert.deepEqual(messageRowParts(splitExactSendTexts(`${frame}${remainder}`, [{ content: frame, correlationId: "route" }])),
+    [{ ...routed(frame), correlationId: "route" }]);
+}
 assert.deepEqual(parseMessageParts(`${frame}\n<domios from="report">unclosed`), [routed(frame), text('\n<domios from="report">unclosed')]);
 const payloads = [{ content: "first", correlationId: "one" }, { content: "second", correlationId: "two" }];
 assert.deepEqual(splitExactSendTexts("firstsecond trailing", payloads), [
