@@ -10,7 +10,7 @@ fn ready_dispatch_preserves_admission_order_when_wakes_arrive_reversed() {
     for (sequence, text) in [(1, "first"), (2, "second")] {
         let reservation = store
             .reserve(authority.clone(), None, || {
-                (format!("{tab}-{sequence}"), sequence)
+                (uuid::Uuid::new_v4().to_string(), sequence)
             })
             .unwrap();
         let record = store

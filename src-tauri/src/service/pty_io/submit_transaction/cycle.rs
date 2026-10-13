@@ -319,6 +319,12 @@ impl SubmitCycleClaim {
                 || self.cycle.is_current(self.generation))
     }
 
+    #[cfg(test)]
+    pub(crate) fn enqueue_test_payload(&self) {
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
+        self.payload_enqueued(sender);
+    }
+
     pub(super) fn payload_enqueued(&self, waiter: SyncSender<SubmitCycleSignal>) {
         if !self._lease.armed.swap(true, Ordering::AcqRel) {
             self.cycle
