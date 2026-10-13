@@ -296,6 +296,23 @@ pub(super) fn dispatch(
             Ok(response)
         }
 
+        "plan.set_project" => {
+            let plan_id = plan_refs::resolve_plan(store, params)?;
+            let project = get_string_param(params, "project_path")?;
+            let update = svc
+                .set_plan_project(&plan_id, &project)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            serde_json::to_value(update).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
+
         "plan.adopt" => {
             let body = p.ok_or(JsonRpcError {
                 code: -32602,

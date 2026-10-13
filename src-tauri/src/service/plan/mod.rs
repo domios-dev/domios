@@ -18,6 +18,7 @@ pub(crate) mod mission_control_ext;
 mod mission_control_spend_tests;
 #[cfg(test)]
 mod mission_control_tests;
+mod project_path;
 mod relink_ext;
 pub(crate) mod respawn_lane;
 mod state_ext;

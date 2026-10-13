@@ -95,3 +95,5 @@ Account and subscriptions: `codeterm account plan` shows cached entitlements and
 Utility shell lifetimes: `tab new --timeout 10m` for tests, QA and builds; leave unset for servers. Reset or extend from now with `tab timeout --tab <ID> --timeout 20m`; disable with `--timeout none`. Only the creating agent can change the lifetime. See `codeterm docs TAB-LIFECYCLE`.
 
 Relocate a workspace after its folder moves: `codeterm workspace set-cwd <workspace-id> <absolute-folder>`. This preserves its identity and reports any paths it could not rebase.
+
+Repair a moved Plan project without its old folder: `codeterm plan set-project <plan> <path>`. It validates the target host folder and preserves Plan, task, Team and attempt identities.
