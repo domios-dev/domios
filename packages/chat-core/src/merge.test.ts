@@ -143,8 +143,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["old-session", "new-session"], "session scope preserves a later seq reset");
 }
 
-// ── projection batch identity: snapshot and live transport can assign every
-// row a different id and shifted seq while describing one canonical batch.
+// Equal content does not establish replay identity.
 {
   const snapshot = [
     msg("snapshot-prose", { type: "assistant", content: "I will inspect the failing projection.", timestamp: "2026-08-02T12:00:00Z", seq: 40, sourceSessionId: "batch-session" }),
@@ -163,8 +162,8 @@ function msg(id: string, opts: Partial<M> = {}): M {
   const merged = mergeById(snapshot, transportDuplicate);
   eq(
     merged.map((message) => message.id),
-    snapshot.map((message) => message.id),
-    "whole semantic event batch projects once despite transport id and seq drift",
+    [...snapshot, ...transportDuplicate].map((message) => message.id),
+    "distinct authoritative ids survive equal semantic batches",
   );
 }
 
@@ -175,7 +174,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
   ];
   const duplicate = batch.map((message, index) => ({ ...message, id: `duplicate-${index}`, seq: index + 20 }));
   const merged = mergeById([], [...batch, ...duplicate]);
-  eq(merged.map((message) => message.id), ["assistant-a", "status-a"], "one duplicated incoming batch collapses at projection");
+  eq(merged.map((message) => message.id), ["assistant-a", "status-a", "duplicate-0", "duplicate-1"], "distinct ids survive equal incoming batch halves");
 }
 
 {
@@ -186,7 +185,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
     msg("second-status", { type: "status", content: "Ready", sourceSessionId: "batch-session" }),
   ];
   const merged = mergeById([], repeated);
-  eq(merged.map((message) => message.id), ["first-a", "first-status"], "adjacent identical semantic batches project once");
+  eq(merged.map((message) => message.id), ["first-a", "first-status", "second-a", "second-status"], "distinct ids survive adjacent identical semantic batches");
 }
 
 {
@@ -217,6 +216,14 @@ function msg(id: string, opts: Partial<M> = {}): M {
     ["ctx", "u1", "a1", "u2", "a2"],
     "codex real ms-precision rollout: user always before its assistant reply",
   );
+}
+
+{
+  const first = [msg("a1", { type: "assistant", content: "A" }), msg("b1", { type: "assistant", content: "B" })];
+  const second = [msg("a2", { type: "assistant", content: "A" }), msg("b2", { type: "assistant", content: "B" })];
+  eq(mergeById(first, second).map((m) => m.id), ["a1", "b1", "a2", "b2"], "equal assistant batches with distinct ids survive across calls");
+  eq(mergeById([], [...first, ...second]).map((m) => m.id), ["a1", "b1", "a2", "b2"], "equal assistant batches with distinct ids survive one call");
+  eq(mergeById(first, first).map((m) => m.id), ["a1", "b1"], "an authoritative id replay still merges once");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
