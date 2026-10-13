@@ -1,6 +1,6 @@
 # Plan Surface Contracts
 
-Contracts for plan-owned task structure, goals, lanes, and executors, as the CLI and socket surface enforce them.
+Contracts for plan-owned task structure, goals, lanes, and executors, as the CLI and socket surface enforce them. To repair a moved or retired project root, use `codeterm plan set-project <plan> <path>` (socket `plan.set_project`, REST `POST /api/plans/{id}/project` with `{project_path}`). The target must be an existing absolute directory on that host; the old root need not exist. One serialized write updates `project_path` and resolves `canonical_project_path` using the target checkout, preserving all Plan, task, Team and attempt ids. The result has `plan_id`, both paths and `changed`; repeated identical requests return `changed: false` without a write or event. Changed requests emit `plan-changed`.
 
 ### Same-attempt Worker authority restoration
 
@@ -237,4 +237,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

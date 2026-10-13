@@ -495,6 +495,11 @@ fn run_plan(
             return Ok(None);
         }
 
+        PlanAction::SetProject { plan_id, path } => call(
+            client,
+            "plan.set_project",
+            json!({"plan_id": plan_id, "project_path": path}),
+        )?,
         PlanAction::Move {
             plan_id,
             from,

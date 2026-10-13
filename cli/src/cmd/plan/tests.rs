@@ -794,3 +794,38 @@ mod review_ref_forwarding {
 }
 
 mod lifecycle_caller;
+
+#[test]
+fn set_project_routes_target_host_path_without_loading_old_root() {
+    #[derive(Default)]
+    struct Recorder {
+        calls: Vec<(String, Option<Value>)>,
+    }
+    impl RpcClient for Recorder {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push((method.into(), params));
+            Ok(json!({"plan_id": "pl-existing", "changed": true}))
+        }
+    }
+    let mut client = Recorder::default();
+    run_plan(
+        &mut client,
+        true,
+        PlanAction::SetProject {
+            plan_id: "pl-existing".into(),
+            path: "C:/Developer/codeterm".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        client.calls,
+        vec![(
+            "plan.set_project".into(),
+            Some(json!({"plan_id": "pl-existing", "project_path": "C:/Developer/codeterm"}))
+        )]
+    );
+}

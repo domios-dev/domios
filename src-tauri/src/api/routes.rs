@@ -274,6 +274,10 @@ pub fn create_router_with_frontend(
             "/api/plans",
             get(plan_routes::list).post(plan_routes::create),
         )
+        .route(
+            "/api/plans/{id}/project",
+            post(plan_routes::project::set_project),
+        )
         .route("/api/plans/resolve-refs", post(plan_routes::resolve_refs))
         .route(
             "/api/specs",
