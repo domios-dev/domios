@@ -281,3 +281,56 @@ fn runtime_capability_conversion_refuses_unmapped_args_before_mutation() {
     assert_eq!(agent.model.as_deref(), Some("opaque-model"));
     assert_eq!(agent.reasoning_effort.as_deref(), Some("opaque-effort"));
 }
+
+#[test]
+fn runtime_routing_preserves_original_plan_task_parameters_byte_for_byte() {
+    let params = SpawnAgentParams {
+        agent: Some("runtime-fixture".into()),
+        role: Some("Worker".into()),
+        plan_id: Some("plan-exact".into()),
+        task_id: Some("task-exact".into()),
+        plan_task: Some("task-reference".into()),
+        task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+            plan_id: "plan-exact".into(),
+            task_id: "task-exact".into(),
+            attempt_id: "attempt-exact".into(),
+            lane_base: Some("base-exact".into()),
+        }),
+        plan_skill_manifest: Some(vec![crate::plan::PlanSkillManifestEntry {
+            slug: "opaque-skill".into(),
+            title: "opaque-title".into(),
+            purpose: "opaque-purpose".into(),
+            content_digest: "sha256:opaque-digest".into(),
+        }]),
+        authorized_gates: vec!["opaque-gate\n$() `quoted`".into()],
+        execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+        provider_reserve_pct: Some(17.25),
+        task: Some("opaque-task\nUnicode: λ".into()),
+        report_target_mesh_peer: Some("opaque-peer".into()),
+        system_prompt: Some("opaque-system".into()),
+        ..Default::default()
+    };
+    let expected = format!("{params:?}").into_bytes();
+    let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params(params);
+    spec.route_agent_to_chatbackend().unwrap();
+    assert_eq!(
+        format!("{:?}", spec.chatbackend_launch.unwrap().params).into_bytes(),
+        expected
+    );
+}
+
+#[test]
+fn runtime_routing_refuses_a_spec_without_original_parameters() {
+    let mut spec = crate::service::spawn::SpawnTabSpec {
+        command: crate::service::spawn::TabCommand::Agent(crate::service::spawn::AgentSpawnSpec {
+            provider: "runtime-fixture".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(spec.route_agent_to_chatbackend().is_err());
+    assert!(matches!(
+        spec.command,
+        crate::service::spawn::TabCommand::Agent(_)
+    ));
+}

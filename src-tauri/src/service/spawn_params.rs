@@ -147,10 +147,12 @@ impl SpawnTabSpec {
     }
 
     pub(crate) fn route_agent_to_chatbackend(&mut self) -> Result<(), String> {
-        let params = match self.chatbackend_launch.as_ref() {
-            Some(metadata) => metadata.params.clone(),
-            None => self.to_agent_params()?,
-        };
+        let params = self
+            .chatbackend_launch
+            .as_ref()
+            .ok_or("Runtime routing requires original spawn parameters")?
+            .params
+            .clone();
         let owner_linkage = self
             .chatbackend_launch
             .as_ref()
