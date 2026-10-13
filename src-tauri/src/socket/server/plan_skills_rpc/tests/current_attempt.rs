@@ -44,7 +44,6 @@ fn ack(caller: &LiveCaller) -> Value {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_reassignment_ack_announces_before_exact_skill_load() {
     let caller = LiveCaller::new();
     ack(&caller);
@@ -125,7 +124,6 @@ fn current_attempt_reassignment_ack_announces_before_exact_skill_load() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_explicit_conflicts_and_ambiguity_refuse_without_receipts() {
     let caller = LiveCaller::new();
     for (field, value) in [
@@ -179,7 +177,6 @@ fn current_attempt_explicit_conflicts_and_ambiguity_refuse_without_receipts() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_team_default_follows_changed_active_plan() {
     let caller = LiveCaller::new();
     let tab_id = caller.tab_id();
@@ -298,7 +295,6 @@ fn current_attempt_team_default_follows_changed_active_plan() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
     let caller = LiveCaller::new();
     let team_id = {
@@ -421,7 +417,6 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_ack_keeps_announced_digest_when_skill_bytes_change() {
     let caller = LiveCaller::new();
     let first = ack(&caller);
@@ -453,7 +448,6 @@ fn current_attempt_ack_keeps_announced_digest_when_skill_bytes_change() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_ack_rejects_foreign_nonce_before_announcement() {
     let caller = LiveCaller::new();
     caller
@@ -492,7 +486,6 @@ fn current_attempt_ack_rejects_foreign_nonce_before_announcement() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_startup_ack_keeps_existing_runtime_qualification() {
     let caller = LiveCaller::new();
     caller
@@ -528,7 +521,6 @@ fn current_attempt_startup_ack_keeps_existing_runtime_qualification() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn current_attempt_early_ack_late_ready_refuses_unproven_binding_without_mutation() {
     let caller = LiveCaller::new();
     let tab_id = caller.tab_id();

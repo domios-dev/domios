@@ -72,7 +72,6 @@ fn pair_spawn_creates_no_plan_until_first_goal() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "ServiceFixture requires a desktop runtime")]
 fn team_planner_bound_at_plan_create() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -504,7 +503,6 @@ fn pair_creation_refuses_unresolvable_supplied_creator_ids() {
 
 // Valid providers must not let a Team leaf reach pair reservation.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_leaf_call_is_refused_with_registered_providers_before_reservation() {
     use crate::multiplexer::types::AgentRole;
 
@@ -559,7 +557,6 @@ fn pair_leaf_call_is_refused_with_registered_providers_before_reservation() {
 
 // an unknown Planner must not strand the otherwise valid Orchestrator Tab.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_pair_with_unknown_provider_creates_no_tab() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -597,7 +594,6 @@ fn team_pair_with_unknown_provider_creates_no_tab() {
 
 // provider readiness for PTY launch commands does not apply to chat backends.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_preflight_accepts_spawnable_chat_backend_providers() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -640,7 +636,6 @@ fn pair_preflight_accepts_spawnable_chat_backend_providers() {
 
 // either role failing to launch must not leave a half-pair behind.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -669,7 +664,6 @@ fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
 
 // spawn_agent may return before it owns cleanup of the existing pair Tab ids.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -713,7 +707,6 @@ fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
 
 // the pair rollback owns restoring the pre-claim state after spawn returns an error.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();

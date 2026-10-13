@@ -618,7 +618,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn sentinel_stop_notice_stays_out_of_the_bell() {
         let (mux, creator_tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

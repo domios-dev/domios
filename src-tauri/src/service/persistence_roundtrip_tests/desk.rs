@@ -4,10 +4,6 @@ use crate::service::{TeamMutationCaller, TeamPlanCaller};
 use crate::session::store::StorageDeskAdapter;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn workspace_create_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -34,10 +30,6 @@ fn workspace_create_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn tab_create_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -65,10 +57,6 @@ fn tab_create_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, anchor_tab_id) = MultiplexerState::new();
@@ -160,10 +148,6 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn tab_rename_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -197,10 +181,6 @@ fn tab_rename_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn agent_tab_title_change_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -239,10 +219,6 @@ fn agent_tab_title_change_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn tab_description_change_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -269,10 +245,6 @@ fn tab_description_change_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn tab_move_and_reorder_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -315,10 +287,6 @@ fn tab_move_and_reorder_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn display_order_across_tab_levels_round_trips_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -353,10 +321,6 @@ fn display_order_across_tab_levels_round_trips_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn workspace_rename_and_close_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -394,10 +358,6 @@ fn workspace_rename_and_close_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn tab_close_and_closed_history_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -425,10 +385,6 @@ fn tab_close_and_closed_history_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn session_identity_bind_and_rebind_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -463,10 +419,6 @@ fn session_identity_bind_and_rebind_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -536,10 +488,6 @@ fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn team_create_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -575,10 +523,6 @@ fn team_create_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn team_rename_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -610,10 +554,6 @@ fn team_rename_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn team_close_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -641,10 +581,6 @@ fn team_close_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn plan_team_binding_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -696,10 +632,6 @@ fn plan_team_binding_round_trip_expected_red() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn layout_active_tab_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -734,10 +666,6 @@ fn layout_active_tab_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn surface_resume_point_round_trip_expected_pass() {
     use crate::multiplexer::types::{SurfaceBacking, TabBacking};
     use crate::service::surface::resume::write_surface_resume;

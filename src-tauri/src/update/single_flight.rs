@@ -121,7 +121,7 @@ where
 
 pub async fn apply_with_lease(
     lease: UpdateLease<'_>,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
@@ -133,7 +133,7 @@ pub async fn apply_with_lease(
 
 pub async fn install_staged_deb_with_lease(
     lease: UpdateLease<'_>,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     version: String,
     path: std::path::PathBuf,
     initiating_tab_id: Option<&str>,
@@ -146,7 +146,7 @@ pub async fn install_staged_deb_with_lease(
 
 pub async fn request_apply(
     gate: &UpdateGate,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<UpdateRequestOutcome, String> {

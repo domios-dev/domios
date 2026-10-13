@@ -55,10 +55,6 @@ fn draft_nudge_is_due_only_for_an_unconfirmed_unbound_first_turn_launch() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the ServiceContext harness requires an interactive desktop runtime"
-)]
 fn draft_nudge_presses_enter_once_and_waits_for_the_binding() {
     use crate::agent::test_provider::MockProvider;
     use crate::multiplexer::state::MultiplexerState;

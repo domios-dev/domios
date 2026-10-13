@@ -382,11 +382,10 @@ and warm reruns are incremental. To reclaim disk:
 
 ### Cross-platform CI troubleshooting
 
-- A Tauri test harness that must populate a production `AppHandle` uses
-  `tauri::Builder::default()`. `mock_builder()` changes the runtime type. A
-  libtest-thread harness uses `any_thread()` on Windows; macOS requires the
-  process main thread and headless Linux cannot initialize GTK, so the real
-  AppHandle oracle runs on Windows while pure lifecycle tests cover every OS.
+- ServiceFixture uses `app_runtime::Runtime`: Wry in production and Tauri's
+  MockRuntime under `cfg(test)`. Unit harnesses construct `app_runtime::builder()`
+  without an OS event loop; fixture-only desktop ignores are forbidden. Real OS
+  window or native API oracles retain a specific platform gate.
 - Real-socket tests that reserve an ephemeral address and then rebind it must
   serialize that reservation inside the test module. Parallel bind-drop-bind
   fixtures can claim each other's released ports, especially on Windows.

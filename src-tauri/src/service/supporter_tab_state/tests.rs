@@ -754,7 +754,6 @@ fn tab_state_codex_sequence_one_spawn_ok() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_spawn_verdict_discarded_on_nonce_rebinding() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = format!("tab-state-binding-{}", uuid::Uuid::new_v4().simple());

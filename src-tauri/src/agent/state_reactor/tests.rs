@@ -163,7 +163,6 @@ fn reactor_test_prompt() -> PendingPrompt {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn delivered_goal_text_is_not_stored_as_a_pending_prompt() {
     let mut prompt = reactor_test_prompt();
     prompt.selected_values = Some(vec!["1".into()]);
@@ -183,7 +182,6 @@ fn delivered_goal_text_is_not_stored_as_a_pending_prompt() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn state_reactor_stores_a_detected_prompt_without_notification() {
     let prompt = reactor_test_prompt();
     let screen = "opaque question token?\n❯ 1. opaque option alpha\n  2. opaque option beta\nEnter to confirm";
@@ -200,7 +198,6 @@ fn state_reactor_stores_a_detected_prompt_without_notification() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn classified_terminal_dialogs_are_stored_without_notifications() {
     let dialogs = [
         (
@@ -232,7 +229,6 @@ fn classified_terminal_dialogs_are_stored_without_notifications() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn another_tabs_pending_prompt_does_not_qualify_for_this_tab() {
     let prompt = reactor_test_prompt();
     let screen = "goal question token?\n1) opaque option alpha\n2) opaque option beta\n›";
@@ -432,7 +428,6 @@ fn garbage_reset_time_is_rejected() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-frame-full-screen-trailing-blank-rows.txt");
@@ -639,7 +634,6 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_output() {
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
         "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
@@ -748,7 +742,6 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
         "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
@@ -851,7 +844,6 @@ fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn auto_approve_output_handles_permission_prompt_after_reactor_classification() {
     let prompt = PendingPrompt {
         question: "Allow this command?".into(),
@@ -1043,7 +1035,6 @@ fn numbered_terminal_choice_requires_contiguous_visible_options_and_key_bindings
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn captured_picker_reactor_surfaces_all_choices_with_auto_confirm_enabled() {
     use crate::agent::provider::AgentProvider;
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};

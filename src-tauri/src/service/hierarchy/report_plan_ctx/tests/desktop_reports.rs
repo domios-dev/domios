@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without_task_mutation() {
     let h = plan_evidence_harness();
     let task_before = h
@@ -51,7 +50,6 @@ fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn ordinary_taskless_tab_is_refused_without_plan_or_delivery_mutation() {
     let h = plan_evidence_harness();
     let token = "ordinary-refused-36d4b0f8";
@@ -75,7 +73,6 @@ fn ordinary_taskless_tab_is_refused_without_plan_or_delivery_mutation() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn evidence_grant_is_plan_scoped_and_cannot_write_a_foreign_plan() {
     let h = plan_evidence_harness();
     let mut foreign = Plan::new(
@@ -106,7 +103,6 @@ fn evidence_grant_is_plan_scoped_and_cannot_write_a_foreign_plan() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn rebound_authorized_reporter_is_refused_without_plan_or_delivery_mutation() {
     let h = plan_evidence_harness();
     let token = "rebound-refused-f5c9d7a1";
@@ -137,7 +133,6 @@ fn rebound_authorized_reporter_is_refused_without_plan_or_delivery_mutation() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn task_bound_reporter_cannot_use_plan_evidence_capability() {
     let h = plan_evidence_harness();
     let token = "task-bound-refused-3cf68e0a";

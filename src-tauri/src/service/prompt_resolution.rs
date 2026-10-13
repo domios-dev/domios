@@ -280,7 +280,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn idle_transition_resolves_the_prompt_through_agent_interruption() {
         let (fixture, tab_id, previous_id) = pending_prompt_fixture();
         let pty_id = format!("idle-transition-{tab_id}");
@@ -296,7 +295,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn stop_transition_resolves_the_prompt_through_hook() {
         let (fixture, tab_id, previous_id) = pending_prompt_fixture();
         let state = app_state(&fixture);
@@ -314,7 +312,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn exit_transition_resolves_the_prompt_through_explicit_clear() {
         let (fixture, tab_id, previous_id) = pending_prompt_fixture();
 

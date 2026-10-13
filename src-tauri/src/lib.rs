@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod agent_commands;
-pub mod app_runtime;
 mod api;
+pub mod app_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
 pub mod bridge;
@@ -144,7 +144,7 @@ pub fn run() {
     commands::seed_bundled_skills();
     commands::mirror_skills_to_providers();
 
-    let mut builder = tauri::Builder::default()
+    let mut builder = crate::app_runtime::builder()
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())

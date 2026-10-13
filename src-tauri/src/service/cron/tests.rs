@@ -125,7 +125,6 @@ fn empty_patch() -> CronUpdateParams {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn storage_cutover_cron_reads_error_when_storage_is_unavailable() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -155,7 +154,6 @@ fn storage_cutover_cron_reads_error_when_storage_is_unavailable() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
     let (mut mux, owner_tab) = crate::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&owner_tab)
@@ -293,7 +291,6 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn cron_history_accepts_a_unique_job_name_and_its_id() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -314,7 +311,6 @@ fn cron_history_accepts_a_unique_job_name_and_its_id() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn cron_history_refuses_an_ambiguous_job_name() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -334,7 +330,6 @@ fn cron_history_refuses_an_ambiguous_job_name() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_reasoning_effort_round_trips_for_advertised_levels() {
     let (fixture, cron, wake, path) = fixture();
     for effort in ["low", "medium", "high"] {
@@ -355,7 +350,6 @@ fn cron_reasoning_effort_round_trips_for_advertised_levels() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_create_rejects_unsupported_effort_without_write() {
     let (fixture, cron, wake, path) = fixture();
     fixture
@@ -379,7 +373,6 @@ fn cron_create_rejects_unsupported_effort_without_write() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_edit_rejects_unsupported_effort_without_write() {
     let (fixture, cron, wake, path) = fixture();
     let job = fixture
@@ -410,7 +403,6 @@ fn cron_edit_rejects_unsupported_effort_without_write() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_empty_reasoning_effort_clears_override() {
     let (fixture, cron, wake, path) = fixture();
     let job = fixture
@@ -429,7 +421,6 @@ fn cron_empty_reasoning_effort_clears_override() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_create_validates_agent_model_cwd() {
     let (fixture, cron, wake, path) = fixture();
     let models = vec![ModelInfo {
@@ -642,7 +633,6 @@ fn submit_unconfirmed_report_delivery_is_not_classified_as_failed() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn completed_oneshot_reports_and_keeps_history() {
     let (fixture, cron, wake, _) = fixture();
     let job_id = started_job(&cron, true, Some("report-tab"));
@@ -665,7 +655,6 @@ fn completed_oneshot_reports_and_keeps_history() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn recurring_run_end_reports_without_retiring_the_job() {
     let (fixture, cron, wake, _) = fixture();
     let job_id = started_job(&cron, false, Some("report-tab"));
@@ -686,7 +675,6 @@ fn recurring_run_end_reports_without_retiring_the_job() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_complete_requires_run_owner() {
     let (mut mux, owner_tab) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&owner_tab).unwrap();

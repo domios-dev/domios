@@ -3,10 +3,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn unresolved_written_payload_stays_uncertain_without_holding_the_owner() {
     let (fixture, tab) = queue_fixture(true, None);
     let accepted = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-retained");

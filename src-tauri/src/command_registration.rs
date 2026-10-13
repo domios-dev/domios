@@ -1,6 +1,8 @@
 use crate::{clipboard_files, commands};
 
-pub(crate) fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+pub(crate) fn register_commands(
+    builder: tauri::Builder<crate::app_runtime::Runtime>,
+) -> tauri::Builder<crate::app_runtime::Runtime> {
     builder.invoke_handler(tauri::generate_handler![
         commands::get_windows_build_number,
         commands::materialize_dropped_files,

@@ -206,7 +206,6 @@ pub(super) fn scene() -> Scene {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pebble_receiver_target_service_refuses_foreign_plugins_tabs_and_items() {
     let scene = scene();
     let service = &scene.fixture.service;
@@ -240,7 +239,6 @@ fn pebble_receiver_target_service_refuses_foreign_plugins_tabs_and_items() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plugin_icon_svg_tab_menu_payload_and_target_action_toggles_one_binding() {
     let scene = scene();
     let service = &scene.fixture.service;
@@ -290,7 +288,6 @@ fn plugin_icon_svg_tab_menu_payload_and_target_action_toggles_one_binding() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pebble_receiver_target_restart_close_and_absent_tab_fall_back() {
     let scene = scene();
     let service = &scene.fixture.service;

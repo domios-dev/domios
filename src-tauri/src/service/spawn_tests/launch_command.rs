@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn missing_cli_is_refused_before_an_empty_launch_command() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -29,7 +28,6 @@ fn missing_cli_is_refused_before_an_empty_launch_command() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn missing_provider_command_is_refused_before_task_tab_creation() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -68,7 +66,6 @@ fn missing_provider_command_is_refused_before_task_tab_creation() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn task_specific_empty_provider_command_is_refused_after_real_build_and_rolls_back_tab() {
     let (mux, parent_tab_id) = crate::multiplexer::state::MultiplexerState::new();
@@ -107,7 +104,6 @@ fn task_specific_empty_provider_command_is_refused_after_real_build_and_rolls_ba
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn empty_launch_rollback_leaves_a_workspace_close_reservation_to_its_owner() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();

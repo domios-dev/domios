@@ -195,10 +195,6 @@ fn restored_unbound_user_head(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn restored_owner_needs_two_adapter_verdicts_for_one_pty_generation_before_one_write() {
     let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
         .lock()
@@ -273,10 +269,6 @@ fn restored_owner_needs_two_adapter_verdicts_for_one_pty_generation_before_one_w
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn restored_owner_with_only_one_adapter_verdict_stays_pending_without_a_write() {
     let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
         .lock()
@@ -319,10 +311,6 @@ fn restored_owner_with_only_one_adapter_verdict_stays_pending_without_a_write() 
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn restored_owner_low_confidence_verdict_stays_pending_without_a_write() {
     let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
         .lock()
@@ -363,10 +351,6 @@ fn restored_owner_low_confidence_verdict_stays_pending_without_a_write() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn restored_owner_visible_modal_verdict_stays_pending_without_a_write() {
     let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
         .lock()
@@ -407,10 +391,6 @@ fn restored_owner_visible_modal_verdict_stays_pending_without_a_write() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn restored_owner_rechecks_pty_generation_immediately_before_the_single_write() {
     let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
         .lock()

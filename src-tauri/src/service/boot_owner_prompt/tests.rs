@@ -65,7 +65,6 @@ fn stage_rules_hold_only_ready_launches_that_owe_a_handshake() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn boot_permission_prompt_holds_readiness_without_notification() {
     let (fixture, tab_id) = ready_tab(true);
     let prompt = screen_prompt();
@@ -119,7 +118,6 @@ fn boot_permission_prompt_holds_readiness_without_notification() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn prompt_after_the_handshake_leaves_readiness_alone() {
     let (fixture, tab_id) = ready_tab(false);
     fixture

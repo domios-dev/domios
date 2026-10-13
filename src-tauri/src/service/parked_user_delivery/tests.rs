@@ -261,10 +261,6 @@ fn start_current_chat_send(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn spawn_failed_two_accepted_user_sends_retain_originals_after_reopen() {
     let (fixture, tab_id) = failed_launch_fixture();
     let first = start_current_chat_send(&fixture, &tab_id, FIRST_PAYLOAD, "opaque-client-a");
@@ -284,10 +280,6 @@ fn spawn_failed_two_accepted_user_sends_retain_originals_after_reopen() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn reverse_transport_completion_retains_both_accepted_originals_after_reopen() {
     let (fixture, tab_id) = failed_launch_fixture();
     let first = admit_current_ledger(&fixture.service, &tab_id, FIRST_PAYLOAD, "opaque-client-a");

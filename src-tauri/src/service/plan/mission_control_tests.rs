@@ -347,7 +347,6 @@ fn ledger_event(plan_id: &str, kind: KpiEventKind, tokens: Option<TokenCounts>) 
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_state_endpoint_uses_ledger_without_jsonl_scan() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let mut fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -459,7 +458,6 @@ fn live_plan(fixture: &crate::service::test_fixture::ServiceFixture) -> Plan {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn enabled_kpi_hooks_produce_plan_token_and_turn_aggregate() {
     use crate::agent::test_provider::MockProvider;
     use crate::multiplexer::types::AgentRole;
@@ -593,7 +591,6 @@ fn enabled_kpi_hooks_produce_plan_token_and_turn_aggregate() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_not_recording_state_explains_enable_path() {
     use codeterm_plan::service_plan::state::mission_control::KPI_ENABLED_SETTING;
 

@@ -12,6 +12,7 @@ test('parses nextest timings and keeps the slowest retry', () => {
 test('rejects incomplete and empty reports', () => {
   assert.throws(() => parseTimings('PASS [ 1.200s] codeterm_lib a'), /summary/);
   assert.throws(() => parseTimings('Summary [ 0.000s] 0 tests run'), /no per-test/);
+  assert.throws(() => parseTimings('PASS [ 0.200s] codeterm_lib a\nSummary [ 1.000s] 2 tests run'), /incomplete/);
 });
 
 test('new slow unit fails and one second is permitted', () => {
