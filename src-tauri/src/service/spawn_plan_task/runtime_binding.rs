@@ -323,4 +323,23 @@ mod tests {
             crate::plan::TaskStatus::InProgress
         );
     }
+    #[test]
+    fn prepared_dispatch_brief_is_not_rewritten_when_gates_are_carried_to_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut params = SpawnAgentParams {
+            task: Some("opaque-prepared-brief".into()),
+            authorized_gates: vec!["opaque-gate".into()],
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: "opaque-plan".into(),
+                task_id: "opaque-task".into(),
+                attempt_id: "opaque-attempt".into(),
+                lane_base: None,
+            }),
+            ..Default::default()
+        };
+        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
+        assert_eq!(params.task.as_deref(), Some("opaque-prepared-brief"));
+        assert_eq!(params.authorized_gates, ["opaque-gate"]);
+    }
 }

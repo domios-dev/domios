@@ -82,7 +82,7 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
 /// so they ride into its brief through the writer the dispatch path already
 /// uses rather than a second renderer that could drift from it.
 fn append_authorized_gates(params: &mut SpawnAgentParams) {
-    if params.authorized_gates.is_empty() {
+    if params.authorized_gates.is_empty() || params.task_launch_authority.is_some() {
         return;
     }
     let gates = crate::service::plan::task_brief::render_authorized_gates(&params.authorized_gates);
