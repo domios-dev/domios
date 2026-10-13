@@ -10,6 +10,9 @@
 //! are intentionally not covered here — the native provider remains
 //! authoritative for them.
 
+#[path = "parity_test/runtime.rs"]
+mod runtime;
+
 use std::path::PathBuf;
 
 use crate::{
