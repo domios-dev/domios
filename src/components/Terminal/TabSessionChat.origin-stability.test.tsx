@@ -144,7 +144,9 @@ async function main() {
     await act(async () => { await Promise.resolve(); });
 
     const counts = () => (window as { __bubbleRenderCounts?: Record<string, number> }).__bubbleRenderCounts ?? {};
-    const baseStable = counts()["m0"] ?? 0;
+    const stableId = host.querySelector('[data-message-role="user"]')?.getAttribute("data-message-id");
+    assert(stableId, "origin bubble row mounted");
+    const baseStable = counts()[stableId] ?? 0;
     assert(baseStable > 0, "origin bubbles mounted");
     // The avatar (proof the origin actually resolved to a provider) must render.
     const avatarMounted = host.querySelectorAll("svg").length > 0 || host.textContent?.includes("report body 0");
@@ -157,7 +159,7 @@ async function main() {
       });
     }
 
-    const stableRenders = (counts()["m0"] ?? 0) - baseStable;
+    const stableRenders = (counts()[stableId] ?? 0) - baseStable;
     const tailRenders = counts()["tail"] ?? 0;
     // The tail actually streamed (proves the harness drove updates)...
     assert(tailRenders >= 3, `tail should re-render on streaming (got ${tailRenders})`);

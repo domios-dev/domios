@@ -1,3 +1,6 @@
+import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
@@ -217,6 +220,7 @@ export function TabSessionChat({
   const tabModel = tab?.agent_session_model ?? shellSessionModel;
   const workingModelBadge = formatModelBadge(tab ? statusLineModelName(tab, shellSessionModel) : tabModel ?? "Unknown model");
   const agentSessionId = tab?.agent_session_id ?? null;
+  const runtime = useAgentRuntimeState(tabId, tab?.session_binding_nonce ?? null, tab?.agent_runtime_state, tab?.agent_runtime_questions);
   const currentPtyId = tab?.pty_id ?? null;
   const agentActivity = useTabActivity(tabId);
   const sessionBindingSurface = useSessionBindingSurface(tabId, agentSessionId);
@@ -305,10 +309,15 @@ export function TabSessionChat({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
+  const runtimeUnavailable = runtime.state != null && runtime.state.state !== "loaded";
+  const runtimeDegraded = runtime.state?.state === "degraded";
+  const runtimeReplacement = runtimeDegraded
+    ? <AgentRuntimeBanner state={runtime.state} onRetry={() => { void runtime.retry(); }} /> : undefined;
+  const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = loading || recovering || (!hasTranscript && remoteChatReconnecting);
+  const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading || error != null;
-  const setupView = chatBodyView({
+  const setupView = runtimeUnavailable ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
     chatLoading,
     unavailable: transcriptUnavailable,
@@ -779,7 +788,7 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      <RemovedChatPlugin error={effectiveChatBackend ? error : null} />
+      {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
       <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
@@ -900,6 +909,7 @@ export function TabSessionChat({
           );
         })}
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
+        {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
         {promptPart && <ChatMessageRow
           msg={{ id: promptPart.id, type: "assistant" }}
           ariaLabel={chatMessageAccessibleName("assistant", promptPart.prompt.question)}
@@ -950,7 +960,7 @@ export function TabSessionChat({
       </div>
       <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
       {isWatcherTab && watcherSpec ? (
-        <WatcherReadOnlyBar
+        runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
           modelBubble={watcherModelBubble}
         />
@@ -961,6 +971,7 @@ export function TabSessionChat({
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
+          runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatChannelLoading}
           channelLoadingLabel={chatChannelLoadingRow(chatChannelLoading, setupView) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
@@ -987,12 +998,13 @@ export function TabSessionChat({
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {uploadStatus}
-      {!managedTabPresentation(tab?.managed).locked && <ChatComposer
+      {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
-        isActive={isActive}
+        isActive={isActive && !runtimeDegraded}
+        replacement={runtimeReplacement}
         pendingPrompt={pendingPrompt}
         attachments={attachments}
         addAttachments={addAttachments}
