@@ -6,14 +6,14 @@ Domios keeps one append-only journal of every authoritative tab lifecycle transi
 
 ## Utility shell deadlines
 
-Give test, QA and build shells a deadline; leave servers without one. Durations are `30s`, `10m` or `2h` (up to 365 days); only the creating agent may set them, and remote mesh requests are refused.
+Give test, QA and build shells a deadline (`30s`, `10m`, `2h`, at most 365 days); leave servers without one. Only the creating agent sets it; mesh requests are refused.
 
 ```bash
 codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
 codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
 ```
 
-The shell and its command keep running across a reset, and another command may run before the deadline. At expiry an idle shell closes quietly; running or unknown activity is terminated with the shell, and the owner gets one `timed out` status with shell, purpose, command and elapsed time. Normal completion adds nothing. Deadlines survive daemon restart; a shell that cannot be restored is reported as lost. REST: `POST /api/tabs` takes `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}` with the caller tab header.
+A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status (shell, purpose, command, elapsed). Deadlines survive restart; an unrestorable shell is reported lost. REST: `POST /api/tabs` takes `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
 ## Storage authority and recovery
 
@@ -231,4 +231,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->
