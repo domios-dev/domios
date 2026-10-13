@@ -41,7 +41,7 @@ async function mount(provider: ProviderDescriptor | undefined) {
     <StatusLineModelPicker
       tabId="tab"
       descriptor={provider}
-      facts={{ hasSession: true, protected: false }}
+      facts={{ hasSession: true }}
       label="Vendor · deep · high"
       modelCandidates={["deep"]}
       currentEffort="high"
@@ -444,3 +444,37 @@ for (const fails of [false, true]) {
     }
   });
 }
+
+test("the protected General Agent exposes the shared model picker and switch handler", async () => {
+  const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
+  const { TabStatusLineModelPicker } = await import("./StatusLineModelPicker");
+  const calls = recordSwitches();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const tab = {
+    id: "general-main", title: "main", protected: true, role: "General",
+    pty_id: "pty", agent_type: "ga-capable", agent_session_model: "deep",
+  } as unknown as import("../../lib/types").Tab;
+  try {
+    for (const mode of ["live_command", "next_turn", "restart_resume"] as const) {
+      await act(async () => setAgentDescriptors([{ ...descriptor(mode), id: "ga-capable" }]));
+      await act(async () => root.render(<TabStatusLineModelPicker key={mode} tab={tab} label="Vendor · Deep" />));
+      const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Change model, currently Deep"]');
+      assert.ok(trigger);
+      await act(async () => trigger.click());
+      const option = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'))
+        .find((entry) => entry.textContent?.startsWith("Fast"));
+      assert.ok(option);
+      await act(async () => option.click());
+      await act(async () => button("Apply").click());
+      if (mode === "restart_resume") await act(async () => button("Restart and switch").click());
+    }
+    assert.deepEqual(calls, Array.from({ length: 3 }, () => ["general-main", "fast", undefined]));
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    setAgentDescriptors([]);
+    __setTabModelApiForTest(null);
+  }
+});
