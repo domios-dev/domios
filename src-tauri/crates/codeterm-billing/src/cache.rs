@@ -24,17 +24,24 @@ struct Cache {
     snapshot: Snapshot,
     last_focus: Option<Instant>,
     checkout_pending: bool,
+    observed: bool,
 }
 pub struct Billing {
     provider: Arc<dyn BillingProvider>,
     cache: Mutex<Cache>,
+    observer: Option<ProductObserver>,
 }
 impl Billing {
     pub fn new(provider: Arc<dyn BillingProvider>) -> Self {
         Self {
             provider,
             cache: Mutex::new(Cache::default()),
+            observer: None,
         }
+    }
+    pub fn with_observer(mut self, observer: ProductObserver) -> Self {
+        self.observer = Some(observer);
+        self
     }
     fn bind(cache: &mut Cache, session: Option<&codeterm_account::Session>) {
         let uid = session.map(|s| s.identity.uid.clone());
@@ -44,6 +51,7 @@ impl Billing {
             cache.snapshot = Snapshot::default();
             cache.last_focus = None;
             cache.checkout_pending = false;
+            cache.observed = false;
         }
     }
     pub fn snapshot(&self, session: Option<&codeterm_account::Session>) -> Snapshot {
@@ -88,28 +96,51 @@ impl Billing {
             None => return Snapshot::default(),
         };
         let mut cache = self.cache.lock();
+        let mut product_event = None;
         if cache.generation == generation {
             match result {
                 Ok(entitlements) => {
+                    let changed = !cache.observed
+                        || cache.snapshot.entitlements.plan != entitlements.plan
+                        || cache.snapshot.entitlements.status != entitlements.status;
+                    cache.observed = true;
+                    if changed {
+                        product_event = Some(ProductEvent::SubscriptionChanged {
+                            plan: entitlements.plan,
+                            status: entitlements.status,
+                        });
+                    }
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,
-                    }
+                    };
                 }
                 Err(_) => cache.snapshot.stale = true,
             }
         }
-        cache.snapshot.clone()
+        let snapshot = cache.snapshot.clone();
+        drop(cache);
+        if let (Some(event), Some(observer)) = (product_event, &self.observer) {
+            observer(event);
+        }
+        snapshot
     }
     pub async fn checkout_url(
         &self,
         session: &codeterm_account::Session,
         plan: &str,
     ) -> Result<url::Url> {
+        Plan::parse(plan)?;
         self.provider.checkout_url(session, plan).await
     }
     pub async fn portal_url(&self, session: &codeterm_account::Session) -> Result<url::Url> {
         self.provider.portal_url(session).await
+    }
+    pub fn checkout_browser_opened(&self, session: &codeterm_account::Session, plan: Plan) {
+        self.browser_opened(session);
+        if let Some(observer) = &self.observer {
+            observer(ProductEvent::CheckoutStarted { plan });
+        }
     }
     pub fn browser_opened(&self, session: &codeterm_account::Session) {
         let mut cache = self.cache.lock();

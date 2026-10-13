@@ -69,9 +69,17 @@ Orchestrator's canonical wave batch.
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
 
+The utility and browser crates use `./build.sh test-one util|browser <selector>`; these focused operations acquire the build gateway and accept `--wait-build`.
+The isolated detection crate uses `./build.sh test-one agent-detect <selector>` through the build gateway.
+The notification domain crate uses `./build.sh test-one notification-core <selector>`; focused runs enter the build gateway and support `--wait-build`.
+
 The isolated billing crate uses `./build.sh test-one billing <selector>`; workers defer Rust execution to canonical.
 
+The isolated usage crate uses `./build.sh test-one usage <selector> --wait-build`; it queues through the machine build gateway.
+
 The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
+
+The repository watcher crate uses `./build.sh test-one repowatch tests::`; its Tauri event adapter remains in the app.
 
 ## Generated artifacts and the embedded-doc boundary
 
@@ -275,6 +283,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted Domios and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | Local install cannot read Tauri permissions under a deleted release directory | A relocated Cargo target retained absolute build-script `root-output` paths. | `install-local` now detects mismatched output roots before Cargo, preserves that exact cache in a sibling `.relocated-*` directory, and regenerates its local target; it leaves current warm caches and the machine sccache intact. |
+| `test-one app usage_routes` exits 97 with zero matches | The usage route module had no tests, so the assigned selector had no oracle. | Add focused query and persisted wire-contract coverage in that module, then rerun the same selector; never accept zero matches or replace it with the whole app suite. |
 | A focused Rust test spends most of its runtime linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`. |
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
@@ -302,6 +311,12 @@ add a short symptom/cause/recovery row here before closing the work.
 
 Do not use `dev --wait` for an interactive Windows session. It is reserved for
 automation that needs a detached health gate and does not prove a visible window.
+
+### Crate extraction troubleshooting
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| A moved browser locator fails with E0433 at `dirs::home_dir()` | The extracted crate did not declare an existing third-party dependency that the app previously supplied | Declare `dirs = "6"` directly in the browser manifest, refresh the workspace lockfile, and rerun the focused check when the build owner authorizes it. |
 
 ### Focused Windows test prerequisite troubleshooting
 
@@ -373,7 +388,7 @@ was written is visible rather than silently reclassified.
 An owner that is wedged rather than dead is a different failure and is not
 reapable: see the `release-preflight` FIFO teardown row below.
 
-Use `./build.sh help` as the command index. `test-one <account|app|frontend-bundle|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
+Use `./build.sh help` as the command index. `test-one <account|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|mem|mesh|plugin|plugins|cli> <filter>`
 hides manifest/package details for focused tests. `frontend-bundle` (also
 `codeterm-frontend-bundle`) runs the isolated bundle crate through the gateway. The `types` and `cli`
 selectors include all Cargo targets so integration and binary tests are
@@ -452,6 +467,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Restoration integration fails with E0432/E0603 | Cross-crate request/result reexports were removed and the socket imported a private service module. | Export the two store types from task_attempts and route socket imports through the existing service facade; rerun `check-tests` before focused gates. |
 | `check-tests` reports E0505 in same-attempt binding restoration | The transaction borrowed `request.plan_id` while its closure consumed the request receipt. | Clone the transaction lookup ID before the closure; rerun `check-tests` and the focused plan/app restoration selectors. |
 | CI spawn audit flags a command factory and its subprocess fixture; Linux Clippy also reports `err_expect` | Moving command construction separated it from the audited no-window helper; the fixture omitted that helper and assertions used `err().expect()` | Apply `no_window_std` when constructing each command, retain the spawn audit unchanged, and use `expect_err` for these assertions. Run the focused spawn audit and executor tests, then the failed Clippy gate before a fresh-head platform run. |
+| App wiring tests fail to resolve `Motion` after detection extraction | Moving tests outside the classifier module removed an inherited private import | Import `Motion` directly from `signal_extractor` in the wiring test; rerun its focused app selector. |
 | `check` passes but `check-tests` reports E0433 for `mpsc` in shared-state tests | Parent import cleanup removed the module alias inherited by child tests through `super::*` | Import `std::sync::mpsc` explicitly in the owning test module, then rerun `check-tests`. |
 | `check-tests` reports E0046 for `NativeUpdateFixture`, missing `detect_session_id` | The provider-update parity fixture omitted a required `AgentProvider` method | Implement the fixture's unused session detector with `None`, then rerun `check-tests` and the focused `parity_update` filter. |
 | Courier integration reports E0603 for `build_prompt` and E0599 for `tab_is_idle` | App tests called a plugin-private fixture helper; the update refactor removed an idle helper still used by restart and model switching | Construct `PendingPrompt` from its public fields in the test and restore the unchanged pre-merge `tab_is_idle` helper, then rerun `check-tests` and the provider-update and restart filters. |
@@ -527,6 +543,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Plugin test compilation cannot read an include_str! fixture | The relative fixture path traversed one directory beyond the repository root. | Resolve the path from the owning Rust source directory, correct the traversal, and rerun the same focused plugin gate before proceeding. |
 
+A moved repository-watcher source guard can fail with “expected the repository-watch sources, found 1” if it still scans the app path. Scan the new crate sources and retained app adapter, keep channel failure deadlines in test support, then rerun `./build.sh test-one repowatch tests::`.
+
 ## Focused analytics checks
 
 `./build.sh test-one analytics tests::` runs the isolated product analytics crate
@@ -551,7 +569,6 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 17 -->
 
 
 ## Build-time vendor configuration
@@ -581,3 +598,4 @@ Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
 found", and the unit runner reports ERR_MODULE_NOT_FOUND for tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
+<!-- revision: 20 -->
