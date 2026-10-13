@@ -42,6 +42,12 @@ pub(crate) fn compose_launch_env(
     env_vars.insert("CODETERM_SOCKET_PATH".into(), instance.socket_path.clone());
     env_vars.insert("CODETERM_API_URL".into(), instance.api_url.clone());
     env_vars.insert("CODETERM_API_PORT".into(), instance.api_port.clone());
+    if let Some(path) = &instance.cli_path {
+        env_vars.insert(
+            "CODETERM_CLI_PATH".into(),
+            path.to_string_lossy().into_owned(),
+        );
+    }
     if let Some(ref token) = instance.api_token {
         env_vars.insert("CODETERM_API_TOKEN".into(), token.clone());
     }
