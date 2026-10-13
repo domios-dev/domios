@@ -3,6 +3,7 @@ mod bootstrap;
 pub(crate) mod capture;
 mod completions;
 pub mod engine;
+mod envelope_delivery;
 mod environment;
 mod initialize;
 #[cfg(unix)]
