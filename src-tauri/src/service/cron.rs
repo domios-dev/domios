@@ -615,6 +615,49 @@ impl ServiceContext {
         Ok(job)
     }
 
+    pub(crate) fn prepare_runtime_cron_owner(
+        &self,
+        tab_id: &str,
+        job_id: &str,
+        run_id: &str,
+    ) -> Result<(), String> {
+        let cron = self
+            .app_handle
+            .try_state::<CronState>()
+            .ok_or("Runtime cron state unavailable")?;
+        {
+            let store = cron.lock();
+            let (actual_job, run) = store
+                .find_run_by_id(run_id)
+                .ok_or("Runtime cron run unavailable")?;
+            if actual_job != job_id {
+                return Err("Runtime cron run belongs to another job".into());
+            }
+            if run
+                .tab_id
+                .as_deref()
+                .is_some_and(|existing| existing != tab_id)
+            {
+                return Err("Runtime cron run belongs to another tab".into());
+            }
+            if run.status != CronRunStatus::Running {
+                return Err("Runtime cron run already ended".into());
+            }
+            if let Some((owner_job, owner_run)) = store.get_tab_owner(tab_id) {
+                if owner_job != job_id || owner_run != run_id {
+                    return Err("Runtime cron owner changed".into());
+                }
+                return Ok(());
+            }
+        }
+        commit(&cron, |store| {
+            Ok(store.prepare_set_run_tab(job_id, run_id, tab_id))
+        })
+        .map_err(|error| error.to_string())?;
+        cron.lock().register_tab(tab_id, job_id, run_id);
+        Ok(())
+    }
+
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
         let (
             agent,
@@ -705,6 +748,7 @@ impl ServiceContext {
             self.chatbackend_registry.as_ref(),
             crate::cron::spawn_spec::CronSpawnInputs {
                 job_id: id.to_string(),
+                run_id: run_id.clone(),
                 job_name,
                 agent,
                 model,
