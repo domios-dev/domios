@@ -43,6 +43,8 @@ active libtest case names captured from the execution output.
 node node_modules/typescript/bin/tsc --noEmit
 node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
+node scripts/check-provider-boundary.mjs
+node --test scripts/tests/check-provider-boundary.test.mjs
 ```
 
 Run these from the PowerShell tool directly. They are short enough to read.
@@ -51,6 +53,8 @@ In a Worker lane only the isolated ones run: `tsc`, a single node test file,
 `test-one plan`, `test-one pty` and the file-size script. `check`, `check-tests`
 and `test-one app` compile the app crate, a full rebuild; report them as
 deferred selectors for the Orchestrator's canonical wave batch.
+
+The provider boundary guard compares exact exceptions with `origin/develop`; CI supplies the target SHA through `PROVIDER_BOUNDARY_BASE`. Each exception names one exact file/token pair and its count. Lower or remove the entry when occurrences leave; moving or formatting existing occurrences within a file is allowed. Counts may only shrink; new provider coupling belongs in the provider plugin.
 
 ## Broad, delegate
 
@@ -125,4 +129,4 @@ account service selector and bash scripts/clippy-gate.sh in warm canonical.
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

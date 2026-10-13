@@ -1793,6 +1793,7 @@ EOF
     cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
+    node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
@@ -1903,6 +1904,7 @@ EOF
     TEST_CAP_SECS="${TEST_CAP_SECS:-3600}" scripts/test-capped.sh --manifest-path cli/Cargo.toml
     node node_modules/typescript/bin/tsc --noEmit
     bash scripts/check-file-sizes.sh --fail
+    node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
     ;;
   worktree-check)
