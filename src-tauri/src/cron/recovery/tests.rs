@@ -34,6 +34,9 @@ fn cron_recovery_preserves_live_prompt_and_recovers_vanished_workspace_run() {
             logs.clone(),
             MockClock::starting_at(1_700_000_000_000),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("open cron storage"),
     ));
@@ -56,6 +59,9 @@ fn cron_recovery_preserves_live_prompt_and_recovers_vanished_workspace_run() {
             logs,
             MockClock::starting_at(1_700_000_000_000),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("hydrate cron storage"),
     ));
@@ -116,6 +122,9 @@ fn cron_recovery_preserves_live_prompt_and_recovers_vanished_workspace_run() {
         temp.path().join("verify-logs"),
         MockClock::starting_at(1_700_000_000_000),
         CronStorageOptions::default(),
+        crate::config::schema::AppConfig::default()
+            .general_agent
+            .agent_provider,
     )
     .expect("read committed reconciliation");
     let committed_orphan = verified_cron.get_history(&orphan_job.id)[0];

@@ -209,7 +209,7 @@ impl ServiceContext {
         let agent = params
             .agent
             .clone()
-            .unwrap_or_else(crate::config::default_agent_provider);
+            .unwrap_or_else(|| self.configuration().general_agent.agent_provider);
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
         let reasoning_effort = params.reasoning_effort.clone();
