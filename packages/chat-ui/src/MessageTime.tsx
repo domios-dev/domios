@@ -31,10 +31,11 @@ export function MessageTime({ timestamp, side }: { timestamp?: NormalizedChatMes
 
   return (
     <time
-      className={`ct-chat-message-time ct-chat-message-time--${side} ct-chat-message-time--hidden-when-narrow`}
+      className={`ct-chat-message-time ct-chat-message-time--${side}`}
       data-testid="chat-message-time"
       dateTime={date.toISOString()}
       title={formatFullMessageTime(date)}
+      aria-label={formatFullMessageTime(date)}
     >
       {formatMessageTime(timeMs)}
     </time>

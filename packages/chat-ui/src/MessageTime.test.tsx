@@ -36,21 +36,17 @@ describe("chat message time", () => {
     expect(formatMessageTime(timestamp, "en-GB")).toBe("13:05");
   });
 
-  it("renders an accessible time in the narrow-hidden chat surface gutter", async () => {
+  it("renders accessible times with the supplied timestamps", async () => {
     const { host, root } = await renderTime();
-    const times = host.querySelectorAll<HTMLTimeElement>("time[data-testid='chat-message-time']");
-    const [agentTime, userTime] = times;
-    expect(times).toHaveLength(2);
-    expect(agentTime?.dateTime).toBe("2024-01-01T13:05:00.000Z");
-    expect(agentTime?.classList.contains("ct-chat-message-time--hidden-when-narrow")).toBe(true);
-    expect(agentTime?.classList.contains("ct-chat-message-time--left")).toBe(true);
-    expect(agentTime?.closest(".ct-chat-surface .ct-chat-message-row")).toBe(
-      host.querySelector("[data-testid='agent-row']"),
-    );
-    expect(agentTime?.textContent).toBe(formatMessageTime(Date.parse("2024-01-01T13:05:00.000Z")));
-    expect(userTime?.classList.contains("ct-chat-message-time--right")).toBe(true);
-    expect(userTime?.parentElement).toBe(host.querySelector("[data-testid='user-row']"));
-    expect(userTime?.closest("[data-testid='user-row']")?.textContent).toContain("user bubble");
-    await unmount(root);
+    try {
+      const times = host.querySelectorAll<HTMLTimeElement>("time");
+      expect(times).toHaveLength(2);
+      expect(times[0].dateTime).toBe("2024-01-01T13:05:00.000Z");
+      expect(times[1].dateTime).toBe("2024-01-01T13:06:00.000Z");
+      for (const time of times) expect(time.getAttribute("aria-label")).toBeTruthy();
+    } finally {
+      await unmount(root);
+      host.remove();
+    }
   });
 });

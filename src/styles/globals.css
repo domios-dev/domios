@@ -3039,16 +3039,6 @@ button,
   container-type: inline-size;
 }
 
-.ct-chat-message-time--hidden-when-narrow {
-  display: none;
-}
-
-@container ct-chat-surface (min-width: 68rem) {
-  .ct-chat-message-time--hidden-when-narrow {
-    display: block;
-  }
-}
-
 .ct-chat-message-time {
   color: var(--ct-muted-fg);
   font-size: 10px;
