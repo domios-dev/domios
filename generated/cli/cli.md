@@ -3795,5 +3795,12 @@ Rename a workspace
 - `<id>` — Workspace ID
 - `<name>` — New name
 
+#### `codeterm workspace set-cwd`
+
+Relocate a workspace to an existing absolute folder, preserving its identity
+
+- `<id>`
+- `<path>`
+
 
 <!-- cli:auto-end -->
