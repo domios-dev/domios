@@ -9,6 +9,14 @@ export function UpdatePanel() {
   return (
     <SettingsCard icon={<Download size={16} />} title="Updates"
       headerRight={<SettingsPill tone={update.items.length ? "accent" : "muted"}>{update.busy ? "updating" : update.items.length ? "updates available" : "up to date"}</SettingsPill>}>
+      <UpdatePanelContents />
+    </SettingsCard>
+  );
+}
+
+export function UpdatePanelContents() {
+  const update = useUpdatePanel();
+  return (
       <div className="flex flex-col gap-3">
         {groupUpdates(update.items).map(section => (
           <section key={section.group} aria-label={`${section.group} updates`}>
@@ -26,6 +34,5 @@ export function UpdatePanel() {
           {update.error && <Button size="sm" onClick={() => void update.retry()}>Retry</Button>}
         </div>
       </div>
-    </SettingsCard>
   );
 }

@@ -1,3 +1,7 @@
+import type { UpdateAvailabilityItem } from "./updateAvailability";
+
+export const UPDATE_INTENT_KEY = "codeterm.update-all.intent";
+
 export type UpdateGroup = "App" | "Interface" | "Plugins";
 
 export interface UpdateItem {
@@ -59,7 +63,6 @@ export function readUpdateIntent(value: string | null): UpdateIntent | null {
   } catch { return null; }
 }
 
-import type { UpdateAvailabilityItem } from "./updateAvailability";
 
 export function hasUpdateBadge(item: UpdateAvailabilityItem | undefined): boolean {
   return item?.state === "update_available" && item.compatible

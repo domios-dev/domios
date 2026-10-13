@@ -445,9 +445,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh(false, { silent: true });
     void fetchChannel();
-    void fetchRuntimeStatus({ adopt: true }).catch(() => {});
-
-
   }, [fetchChannel, fetchRuntimeStatus, refresh]);
 
   useEffect(() => {
@@ -461,7 +458,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         stop = unlisten;
         void fetchRuntimeStatus({ adopt: true }).catch(() => {});
       }
-    });
+    }).catch(() => {});
     return () => { cancelled = true; stop?.(); };
   }, [applyRuntimeStatus, fetchRuntimeStatus]);
 

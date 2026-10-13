@@ -915,7 +915,6 @@ function AppInner() {
 
       <CommandPalette commands={paletteCommands} />
 
-
       <StaleBuildBanner />
 
       <NavigationBackBar onBack={handleBackToMemory} />
