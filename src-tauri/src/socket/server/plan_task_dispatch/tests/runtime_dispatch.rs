@@ -75,6 +75,7 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
     let manifest = PluginManifest::from_json_str(&json!({
         "id": PROVIDER, "version":"1.0.0", "displayName":"Fixture",
         "capabilities":{"agentProvider":true,
+            "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc",
                 "command":{"binary":"node","args":[format!("{}/../tests/fixtures/agent-runtime/fake-peer.mjs",env!("CARGO_MANIFEST_DIR"))]},
                 "requestMethods":methods,"notificationMethods":[]}},
