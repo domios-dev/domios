@@ -5,7 +5,7 @@ use crate::agent::offline_state_classifier::{
     classify_state, composer_cursor_ready, StatusElapsedProgress, TabVerdict, TimelineState,
 };
 use crate::agent::registry::AgentRegistry;
-use crate::agent::signal_extractor::{SignalExtractor, StreamSignals};
+use crate::agent::signal_extractor::{Motion, SignalExtractor, StreamSignals};
 use crate::agent::test_provider::MockProvider;
 
 const ROWS: u16 = 10;
