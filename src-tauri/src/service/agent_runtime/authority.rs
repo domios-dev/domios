@@ -1,14 +1,29 @@
 use crate::service::ServiceContext;
 use parking_lot::Mutex;
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, Weak},
+};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq, Hash)]
+struct LaunchKey {
+    host: usize,
+    tab: String,
+}
 struct AuthorizedLaunch {
+    owner: Weak<crate::lock_hold::TimedRwLock<crate::multiplexer::state::MultiplexerState>>,
     provider: String,
     binding_nonce: String,
 }
-static LAUNCHES: LazyLock<Mutex<HashMap<String, AuthorizedLaunch>>> =
+static LAUNCHES: LazyLock<Mutex<HashMap<LaunchKey, AuthorizedLaunch>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn key(svc: &ServiceContext, tab: &str) -> LaunchKey {
+    LaunchKey {
+        host: Arc::as_ptr(&svc.mux) as usize,
+        tab: tab.into(),
+    }
+}
 
 pub(super) fn record_spawn(
     svc: &ServiceContext,
@@ -25,8 +40,9 @@ pub(super) fn record_spawn(
         return Err("Authorized runtime spawn binding changed".into());
     }
     LAUNCHES.lock().insert(
-        tab.into(),
+        key(svc, tab),
         AuthorizedLaunch {
+            owner: Arc::downgrade(&svc.mux),
             provider: provider.into(),
             binding_nonce: nonce.into(),
         },
@@ -52,13 +68,17 @@ pub(crate) fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &
             )
         })
         .unwrap_or((false, false));
-    let retained = LAUNCHES
-        .lock()
-        .get(tab)
-        .is_some_and(|launch| launch.provider == provider && launch.binding_nonce == nonce);
+    let retained = LAUNCHES.lock().get(&key(svc, tab)).is_some_and(|launch| {
+        launch.provider == provider
+            && launch.binding_nonce == nonce
+            && launch
+                .owner
+                .upgrade()
+                .is_some_and(|owner| Arc::ptr_eq(&owner, &svc.mux))
+    });
     exact && (retained || restored) && super::engine::requested(svc, provider)
 }
 
 pub(super) fn revoke(tab: &str) {
-    LAUNCHES.lock().remove(tab);
+    LAUNCHES.lock().retain(|key, _| key.tab != tab);
 }
