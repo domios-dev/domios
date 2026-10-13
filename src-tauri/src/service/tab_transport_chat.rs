@@ -253,6 +253,18 @@ fn build_chatbackend_open_session_ctx(
     serde_json::Value::Object(ctx)
 }
 
+fn read_chatbackend_restore_context(
+    path: &std::path::Path,
+    session_id: &str,
+) -> Result<serde_json::Value, String> {
+    let messages = match crate::service::tab_chat::chatbackend_history::try_read_messages(path) {
+        Ok(messages) => messages,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(format!("chatBackend history unavailable: {error}")),
+    };
+    Ok(serde_json::json!({ "sessionId": session_id, "messages": messages }))
+}
+
 /// The one place core asks who owns context, reached by both send entry points.
 /// The question is a capability, never an identity — no provider id appears in
 /// the expression, so none can leak into core.
@@ -287,8 +299,7 @@ impl TabTransport for ChatBackendTransport<'_> {
         // A tab restored after a daemon restart has no live plugin session; reopen lazily before the first send.
         let session_id = self
             .svc
-            .chatbackend_reopen_if_restored(&self.tab_id)
-            .unwrap_or(None)
+            .chatbackend_reopen_if_restored(&self.tab_id)?
             .unwrap_or_else(|| self.session_id.clone());
         self.svc
             .chatbackend_send(&self.plugin_id, &session_id, text)
@@ -384,15 +395,28 @@ impl ServiceContext {
         tab_id: &str,
         config: serde_json::Value,
     ) -> Result<String, String> {
+        self.chatbackend_open_session_with_restore(plugin_id, tab_id, config, None)
+    }
+
+    fn chatbackend_open_session_with_restore(
+        &self,
+        plugin_id: &str,
+        tab_id: &str,
+        config: serde_json::Value,
+        restore: Option<serde_json::Value>,
+    ) -> Result<String, String> {
         let workspace_id = self.workspace_id_for_tab(tab_id);
         let pad = self.ensure_agent_pad(tab_id)?;
         let pad_dir = pad.env_value();
-        let ctx = build_chatbackend_open_session_ctx(
+        let mut ctx = build_chatbackend_open_session_ctx(
             tab_id,
             workspace_id.as_deref(),
             Some(&pad_dir),
             config,
         );
+        if let Some(restore) = restore {
+            ctx["restore"] = restore;
+        }
         let provider = self.chatbackend_provider(plugin_id)?;
         open_chatbackend_session(provider.as_ref(), ctx)
     }
@@ -419,8 +443,14 @@ impl ServiceContext {
                 );
                 let config = crate::service::tab_chat::chatbackend_history::read_meta(&path)
                     .unwrap_or(serde_json::Value::Null);
-                self.chatbackend_open_session(plugin_id, tab_id, config.clone())
-                    .map(|session| (session, config))
+                let restore = read_chatbackend_restore_context(&path, old_session)?;
+                self.chatbackend_open_session_with_restore(
+                    plugin_id,
+                    tab_id,
+                    config.clone(),
+                    Some(restore),
+                )
+                .map(|session| (session, config))
             },
             |plugin_id, session_id| {
                 let _ = self.chatbackend_close(plugin_id, session_id);
@@ -597,6 +627,7 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     mod context_owner;
+    mod restore;
 
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
