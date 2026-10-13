@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::semantic_marker::SemanticEvent;
+use crate::semantic_marker::SemanticEvent;
 
 fn ev_pairs(det: &mut CommandDetection, evs: Vec<SemanticEvent>) -> Vec<CommandLifecycle> {
     evs.into_iter().filter_map(|e| det.apply(e)).collect()

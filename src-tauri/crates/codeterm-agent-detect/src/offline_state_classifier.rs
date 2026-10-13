@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::attributed_screen::{detect_picker, PickerDetection};
 use super::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
 use super::signal_extractor::{Motion, SignalExtractor, StreamSignals};
+use codeterm_pty::attributed_screen::{detect_picker, PickerDetection};
 
 mod status;
 
@@ -20,11 +20,11 @@ pub use codeterm_types::pty::{
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
 pub const DONE_MS: u64 = 800;
-pub(crate) const WORKING_GRACE_MS: u64 = 1500;
+pub const WORKING_GRACE_MS: u64 = 1500;
 const BOTTOM_REGION_ROWS: u16 = 8;
 /// Upper bound on how long a Working verdict may persist with zero active-work
 /// evidence and total PTY silence before resolving to Idle (anti-stuck-Working).
-pub(crate) const STUCK_WORKING_IDLE_MS: u64 = 5000;
+pub const STUCK_WORKING_IDLE_MS: u64 = 5000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassifiedSegment {

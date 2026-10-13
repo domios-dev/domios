@@ -26,9 +26,9 @@ use super::{
     classify_state, composer_cursor_ready, offline_picker_is_coherent, prompt_glyph_cursor_ready,
     ClassifyInput, Motion, StatusElapsedProgress, StatusElapsedTracker, TabVerdict, TimelineState,
 };
-use crate::agent::attributed_screen::PickerDetection;
-use crate::agent::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
-use crate::agent::signal_extractor::{SignalExtractor, StreamSignals};
+use crate::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
+use crate::signal_extractor::{SignalExtractor, StreamSignals};
+use codeterm_pty::attributed_screen::PickerDetection;
 
 fn render_terminal_fixture(text: &str, cols: u16, rows: u16) -> (Vec<String>, u16) {
     let mut state = codeterm_pty::pty::screen_state::ScreenState::new();
@@ -57,7 +57,7 @@ fn render_terminal_fixture(text: &str, cols: u16, rows: u16) -> (Vec<String>, u1
 #[test]
 fn codex_composer_ready_without_footer_and_with_warning_rows() {
     let (lines, cursor_row) = render_terminal_fixture(
-        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.154.0.txt"),
+        include_str!("../../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.154.0.txt"),
         160,
         32,
     );
@@ -69,7 +69,7 @@ fn codex_composer_ready_without_footer_and_with_warning_rows() {
 #[test]
 fn codex_composer_ready_with_footer() {
     let (lines, cursor_row) = render_terminal_fixture(
-        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.157.1.txt"),
+        include_str!("../../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.157.1.txt"),
         160,
         32,
     );
@@ -101,7 +101,7 @@ fn selected_dialog_option_is_not_composer_evidence() {
 #[test]
 fn wrapped_warning_row_does_not_shift_composer_cursor_match() {
     let (lines, cursor_row) = render_terminal_fixture(
-        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/wrapped-warning.txt"),
+        include_str!("../../../../../plugins/provider-codex/tests/fixtures/composer-readiness/wrapped-warning.txt"),
         44,
         20,
     );
@@ -112,7 +112,7 @@ fn wrapped_warning_row_does_not_shift_composer_cursor_match() {
 #[test]
 fn composer_last_nonempty_row_with_empty_status_region_is_ready() {
     let (lines, cursor_row) = render_terminal_fixture(
-        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/composer-last-nonempty-row.txt"),
+        include_str!("../../../../../plugins/provider-codex/tests/fixtures/composer-readiness/composer-last-nonempty-row.txt"),
         100,
         24,
     );
@@ -1023,7 +1023,7 @@ fn claude_status_elapsed_never_advanced_widget_stays_idle_at_the_prompt() {
 /// disappearance, and must agree on every pair and every verdict.
 #[test]
 fn live_and_offline_status_elapsed_sequences_match() {
-    use crate::agent::status::TabStatusTracker;
+    use codeterm_types::pty::TabStatusTracker;
 
     let screens = vec![
         claude_quiet_working_screen("14s"),
