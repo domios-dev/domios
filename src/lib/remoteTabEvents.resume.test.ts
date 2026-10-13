@@ -12,6 +12,25 @@ configureRemoteTabTransport({ enabled: true, host: "127.0.0.1", port: 7685, toke
 describe("remote chat event subscription ownership", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("forwards runtime faults only from the owning remote tab and remaps its identity", async () => {
+    const state = { state: "degraded", epoch: 2, reason: "fixture pipe failure" };
+    const frames = [
+      { boot: "runtime-boot", seq: 1, event_type: "agent-runtime-state", data: { tab_id: "other", session_binding_nonce: "foreign", state } },
+      { boot: "runtime-boot", seq: 2, event_type: "agent-runtime-state", data: { tab_id: "tab", session_binding_nonce: "bound", state } },
+    ];
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(""))); },
+    })));
+    const received: unknown[] = [];
+    let resolve!: () => void;
+    const delivered = new Promise<void>((done) => { resolve = done; });
+    const stop = subscribeRemoteTabEvent("agent-runtime-state:mesh:peer/tab", ({ payload }) => { received.push(payload); resolve(); });
+    try {
+      await delivered;
+      expect(received).toEqual([{ tab_id: "mesh:peer/tab", session_binding_nonce: "bound", state }]);
+    } finally { stop!(); }
+  });
+
   it("forwards peer state changes without local mux events", async () => {
     const frames = [
       { boot: "state-boot", seq: 1, event_type: "mux-state-changed", data: {} },

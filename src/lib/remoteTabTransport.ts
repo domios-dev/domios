@@ -77,6 +77,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     ...identity, method, suffix, body, select,
   });
   switch (command) {
+    case "agent_runtime_retry": return call("POST", "/agent/runtime/retry");
     case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });
     case "read_html_preview_file": return call("POST", "/preview/read", { path: args.path, kind: "page" }, (value) => (value as { data: string }).data);
     case "check_local_preview_files": return call("POST", "/preview/check", { paths: args.paths });

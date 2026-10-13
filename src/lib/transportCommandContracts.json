@@ -1227,6 +1227,12 @@
         "GET",
         "/api/update/availability?force=false"
       ]
+    ],
+    "agent_runtime_retry": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/retry"
+      ]
     ]
   }
 }
