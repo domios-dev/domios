@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 fn pending_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "Choose an option".into(),
         options: vec![
             PromptOption {
@@ -365,4 +366,31 @@ async fn respond_prompt_outcome_maps_not_on_screen_to_conflict() {
     let invalid =
         crate::api::agent_routes::respond_prompt_response(RespondPromptOutcome::InvalidOption);
     assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn expired_runtime_identity_never_enters_the_legacy_pty_route() {
+    let (fixture, tab_id) = fixture_with_pending_prompt();
+    let mut prompt = pending_prompt();
+    prompt.request_id = Some("[2,\"nonce\",7]".into());
+    let identity = codeterm_types::pty::PromptIdentity::new(
+        codeterm_types::pty::PromptKind::Structured,
+        &prompt,
+    );
+    assert_eq!(
+        fixture
+            .service
+            .respond_prompt_with_identity(&tab_id, "1", &identity)
+            .unwrap(),
+        RespondPromptOutcome::StalePrompt
+    );
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .is_some());
 }

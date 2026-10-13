@@ -117,6 +117,7 @@ impl Request {
             });
         }
         Some(PendingPrompt {
+            request_id: None,
             question,
             options,
             sections: None,
