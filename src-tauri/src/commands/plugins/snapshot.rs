@@ -96,6 +96,11 @@ fn enrich_from_manifest_with_icon(
         .filter_map(Value::as_str)
         .map(str::to_string)
         .collect();
+    let declared_network_allow = effective_network_allow.clone();
+    let network_requested = m
+        .get("permissions")
+        .and_then(|p| p.get("network"))
+        .is_some_and(Value::is_object);
     for host in &grants.network_allow {
         if !effective_network_allow.contains(host) {
             effective_network_allow.push(host.clone());
@@ -160,14 +165,18 @@ fn enrich_from_manifest_with_icon(
         remove_untrusted_plugin_icons(obj);
         obj.insert("capabilities".into(), cap_obj);
         obj.insert(
-            "network_requested".into(),
-            serde_json::json!(m["permissions"]["network"].is_object()),
-        );
-        obj.insert(
             "sensitive_permissions".into(),
             super::permissions::permission_states(m, &grants),
         );
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
+        obj.insert(
+            "network_requested".into(),
+            serde_json::json!(network_requested),
+        );
+        obj.insert(
+            "declared_network_allow".into(),
+            serde_json::json!(declared_network_allow),
+        );
         obj.insert(
             "network_allow".into(),
             serde_json::json!(grants.network_allow),
@@ -696,6 +705,36 @@ mod tests {
         );
         assert!(entry.get("icon_color").is_none());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn enrich_separates_declared_network_from_extra_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("grants.yaml"),
+            "network_allow:\n  - extra.example.test\n",
+        )
+        .unwrap();
+        let mut entry = serde_json::json!({ "id": "demo" });
+        enrich_from_manifest(
+            &mut entry,
+            dir.path(),
+            &serde_json::json!({
+                "permissions": { "network": { "allow": ["declared.example.test"] } }
+            }),
+        );
+        assert_eq!(entry["network_requested"], true);
+        assert_eq!(
+            entry["declared_network_allow"],
+            serde_json::json!(["declared.example.test"])
+        );
+        assert_eq!(
+            entry["effective_network_allow"],
+            serde_json::json!(["declared.example.test", "extra.example.test"])
+        );
+        enrich_from_manifest(&mut entry, dir.path(), &serde_json::json!({}));
+        assert_eq!(entry["network_requested"], false);
+        assert_eq!(entry["declared_network_allow"], serde_json::json!([]));
     }
 
     #[test]

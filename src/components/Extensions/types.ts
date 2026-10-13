@@ -43,9 +43,10 @@ export interface InstalledPlugin {
   /** Loaded from the workspace `plugins/` source tree (dev), not a marketplace install. */
   dev?: boolean;
   capabilities?: PluginCapabilities | null;
-  network_requested?: boolean;
   sensitive_permissions?: SensitivePermission[] | null;
   granted_permissions?: string[] | null;
+  network_requested?: boolean;
+  declared_network_allow?: string[] | null;
   network_allow?: string[] | null;
   effective_network_allow?: string[] | null;
   settings_schema?: SettingField[] | null;
@@ -99,9 +100,10 @@ export interface MarketplaceRow extends DiffRow {
   installed?: boolean;
   display_name?: string | null;
   capabilities?: PluginCapabilities | null;
-  network_requested?: boolean;
   sensitive_permissions?: SensitivePermission[] | null;
   granted_permissions?: string[] | null;
+  network_requested?: boolean;
+  declared_network_allow?: string[] | null;
   network_allow?: string[] | null;
   effective_network_allow?: string[] | null;
   icon_svg?: string | null;
