@@ -20,6 +20,13 @@ impl std::error::Error for ModelProviderEnvUnavailable {}
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
 pub trait PluginHostCtx: Send + Sync {
+    fn runtime_launch_authorized(
+        &self,
+        _binding: &crate::agent_runtime::RuntimeLaunchBinding,
+    ) -> bool {
+        false
+    }
+
     // ── Memory ──────────────────────────────────────────────────────────
     fn mem_search_json(&self, opts_json: &str) -> String;
 

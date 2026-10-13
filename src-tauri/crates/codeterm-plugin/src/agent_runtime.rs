@@ -1,5 +1,9 @@
+mod authority;
 mod capability;
+pub use authority::*;
+mod validation;
 mod wire;
+pub use validation::*;
 
 pub use capability::*;
 pub use wire::*;

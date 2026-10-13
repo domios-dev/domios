@@ -39,6 +39,18 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn authorize_agent_runtime(
+        &self,
+        authority: &crate::agent_runtime::LaunchAuthority,
+    ) -> Result<PathBuf, crate::js_runtime::manifest::RuntimeManifestError> {
+        if !authority.authorizes_provider(self.id()) {
+            return Err(crate::js_runtime::manifest::RuntimeManifestError::ConsentRequired);
+        }
+        self.agent_runtime()
+            .ok_or(crate::js_runtime::manifest::RuntimeManifestError::CapabilityRequired)?
+            .resolve_executable()
+    }
+
     async fn runtime_plan(
         &self,
         _ctx: &crate::agent_runtime::RuntimeContext,
