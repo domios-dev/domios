@@ -131,6 +131,7 @@ pub(super) fn scene() -> Scene {
         target.agent_session_id = Some("thread".into());
         target.session_binding_nonce = Some("nonce".into());
         target.agent_runtime_config = Some(json!({"systemPrompt":"opaque instructions"}));
+        target.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
     }
     let fixture = ServiceFixture::new(mux);
     fixture
@@ -157,6 +158,8 @@ pub(super) fn scene() -> Scene {
             tab_id: tab,
             binding_nonce: "nonce".into(),
             thread_id: Some("thread".into()),
+            cwd: env!("CARGO_MANIFEST_DIR").into(),
+            host_version: env!("CARGO_PKG_VERSION").into(),
             ..Default::default()
         }),
         completions: Mutex::new(Default::default()),
@@ -173,6 +176,7 @@ pub(super) fn scene() -> Scene {
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
     });
+    validate_runtime_context(&session.context.lock()).unwrap();
     Scene {
         fixture,
         session,
