@@ -303,6 +303,8 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    #[cfg(test)]
+    pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
     pub account: Arc<tokio::sync::OnceCell<Arc<codeterm_account::Account>>>,
     pub billing: Arc<tokio::sync::OnceCell<Arc<codeterm_billing::Billing>>>,
     pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,

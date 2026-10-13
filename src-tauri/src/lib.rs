@@ -605,6 +605,8 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                #[cfg(test)]
+                ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
                 workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
                 account: Arc::new(tokio::sync::OnceCell::new()),
                 billing: Arc::new(tokio::sync::OnceCell::new()),
