@@ -242,3 +242,80 @@ async fn browser_cdp_input_batch_sends_every_phase_before_any_reply() {
     chrome.reply(&first, json!({"result": {}}));
     assert_eq!(sent.await.unwrap().unwrap().len(), 2);
 }
+
+fn batch_connection() -> (SocketConnection, mpsc::Receiver<Vec<Message>>) {
+    let (outgoing, receiver) = mpsc::channel(1);
+    let (closed, _) = watch::channel(None);
+    let connection = SocketConnection(Arc::new(Inner {
+        endpoint: "ws://127.0.0.1/test".into(),
+        next_id: AtomicU64::new(1),
+        next_subscriber: AtomicU64::new(1),
+        state: Mutex::new(State::default()),
+        outgoing,
+        closed,
+    }));
+    (connection, receiver)
+}
+
+fn click_phases() -> Vec<(String, Value)> {
+    vec![
+        (
+            "Input.dispatchMouseEvent".into(),
+            json!({ "type": "mousePressed" }),
+        ),
+        (
+            "Input.dispatchMouseEvent".into(),
+            json!({ "type": "mouseReleased" }),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn browser_cdp_batch_on_closed_socket_returns_close_reason() {
+    let (connection, mut receiver) = batch_connection();
+    connection.close("browser process exited");
+    assert_eq!(
+        connection
+            .send_batch_to(Some("page"), click_phases(), COMMAND_DEADLINE)
+            .await,
+        Err(CdpError::Closed("browser process exited".into()))
+    );
+    assert!(connection.0.state.lock().pending.is_empty());
+    assert!(receiver.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn browser_cdp_batch_writer_loss_keeps_close_reason_for_every_pending_phase() {
+    let (connection, receiver) = batch_connection();
+    connection.0.outgoing.try_send(vec![]).unwrap();
+    let batch = connection.send_batch_to(Some("page"), click_phases(), COMMAND_DEADLINE);
+    tokio::pin!(batch);
+    assert!(futures_util::poll!(&mut batch).is_pending());
+    assert_eq!(connection.0.state.lock().pending.len(), 2);
+    connection.close("chrome closed the CDP socket");
+    drop(receiver);
+    assert_eq!(
+        batch.await,
+        Err(CdpError::Closed("chrome closed the CDP socket".into()))
+    );
+    assert!(connection.0.state.lock().pending.is_empty());
+}
+
+#[tokio::test]
+async fn browser_cdp_batch_dropped_phase_replies_keep_close_reason() {
+    let (connection, _receiver) = batch_connection();
+    let batch = connection.send_batch_to(Some("page"), click_phases(), COMMAND_DEADLINE);
+    tokio::pin!(batch);
+    assert!(futures_util::poll!(&mut batch).is_pending());
+    {
+        let mut state = connection.0.state.lock();
+        assert_eq!(state.pending.len(), 2);
+        state.closed = Some("CDP reader stopped".into());
+        state.pending.clear();
+    }
+    assert_eq!(
+        batch.await,
+        Err(CdpError::Closed("CDP reader stopped".into()))
+    );
+    assert!(connection.0.state.lock().pending.is_empty());
+}
