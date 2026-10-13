@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
-import { checkSlowTests, parseTimings, validateBaseline, selectCandidates, candidateFilter } from './check-slow-unit-tests.mjs';
+import { checkSlowTests, parseTimings, validateBaseline, selectCandidates, candidateFilter, timingWarnings, regressionLimit } from './check-slow-unit-tests.mjs';
 
 const entry = (name, seconds) => ({ binary: 'codeterm_lib', test: name, measuredSeconds: seconds });
 const baseline = (...entries) => ({ version: 1, entries });
@@ -20,9 +20,9 @@ test('rejects incomplete and empty reports', () => {
   assert.throws(() => parseTimings('PASS [ 0.200s] codeterm_lib a\nSummary [ 1.000s] 2 tests run'), /incomplete/);
 });
 
-test('new slow unit fails and one second is permitted', () => {
+test('new slow unit fails above noise band and one second is permitted', () => {
   assert.deepEqual(checkSlowTests([entry('a', 1)], baseline()), []);
-  assert.match(checkSlowTests([entry('a', 1.001)], baseline(), baseline(), [entry('a', 1.001)])[0], /new slow unit/);
+  assert.match(checkSlowTests([entry('a', 1.251)], baseline(), baseline(), [entry('a', 1.251)])[0], /new slow unit/);
 });
 
 test('existing slow units remain visible and can become fast', () => {
@@ -75,7 +75,7 @@ describe('build nextest ratchet', () => {
   const output = (status, seconds) => `${status} [ ${seconds}s] (1/1) codeterm opaque\nSummary [ ${seconds}s] 1 tests run\n`;
   test('accepts a fast executed unit', () => assert.equal(run(output('PASS', 0.2), 0).status, 0));
   test('rejects a new slow unit', () => {
-    const slow = run(output('PASS', 1.001), 0);
+    const slow = run(output('PASS', 1.251), 0);
     assert.equal(slow.status, 1);
     assert.match(slow.stderr, /new slow unit/);
   });
@@ -118,7 +118,7 @@ test('parallel noise is confirmed alone before refusal', () => {
 
 test('only new or over-baseline slow candidates need confirmation', () => {
   assert.deepEqual(selectCandidates([entry('a', 1.2), entry('b', 1), entry('c', 1.1)], baseline(entry('a', 1.5))), [entry('c', 1.1)]);
-  assert.match(checkSlowTests([entry('a', 2)], baseline(entry('a', 1.5)), baseline(entry('a', 1.5)), [entry('a', 1.6)])[0], /regression/);
+  assert.match(checkSlowTests([entry('a', 2)], baseline(entry('a', 1.5)), baseline(entry('a', 1.5)), [entry('a', 1.801)])[0], /regression/);
 });
 
 test('candidate filters contain exact data and reject syntax injection', () => {
@@ -129,4 +129,21 @@ test('candidate filters contain exact data and reject syntax injection', () => {
 
 test('serial reports can concatenate separate one-test executions', () => {
   assert.deepEqual(parseTimings('PASS [ 0.2s] codeterm_lib a\nSummary [ 0.2s] 1 tests run\nFAIL [ 1.2s] codeterm_lib b\nSummary [ 1.2s] 1 tests run'), [entry('a', 0.2), entry('b', 1.2)]);
+});
+
+test('new alone timings in the 1s to 1.25s band warn without failing', () => {
+  for (const seconds of [1.04, 1.25]) {
+    assert.deepEqual(checkSlowTests([entry('a', 2)], baseline(), baseline(), [entry('a', seconds)]), []);
+    assert.match(timingWarnings([entry('a', seconds)], baseline())[0], /1s unit target/);
+  }
+  assert.deepEqual(timingWarnings([entry('a', 1)], baseline()), []);
+});
+
+test('regression noise band uses the larger of twenty percent and quarter second', () => {
+  for (const [recorded, measured] of [[1.191, 1.208], [1.05, 1.052], [1.1, 1.35], [2, 2.4]]) {
+    const document = baseline(entry('a', recorded));
+    assert.deepEqual(checkSlowTests([entry('a', 3)], document, document, [entry('a', measured)]), []);
+    assert.match(timingWarnings([entry('a', measured)], document)[0], /WARNING/);
+    assert.match(checkSlowTests([entry('a', 3)], document, document, [entry('a', regressionLimit(recorded) + 0.001)])[0], /regression/);
+  }
 });
