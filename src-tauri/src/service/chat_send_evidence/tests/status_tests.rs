@@ -224,7 +224,8 @@ fn late_own_jsonl_turn_upgrades_submit_unconfirmed_once() {
         )
         .unwrap();
     fx.append_user_turn("sess-other", payload);
-    fx.append_user_turn("sess-a", &format!("prefix {payload}"));
+    // Containment of the whole payload is evidence; a truncated payload is not.
+    fx.append_user_turn("sess-a", "opaque late");
 
     assert!(fx.scan("tab-1").is_empty());
     assert_eq!(
