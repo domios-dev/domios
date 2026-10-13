@@ -351,6 +351,8 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: {
       <button
         type="button"
         onClick={copySource}
+        aria-label="Copy code"
+        title={copied ? "Copied" : "Copy code"}
         className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
         style={{ color: "var(--ct-muted-fg)" }}
       >
