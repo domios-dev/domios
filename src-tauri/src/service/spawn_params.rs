@@ -131,6 +131,7 @@ impl SpawnTabSpec {
             cmd: None,
             visibility: TabVisibility::Visible,
             audience: params.audience,
+            timeout: None,
             eager: false,
             command: agent_command,
         }

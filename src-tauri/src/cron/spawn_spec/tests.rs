@@ -37,6 +37,7 @@ fn expected_pty_spec() -> SpawnTabSpec {
         cmd: None,
         visibility: TabVisibility::Hidden,
         audience: TabAudience::UserOwnedAutomation,
+        timeout: None,
         eager: false,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: "pty-agent".into(),
