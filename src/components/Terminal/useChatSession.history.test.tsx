@@ -75,10 +75,10 @@ test("recovery snapshot keeps the detached reader's loaded row visible", async (
   __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
     if (command === "chat_start") {
       starts++;
-      return { ...authority, text: "", pending: false, start_offset: 200, offset: 400,
+      return { ...authority, text: "", pending: false, offset_kind: "items", start_offset: 200, offset: 400,
         messages: rows(200, 400), subscription_id: args?.subscriptionId };
     }
-    if (command === "chat_backfill") return { ...authority, start_offset: 0, end_offset: 200, messages: rows(0, 200) };
+    if (command === "chat_backfill") return { ...authority, offset_kind: "items", start_offset: 0, end_offset: 200, messages: rows(0, 200) };
     return [];
   }) as Parameters<typeof __setInvokeForTest>[0]);
   let chat: ReturnType<typeof useChatSession> | undefined;
