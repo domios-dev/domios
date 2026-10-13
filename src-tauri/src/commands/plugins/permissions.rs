@@ -57,6 +57,7 @@ pub(super) fn permission_action(
     plugin_id: &str,
     permission: &str,
     allowed: bool,
+    source: codeterm_plugin::plugin_lifecycle::PermissionChangeSource,
 ) -> Result<Value, String> {
     let manifests = super::snapshot::scan_plugin_manifests();
     let (_, manifest, _) = manifests.get(plugin_id).ok_or("Plugin is not installed")?;
@@ -98,6 +99,11 @@ pub(super) fn permission_action(
         action,
     )?;
     crate::plugin::js_runtime::hot_reload::refresh_installed_plugins(&[plugin_id.to_string()])?;
+    if let Some(event) =
+        codeterm_plugin::plugin_lifecycle::permission_changed_event(permission, allowed, source)
+    {
+        crate::plugin::js_runtime::hot_reload::notify_permission_changed(plugin_id, &event)?;
+    }
     super::action::invalidate_plugin_snapshot();
     Ok(output)
 }

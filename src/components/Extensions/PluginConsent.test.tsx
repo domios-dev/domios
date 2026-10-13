@@ -73,6 +73,9 @@ it("host invocation waits for Allow, records grant and retries original args onc
   await act(async () => button("Allow").click());
   expect(await result!).toEqual({ enabled: true });
   expect(calls).toEqual(["plugin_manager_snapshot", "plugin_view_call", "plugin_manager_action", "plugin_view_call"]);
+  expect(vi.mocked(invoke).mock.calls.find(([command]) => command === "plugin_manager_action")?.[1]).toEqual({ action: {
+    kind: "permission", pluginId: "fixture", permission: "local_recording", allowed: true, permissionSource: "action",
+  } });
   expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "plugin_view_call").map(([, argument]) => argument)).toEqual([args, args]);
 });
 
@@ -90,6 +93,9 @@ it("install and update ask once per undecided permission and retain Not now", as
   await act(async () => button("Not now").click());
   await result!;
   expect(current.plugins[0].sensitive_permissions?.[0].allowed).toBe(false);
+  expect(vi.mocked(invoke).mock.calls[1][1]).toEqual({ action: {
+    kind: "permission", pluginId: "fixture", permission: "local_recording", allowed: false, permissionSource: "install",
+  } });
   await act(async () => { await runPluginSnapshotAction({ kind: "update", pluginId: "fixture" }); });
   expect(getPluginConsent()).toBeNull();
   expect(invoke).toHaveBeenCalledTimes(3);

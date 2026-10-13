@@ -388,3 +388,13 @@ function callSurface(): string {
   return host.surface.call("status", "[]");
 }
 void callSurface;
+
+const lifecycleModule: PluginModule = {
+  onPermissionChanged(event) {
+    const permission: string = event.permission;
+    const allowed: true = event.allowed;
+    const source: "install" | "action" | "settings" = event.source;
+    void [permission, allowed, source];
+  },
+};
+void lifecycleModule;

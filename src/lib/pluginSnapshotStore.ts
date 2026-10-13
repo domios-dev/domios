@@ -143,7 +143,7 @@ export async function runPluginSnapshotAction(action: Record<string, unknown>): 
     for (const plugin of next.plugins.filter((item) => !action.pluginId || item.id === action.pluginId)) {
       for (const request of installConsentRequests(plugin)) {
         const allowed = await requestPluginConsent(request);
-        await runPluginSnapshotAction({ kind: "permission", pluginId: plugin.id, permission: request.permission, allowed });
+        await runPluginSnapshotAction({ kind: "permission", pluginId: plugin.id, permission: request.permission, allowed, permissionSource: "install" });
       }
     }
   }
