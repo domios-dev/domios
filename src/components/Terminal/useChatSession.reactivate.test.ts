@@ -384,98 +384,105 @@ async function main(): Promise<void> {
 
   // A late mid-turn echo follows transcript sequence through reactivation and remount.
   {
-    const row = (
-      base: number,
-      id: string,
-      type: NormalizedChatMessage["type"],
-      content: string,
-      offset: number,
-      extra: Partial<NormalizedChatMessage> = {},
-    ): NormalizedChatMessage => ({ id, type, content, timestamp: String(base + offset), ...extra });
-    const before = Date.now();
-    const history = [
-      row(before, "h-0", "user", "build it", -60_000),
-      row(before, "h-1", "assistant", "starting", -50_000),
-    ];
-    const beforeSend = [
-      row(before, "l-0", "assistant", "reading config", -40_000),
-      row(before, "l-1", "tool_call", "Read config.json", -30_000),
-      row(before, "l-2", "tool_result", "config ok", -20_000),
-    ];
-    const expected = [
-      "build it",
-      "starting",
-      "reading config",
-      "Read config.json",
-      "config ok",
-      "running the build",
-      "Bash build.sh",
-      "build ok",
-      "also check the logs",
-      "logs are clean",
-    ].join("|");
-    const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
+    const realNow = Date.now;
+    const clock = 1_800_000_000_000;
+    Date.now = () => clock;
+    try {
+      const row = (
+        base: number,
+        id: string,
+        type: NormalizedChatMessage["type"],
+        content: string,
+        offset: number,
+        extra: Partial<NormalizedChatMessage> = {},
+      ): NormalizedChatMessage => ({ id, type, content, timestamp: String(base + offset), ...extra });
+      const before = Date.now();
+      const history = [
+        row(before, "h-0", "user", "build it", -60_000),
+        row(before, "h-1", "assistant", "starting", -50_000),
+      ];
+      const beforeSend = [
+        row(before, "l-0", "assistant", "reading config", -40_000),
+        row(before, "l-1", "tool_call", "Read config.json", -30_000),
+        row(before, "l-2", "tool_result", "config ok", -20_000),
+      ];
+      const expected = [
+        "build it",
+        "starting",
+        "reading config",
+        "Read config.json",
+        "config ok",
+        "running the build",
+        "Bash build.sh",
+        "build ok",
+        "also check the logs",
+        "logs are clean",
+      ].join("|");
+      const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
 
-    const server = new FakeChatServer();
-    server.snapshot = history;
-    const app = await mount(server);
-    server.emit(beforeSend);
-    await flush();
-    let optimisticId = "";
-    const sentAt = Date.now();
-    await act(async () => {
-      optimisticId = app.addOptimistic("also check the logs");
-    });
-    const afterSend = [
-      row(sentAt, "l-3", "assistant", "running the build", 30_000),
-      row(sentAt, "l-4", "tool_call", "Bash build.sh", 40_000),
-    ];
-    const consumedTurn = [
-      row(sentAt, "c-0", "tool_result", "build ok", 50_000),
-      row(sentAt, "c-1", "user", "also check the logs", 0, { timelineMarker: { kind: "queued" } }),
-      row(sentAt, "c-2", "assistant", "logs are clean", 60_000),
-    ];
-    server.emit(afterSend);
-    await flush();
-    assert(
-      contents(app.messages()) === [...history, ...beforeSend, ...afterSend].map((message) => message.content).concat("also check the logs").join("|"),
-      `a pending mid-turn send follows the committed transcript (${contents(app.messages())})`,
-    );
+      const server = new FakeChatServer();
+      server.snapshot = history;
+      const app = await mount(server);
+      server.emit(beforeSend);
+      await flush();
+      let optimisticId = "";
+      const sentAt = Date.now();
+      await act(async () => {
+        optimisticId = app.addOptimistic("also check the logs");
+      });
+      const afterSend = [
+        row(sentAt, "l-3", "assistant", "running the build", 30_000),
+        row(sentAt, "l-4", "tool_call", "Bash build.sh", 40_000),
+      ];
+      const consumedTurn = [
+        row(sentAt, "c-0", "tool_result", "build ok", 50_000),
+        row(sentAt, "c-1", "user", "also check the logs", 0, { timelineMarker: { kind: "queued" } }),
+        row(sentAt, "c-2", "assistant", "logs are clean", 60_000),
+      ];
+      server.emit(afterSend);
+      await flush();
+      assert(
+        contents(app.messages()) === [...history, ...beforeSend].map((message) => message.content).concat("also check the logs", ...afterSend.map(message => message.content)).join("|"),
+        `a pending mid-turn send precedes later output (${contents(app.messages())})`,
+      );
 
-    await app.render(server.sessionId, false);
-    server.snapshot = [...history, ...beforeSend, ...afterSend];
-    await app.render(server.sessionId, true);
-    const snapshotIds = app.messages().filter((message) => message.id !== optimisticId).map((message) => message.id);
-    server.emit(consumedTurn);
-    await flush();
-    const reactivated = app.messages().map((message) => ({ ...message }));
-    assert(server.log.starts.length === 2, `leave/return reattaches once without a remount (starts=${server.log.starts.length})`);
-    assert(
-      contents(reactivated) === expected,
-      `re-activation projects transcript sequence (${contents(reactivated)})`,
-    );
-    assert(!reactivated.some((message) => message.id === optimisticId), "the echo reconciles the pre-leave optimistic row");
-    assert(
-      new Set(reactivated.map((message) => message.id)).size === reactivated.length,
-      "every re-activated row keeps a unique identity",
-    );
-    assert(
-      snapshotIds.every((id) => reactivated.some((message) => message.id === id)),
-      "rows hydrated on return keep their identity when the echo commits",
-    );
-    await act(async () => app.root.unmount());
+      await app.render(server.sessionId, false);
+      server.snapshot = [...history, ...beforeSend, ...afterSend];
+      await app.render(server.sessionId, true);
+      const snapshotIds = app.messages().filter((message) => message.id !== optimisticId).map((message) => message.id);
+      server.emit(consumedTurn);
+      await flush();
+      const reactivated = app.messages().map((message) => ({ ...message }));
+      assert(server.log.starts.length === 2, `leave/return reattaches once without a remount (starts=${server.log.starts.length})`);
+      assert(
+        contents(reactivated) === expected,
+        `re-activation projects transcript sequence (${contents(reactivated)})`,
+      );
+      assert(!reactivated.some((message) => message.id === optimisticId), "the echo reconciles the pre-leave optimistic row");
+      assert(
+        new Set(reactivated.map((message) => message.id)).size === reactivated.length,
+        "every re-activated row keeps a unique identity",
+      );
+      assert(
+        snapshotIds.every((id) => reactivated.some((message) => message.id === id)),
+        "rows hydrated on return keep their identity when the echo commits",
+      );
+      await act(async () => app.root.unmount());
 
-    const freshServer = new FakeChatServer();
-    freshServer.offset = server.offset;
-    freshServer.snapshot = [...history, ...beforeSend, ...afterSend, ...consumedTurn];
-    const fresh = await mount(freshServer);
-    const freshRows = fresh.messages();
-    assert(contents(freshRows) === expected, `a fresh mount projects the same order (${contents(freshRows)})`);
-    reactivated.forEach((message, index) => {
-      if (!snapshotIds.includes(message.id)) return;
-      assert(freshRows[index]?.id === message.id, `fresh and re-activated rows share snapshot identity at ${index}`);
-    });
-    await act(async () => fresh.root.unmount());
+      const freshServer = new FakeChatServer();
+      freshServer.offset = server.offset;
+      freshServer.snapshot = [...history, ...beforeSend, ...afterSend, ...consumedTurn];
+      const fresh = await mount(freshServer);
+      const freshRows = fresh.messages();
+      assert(contents(freshRows) === expected, `a fresh mount projects the same order (${contents(freshRows)})`);
+      reactivated.forEach((message, index) => {
+        if (!snapshotIds.includes(message.id)) return;
+        assert(freshRows[index]?.id === message.id, `fresh and re-activated rows share snapshot identity at ${index}`);
+      });
+      await act(async () => fresh.root.unmount());
+    } finally {
+      Date.now = realNow;
+    }
   }
 
   // Late echoes replace pending sends at their source positions through remount and restart.
@@ -509,7 +516,10 @@ async function main(): Promise<void> {
         "ship it", "on it", "Bash build", "build ok", "linting", "Bash lint",
         "lint ok", "also run tests", "then bump version", "and tag it", "all done",
       ];
-      const beforeEchoes = [...history, ...turnA, ...turnB, ...turnC, ...echoes].map((message) => message.content).join("|");
+      const beforeEchoes = [
+        "ship it", "on it", "Bash build", "also run tests", "build ok", "linting",
+        "then bump version", "Bash lint", "and tag it",
+      ].join("|");
       const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
       const shape = (rows: NormalizedChatMessage[]) => JSON.stringify(rows.map(({ id, type, content }) => ({ id, type, content })));
 
@@ -535,7 +545,7 @@ async function main(): Promise<void> {
         app.addOptimistic("and tag it");
       });
       await flush();
-      assert(contents(app.messages()) === beforeEchoes, `pending sends follow the transcript in admission order (${contents(app.messages())})`);
+      assert(contents(app.messages()) === beforeEchoes, `pending sends flow in admission order (${contents(app.messages())})`);
 
       await app.render(server.sessionId, false);
       server.snapshot = [...history, ...turnA, ...turnB, ...turnC];
@@ -552,8 +562,8 @@ async function main(): Promise<void> {
       const echoed = app.messages();
       assert(contents(echoed) === expected.join("|"), `late echoes keep send order (${contents(echoed)})`);
       assert(
-        committedPlaces.every((content, index) => echoed[index]?.content === content),
-        "late echoes preserve every prior committed row position",
+        echoed.filter(message => committedPlaces.includes(message.content)).map(message => message.content).join("|") === committedPlaces.join("|"),
+        "late echoes preserve the order of every prior committed row",
       );
       assert(echoed.filter((message) => message.type === "user").length === 4, "late echoes never duplicate a send");
       assert(new Set(echoed.map((message) => message.id)).size === echoed.length, "every echoed row keeps a unique identity");

@@ -23,6 +23,7 @@ fn general_runtime_config_preserves_permanent_context_and_tab_controls() {
                     }
                     .into()
                 ),
+                ..Default::default()
             }
         );
         assert!(config.get("task").is_none());
