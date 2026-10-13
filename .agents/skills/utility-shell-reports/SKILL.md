@@ -11,6 +11,8 @@ bare `codeterm` call or exit status would go.
 
 Open build shells with `--purpose build` and foreground servers with `--purpose dev`. Purpose is retained when restarting the shell. The sidebar command state reports shell marks only; use the readiness and QA receipts below to establish the operation outcome.
 
+Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Normal command completion adds no message.
+
 ## Commands
 
 For a health-proven dev startup that exits when ready:
@@ -50,7 +52,8 @@ From PowerShell, use:
 Create one Team-bound QA tab for repeated reports, then restart it for each run:
 
 ```bash
-codeterm tab new --team <team-id> --purpose qa --title QA
+codeterm tab new --team <team-id> --purpose qa --timeout 10m --title QA
+codeterm tab timeout --tab <qa-tab-id> --timeout 10m
 codeterm tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'"
 ```
 
@@ -105,4 +108,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

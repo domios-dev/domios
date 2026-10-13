@@ -4,6 +4,30 @@ Domios keeps one append-only journal of every authoritative tab lifecycle transi
 
 **When Storage is available, tab restore is unconditional.** Whatever tabs were open at shutdown come back. A claimed PTY session re-establishes its provider only from its own provider session record; without unique ownership the restored tab remains a shell. Journal state — missing, mismatched, truncated, or absent — does not change that decision.
 
+## Utility shell deadlines
+
+Set `--timeout 10m` when creating shells for tests, QA or builds; leave it unset
+for servers. Durations accept positive seconds (`30s`), minutes (`10m`) or hours
+(`2h`), up to 365 days. Only the shell's creating agent can set its lifetime.
+
+```bash
+codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
+codeterm tab timeout --tab <ID> --timeout 20m
+codeterm tab timeout --tab <ID> --timeout none
+```
+
+Changing the timeout resets the deadline from now. It does not restart the shell
+or command; another command may run in the same shell before the deadline.
+At expiry an idle shell closes quietly. Running or unknown activity terminates
+with the shell, and the owner receives one `timed out` status naming the shell,
+purpose, command and elapsed time. Normal completion adds no timeout message;
+its ordinary QA report remains responsible for the result. Command marks own
+activity evidence. A shell without a timeout keeps its existing lifetime.
+Deadlines persist across daemon restart; unavailable restored shells are reported
+as lost to their owner. Timeout control requires a local owning agent; remote
+mesh timeout requests are refused. REST: `POST /api/tabs` accepts `timeout`, and
+`POST /api/tabs/{id}/timeout` accepts `{timeout: "20m"}` with the caller tab header.
+
 ## Storage authority and recovery
 
 The instance's desk is owned by one Storage authority in `storage/state.db` beneath its data directory. Storage opens before restore; an open, import, or archive-verification failure leaves desk state unavailable and prevents a default-empty desk from replacing it. The typed importer preserves recognized source files under `storage/legacy-originals/`.
@@ -220,4 +244,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

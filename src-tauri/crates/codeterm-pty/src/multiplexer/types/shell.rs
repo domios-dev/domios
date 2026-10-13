@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CloseRestoreTabState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utility_owner_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_planner_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_cwd: Option<String>,
@@ -72,4 +74,23 @@ pub enum ShellActivity {
 pub struct ShellCommandState {
     pub activity: ShellActivity,
     pub last_exit_code: Option<i32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn utility_owner_survives_shell_restore() {
+        let state = CloseRestoreTabState {
+            utility_owner_tab_id: Some("owner".into()),
+            command: Some("build".into()),
+            stopped: true,
+            ..Default::default()
+        };
+        let mut restored: CloseRestoreTabState =
+            serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
+        assert_eq!(restored.claim_rerun().unwrap().as_deref(), Some("build"));
+        assert_eq!(restored.utility_owner_tab_id.as_deref(), Some("owner"));
+    }
 }

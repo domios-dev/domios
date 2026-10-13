@@ -46,6 +46,8 @@ With plan reminders enabled, an active execution plan with actionable work and n
 
 A validated blocked verdict sends no reminder to that recipient. It creates one host-authored owner notice per distinct blocker, with choices to wait, pause the plan or decide. The notice proposes pausing when its blocker stops every actionable task. After a reminder is accepted, unrelated plan changes do not repeat it for the same recipient; that recipient's task status, assignment, report or new owner message must change first.
 
+An agent may set and reset a lifetime for its utility shells. At its deadline an idle shell closes quietly; running or unknown activity terminates with the shell and sends one timed-out status to the owner. Normal completion adds no deadline message. Unset lifetimes permit long-lived servers. Declared deadlines survive daemon restart or are reported as lost.
+
 Team utility work reports back to its coordinating agent through the message gateway. Readiness requires observed health; command completion carries its outcome and failure evidence. A failed command or an empty test selection cannot become a passing QA report. Changing the development instance being checked must not redirect the report away from its caller. These are repository toolchain responsibilities, not a new core service.
 
 ```map

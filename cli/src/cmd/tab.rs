@@ -95,6 +95,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             handle_tab_inspect(client, json, tabs, tab, lifecycle);
         }
         TabAction::New {
+            timeout,
             shell,
             list_shells,
             purpose,
@@ -137,6 +138,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 }
             };
             let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
+            if let Some(timeout) = timeout {
+                body["timeout"] = timeout.into();
+            }
             if let Some(w) = workspace {
                 body["workspace_id"] = serde_json::Value::String(w);
             }
@@ -202,6 +206,10 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 });
 
             team_utility::handle_create_result(json, team.as_deref(), create_result);
+        }
+        TabAction::Timeout { tab, timeout } => {
+            let tab_id = resolve_tab(client, tab);
+            super::tab_restart::handle_timeout(json, &tab_id, &timeout);
         }
         TabAction::Current { last } => {
             // The env var is the tab this RUNS IN; focus is whatever the human
@@ -942,7 +950,8 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
             .into_iter()
             .chain(tab.as_deref())
             .find(|value| invalid(value)),
-        TabAction::Restart { tab, .. }
+        TabAction::Timeout { tab, .. }
+        | TabAction::Restart { tab, .. }
         | TabAction::ReleaseOwnership { tab }
         | TabAction::Rename { tab, .. }
         | TabAction::Describe { tab, .. }
