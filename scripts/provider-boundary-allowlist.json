@@ -7479,20 +7479,6 @@
     },
     {
       "file": "src-tauri/src/provider/registry/tests.rs",
-      "token": "codex_rpc_registry_preserves_structured_control",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/src/provider/registry/tests.rs",
-      "token": "codex-app-server",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/src/provider/registry/tests.rs",
       "token": "provider-codex",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
