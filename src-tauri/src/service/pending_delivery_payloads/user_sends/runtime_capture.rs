@@ -66,8 +66,11 @@ mod tests {
             .admit_runtime_capture(&reservation, "opaque voice", false)
             .unwrap();
         assert!(record.capture_required);
-        assert!(store.claim(&record, Some("thread")).unwrap());
+        assert!(!store.eligible(&record));
+        assert!(!store.claim(&record, Some("thread")).unwrap());
         drop(reservation);
+        assert!(store.eligible(&record));
+        assert!(store.claim(&record, Some("thread")).unwrap());
         let restored = UserSendStore::open(dir.path()).unwrap();
         let record = restored.records("tab").unwrap().remove(0);
         assert!(record.capture_required);
@@ -151,7 +154,8 @@ mod receipt_tests {
         store.finish_handoff(&record, false).unwrap();
         assert!(store.complete(&record).unwrap());
         assert!(store.records("tab").unwrap().is_empty());
-        let status = ledger.confirm_send(&record.send_id).unwrap();
+        let mut status = ledger.status(&record.send_id).unwrap();
+        status.state = crate::service::chat_send_transaction::ChatSendState::Sent;
         store.persist_runtime_status(&status).unwrap();
         let reopened = UserSendStore::open(dir.path()).unwrap();
         assert_eq!(
