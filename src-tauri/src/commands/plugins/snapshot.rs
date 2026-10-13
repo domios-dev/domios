@@ -5,7 +5,7 @@ use super::cli::{read_audit_events, run_plugin_cli};
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
 /// only reports installed plugins with empty paths, so it can't surface capabilities
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
-fn scan_plugin_manifests(
+pub(super) fn scan_plugin_manifests(
 ) -> std::collections::HashMap<String, (std::path::PathBuf, Value, Option<String>)> {
     let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
     let roots = crate::plugin::js_runtime::default_roots(Some(workspace.as_path()));
@@ -159,6 +159,14 @@ fn enrich_from_manifest_with_icon(
     if let Some(obj) = entry.as_object_mut() {
         remove_untrusted_plugin_icons(obj);
         obj.insert("capabilities".into(), cap_obj);
+        obj.insert(
+            "network_requested".into(),
+            serde_json::json!(m["permissions"]["network"].is_object()),
+        );
+        obj.insert(
+            "sensitive_permissions".into(),
+            super::permissions::permission_states(m, &grants),
+        );
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
         obj.insert(
             "network_allow".into(),

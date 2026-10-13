@@ -1,3 +1,4 @@
+import type { SensitivePermission } from "../../lib/pluginConsentModel";
 // (pluginCatalog.ts) can be unit-tested without the React/SVG import chain.
 import type { SettingField } from "../../lib/types";
 
@@ -42,6 +43,8 @@ export interface InstalledPlugin {
   /** Loaded from the workspace `plugins/` source tree (dev), not a marketplace install. */
   dev?: boolean;
   capabilities?: PluginCapabilities | null;
+  network_requested?: boolean;
+  sensitive_permissions?: SensitivePermission[] | null;
   granted_permissions?: string[] | null;
   network_allow?: string[] | null;
   effective_network_allow?: string[] | null;
@@ -96,6 +99,8 @@ export interface MarketplaceRow extends DiffRow {
   installed?: boolean;
   display_name?: string | null;
   capabilities?: PluginCapabilities | null;
+  network_requested?: boolean;
+  sensitive_permissions?: SensitivePermission[] | null;
   granted_permissions?: string[] | null;
   network_allow?: string[] | null;
   effective_network_allow?: string[] | null;

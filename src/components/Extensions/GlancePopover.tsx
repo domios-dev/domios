@@ -1,3 +1,4 @@
+import { invokePluginWithConsent } from "../../lib/pluginConsent";
 /**
  * The plugin "glance" — a Chrome-extension-style popover that renders a
  * plugin's read-only `renderGlance()` ViewNode tree. Not settings: a quick peek
@@ -47,18 +48,22 @@ export function GlancePopover({
 }) {
   const [view, setView] = useState<GlanceView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(
     async (action?: string) => {
+      const current = ++generation.current;
       try {
         const snapshot = await ensurePluginSnapshot();
         const v = pluginHasGlance(snapshot.plugins, pluginId)
-          ? await invoke<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} })
+          ? await invokePluginWithConsent<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} }, () => current === generation.current)
           : null;
+        if (current !== generation.current) return;
         setView(buildGlanceView(v, configHelp));
         setError(null);
       } catch (e) {
+        if (current !== generation.current) return;
         setError(String(e));
       }
     },
@@ -67,17 +72,20 @@ export function GlancePopover({
 
   useEffect(() => {
     void load();
+    return () => { generation.current += 1; };
   }, [load]);
 
   // Dismiss on outside click + Escape.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
+      if (document.querySelector("[data-plugin-consent]")) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node) && !trigger?.contains(e.target as Node)) onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { onClose(); trigger?.focus(); }
     };
     const onMove = (e: PointerEvent) => {
+      if (document.querySelector("[data-plugin-consent]")) return;
       if (!hoverOnly || !trigger || !menuRef.current) return;
       const a = trigger.getBoundingClientRect();
       const b = menuRef.current.getBoundingClientRect();

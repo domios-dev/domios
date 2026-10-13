@@ -1,3 +1,4 @@
+import { PluginPermissions } from "./PluginPermissions";
 import { useState } from "react";
 import {
   capabilityKeys,
@@ -54,18 +55,21 @@ export function PluginDetailPanel({
   // Agent plugins render their real provider settings via the shared screen.
   if (entry.capabilities?.agent_provider && config) {
     return (
+      <>
+      <PluginPermissions pluginId={entry.id} permissions={entry.sensitivePermissions} />
       <AgentProviderScreen
         providerId={entry.id}
         fullConfig={config as unknown as AppConfig}
         onUpdateFullConfig={(next) => void onUpdateFullConfig(next)}
         onProviderGone={onGone}
       />
+      </>
     );
   }
 
   // installed; before install, fall through to the generic install view).
   if (entry.capabilities?.secret_backend && entry.installed && config) {
-    return <SecretBackendDetail entry={entry} config={config} onAction={onAction} actionBusy={busy} activity={activity} activityDisplayMap={activityDisplayMap} />;
+    return <><PluginPermissions pluginId={entry.id} permissions={entry.sensitivePermissions} /><SecretBackendDetail entry={entry} config={config} onAction={onAction} actionBusy={busy} activity={activity} activityDisplayMap={activityDisplayMap} /></>;
   }
 
   const action = primaryAction(entry);
@@ -172,6 +176,8 @@ export function PluginDetailPanel({
           </div>
         </div>
       )}
+
+      {entry.installed && <PluginPermissions pluginId={entry.id} permissions={entry.sensitivePermissions} />}
 
       {entry.installed && (
         <AllowedHostsEditor

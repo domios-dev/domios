@@ -1,3 +1,4 @@
+import type { SensitivePermission } from "../../lib/pluginConsentModel";
 // and the channel marketplace into one normalized list, then search/filter it.
 import type {
   InstalledPlugin,
@@ -31,6 +32,7 @@ export interface CatalogEntry {
   pendingReload?: boolean | null;
   loadError?: { message: string; path: string; atMs: number; keptPrevious: boolean } | null;
   capabilities?: PluginCapabilities | null;
+  sensitivePermissions?: SensitivePermission[] | null;
   grantedPermissions?: string[] | null;
   networkAllow?: string[] | null;
   effectiveNetworkAllow?: string[] | null;
@@ -104,6 +106,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
       ? { message: p.load_error.message, path: p.load_error.path, atMs: p.load_error.at_ms, keptPrevious: p.load_error.kept_previous === true }
       : null,
     capabilities: p.capabilities ?? null,
+    sensitivePermissions: p.sensitive_permissions ?? null,
     grantedPermissions: p.granted_permissions ?? null,
     networkAllow: p.network_allow ?? [],
     effectiveNetworkAllow: p.effective_network_allow ?? [],
@@ -145,6 +148,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     loadError: base?.loadError ?? null,
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,
+    sensitivePermissions: base?.sensitivePermissions ?? m.sensitive_permissions ?? null,
     grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,
     networkAllow: base?.networkAllow ?? m.network_allow ?? [],
     effectiveNetworkAllow: base?.effectiveNetworkAllow ?? m.effective_network_allow ?? [],
