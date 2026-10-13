@@ -133,6 +133,7 @@ impl AgentProvider for NativeRuntime {
                     RuntimeOperation::ResumeThread {
                         thread_id,
                         settings,
+                        ..
                     } => RuntimeResult::ThreadLoaded {
                         thread_id: thread_id.clone(),
                         settings: settings.clone(),
