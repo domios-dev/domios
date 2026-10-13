@@ -18,7 +18,7 @@ fn spawn_rejects_invalid_cwd() {
     ];
     for (case, cwd) in cases {
         let error = validate_spawn_cwd(Some(cwd.as_str())).expect_err(case);
-        assert!(error.contains(&cwd), "{case}: {error}");
+        assert!(error.path == cwd, "{case}: {error}");
         assert!(cwd_problem(&cwd).is_some(), "{case}");
     }
 
@@ -55,4 +55,21 @@ fn spawn_rejects_invalid_cwd_before_creating_a_tab() {
         assert!(error.contains(&cwd), "{error}");
         assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
     }
+}
+
+#[test]
+fn cwd_refusal_has_repair_class_and_workspace_identity() {
+    let error = CwdRefusal {
+        path: "D:/Developer/codeterm".into(),
+        workspace_id: Some("workspace".into()),
+        workspace_name: Some("codeterm".into()),
+        problem: "does not exist".into(),
+        missing: true,
+    };
+    let data = error.data();
+    assert_eq!(data["code"], CwdRefusal::CODE);
+    assert_eq!(data["class"], CwdRefusal::CLASS);
+    assert_eq!(data["path"], error.path);
+    assert_eq!(data["workspace_id"], "workspace");
+    assert!(error.message().contains("codeterm"));
 }

@@ -334,7 +334,14 @@ impl ServiceContext {
         agent_cmd: &str,
         params: &SpawnAgentParams,
     ) -> Result<bool, String> {
-        crate::service::spawn_cwd::validate_spawn_cwd(params.cwd.as_deref())?;
+        self.validate_request_cwd(
+            params.workspace_id.as_deref(),
+            params
+                .parent_tab_id
+                .as_deref()
+                .or(params.spawned_by_tab_id.as_deref()),
+            params.cwd.as_deref(),
+        )?;
         validate_watcher_spawn_target(
             &self.provider_registry,
             &self.chatbackend_registry,

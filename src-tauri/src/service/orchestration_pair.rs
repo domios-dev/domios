@@ -585,6 +585,11 @@ impl ServiceContext {
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or_else(|| "No workspace found".to_string())?
         };
+        self.validate_request_cwd(
+            Some(&workspace_id),
+            params.spawned_by_tab_id.as_deref(),
+            None,
+        )?;
         let project = self
             .mux
             .read()

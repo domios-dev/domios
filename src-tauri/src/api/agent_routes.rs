@@ -312,6 +312,21 @@ pub async fn spawn_agent(
         structured_prompt_server: None,
         remote_task_binding: None,
     };
+    let svc = state.svc.clone();
+    let cwd_params = params.clone();
+    tokio::task::spawn_blocking(move || {
+        svc.validate_request_cwd(
+            cwd_params.workspace_id.as_deref(),
+            cwd_params
+                .parent_tab_id
+                .as_deref()
+                .or(cwd_params.spawned_by_tab_id.as_deref()),
+            cwd_params.cwd.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| SpawnRejection::from(error.to_string()))?
+    .map_err(SpawnRejection::from)?;
     let default_provider = crate::config::default_agent_provider();
     let provider_id = params.agent.as_deref().unwrap_or(&default_provider);
     model_error::validate_agent_model(

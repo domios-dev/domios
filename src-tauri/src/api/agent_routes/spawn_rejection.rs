@@ -76,3 +76,12 @@ pub(crate) async fn await_spawn_launch(
     .map_err(|error| SpawnRejection::from(format!("spawn launch verdict task failed: {error}")))?
     .map_err(SpawnRejection::from)
 }
+
+impl From<crate::service::spawn_cwd::CwdRefusal> for SpawnRejection {
+    fn from(error: crate::service::spawn_cwd::CwdRefusal) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            body: serde_json::json!({"ok": false, "error": error.data()}),
+        }
+    }
+}
