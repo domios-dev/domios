@@ -142,6 +142,15 @@ Link a tab as worker under a parent
 - `--parent-tab` — Parent tab ID (orchestrator)
 - `--tab` — Tab ID to link (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm agent login`
+
+Sign in to the tab's runtime provider without a terminal
+
+- `--api-key-stdin` — Read the API key from stdin; never supply credentials in argv
+- `--cancel`
+- `--device`
+- `--tab`
+
 #### `codeterm agent model`
 
 Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
