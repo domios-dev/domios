@@ -6,6 +6,11 @@ pub(super) struct Completions {
     turns: VecDeque<(String, String)>,
 }
 impl Completions {
+    pub fn contains(&self, thread: &str, turn: &str) -> bool {
+        self.turns
+            .iter()
+            .any(|(known_thread, known_turn)| known_thread == thread && known_turn == turn)
+    }
     pub fn sequence(&self) -> u64 {
         self.sequence
     }
