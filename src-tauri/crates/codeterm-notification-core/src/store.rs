@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -194,6 +194,7 @@ pub struct NotificationStore {
     deliveries: DeliveryLedger,
     /// Standing conditions already announced, so re-observation stays quiet.
     conditions: ConditionLedger,
+    answer_claims: HashSet<String>,
     superseded: Vec<String>,
     persistence: Option<Persistence>,
 }
@@ -208,6 +209,7 @@ impl NotificationStore {
             question_slots: HashMap::new(),
             deliveries: DeliveryLedger::default(),
             conditions: ConditionLedger::default(),
+            answer_claims: HashSet::new(),
             superseded: Vec::new(),
             persistence: None,
         }
@@ -945,8 +947,22 @@ impl NotificationStore {
         answer_delivery::plan(&self.notifications, id)
     }
 
+    pub fn claim_answer_delivery(&mut self, id: &str) -> Option<AnswerDeliveryPlan> {
+        let plan = self.answer_delivery_plan(id);
+        if matches!(plan, AnswerDeliveryPlan::Owed(_)) && !self.answer_claims.insert(id.to_string())
+        {
+            return None;
+        }
+        Some(plan)
+    }
+
+    pub fn release_answer_delivery(&mut self, id: &str) {
+        self.answer_claims.remove(id);
+    }
+
     /// The standing answer reached the asking tab.
     pub fn mark_answer_delivered(&mut self, id: &str) -> bool {
+        self.release_answer_delivery(id);
         let marked = answer_delivery::mark_delivered(&mut self.notifications, id);
         self.sync_persisted();
         marked
