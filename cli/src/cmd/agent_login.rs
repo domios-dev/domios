@@ -17,7 +17,7 @@ fn read_key(input: impl Read) -> Result<String, String> {
     Ok(key)
 }
 pub(super) fn run(
-    client: &reqwest::blocking::Client,
+    client: &crate::local_api::LocalApiClient,
     base: &str,
     json_output: bool,
     tab: String,
