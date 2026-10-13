@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
-import { parseMessageParts, projectMessageParts, projectTranscriptParts, splitExactSendTexts } from "./messageParts";
+import { messageRowParts, parseMessageParts, projectMessageParts, projectTranscriptParts, splitExactSendTexts } from "./messageParts";
+import { formatAttachmentMarker } from "./attachmentMarker";
 import type { NormalizedChatMessage } from "./types";
 
 const frame = '<domios from="report" tab="abc" label="X">body</domios>';
@@ -51,3 +52,16 @@ const warm = projectTranscriptParts(longRows, longLedger);
 const warmMs = performance.now() - warmStart;
 assert(warm.every((record, index) => record === cold[index]));
 console.log(`messageParts: regression assertions passed; 128 ledger entries / 5000 records / ${longRows.reduce((sum, record) => sum + record.content.length, 0)} chars; cold=${coldMs.toFixed(2)}ms cached=${warmMs.toFixed(2)}ms`);
+
+const image = formatAttachmentMarker("/tmp/image.png", "image", "image1");
+const secondImage = formatAttachmentMarker("/tmp/second.png", "image", "image2");
+const imagePart = (content: string, paths: string[]) => ({ kind: "attachment", content,
+  attachments: paths.map((path, index) => ({ kind: "image", path, label: `image${index + 1}` })) });
+assert.deepEqual(parseMessageParts(`${image}caption`), [imagePart(image, ["/tmp/image.png"]), text("caption")]);
+assert.deepEqual(parseMessageParts(`${image} ${secondImage}caption`), [imagePart(`${image} ${secondImage}`, ["/tmp/image.png", "/tmp/second.png"]), text("caption")]);
+assert.deepEqual(parseMessageParts(`caption${image}`), [text("caption"), imagePart(image, ["/tmp/image.png"])]);
+assert.deepEqual(parseMessageParts(formatAttachmentMarker("/tmp/file.pdf")), [{ kind: "attachment", content: formatAttachmentMarker("/tmp/file.pdf"), attachments: [{ kind: "file", path: "/tmp/file.pdf" }] }]);
+
+assert.deepEqual(messageRowParts(parseMessageParts(`${image} ${secondImage}caption`)).map((part) => part.content), [`${image} ${secondImage}caption`]);
+assert.deepEqual(messageRowParts(splitExactSendTexts(`${image}captionnext`, [{ content: `${image}caption`, correlationId: "one" }, { content: "next", correlationId: "two" }])).map((part) => [part.content, part.correlationId]), [[`${image}caption`, "one"], ["next", "two"]]);
+assert.deepEqual(messageRowParts([text("first"), text("second")]), [text("first"), text("second")]);

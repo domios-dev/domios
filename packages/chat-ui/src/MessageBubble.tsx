@@ -16,6 +16,7 @@ import {
 import { ToolCallBubble } from "./ToolCallBubble";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { AttachmentStrip } from "./AttachmentStrip";
+import { OrderedAttachmentContent } from "./OrderedAttachmentContent";
 import { InlineAttachmentText } from "./AttachmentCapsule";
 import { ReplyQuote } from "./ReplyQuote";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
@@ -353,7 +354,10 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const userContent = dsTasks ? [dsTasks.before, dsTasks.after].filter(Boolean).join(BLOCK_GAP) : message.content;
     const userAttachments = userMessageAttachments(userContent, attachments);
     const visibleUserContent = userAttachments.text;
-    const formattedUserContent = effectiveOrigin?.kind === "command" ? (
+    const renderUserText = (content: string) => {
+      const userAttachments = userMessageAttachments(content, attachments);
+      const visibleUserContent = userAttachments.text;
+      const text = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
         ) : userAttachments.inline ? (
           <InlineAttachmentText segments={userAttachments.inline} />
@@ -362,6 +366,12 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
         ) : (
           visibleUserContent ? renderUserContent(visibleUserContent) : null
         );
+
+      return <>
+        {userAttachments.files.length > 0 && <AttachmentStrip images={[]} files={userAttachments.files} captioned={Boolean(visibleUserContent.trim())} />}
+        {text}
+      </>;
+    };
 
     const reply = userAttachments.reply;
     const quotedId = reply?.reply;
@@ -374,10 +384,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             onOpen={onJumpToMessage && quotedId ? () => onJumpToMessage(quotedId) : undefined}
           />
         )}
-        {(userAttachments.images.length > 0 || userAttachments.files.length > 0) && (
-          <AttachmentStrip images={userAttachments.images} files={userAttachments.files} captioned={visibleUserContent.trim().length > 0 || userAttachments.inline !== null} />
-        )}
-        {formattedUserContent}
+        <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} />
         {userFooter}
       </>
     );
