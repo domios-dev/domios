@@ -69,6 +69,7 @@ interface MessageBubbleProps {
   onContentLayout?: () => void;
   showTimestamp?: boolean;
   userFooter?: React.ReactNode;
+  userProgress?: React.ReactNode;
   item?: TimelineItem;
   isLatestFailedToolCall?: boolean;
   /** Route an interactive widget's answer back to the agent (existing send path). */
@@ -145,7 +146,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, onContentLayout, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, onContentLayout, userFooter, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
   const renderedText = useDeferredValue(message.content);
   useLayoutEffect(() => { onContentLayout?.(); });
   recordBubbleRender(message.id);
@@ -384,7 +385,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             onOpen={onJumpToMessage && quotedId ? () => onJumpToMessage(quotedId) : undefined}
           />
         )}
-        <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} />
+        {userProgress ?? <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} />}
         {userFooter}
       </>
     );
@@ -678,7 +679,7 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   const content = <MessageBubbleContent {...props} />;
   if (!isRenderableMessage(props.message)) return null;
   return (
-    <MessageTimeFrame timestamp={props.showTimestamp === false || !time ? undefined : String(time.timestamp)} side={time?.side ?? "left"}>
+    <MessageTimeFrame timestamp={props.showTimestamp === false || !time ? undefined : String(time.timestamp)} side="left">
       {content}
     </MessageTimeFrame>
   );

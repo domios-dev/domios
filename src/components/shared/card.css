@@ -16,9 +16,9 @@
 }
 
 .ct-user-bubble {
-  border: 1px solid color-mix(in srgb, var(--ct-accent) 24%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 10%, transparent);
   border-radius: 18px 18px 6px 18px;
-  background: color-mix(in srgb, var(--ct-accent) 13%, var(--ct-bg));
+  background: color-mix(in srgb, var(--ct-accent) 5%, var(--ct-surface));
   color: var(--ct-fg);
 }
 

@@ -1,3 +1,4 @@
+import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
@@ -866,6 +867,8 @@ export function TabSessionChat({
                 message={promptAnswers ? msg : { ...msg, interactive: [] }}
                 onContentLayout={handleContentLayout}
                 streaming={msg.id === streamingId}
+                userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
+                  ? <VoiceTranscriptionProgress /> : undefined}
                 userFooter={deliverySend && deliveryView && deliveryView !== "delivered" && deliveryView !== "settled"
                   ? <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
