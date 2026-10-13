@@ -22,6 +22,7 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
+        agent_runtime: provider.agent_runtime(),
         supports_session_fork: provider.fork_session_args().is_some(),
         structured_control: provider.structured_control(),
         schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
@@ -62,7 +63,11 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         supports_watcher: false,
         paste_limit_bytes: provider.paste_limit_bytes(),
         trust: provider.trust(),
-        transport: ProviderTransport::Pty,
+        transport: if provider.agent_runtime().is_some() {
+            ProviderTransport::ChatBackend
+        } else {
+            ProviderTransport::Pty
+        },
         behavior_config: provider.behavior_config(),
         presets: Vec::new(),
         system_prompt_delivery: provider.system_prompt_delivery(),
