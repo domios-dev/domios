@@ -19,13 +19,13 @@ preset_show() {
 
 preset_field() {
   local key="$1"
-  python -c "import json,sys; print(json.load(sys.stdin).get('$key',''))"
+  python3 -c "import json,sys; print(json.load(sys.stdin).get('$key',''))"
 }
 
 # Exact text one occasion emits, straight from the shared resolver.
 preset_occasion_text() {
   local occasion="$1"
-  python -c "
+  python3 -c "
 import json, sys
 view = json.load(sys.stdin)
 for entry in view.get('occasions', []):
@@ -38,7 +38,7 @@ raise SystemExit('occasion $occasion missing from the rendered view')
 
 preset_occasion_emission() {
   local occasion="$1"
-  python -c "
+  python3 -c "
 import json, sys
 view = json.load(sys.stdin)
 for entry in view.get('occasions', []):
@@ -50,7 +50,7 @@ raise SystemExit('occasion $occasion missing from the rendered view')
 }
 
 preset_fragment_sources() {
-  python -c "
+  python3 -c "
 import json, sys
 view = json.load(sys.stdin)
 print(' '.join(f.get('source', '') for f in view.get('fragments', [])))
@@ -76,7 +76,7 @@ assert_manager_kinds_resolve() {
 assert_planner_team_authority() {
   local listing
   listing="$(dc persona list --json)"
-  python - "$listing" <<'PY'
+  python3 - "$listing" <<'PY'
 import json, sys
 kinds = {k["kind_id"]: k for k in json.loads(sys.argv[1])["kinds"]}
 assert kinds["planner"]["team_authority"], "planner lost Team authority"
