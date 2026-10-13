@@ -1085,6 +1085,9 @@ pub(crate) fn delivered_turn_confirmations(
     }
     let mut confirmed = Vec::new();
     for (index, msg) in messages.iter().enumerate() {
+        if msg.kind != "user" {
+            continue;
+        }
         let positioned = provenance.and_then(|provenance| {
             provenance.positions.get(index).copied().map(|position| {
                 ledger.confirm_owned_live_turns(

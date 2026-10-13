@@ -8,6 +8,13 @@ const release: Release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minAp
 const ticket = { releaseId: release.releaseId, generation: 1, token: "health-token" };
 
 describe("frontend swap safety", () => {
+  it("holds interface activation until ordered updates release it", () => {
+    const held = swapEvent(initialSwapState(2, checkpoint, safe), { type: "hold", held: true });
+    const ready = swapEvent(held.state, { type: "ready", release });
+    const consent = swapEvent(ready.state, { type: "consent" });
+    expect(consent.effects).toEqual([]);
+    expect(swapEvent(consent.state, { type: "hold", held: false }).effects[0]?.type).toBe("persist");
+  });
   it("requires known inclusive API bounds", () => {
     expect(compatible(release, 2)).toBe(true);
     for (const api of [0, 1, 3, NaN, 2.5]) expect(compatible(release, api)).toBe(false);

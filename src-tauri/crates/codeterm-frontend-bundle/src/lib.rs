@@ -99,6 +99,21 @@ impl FrontendBundles {
         status
     }
 
+    pub fn availability(&self) -> Result<codeterm_plugins::AvailabilityItem, String> {
+        let key = self
+            .public_key
+            .as_deref()
+            .ok_or("Frontend signing identity not provisioned")?;
+        let manifest = update::discover(&self.discovery_url, key, self.allow_loopback)?;
+        Ok(codeterm_plugins::AvailabilityItem::release(
+            "frontend",
+            codeterm_plugins::UpdateKind::Frontend,
+            &self.version_floor().to_string(),
+            &manifest.version,
+            manifest.compatible(self.api_version),
+        ))
+    }
+
     pub fn check(&self) -> Result<Value, String> {
         let _lease = self.check_job.acquire()?;
         let key = self
@@ -115,9 +130,13 @@ impl FrontendBundles {
             self.api_version,
             self.allow_loopback,
         )?;
+        self.stage_verified(&verified)
+    }
+
+    fn stage_verified(&self, verified: &manifest::VerifiedManifest) -> Result<Value, String> {
         let mut newly_pending = false;
         self.change(|state| {
-            newly_pending = state.stage(&verified)?;
+            newly_pending = state.stage(verified)?;
             Ok(())
         })?;
         let manifest = verified.manifest();

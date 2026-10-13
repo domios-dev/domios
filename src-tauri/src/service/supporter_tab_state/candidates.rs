@@ -86,14 +86,15 @@ pub(crate) fn allows_prompt(
     prompt: &crate::multiplexer::types::PendingPrompt,
 ) -> bool {
     verdict.live_prompt()
-        && matches!(
-            verdict.label.as_str(),
-            TRUST_OR_PERMISSION_PROMPT
-                | PROVIDER_UPDATE_PROMPT
-                | LOGIN_OR_AUTH_REQUIRED
-                | MODEL_UNAVAILABLE_OR_QUOTA
-                | STILL_STARTING
-        )
+        && (crate::agent::state_reactor::has_numbered_terminal_choice(screen, prompt)
+            || matches!(
+                verdict.label.as_str(),
+                TRUST_OR_PERMISSION_PROMPT
+                    | PROVIDER_UPDATE_PROMPT
+                    | LOGIN_OR_AUTH_REQUIRED
+                    | MODEL_UNAVAILABLE_OR_QUOTA
+                    | STILL_STARTING
+            ))
         && crate::agent::state_reactor::has_structural_prompt_evidence(screen, prompt)
         && !crate::agent::state_reactor::prompt_is_composer_text(screen, prompt)
 }

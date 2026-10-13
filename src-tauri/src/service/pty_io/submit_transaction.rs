@@ -264,14 +264,18 @@ impl SubmitTransport for PtySubmitTransport<'_> {
 
     fn prepare_paste(&self, text: &str, enter: bool) {
         let tab_id = self.svc.mux.read().tab_id_for_pty(self.pty_id);
-        let evidence = self
-            .require_exact_session_turn
+        let evidence = (enter || self.require_exact_session_turn)
             .then(|| {
                 tab_id
                     .as_deref()
                     .map(|tab_id| self.svc.chat_send_anchor(tab_id))
             })
             .flatten();
+        if enter {
+            if let (Some(tab_id), Some(evidence)) = (tab_id.as_deref(), evidence.as_ref()) {
+                self.svc.ensure_chat_send_append_stream(tab_id, evidence);
+            }
+        }
         let anchor = evidence
             .as_ref()
             .and_then(|evidence| evidence.anchor.clone());

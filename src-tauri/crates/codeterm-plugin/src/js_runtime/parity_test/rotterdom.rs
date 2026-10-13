@@ -21,6 +21,59 @@ fn fixtures() -> Vec<Fixture> {
     serde_json::from_str(include_str!("fixtures/rotterdom/shared.json")).unwrap()
 }
 
+#[test]
+fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
+    use crate::js_runtime::host_api::PluginSandbox;
+    use crate::js_runtime::vm::call_json;
+
+    let home = tempfile::tempdir().unwrap();
+    let bundle = home.path().join("bundle");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let data = home.path().join(".codeterm-dev/rotterdom");
+    let project = home.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let project_root = project.to_string_lossy().into_owned();
+    let manifest = crate::js_runtime::PluginManifest::from_json_str(include_str!(
+        "fixtures/rotterdom/plugin.json"
+    ))
+    .unwrap();
+    let (reads, writes) = crate::js_runtime::loader::confined_roots(&manifest, &bundle, &data);
+    let settings = json!({
+        "endpoints": [{"id": "local", "baseUrl": "http://127.0.0.1:1234/v1", "models": ["fixture-model"]}],
+        "profiles": [{"id": "coding", "endpoint": "local", "model": "fixture-model", "root": project_root}],
+        "defaultProfile": "coding"
+    });
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(reads, writes)
+            .with_project_roots(Vec::new(), Vec::new(), bundle.join("grants.yaml"))
+            .with_settings(settings.to_string()),
+    );
+    assert!(!data.exists());
+    assert!(sandbox.can_write(data.to_str().unwrap()));
+    let setup = format!(
+        "host.fs.expandHome = function(path) {{ return path === '~/.codeterm/rotterdom' ? {} : null; }};",
+        serde_json::to_string(&data).unwrap()
+    );
+    let vm = PluginVm::from_source_sandboxed(
+        "rotterdom",
+        format!("{setup}\n{}", include_str!("fixtures/rotterdom/plugin.js")),
+        None,
+        sandbox,
+    )
+    .unwrap();
+    let result: serde_json::Value =
+        call_json(&vm, "openSession", &[json!({"tabId": "history-fixture"})]).unwrap();
+    assert_eq!(result, json!({"sessionId": "history-fixture"}));
+    let history: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(data.join("session-history-fixture.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(history["id"], "history-fixture");
+    assert_eq!(history["profile"]["root"], project_root);
+    assert_eq!(history["turns"], json!([]));
+    assert!(!home.path().join(".codeterm").exists());
+}
+
 fn model(failure: &str) -> JsDecisionModel {
     let setup = r#"
         var failure = FAILURE;

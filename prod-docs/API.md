@@ -88,11 +88,11 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List tab summaries across local workspaces; `workspace_id` scopes to one. `focused_workspace=true` uses the caller tab identity, otherwise the focused workspace. Rows carry `workspace_id`, `workspace_name`, `scope` (`all_workspaces` \| `workspace`), `scope_workspace_id`, `scope_workspace_name`, `other_workspace_tab_count`, `agent_liveness` (`live` \| `absent` \| `unobserved`) and `agent_label`, its rendered bracket: the short model name when a provider catalogue claims the model id, else the provider name, suffixed `?` when unobserved and `!` when absent. Each row's `status` (`working` \| `question` \| `idle` \| `error` \| `exited`) is the value `GET /api/tabs/{id}/status` reports. A writer holding the state locks past 5 s yields `503`. |
 | GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Full tab payload for the selected tab IDs only. |
 | POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `title` is one word of at most 64 characters with no whitespace or control characters; activity prose goes in `description`. Workspace: explicit `workspace_id`, then the workspace owning `creator_tab_id` (the CLI always sends the calling tab), then the focused one. A PTY shell inherits the live creator's Team unless `detach_from_team`; explicit `team_id` is membership-checked; chat-backend tabs never inherit. `description`: one trimmed line, at most 200 chars; empty clears. `cmd` goes through `/send` with Enter appended. A `chat_backend` naming an installed `chatBackend` plugin id creates an **open agent shell** instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → plugin `defaultPreset`), `model` picks a model; these three need `chat_backend`. |
-| POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path, also used by mesh relay and service push tokens. Plain text and every batch item submit; `actions`/`raw` are only for explicit low-level terminal input. Delivery results (`sent`, `pending`, or a structured error with `bytes_written`): API-TABS. |
-| POST | `/api/tabs/{id}/chat-send` | `{text?, client_token?}` (shares the `/send` body type; only these two are read) | Chat UI user turn. Adds a ledger entry to delivery; returns one `ChatSendStatus` (`send_id`, `state`, `ledger_id`, `sequence`, `correlationId?`). `client_token` is echoed verbatim, never interpreted. The CLI does not use this route. |
+| POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path, also used by mesh relay and service push tokens. Plain text and every batch item submit; `actions`/`raw` are only for explicit low-level terminal input. Delivery results (`sent`, `pending`, or a structured error with `bytes_written`): API-CHAT. |
+| POST | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | POST | `/api/tabs/{id}/attachments` | `{kind: "voice"\|"file", name, size, data}` (`data` is base64, at most 25 MiB decoded) | Target-host attachment ingest for mesh sends. Refuses oversized (`413`), malformed, empty or size-mismatched (`400`) payloads, sanitizes `name`, stores bytes in this host's upload directory. Returns `{path, kind, size, reference}`: `path` is host-local; for `voice`, `reference` is the voice marker transcribed here. Peers reach it through the signed relay with `/send` access. |
 | POST | `/api/mesh/attachments/transfer` | `{ordinary_tab_id, peer_id, path, kind}` | Origin-host handoff: sends a local attachment's bytes to the owning peer's `POST /api/tabs/{id}/attachments` and returns that peer's `{path, kind, size, reference}`. Transfer failure is an error, never the original path. Remote sends from this host (`/send`, `/chat-send`, `/delayed-messages`) whose text still names an attachment stored here are refused with `source_attachment_path`. |
-| GET | `/api/tabs/{id}/chat-send` | — | This tab's chat-send ledger (`ChatSendStatus[]`), including submitted socket user sends admitted by the same owner; states and reconciliation: API-TABS. |
+| GET | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | POST | `/api/tabs/{id}/stop` | — | Interrupt an active turn through structured abort or the provider-declared stop sequence. `stopped:true` follows a terminal status event; with no active turn nothing is sent (`{stopped:false, reason:"not_working", status}`), and without a stop capability the response is `{stopped:false, reason:"stop_unsupported"}`. |
 | POST | `/api/tabs/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Run a shell command until the shell reports it finished or exits: `{output, offset, exit_code, completion}` (`command_finished` \| `shell_exited` \| `timeout`). `timeout_ms` (default 10000) is a failure deadline that adds `timeout:true`. `409` for an agent tab or an exited shell. `codeterm tab exec` exits with the command's code, `124` on timeout |
 | GET | `/api/tabs/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
@@ -106,20 +106,16 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/rename` | `{title}` | Rename tab. |
 | POST | `/api/tabs/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
 | POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
-| GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
+| GET | `/api/tabs/{id}/chat` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | * | `/api/tabs/{id}/session/...` | *(per route)* | Tab session binding: read the daemon's binding fact, or rebind a running tab to an existing provider session without restarting it — both in API-TABS |
 | POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY tab's provider/session identity without restart. Modes are mutually exclusive; empty body means `from_evidence`. Caller proof comes from `X-CodeTerm-Tab-Id` and `X-CodeTerm-Binding-Nonce`, plus `X-CodeTerm-Session-Id` when the launch already knew it; the proven caller must be the target tab or the registered owner of the target's bound plan task. Provider writes require a nonce-verified session record and go through the journaled identity boundary. Response shape, journal mode, and refusals: see API-REPAIR. |
 | POST | `/api/tabs/{id}/adopt-agent` | See API-ADOPT | Adopt a live PTY; see API-ADOPT. |
-| * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-TABS |
+| * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-CHAT |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64, provider?: string, handoff_history?: bool}` | Restart a live agent, fresh-launch a known provider from a confirmed unbound shell, or resume an exited provider's verified owned session. An optional PTY provider change can hand off bounded redacted history. See [Agent Restart](API-AGENTS.md#agent-restart-post-apitabsidagentrestart). |
 | POST | `/api/tabs/{id}/agent/model` | `{model: string, reasoning_effort?: string, runtime_mode?: string}` | Switch through declared `model_switch`; `next_turn` records per-thread controls without restarting; advertised Live routes are tab-bound, otherwise idle RestartResume reports the mode used. Never changes the provider's global default. See [Agent Model Switch](#agent-model-switch-post-apitabsidagentmodel). |
 
-#### Chat attachment authority
-
-The desktop `chat_start` command and web-mirror `POST /api/tabs/{id}/chat-raw/start` return the same bounded snapshot shape. `source_session_id` and `session_binding_nonce` are derived from the Tab and form one authority generation; a client adopts snapshots and `tab-chat-msg-{id}` deltas only when both match the Tab's current generation.
-
-`pending=true` without session authority means the Tab awaits its own session and never falls back to another; with authority and a subscription it awaits its own store. `pending=false` is a complete bounded snapshot, possibly empty. Visible Chat owns one subscription and takes a fresh snapshot on reactivation or resync.
+Chat send and transcript routes: API-CHAT
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
@@ -144,17 +140,7 @@ Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin
 
 Plugin surface routes (`/api/surfaces/*`): `codeterm docs SURFACES`.
 
-#### Interactive chat prompts
-
-Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream by providers that declare the capability. It rides both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and live `tab-chat-msg-{tabId}` events (`ChatMsg[]`, on the tool-call message). First element type:
-
-```json
-{ "type": "question", "id": "toolu_42-0", "toolUseId": "toolu_42",
-  "prompt": "Which database?", "header": "Database",
-  "options": [{ "label": "Postgres", "description": "Relational" }], "multiSelect": false }
-```
-
-The enum is open for future element types. The frontend renders each as a clickable widget and routes the answer through the tab send path (`/api/tabs/{id}/send`).
+Chat send and transcript routes: API-CHAT
 
 #### Batch
 | Method | Path | Body | Description |
@@ -182,9 +168,9 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
-Related docs: `API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
+Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
 Local analytics: `/api/analytics/{status,consent,event}` (see ACCOUNT).
 
 Account and plan routes: see `ACCOUNT`.
 
-<!-- revision: 195 -->
+<!-- revision: 196 -->

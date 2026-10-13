@@ -1295,6 +1295,7 @@ dependencies = [
 name = "codeterm-frontend-bundle"
 version = "0.1.0"
 dependencies = [
+ "codeterm-plugins",
  "flate2",
  "minisign-verify",
  "parking_lot",
@@ -1467,6 +1468,7 @@ dependencies = [
  "chrono",
  "codeterm-util",
  "dirs 5.0.1",
+ "reqwest 0.12.28",
  "semver",
  "serde",
  "serde_json",

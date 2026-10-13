@@ -1,3 +1,5 @@
+mod deep_links;
+
 use crate::secrets::{SaveRequest, SecretError, SecretStoreState, SecretString};
 use async_trait::async_trait;
 use codeterm_account::{Account, Browser, Config, CredentialStore, Error, Secret};
@@ -174,19 +176,32 @@ pub fn register_deep_links(
         let service = service.clone();
         tauri::async_runtime::spawn(async move {
             for url in urls {
-                if url.scheme() == "domios"
-                    && url.host_str() == Some("billing")
-                    && url.path() == "/return"
-                {
-                    let _ = service
-                        .refresh_billing(codeterm_billing::RefreshEvent::CheckoutReturned)
+                match deep_links::deep_link_action(&url) {
+                    Some(deep_links::DeepLinkAction::BillingReturn { status }) => {
+                        log::debug!(
+                            "[billing] return received, status flag present: {}",
+                            status.is_some()
+                        );
+                        let _ = service
+                            .refresh_billing(codeterm_billing::RefreshEvent::CheckoutReturned)
+                            .await;
+                        let app = service.app_handle.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            use tauri::Manager;
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        })
                         .await;
-                    continue;
-                }
-                if let Ok(callback) = codeterm_account::Callback::parse(url.as_str()) {
-                    if let Ok(account) = service.account().await {
-                        let _ = account.complete(callback).await;
                     }
+                    Some(deep_links::DeepLinkAction::AccountCallback(callback)) => {
+                        if let Ok(account) = service.account().await {
+                            let _ = account.complete(callback).await;
+                        }
+                    }
+                    None => {}
                 }
             }
         });

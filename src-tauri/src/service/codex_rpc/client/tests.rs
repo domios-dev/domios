@@ -171,7 +171,11 @@ async fn history_paginates_turns_and_items_without_jsonl() {
             "thread/items/list",
             None,
             Some("active"),
-            json!({"data":[]}),
+            json!({"data":[
+                {"turnId":"active","startedAtMs":42,"completedAtMs":null,"item":{"id":"restored-open","type":"agentMessage","text":"hel"}},
+                {"turnId":"active","completedAtMs":43,"item":{"id":"restored-closed","type":"agentMessage","text":"done"}},
+                {"turnId":"active","item":{"id":"closed-tool","type":"commandExecution","command":"opaque","status":"completed"}}
+            ]}),
         ),
         (
             "thread/items/list",
@@ -214,6 +218,9 @@ async fn history_paginates_turns_and_items_without_jsonl() {
             "answer-id",
             "old:turn/completed",
             "active:turn/started",
+            "restored-open",
+            "restored-closed",
+            "closed-tool",
         ]
     );
     assert_eq!(history.messages[2].tool_kind.as_deref(), Some("command"));
@@ -228,6 +235,15 @@ async fn history_paginates_turns_and_items_without_jsonl() {
     );
     assert_eq!(history.active_turn.as_deref(), Some("active"));
     assert_eq!(history.completed_turns, ["old"]);
+    assert_eq!(
+        history.open_items,
+        HashMap::from([("restored-open".into(), "active".into())])
+    );
+    let mut normalizer = history.normalizer("bound");
+    assert_eq!(
+        normalizer.finish_restored_turn("bound", "active"),
+        std::collections::HashSet::from(["restored-open".into()])
+    );
     assert!(outgoing.try_recv().is_err());
 }
 

@@ -144,7 +144,7 @@ export type InteractiveElement = InteractiveQuestion;
 
 export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg"> {
   id: string;
-  /** The id the source emitted before the transcript re-keyed the row; never a render key. */
+  /** An explicit source identity supplied by a projection adapter. */
   sourceMessageId?: string;
   type: ChatMessageKind;
   content: string;

@@ -1,0 +1,16 @@
+{
+  "event_id": "evt_00000000000000000000000006",
+  "event_type": "transaction.payment_failed",
+  "occurred_at": "2030-03-17T17:46:40Z",
+  "notification_id": "ntf_00000000000000000000000006",
+  "data": {
+    "id": "txn_tttttttttttttttttttttttttt",
+    "customer_id": "ctm_cccccccccccccccccccccccccc",
+    "subscription_id": "sub_ssssssssssssssssssssssssss",
+    "status": "past_due",
+    "billing_period": {
+      "starts_at": "2033-05-18T03:33:20Z",
+      "ends_at": "2036-07-18T13:20:00Z"
+    }
+  }
+}

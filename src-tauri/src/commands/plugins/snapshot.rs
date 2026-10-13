@@ -5,7 +5,7 @@ use super::cli::{read_audit_events, run_plugin_cli};
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
 /// only reports installed plugins with empty paths, so it can't surface capabilities
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
-fn scan_plugin_manifests(
+pub(super) fn scan_plugin_manifests(
 ) -> std::collections::HashMap<String, (std::path::PathBuf, Value, Option<String>)> {
     let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
     let roots = crate::plugin::js_runtime::default_roots(Some(workspace.as_path()));
@@ -96,6 +96,11 @@ fn enrich_from_manifest_with_icon(
         .filter_map(Value::as_str)
         .map(str::to_string)
         .collect();
+    let declared_network_allow = effective_network_allow.clone();
+    let network_requested = m
+        .get("permissions")
+        .and_then(|p| p.get("network"))
+        .is_some_and(Value::is_object);
     for host in &grants.network_allow {
         if !effective_network_allow.contains(host) {
             effective_network_allow.push(host.clone());
@@ -159,7 +164,19 @@ fn enrich_from_manifest_with_icon(
     if let Some(obj) = entry.as_object_mut() {
         remove_untrusted_plugin_icons(obj);
         obj.insert("capabilities".into(), cap_obj);
+        obj.insert(
+            "sensitive_permissions".into(),
+            super::permissions::permission_states(m, &grants),
+        );
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
+        obj.insert(
+            "network_requested".into(),
+            serde_json::json!(network_requested),
+        );
+        obj.insert(
+            "declared_network_allow".into(),
+            serde_json::json!(declared_network_allow),
+        );
         obj.insert(
             "network_allow".into(),
             serde_json::json!(grants.network_allow),
@@ -411,7 +428,7 @@ fn attach_load_errors(
 }
 
 fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
-    use codeterm_plugins::{update_availability, UpdateOffer, UpdateSource};
+    use codeterm_plugins::{update_availability, AvailabilityItem, UpdateOffer, UpdateSource};
     let Some(plugins) = plugins.as_array_mut() else {
         return;
     };
@@ -421,7 +438,6 @@ fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
         let channel = source["channel"].as_str();
         let update_source = match (plugin["state"].as_str(), source["kind"].as_str()) {
             (_, Some("dir")) => UpdateSource::Local,
-            (Some("bundled"), _) => UpdateSource::Unknown,
             (_, Some("channel" | "system_channel")) => channel
                 .map(UpdateSource::Channel)
                 .unwrap_or(UpdateSource::Unknown),
@@ -441,8 +457,19 @@ fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
             })
         });
         let decision = update_availability(plugin["version"].as_str(), update_source, offer);
+        let core = plugin["system"].as_bool() == Some(true);
+        let availability = AvailabilityItem::plugin(
+            id,
+            plugin["version"].as_str(),
+            row.and_then(|r| r["remote_version"].as_str()),
+            channel,
+            row.is_some_and(|r| r["compatible"].as_bool() == Some(true)),
+            core,
+            &decision,
+        );
         let update = serde_json::json!({
-            "available": decision.available,
+            "available": decision.available && !core,
+            "availability": availability,
             "reason": decision.reason,
             "channel": channel,
             "remote_version": row.and_then(|row| row["remote_version"].as_str()),
@@ -688,6 +715,36 @@ mod tests {
         );
         assert!(entry.get("icon_color").is_none());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn enrich_separates_declared_network_from_extra_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("grants.yaml"),
+            "network_allow:\n  - extra.example.test\n",
+        )
+        .unwrap();
+        let mut entry = serde_json::json!({ "id": "demo" });
+        enrich_from_manifest(
+            &mut entry,
+            dir.path(),
+            &serde_json::json!({
+                "permissions": { "network": { "allow": ["declared.example.test"] } }
+            }),
+        );
+        assert_eq!(entry["network_requested"], true);
+        assert_eq!(
+            entry["declared_network_allow"],
+            serde_json::json!(["declared.example.test"])
+        );
+        assert_eq!(
+            entry["effective_network_allow"],
+            serde_json::json!(["declared.example.test", "extra.example.test"])
+        );
+        enrich_from_manifest(&mut entry, dir.path(), &serde_json::json!({}));
+        assert_eq!(entry["network_requested"], false);
+        assert_eq!(entry["declared_network_allow"], serde_json::json!([]));
     }
 
     #[test]
@@ -957,5 +1014,27 @@ mod tests {
             serde_json::json!(false)
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod availability_regressions {
+    use super::*;
+
+    #[test]
+    fn same_versions_and_core_plugins_never_offer_actions() {
+        let mut plugins = serde_json::json!([
+            {"id":"lark", "version":"0.1.3", "system":false, "source":{"kind":"channel","channel":"store"}, "update":{"available":true}},
+            {"id":"core", "version":"0.1.2", "system":true, "state":"bundled", "source":{"kind":"system_channel","channel":"official"}, "update":{"available":true}}
+        ]);
+        let diff = serde_json::json!([
+            {"id":"lark","channel":"store","remote_version":"0.1.3","payload_version":"0.1.3","compatible":true,"drift":"hash_drift"},
+            {"id":"core","channel":"official","remote_version":"0.1.3","payload_version":"0.1.3","compatible":true,"drift":"update_available"}
+        ]);
+        reconcile_update_availability(&mut plugins, &diff);
+        assert_eq!(plugins[0]["update"]["available"], false);
+        assert_eq!(plugins[0]["update"]["availability"]["state"], "up_to_date");
+        assert_eq!(plugins[1]["update"]["available"], false);
+        assert_eq!(plugins[1]["update"]["availability"]["state"], "core_silent");
     }
 }

@@ -1,7 +1,7 @@
 import { returnToOrigin } from "../../lib/returnTo";
 import { useReturnToChat } from "../../hooks/useReturnToChat";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { BookOpen, LayoutGrid, Map as MapIcon, RotateCcw, X } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
@@ -814,15 +814,16 @@ export function CanvasViewInner({
       )}
       {showsData && filteredPlans.length > 0 && (
         <CanvasToolbar
-          scale={transform.scale}
           onZoomIn={() => zoomBy(0.2)}
           onZoomOut={() => zoomBy(-0.2)}
           onFit={fitView}
-          onReset={resetView}
-          onOverview={overviewPreset}
-          onRead={readPreset}
-          onToggleMinimap={() => setMinimapOn((v) => !v)}
-          minimapOn={minimapOn}
+          extras={<>
+            <span data-testid="canvas-zoom-level">{Math.round(transform.scale * 100)}%</span>
+            <button type="button" data-testid="canvas-zoom-reset" aria-label="Reset zoom" title="Reset zoom (100%)" className="ct-bar-pill" onClick={resetView}><RotateCcw size={14} aria-hidden="true" /></button>
+            <button type="button" data-testid="canvas-preset-overview" className="ct-bar-pill" onClick={overviewPreset}><LayoutGrid size={13} aria-hidden="true" />Overview</button>
+            <button type="button" data-testid="canvas-preset-read" className="ct-bar-pill" onClick={readPreset}><BookOpen size={13} aria-hidden="true" />Read</button>
+            <button type="button" data-testid="canvas-minimap-toggle" aria-label="Toggle minimap" aria-pressed={minimapOn} className="ct-bar-pill" onClick={() => setMinimapOn((v) => !v)}><MapIcon size={14} aria-hidden="true" /></button>
+          </>}
         />
       )}
       {legendFacets.length > 0 && showsData && filteredPlans.length > 0 && (

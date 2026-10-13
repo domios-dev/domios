@@ -8,7 +8,7 @@ impl PluginSandbox {
             return false;
         };
         roots.iter().any(|root| {
-            std::fs::canonicalize(root)
+            codeterm_util::project_roots::canonical_target(root)
                 .map(|r| target.starts_with(&r))
                 .unwrap_or(false)
         })

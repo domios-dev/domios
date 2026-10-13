@@ -15,7 +15,7 @@ test("missing entitlement explains the billing service's free fallback", () => {
 
 test("webhook provenance retains the exact source event", () => {
   assert.deepEqual(entitlementDiagnostics(entitlement), {
-    plan: "pro", status: "active", provenance: "Stripe webhook", eventId: "evt_fixture",
+    plan: "pro", status: "active", provenance: "Paddle webhook", eventId: "evt_fixture",
   });
 });
 

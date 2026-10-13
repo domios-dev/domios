@@ -3,11 +3,17 @@ use crate::service::ServiceState;
 // Chat UI mode — thin Tauri wrappers over the tab_chat service.
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatOffsetKind {
+    Bytes,
+    Items,
+}
+
+#[derive(serde::Serialize)]
 pub struct ChatStartResult {
     /// Vestigial raw-text channel; chat_start returns parsed `messages` today.
     pub text: String,
-    /// Byte offset where the parsed snapshot window begins. >0 means older
-    /// history exists below it — the client's `chat_backfill` paging cursor.
+    pub offset_kind: ChatOffsetKind,
     pub start_offset: u64,
     pub offset: u64,
     /// Agent provisioning is in flight; the tab boot state supplies its visible
@@ -129,6 +135,7 @@ fn chat_start_inner(
         }
         return Ok(ChatStartResult {
             text: String::new(),
+            offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
             offset: 0,
             pending: false,
@@ -148,6 +155,7 @@ fn chat_start_inner(
             crate::service::tab_chat::tab_chat_snapshot(svc, &tab_id, 0).unwrap_or_default();
         return Ok(ChatStartResult {
             text: String::new(),
+            offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
             offset: 0,
             pending: false,
@@ -167,6 +175,7 @@ fn chat_start_inner(
             if tab.agent_booting || tab.boot_stage.is_some() {
                 return Ok(ChatStartResult {
                     text: String::new(),
+                    offset_kind: ChatOffsetKind::Bytes,
                     start_offset: 0,
                     offset: 0,
                     pending: true,
@@ -185,6 +194,7 @@ fn chat_start_inner(
             if let Some(content) = tab.pending_greeting.clone() {
                 return Ok(ChatStartResult {
                     text: String::new(),
+                    offset_kind: ChatOffsetKind::Bytes,
                     start_offset: 0,
                     offset: 0,
                     pending: false,
@@ -204,6 +214,7 @@ fn chat_start_inner(
             }
             return Ok(ChatStartResult {
                 text: String::new(),
+                offset_kind: ChatOffsetKind::Bytes,
                 start_offset: 0,
                 offset: 0,
                 pending: true,
@@ -292,6 +303,7 @@ fn chat_start_inner(
         messages.extend(delta.messages);
         return Ok(ChatStartResult {
             text: String::new(),
+            offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
             offset: 0,
             pending: false,
@@ -348,6 +360,7 @@ fn chat_start_inner(
         }
         return Ok(ChatStartResult {
             text: String::new(),
+            offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
             offset: 0,
             pending: !archive_available,
@@ -467,6 +480,7 @@ fn chat_start_inner(
     Ok(ChatStartResult {
         // `[start_offset, offset)` is the record-bounded snapshot range the
         // client reconciles from; it pages older below start_offset.
+        offset_kind: ChatOffsetKind::Bytes,
         start_offset: snapshot_start,
         text: String::new(),
         offset: tailer_start_offset,
@@ -483,6 +497,7 @@ fn chat_start_inner(
 #[derive(serde::Serialize)]
 pub struct ChatBackfillResult {
     pub text: String,
+    pub offset_kind: ChatOffsetKind,
     pub start_offset: u64,
     pub end_offset: u64,
     /// Window parsed with the tab's own provider parser — same normalized
@@ -545,6 +560,7 @@ pub(crate) fn backfill_page(
         text,
         // `aligned_start` is the first complete record read, so the next page
         // ends there and parses the partial head this read dropped.
+        offset_kind: ChatOffsetKind::Bytes,
         start_offset: aligned_start,
         end_offset: page.end_offset,
         messages: crate::service::tab_chat::rich_rows_to_chat_msgs(&page.messages, aligned_start),

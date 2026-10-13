@@ -160,10 +160,11 @@ async function pluginNameAppearsOnceOnTheDetailPage() {
   />);
   const host = document.createElement("div");
   host.innerHTML = markup;
-  assert.ok(host.querySelector('[data-testid="extensions-plugin-view"] iframe'), "the plugin view is embedded");
+  assert.ok(host.querySelector('[data-testid="extensions-plugin-view"] [role="status"]'), "the embedded plugin view reports loading");
   const occurrences = (host.textContent ?? "").split(telegram.displayName).length - 1;
   assert.equal(occurrences, 1, "the plugin name is shown once, in the page heading");
   assert.equal(host.querySelector("h2")?.textContent, telegram.displayName, "the heading carries the name");
+  assert.equal(host.querySelector('[data-testid="extensions-allowed-hosts"]'), null, "plugins without manifest network permission hide network controls");
 }
 
 async function main() {

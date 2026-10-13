@@ -39,15 +39,20 @@ export function readTranscriptWindow(key: string): TranscriptWindow {
   return windows.get(key) ?? EMPTY_WINDOW;
 }
 
+function evictUnsubscribedWindows(protectedKey?: string): void {
+  for (const key of windows.keys()) {
+    if (windows.size <= MAX_TRANSCRIPT_WINDOWS) break;
+    if (key === protectedKey || (listeners.get(key)?.size ?? 0) > 0) continue;
+    windows.delete(key);
+    pendingSends.delete(key);
+    notifications.remove(key);
+  }
+}
+
 function publish(key: string, next: TranscriptWindow, coalesce = false): void {
   windows.delete(key);
   windows.set(key, next);
-  while (windows.size > MAX_TRANSCRIPT_WINDOWS) {
-    const oldest = windows.keys().next().value;
-    if (oldest == null || oldest === key) break;
-    windows.delete(oldest);
-    notifications.remove(oldest);
-  }
+  evictUnsubscribedWindows(key);
   if (coalesce && typeof globalThis.requestAnimationFrame === "function") notifications.enqueue(key);
   else notifications.immediate(key);
 }
@@ -119,17 +124,15 @@ export function resetTranscriptWindow(key: string, preserveAnchor = false): void
   });
 }
 
-export function replaceTranscriptWindow(
+export function reconcileTranscriptWindow(
   key: string,
   batch: TranscriptBatch,
-  preserveAnchor: boolean,
 ): TranscriptOutcome {
   const current = readTranscriptWindow(key);
-  const initial = createTranscriptState();
-  const { state, outcome } = reduceTranscript(initial, batch);
+  const { state, outcome } = reduceTranscript(current.transcript, batch);
   publish(key, {
-    transcript: batch.rows.length === 0 ? initial : state,
-    anchorKey: preserveAnchor ? current.anchorKey : null,
+    transcript: state,
+    anchorKey: outcome === "rotated" ? null : current.anchorKey,
   });
   return outcome;
 }
@@ -149,7 +152,10 @@ function subscribe(key: string, onChange: () => void): () => void {
   listeners.set(key, existing);
   return () => {
     existing.delete(onChange);
-    if (existing.size === 0) listeners.delete(key);
+    if (existing.size === 0) {
+      listeners.delete(key);
+      evictUnsubscribedWindows();
+    }
   };
 }
 

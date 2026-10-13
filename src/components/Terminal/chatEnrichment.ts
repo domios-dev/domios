@@ -36,7 +36,7 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
       return { msg, item: { kind: "message" as const, message: msg }, origin: prefix.origin };
     });
   }
-  const prefix = detectChatPrefix(raw.content);
+  const prefix = splitPrefixes?.length === 1 ? splitPrefixes[0] : detectChatPrefix(raw.content);
   const content = prefix?.body ?? stripPastedContentTags(raw.content);
   const m = content === raw.content ? raw : { ...raw, content };
   const item =
