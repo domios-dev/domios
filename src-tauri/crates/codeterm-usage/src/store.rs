@@ -114,9 +114,26 @@ impl UsageStore {
     }
 
     pub fn insert_snapshot(&self, snapshot: &UsageSample) -> Result<i64, String> {
+        self.insert_sample(snapshot, false)
+    }
+
+    pub fn insert_runtime_snapshot(&self, snapshot: &UsageSample) -> Result<i64, String> {
+        self.insert_sample(snapshot, true)
+    }
+
+    fn insert_sample(
+        &self,
+        snapshot: &UsageSample,
+        validated_runtime: bool,
+    ) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
-        let id = if let Some(reason) = suspicious_snapshot_reason(&tx, snapshot)? {
+        let rejection = if validated_runtime {
+            None
+        } else {
+            suspicious_snapshot_reason(&tx, snapshot)?
+        };
+        let id = if let Some(reason) = rejection {
             insert_rejected_snapshot(&tx, snapshot, &reason, None)?
         } else {
             insert_header(&tx, snapshot)?
@@ -998,5 +1015,44 @@ mod tests {
         assert_eq!(n, 1);
         let hist = store.get_history("claude", 0, 10, None).unwrap();
         assert_eq!(hist.len(), 1);
+    }
+    #[test]
+    fn validated_runtime_snapshots_accept_extremes_without_text_probe_heuristics() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let previous = codex_snapshot(1000, 20.0, 40.0, 5000, 9000);
+        store.insert_snapshot(&previous).unwrap();
+        let full = codex_snapshot(2000, 100.0, 100.0, 9000, 9000);
+        store.insert_runtime_snapshot(&full).unwrap();
+        let zero = codex_snapshot(3000, 0.0, 0.0, 4000, 8000);
+        store.insert_runtime_snapshot(&zero).unwrap();
+        let rows = store.get_history(&previous.provider, 0, 10, None).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows
+            .iter()
+            .all(|row| row.parsed_ok && row.failure_reason.is_none()));
+        assert_eq!(rows[0].session_pct, Some(0.0));
+        assert_eq!(rows[1].session_pct, Some(100.0));
+        assert_eq!(
+            store
+                .get_latest(&previous.provider, None)
+                .unwrap()
+                .unwrap()
+                .captured_at,
+            3000
+        );
+    }
+
+    #[test]
+    fn runtime_snapshots_share_retention_with_probe_snapshots() {
+        let store = UsageStore::open_in_memory_with_cap(2).unwrap();
+        let sample = make_snapshot(1000);
+        store.insert_snapshot(&sample).unwrap();
+        store.insert_runtime_snapshot(&make_snapshot(2000)).unwrap();
+        store.insert_runtime_snapshot(&make_snapshot(3000)).unwrap();
+        let rows = store.get_history(&sample.provider, 0, 10, None).unwrap();
+        assert_eq!(
+            rows.iter().map(|row| row.captured_at).collect::<Vec<_>>(),
+            vec![3000, 2000]
+        );
     }
 }
