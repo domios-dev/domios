@@ -416,3 +416,21 @@ mod tests {
         assert!(validate_initiating_tab(None, None).is_ok());
     }
 }
+
+pub async fn availability(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<CheckUpdateQuery>,
+    bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
+) -> Result<Json<crate::update::discovery::AvailabilitySnapshot>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
+    crate::update::discovery::check(
+        &state.svc.app_handle,
+        &state.update_state,
+        bundles.map(|b| b.0),
+        q.force.unwrap_or(false),
+    )
+    .await
+    .map(Json)
+    .map_err(|error| (StatusCode::BAD_GATEWAY, error))
+}

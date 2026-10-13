@@ -7,6 +7,7 @@ pub(crate) fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::B
         clipboard_files::read_clipboard_files,
         clipboard_files::read_clipboard_text,
         commands::check_for_update,
+        commands::check_update_availability,
         commands::install_app_update,
         commands::get_update_status,
         commands::open_folder,
