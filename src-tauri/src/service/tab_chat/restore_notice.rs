@@ -1,22 +1,22 @@
 use crate::agent::chat_types::ChatMsg;
 use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
 
-pub(crate) fn append_restore_notice(tab_id: &str, messages: &mut Vec<ChatMsg>) {
-    let load = TabLifecycleJournal::shared().load();
+pub(crate) fn append_restore_notice(
+    journal: &TabLifecycleJournal,
+    tab_id: &str,
+    messages: &mut Vec<ChatMsg>,
+) {
+    let load = journal.load();
     append_from_journal(&load, tab_id, messages);
 }
 
 pub(crate) fn snapshot(
+    journal: &TabLifecycleJournal,
     tab_id: &str,
     messages: Vec<ChatMsg>,
     since: usize,
 ) -> (Vec<ChatMsg>, usize) {
-    snapshot_from_journal(
-        &TabLifecycleJournal::shared().load(),
-        tab_id,
-        messages,
-        since,
-    )
+    snapshot_from_journal(&journal.load(), tab_id, messages, since)
 }
 
 fn snapshot_from_journal(

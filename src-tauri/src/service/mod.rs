@@ -305,6 +305,7 @@ mod configuration;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
     #[cfg(test)]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
     pub account: Arc<tokio::sync::OnceCell<Arc<codeterm_account::Account>>>,

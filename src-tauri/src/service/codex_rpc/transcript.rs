@@ -250,6 +250,7 @@ pub fn emit(svc: &ServiceContext, tab: &str, thread: &str, message: ChatMsg) {
         .get_tab(tab)
         .and_then(|tab| tab.session_binding_nonce.clone());
     crate::service::tab_chat::structured_sink::make_sink(
+        svc.lifecycle_journal.clone(),
         svc.app_handle.clone(),
         svc.mux.clone(),
         Some(thread.into()),

@@ -227,6 +227,9 @@ impl ServiceFixture {
         );
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
         let service = ServiceContext {
+            lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
+                data_dir.join("sessions"),
+            )),
             ready_user_send_tasks: Arc::new(TestReadySendTasks::default()),
             workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
             account: Arc::new(tokio::sync::OnceCell::new()),
@@ -479,5 +482,55 @@ mod tests {
         })
         .join()
         .unwrap();
+    }
+
+    #[test]
+    fn fixture_journals_isolate_identical_tabs_through_compaction_and_inspection() {
+        use crate::multiplexer::types::AgentRole;
+        use crate::session::lifecycle::{JournalRecord, LifecycleTransition};
+        let (mux, tab_id) = MultiplexerState::new();
+        let snapshot = mux.to_session_snapshot();
+        let first = ServiceFixture::new(mux);
+        let second = ServiceFixture::new(MultiplexerState::from_session_snapshot(&snapshot));
+        first.service.mux.write().get_tab_mut(&tab_id).unwrap().role = Some(AgentRole::Worker);
+        second
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .role = Some(AgentRole::Planner);
+        let first_key = first.service.open_lifecycle_epoch(&tab_id).unwrap();
+        assert!(second.service.lifecycle_journal.load().records.is_empty());
+        let second_key = second.service.open_lifecycle_epoch(&tab_id).unwrap();
+        assert_ne!(first_key, second_key);
+        let records = second.service.lifecycle_journal.load().records;
+        assert!(records.iter().any(|record| matches!(record,
+            JournalRecord::Transition { entry } if matches!(&entry.transition,
+                LifecycleTransition::RoleBinding { role: Some(role), .. } if role == "Planner"
+            )
+        )));
+        first.service.lifecycle_journal.compact().unwrap();
+        assert_eq!(second.service.lifecycle_journal.load().records, records);
+        let inspected = crate::dispatch::dispatch(
+            &crate::dispatch::Command::TabInspect {
+                tab_ids: vec![tab_id],
+                lifecycle: true,
+            },
+            &second.service,
+        )
+        .unwrap()
+        .into_json();
+        assert_eq!(
+            inspected[0]["lifecycle"]["transitions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(Arc::ptr_eq(
+            &second.service.lifecycle_journal,
+            &second.service.clone().lifecycle_journal
+        ));
     }
 }
