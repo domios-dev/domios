@@ -817,11 +817,14 @@ function runtimeReduce(ctx, raw, frames) {
       continue;
     }
     switch (frame.method) {
-      case "turn/started":
+      case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
         state.activeTurnId = turnId;
+        const settings = codexReportedSettings({ ...params, ...object(params.turn) });
+        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
         events.push({ kind: "turnState", threadId, turnId, state: "working", ...timing(params) });
         break;
+      }
       case "turn/completed": {
         if (!turnId || state.completed.includes(turnId)) break;
         state.completed.push(turnId);
@@ -1015,7 +1018,7 @@ function runtimePlan(ctx, op) {
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
       if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
-      const settings = op.action === "settings" ? object(op.value) : { ...ctx.settings, [op.action]: op.value };
+      const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
       const parsed = settings;
       return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
@@ -1076,8 +1079,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     }
     case "control": {
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
-      const reported = state.stage === "thread/settings/update" ? codexReportedSettings(value) : {};
-      return { kind: "complete", result: { kind: "done" }, ...Object.keys(reported).length ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
+      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
     }
     case "answer":
     case "answerQuestion":
