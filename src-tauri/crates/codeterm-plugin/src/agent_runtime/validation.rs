@@ -472,6 +472,26 @@ pub fn validate_runtime_reduction(
         .map(|turn| turn.thread_id.clone())
         .collect();
     for event in &reduction.events {
+        if let AgentRuntimeEvent::AuthLogin { login } = event {
+            if login.login_id.as_ref().is_some_and(|id| !identifier(id))
+                || login
+                    .user_code
+                    .as_ref()
+                    .is_some_and(|code| !identifier(code))
+                || login
+                    .error
+                    .as_ref()
+                    .is_some_and(|error| error.len() > 65536)
+                || login.url.as_ref().is_some_and(|url| {
+                    url.len() > 16384
+                        || !url.starts_with("https://")
+                        || url.contains(['\r', '\n', '\0'])
+                })
+            {
+                return Err(invalid("invalid login event"));
+            }
+            continue;
+        }
         if let AgentRuntimeEvent::Auth { detail, .. } = event {
             if detail.as_ref().is_some_and(|s| s.len() > 65536) {
                 return Err(invalid("auth detail exceeds bound"));
@@ -537,7 +557,9 @@ pub fn validate_runtime_reduction(
             continue;
         }
         let thread = match event {
-            AgentRuntimeEvent::RateLimits { .. } | AgentRuntimeEvent::Auth { .. } => continue,
+            AgentRuntimeEvent::RateLimits { .. }
+            | AgentRuntimeEvent::Auth { .. }
+            | AgentRuntimeEvent::AuthLogin { .. } => continue,
             AgentRuntimeEvent::ChatItem { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));

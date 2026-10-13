@@ -345,6 +345,9 @@ pub enum RuntimeTurnState {
     deny_unknown_fields
 )]
 pub enum AgentRuntimeEvent {
+    AuthLogin {
+        login: RuntimeLoginState,
+    },
     Auth {
         state: RuntimeAuthState,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -524,4 +527,28 @@ mod tests {
             .is_err()
         );
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeLoginState {
+    pub status: RuntimeLoginStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<super::RuntimeLoginMethod>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeLoginStatus {
+    Pending,
+    Completed,
+    Failed,
+    Canceled,
 }

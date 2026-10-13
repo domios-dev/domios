@@ -1,8 +1,11 @@
+import { RuntimeLoginActions } from "./RuntimeLoginActions";
 import { runtimeBannerView, type AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { ChatStatusBanner } from "./ChatSetupState";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 
-export function AgentRuntimeBanner({ state, onRetry }: { state: AgentRuntimeState | null; onRetry: () => void }) {
+export function AgentRuntimeBanner({ state, onRetry, tabId }: { tabId?:string; state: AgentRuntimeState | null; onRetry: () => void }) {
+  if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) return <ChatStatusBanner
+    title="Sign-in required" reason={null} action={<div className="flex items-center gap-2"><RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} /><button type="button" disabled={state.login?.status === "pending"} onClick={onRetry}>Check sign-in</button></div>} />;
   const view = runtimeBannerView(state);
   if (!view) return null;
   return <ChatStatusBanner title={view.loading ? "Recovering agent runtime" : "Agent runtime unavailable"}

@@ -65,6 +65,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
                 args: Vec::new(),
             },
             inherited_environment_exclusions: Vec::new(),
+            login: None,
             request_methods: Default::default(),
             notification_methods: Vec::new(),
         });

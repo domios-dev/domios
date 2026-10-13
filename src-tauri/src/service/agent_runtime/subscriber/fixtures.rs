@@ -53,6 +53,7 @@ impl AgentProvider for Adapter {
                 args: Vec::new(),
             },
             inherited_environment_exclusions: Vec::new(),
+            login: None,
             request_methods: std::collections::BTreeMap::from([(
                 "control".into(),
                 vec!["fixture/restore".into()],
@@ -165,6 +166,7 @@ pub(super) fn scene() -> Scene {
         completions: Mutex::new(Default::default()),
         state: Mutex::new(state),
         cache: Mutex::new(Default::default()),
+        login: Mutex::new(Default::default()),
         auth: Mutex::new(RuntimeAuthState::Unknown),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
         hook_state: Mutex::new(Value::Null),

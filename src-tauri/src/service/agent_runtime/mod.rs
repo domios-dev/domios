@@ -11,6 +11,7 @@ mod initialize;
 mod launch_options;
 #[cfg(unix)]
 pub(crate) mod lease;
+pub mod login;
 pub mod model;
 #[cfg(any(unix, test))]
 mod ownership;
