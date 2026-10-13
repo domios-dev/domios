@@ -219,7 +219,8 @@ mod tests {
             window("other", 97.0, 60),
         ];
         let sample = rate_sample("fixture", &windows, 1234);
-        let store = crate::usage::UsageStore::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::usage::UsageStore::open(dir.path()).unwrap();
         store.insert_runtime_snapshot(&sample).unwrap();
         let row = store.get_latest("fixture", None).unwrap().unwrap();
         assert_eq!(row.captured_at, 1234);

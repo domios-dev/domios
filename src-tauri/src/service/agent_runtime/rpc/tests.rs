@@ -122,11 +122,12 @@ async fn stdout_eof_fails_inflight_while_peer_stdin_remains_open() {
         peer_write.shutdown().await.unwrap();
         peer_read
     };
-    let request = client.request(&RpcCall {
+    let call = RpcCall {
         method: "fixture/submit".into(),
         params: json!({"input":"opaque"}),
         target: None,
-    });
+    };
+    let request = client.request(&call);
     let (result, peer_stdin) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(request, server)
     })
