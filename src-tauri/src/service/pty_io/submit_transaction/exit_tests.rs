@@ -59,7 +59,7 @@ impl SubmitTransport for ExitingProvider {
 fn agent_restart_provider_exit_ends_submit_without_confirmation_timeout() {
     let claim = claim_exit_submit_cycle("restart-provider-exit");
     let (sender, receiver) = sync_channel(1);
-    claim.cycle.install_waiter(claim.generation, sender);
+    claim.payload_enqueued(sender);
     let provider = ExitingProvider {
         claim,
         receiver,
@@ -94,6 +94,8 @@ fn agent_restart_provider_exit_ends_submit_without_confirmation_timeout() {
 #[test]
 fn agent_restart_provider_exit_before_wait_registration_is_retained() {
     let claim = claim_exit_submit_cycle("restart-exit-before-wait");
+    let (sender, _) = sync_channel(1);
+    claim.payload_enqueued(sender);
     notify_submit_cycle_provider_exit(claim.pty_id());
     let (sender, receiver) = sync_channel(1);
     claim.cycle.install_waiter(claim.generation, sender);
@@ -111,7 +113,11 @@ fn agent_restart_provider_exit_before_wait_registration_is_retained() {
 #[test]
 fn agent_restart_exit_observer_does_not_cancel_a_newer_chat_send() {
     let exit = claim_exit_submit_cycle("restart-exit-superseded");
+    let (sender, _) = sync_channel(1);
+    exit.payload_enqueued(sender);
     let chat = claim_submit_cycle(exit.pty_id());
+    let (sender, _) = sync_channel(1);
+    chat.payload_enqueued(sender);
     notify_submit_cycle_provider_exit(exit.pty_id());
     assert!(!exit.provider_exited());
     assert!(chat.is_current());

@@ -361,10 +361,14 @@ impl crate::service::ServiceContext {
             }
         }
         drop(reservation);
-        self.wake_user_owner(
-            &tab,
-            super::super::parked_user_delivery::UserWake::Admission,
-        );
+        if !record.held_before_readiness && self.user_authority_is_ready(&record.authority) {
+            self.dispatch_ready_user_send(&record);
+        } else {
+            self.wake_user_owner(
+                &tab,
+                super::super::parked_user_delivery::UserWake::Admission,
+            );
+        }
         Ok((status, path))
     }
 

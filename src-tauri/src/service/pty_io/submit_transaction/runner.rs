@@ -132,7 +132,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
-    if let Err(error) = transport.dialog_guard() {
+    if let Err(error) = transport.prewrite_guard() {
         if matches!(error, InjectionError::AgentTuiPresent { .. }) {
             log::info!("[submit-transaction] automatic submit stopped: provider dialog detected before paste");
         }

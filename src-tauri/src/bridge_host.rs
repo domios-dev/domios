@@ -100,24 +100,9 @@ impl BridgeTabPort for ServiceBridgeTabPort {
             return self.0.chatbackend_send(&plugin_id, &session_id, prefixed);
         }
 
-        let pty_id = self.0.resolve_pty_id(tab_id)?;
-        let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
         self.0
-            .pty
-            .lock()
-            .write(&pty_id, paste.as_bytes())
-            .map_err(|e| e.to_string())?;
-
-        let pty = self.0.pty.clone();
-        let pty_id = pty_id.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            let _ = pty.lock().write(&pty_id, b"\r");
-            std::thread::sleep(std::time::Duration::from_millis(2000));
-            let _ = pty.lock().write(&pty_id, b"\r");
-        });
-
-        Ok(())
+            .start_chat_send(tab_id, prefixed.to_string(), None, None)
+            .map(|_| ())
     }
 
     fn queue_inbound(&self, tab_id: &str, prefixed: String) {
