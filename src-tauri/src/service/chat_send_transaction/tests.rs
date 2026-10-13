@@ -462,39 +462,32 @@ fn typed_follow_up_is_part_of_exact_chat_turn_evidence() {
 }
 
 #[test]
-fn provider_normalized_user_turn_confirms_chat_send() {
+fn lossy_provider_text_does_not_confirm_chat_send() {
     let ledger = ChatSendLedger::default();
-    let normalization = crate::agent::provider::TurnEvidenceNormalization {
-        unwrap_pasted_content_wrapper: true,
-        collapse_horizontal_whitespace: true,
-        drop_supplementary_characters: false,
-        drop_line_breaks: false,
-    };
     let pending = ledger
         .try_start_scoped_with_normalization(
             "tab-1",
             "name\tvalue\n\talpha\tbeta",
             None,
-            Some(SendLiveBinding {
-                session_id: Some("session-1".into()),
-                binding_nonce: Some("binding-1".into()),
-            }),
-            normalization,
+            None,
+            crate::agent::provider::TurnEvidenceNormalization {
+                collapse_horizontal_whitespace: true,
+                ..Default::default()
+            },
         )
         .unwrap();
     ledger.finish(&pending.send_id, Ok(())).unwrap();
-
+    assert!(ledger
+        .confirm_delivered_user_turn("tab-1", "session-1", "name value\n alpha beta")
+        .is_none());
     let confirmed = ledger
-            .confirm_delivered_user_turn_scoped(
-                "tab-1",
-                "session-1",
-                Some("binding-1"),
-                "<pasted_content id=\"4\">\nname      value\n        alpha    beta\n</pasted_content id=\"4\">",
-            )
-            .expect("the provider-normalized exact user turn confirms its send");
-
+        .confirm_delivered_user_turn(
+            "tab-1",
+            "session-1",
+            "prefix\nname\tvalue\r\n\talpha\tbeta\nsuffix",
+        )
+        .unwrap();
     assert_eq!(confirmed.send_id, pending.send_id);
-    assert_eq!(confirmed.state, ChatSendState::Sent);
 }
 
 #[test]
@@ -936,3 +929,5 @@ fn failed_user_admission_restore_is_retried_before_next_reservation() {
     assert_ne!(first.0, second.0);
     assert_eq!(second.1, first.1 + 1);
 }
+
+mod receipt_tests;

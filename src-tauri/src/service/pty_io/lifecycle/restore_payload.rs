@@ -2,24 +2,20 @@ use crate::multiplexer::types::{
     PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
 };
 
-pub(super) fn requires_pending_input(record: Option<&PendingDeliveryRecord>) -> bool {
-    record.is_some_and(|record| {
-        record.channel == PendingDeliveryChannel::InteractiveInput
-            && record.state() == PendingDeliveryState::Pending
-            && record.attempt_provenance().is_none()
-    })
+pub(in crate::service::pty_io) fn resolve_restored_payload(
+    _record: Option<&PendingDeliveryRecord>,
+) -> Result<Option<String>, String> {
+    Ok(None)
 }
 
-pub(in crate::service::pty_io) fn resolve_restored_payload(
-    record: Option<&PendingDeliveryRecord>,
-) -> Result<Option<String>, String> {
-    if !requires_pending_input(record) {
-        return Ok(None);
+pub(super) fn retain_without_replay(record: Option<&mut PendingDeliveryRecord>) {
+    if let Some(record) = record {
+        if record.channel == PendingDeliveryChannel::InteractiveInput
+            && record.state() == PendingDeliveryState::Pending
+        {
+            record.mark_unconfirmed();
+        }
     }
-    Err(
-        "restored_input_pending: Pending input is retained; automatic restore cannot replay it"
-            .into(),
-    )
 }
 
 #[derive(Clone)]

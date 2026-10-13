@@ -1,6 +1,6 @@
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence_with, ChatSendStatus, DeferredFirstTurnCandidate,
+    contains_written_payload, ChatSendStatus, DeferredFirstTurnCandidate,
 };
 use crate::service::ServiceContext;
 
@@ -87,7 +87,7 @@ pub(super) fn reconcile(svc: &ServiceContext, tab_id: &str) -> Vec<(ChatSendStat
         let Some(turn) = first_session_user_turn(&svc.agent_registry, &binding) else {
             continue;
         };
-        if normalize_turn_evidence_with(&turn, candidate.turn_normalization) != candidate.payload
+        if !contains_written_payload(&turn, &candidate.payload)
             || current_session_binding(svc, tab_id, &candidate).is_none_or(|current| {
                 current.session_id != binding.session_id
                     || current.binding_nonce != binding.binding_nonce
