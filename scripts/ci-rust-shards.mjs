@@ -1,0 +1,125 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+
+const classifier = 'scripts/ci-test-classifier/Cargo.toml';
+const manifests = ['src-tauri/Cargo.toml', 'cli/Cargo.toml'];
+const jsonCommand = (args) => JSON.parse(execFileSync('cargo', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
+const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
+export function classifyInventory(inventory, sources) {
+  const rows = [];
+  for (const suite of Object.values(inventory['rust-suites'])) {
+    if (suite.status !== 'listed') throw new Error(`Unlisted binary: ${suite['binary-id']}`);
+    const definitions = sources[suite['binary-id']];
+    if (!definitions) throw new Error(`No source root: ${suite['binary-id']}`);
+    for (const [name, test] of Object.entries(suite.testcases)) {
+      const matches = definitions.filter((entry) => entry.scope ? name.startsWith(entry.name) : name === entry.name || name.startsWith(`${entry.name}::`));
+      if (!matches.length) throw new Error(`Unclassified test: ${suite['binary-id']} ${name}`);
+      if (test.ignored) throw new Error(`Ignored test requires an explicit owner decision: ${suite['binary-id']} ${name}`);
+      rows.push({ id: `${suite['binary-id']}::${name}`, binary: suite['binary-name'], package: suite['package-name'], name, platform: matches.some((entry) => entry.platform) });
+    }
+  }
+  return rows;
+}
+
+export function filterFor(rows, mode) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = JSON.stringify([row.package, row.binary]);
+    if (!groups.has(key)) groups.set(key, []);
+    if (row.platform) groups.get(key).push(regexEscape(row.name));
+  }
+  return [...groups].map(([key, names]) => {
+    const [pkg, binary] = JSON.parse(key);
+    if (!/^[\w-]+$/.test(pkg) || !/^[\w-]+$/.test(binary)) throw new Error('Unsupported Cargo target name');
+    const gated = names.length ? `test(/^(?:${names.join('|')})$/)` : 'none()';
+    return `(package(=${pkg}) & binary(=${binary}) & ${mode === 'shared' ? `not (${gated})` : gated})`;
+  }).join(' | ') || 'none()';
+}
+
+export function verifyCoverage(receipts, shards = 12) {
+  if (receipts.length !== shards + 3) throw new Error('Missing shard or platform receipt');
+  const platforms = receipts.filter((r) => r.mode === 'platform');
+  if (new Set(platforms.map((r) => r.os)).size !== 3 || !['Linux', 'macOS', 'Windows'].every((os) => platforms.some((r) => r.os === os))) throw new Error('Missing native OS');
+  if (new Set(receipts.map((r) => r.sha)).size !== 1) throw new Error('Mixed source SHAs');
+  if (receipts.some((r) => r.exit !== 0)) throw new Error('Failed test job');
+  const expected = platforms[0].all.filter((r) => !r.platform).map((r) => r.id).sort();
+  if (!expected.length) throw new Error('Empty shared inventory');
+  for (const receipt of receipts) {
+    const shared = receipt.all.filter((r) => !r.platform).map((r) => r.id).sort();
+    if (JSON.stringify(shared) !== JSON.stringify(expected)) throw new Error(`Shared inventory differs on ${receipt.runner}`);
+    if (receipt.mode === 'platform') {
+      const native = receipt.all.filter((r) => r.platform).map((r) => r.id).sort();
+      if (JSON.stringify([...receipt.selected].sort()) !== JSON.stringify(native)) throw new Error('Incomplete native coverage');
+    }
+  }
+  const workers = receipts.filter((r) => r.mode === 'shared');
+  if (workers.length !== shards || new Set(workers.map((r) => r.shard)).size !== shards || workers.some((r) => r.shard < 1 || r.shard > shards)) throw new Error('Duplicate or invalid shard');
+  const actual = workers.flatMap((r) => r.selected).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Shared tests omitted, duplicated, or misclassified');
+  return receipts.map((r) => `| ${r.mode === 'shared' ? `shard ${r.shard}/${shards}` : r.os} | ${r.runner} | ${r.os} | ${r.selected.length} | ${r.seconds.toFixed(1)} s |`).join('\n');
+}
+
+function run(mode, shard, total) {
+  if (!['shared', 'platform'].includes(mode) || !Number.isInteger(shard) || !Number.isInteger(total) || shard < 1 || shard > total) throw new Error('Invalid mode/partition');
+  delete process.env.CODETERM_CONPTY_DIR;
+  delete process.env.CODETERM_PLAN_ID;
+  delete process.env.CODETERM_TASK_ID;
+  process.env.CODETERM_CONPTY_TEST_ISOLATION = '1';
+  const start = performance.now();
+  const receipt = { mode, shard, runner: process.env.RUNNER_NAME, os: process.env.RUNNER_OS, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), all: [], selected: [], exit: 1, seconds: 0 };
+  fs.mkdirSync('ci-rust-receipts', { recursive: true });
+  try {
+    for (const manifest of manifests) {
+      const targets = manifest.startsWith('src-tauri') ? ['--lib'] : [];
+      const common = ['--manifest-path', manifest, '--workspace', '--locked', ...targets];
+      const metadata = jsonCommand(['metadata', '--manifest-path', manifest, '--no-deps', '--format-version', '1']);
+      const inventory = jsonCommand(['nextest', 'list', ...common, '--ignore-default-filter', '--message-format', 'json']);
+      if (manifest.startsWith('src-tauri')) execFileSync('cargo', ['build', '--locked', '--manifest-path', manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
+      const sources = {};
+      for (const suite of Object.values(inventory['rust-suites'])) {
+        const pkg = metadata.packages.find((p) => p.id === suite['package-id']);
+        const target = pkg?.targets.find((t) => t.name === suite['binary-name'] && (suite.kind === 'lib' ? t.kind.some((k) => ['lib', 'rlib', 'cdylib', 'staticlib'].includes(k)) : t.kind.includes(suite.kind)));
+        if (!target) throw new Error(`No Cargo source target: ${suite['binary-id']}`);
+        sources[suite['binary-id']] = jsonCommand(['run', '--quiet', '--locked', '--manifest-path', classifier, '--', target.src_path]);
+      }
+      const rows = classifyInventory(inventory, sources);
+      receipt.all.push(...rows);
+      const filter = filterFor(rows, mode);
+      const partition = mode === 'shared' ? ['--partition', `hash:${shard}/${total}`] : [];
+      const config = path.resolve('ci-rust-receipts', 'selection.toml');
+      fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\ntest-threads = 4\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
+      const selected = jsonCommand(['nextest', 'list', ...common, '--config-file', config, ...partition, '--message-format', 'json']);
+      for (const suite of Object.values(selected['rust-suites'])) {
+        for (const [name, test] of Object.entries(suite.testcases)) {
+          if (test['filter-match'].status === 'matches') receipt.selected.push(`${suite['binary-id']}::${name}`);
+        }
+      }
+      // Listener lifecycle cases need a process boundary without concurrent fork holders (#620).
+      for (const listener of [false, true]) {
+        const isolation = 'test(/startup::rest_api::tests::/)';
+        fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${filter}) & ${listener ? isolation : `not (${isolation})`}`)}\nretries = 0\ntest-threads = ${listener ? 1 : 4}\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
+        console.log(`[${mode} ${shard}/${total} runner=${receipt.runner}] ${manifest} listener=${listener}`);
+        const result = spawnSync('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...common, '--config-file', config, ...partition, '--no-tests=pass', '--failure-output', 'immediate-final'], { stdio: 'inherit', env: { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' } });
+        if (result.error || result.status !== 0) throw new Error(`Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}: ${result.error || result.status}`);
+      }
+    }
+    receipt.exit = 0;
+  } finally {
+    receipt.seconds = (performance.now() - start) / 1000;
+    const output = path.join('ci-rust-receipts', `${mode}-${mode === 'shared' ? shard : receipt.os}.json`);
+    fs.writeFileSync(output, JSON.stringify(receipt, null, 2));
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${mode} ${shard}/${total}: **${receipt.runner}** (${receipt.os}), ${receipt.seconds.toFixed(1)} s, ${receipt.selected.length} tests, exit ${receipt.exit}\n`);
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  if (process.argv[2] === 'verify') {
+    const receipts = fs.readdirSync(process.argv[3]).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(process.argv[3], f))));
+    const table = `| Job | Runner | OS | Tests | Duration |\n| --- | --- | --- | ---: | ---: |\n${verifyCoverage(receipts)}\n`;
+    console.log(table);
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, table);
+  } else run(process.argv[2], Number(process.argv[3] || 1), Number(process.argv[4] || 1));
+}

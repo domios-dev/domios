@@ -2,7 +2,7 @@
 param(
     [string]$RepoUrl = "https://github.com/rollacode/codeterm",
     [string]$RunnerName = "ROG-windows-build",
-    [string]$Labels = "self-hosted,Windows,X64,rog,windows-build,codeterm,tauri,msvc",
+    [string]$Labels = "self-hosted,Windows,X64,rog,windows-build,codeterm,tauri,msvc,windows-ci,rust-shard",
     [string]$RunnerRoot = "$env:USERPROFILE\actions-runner",
     [string]$ToolsRoot = "$env:USERPROFILE\tools",
     [string]$WorkFolder = "_work",

@@ -4,7 +4,7 @@ One `release-X.Y.Z` tag starts a single `.github/workflows/release.yml` run. Its
 platform jobs run in parallel; the final manifest job publishes and verifies only after they all
 succeed. Nothing is cross-built where a native runner exists.
 
-## Build farm (3 self-hosted runners)
+## Build farm
 
 | Runner | Machine | Workflow | Builds |
 |--------|---------|----------|--------|
@@ -15,6 +15,31 @@ succeed. Nothing is cross-built where a native runner exists.
 | **`windows-ci`** | ROG and BLACKSTAR-windows-x64 | `tests.yml` Windows lib and CLI jobs | test pool only; release packaging keeps `windows-build` (arm64 on ROG) and `windows-x64-build` (x64 on BLACKSTAR) |
 
 Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `fmt` ask for `light` and run on any free one; the heavy Rust jobs start only after `fmt` passes.
+
+Rust test distribution uses the generic `rust-shard` label on one qualified runner on
+**each** machine: eight, air, ubunta, ROG, BLACKSTAR and green. New machines join
+this pool after provisioning the native Rust/app dependencies, Git Bash on Windows,
+PowerShell, and Node. Keep the OS labels alongside it. Do not add a machine name or
+OS to the shared shard job: twelve nextest hash partitions are queued together,
+and any idle qualified runner takes the next one. Native `linux-ci`, `macOS`, and
+`windows-ci` jobs execute the cfg-gated tests for their OS.
+
+Registration: include `rust-shard` in `config.sh --labels` / `config.cmd --labels`
+alongside the existing custom labels; the Windows bootstrap defaults include it.
+For an already registered runner, add it without replacing the other labels:
+`gh api --method POST repos/rollacode/codeterm/actions/runners/<runner-id>/labels -f 'labels[]=rust-shard'`.
+Verify the repository runner inventory lists at least one online pool member per
+machine before dispatching `gh workflow run tests.yml --ref ci/<branch>`.
+
+The classifier in `scripts/ci-test-classifier` follows Rust source modules and
+inherited cfg gates, including platform cfg attributes inside test bodies.
+`ci-rust-shards.mjs` joins this with nextest's compiled inventory for workspace
+libraries and CLI test targets. Unknown tests and ignored cases fail explicitly.
+The coverage job requires all fifteen successful receipts, identical shared
+inventories across every OS, and exactly one shard execution per shared test.
+It publishes runner names, test counts and durations in the workflow summary;
+failures identify the shard and runner in their logs. Fixture tests enter shared
+shards automatically after their fixture-only platform gates are removed.
 
 Why this split:
 - **macOS** must be native (Developer ID + notarization need a Mac keychain).
