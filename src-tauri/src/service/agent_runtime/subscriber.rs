@@ -233,7 +233,8 @@ pub(super) async fn publish_events(
                 owner
                     .pending_delivery_payloads
                     .user_sends
-                    .persist_runtime_status(&status)
+                    .persist_runtime_status(&status)?;
+                super::envelope_delivery::record_write(&owner, &status)
             })
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?

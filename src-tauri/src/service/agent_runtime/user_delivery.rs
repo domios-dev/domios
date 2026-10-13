@@ -102,6 +102,23 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         if !is_ready(svc, &record.authority) || !store.eligible(&record) {
             return Ok(UserDrain::Idle);
         }
+        if record.capture_required && !super::capture::valid(svc, tab, &record.send_id) {
+            if store.discard_queued_from_ended_launch(&record)? {
+                if let Some(status) = svc.chat_send_ledger.expire_owned_before_write(
+                    &record.send_id,
+                    "recording_recipient_changed_before_write",
+                ) {
+                    crate::api::events::emit_everywhere(
+                        &svc.app_handle,
+                        "chat-send-status",
+                        status,
+                    );
+                }
+                super::capture::retire(&record.send_id);
+                continue;
+            }
+            return Ok(UserDrain::Idle);
+        }
         let text = store.prepared(&record)?;
         let thread = context
             .thread_id
@@ -138,14 +155,32 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         ) {
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
         }
+        if zero_write && record.capture_required {
+            if store.discard_queued_from_ended_launch(&record)? {
+                if let Some(status) = svc.chat_send_ledger.expire_owned_before_write(
+                    &record.send_id,
+                    "recording_recipient_changed_before_write",
+                ) {
+                    crate::api::events::emit_everywhere(
+                        &svc.app_handle,
+                        "chat-send-status",
+                        status,
+                    );
+                }
+            }
+            super::capture::retire(&record.send_id);
+            continue;
+        }
         if zero_write {
             return Ok(UserDrain::ZeroWriteRefusal {
                 dispatch_generation,
             });
         }
         store.complete(&record)?;
+        super::capture::retire(&record.send_id);
         if let Some(status) = svc.chat_send_ledger.status(&record.send_id) {
             store.persist_runtime_status(&status)?;
+            super::envelope_delivery::record_write(svc, &status)?;
         }
     }
     Ok(UserDrain::Idle)
