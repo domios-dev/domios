@@ -24,6 +24,7 @@ afterEach(async () => {
 function resourceMarkup(html: string): string {
   const document = new DOMParser().parseFromString(html, "text/html");
   document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.remove();
+  document.querySelector("[data-plugin-ui-monitor]")?.remove();
   return document.documentElement.outerHTML;
 }
 
@@ -51,7 +52,7 @@ describe("authenticated plugin document", () => {
       bytes: new TextEncoder().encode(assets.get(path)!), mime: "text/javascript",
     }));
     const document = new DOMParser().parseFromString(html, "text/html");
-    const scripts = [...document.querySelectorAll("script")];
+    const scripts = [...document.querySelectorAll("script:not([data-plugin-ui-monitor])")];
     expect(scripts.map((script) => script.textContent)).toEqual([
       "window.first=1", 'window.second="<\\/script><div>not markup</div>"', "export const third = await Promise.resolve(3);",
     ]);
@@ -78,9 +79,9 @@ describe("authenticated plugin document", () => {
     const raw = '<script nonce="fixture" src="./app.js"></script>';
     const read = async (source: string) => ({ bytes: new TextEncoder().encode(source), mime: "text/javascript" });
     const html = await materializePluginDocument(raw, policy, path, origin, async () => read('const text="</ScRiPt>";'));
-    expect(new DOMParser().parseFromString(html, "text/html").querySelector("script")?.textContent).toBe('const text="<\\/ScRiPt>";');
+    expect(new DOMParser().parseFromString(html, "text/html").querySelector("script:not([data-plugin-ui-monitor])")?.textContent).toBe('const text="<\\/ScRiPt>";');
     const comments = await materializePluginDocument(raw, policy, path, origin, async () => read('const text="<!--<script>"; const pattern=/<!--/;'));
-    expect(new DOMParser().parseFromString(comments, "text/html").querySelector("script")?.textContent).toBe('const text="\\x3c!--<script>"; const pattern=/\\x3c!--/;');
+    expect(new DOMParser().parseFromString(comments, "text/html").querySelector("script:not([data-plugin-ui-monitor])")?.textContent).toBe('const text="\\x3c!--<script>"; const pattern=/\\x3c!--/;');
   });
 
   it.each(['<script src="./app.js"></script>', '<script nonce="wrong" src="./app.js"></script>'])("rejects scripts without the response nonce", async (raw) => {
@@ -130,8 +131,8 @@ describe("authenticated plugin document", () => {
     expect(prepared.querySelectorAll("style").length).toBeGreaterThan(0);
     expect(prepared.querySelectorAll('link[rel="stylesheet"]').length).toBe(0);
     expect(prepared.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content")).toBe(policy);
-    const script = prepared.querySelector("script")!;
-    const source = readFileSync(resolve(directory, original.querySelector("script")!.getAttribute("src")!), "utf8");
+    const script = prepared.querySelector("script:not([data-plugin-ui-monitor])")!;
+    const source = readFileSync(resolve(directory, original.querySelector("script:not([data-plugin-ui-monitor])")!.getAttribute("src")!), "utf8");
     expect(script.hasAttribute("src")).toBe(false);
     expect(script.textContent).toBe(source.replace(/<!--/g, "\\x3c!--").replace(/<\/script/gi, (closing) => `<\\/${closing.slice(2)}`));
     expect(script.getAttribute("nonce")).toBe("fixture");
@@ -165,12 +166,12 @@ describe("authenticated plugin document", () => {
     const result = await loadPluginDocument(f.client, path, new AbortController().signal);
     const document = new DOMParser().parseFromString(result.html, "text/html");
     expect(document.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg\+xml;base64,/);
-    expect(document.querySelector("script")?.hasAttribute("src")).toBe(false);
-    expect(document.querySelector("script")?.textContent).toBe("window.test=1");
+    expect(document.querySelector("script:not([data-plugin-ui-monitor])")?.hasAttribute("src")).toBe(false);
+    expect(document.querySelector("script:not([data-plugin-ui-monitor])")?.textContent).toBe("window.test=1");
     expect(document.querySelector("style")?.textContent).toContain('url("data:image/svg+xml;base64,');
     expect(resourceMarkup(result.html)).not.toContain("blob:");
     expect(document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content")).toBe(policy);
-    expect(document.querySelector("script")?.getAttribute("nonce")).toBe("fixture");
+    expect(document.querySelector("script:not([data-plugin-ui-monitor])")?.getAttribute("nonce")).toBe("fixture");
     expect(document.querySelector("style")?.getAttribute("nonce")).toBe("fixture");
     for (const [url, init] of f.fetch.mock.calls) {
       expect(String(url)).not.toContain("secret-fixture");

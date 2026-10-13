@@ -36,6 +36,15 @@ const snapshot: PluginSnapshot = {
   ],
 };
 
+test("network settings use manifest declarations rather than persisted host grants", () => {
+  const [entry] = buildCatalog({
+    plugins: [{ id: "demo", network_requested: false, declared_network_allow: [], network_allow: ["extra.test"] }],
+    channels: [], diff: [], marketplace: [{ id: "demo", channel: "test", drift: "same", network_requested: true, declared_network_allow: ["stale.test"] }],
+  });
+  assert(entry.networkRequested === false, "installed declaration wins over marketplace and extra grants");
+  assert(entry.declaredNetworkAllow?.length === 0, "read-only declarations exclude extra grants");
+});
+
 test("buildCatalog merges installed + marketplace by id", () => {
   const cat = buildCatalog(snapshot);
   const ids = cat.map((e) => e.id).sort();

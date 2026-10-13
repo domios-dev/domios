@@ -1,3 +1,4 @@
+import { PLUGIN_UI_MONITOR } from "./pluginUiMonitor";
 import { parse } from "es-module-lexer/js";
 import type { TransportClient } from "./transportClient";
 
@@ -97,6 +98,11 @@ export async function materializePluginDocument(
   for (const style of document.querySelectorAll("style")) {
     style.textContent = await cssAssets(style.textContent ?? "", path);
   }
+  const monitor = document.createElement("script");
+  monitor.setAttribute("nonce", nonce);
+  monitor.setAttribute("data-plugin-ui-monitor", "");
+  monitor.textContent = PLUGIN_UI_MONITOR;
+  document.head.prepend(monitor);
   const meta = document.createElement("meta");
   meta.httpEquiv = "Content-Security-Policy";
   meta.content = policy;
@@ -107,7 +113,10 @@ export async function materializePluginDocument(
 export async function loadPluginDocument(client: TransportClient, path: string, signal: AbortSignal): Promise<PluginDocument> {
   const request = async (assetPath: string) => {
     const response = await client.request!(assetPath, { signal }, true);
-    if (!response.ok) throw new Error(`Plugin asset HTTP ${response.status}`);
+    if (!response.ok) {
+      const reason = (await response.text()).slice(0, 1000).trim();
+      throw new Error(`Plugin asset HTTP ${response.status} (${assetPath})${reason ? `: ${reason}` : ""}`);
+    }
     return response;
   };
   const response = await request(path);

@@ -128,6 +128,8 @@ const NETWORK_SNAPSHOT: PluginSnapshot = {
     id: "lmstudio",
     display_name: "LM Studio",
     removable: true,
+    network_requested: true,
+    declared_network_allow: ["declared.example.test"],
     network_allow: ["old.example.test"],
     effective_network_allow: ["old.example.test"],
   }],
@@ -240,7 +242,11 @@ test("Allowed hosts editor adds and removes grants through plugin settings actio
   await act(async () => {
     host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"][data-plugin-id="lmstudio"]')?.click();
   });
-  assert(host.querySelector('[data-testid="extensions-allowed-hosts"]'), "allowed hosts editor should render");
+  const networkSection = host.querySelector<HTMLDetailsElement>('[data-testid="extensions-allowed-hosts"]');
+  assert(networkSection, "network permission exposes advanced access settings");
+  assert(!networkSection.open, "network controls start collapsed");
+  assert(networkSection.querySelector('[aria-label="Declared servers"] code')?.textContent === "declared.example.test", "declared hosts are visible read-only");
+  await act(async () => { networkSection.open = true; });
   const inlineAllow = host.querySelector<HTMLButtonElement>('[aria-label="Allow localai.example.test:1234"]');
   assert(inlineAllow, "configured base URL host should have an inline allow action");
   await act(async () => inlineAllow.click());
