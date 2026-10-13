@@ -23,6 +23,15 @@ test("later rows push two written sends up without sorting source rows", () => {
 test("absent timestamps do not fabricate placement or delivery", () => {
   const sends = [send("written", 0), { id: "held", content: "held", sentAtMs: at }];
   assert.deepEqual(placePendingSends([row("unknown"), row("later", 1000)], sends).map((item) => item.id),
-    ["unknown", "written", "later", "held"]);
+    ["unknown", "written", "held", "later"]);
   assert.deepEqual(placePendingSends([row("unknown")], sends).map((item) => item.id), ["unknown", "written", "held"]);
 });
+
+for (const state of ["failed", "held", "unclassified"]) {
+  test(`${state} sends without an explicit flow anchor use their send time`, () => {
+    const pending = [{ id: state, content: state, sentAtMs: at }];
+    assert.deepEqual(placePendingSends([row("old", -1)], pending).map((item) => item.id), ["old", state]);
+    const later = [row("old", -1), row("new", 1), row("newer", 2)];
+    assert.deepEqual(placePendingSends(later, pending).map((item) => item.id), ["old", state, "new", "newer"]);
+  });
+}
