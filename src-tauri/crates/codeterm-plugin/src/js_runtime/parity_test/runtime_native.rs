@@ -136,6 +136,7 @@ impl AgentProvider for NativeRuntime {
                         })?,
                         next_cursor: None,
                         open_items: Vec::new(),
+                        questions: None,
                     },
                     RuntimeOperation::SubmitTurn {
                         thread_id, send_id, ..

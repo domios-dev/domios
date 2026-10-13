@@ -271,6 +271,8 @@ pub enum RuntimeResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         next_cursor: Option<String>,
         open_items: Vec<OpenItem>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        questions: Option<Vec<RuntimeHistoryQuestion>>,
     },
     TurnAccepted {
         thread_id: String,
@@ -433,6 +435,17 @@ pub struct RuntimeQuestion {
     pub multi_select: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_free_text: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeHistoryQuestion {
+    pub thread_id: String,
+    pub item_id: String,
+    pub questions: Vec<RuntimeQuestion>,
+    pub response: RuntimeQuestionResponse,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
