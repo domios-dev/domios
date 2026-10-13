@@ -134,7 +134,6 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn immediate_restore_send_delivers_once_after_authentication() {
     let (fixture, tab) = fixture(Some("saved-session"), false);
     {
@@ -161,7 +160,6 @@ fn immediate_restore_send_delivers_once_after_authentication() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn immediate_relaunch_send_delivers_once_after_authentication() {
     let (fixture, tab) = fixture(Some("saved-session"), false);
     {
@@ -177,25 +175,21 @@ fn immediate_relaunch_send_delivers_once_after_authentication() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn restored_send_before_auth_flushes_once_without_another_ready_edge() {
     assert_auth_drains_once(Some("saved-session"), false);
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn fresh_send_before_launch_registration_queues_and_flushes_once() {
     assert_auth_drains_once(None, true);
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn stale_pty_pin_emits_honest_zero_write_failure() {
     assert_ended_launch_fails_once(false);
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn failed_relaunch_fails_held_send_once_without_writing() {
     assert_ended_launch_fails_once(true);
 }
@@ -294,7 +288,6 @@ fn worker_brief_and_report_receipts_are_flagged() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn live_resume_provisional_launch_delivers_held_payload_once_after_binding() {
     let (fixture, tab_id) = fixture(Some("saved-session"), false);
     {

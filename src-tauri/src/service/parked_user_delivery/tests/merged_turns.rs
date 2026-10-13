@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn first_readiness_advances_held_user_sends_after_each_submit_unconfirmed() {
     const THIRD_PAYLOAD: &str = " opaque-c-b3e9\n\u{03bb}  ";
     let (fixture, tab) = queue_fixture(true, None);
@@ -155,10 +151,6 @@ fn first_readiness_advances_held_user_sends_after_each_submit_unconfirmed() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn post_ready_queued_user_sends_have_a_blank_line_and_reconcile_together() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
@@ -241,10 +233,6 @@ fn post_ready_queued_user_sends_have_a_blank_line_and_reconcile_together() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn ready_user_send_writes_without_a_follow_up_output_event_while_agent_delivery_waits() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
@@ -317,10 +305,6 @@ fn ready_user_send_writes_without_a_follow_up_output_event_while_agent_delivery_
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn zero_write_refusal_retains_an_explicit_dispatch_wake_until_one_write() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
@@ -402,10 +386,6 @@ fn zero_write_refusal_retains_an_explicit_dispatch_wake_until_one_write() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
     let (fixture, tab) = queue_fixture(true, None);
     append_turn(&fixture, "opaque-equal");
@@ -529,10 +509,6 @@ fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn pre_ready_uncertainty_does_not_stall_writes_or_replay_after_rebind() {
     let (fixture, tab) = queue_fixture(true, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
@@ -643,10 +619,6 @@ fn pre_ready_uncertainty_does_not_stall_writes_or_replay_after_rebind() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn exact_binding_after_agent_ready_releases_held_user_send_once() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);

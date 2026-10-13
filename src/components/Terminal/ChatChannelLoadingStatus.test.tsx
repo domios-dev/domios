@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
 import { tabActivity } from "../../lib/tabActivity";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { chatChannelLoadingRow } from "./chatBodyVisibility";
@@ -41,5 +42,26 @@ it("hosts the accessible waiting icon in the existing model row without an extra
     expect(host.childElementCount).toBe(1);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+it("renders runtime elapsed and completed duration in the existing indicator only", async () => {
+  const clock = vi.spyOn(Date, "now").mockReturnValue(165_000);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const runtime = { state: "loaded" as const, epoch: 2, active_turn_started_at_ms: 100_000, last_turn_duration_ms: 12_000 };
+  try {
+    for (const state of ["working", "idle"] as const) {
+      const activity = tabActivity({ backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" }, agent_state: { state } });
+      const projected = runtimeActivityLabel(activity.label, activity.kind, runtime, 165_000);
+      await act(async () => root.render(<AgentStateIndicator activity={activity} runtimeState={runtime} />));
+      expect(host.childElementCount).toBe(1);
+      expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
+      expect(host.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe(`Agent ${projected}`);
+      expect(host.textContent).toContain(projected);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    clock.mockRestore();
   }
 });

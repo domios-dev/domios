@@ -3,7 +3,9 @@ mod model;
 #[cfg(windows)]
 mod windows;
 
-pub(super) async fn check_before_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
+pub(super) async fn check_before_shutdown(
+    app: &crate::app_runtime::AppHandle,
+) -> Result<(), String> {
     #[cfg(windows)]
     {
         use tauri::Manager;

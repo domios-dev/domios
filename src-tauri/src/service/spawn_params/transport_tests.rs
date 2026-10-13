@@ -69,12 +69,12 @@ fn chat_backend_only_fields_names_exactly_the_set_flags() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn spawn_rejects_transport_mismatched_flags() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
-        MockProvider::new(PROVIDER).with_launch_binary("cmd.exe"),
+        MockProvider::new(PROVIDER)
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
 
     for (flag, params) in mismatched_cases() {
@@ -140,7 +140,6 @@ impl crate::chatbackend::ChatBackendProvider for ShellFixture {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn chat_backend_spawn_keeps_its_fields_and_refuses_pty_launch_args() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -174,4 +173,111 @@ fn chat_backend_spawn_keeps_its_fields_and_refuses_pty_launch_args() {
         )
         .expect_err("PTY launch args have no chatBackend meaning");
     assert!(error.contains("--args"), "{error}");
+}
+
+#[test]
+fn chatbackend_metadata_retains_prepared_worker_params_without_exposing_env() {
+    let registry =
+        crate::service::spawn_capability::test_backend::registry_with_spawnable("runtime-fixture");
+    let mut params = SpawnAgentParams {
+        agent: Some("runtime-fixture".into()),
+        role: Some("Worker".into()),
+        task: Some("opaque-task".into()),
+        system_prompt: Some("opaque-system".into()),
+        model: Some("opaque-model".into()),
+        reasoning_effort: Some("opaque-effort".into()),
+        ..Default::default()
+    };
+    params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
+        plan_id: "plan-exact".into(),
+        task_id: "task-exact".into(),
+        attempt_id: "attempt-exact".into(),
+        lane_base: Some("base-exact".into()),
+    });
+    let mut spec =
+        crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(&registry, params);
+    spec.bind_worker_identity("runtime-fixture", "worker-exact")
+        .unwrap();
+    let metadata = spec.chatbackend_launch.as_ref().unwrap();
+    assert_eq!(metadata.agent.worker_id.as_deref(), Some("worker-exact"));
+    assert_eq!(metadata.agent.task.as_deref(), Some("opaque-task"));
+    assert_eq!(
+        metadata.agent.extra_env["CODETERM_ATTEMPT_ID"],
+        "attempt-exact"
+    );
+    assert_eq!(
+        metadata
+            .params
+            .task_launch_authority
+            .as_ref()
+            .unwrap()
+            .attempt_id,
+        "attempt-exact"
+    );
+    let crate::service::spawn::TabCommand::ChatBackend { config, .. } = &spec.command else {
+        panic!("chat backend")
+    };
+    assert_eq!(config["systemPrompt"], "opaque-system");
+    assert_eq!(config["effort"], "opaque-effort");
+    let wire = serde_json::to_value(&spec).unwrap();
+    assert!(wire.get("chatbackend_launch").is_none());
+    assert!(!wire.to_string().contains("attempt-exact"));
+}
+
+#[test]
+fn direct_runtime_routing_preserves_hidden_worker_env_and_task() {
+    let mut spec = crate::service::spawn::SpawnTabSpec {
+        visibility: crate::service::spawn::TabVisibility::Hidden,
+        command: crate::service::spawn::TabCommand::Agent(crate::service::spawn::AgentSpawnSpec {
+            provider: "runtime-fixture".into(),
+            worker_id: Some("worker-exact".into()),
+            task: Some("opaque-task".into()),
+            extra_env: std::collections::HashMap::from([("PATH".into(), "opaque-path".into())]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    spec.chatbackend_launch = Some(Box::new(crate::service::spawn::ChatBackendLaunchMetadata {
+        agent: spec.agent_launch_mut().unwrap().clone(),
+        params: SpawnAgentParams {
+            system_prompt: Some("opaque-system".into()),
+            preset: Some("opaque-preset".into()),
+            task: Some("opaque-task".into()),
+            ..Default::default()
+        },
+        owner_linkage: None,
+    }));
+    spec.route_agent_to_chatbackend().unwrap();
+    assert_eq!(
+        spec.visibility,
+        crate::service::spawn::TabVisibility::Hidden
+    );
+    let metadata = spec.chatbackend_launch.as_ref().unwrap();
+    assert_eq!(metadata.agent.worker_id.as_deref(), Some("worker-exact"));
+    assert_eq!(metadata.agent.extra_env["PATH"], "opaque-path");
+    let crate::service::spawn::TabCommand::ChatBackend { config, .. } = &spec.command else {
+        panic!("chat backend")
+    };
+    assert_eq!(config["systemPrompt"], "opaque-system");
+    assert_eq!(config["preset"], "opaque-preset");
+    assert_eq!(metadata.agent.task.as_deref(), Some("opaque-task"));
+}
+
+#[test]
+fn runtime_capability_conversion_refuses_unmapped_args_before_mutation() {
+    let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params(SpawnAgentParams {
+        agent: Some("runtime-fixture".into()),
+        args: Some(vec!["opaque-arg".into()]),
+        model: Some("opaque-model".into()),
+        reasoning_effort: Some("opaque-effort".into()),
+        ..Default::default()
+    });
+    let error = spec.route_agent_to_chatbackend().unwrap_err();
+    assert!(error.contains("runtime_launch_arguments"));
+    let crate::service::spawn::TabCommand::Agent(agent) = spec.command else {
+        panic!("refused conversion changed backing")
+    };
+    assert_eq!(agent.extra_args, ["opaque-arg"]);
+    assert_eq!(agent.model.as_deref(), Some("opaque-model"));
+    assert_eq!(agent.reasoning_effort.as_deref(), Some("opaque-effort"));
 }

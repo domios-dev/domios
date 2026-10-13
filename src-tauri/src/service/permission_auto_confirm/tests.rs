@@ -21,6 +21,7 @@ fn request(now: Instant) -> PermissionRequestInstance {
 
 fn prompt(question: &str) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: question.into(),
         options: ["Yes", "No"]
             .iter()

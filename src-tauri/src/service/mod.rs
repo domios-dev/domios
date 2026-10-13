@@ -18,6 +18,7 @@ pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
+pub(crate) mod agent_runtime;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod analytics;
@@ -302,6 +303,8 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    #[cfg(test)]
+    pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
     pub account: Arc<tokio::sync::OnceCell<Arc<codeterm_account::Account>>>,
     pub billing: Arc<tokio::sync::OnceCell<Arc<codeterm_billing::Billing>>>,
     pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,
@@ -314,7 +317,7 @@ pub struct ServiceContext {
     pub screen_state: ScreenStateHandle,
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
-    pub app_handle: tauri::AppHandle,
+    pub app_handle: crate::app_runtime::AppHandle,
     pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
     pub(crate) orchestrator_attach_locks: TeamOrchestratorAttachLocks,
     pub agent_tracker: AgentTrackerState,

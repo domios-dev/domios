@@ -219,10 +219,6 @@ fn unbound_first_turn_retry_stops_at_a_provider_dialog() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the ServiceContext harness requires an interactive desktop runtime"
-)]
 fn launch_draft_nudge_presses_enter_only_on_a_parked_first_turn_draft() {
     use crate::agent::test_provider::MockProvider;
     use crate::multiplexer::state::MultiplexerState;

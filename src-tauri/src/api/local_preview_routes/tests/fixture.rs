@@ -117,6 +117,11 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub fn new() -> Self {
+        let now = std::time::Instant::now();
+        Self::with_clock(Arc::new(move || now))
+    }
+
+    pub fn with_clock(clock: Arc<dyn Fn() -> std::time::Instant + Send + Sync>) -> Self {
         let (mut mux, owner) = MultiplexerState::new();
         let sibling = mux.create_tab_record();
         for id in [&owner, &sibling] {
@@ -132,7 +137,12 @@ impl Fixture {
             .register_provider(Box::new(TranscriptProvider(rows.clone())));
         let root = crate::commands::html_preview::preview_test_root(service.temp.path());
         let state = app_state(&service);
-        let app = crate::api::routes::create_router(state.clone());
+        let app = crate::api::routes::create_router_with_preview_admission(
+            state.clone(),
+            None,
+            Arc::new(super::Admission::with_clock(clock.clone())),
+            Arc::new(super::Admission::with_clock(clock)),
+        );
         Self {
             _service: service,
             app,

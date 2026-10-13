@@ -24,7 +24,6 @@ fn unbound_agent_fixture() -> (ServiceFixture, String) {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn startup_notice_to_parent_on_trust_dialog_is_withheld() {
     let (fixture, parent_tab_id) = bound_parent_fixture();
     let prompt = concat!(
@@ -72,7 +71,6 @@ fn startup_notice_to_parent_on_trust_dialog_is_withheld() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn withheld_lifecycle_reports_replay_once_after_trust_dialog_clears() {
     let (fixture, parent_tab_id) = bound_parent_fixture();
     let prompt = "Select an option: Do you trust this folder?\r\n  > 1. Trust this folder\r\n    2. Exit\r\n";
@@ -113,7 +111,6 @@ fn withheld_lifecycle_reports_replay_once_after_trust_dialog_clears() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn failed_startup_notice_delivery_releases_claim_for_replay() {
     let (fixture, parent_tab_id) = bound_parent_fixture();
     let delivery = FailFirstHierarchyReportDelivery::default();
@@ -165,7 +162,6 @@ fn failed_startup_notice_delivery_releases_claim_for_replay() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn report_replay_skips_unbound_agent_target() {
     let (fixture, parent_tab_id) = unbound_agent_fixture();
     let delivery = RecordingHierarchyReportDelivery::default();

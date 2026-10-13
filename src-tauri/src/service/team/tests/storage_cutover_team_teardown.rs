@@ -271,10 +271,6 @@ fn assert_domain_rows(fixture: &TeamStorageFixture, present: bool) {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn storage_cutover_team_teardown_commits_all_domains_and_publishes_after_commit() {
     let fixture = team_storage_fixture();
     assert_eq!(
@@ -376,10 +372,6 @@ fn storage_cutover_team_teardown_commits_all_domains_and_publishes_after_commit(
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn storage_cutover_team_teardown_failure_preserves_domains_and_raises_one_incident() {
     let fixture = team_storage_fixture();
     let mut events = fixture.service.service.events.subscribe();

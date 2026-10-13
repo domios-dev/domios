@@ -327,10 +327,65 @@ run_nextest_scope() {
     fi
   fi
 
-  CARGO_TEST_CMD="cargo nextest run" \
-    CARGO_TEST_BUILD_CMD="cargo nextest run" \
-    scripts/test-capped.sh --manifest-path "$manifest" \
-    "${targets[@]}" "${filter_args[@]}" --no-tests=fail
+  local timing_dir run_exit=0 guard_exit=0 alone_exit=0
+  timing_dir="$(mktemp -d)"
+  if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
+    --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
+    :
+  else
+    run_exit=$?
+    rm -rf "$timing_dir"
+    return "$run_exit"
+  fi
+  if cargo metadata --manifest-path "$manifest" --format-version 1 --locked > "$timing_dir/cargo.json"; then
+    :
+  else
+    run_exit=$?
+    rm -rf "$timing_dir"
+    return "$run_exit"
+  fi
+  if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass \
+    scripts/test-capped.sh \
+    --binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json" \
+    "${filter_args[@]}" --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
+    run_exit=${PIPESTATUS[0]}
+  else
+    run_exit=${PIPESTATUS[0]}
+  fi
+  if [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "alone" ]; then
+    if [ "${NEXTEST_TEST_THREADS:-}" != "1" ]; then
+      echo "alone measurement requires NEXTEST_TEST_THREADS=1" >&2
+      guard_exit=2
+    elif node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log" --alone "$timing_dir/parallel.log"; then
+      :
+    else
+      guard_exit=$?
+    fi
+  elif node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log" --candidates "$timing_dir/candidates.json"; then
+    if [ "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1])).entries.length))' "$timing_dir/candidates.json")" != "0" ]; then
+      if node scripts/confirm-slow-unit-tests.mjs "$timing_dir/candidates.json" \
+        "$timing_dir/binaries.json" "$timing_dir/cargo.json" "$timing_dir/alone.log"; then
+        :
+      else
+        alone_exit=$?
+      fi
+      if node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log" --alone "$timing_dir/alone.log"; then
+        :
+      else
+        guard_exit=$?
+      fi
+    elif node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log"; then
+      :
+    else
+      guard_exit=$?
+    fi
+  else
+    guard_exit=$?
+  fi
+  rm -rf "$timing_dir"
+  [ "$run_exit" -eq 0 ] || return "$run_exit"
+  [ "$alone_exit" -eq 0 ] || return "$alone_exit"
+  return "$guard_exit"
 }
 
 case "$CMD" in

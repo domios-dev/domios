@@ -55,7 +55,10 @@ where
     }
 }
 
-fn persist_storage_desk_snapshot(app: &tauri::AppHandle, mux: &MuxState) -> Result<(), String> {
+fn persist_storage_desk_snapshot(
+    app: &crate::app_runtime::AppHandle,
+    mux: &MuxState,
+) -> Result<(), String> {
     match crate::service::session_persist::write_session_snapshot(app, mux) {
         Ok(SaveOutcome::Saved) => {
             log::info!("[shutdown] Storage desk snapshot committed");
@@ -135,7 +138,7 @@ fn shutdown_sidecar_log_records(
 
 /// Provider-update waiter join, session snapshot, mem WAL checkpoint. Idempotent
 /// and side-effect-free for process liveness, so every exit signal runs it.
-pub fn persist_state(app: &tauri::AppHandle) {
+pub fn persist_state(app: &crate::app_runtime::AppHandle) {
     log::info!("[shutdown] state persistence started");
     let mut errors = Vec::new();
     if let Some(mux) = app.try_state::<MuxState>() {
@@ -176,7 +179,7 @@ pub fn persist_state(app: &tauri::AppHandle) {
 
 /// Clean-exit declaration: `.clean_exit` sentinel + keepawake child teardown +
 /// webview reap journal clear. Only a genuine quit may run this.
-pub fn declare_clean_exit(app: &tauri::AppHandle) {
+pub fn declare_clean_exit(app: &crate::app_runtime::AppHandle) {
     log::info!("[shutdown] clean-exit declaration started");
     crate::crash::shutdown::mark_shutting_down();
     if let Some(state) = app.try_state::<KeepAwakeStateHandle>() {
@@ -190,7 +193,7 @@ pub fn declare_clean_exit(app: &tauri::AppHandle) {
 
 /// Starts closing surface browsers so they flush profiles and die with the daemon, not after it.
 fn begin_surface_shutdown(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
 ) -> Option<crate::service::surface::SurfaceShutdown> {
     app.try_state::<crate::service::ServiceState>()
         .map(|svc| crate::service::surface::begin_surface_shutdown(svc.inner()))
@@ -199,7 +202,7 @@ fn begin_surface_shutdown(
 /// Signal-driven graceful exit. Tray Quit and the macOS terminate hook reach
 /// `handle_run_exit` instead, so only the unix signal handlers need this.
 #[cfg(unix)]
-pub fn graceful_exit_cleanup(app: &tauri::AppHandle) {
+pub fn graceful_exit_cleanup(app: &crate::app_runtime::AppHandle) {
     let sidecars = crate::service::codex_rpc::exit::begin();
     let surfaces = begin_surface_shutdown(app);
     declare_clean_exit(app);
@@ -211,7 +214,7 @@ pub fn graceful_exit_cleanup(app: &tauri::AppHandle) {
 }
 
 /// `RunEvent::Exit` entry point: always persist, declare only on a genuine quit.
-pub fn handle_run_exit(app: &tauri::AppHandle) {
+pub fn handle_run_exit(app: &crate::app_runtime::AppHandle) {
     log::info!("[shutdown] RunEvent::Exit received");
     let plan = plan_run_exit(
         cfg!(target_os = "macos"),

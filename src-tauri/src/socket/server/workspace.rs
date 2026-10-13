@@ -1,7 +1,7 @@
 //! `workspace.*` JSON-RPC handlers.
 
+use crate::app_runtime::AppHandle;
 use serde_json::Value;
-use tauri::AppHandle;
 
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;

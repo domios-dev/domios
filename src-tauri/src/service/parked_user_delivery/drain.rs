@@ -2,24 +2,13 @@ use super::*;
 
 impl super::super::ServiceContext {
     pub(crate) fn dispatch_ready_user_send(&self, record: &UserSendRecord) {
-        let service = self.clone();
-        let tab_id = record.authority.tab_id.clone();
-        let send_id = record.send_id.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let result = service.drain_selected_user_send_with(
-                &tab_id,
-                Some(&send_id),
-                |record, text, readiness, capture| {
-                    service.submit_owned_user(record, text, readiness, capture)
-                },
-            );
-            if let Err(error) = result {
-                log::warn!("[chat-send] tab={tab_id} ready send={send_id} held: {error}");
-            }
-        });
+        self.wake_user_owner(&record.authority.tab_id, UserWake::Admission);
     }
 
     pub(crate) fn drain_user_owner(&self, tab_id: &str) -> Result<UserDrain, String> {
+        if super::super::agent_runtime::requested_for_tab(self, tab_id) {
+            return super::super::agent_runtime::user_delivery::drain(self, tab_id);
+        }
         if self
             .pending_delivery_payloads
             .user_sends
@@ -43,34 +32,16 @@ impl super::super::ServiceContext {
     fn drain_user_owner_with(
         &self,
         tab_id: &str,
-        submit: impl FnMut(
-            &UserSendRecord,
-            &str,
-            Option<&UserReadiness>,
-            bool,
-        ) -> Result<(), DeliveryError>,
-    ) -> Result<UserDrain, String> {
-        self.drain_selected_user_send_with(tab_id, None, submit)
-    }
-
-    fn drain_selected_user_send_with(
-        &self,
-        tab_id: &str,
-        selected_send_id: Option<&str>,
         mut submit: impl FnMut(
             &UserSendRecord,
             &str,
             Option<&UserReadiness>,
             bool,
-        ) -> Result<(), DeliveryError>,
+        ) -> Result<UserWrite, DeliveryError>,
     ) -> Result<UserDrain, String> {
         let store = &self.pending_delivery_payloads.user_sends;
         for _ in 0..crate::service::pending_delivery_payloads::user_sends::MAX_UNSETTLED * 2 {
-            let Some(mut head) = store
-                .queued(tab_id)?
-                .into_iter()
-                .find(|record| selected_send_id.is_none_or(|id| record.send_id == id))
-            else {
+            let Some(mut head) = store.queued(tab_id)?.into_iter().next() else {
                 return Ok(UserDrain::Idle);
             };
             self.chat_send_ledger.restore_user_record(&head);
@@ -194,13 +165,6 @@ impl super::super::ServiceContext {
             if !store.eligible(&head) {
                 return Ok(self.pending_user_send(&head, "owner_head_not_eligible"));
             }
-            if self.chat_send_ledger.has_written_user_send_before(
-                &head.authority,
-                head.ledger_sequence,
-                head.held_before_readiness,
-            ) {
-                return Ok(self.pending_user_send(&head, "earlier_parked_send_written"));
-            }
             let text = store.prepared(&head)?;
             let separator_before = if head.held_before_readiness {
                 self.chat_send_ledger
@@ -308,11 +272,8 @@ impl super::super::ServiceContext {
             if zero_write {
                 self.chat_send_ledger.zero_write_user_handoff(&head.send_id);
             }
-            if let Some(status) = self.chat_send_ledger.finish(
-                &head.send_id,
-                outcome.map_err(|error| error.ledger_message()),
-            ) {
-                crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            if !matches!(outcome, Ok(UserWrite::Enqueued)) {
+                self.finish_user_write(&head.send_id, outcome.map(|_| ()));
             }
             if zero_write {
                 let reason = self

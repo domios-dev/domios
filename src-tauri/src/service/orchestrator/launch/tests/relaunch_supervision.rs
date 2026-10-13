@@ -4,7 +4,6 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::launch_diagnostics::AgentLaunchOrigin;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn early_send_nonce_survives_initial_launch_registration() {
     for session in [None, Some("saved-session")] {
         let (mut mux, tab_id) = MultiplexerState::new();
@@ -71,7 +70,6 @@ fn early_send_nonce_survives_initial_launch_registration() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn launch_whose_reservation_was_reminted_registers_a_fresh_nonce() {
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("opaque-provider".into());
@@ -112,10 +110,6 @@ fn launch_whose_reservation_was_reminted_registers_a_fresh_nonce() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_resumes_idle_worker() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let pty_id = "restored-worker-pty";
@@ -170,16 +164,11 @@ fn restore_resumes_idle_worker() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn resume_launch_keeps_its_target_session_after_identity_clear() {
     assert_resumed_launch_target(AgentLaunchOrigin::Resume);
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn restored_launch_reauthenticates_its_saved_history_marker() {
     assert_resumed_launch_target(AgentLaunchOrigin::RestoredSnapshot);
 }

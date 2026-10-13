@@ -76,6 +76,7 @@ pub(super) fn prompt(route: &ResponseRoute) -> Option<PendingPrompt> {
         });
     }
     Some(PendingPrompt {
+        request_id: None,
         question: question.text.clone(),
         options,
         sections: (route.questions.len() > 1).then(|| {

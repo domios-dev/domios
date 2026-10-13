@@ -116,10 +116,6 @@ fn worker_lost_events(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn worker_tab_death_pushes_orchestrator_event() {
     let busy = seed_busy_worker();
     let mut receiver = busy.fx.service.events.subscribe();
@@ -173,10 +169,6 @@ fn worker_tab_death_pushes_orchestrator_event() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn agent_close_of_busy_worker_needs_force() {
     let busy = seed_busy_worker();
     let mut receiver = busy.fx.service.events.subscribe();

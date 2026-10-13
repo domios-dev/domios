@@ -27,7 +27,6 @@ fn command_prompt_ownership_is_bound_to_pty_and_nonce_and_released_on_exit() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn command_prompt_ownership_suppresses_picker_until_operation_exits() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -169,7 +168,6 @@ fn restart_requires_observed_live_process_evidence() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn failed_general_agent_without_live_identity_remains_a_restart_target() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
     crate::service::general_agent::ensure_general_workspace(&mut mux, true);
@@ -194,7 +192,6 @@ fn failed_general_agent_without_live_identity_remains_a_restart_target() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "stale-provider-pty";
@@ -257,7 +254,6 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn absent_restart_target_preserves_spawn_failed_identity_with_live_shell() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "spawn-failed-live-shell";
@@ -308,7 +304,6 @@ fn absent_restart_target_preserves_spawn_failed_identity_with_live_shell() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn agent_restart_without_verified_session_launches_fresh() {
     let pty_id = "unverified-launch-shell";
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
@@ -834,7 +829,6 @@ fn settle_snapshot_and_outcome(tab_id: &str) -> (TabRestartSnapshot, RestartOutc
 /// codeterm-releases#55, through the real settle path: a relaunched tab
 /// with no reported session yet settles successfully, not as foreign.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn settle_restored_binding_treats_unreported_session_as_success() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -864,7 +858,6 @@ fn settle_restored_binding_treats_unreported_session_as_success() {
 
 /// Guard: a genuinely different reported session still fails the settle.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn settle_restored_binding_still_refuses_a_genuinely_foreign_session() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

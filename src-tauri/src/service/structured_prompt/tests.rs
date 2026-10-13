@@ -11,6 +11,7 @@ mod model_tests;
 
 fn dummy_prompt(q: &str) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: q.to_string(),
         options: Vec::new(),
         sections: None,
@@ -111,7 +112,6 @@ fn pending_for_unknown_tab_is_none() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn structured_multi_select_advances_without_a_pty_or_clearing_the_next_prompt() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -176,11 +176,11 @@ fn promotion_preserves_an_already_active_request() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn structured_prompt_notification_answer_records_tab_respond_metadata() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "Proceed?".into(),
         options: vec![
             crate::multiplexer::types::PromptOption {

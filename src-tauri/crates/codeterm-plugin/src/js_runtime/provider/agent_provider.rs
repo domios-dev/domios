@@ -32,6 +32,44 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
+        self.manifest.capabilities.agent_runtime.clone()
+    }
+
+    fn authorize_agent_runtime(
+        &self,
+        authority: &crate::agent_runtime::LaunchAuthority,
+    ) -> Result<PathBuf, super::super::manifest::RuntimeManifestError> {
+        self.manifest.authorize_agent_runtime(authority)
+    }
+
+    async fn runtime_plan(
+        &self,
+        ctx: &crate::agent_runtime::RuntimeContext,
+        op: &crate::agent_runtime::RuntimeOperation,
+    ) -> Result<crate::agent_runtime::RuntimePlan, crate::agent_runtime::RuntimeFailure> {
+        self.js_runtime_plan(ctx, op).await
+    }
+
+    async fn runtime_response(
+        &self,
+        ctx: &crate::agent_runtime::RuntimeContext,
+        op: &crate::agent_runtime::RuntimeOperation,
+        state: &Value,
+        reply: &crate::agent_runtime::RpcReply,
+    ) -> Result<crate::agent_runtime::RuntimeStep, crate::agent_runtime::RuntimeFailure> {
+        self.js_runtime_response(ctx, op, state, reply).await
+    }
+
+    async fn runtime_reduce(
+        &self,
+        ctx: &crate::agent_runtime::RuntimeContext,
+        state: &Value,
+        frames: &[crate::agent_runtime::RuntimeFrame],
+    ) -> Result<crate::agent_runtime::RuntimeReduction, crate::agent_runtime::RuntimeFailure> {
+        self.js_runtime_reduce(ctx, state, frames).await
+    }
+
     fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
         self.try_call("authStatusProbe", &[]).flatten()
     }
@@ -737,7 +775,8 @@ impl AgentProvider for JsProvider {
 
     fn supports_chat_ui(&self) -> bool {
         // structured-capable, or a native fallback that serves chat.
-        self.has_js("sessionJsonlPath")
+        self.manifest.capabilities.agent_runtime.is_some()
+            || self.has_js("sessionJsonlPath")
             || self.uses_structured_chat()
             || self.native().map(|n| n.supports_chat_ui()).unwrap_or(false)
     }
@@ -1109,81 +1148,36 @@ impl AgentProvider for JsProvider {
     }
 
     fn check_integration(&self) -> serde_json::Value {
-        if let Some(Err(error)) = self.declared_hook_event_roster() {
-            return serde_json::json!({
-                "status": "error",
-                "hooks_installed": false,
-                "hook_event_roster_error": error,
-            });
-        }
-        self.try_call::<serde_json::Value>("checkIntegration", &[])
-            .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
+        self.js_check_integration()
     }
-
     fn integration_kind(&self) -> IntegrationKind {
-        self.manifest
-            .integration
-            .as_ref()
-            .map_or(IntegrationKind::None, |integration| integration.kind)
+        self.js_integration_kind()
     }
-
     fn permission_hook_capability(&self) -> Option<provider::PermissionHookCapability> {
-        self.try_call("permissionHookCapability", &[])
+        self.js_permission_hook_capability()
     }
-
     fn install_integration(
         &self,
         api_port: u16,
         options: &crate::provider::IntegrationInstallOptions,
     ) -> Result<(), String> {
-        if !options.consent {
-            return Err(
-                "provider integration installation requires explicit local-user consent".into(),
-            );
-        }
-        if let Some(Err(error)) = self.declared_hook_event_roster() {
-            return Err(error);
-        }
-        self.try_call_result("installIntegration", &[json!(api_port), json!(options)])
-            .unwrap_or(Ok(()))
+        self.js_install_integration(api_port, options)
     }
-
     fn uninstall_integration(&self) -> Result<(), String> {
-        self.try_call_result("uninstallIntegration", &[])
-            .unwrap_or(Ok(()))
+        self.js_uninstall_integration()
     }
-
     fn restore_integration(&self) -> Result<(), String> {
-        self.try_call_result("restoreIntegration", &[])
-            .unwrap_or_else(|| Err("provider integration has no recoverable backup".into()))
+        self.js_restore_integration()
     }
-
     fn integration_trust_grant_capability(
         &self,
     ) -> Option<crate::provider::IntegrationTrustGrantCapability> {
-        self.manifest
-            .integration
-            .as_ref()?
-            .trust_grant
-            .as_ref()
-            .map(|grant| crate::provider::IntegrationTrustGrantCapability {
-                managed_keys: grant.managed_keys.clone(),
-            })
+        self.js_integration_trust_grant_capability()
     }
-
     fn grant_integration_trust(&self, managed_keys: &[String]) -> serde_json::Value {
-        self.try_call::<serde_json::Value>("grantIntegrationTrust", &[json!(managed_keys)])
-            .unwrap_or_else(|| {
-                serde_json::json!({
-                    "granted": false,
-                    "degraded": true,
-                    "reason": "plugin exports no grantIntegrationTrust"
-                })
-            })
+        self.js_grant_integration_trust(managed_keys)
     }
-
     fn ensure_integration_on_startup(&self, api_port: u16) {
-        let _ =
-            self.try_call::<serde_json::Value>("ensureIntegrationOnStartup", &[json!(api_port)]);
+        self.js_ensure_integration_on_startup(api_port)
     }
 }

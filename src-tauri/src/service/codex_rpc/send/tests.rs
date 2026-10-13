@@ -276,10 +276,6 @@ async fn codex_rpc_send_idle_user_starts_exactly_once() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 async fn lark_recording_contract_rpc_capture_ticket_denies_stale_identity_before_request() {
     for state in [
         CaptureRpcInvalidation::Cancel,
@@ -328,10 +324,6 @@ async fn lark_recording_contract_rpc_capture_ticket_denies_stale_identity_before
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 async fn lark_recording_contract_rpc_capture_valid_ticket_tracks_one_request() {
     let (fixture, tab, _, _, authority, send_id) = admitted_capture_rpc_fixture();
     let (outcome, calls) = submit_capture_rpc(
@@ -373,10 +365,6 @@ async fn lark_recording_contract_rpc_capture_valid_ticket_tracks_one_request() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 async fn lark_recording_contract_rpc_capture_uncertainty_never_pastes_or_replays() {
     let (fixture, tab, _, _, authority, send_id) = admitted_capture_rpc_fixture();
     let (outcome, calls) = submit_capture_rpc(
@@ -421,10 +409,6 @@ async fn lark_recording_contract_rpc_capture_uncertainty_never_pastes_or_replays
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 async fn lark_recording_contract_rpc_capture_cancel_after_steer_refusal_blocks_start() {
     let (fixture, _, capture, _, authority, send_id) = admitted_capture_rpc_fixture();
     let mut invalidated = false;

@@ -727,6 +727,18 @@ impl Messenger {
         body: &str,
         message_id: String,
     ) -> Result<Delivery, String> {
+        if super::agent_runtime::requested_for_tab(svc, to_tab) {
+            let token = envelope.id.clone().unwrap_or(message_id);
+            let observer = envelope.delivery_observer.clone();
+            let frame = Self::from(envelope).routed_frame(body);
+            let wrapped = frame.to_message();
+            let (body, _) =
+                svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
+            let input = codeterm_types::domios::DomiosFrame { body, ..frame }.to_message();
+            return super::agent_runtime::transport::send_envelope(
+                svc, to_tab, &input, &token, observer,
+            );
+        }
         let (msg, marked) = build_chatbackend_inbound(&envelope, body, message_id.clone());
         let trace_id = crate::flow_trace::envelope_flow(svc, to_tab, &envelope);
 

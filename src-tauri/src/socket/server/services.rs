@@ -1,7 +1,7 @@
 //! `services.*` JSON-RPC handlers.
 
+use crate::app_runtime::AppHandle;
 use serde_json::Value;
-use tauri::AppHandle;
 
 use crate::service::activity::{ActivitySource, ActivityWriter};
 use crate::service::store::{ServiceCreate, ServiceKind, ServiceUpdate};

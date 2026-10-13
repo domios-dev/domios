@@ -53,7 +53,6 @@ fn claude_signals_compaction_resets_context_and_preserves_known_window_and_cost(
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
 fn claude_context_feed_is_off_by_default_and_rejects_foreign_session() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;

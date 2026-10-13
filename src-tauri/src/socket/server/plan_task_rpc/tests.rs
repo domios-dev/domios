@@ -97,7 +97,6 @@ fn update_fixture() -> (ServiceFixture, String, String, String, String, String) 
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn local_rpc_cannot_claim_authenticated_mesh_peer_for_remote_ack() {
     let (fixture, plan_id, task_id, _, _, _) = update_fixture();
     let params = Some(json!({
@@ -126,7 +125,6 @@ fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> S
     serde_json::to_string_pretty(task).unwrap()
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
     for key in ["nonsense_field", "external_ref", "externalRefs"] {
@@ -165,7 +163,6 @@ fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn socket_every_supported_update_key_reaches_the_real_handler() {
     let (fixture, plan_id, task_id, parent_task_id, dependency_task_id, owner) = update_fixture();
@@ -201,7 +198,6 @@ fn socket_every_supported_update_key_reaches_the_real_handler() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn socket_update_external_refs_round_trips_non_null() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -231,7 +227,6 @@ fn socket_update_external_refs_round_trips_non_null() {
 }
 
 /// codeterm#372: no replace flag on the wire means append.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn socket_update_acceptance_criteria_defaults_to_append() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -281,7 +276,6 @@ fn socket_update_acceptance_criteria_defaults_to_append() {
 }
 
 /// Replace reports before/after counts — never a silent overwrite.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn socket_update_acceptance_criteria_replace_reports_before_after_counts() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -375,7 +369,6 @@ fn provider_id_is_rejected_in_model_field_with_canonical_syntax() {
     assert_eq!(error.data.unwrap()["type"], "provider_id_in_model_field");
     assert!(error.message.contains("<provider>:<model>"));
 }
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn adopted_task_mutation_rejects_missing_stale_and_rebound_authority() {
     let (fixture, plan_id, task_id, _, _, _) = update_fixture();
@@ -482,7 +475,7 @@ fn starting_worker_with_live_pty(
         .pty
         .lock()
         .spawn(
-            Some("cmd.exe".into()),
+            Some(crate::agent::test_provider::test_shell_binary().into()),
             None,
             80,
             24,
@@ -518,7 +511,6 @@ fn starting_worker_with_live_pty(
     (worker_tab, worker_pty, attempt_id)
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn destination_update_during_startup_keeps_attempt_tab_and_lane() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -591,7 +583,6 @@ fn destination_update_during_startup_keeps_attempt_tab_and_lane() {
     fixture.service.pty.lock().kill(&worker_pty).unwrap();
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn dispatch_refuses_live_startup_owner_before_spawning_another_worker() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -647,7 +638,6 @@ fn dispatch_refuses_live_startup_owner_before_spawning_another_worker() {
     fixture.service.pty.lock().kill(&worker_pty).unwrap();
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn dispatch_spawn_failure_closes_attempt_and_reserved_tab() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -708,7 +698,6 @@ fn dispatch_spawn_failure_closes_attempt_and_reserved_tab() {
     assert_eq!(failed.execution_attempts[0].closed_at, Some(7));
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -919,7 +908,6 @@ fn spawn_rebound_tab(fixture: &ServiceFixture, live_session_id: &str) -> String 
 
 /// Owner SESSION dead, tab object absent from the mux: the bound Orchestrator
 /// retires the stale owner while applying the reconcile-blessed status update.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover_update() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -960,7 +948,6 @@ fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover_update() {
 
 /// Tab lingers in the mux but rebound to a NEW session: still a gone owner, so
 /// the bound Orchestrator recovers exactly as with an absent tab.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn lingering_tab_with_rebound_session_is_a_gone_owner() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -1003,7 +990,6 @@ fn lingering_tab_with_rebound_session_is_a_gone_owner() {
 
 /// The guard stays intact for a genuinely LIVE owner: the recovery gate refuses,
 /// and the epoch guard still rejects a foreign caller — no clobber of a live one.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -1056,7 +1042,6 @@ fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn bound_orchestrator_closes_a_live_worker_task_without_matching_its_epoch() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
@@ -1101,7 +1086,6 @@ fn bound_orchestrator_closes_a_live_worker_task_without_matching_its_epoch() {
         .all(|attempt| attempt.closed_at.is_some()));
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn non_orchestrator_cannot_use_the_close_override() {
     let (fixture, plan_id, task_id, _, _, _) = update_fixture();
@@ -1128,7 +1112,6 @@ fn non_orchestrator_cannot_use_the_close_override() {
     assert!(verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).is_err());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn standalone_task_add_does_not_require_an_existing_task_owner() {
     let (mux, _) = MultiplexerState::new();

@@ -5,7 +5,6 @@ use crate::service::tab_chat::session_window::{
 use std::sync::Arc;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn chat_start_replays_registered_sse_history_without_a_plugin_store() {
     use crate::multiplexer::state::MultiplexerState;
     use std::io::{Read, Write};
@@ -59,7 +58,6 @@ fn chat_start_replays_registered_sse_history_without_a_plugin_store() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn chat_start_removed_plugin_reports_state_without_rebinding_restored_tab() {
     use crate::multiplexer::{state::MultiplexerState, types::TabBacking};
     let (mut state, tab_id) = MultiplexerState::new();

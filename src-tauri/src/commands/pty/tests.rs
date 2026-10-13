@@ -1,7 +1,6 @@
 //! Tests for the PTY spawn/kill commands and restored-snapshot launch input.
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 async fn protected_frontend_attach_reuses_the_backend_launch_claim() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().protected = true;
@@ -132,7 +131,6 @@ mod restored_fresh_launch_tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn restored_fresh_launch_command_carries_the_supplied_instruction() {
         let fixture = crate::service::test_fixture::ServiceFixture::new(
             crate::multiplexer::state::MultiplexerState::new().0,
@@ -176,7 +174,6 @@ mod restored_fresh_launch_tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn restored_fresh_launch_passes_a_minted_marker_and_resume_passes_none() {
         use crate::service::launch_session_detection::registered_launch_marker;
 
@@ -264,7 +261,6 @@ mod spawn_pty_restore_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn spawn_pty_core_restore_branch_builds_record_and_selects_first_turn_readiness() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -359,7 +355,6 @@ mod spawn_pty_restore_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn restored_agent_relaunches_once_when_ensure_pty_activates_first() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         assert_eq!(
@@ -393,7 +388,6 @@ mod spawn_pty_restore_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn unobserved_liveness_then_ensure_pty_activation_schedules_restore_relaunch() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         {
@@ -421,7 +415,6 @@ mod spawn_pty_restore_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn restored_agent_relaunches_once_when_frontend_attaches_first() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         let backend_pty_id = "backend-materialized-restored-pty";
@@ -460,7 +453,6 @@ mod spawn_pty_restore_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn spawn_pty_live_restored_reuse_returns_after_materialization() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         let pty_guard = fixture.bind_test_pty_session(&tab_id, SESSION, "restored-reuse-nonce");
@@ -490,7 +482,6 @@ mod spawn_pty_restore_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn manual_restart_claim_prevents_frontend_remount_restore_launch() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         let pty_id = "manual-restart-restored-pty";
@@ -528,42 +519,49 @@ mod spawn_pty_restore_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn frontend_attach_keeps_live_pty_when_restore_materialization_fails() {
-        let (fixture, tab_id, resume_context) = restored_fixture();
-        let pty_id = "failed-materialization-live-pty";
-        fixture
-            .service
-            .pty
-            .lock()
-            .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-            .expect("backend already owns a live PTY");
-        {
-            let mut mux = fixture.service.mux.write();
-            mux.link_pty(&tab_id, pty_id.into());
-            mux.get_tab_mut(&tab_id).unwrap().pending_delivery =
-                Some(crate::multiplexer::types::PendingDeliveryRecord::new(
-                    "missing-payload-digest".into(),
-                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                ));
-        }
-
-        let attached = spawn_pty_core(
-            &Arc::new(fixture.service.clone()),
-            None,
-            None,
-            80,
-            24,
-            None,
-            Some(tab_id),
+        use crate::service::pty_ownership::{LinkOutcome, PtyOwnership};
+        let ownership = PtyOwnership::default();
+        let claim = ownership
+            .acquire_async("failed-restore-attach".into())
+            .await
+            .unwrap();
+        let linked = Arc::new(parking_lot::Mutex::new(None::<String>));
+        let link_state = linked.clone();
+        let materialized = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let attempted = materialized.clone();
+        let attached = super::super::reuse_live_pty_with_claim(
+            claim,
+            "live-pty".into(),
+            true,
+            move |claim, existing| {
+                claim.settle(
+                    existing,
+                    false,
+                    |id| id == "live-pty",
+                    |id| LinkOutcome::Linked(link_state.lock().replace(id.into())),
+                    |_| panic!("restore failure must preserve the live PTY"),
+                    |_| {},
+                )
+            },
+            move |_| {
+                attempted.store(true, std::sync::atomic::Ordering::Release);
+                Err("injected restore materialization failure".into())
+            },
         )
         .await
-        .expect("restore failure must not discard a live PTY attachment");
-
-        assert_eq!(attached, pty_id);
-        assert!(resume_context.lock().is_empty());
-        let mut pty = fixture.service.pty.lock();
-        pty.kill(pty_id).expect("test PTY cleanup");
+        .unwrap();
+        assert!(materialized.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(attached, "live-pty");
+        assert_eq!(linked.lock().as_deref(), Some("live-pty"));
+        assert_eq!(
+            ownership
+                .acquire_async("failed-restore-attach".into())
+                .await
+                .unwrap()
+                .tab_id(),
+            "failed-restore-attach"
+        );
     }
 }
 
@@ -573,7 +571,6 @@ mod restored_scrollback_tests {
     use std::sync::Arc;
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
     async fn frontend_first_spawn_seeds_history_before_reader_start() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tail = b"restored frontend spawn history\r\n";

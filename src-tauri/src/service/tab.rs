@@ -128,6 +128,7 @@ impl ServiceContext {
         super::background_work_watch::cancel(tab_id);
         crate::flow_trace::cancel_tab(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
+        super::agent_runtime::engine::stop(tab_id);
         self.deferred_session_bindings.clear(tab_id);
 
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
@@ -727,6 +728,11 @@ impl ServiceContext {
         value: &str,
         expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Result<RespondPromptOutcome, String> {
+        if let Some(result) =
+            super::agent_runtime::prompt_answers::respond(self, tab_id, value, expected_identity)
+        {
+            return result;
+        }
         if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
             self,
             tab_id,
@@ -966,10 +972,6 @@ mod launch_artifact_close_tests {
     use std::sync::Arc;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn closing_a_codex_tab_releases_its_own_profile() {
         let (mut mux, tab_id) = MultiplexerState::new();
         mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("codex".into());
