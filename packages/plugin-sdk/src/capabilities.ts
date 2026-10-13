@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "./agentRuntime";
 export type PreTrustOutcome =
   | { status: "already_trusted" | "granted" }
   | { status: "skipped" | "failed"; reason: string };
@@ -1013,6 +1014,7 @@ export interface AgentCommandHandler {
 
 export interface PluginModule
   extends Partial<AgentProvider>,
+    Partial<AgentRuntime>,
     Partial<SecretBackend>,
     Partial<Transcriber>,
     Partial<Converter>,

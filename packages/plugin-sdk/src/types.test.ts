@@ -409,3 +409,18 @@ const lifecycleModule: PluginModule = {
   },
 };
 void lifecycleModule;
+
+import type {AgentRuntime, RuntimeContext, RuntimeAction, AgentEvent, HostAgentEvent, StdioAgentRuntimeCapability} from "./index";
+function runtimeConformance(runtime:AgentRuntime, context:RuntimeContext) {
+  const plan=runtime.runtimePlan(context,{kind:"initialize"});
+  const action:RuntimeAction=plan.action;
+  const event:AgentEvent={kind:"turnState",threadId:"own",state:"working",startedAt:1000};
+  const hostEvent:HostAgentEvent={...event,at:2000};
+  const descriptor:StdioAgentRuntimeCapability={runtime:"stdio-jsonrpc",command:{binary:"agent",args:[]},requestMethods:{initialize:["hello"]},notificationMethods:[]};
+  // @ts-expect-error Process handles are not in runtime context.
+  context.process.kill();
+  // @ts-expect-error The host receipt stamp is not produced by pure hooks.
+  const invalid:AgentEvent={kind:"turnState",threadId:"own",state:"idle",at:1};
+  void [action,event,hostEvent,descriptor,invalid];
+}
+void runtimeConformance;

@@ -1,0 +1,697 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [
+      {
+        "sendId": "before",
+        "threadId": "thread-fixture",
+        "input": {
+          "text": "Before restart",
+          "attachments": []
+        }
+      }
+    ],
+    "activeTurns": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread-fixture",
+        "sendId": "before",
+        "input": {
+          "text": "Before restart",
+          "attachments": []
+        },
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "after",
+            "threadId": "thread-fixture",
+            "input": {
+              "text": "After restart",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        }
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "after",
+            "threadId": "thread-fixture",
+            "input": {
+              "text": "After restart",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread-fixture",
+        "sendId": "after",
+        "input": {
+          "text": "After restart",
+          "attachments": []
+        },
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        }
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "after",
+            "threadId": "thread-fixture",
+            "input": {
+              "text": "After restart",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": []
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "thread-fixture",
+            "clientUserMessageId": "before",
+            "input": [
+              {
+                "type": "text",
+                "text": "Before restart"
+              }
+            ],
+            "cwd": "/work/project",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "workspaceWrite"
+            },
+            "model": "fixture-model",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "turn-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "before-user",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "Before restart"
+              }
+            ],
+            "clientId": "before"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "clientInfo": {
+              "name": "domios",
+              "version": "1.14.7"
+            },
+            "capabilities": {
+              "experimentalApi": true,
+              "optOutNotificationMethods": [
+                "turn/diff/updated"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "notification",
+        "notification": {
+          "method": "initialized",
+          "params": {}
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": null
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/read",
+          "params": {
+            "refreshToken": false
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "account": {
+            "type": "chatgpt"
+          },
+          "requiresOpenaiAuth": true
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/resume",
+          "params": {
+            "cwd": "/work/project",
+            "model": "fixture-model",
+            "threadSource": "user",
+            "config": {
+              "model_reasoning_effort": "high"
+            },
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandbox": "workspace-write",
+            "threadId": "thread-fixture",
+            "excludeTurns": true
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "thread-fixture"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/read",
+          "params": {
+            "threadId": "thread-fixture",
+            "includeTurns": false
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "thread-fixture",
+            "source": "appServer"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "thread-fixture",
+            "clientUserMessageId": "after",
+            "input": [
+              {
+                "type": "text",
+                "text": "After restart"
+              }
+            ],
+            "cwd": "/work/project",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "workspaceWrite"
+            },
+            "model": "fixture-model",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "turn-b"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-b",
+            "status": "inProgress"
+          }
+        }
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "after",
+            "threadId": "thread-fixture",
+            "input": {
+              "text": "After restart",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": []
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-b",
+          "item": {
+            "id": "after-user",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "After restart"
+              }
+            ],
+            "clientId": "after"
+          }
+        }
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "after",
+            "threadId": "thread-fixture",
+            "input": {
+              "text": "After restart",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": []
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-b",
+          "item": {
+            "id": "after-assistant",
+            "type": "agentMessage",
+            "text": "Recovered"
+          }
+        }
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "after",
+            "threadId": "thread-fixture",
+            "input": {
+              "text": "After restart",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": []
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-b",
+            "status": "completed"
+          }
+        }
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "after",
+            "threadId": "thread-fixture",
+            "input": {
+              "text": "After restart",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": []
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "thread-fixture",
+            "sendId": "before",
+            "turnId": "turn-a"
+          }
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "auth",
+              "state": "signedIn"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "thread-fixture",
+            "settings": {
+              "model": "fixture-model",
+              "effort": "high",
+              "mode": "auto-accept-edits"
+            }
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "thread-fixture",
+            "sendId": "after",
+            "turnId": "turn-b"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "before-user",
+          "seq": 1,
+          "type": "user",
+          "content": "Before restart",
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "thread-fixture",
+        "sendId": "before",
+        "turnId": "turn-a"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-b",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "after-user",
+          "seq": 1,
+          "type": "user",
+          "content": "After restart",
+          "toolFlowId": "turn-b"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "thread-fixture",
+        "sendId": "after",
+        "turnId": "turn-b"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "after-assistant",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Recovered",
+          "toolFlowId": "turn-b"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-b",
+        "state": "idle"
+      }
+    ]
+  }
+}
