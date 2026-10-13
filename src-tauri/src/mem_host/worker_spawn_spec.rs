@@ -24,7 +24,7 @@ pub(crate) fn build_mem_worker_spawn_spec(
     worker_cwd: std::path::PathBuf,
     inputs: MemWorkerSpawnInputs,
 ) -> Result<SpawnTabSpec, SpawnRejection> {
-    let params = SpawnAgentParams {
+    let mut params = SpawnAgentParams {
         agent: Some(inputs.agent_provider.clone()),
         model: (!inputs.model.is_empty()).then_some(inputs.model),
         task: Some(inputs.task),
@@ -49,6 +49,11 @@ pub(crate) fn build_mem_worker_spawn_spec(
             missing: MissingSpawnCapability::WorkerIdentityHandoff,
         });
     }
+    crate::service::move_chatbackend_task_to_system_prompt(
+        chatbackends,
+        &inputs.agent_provider,
+        &mut params,
+    );
     let mut spec = SpawnTabSpec::from_agent_params_with_chatbackends(chatbackends, params);
     spec.visibility = TabVisibility::Hidden;
     spec.bind_worker_identity(&inputs.agent_provider, &inputs.worker_id)

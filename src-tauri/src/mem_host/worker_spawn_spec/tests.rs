@@ -188,6 +188,12 @@ fn runtime_memory_workers_keep_exact_report_identity_and_environment() {
         )
         .unwrap();
         assert_eq!(spec.visibility, TabVisibility::Hidden);
+        let TabCommand::ChatBackend { config, .. } = &spec.command else {
+            panic!("runtime route missing");
+        };
+        let prompt = config["systemPrompt"].as_str().unwrap();
+        assert_eq!(prompt.matches(TASK).count(), 1);
+        assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
         let metadata = spec.chatbackend_launch.as_ref().unwrap();
         assert_eq!(metadata.agent.worker_id.as_deref(), Some("wk-42"));
         assert_eq!(metadata.agent.task.as_deref(), Some(TASK));
