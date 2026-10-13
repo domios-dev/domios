@@ -1,0 +1,36 @@
+# Runtime replay fixtures
+
+These independently authored, sanitized protocol scenarios use the current app-server payload shapes from the plugin and the former runtime source. They are deterministic protocol records, not captures from live agent sessions. No external project content is used.
+
+Each JSON file has this schema (version 1):
+
+```ts
+interface RuntimeFixture {
+  schemaVersion: 1;
+  context: RuntimeContext;
+  operations: {operation: Operation; context?: RuntimeContext}[];
+  rpc: (
+    | {direction: "outbound"; operation: number; action: RuntimeAction}
+    | {direction: "inbound"; operation: number; reply: RpcReply}
+    | {direction: "inbound"; frame: RuntimeFrame; context?: RuntimeContext}
+  )[];
+  expected: {
+    results: {operation: number; step: RuntimeStep}[];
+    events: AgentEvent[];
+  };
+}
+```
+
+`operation` in `rpc` is a zero-based index into `operations`. An operation's context override replaces the top-level context. A frame context override also replaces it, allowing a new runtime epoch with the same thread in the restart scenario. Context includes direct `cwd`, `hostVersion`, and `claimedSends`; it has no environment, token or process handle. All objects use the frozen SDK wire types from `codex-runtime-contract-types.md`.
+
+Replay the `rpc` array in exact order. On the first outbound action for an operation, call `runtimePlan(context, operation)` and compare its action with the recorded action. Preserve the returned plan state. For each corresponding inbound reply, call `runtimeResponse(context, operation, plan.state, reply)`. A `continue` step replaces the plan and the next outbound entry must match its action. A terminal `complete` or `refused` step is appended to `results`. A complete step's optional events are published through the host stamping/validation path and retained in that expected terminal step. A complete step's optional notification is part of that expected step; the harness validates it against the manifest allowlist. The questionAnswer action is host-local formatting (answerQuestion only), carries TurnInput, and is not written to the process; core submits through the ordinary ledger door. Interrupt request calls include generic target metadata validated against activeTurns. Reply/notification action write acknowledgements use `{kind:"success",value:null}` and do not mean delivery.
+
+For each unsolicited inbound frame, call `runtimeReduce(context, reducerState, [frame])`, initially with `null` state. Preserve the returned state and append returned events in order. Epoch/binding changes reset provider state. Batch tests may combine adjacent frames with identical context and must produce the same events/state. Host parity loads this directory by path and compares independently mapped results/events with `expected`, never using expectations as its adapter implementation.
+
+`RuntimeFrame` is exactly `{kind:"notification",method,params}` or `{kind:"request",requestId,method,params}`. `RpcReply` is exactly `{kind:"success",value}` or `{kind:"error",error:{code,message,data?}}`. These are decoded protocol envelopes: the host strips correlated client IDs from replies, preserves string versus numeric server IDs, and rejects stale epoch/binding input before mapping. Request/reply wire JSON-RPC IDs are represented by the indexed operation correlation or server `requestId`; no synthetic request method represents a server reply.
+
+The eight scenarios cover multi-turn, runtime restart, resume (including archive recovery and pagination), interrupt, interrupt during tool work, steering (including exact refusal fallback), approval/question, and tool call. Expected actions, terminal results, and events are literal independently specified JSON values. History results reconcile items but emit no `sendEvidence`. Live evidence requires a matching current claimed send, exact client ID, text and attachments. Turn acceptance alone supplies no evidence.
+
+Run the built-plugin replay with `pnpm exec tsx plugins/provider-codex/tests/runtime.test.ts`. The provider suite imports this file through `tests/plugin.test.ts`, so `node scripts/run-plugin-tests.mjs provider-codex` also covers every fixture.
+
+Additional captured scenarios and real receipt-rate measurement live in [captured/README.md](captured/README.md). The feature audit and reference approach inventory live in [FEATURE-PARITY.md](FEATURE-PARITY.md).

@@ -1,0 +1,831 @@
+{
+  "schemaVersion": 1,
+  "captured": {
+    "cliVersion": "0.160.0",
+    "model": "gpt-6-luna",
+    "scenario": "interrupt"
+  },
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/capture",
+    "hostVersion": "1.14.7",
+    "tabId": "capture-tab",
+    "bindingNonce": "capture-nonce",
+    "settings": {
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "mode": "approval-required"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise.",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "sendId": "capture-interrupt",
+        "input": {
+          "text": "Count upward from 1 to 500, each number on a new line.",
+          "attachments": []
+        },
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-interrupt",
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "input": {
+              "text": "Count upward from 1 to 500, each number on a new line.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21"
+      }
+    },
+    {
+      "operation": {
+        "kind": "interrupt",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-interrupt",
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "input": {
+              "text": "Count upward from 1 to 500, each number on a new line.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [
+          {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          }
+        ],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "clientInfo": {
+              "name": "domios",
+              "version": "1.14.7"
+            },
+            "capabilities": {
+              "experimentalApi": true,
+              "optOutNotificationMethods": [
+                "turn/diff/updated"
+              ]
+            }
+          }
+        }
+      },
+      "receiptMs": 1.814
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "userAgent": "domios/0.160.0 (Mac OS 26.7.1; arm64) CodeTerm/1.6.2 (domios; 1.14.7)",
+          "codexHome": "/home/capture/.codex",
+          "platformFamily": "unix",
+          "platformOs": "macos"
+        }
+      },
+      "receiptMs": 108.76
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "notification",
+        "notification": {
+          "method": "initialized",
+          "params": {}
+        }
+      },
+      "receiptMs": 108.806
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "receiptMs": 108.852
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/read",
+          "params": {
+            "refreshToken": false
+          }
+        }
+      },
+      "receiptMs": 108.857
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "account": {
+            "type": "chatgpt",
+            "planType": "prolite"
+          },
+          "requiresOpenaiAuth": true,
+          "workspaceRouting": {
+            "chatgptAccountId": "68ef3b08-560f-48fb-9d89-f80419069600",
+            "backendOrigin": "https://chatgpt.com",
+            "accountRoutingOverride": "NO_CONSTRAINT"
+          }
+        }
+      },
+      "receiptMs": 862.966
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/start",
+          "params": {
+            "cwd": "/work/capture",
+            "model": "gpt-6-luna",
+            "threadSource": "user",
+            "config": {
+              "model_reasoning_effort": "low"
+            },
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandbox": "read-only",
+            "developerInstructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise."
+          }
+        }
+      },
+      "receiptMs": 863.019
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "environments": [
+              {
+                "environmentId": "local",
+                "cwd": "/work/capture",
+                "runtimeWorkspaceRoots": [
+                  "/work/capture"
+                ]
+              }
+            ],
+            "extra": null,
+            "sessionId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "preview": "",
+            "ephemeral": false,
+            "section": null,
+            "sectionEnteredAt": null,
+            "projectId": null,
+            "historyMode": "paginated",
+            "modelProvider": "openai",
+            "model": "gpt-6-luna",
+            "reasoningEffort": "low",
+            "createdAt": 1791902561,
+            "updatedAt": 1791902561,
+            "recencyAt": 1791902561,
+            "status": {
+              "type": "idle"
+            },
+            "path": "/home/capture/.codex/sessions/2026/10/13/rollout-2026-10-13T17-42-40-01a135b7-32d1-78f1-96b8-4eec33d81c21.jsonl",
+            "cwd": "/work/capture",
+            "cliVersion": "0.160.0",
+            "originator": "domios",
+            "source": "vscode",
+            "canAcceptDirectInput": true,
+            "threadSource": "user",
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "daybreakEnabled": null,
+            "turns": []
+          },
+          "model": "gpt-6-luna",
+          "modelProvider": "openai",
+          "serviceTier": "default",
+          "disabledPluginIds": [],
+          "cwd": "/work/capture",
+          "runtimeWorkspaceRoots": [
+            "/work/capture"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "untrusted",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": "low",
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      },
+      "receiptMs": 947.359
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/inject_items",
+          "params": {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "items": [
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Domios thread binding marker."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "receiptMs": 947.408
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 1236.848
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "clientUserMessageId": "capture-interrupt",
+            "input": [
+              {
+                "type": "text",
+                "text": "Count upward from 1 to 500, each number on a new line."
+              }
+            ],
+            "cwd": "/work/capture",
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "readOnly"
+            },
+            "model": "gpt-6-luna",
+            "effort": "low"
+          }
+        }
+      },
+      "receiptMs": 1236.938
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "01a135b7-3444-7e91-876e-ec3d97427217",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 1246.409
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 1247.797,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-interrupt",
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "input": {
+              "text": "Count upward from 1 to 500, each number on a new line.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+          "turn": {
+            "id": "01a135b7-3444-7e91-876e-ec3d97427217",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1791902561,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 1247.869,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-interrupt",
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "input": {
+              "text": "Count upward from 1 to 500, each number on a new line.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21"
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/interrupt",
+          "params": {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          },
+          "target": {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          }
+        }
+      },
+      "receiptMs": 1247.917
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a135b7-344f-7563-8c87-03196829be80",
+            "clientId": "capture-interrupt",
+            "content": [
+              {
+                "type": "text",
+                "text": "Count upward from 1 to 500, each number on a new line.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+          "turnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+          "startedAtMs": 1791902561360
+        }
+      },
+      "receiptMs": 1249.351,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-interrupt",
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "input": {
+              "text": "Count upward from 1 to 500, each number on a new line.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [
+          {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          }
+        ],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a135b7-344f-7563-8c87-03196829be80",
+            "clientId": "capture-interrupt",
+            "content": [
+              {
+                "type": "text",
+                "text": "Count upward from 1 to 500, each number on a new line.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+          "turnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+          "completedAtMs": 1791902561360
+        }
+      },
+      "receiptMs": 1250.517,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          }
+        ],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 1253.388
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      "receiptMs": 1253.499,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          }
+        ],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+          "turn": {
+            "id": "01a135b7-3444-7e91-876e-ec3d97427217",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "interrupted",
+            "error": null,
+            "startedAt": 1791902561,
+            "completedAt": 1791902561,
+            "durationMs": 6
+          }
+        }
+      },
+      "receiptMs": 1253.544,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          }
+        ],
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "auth",
+              "state": "signedIn"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "settings": {
+              "model": "gpt-6-luna",
+              "effort": "low",
+              "mode": "approval-required"
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+            "sendId": "capture-interrupt",
+            "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "state": "working"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "turnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+        "state": "working",
+        "startedAt": 1791902561000
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "item": {
+          "id": "01a135b7-344f-7563-8c87-03196829be80",
+          "seq": 1,
+          "type": "user",
+          "content": "Count upward from 1 to 500, each number on a new line.",
+          "timestamp": "2026-10-13T14:42:41.360Z",
+          "toolFlowId": "01a135b7-3444-7e91-876e-ec3d97427217"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "sendId": "capture-interrupt",
+        "turnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "item": {
+          "id": "01a135b7-344f-7563-8c87-03196829be80",
+          "seq": 1,
+          "type": "user",
+          "content": "Count upward from 1 to 500, each number on a new line.",
+          "timestamp": "2026-10-13T14:42:41.360Z",
+          "toolFlowId": "01a135b7-3444-7e91-876e-ec3d97427217"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "state": "idle"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "turnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+        "state": "idle",
+        "startedAt": 1791902561000,
+        "completedAt": 1791902561000
+      }
+    ]
+  }
+}
