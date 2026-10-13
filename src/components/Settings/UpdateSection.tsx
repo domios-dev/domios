@@ -1,3 +1,5 @@
+import { UpdatePanel } from "../UpdatePanel";
+import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect } from "react";
 import { AlertCircle, CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useUpdate } from "../../hooks/useUpdate";
@@ -10,6 +12,7 @@ export function UpdateSection({ config, onUpdate }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
+  const unified = useOptionalUpdatePanel();
   const {
     status,
     currentVersion,
@@ -51,6 +54,8 @@ export function UpdateSection({ config, onUpdate }: {
             : "idle";
 
   return (
+    <>
+    {unified && <UpdatePanel />}
     <SettingsCard
       icon={<Download size={16} />}
       title="Updates"
@@ -72,7 +77,7 @@ export function UpdateSection({ config, onUpdate }: {
           </div>
 
           <div className="flex shrink-0 flex-wrap gap-2">
-            {updateAvailable && (
+            {updateAvailable && !unified && (
               <button
                 type="button"
                 onClick={() => void applyUpdate({ failureSurface: "inline" })}
@@ -152,6 +157,7 @@ export function UpdateSection({ config, onUpdate }: {
         )}
       </div>
     </SettingsCard>
+    </>
   );
 }
 

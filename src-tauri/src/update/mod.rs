@@ -85,7 +85,22 @@ pub struct UpdateState {
     pub download_total_bytes: Option<u64>,
 }
 
+static STATUS_EMITTER: std::sync::OnceLock<Box<dyn Fn(serde_json::Value) + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+pub fn bind_status_emitter(app: tauri::AppHandle) {
+    let _ = STATUS_EMITTER.set(Box::new(move |status| {
+        crate::api::events::emit_everywhere(&app, "update-status-changed", status);
+    }));
+}
+
 impl UpdateState {
+    fn publish_status(&self) {
+        if let Some(emit) = STATUS_EMITTER.get() {
+            emit(self.runtime_status());
+        }
+    }
+
     pub fn runtime_status(&self) -> serde_json::Value {
         let download_progress = self.download_total_bytes.and_then(|total| {
             if total == 0 {
@@ -121,22 +136,26 @@ impl UpdateState {
         }
         self.phase = phase;
         self.phase_changed_at = Some(std::time::Instant::now());
+        self.publish_status();
     }
 
     pub fn set_error(&mut self, msg: impl Into<String>) {
         self.last_error = Some(msg.into());
         self.phase = UpdatePhase::Error;
         self.phase_changed_at = Some(std::time::Instant::now());
+        self.publish_status();
     }
 
     pub fn clear_error(&mut self) {
         self.last_error = None;
+        self.publish_status();
     }
 
     pub fn record_download_chunk(&mut self, chunk_len: u64, total: Option<u64>) {
         self.phase = UpdatePhase::Downloading;
         if self.phase_changed_at.is_none() {
             self.phase_changed_at = Some(std::time::Instant::now());
+            self.publish_status();
         }
         if total.is_some() {
             self.download_total_bytes = total;
@@ -145,6 +164,7 @@ impl UpdateState {
         if let Some(total) = self.download_total_bytes {
             self.downloaded_bytes = self.downloaded_bytes.min(total);
         }
+        self.publish_status();
     }
 
     fn reset_download_progress(&mut self) {

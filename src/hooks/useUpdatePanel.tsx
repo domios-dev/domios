@@ -1,0 +1,121 @@
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { listen } from "../lib/bridge";
+import { checkUpdateAvailability, type UpdateAvailabilitySnapshot } from "../lib/updateAvailability";
+import { availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, type UpdateIntent } from "../lib/updatePanelModel";
+import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
+import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
+import { useUpdate } from "./useUpdate";
+
+const INTENT_KEY = "codeterm.update-all.intent";
+const EMPTY: UpdateAvailabilitySnapshot = { items: [], errors: {} };
+
+function savedIntent(): UpdateIntent | null {
+  return readUpdateIntent(localStorage.getItem(INTENT_KEY));
+}
+
+function persistIntent(intent: UpdateIntent | null): void {
+  if (intent) localStorage.setItem(INTENT_KEY, JSON.stringify(intent));
+  else localStorage.removeItem(INTENT_KEY);
+}
+
+function useUpdatePanelController() {
+  const app = useUpdate();
+  const [snapshot, setSnapshot] = useState(EMPTY);
+  const [intent, setIntent] = useState(savedIntent);
+  const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const running = useRef(false);
+  const offer = useSyncExternalStore(subscribeFrontendUpdateOffer, frontendUpdateOffer, () => null);
+  const items = panelItems(snapshot.items);
+
+  const refresh = async (force = false) => {
+    try {
+      const next = await checkUpdateAvailability(force);
+      setSnapshot(next);
+      setReady(true);
+      return next;
+    } catch (failure) {
+      setError(String(failure));
+      throw failure;
+    }
+  };
+
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<UpdateAvailabilitySnapshot>("update-availability-changed", event => {
+      if (!disposed) { setSnapshot(event.payload); setReady(true); }
+    }).then(unlisten => {
+      if (disposed) { unlisten(); return; }
+      stop = unlisten;
+      void checkUpdateAvailability(true).then(next => {
+        if (!disposed) { setSnapshot(next); setReady(true); }
+      }).catch(failure => { if (!disposed) setError(String(failure)); });
+    }).catch(failure => { if (!disposed) setError(String(failure)); });
+    return () => { disposed = true; stop?.(); };
+  }, []);
+
+  const save = (next: UpdateIntent | null) => {
+    persistIntent(next);
+    setFrontendUpdateHeld(next !== null);
+    setIntent(next);
+  };
+
+  useEffect(() => {
+    if (!ready || !intent || running.current || error) return;
+    const host = snapshot.items.find(item => item.kind === "app")?.installed;
+    if (!host) return;
+    const step = nextUpdateStep(intent, host, items);
+    if (step.kind === "waitForApp") return;
+    if (step.kind === "interface" && !offer) return;
+    running.current = true;
+    void (async () => {
+      try {
+        if (step.kind === "plugin") {
+          await runPluginSnapshotAction({ kind: "update", pluginId: step.id });
+          await refresh(true);
+          running.current = false;
+          save({ ...intent, stage: "plugins", pluginIds: intent.pluginIds.filter(id => id !== step.id) });
+        } else if (step.kind === "interface") {
+          save(null);
+          acceptFrontendUpdate();
+        } else save(null);
+      } catch (failure) { setError(String(failure)); }
+      finally { running.current = false; }
+    })();
+  }, [ready, intent, snapshot, offer, error]);
+
+  const updateAll = async () => {
+    if (intent || running.current || app.installing) return;
+    setError(null);
+    try {
+      const fresh = await refresh(true);
+      const next = availabilityIntent(fresh.items);
+      save(next);
+      if (next.appTarget) {
+        const result = await app.applyUpdate();
+        if (!result) throw new Error("App update failed");
+      }
+    } catch (failure) { setError(String(failure)); }
+  };
+
+  const retry = async () => {
+    setError(null);
+    if (intent?.stage === "app") await app.applyUpdate();
+    await refresh(true);
+  };
+
+  return { snapshot, items, busy: intent !== null || app.installing, error: error ?? app.error,
+    updateAll, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
+}
+
+const Context = createContext<ReturnType<typeof useUpdatePanelController> | null>(null);
+export function UpdatePanelProvider({ children }: { children: ReactNode }) {
+  return <Context.Provider value={useUpdatePanelController()}>{children}</Context.Provider>;
+}
+export function useUpdatePanel() {
+  const value = useContext(Context);
+  if (!value) throw new Error("useUpdatePanel requires UpdatePanelProvider");
+  return value;
+}
+export function useOptionalUpdatePanel() { return useContext(Context); }

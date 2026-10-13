@@ -35,6 +35,7 @@ export interface SwapState {
   reloading: boolean;
   failed: boolean;
   consented: boolean;
+  held: boolean;
 }
 
 export type SwapEvent =
@@ -45,6 +46,7 @@ export type SwapEvent =
   | { type: "activated"; ticket: Ticket }
   | { type: "failed" }
   | { type: "consent" }
+  | { type: "hold"; held: boolean }
   | { type: "rolledBack"; releaseId: string };
 
 export type SwapEffect =
@@ -68,7 +70,7 @@ export function initialSwapState(apiVersion: number, checkpoint: ClientCheckpoin
   checkpointWrite(restoredRevision, checkpoint);
   return { apiVersion, checkpoint: structuredClone(checkpoint), safety, pending: null,
     revision: restoredRevision, acknowledgedRevision: null, writing: null, activating: null,
-    ticket: null, reloading: false, failed: false, consented: false };
+    ticket: null, reloading: false, failed: false, consented: false, held: false };
 }
 
 export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapState; effects: SwapEffect[] } {
@@ -82,6 +84,7 @@ export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapSt
         state.failed = false;
       }
       break;
+    case "hold": state.held = event.held; break;
     case "consent":
       if (state.pending) {
         state.consented = true;
@@ -117,7 +120,7 @@ export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapSt
       break;
   }
   const effects: SwapEffect[] = [];
-  if (!state.failed && state.pending && safeToSwap(state.safety, state.consented)) {
+  if (!state.held && !state.failed && state.pending && safeToSwap(state.safety, state.consented)) {
     if (state.acknowledgedRevision !== state.revision) {
       if (!state.writing) {
         state.writing = checkpointWrite(state.revision, state.checkpoint);

@@ -35,7 +35,6 @@ import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
-import { FrontendUpdateNotice } from "./components/FrontendUpdateNotice";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
@@ -58,6 +57,7 @@ import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
+import { UpdatePanelProvider } from "./hooks/useUpdatePanel";
 import { UpdateProvider } from "./hooks/useUpdate";
 import { usePluginActivity } from "./lib/usePluginActivity";
 import {
@@ -915,7 +915,6 @@ function AppInner() {
 
       <CommandPalette commands={paletteCommands} />
 
-      <FrontendUpdateNotice />
 
       <StaleBuildBanner />
 
@@ -932,7 +931,7 @@ export function App() {
   return (
     <MultiplexerProvider>
       <UpdateProvider>
-        <AppInner />
+        <UpdatePanelProvider><AppInner /></UpdatePanelProvider>
       </UpdateProvider>
     </MultiplexerProvider>
   );
