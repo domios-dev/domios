@@ -222,13 +222,23 @@ impl SocketConnection {
             tokio::time::timeout_at(until, self.0.outgoing.send(messages))
                 .await
                 .map_err(|_| CdpError::Deadline("input batch queue".into()))?
-                .map_err(|_| CdpError::Closed("writer stopped".into()))?;
+                .map_err(|_| {
+                    CdpError::Closed(
+                        self.close_reason()
+                            .unwrap_or_else(|| "writer stopped".into()),
+                    )
+                })?;
             futures_util::future::try_join_all(responses.into_iter().map(
                 |(method, response)| async move {
                     tokio::time::timeout_at(until, response)
                         .await
                         .map_err(|_| CdpError::Deadline(method))?
-                        .map_err(|_| CdpError::Closed("reply dropped".into()))?
+                        .map_err(|_| {
+                            CdpError::Closed(
+                                self.close_reason()
+                                    .unwrap_or_else(|| "reply dropped".into()),
+                            )
+                        })?
                 },
             ))
             .await
