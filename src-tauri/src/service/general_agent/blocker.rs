@@ -108,6 +108,7 @@ mod tests {
     fn prompt_from_screen(screen: &str) -> PendingPrompt {
         let (question, options) = parse_permission_prompt(screen).expect("prompt parsed");
         PendingPrompt {
+            request_id: None,
             question,
             options: options
                 .into_iter()
@@ -169,6 +170,7 @@ Enter to confirm · Esc to cancel";
     #[test]
     fn plain_numbered_answer_is_not_a_blocker() {
         let prompt = PendingPrompt {
+            request_id: None,
             question: "Plan".into(),
             options: vec![
                 PromptOption {

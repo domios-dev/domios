@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 fn prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "opaque-question".into(),
         options: vec![PromptOption {
             label: "opaque-option".into(),

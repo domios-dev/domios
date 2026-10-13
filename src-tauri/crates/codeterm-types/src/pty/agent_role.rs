@@ -21,6 +21,8 @@ pub enum PromptKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptIdentity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     pub kind: PromptKind,
     pub options: Vec<PromptOption>,
 }
@@ -29,6 +31,7 @@ impl PromptIdentity {
     pub fn new(kind: PromptKind, prompt: &PendingPrompt) -> Self {
         Self {
             kind,
+            request_id: prompt.request_id.clone(),
             options: prompt.options.clone(),
         }
     }
@@ -46,6 +49,8 @@ pub struct PromptSection {
 /// A pending interactive prompt from an agent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PendingPrompt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     pub question: String,
     pub options: Vec<PromptOption>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -57,3 +62,6 @@ pub struct PendingPrompt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_values: Option<Vec<String>>,
 }
+
+#[cfg(test)]
+mod tests;

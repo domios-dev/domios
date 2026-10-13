@@ -49,6 +49,7 @@ fn pending_prompt_from_detection(
 ) -> PendingPrompt {
     let selected_value = option_value(detection.selected_index);
     PendingPrompt {
+        request_id: None,
         question: detection.question,
         options: detection
             .options
@@ -252,6 +253,7 @@ mod tests {
         let input = input_from_cast(&snapshots_root().join("claude/model-picker-r3"));
         assert!(pending_prompt_from_input(&input).is_some());
         let structured = PendingPrompt {
+            request_id: None,
             question: "structured handle".to_string(),
             options: Vec::new(),
             sections: None,
