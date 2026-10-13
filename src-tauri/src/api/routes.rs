@@ -712,6 +712,10 @@ pub fn create_router_with_frontend(
         .route("/api/account/login", post(super::account_routes::login))
         .route("/api/account/logout", post(super::account_routes::logout))
         .route("/api/update/check", get(updater_routes::check_update))
+        .route(
+            "/api/update/availability",
+            get(updater_routes::availability),
+        )
         .route("/api/update/status", get(updater_routes::update_status))
         .route("/api/update/install", post(updater_routes::install_update))
         .route(
