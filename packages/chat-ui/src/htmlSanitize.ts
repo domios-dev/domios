@@ -69,6 +69,7 @@ export const CHAT_HTML_SANITIZE_SCHEMA = {
     "*": [...new Set([...(defaultSchema.attributes?.["*"] ?? []), "className", "style", "title"])],
     td: [...new Set([...(defaultSchema.attributes?.td ?? []), "colSpan", "rowSpan"])],
     th: [...new Set([...(defaultSchema.attributes?.th ?? []), "colSpan", "rowSpan", "scope"])],
+    code: [...(defaultSchema.attributes?.code ?? []), "dataCodeText", "dataCodeBlock"],
     details: ["open"],
     abbr: ["title"],
     time: ["dateTime"],
