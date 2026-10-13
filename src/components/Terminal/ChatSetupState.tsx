@@ -71,14 +71,17 @@ export function ChatStatusBanner({ title, reason, action, testId, loading = fals
 }) {
   const Icon = levelIcon("failure");
   return (
-    <div className="mx-auto w-full max-w-sm p-4 text-center" data-testid={testId}
-      role="status" aria-live="polite" aria-label={title} aria-busy={loading}>
-      <div className="flex items-center justify-center gap-2 text-sm font-semibold" style={{ color: "var(--ct-fg, #c9d1d9)" }}>
+    <div className="mx-auto my-2 flex w-full max-w-2xl items-center gap-3 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] px-3 py-2"
+      data-testid={testId} role="status" aria-live="polite" aria-label={title} aria-busy={loading}>
+      <span className="flex shrink-0 items-center">
         {icon ?? <Icon size={14} aria-hidden="true" style={{ color: "var(--ct-danger)" }} />}
-        {title}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium" style={{ color: "var(--ct-fg, #c9d1d9)" }}>{title}</div>
+        {reason && <div className="line-clamp-2 break-words text-xs" title={reason}
+          style={{ color: "var(--ct-muted-fg, #8b949e)" }}>{reason}</div>}
       </div>
-      {reason && <div className="mt-1 break-words text-xs" style={{ color: "var(--ct-muted-fg, #8b949e)" }}>{reason}</div>}
-      {action && <div className="mt-2">{action}</div>}
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }

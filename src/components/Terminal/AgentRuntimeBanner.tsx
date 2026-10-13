@@ -9,5 +9,5 @@ export function AgentRuntimeBanner({ state, onRetry }: { state: AgentRuntimeStat
     reason={view.reason} loading={view.loading}
     icon={view.loading ? <TabLoadingIndicator label="Loading agent runtime" compact deferred={false} role="img" /> : undefined}
     action={<button type="button" aria-label="Retry" onClick={onRetry} disabled={!view.canRetry}
-      className="rounded-md border px-2 py-1 text-xs font-medium disabled:opacity-50">Retry</button>} />;
+      className="rounded-md border border-[var(--ct-border)] px-2.5 py-1 text-xs font-medium text-[var(--ct-fg)] transition-colors hover:bg-[var(--ct-border)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent">Retry</button>} />;
 }
