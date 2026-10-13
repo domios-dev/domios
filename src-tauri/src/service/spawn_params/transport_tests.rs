@@ -258,7 +258,10 @@ fn direct_runtime_routing_preserves_hidden_worker_env_and_task() {
     let crate::service::spawn::TabCommand::ChatBackend { config, .. } = &spec.command else {
         panic!("chat backend")
     };
-    assert_eq!(config["systemPrompt"], "opaque-system");
+    let prompt = config["systemPrompt"].as_str().unwrap();
+    assert_eq!(prompt.matches("opaque-system").count(), 1);
+    assert_eq!(prompt.matches("opaque-task").count(), 1);
+    assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
     assert_eq!(config["preset"], "opaque-preset");
     assert_eq!(metadata.agent.task.as_deref(), Some("opaque-task"));
 }
@@ -280,4 +283,60 @@ fn runtime_capability_conversion_refuses_unmapped_args_before_mutation() {
     assert_eq!(agent.extra_args, ["opaque-arg"]);
     assert_eq!(agent.model.as_deref(), Some("opaque-model"));
     assert_eq!(agent.reasoning_effort.as_deref(), Some("opaque-effort"));
+}
+
+#[test]
+fn runtime_routing_preserves_plan_task_authority_while_composing_identity() {
+    let params = SpawnAgentParams {
+        agent: Some("runtime-fixture".into()),
+        role: Some("Worker".into()),
+        plan_id: Some("plan-exact".into()),
+        task_id: Some("task-exact".into()),
+        plan_task: Some("task-reference".into()),
+        task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+            plan_id: "plan-exact".into(),
+            task_id: "task-exact".into(),
+            attempt_id: "attempt-exact".into(),
+            lane_base: Some("base-exact".into()),
+        }),
+        plan_skill_manifest: Some(vec![crate::plan::PlanSkillManifestEntry {
+            slug: "opaque-skill".into(),
+            title: "opaque-title".into(),
+            purpose: "opaque-purpose".into(),
+            content_digest: "sha256:opaque-digest".into(),
+        }]),
+        authorized_gates: vec!["opaque-gate\n$() `quoted`".into()],
+        execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+        provider_reserve_pct: Some(17.25),
+        task: Some("opaque-task\nUnicode: λ".into()),
+        report_target_mesh_peer: Some("opaque-peer".into()),
+        system_prompt: Some("opaque-system".into()),
+        ..Default::default()
+    };
+    let mut expected = params.clone();
+    expected.system_prompt = None;
+    let expected = format!("{expected:?}").into_bytes();
+    let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params(params);
+    spec.route_agent_to_chatbackend().unwrap();
+    let mut actual = spec.chatbackend_launch.unwrap().params;
+    let prompt = actual.system_prompt.take().unwrap();
+    assert_eq!(prompt.matches("opaque-system").count(), 1);
+    assert_eq!(prompt.matches("opaque-task\nUnicode: λ").count(), 1);
+    assert_eq!(format!("{actual:?}").into_bytes(), expected);
+}
+
+#[test]
+fn runtime_routing_refuses_a_spec_without_original_parameters() {
+    let mut spec = crate::service::spawn::SpawnTabSpec {
+        command: crate::service::spawn::TabCommand::Agent(crate::service::spawn::AgentSpawnSpec {
+            provider: "runtime-fixture".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(spec.route_agent_to_chatbackend().is_err());
+    assert!(matches!(
+        spec.command,
+        crate::service::spawn::TabCommand::Agent(_)
+    ));
 }

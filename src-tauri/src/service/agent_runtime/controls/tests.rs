@@ -59,7 +59,29 @@ module.exports = {
 };
 "#;
 
-pub(super) fn runtime_fixture() -> (ServiceFixture, String) {
+pub(super) struct RuntimeFixture {
+    fixture: ServiceFixture,
+    tab: String,
+    storage: crate::storage::Storage,
+}
+
+impl std::ops::Deref for RuntimeFixture {
+    type Target = ServiceFixture;
+
+    fn deref(&self) -> &Self::Target {
+        &self.fixture
+    }
+}
+
+impl Drop for RuntimeFixture {
+    fn drop(&mut self) {
+        engine::stop(&self.tab);
+        crate::service::session_persist::stop_worker(self.fixture._app.handle())
+            .expect("stop runtime fixture persistence worker");
+    }
+}
+
+pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some(PROVIDER.into());
@@ -74,6 +96,16 @@ pub(super) fn runtime_fixture() -> (ServiceFixture, String) {
     tab.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
     let fixture = ServiceFixture::new(mux);
     fixture.set_agent_full_access(false);
+    let storage = crate::storage::Storage::open(
+        &fixture.temp.path().join("runtime-desk"),
+        crate::storage::StorageConfig::default(),
+    )
+    .unwrap();
+    crate::service::session_persist::install_storage_desk_adapter(
+        fixture._app.handle(),
+        crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
+    )
+    .unwrap();
     let methods = [
         "initialize",
         "resumeThread",
@@ -98,7 +130,14 @@ pub(super) fn runtime_fixture() -> (ServiceFixture, String) {
             Arc::new(PluginVm::from_source(PROVIDER, SOURCE.into()).unwrap()),
         )));
     super::super::authority::record_spawn(&fixture.service, &id, PROVIDER, "own-nonce").unwrap();
-    (fixture, id)
+    (
+        RuntimeFixture {
+            fixture,
+            tab: id.clone(),
+            storage,
+        },
+        id,
+    )
 }
 
 #[test]
@@ -111,7 +150,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             "target",
             Some("high"),
             Some(RuntimeMode::Auto),
-            crate::service::codex_rpc::model::ModelSwitchOptions {
+            crate::service::agent_runtime::model::ModelSwitchOptions {
                 force: false,
                 restart_resume: false,
             },
@@ -140,6 +179,21 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             "target"
         );
     }
+    crate::service::session_persist::flush_session_persistence(fixture._app.handle()).unwrap();
+    let persisted =
+        crate::session::store::StorageDeskAdapter::from_storage(fixture.storage.clone())
+            .snapshot()
+            .unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&persisted);
+    assert_eq!(
+        restored
+            .get_tab(&id)
+            .unwrap()
+            .restorable_launch
+            .model
+            .as_deref(),
+        Some("target")
+    );
     let session = engine::for_tab(&id).unwrap();
     session.context.lock().active_turn_id = Some("working-turn".into());
     fixture

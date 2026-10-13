@@ -63,6 +63,14 @@ pub fn stop(tab: &str) {
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
     super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
+    let prompt_service = svc.clone();
+    let prompt_tab = tab.to_string();
+    tokio::task::spawn_blocking(move || {
+        crate::service::orchestrator::ensure_tab_runtime_prompt(&prompt_service, &prompt_tab)
+    })
+    .await
+    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    .map_err(RuntimeFailure::Refused)?;
     let (provider, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;

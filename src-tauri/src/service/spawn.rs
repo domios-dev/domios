@@ -276,13 +276,14 @@ impl ServiceContext {
             (TabVisibility::Hidden, TabCommand::Agent(_)) => self.spawn_hidden_agent_impl(spec),
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
-            (TabVisibility::Visible, TabCommand::ChatBackend { .. }) => {
+            (_, TabCommand::ChatBackend { .. }) => {
                 super::permission_policy::configured_full_access_for(&self.app_handle)?;
-                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
-            }
-            (TabVisibility::Hidden, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access_for(&self.app_handle)?;
-                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
+                let result = self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change);
+                if let Some(ready_tx) = ready_tx {
+                    let readiness = result.as_ref().map(|_| ()).map_err(Clone::clone);
+                    let _ = ready_tx.send(readiness);
+                }
+                result
             }
         }
     }

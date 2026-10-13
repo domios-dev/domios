@@ -1,16 +1,6 @@
 use super::lifecycle::for_tab;
-use serde::{Deserialize, Serialize};
+use crate::service::agent_runtime::model::{ModelSwitchOptions, RuntimeMode};
 use serde_json::{json, Value};
-
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum RuntimeMode {
-    ApprovalRequired,
-    #[default]
-    AutoAcceptEdits,
-    Auto,
-    FullAccess,
-}
 
 impl RuntimeMode {
     pub fn overrides(self) -> Value {
@@ -222,11 +212,6 @@ pub(crate) fn switch_next_turn(
         confirmation_detail: None,
         confirmation: ModelSwitchConfirmation::Pending,
     })
-}
-
-pub(crate) struct ModelSwitchOptions {
-    pub force: bool,
-    pub restart_resume: bool,
 }
 
 impl crate::service::ServiceContext {

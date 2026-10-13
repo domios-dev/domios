@@ -213,4 +213,133 @@ mod tests {
             Some("own-nonce")
         );
     }
+    #[test]
+    fn runtime_routed_plan_dispatch_binds_intent_authority_manifest_and_accepts_worker_ack() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace = mux.create_workspace("fixture".into(), None);
+        let tab_id = mux.create_tab(&workspace.id).unwrap();
+        mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("runtime-fixture".into());
+        let mut fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let (store, plan, task) = store_with_task(fixture.temp.path());
+        fixture.service.plan_store = std::sync::Arc::new(store);
+        let registry = crate::service::spawn_capability::test_backend::registry_with_runtime(
+            "runtime-fixture",
+        );
+        let mut params = SpawnAgentParams {
+            agent: Some("runtime-fixture".into()),
+            role: Some("Worker".into()),
+            plan_id: Some(plan.clone()),
+            plan_task: Some(task.clone()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            authorized_gates: vec!["opaque-gate".into()],
+            ..Default::default()
+        };
+        fixture
+            .service
+            .preflight_worker_plan_task_spawn(&params)
+            .unwrap();
+        fixture
+            .service
+            .prepare_worker_plan_task_spawn(&mut params)
+            .unwrap();
+        let manifest = vec![crate::plan::PlanSkillManifestEntry {
+            slug: "opaque-skill".into(),
+            title: "opaque-title".into(),
+            purpose: "opaque-purpose".into(),
+            content_digest: "sha256:opaque-digest".into(),
+        }];
+        params.plan_skill_manifest = Some(manifest.clone());
+        let authority = params.task_launch_authority.clone().unwrap();
+        assert!(registry
+            .descriptor("runtime-fixture")
+            .unwrap()
+            .agent_runtime
+            .is_some());
+        let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params(params);
+        spec.route_agent_to_chatbackend().unwrap();
+        assert!(matches!(
+            spec.command,
+            crate::service::spawn::TabCommand::ChatBackend { .. }
+        ));
+        let metadata = spec.chatbackend_launch.as_ref().unwrap();
+        fixture
+            .service
+            .prepare_runtime_worker_binding(&metadata.params, &tab_id)
+            .unwrap();
+        fixture
+            .service
+            .finalize_runtime_worker_session(&tab_id, "own-thread", "own-nonce")
+            .unwrap();
+        let detail = fixture.service.plan_store.show_task(&task).unwrap();
+        assert_eq!(
+            detail.task.status_label.as_deref(),
+            Some("awaiting_worker_ack")
+        );
+        let attempt = detail.task.execution_attempts.last().unwrap();
+        assert_eq!(attempt.id, authority.attempt_id);
+        assert_eq!(attempt.provider.as_deref(), Some("runtime-fixture"));
+        assert_eq!(
+            attempt.authorized_gates.as_deref(),
+            Some(&["opaque-gate".to_string()][..])
+        );
+        assert_eq!(
+            detail.task.interruption.execution_intent,
+            crate::plan::ExecutionIntent::ReadOnly
+        );
+        assert_eq!(
+            serde_json::to_vec(&attempt.plan_skill_manifest).unwrap(),
+            serde_json::to_vec(&manifest).unwrap()
+        );
+        assert_eq!(attempt.session_id.as_deref(), Some("own-thread"));
+        assert_eq!(attempt.session_binding_nonce.as_deref(), Some("own-nonce"));
+        assert_eq!(
+            metadata.params.task_launch_authority.as_ref(),
+            Some(&authority)
+        );
+        let binding = fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .task_binding
+            .clone()
+            .unwrap();
+        assert_eq!(binding.plan_id.as_deref(), Some(plan.as_str()));
+        assert_eq!(binding.task_id.as_deref(), Some(task.as_str()));
+        fixture
+            .service
+            .plan_store
+            .acknowledge_task_attempt(&plan, &task, &tab_id, &authority.attempt_id, epoch_ms())
+            .unwrap();
+        assert_eq!(
+            fixture
+                .service
+                .plan_store
+                .show_task(&task)
+                .unwrap()
+                .task
+                .status,
+            crate::plan::TaskStatus::InProgress
+        );
+    }
+    #[test]
+    fn prepared_dispatch_brief_is_not_rewritten_when_gates_are_carried_to_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut params = SpawnAgentParams {
+            task: Some("opaque-prepared-brief".into()),
+            authorized_gates: vec!["opaque-gate".into()],
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: "opaque-plan".into(),
+                task_id: "opaque-task".into(),
+                attempt_id: "opaque-attempt".into(),
+                lane_base: None,
+            }),
+            ..Default::default()
+        };
+        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
+        assert_eq!(params.task.as_deref(), Some("opaque-prepared-brief"));
+        assert_eq!(params.authorized_gates, ["opaque-gate"]);
+    }
 }

@@ -17,8 +17,45 @@
     "activeTurns": [],
     "threadParents": []
   },
-  "operations": [],
+  "operations": [
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "thread-fixture",
+        "action": "model",
+        "value": "selected-model"
+      }
+    }
+  ],
   "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/settings/update",
+          "params": {
+            "threadId": "thread-fixture",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "workspaceWrite"
+            },
+            "model": "selected-model",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
     {
       "direction": "inbound",
       "frame": {
@@ -149,8 +186,38 @@
     }
   ],
   "expected": {
-    "results": [],
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          },
+          "events": [
+            {
+              "kind": "controlsConfirmed",
+              "threadId": "thread-fixture",
+              "settings": {
+                "model": "selected-model",
+                "effort": "high",
+                "mode": "auto-accept-edits"
+              }
+            }
+          ]
+        }
+      }
+    ],
     "events": [
+      {
+        "kind": "controlsConfirmed",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "selected-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        }
+      },
       {
         "kind": "turnState",
         "threadId": "thread-fixture",
