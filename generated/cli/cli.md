@@ -2513,6 +2513,13 @@ Update a plan section's title, body, tags, or handle
 - `--tag`
 - `--title`
 
+#### `codeterm plan set-project`
+
+Repair a plan's project folder after it moves, preserving plan and task identity
+
+- `<path>`
+- `<plan_id>`
+
 #### `codeterm plan skill`
 
 Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)
