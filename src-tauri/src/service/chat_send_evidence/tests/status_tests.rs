@@ -209,6 +209,42 @@ fn detached_structured_turn_reconciles_only_past_the_captured_service_anchor() {
 }
 
 #[test]
+fn late_own_jsonl_turn_upgrades_submit_unconfirmed_once() {
+    let fx = Fixture::new();
+    let payload = "opaque late payload";
+    fx.append_user_turn("sess-a", payload);
+    let send = fx
+        .ledger
+        .try_start("tab-1", payload, Some(fx.anchor_now("sess-a")))
+        .unwrap();
+    fx.ledger
+        .finish(
+            &send.send_id,
+            Err("submit_unconfirmed: exact turn has not arrived".into()),
+        )
+        .unwrap();
+    fx.append_user_turn("sess-other", payload);
+    fx.append_user_turn("sess-a", &format!("prefix {payload}"));
+
+    assert!(fx.scan("tab-1").is_empty());
+    assert_eq!(
+        fx.ledger.status(&send.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
+
+    fx.append_user_turn("sess-a", payload);
+    let confirmed = fx.scan("tab-1");
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, send.send_id);
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+    assert!(fx.scan("tab-1").is_empty());
+    assert_eq!(
+        fx.ledger.status(&send.send_id).unwrap().state,
+        ChatSendState::Sent
+    );
+}
+
+#[test]
 fn identical_payloads_with_staggered_anchors_claim_distinct_turns() {
     let fx = Fixture::new();
     let first = fx

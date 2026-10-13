@@ -490,7 +490,7 @@ pub(crate) fn has_structural_prompt_evidence(
         else {
             return false;
         };
-        if !matches!(marker, '❯' | '›' | '▶' | '➤' | '>') {
+        if !matches!(marker, '❯' | '›' | '▶' | '➤' | '>' | '→') {
             return false;
         }
         let rest = rest.trim_start();

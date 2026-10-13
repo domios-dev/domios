@@ -191,3 +191,61 @@ fn captured_followup_menu_reaches_pending_prompt_but_numbered_echo_does_not() {
     ));
     assert!(parse_live_prompt(&provider, echo).is_none());
 }
+
+#[test]
+fn retained_model_pickers_reach_live_pending_prompt_with_structural_evidence() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for (provider_id, fixture, count) in [
+        ("claude", "model-picker-r3", 5),
+        ("codex", "model-picker-r3", 7),
+        ("cursor", "model-picker", 10),
+    ] {
+        let plugin_dir = root.join(format!("plugins/provider-{provider_id}"));
+        let mut manifest: PluginManifest =
+            serde_json::from_str(&std::fs::read_to_string(plugin_dir.join("plugin.json")).unwrap())
+                .unwrap();
+        manifest.id = format!("picker-fixture-{provider_id}");
+        let vm = PluginVm::from_source(
+            &manifest.id,
+            std::fs::read_to_string(plugin_dir.join("plugin.js")).unwrap(),
+        )
+        .unwrap();
+        let provider = JsProvider::new(manifest, Arc::new(vm));
+        let screen = std::fs::read_to_string(root.join(format!(
+            "testbench/snapshots/{provider_id}/{fixture}/screen.txt"
+        )))
+        .unwrap();
+        let (prompt, kind) = parse_live_prompt(&provider, &screen)
+            .unwrap_or_else(|| panic!("{provider_id}: retained picker resolves on the live path"));
+        assert_eq!(kind, PromptKind::Provider);
+        assert!(!prompt.question.is_empty());
+        assert_eq!(prompt.options.len(), count, "{provider_id}");
+        assert!(crate::agent::state_reactor::has_structural_prompt_evidence(
+            &screen, &prompt,
+        ));
+        assert!(!crate::agent::state_reactor::prompt_is_composer_text(
+            &screen, &prompt,
+        ));
+        let mut detector = crate::agent::prompt::PromptDetector::new();
+        let decision = detector.evaluate_pty_output_parsed(
+            provider_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
+        assert!(matches!(
+            decision,
+            crate::agent::prompt::PromptDecision::NewPrompt { .. }
+        ));
+        assert_eq!(detector.active_prompt(provider_id), Some(&prompt));
+        assert!(
+            !crate::agent::state_reactor::has_structural_prompt_evidence(
+                &format!("{screen}\n→"),
+                &prompt,
+            )
+        );
+    }
+}
