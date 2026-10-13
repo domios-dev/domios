@@ -102,6 +102,8 @@ pub(crate) async fn submit_loaded(
     if pending.tab_id != tab {
         return Err(before_write(tab, RuntimeFailure::Superseded));
     }
+    super::capture::validate_if_present(svc, tab, send_id)
+        .map_err(|reason| before_write(tab, reason))?;
     engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
     if context.claimed_sends.len() >= MAX_RUNTIME_BATCH
         || serde_json::to_vec(&input).map_or(true, |value| value.len() > MAX_RUNTIME_VALUE_BYTES)
@@ -163,6 +165,29 @@ pub(crate) async fn submit_loaded(
             }
             Ok(())
         }
+        Err(RuntimeFailure::PrewriteRefused(reason)) => {
+            if svc.chat_send_ledger.clear_rpc_send_after_definite_refusal(
+                &pending.send_id,
+                &SendLiveBinding {
+                    session_id: Some(thread),
+                    binding_nonce: Some(context.binding_nonce),
+                },
+            ) {
+                session
+                    .context
+                    .lock()
+                    .claimed_sends
+                    .retain(|claim| claim.send_id != pending.send_id);
+                return Err(DeliveryError::TabBusyRefused {
+                    tab: tab.into(),
+                    detail: reason,
+                });
+            }
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: tab.into(),
+                detail: reason,
+            })
+        }
         other => {
             if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {
                 crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
@@ -179,37 +204,10 @@ pub(crate) fn send_envelope(
     svc: &ServiceContext,
     tab: &str,
     input: &str,
+    token: &str,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    let pending = svc.chat_send_ledger.try_start_scoped_with_normalization(
-        tab,
-        input,
-        None,
-        None,
-        Default::default(),
-    )?;
-    let pending = svc
-        .chat_send_ledger
-        .attach_system_send(
-            &pending.send_id,
-            input,
-            chrono::Utc::now().timestamp_millis().max(0) as u64,
-        )
-        .ok_or("Runtime envelope admission disappeared")?;
-    crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &pending);
-    let result = send(svc, tab, input, Some(&pending.send_id));
-    if let Some(status) = svc.chat_send_ledger.finish(
-        &pending.send_id,
-        result
-            .as_ref()
-            .map(|_| ())
-            .map_err(|reason| reason.ledger_message()),
-    ) {
-        crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
-    }
-    result.map_err(|reason| reason.ledger_message())?;
-    Ok(crate::service::messenger::Delivery::ChatBackend {
-        message_id: pending.send_id,
-    })
+    super::envelope_delivery::send(svc, tab, input, token, observer)
 }
 
 pub fn control(
