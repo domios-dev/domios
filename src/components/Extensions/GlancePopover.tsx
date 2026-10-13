@@ -1,3 +1,4 @@
+import { invokePluginWithConsent } from "../../lib/pluginConsent";
 /**
  * The plugin "glance" — a Chrome-extension-style popover that renders a
  * plugin's read-only `renderGlance()` ViewNode tree. Not settings: a quick peek
@@ -59,7 +60,7 @@ export function GlancePopover({
       try {
         const snapshot = await ensurePluginSnapshot();
         const v = pluginHasGlance(snapshot.plugins, pluginId)
-          ? await invoke<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} })
+          ? await invokePluginWithConsent<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} }, () => ownGeneration === generation.current)
           : null;
         if (generation.current !== ownGeneration) return;
         setView(buildGlanceView(v, configHelp));
@@ -80,12 +81,14 @@ export function GlancePopover({
   // Dismiss on outside click + Escape.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
+      if (document.querySelector("[data-plugin-consent]")) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node) && !trigger?.contains(e.target as Node)) onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { onClose(); trigger?.focus(); }
     };
     const onMove = (e: PointerEvent) => {
+      if (document.querySelector("[data-plugin-consent]")) return;
       if (!hoverOnly || !trigger || !menuRef.current) return;
       const a = trigger.getBoundingClientRect();
       const b = menuRef.current.getBoundingClientRect();

@@ -1022,10 +1022,17 @@ export interface PluginModule
     Partial<WebhookReceiver>,
     Partial<AgentCommandHandler>,
     Partial<ModelProviderConfig> {
+  onPermissionChanged?(event: PermissionChangedEvent): void | { error: string };
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
   glanceAction?(action: string, ctx: TabContext): unknown;
   // Test-only exports and other plugin-private members are allowed.
   [key: string]: unknown;
+}
+
+export interface PermissionChangedEvent {
+  permission: string;
+  allowed: true;
+  source: "install" | "action" | "settings";
 }

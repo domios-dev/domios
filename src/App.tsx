@@ -26,6 +26,7 @@ import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNav
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
+import { PluginConsentDialog } from "./components/Extensions/PluginConsentDialog";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
 import { AnalyticsSupporterSection } from "./components/Supporter/AnalyticsSupporterSection";
 import { PluginView } from "./components/Extensions/PluginView";
@@ -629,6 +630,7 @@ function AppInner() {
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <ChatBlockHostProvider value={appChatBlockHost}>
+    <PluginConsentDialog />
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{

@@ -190,6 +190,8 @@
   "src/components/shared/CommunityLinks.test.tsx",
   "src/components/Settings/PrivacyTab.test.tsx",
   "src/lib/promptAnswers.test.ts",
+  "src/lib/pluginConsentModel.test.ts",
+  "src/components/Extensions/PluginConsent.test.tsx",
   "src/lib/pluginUiHostModel.test.ts",
   "src/lib/pluginUiMonitor.test.ts",
   "src/components/Extensions/PluginUiHost.test.tsx",
