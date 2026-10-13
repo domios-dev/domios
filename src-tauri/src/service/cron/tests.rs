@@ -173,6 +173,9 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
             fixture.temp.path().join("cron-logs"),
             MockClock::starting_at(1_700_000_000_000),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("open storage-backed cron store"),
     ));
@@ -250,6 +253,9 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
             fixture.temp.path().join("cron-logs"),
             MockClock::starting_at(1_700_000_000_000),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("hydrate reopened cron store"),
     ));
@@ -784,6 +790,9 @@ fn cron_settle_refused_trigger_record_never_dispatches() {
             temp.path().join("crons"),
             MockClock::starting_at(1),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("open storage-backed cron store"),
     ));

@@ -48,6 +48,9 @@ impl CronFixture {
             logs_root(&temp),
             system_clock(),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("hydrate cron storage");
         let state: CronState = Arc::new(Mutex::new(store));
@@ -69,6 +72,9 @@ impl CronFixture {
             logs_root(&self.temp),
             system_clock(),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("rehydrate cron storage");
         run_status(&fresh)

@@ -179,7 +179,10 @@ pub async fn spawn_pty_core(
         crate::service::mark_tab_agent_launch_started(mux_state, pid);
         let stored_agent_type = restore.provider_id;
         let restored_session_id = restore.session_id;
-        let resume_enabled = crate::config::resume_sessions_enabled(&stored_agent_type);
+        let resume_enabled =
+            crate::config::provider_config_from(&svc.configuration(), &stored_agent_type)
+                .resume_sessions
+                .unwrap_or(true);
         log::debug!(
             "[restore-resume-target] tab={} provider={} saved_session={:?} resume_enabled={} cwd={:?}",
             pid, stored_agent_type, restored_session_id, resume_enabled, restore.cwd

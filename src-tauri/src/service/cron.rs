@@ -238,7 +238,7 @@ impl ServiceContext {
             .as_deref()
             .filter(|agent| !agent.trim().is_empty())
             .map(str::to_string)
-            .unwrap_or_else(crate::config::default_agent_provider);
+            .unwrap_or_else(|| self.configuration().general_agent.agent_provider);
         params.agent = Some(provider.clone());
         params.model = params.model.take().filter(|model| !model.trim().is_empty());
         self.validate_cron_spawn_fields(&provider, params.model.as_deref(), params.cwd.as_deref())?;

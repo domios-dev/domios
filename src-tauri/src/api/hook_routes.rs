@@ -340,7 +340,8 @@ pub async fn hook_permission(
             .and_then(|p| p.agent_type.clone());
 
         if let Some(pty_id) = pty_id {
-            let at = agent_type.unwrap_or_else(crate::config::default_agent_provider);
+            let at = agent_type
+                .unwrap_or_else(|| state.svc.configuration().general_agent.agent_provider);
             let registry = &state.svc.agent_registry;
 
             let clean = state

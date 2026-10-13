@@ -444,7 +444,18 @@ mod tests {
                     web_dist: None,
                     snapshot_bound: Default::default(),
                 };
-                runtime.service.app_handle.manage(state.config.clone());
+                let managed_config = runtime
+                    .service
+                    .app_handle
+                    .state::<crate::config::ConfigState>()
+                    .inner()
+                    .clone();
+                let config_snapshot = state.config.lock().clone();
+                *managed_config.lock() = config_snapshot;
+                let state = AppState {
+                    config: managed_config,
+                    ..state
+                };
                 runtime.service.app_handle.manage(state.cron.clone());
                 runtime.service.app_handle.manage(state.events.clone());
                 let router = crate::api::routes::create_router(state.clone());

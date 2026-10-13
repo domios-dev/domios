@@ -211,6 +211,9 @@ fn storage_cron_consumer_run_end_commits_through_storage() {
             fixture.temp.path().join("crons"),
             crate::cron::clock::system_clock(),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .unwrap();
         let _ = opened.set(storage);
@@ -227,6 +230,9 @@ fn storage_cron_consumer_run_end_commits_through_storage() {
         run.fixture.temp.path().join("crons"),
         crate::cron::clock::system_clock(),
         CronStorageOptions::default(),
+        crate::config::schema::AppConfig::default()
+            .general_agent
+            .agent_provider,
     )
     .unwrap();
     let cache = run.cron.lock();
