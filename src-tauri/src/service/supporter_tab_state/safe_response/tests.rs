@@ -6,6 +6,7 @@ fn target() -> Target {
     Target {
         kind: Kind::Update,
         prompt: codeterm_types::pty::PendingPrompt {
+            request_id: None,
             question: "opaque-question".into(),
             options: vec![
                 PromptOption {

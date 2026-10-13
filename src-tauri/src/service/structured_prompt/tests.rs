@@ -11,6 +11,7 @@ mod model_tests;
 
 fn dummy_prompt(q: &str) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: q.to_string(),
         options: Vec::new(),
         sections: None,
@@ -179,6 +180,7 @@ fn structured_prompt_notification_answer_records_tab_respond_metadata() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "Proceed?".into(),
         options: vec![
             crate::multiplexer::types::PromptOption {

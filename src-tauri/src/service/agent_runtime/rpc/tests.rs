@@ -39,11 +39,12 @@ async fn pipe_eof_fails_pending_without_replaying_payload() {
         );
         drop(peer);
     };
-    let submit = client.request(&RpcCall {
+    let call = RpcCall {
         target: None,
         method: "fixture/submit".into(),
         params: json!({"input":"opaque-payload"}),
-    });
+    };
+    let submit = client.request(&call);
     let (result, ()) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(submit, server)
     })

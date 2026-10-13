@@ -305,7 +305,7 @@ async fn ensure_locked(
             "Restored runtime thread identity missing".into(),
         ));
     }
-    let operation = match context.thread_id {
+    let operation = match context.thread_id.clone() {
         Some(thread_id) => RuntimeOperation::ResumeThread {
             thread_id,
             settings: super::model::settings_from_config(config),

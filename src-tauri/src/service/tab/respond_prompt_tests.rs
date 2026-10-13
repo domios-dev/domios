@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 fn pending_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "Choose an option".into(),
         options: vec![
             PromptOption {

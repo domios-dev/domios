@@ -355,6 +355,7 @@ fn owner_prompt_fixture() -> (crate::service::test_fixture::ServiceFixture, Stri
 
 fn owner_prompt() -> codeterm_types::pty::PendingPrompt {
     codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque-question-62".into(),
         options: vec![
             codeterm_types::pty::PromptOption {

@@ -194,6 +194,7 @@ fn supporter_first_opinion_scrape_batch_journal_and_disconnect() {
 
 fn prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "Fixture selection".into(),
         options: vec![
             PromptOption {

@@ -16,6 +16,7 @@ export type CallerNotificationAction =
   | Extract<NotificationAction, { type: "answer" }>;
 
 export interface NotificationPromptIdentity {
+  request_id?: string | null;
   kind: "provider" | "directory_trust" | "structured" | "manual_update";
   options: Array<{ label: string; value: string }>;
 }

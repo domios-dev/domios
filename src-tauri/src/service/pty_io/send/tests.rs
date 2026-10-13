@@ -549,6 +549,7 @@ fn inferred_question_and_prompt_never_block_ready_agent_input() {
         .into(),
     );
     tab.pending_prompt = Some(codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "Select an option".into(),
         options: Vec::new(),
         sections: None,

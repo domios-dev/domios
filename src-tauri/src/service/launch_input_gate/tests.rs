@@ -469,6 +469,7 @@ fn resumed_transcript_question_does_not_block_without_an_active_structured_promp
     );
 
     let active_prompt = codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "Active structured choice".into(),
         options: vec![
             codeterm_types::pty::PromptOption {

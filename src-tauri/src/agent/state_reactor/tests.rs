@@ -144,6 +144,7 @@ fn assert_pending_prompt_without_owner_notice(
 
 fn reactor_test_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "opaque question token?".into(),
         options: vec![
             PromptOption {
@@ -466,6 +467,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         vec!["1", "2"]
     );
     let prompt = PendingPrompt {
+        request_id: None,
         question: "folder access choice".into(),
         options,
         sections: None,
@@ -663,6 +665,7 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
         .collect::<Vec<_>>();
     assert_eq!(options.len(), 3);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "captured command approval".into(),
         options,
         sections: None,
@@ -749,6 +752,7 @@ fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
     let screen =
         std::fs::read_to_string(fixture_path).expect("captured Codex command approval frame");
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque command approval".into(),
         options: vec![
             PromptOption {
@@ -846,6 +850,7 @@ fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
 #[test]
 fn auto_approve_output_handles_permission_prompt_after_reactor_classification() {
     let prompt = PendingPrompt {
+        request_id: None,
         question: "Allow this command?".into(),
         options: vec![
             PromptOption {

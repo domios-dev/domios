@@ -9,6 +9,7 @@ use crate::sentinel::store::{Create, Owner, Store};
 
 fn fixture_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "password=prompt-secret".into(),
         options: vec![PromptOption {
             label: "Continue".into(),
