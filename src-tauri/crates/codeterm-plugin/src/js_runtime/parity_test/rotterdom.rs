@@ -25,6 +25,15 @@ fn model(failure: &str) -> JsDecisionModel {
     let setup = r#"
         var failure = FAILURE;
         var fixtures = FIXTURES;
+        function equalJson(left, right) {
+            function ordered(_key, value) {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+                var result = {};
+                Object.keys(value).sort().forEach(function(key) { result[key] = value[key]; });
+                return result;
+            }
+            return JSON.stringify(left, ordered) === JSON.stringify(right, ordered);
+        }
         var clock = 100;
         host.unixNowMs = function() { return clock; };
         host.settingsJson = function() { return JSON.stringify({
@@ -48,13 +57,13 @@ fn model(failure: &str) -> JsDecisionModel {
             if (failure === 'timeout') { clock += 3000; return then({error:'timed out'}); }
             if (failure === 'malformed') return then({status:200,body:'invalid JSON'});
             var input = JSON.parse(body.messages[1].content);
-            if (input.questions.single && JSON.stringify(input.state) !== JSON.stringify(fixtures.find(function(f) { return f.request.question.type === input.questions.single.question.type; }).request.state)) throw new Error('state changed');
+            if (input.questions.single && !equalJson(input.state, fixtures.find(function(f) { return f.request.question.type === input.questions.single.question.type; }).request.state)) throw new Error('state changed');
             if (!input.questions.single && input.state.fixture !== 'shared') throw new Error('batch state changed');
             var answers = {};
             Object.keys(input.questions).forEach(function(name) {
                 var spec = input.questions[name];
                 var fixture = fixtures.find(function(f) { return f.request.question.type === spec.question.type; });
-                if (spec.instructions !== fixture.request.instructions || JSON.stringify(spec.question) !== JSON.stringify(fixture.request.question)) throw new Error('question changed');
+                if (spec.instructions !== fixture.request.instructions || !equalJson(spec.question, fixture.request.question)) throw new Error('question changed');
                 answers[name] = fixture.answer;
             });
             var answer = Object.keys(input.questions)[0] === 'single' ? answers.single : {answers:answers};
