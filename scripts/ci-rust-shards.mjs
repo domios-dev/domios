@@ -2,28 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { archivePlatform, validateArchiveSuite, archiveRunArgs, verifyArchiveBuilds } from './ci-rust-archives.mjs';
 
-const classifier = 'scripts/ci-test-classifier/Cargo.toml';
 const manifests = ['src-tauri/Cargo.toml', 'cli/Cargo.toml'];
-const jsonCommand = (args) => JSON.parse(execFileSync('cargo', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
+const jsonCommand = (args) => JSON.parse(execFileSync('cargo-nextest', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
 const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
-export function classifyInventory(inventory, sources) {
-  const rows = [];
-  for (const suite of Object.values(inventory['rust-suites'])) {
-    if (suite.status !== 'listed') throw new Error(`Unlisted binary: ${suite['binary-id']}`);
-    const definitions = sources[suite['binary-id']];
-    if (!definitions) throw new Error(`No source root: ${suite['binary-id']}`);
-    for (const [name, test] of Object.entries(suite.testcases)) {
-      const matches = definitions.filter((entry) => entry.scope ? name.startsWith(entry.name) : name === entry.name || name.startsWith(`${entry.name}::`));
-      if (!matches.length) throw new Error(`Unclassified test: ${suite['binary-id']} ${name}`);
-      const reason = matches.find((entry) => entry.ignore_reason)?.ignore_reason;
-      if (test.ignored && !reason) throw new Error(`Ignored test lacks a source-authored reason: ${suite['binary-id']} ${name}`);
-      rows.push({ id: `${suite['binary-id']}::${name}`, binary: suite['binary-name'], package: suite['package-name'], name, ignored: test.ignored, reason: test.ignored ? reason : undefined, platform: matches.some((entry) => entry.platform) });
-    }
-  }
-  return rows;
-}
+export { classifyInventory } from './ci-rust-classification.mjs';
 
 export function filterFor(rows, mode) {
   const groups = new Map();
@@ -96,12 +81,6 @@ export function candidateFilter(document, selected) {
   }).join(' | ');
 }
 
-export function reusedNextestArgs(binaries, metadata, config, partition = [], alone = false) {
-  return ['--binaries-metadata', binaries, '--cargo-metadata', metadata, '--config-file', config,
-    ...partition, '--no-tests=fail', '--status-level', 'pass', '--failure-output', 'immediate-final',
-    ...(alone ? ['--test-threads', '1'] : [])];
-}
-
 export async function captureCommand(command, args, logPath, env = process.env, echo = true) {
   const fd = fs.openSync(logPath, 'w');
   try {
@@ -127,39 +106,27 @@ async function run(mode, shard, total) {
   delete process.env.CODETERM_TASK_ID;
   process.env.CODETERM_CONPTY_TEST_ISOLATION = '1';
   const start = performance.now();
-  const receipt = { mode, shard, runner: process.env.RUNNER_NAME, os: process.env.RUNNER_OS, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), all: [], selected: [], timingAudits: [], exit: 1, seconds: 0 };
+  const receipt = { mode, shard, arch: process.env.CI_RUNNER_ARCH, runner: process.env.RUNNER_NAME, os: process.env.RUNNER_OS, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), all: [], selected: [], timingAudits: [], exit: 1, seconds: 0 };
   fs.mkdirSync('ci-rust-receipts', { recursive: true });
   try {
     for (const required of ['scripts/check-slow-unit-tests.mjs', 'scripts/slow-unit-tests.json']) {
       if (!fs.existsSync(required)) throw new Error(`Anvil dependency not landed: ${required}`);
     }
     for (const manifest of manifests) {
-      const targets = manifest.startsWith('src-tauri') ? ['--lib'] : [];
-      const common = ['--manifest-path', manifest, '--workspace', '--locked', ...targets];
-      const metadata = jsonCommand(['metadata', '--manifest-path', manifest, '--locked', '--format-version', '1']);
+      archivePlatform(receipt.os, receipt.arch);
       const lane = manifest.startsWith('src-tauri') ? 'workspace' : 'cli';
-      const cargoMetadata = path.resolve('ci-rust-receipts', `${lane}.cargo-metadata`);
-      const binariesMetadata = path.resolve('ci-rust-receipts', `${lane}.binaries-metadata`);
-      fs.writeFileSync(cargoMetadata, JSON.stringify(metadata));
-      fs.writeFileSync(binariesMetadata, JSON.stringify(jsonCommand(['nextest', 'list', ...common, '--ignore-default-filter', '--list-type', 'binaries-only', '--message-format', 'json'])));
-      const reused = ['--binaries-metadata', binariesMetadata, '--cargo-metadata', cargoMetadata];
-      const inventory = jsonCommand(['nextest', 'list', ...reused, '--ignore-default-filter', '--message-format', 'json']);
-      if (manifest.startsWith('src-tauri')) execFileSync('cargo', ['build', '--locked', '--manifest-path', manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
-      const sources = {};
-      for (const suite of Object.values(inventory['rust-suites'])) {
-        const pkg = metadata.packages.find((p) => p.id === suite['package-id']);
-        const target = pkg?.targets.find((t) => t.name === suite['binary-name'] && (suite.kind === 'lib' ? t.kind.some((k) => ['lib', 'rlib', 'cdylib', 'staticlib'].includes(k)) : t.kind.includes(suite.kind)));
-        if (!target) throw new Error(`No Cargo source target: ${suite['binary-id']}`);
-        sources[suite['binary-id']] = jsonCommand(['run', '--quiet', '--locked', '--manifest-path', classifier, '--', target.src_path]);
-      }
-      const rows = classifyInventory(inventory, sources);
+      const workspace = path.resolve(path.dirname(manifest));
+      const archive = path.resolve('ci-rust-archives', lane + '.tar.zst');
+      const extract = path.resolve(process.env.RUNNER_TEMP, 'rust-archive-run', lane);
+      fs.mkdirSync(extract, { recursive: true });
+      const rows = validateArchiveSuite(JSON.parse(fs.readFileSync(path.resolve('ci-rust-archives', lane + '.suite.json'), 'utf8')), receipt.os, receipt.arch, receipt.sha);
       for (const row of rows.filter((r) => r.ignored)) console.log(`[explicit ignore on ${receipt.runner}] ${row.id}: ${row.reason}`);
       receipt.all.push(...rows);
       const filter = filterFor(rows, mode);
       const partition = mode === 'shared' ? ['--partition', `hash:${shard}/${total}`] : [];
       const config = path.resolve('ci-rust-receipts', 'selection.toml');
       fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
-      const selected = jsonCommand(['nextest', 'list', ...reused, '--config-file', config, ...partition, '--message-format', 'json']);
+      const selected = jsonCommand(['nextest', 'list', '--archive-file', archive, '--workspace-remap', workspace, '--extract-to', extract, '--extract-overwrite', '--config-file', config, ...partition, '--message-format', 'json']);
       const selectedTests = [];
       for (const suite of Object.values(selected['rust-suites'])) {
         for (const [name, test] of Object.entries(suite.testcases)) {
@@ -176,7 +143,7 @@ async function run(mode, shard, total) {
         fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(groupFilter)}\nretries = 0\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`);
         console.log(`[${mode} ${shard}/${total} runner=${receipt.runner}] ${manifest} listener=${listener}`);
         const log = path.resolve('ci-rust-receipts', `${mode}-${mode === 'shared' ? shard : receipt.os}-${manifest.startsWith('src-tauri') ? 'workspace' : 'cli'}-${listener ? 'listener' : 'normal'}.log`);
-        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...reusedNextestArgs(binariesMetadata, cargoMetadata, config, partition)], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
+        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', 'nextest', 'run', ...archiveRunArgs(archive, workspace, extract, config, partition)], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
         if (result.error || result.status !== 0) throw new Error(`Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}: ${result.error || result.status}`);
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
         const candidatePath = log.replace(/\.log$/, '.candidates');
@@ -187,7 +154,7 @@ async function run(mode, shard, total) {
         if (exactFilter) {
           aloneLog = log.replace(/\.log$/, '.alone.log');
           fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${groupFilter}) & (${exactFilter})`)}\nretries = 0\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
-          const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...reusedNextestArgs(binariesMetadata, cargoMetadata, config, [], true)], aloneLog, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
+          const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', 'nextest', 'run', ...archiveRunArgs(archive, workspace, extract, config, [], true)], aloneLog, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
           if (alone.error || alone.status !== 0) throw new Error(`Candidate rerun failed on ${receipt.runner}: ${alone.error || alone.status}`);
         }
         const auditLog = log.replace(/\.log$/, '.audit.log');
@@ -209,7 +176,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   if (process.argv[2] === 'verify') {
     const receipts = fs.readdirSync(process.argv[3]).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(process.argv[3], f))));
     const table = `| Job | Runner | OS | Tests | Duration |\n| --- | --- | --- | ---: | ---: |\n${verifyCoverage(receipts)}\n`;
-    console.log(table);
-    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, table);
+    const builds = fs.readdirSync(process.argv[4]).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(process.argv[4], f))));
+    const buildTable = verifyArchiveBuilds(builds, receipts);
+    console.log(buildTable + '\n\n' + table);
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, buildTable + '\n\n' + table);
   } else await run(process.argv[2], Number(process.argv[3] || 1), Number(process.argv[4] || 1));
 }

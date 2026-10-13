@@ -31,6 +31,21 @@ For an already registered runner, add it without replacing the other labels:
 Verify the repository runner inventory lists at least one online pool member per
 machine before dispatching `gh workflow run tests.yml --ref ci/<branch>`.
 
+Compile once per supported OS/architecture before distributing tests: macOS
+ARM64 on eight (`codeterm-builder`), Linux X64 on ubunta (`linux-build`), and
+Windows X64 on one `windows-ci` runner. Each builder publishes workspace and CLI
+nextest archives plus a classified inventory. Shared jobs retain only the generic
+`rust-shard` label; after assignment they download the artifact matching
+`runner.os` and `runner.arch`. Native cfg jobs use those same archives.
+Add an archive-builder matrix entry before qualifying a runner with a new
+OS/architecture combination. Absent or mismatched archives fail explicitly.
+
+Consumers install nextest without a Rust toolchain, remap the archive workspace
+to their source checkout, and run hash partitions without compilation. Alone
+confirmations use the same archive. The semantic-test embed sidecar travels
+inside the workspace archive. Build receipts report one compile/archive duration
+per platform; shard receipts report extraction/execution/audit time separately.
+
 The classifier in `scripts/ci-test-classifier` follows Rust source modules and
 inherited cfg gates, including platform cfg attributes inside test bodies.
 `ci-rust-shards.mjs` joins this with nextest's compiled inventory for workspace
