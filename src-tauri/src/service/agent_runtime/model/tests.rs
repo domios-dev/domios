@@ -122,6 +122,7 @@ fn prompt_answers_cannot_select_a_foreign_option_or_duplicate_values() {
         multi_select: Some(true),
         submit_available: None,
         selected_values: None,
+        request_id: None,
     };
     assert!(validate_prompt_answer(
         &prompt,
