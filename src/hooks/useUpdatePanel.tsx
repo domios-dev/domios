@@ -106,12 +106,15 @@ function useUpdatePanelController() {
 
   const retry = async () => {
     setError(null);
-    const host = snapshot.items.find(item => item.kind === "app")?.installed;
-    if (intent?.stage === "app" && host !== intent.appTarget) await app.applyUpdate();
-    await refresh(true);
+    try {
+      const fresh = await refresh(true);
+      if (Object.keys(fresh.errors).length > 0) return;
+      const host = fresh.items.find(item => item.kind === "app")?.installed;
+      if (intent?.stage === "app" && host !== intent.appTarget) await app.applyUpdate();
+    } catch (failure) { setError(String(failure)); }
   };
 
-  return { snapshot, items, busy: starting || intent !== null || app.installing, error: error ?? app.error,
+  return { snapshot, items, busy: starting || intent !== null || app.installing, error: error ?? app.error ?? Object.values(snapshot.errors)[0] ?? null,
     updateAll, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
 }
 
