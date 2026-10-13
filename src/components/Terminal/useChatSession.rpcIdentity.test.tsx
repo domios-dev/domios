@@ -60,7 +60,7 @@ async function main() {
     await act(async () => handler?.({ payload: { ...authority, tab_id: "rpc", messages: [
       { ...row, id: "different-1", content: "equal" }, { ...row, id: "different-2", content: "equal" },
     ] } }));
-    assert.deepEqual(rendered().map((item: { id: string }) => item.id), [row.id, "different-1", "different-2"]);
+    assert.deepEqual(rendered().map((item) => item.id), [row.id, "different-1", "different-2"]);
     await act(async () => root.unmount());
     clearTranscriptWindows();
     start = 1;
