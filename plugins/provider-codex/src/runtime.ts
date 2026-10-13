@@ -8,7 +8,7 @@ import { accountAuth } from "./runtimeAuth";
 import { interruptTargets } from "./runtimeInterrupt";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
-import { codexRuntimePolicy, codexThreadConfig } from "./runtimeSettings";
+import { codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexReportedSettings } from "./runtimeSettings";
 export { runtimeReduce } from "./runtimeReduce";
 
 function fail(code: RuntimeFailure["code"], message: string): never {
@@ -78,7 +78,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       const settings = op.action === "settings" ? object(op.value) : {...ctx.settings,[op.action]:op.value};
       for (const key of ["model","effort","mode"]) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
       const parsed = settings as RuntimeSettings;
-      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort});
+      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
     }
   }
 }
@@ -110,17 +110,17 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));
       return {kind:"complete",result:{kind:"initialized"},events:[accountAuth(value)]};
     case "openThread": {
-      if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:op.settings}};
+      if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:state.settings as RuntimeSettings}};
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
       return continuation(request("thread/inject_items",{threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},
-        {stage:"materialize",threadId}));
+        {stage:"materialize",threadId,settings:codexEffectiveSettings(op.settings,value)}));
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
       if (!userThread(value,op.threadId)) return refused("Resumed thread identity unverified");
-      if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify"}));
-      return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:op.settings}};
+      if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify",settings:codexEffectiveSettings(op.settings,value)}));
+      return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:state.settings as RuntimeSettings}};
     }
     case "readHistory": return historyResponse(op,state,value);
     case "submitTurn": {
@@ -132,7 +132,11 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       if (turns.length) return continuation(request("turn/interrupt",{threadId:turns[0].threadId,turnId:turns[0].turnId},{stage:"interrupt",remaining:turns.slice(1)}));
       return {kind:"complete",result:{kind:"done"}};
     }
-    case "control": return {kind:"complete",result:{kind:"done"},...(state.stage === "auth" ? {events:[accountAuth(value)]} : {})};
+    case "control": {
+      if (state.stage === "auth") return {kind:"complete",result:{kind:"done"},events:[accountAuth(value)]};
+      const reported = state.stage === "thread/settings/update" ? codexReportedSettings(value) : {};
+      return {kind:"complete",result:{kind:"done"},...(Object.keys(reported).length ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
+    }
     case "answer": case "answerQuestion": return {kind:"complete",result:{kind:"done"}};
   }
 }

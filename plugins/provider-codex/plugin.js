@@ -599,6 +599,21 @@ function codexThreadConfig(settings) {
     ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
   };
 }
+function codexReportedSettings(raw) {
+  const root = object(raw);
+  const settings = root.threadSettings ? object(root.threadSettings) : root;
+  const thread = object(settings.thread);
+  const model = text(settings.model) ?? text(thread.model);
+  const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
+  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
+  const approval = settings.approvalPolicy ?? thread.approvalPolicy;
+  const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
+  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
+  return { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
+}
+function codexEffectiveSettings(requested, reply) {
+  return { ...requested, ...codexReportedSettings(reply) };
+}
 
 // plugins/provider-codex/src/runtimeErrors.ts
 function runtimeError(value, willRetry = false) {
@@ -801,12 +816,8 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "thread/settings/updated": {
-        const settings = object(params.threadSettings);
-        const model = text(settings.model);
-        const effort = text(settings.effort);
-        const sandbox = object(settings.sandboxPolicy).type;
-        const mode = settings.approvalPolicy === "untrusted" ? "approval-required" : settings.approvalPolicy === "never" && sandbox === "dangerFullAccess" ? "full-access" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "auto_review" ? "auto" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0;
-        if (model || effort || mode) events.push({ kind: "controlsConfirmed", threadId, settings: { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} } });
+        const settings = codexReportedSettings(params);
+        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
         break;
       }
       case "serverRequest/resolved":
@@ -978,7 +989,7 @@ function runtimePlan(ctx, op) {
       const settings = op.action === "settings" ? object(op.value) : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
       const parsed = settings;
-      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort });
+      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
     }
   }
 }
@@ -1008,20 +1019,20 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
       return { kind: "complete", result: { kind: "initialized" }, events: [accountAuth(value)] };
     case "openThread": {
-      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: op.settings } };
+      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
       return continuation(request(
         "thread/inject_items",
         { threadId, items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "Domios thread binding marker." }] }] },
-        { stage: "materialize", threadId }
+        { stage: "materialize", threadId, settings: codexEffectiveSettings(op.settings, value) }
       ));
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
-      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify" }));
-      return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: op.settings } };
+      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
+      return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings } };
     }
     case "readHistory":
       return historyResponse(op, state, value);
@@ -1034,8 +1045,11 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
       return { kind: "complete", result: { kind: "done" } };
     }
-    case "control":
-      return { kind: "complete", result: { kind: "done" }, ...state.stage === "auth" ? { events: [accountAuth(value)] } : {} };
+    case "control": {
+      if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
+      const reported = state.stage === "thread/settings/update" ? codexReportedSettings(value) : {};
+      return { kind: "complete", result: { kind: "done" }, ...Object.keys(reported).length ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
+    }
     case "answer":
     case "answerQuestion":
       return { kind: "complete", result: { kind: "done" } };
