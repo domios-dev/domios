@@ -102,6 +102,14 @@ impl ServiceContext {
             &binding.tab_id,
             &binding.runtime,
             &binding.owner_name,
+            &binding.owner_tab_id.clone().unwrap_or_else(|| {
+                let mux = self.mux.read();
+                format!(
+                    "workspace_{}",
+                    mux.find_workspace_for_tab(&binding.tab_id)
+                        .unwrap_or_default()
+                )
+            }),
             binding.resume.clone(),
         )?;
         runtime.set_owner_name(&binding.owner_name);

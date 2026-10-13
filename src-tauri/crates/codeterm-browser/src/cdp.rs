@@ -72,7 +72,7 @@ struct Inner {
     next_id: AtomicU64,
     next_subscriber: AtomicU64,
     state: Mutex<State>,
-    outgoing: mpsc::Sender<Message>,
+    outgoing: mpsc::Sender<Vec<Message>>,
     closed: watch::Sender<Option<String>>,
 }
 
@@ -187,39 +187,60 @@ impl SocketConnection {
         params: Value,
         deadline: Duration,
     ) -> Reply {
+        self.send_batch_to(session_id, vec![(method.to_string(), params)], deadline)
+            .await
+            .map(|mut replies| replies.remove(0))
+    }
+
+    async fn send_batch_to(
+        &self,
+        session_id: Option<&str>,
+        commands: Vec<(String, Value)>,
+        deadline: Duration,
+    ) -> Result<Vec<Value>, CdpError> {
         let until = Instant::now() + deadline;
-        let id = self.0.next_id.fetch_add(1, Ordering::Relaxed);
-        let (reply, response) = oneshot::channel();
+        let mut ids = Vec::with_capacity(commands.len());
+        let mut responses = Vec::with_capacity(commands.len());
+        let mut messages = Vec::with_capacity(commands.len());
         {
             let mut state = self.0.state.lock();
             if let Some(reason) = &state.closed {
                 return Err(CdpError::Closed(reason.clone()));
             }
-            state.pending.insert(id, reply);
-        }
-        let message = Message::text(encode_request(id, method, params, session_id));
-        let queued = tokio::time::timeout_at(until, self.0.outgoing.send(message)).await;
-        if !matches!(queued, Ok(Ok(()))) {
-            self.0.state.lock().pending.remove(&id);
-            return Err(match queued {
-                Err(_) => CdpError::Deadline(method.to_string()),
-                Ok(_) => CdpError::Closed(
-                    self.close_reason()
-                        .unwrap_or_else(|| "writer stopped".into()),
-                ),
-            });
-        }
-        match tokio::time::timeout_at(until, response).await {
-            Ok(Ok(reply)) => reply,
-            Ok(Err(_)) => Err(CdpError::Closed(
-                self.close_reason()
-                    .unwrap_or_else(|| "reply dropped".into()),
-            )),
-            Err(_) => {
-                self.0.state.lock().pending.remove(&id);
-                Err(CdpError::Deadline(method.to_string()))
+            for (method, params) in commands {
+                let id = self.0.next_id.fetch_add(1, Ordering::Relaxed);
+                let (reply, response) = oneshot::channel();
+                state.pending.insert(id, reply);
+                ids.push(id);
+                responses.push((method.clone(), response));
+                messages.push(Message::text(encode_request(
+                    id, &method, params, session_id,
+                )));
             }
         }
+        let result = async {
+            tokio::time::timeout_at(until, self.0.outgoing.send(messages))
+                .await
+                .map_err(|_| CdpError::Deadline("input batch queue".into()))?
+                .map_err(|_| CdpError::Closed("writer stopped".into()))?;
+            futures_util::future::try_join_all(responses.into_iter().map(
+                |(method, response)| async move {
+                    tokio::time::timeout_at(until, response)
+                        .await
+                        .map_err(|_| CdpError::Deadline(method))?
+                        .map_err(|_| CdpError::Closed("reply dropped".into()))?
+                },
+            ))
+            .await
+        }
+        .await;
+        if result.is_err() {
+            let mut state = self.0.state.lock();
+            for id in ids {
+                state.pending.remove(&id);
+            }
+        }
+        result
     }
 
     pub fn subscribe(&self, filter: EventFilter) -> EventStream {
@@ -255,6 +276,19 @@ pub trait CdpConnection: Send + Sync {
         params: Value,
         deadline: Duration,
     ) -> Reply;
+    async fn send_batch_to(
+        &self,
+        session_id: Option<&str>,
+        commands: Vec<(String, Value)>,
+        deadline: Duration,
+    ) -> Result<Vec<Value>, CdpError> {
+        futures_util::future::try_join_all(
+            commands.into_iter().map(|(method, params)| async move {
+                self.send_to(session_id, &method, params, deadline).await
+            }),
+        )
+        .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -279,6 +313,14 @@ impl CdpConnection for SocketConnection {
         deadline: Duration,
     ) -> Reply {
         self.send_to(session_id, method, params, deadline).await
+    }
+    async fn send_batch_to(
+        &self,
+        session_id: Option<&str>,
+        commands: Vec<(String, Value)>,
+        deadline: Duration,
+    ) -> Result<Vec<Value>, CdpError> {
+        SocketConnection::send_batch_to(self, session_id, commands, deadline).await
     }
 }
 
@@ -344,7 +386,7 @@ impl CdpClient {
 
 async fn write_loop(
     mut writer: futures_util::stream::SplitSink<Socket, Message>,
-    mut messages: mpsc::Receiver<Message>,
+    mut messages: mpsc::Receiver<Vec<Message>>,
     inner: Weak<Inner>,
 ) {
     let Some(mut closed) = inner.upgrade().map(|inner| inner.closed.subscribe()) else {
@@ -358,7 +400,14 @@ async fn write_loop(
                 None => break,
             },
         };
-        if let Err(error) = writer.send(message).await {
+        let written = async {
+            for part in message {
+                writer.feed(part).await?;
+            }
+            writer.flush().await
+        }
+        .await;
+        if let Err(error) = written {
             log::warn!("[browser-cdp] write error (domios -> chrome): {error}");
             if let Some(inner) = inner.upgrade() {
                 inner.close(&format!("CDP write error (domios -> chrome): {error}"));
@@ -389,7 +438,7 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
                 }
             },
             Some(Ok(Message::Ping(payload))) => {
-                let _ = owner.outgoing.try_send(Message::Pong(payload));
+                let _ = owner.outgoing.try_send(vec![Message::Pong(payload)]);
             }
             Some(Ok(Message::Close(frame))) => {
                 break Some(format!("chrome closed the CDP socket ({frame:?})"));
@@ -468,6 +517,20 @@ impl PageChannel {
 
     pub async fn send(&self, method: &str, params: Value) -> Reply {
         self.send_with_deadline(method, params, COMMAND_DEADLINE)
+            .await
+    }
+
+    pub async fn send_batch(&self, commands: Vec<(&str, Value)>) -> Result<Vec<Value>, CdpError> {
+        self.client
+            .0
+            .send_batch_to(
+                Some(&self.session_id),
+                commands
+                    .into_iter()
+                    .map(|(method, params)| (method.to_string(), params))
+                    .collect(),
+                COMMAND_DEADLINE,
+            )
             .await
     }
 

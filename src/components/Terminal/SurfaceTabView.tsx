@@ -33,6 +33,7 @@ interface SurfaceTabViewProps {
 }
 
 interface StreamBodyProps {
+  visible: boolean;
   tab: Tab;
   api?: ApiConfig;
   ownerName: string | null;
@@ -44,13 +45,14 @@ export const openInSystemBrowser = (url: string) => {
   invoke("open_url", { url }).catch((error: unknown) => console.warn("[surface] open in browser failed", error));
 };
 
-function StreamSurfaceBody({ tab, api, ownerName, chrome, createTransport }: StreamBodyProps) {
+function StreamSurfaceBody({ visible, tab, api, ownerName, chrome, createTransport }: StreamBodyProps) {
   const baseUrl = daemonHttpBase(api);
   const token = daemonAuthToken(api);
   const { tabId, peerId } = surfaceTransportTarget(tab, relayTarget()?.id ?? null);
   const transport = useMemo(() => createTransport({ baseUrl, token, tabId, ...(peerId ? { peerId } : {}) }), [createTransport, baseUrl, token, tabId, peerId]);
   return (
     <StreamSurfaceView
+      visible={visible}
       transport={transport}
       chrome={chrome}
       surfaceTitle={tab.title}
@@ -163,8 +165,8 @@ export function SurfaceTabView({
             surface={pluginViewSurface(tab.id, backing)}
           />
         )}
-        {plan.kind === "stream" && plan.live && (
-          <StreamSurfaceBody tab={tab} api={api} ownerName={ownerName} chrome={plan.chrome} createTransport={createTransport} />
+        {plan.kind === "stream" && (
+          <StreamSurfaceBody visible={plan.live} tab={tab} api={api} ownerName={ownerName} chrome={plan.chrome} createTransport={createTransport} />
         )}
         {plan.kind === "unavailable" && <SurfaceUnavailable title={tab.title || backing.surface_id} error={plan.error} onRetry={onRetry} />}
         {plan.kind === "unsupported" && (

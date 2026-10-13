@@ -24,7 +24,6 @@ import {
 } from "./surfaceChromeModel";
 import { resizeArgs, SURFACE_METHOD, type StreamFrame } from "./surfaceStreamTransport";
 import { PREVIEW_PAUSED_TEXT } from "./SurfacePreviewPaused";
-import { FRAME_HEAL_INTERVAL_MS } from "./useSurfaceStream";
 import { changeValue, flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
 
 const suite = testSuite("StreamSurfaceView");
@@ -343,22 +342,39 @@ suite.test("a needs-human state shows a dismissible notice that errors override"
   await unmount();
 });
 
-suite.test("hiding and re-showing the stage at the same size re-sends the viewport", async () => {
+suite.test("hiding and re-showing the stage reconnects at the same size", async () => {
   const { fake, unmount } = await mount();
   const viewport = { w: 640, h: 480, dpr: window.devicePixelRatio };
   await resizeStages(640, 480);
   await act(async () => fake.emitOpen());
   await resizeStages(0, 0);
   await resizeStages(640, 480);
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [resizeArgs(viewport), resizeArgs(viewport)]);
-  assert.equal(fake.connections.length, 1, "hiding keeps the stream connected");
-  assert.equal(fake.disconnects(), 0);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [resizeArgs(viewport)]);
+  assert.equal(fake.connections.length, 2, "show explicitly reconnects the stream");
+  assert.equal(fake.disconnects(), 1);
+  await unmount();
+});
+
+suite.test("explicit tab show resumes once and keeps the current canvas without a new frame", async () => {
+  const fake = createFakeStreamTransport();
+  const props = { transport: fake.transport, chrome: BROWSER_SURFACE_CHROME, surfaceTitle: BROWSER_SURFACE_TITLE, initialState: state, decode };
+  const { host, root, unmount } = await render(<StreamSurfaceView {...props} visible />);
+  await resizeStages(640, 480);
+  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 640, deviceHeight: 480 } }));
+  const canvas = getByRole(host, "img");
+  for (let cycle = 0; cycle < 10; cycle += 1) {
+    await act(async () => root.render(<StreamSurfaceView {...props} visible={false} />));
+    await act(async () => root.render(<StreamSurfaceView {...props} visible />));
+    assert.equal(getByRole(host, "img"), canvas, "the drawn canvas survives show");
+  }
+  assert.equal(fake.connections.length, 11);
+  assert.equal(fake.disconnects(), 10);
   await unmount();
 });
 
 const frameAt = (deviceWidth: number, deviceHeight: number): StreamFrame => ({ data: "", metadata: { deviceWidth, deviceHeight } });
 
-suite.test("a frame at another client's size re-sends the viewport at most once per interval", async () => {
+suite.test("a viewport mismatch heals once until a matching frame arrives", async () => {
   const { fake, unmount } = await mount();
   const resizes = () => fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args);
   await resizeStages(640, 480);
@@ -367,15 +383,10 @@ suite.test("a frame at another client's size re-sends the viewport at most once 
   await act(async () => fake.emitFrame(frameAt(1280, 960)));
   assert.deepEqual(resizes(), [resizeArgs({ w: 640, h: 480, dpr: window.devicePixelRatio })]);
   await act(async () => fake.emitFrame(frameAt(1280, 960)));
-  assert.equal(resizes().length, 1, "no second heal within the interval");
-  const realNow = Date.now;
-  Date.now = () => realNow() + FRAME_HEAL_INTERVAL_MS + 1;
-  try {
-    await act(async () => fake.emitFrame(frameAt(1280, 960)));
-  } finally {
-    Date.now = realNow;
-  }
-  assert.equal(resizes().length, 2, "the interval elapsed, so it heals again");
+  assert.equal(resizes().length, 1, "duplicate mismatch cannot loop");
+  await act(async () => fake.emitFrame(frameAt(640, 480)));
+  await act(async () => fake.emitFrame(frameAt(1280, 960)));
+  assert.equal(resizes().length, 2, "a new mismatch after recovery heals again");
   await flushAsync();
   await unmount();
 });

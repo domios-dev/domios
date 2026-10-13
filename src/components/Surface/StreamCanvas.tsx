@@ -6,6 +6,7 @@ import { canvasHint, liveViewLabel, type PopoverAnchor } from "./surfaceChromeMo
 import { useStreamCanvas } from "./useStreamCanvas";
 
 export interface StreamCanvasProps {
+  visible?: boolean;
   label: string;
   pageTitle?: string;
   interactive: boolean;
@@ -30,6 +31,7 @@ export interface StreamCanvasProps {
 const noop = () => undefined;
 
 export function StreamCanvas({
+  visible = true,
   label,
   pageTitle,
   interactive,
@@ -53,7 +55,7 @@ export function StreamCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const hintId = useId();
-  const stream = useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewport, onHidden, onError });
+  const stream = useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, onViewport, onHidden, onError });
   const latest = useRef({ interactive, stream, onInput });
   latest.current = { interactive, stream, onInput };
 
