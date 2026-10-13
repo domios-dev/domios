@@ -4,6 +4,9 @@ use crate::multiplexer::types::ClosedTab;
 use crate::service::ServiceContext;
 
 impl CommandPort for ServiceContext {
+    fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad {
+        self.lifecycle_journal.load()
+    }
     fn ensure_storage_available(&self) -> Result<(), String> {
         ServiceContext::ensure_storage_available(self)
     }

@@ -63,9 +63,7 @@ impl ServiceContext {
             return false;
         }
         let verified = crate::service::agent_restart::exit_recovery::verified_session_ids(
-            &crate::session::lifecycle::TabLifecycleJournal::shared()
-                .load()
-                .records,
+            &self.lifecycle_journal.load().records,
             &snap.tab_id,
         );
         if crate::service::agent_restart::exit_recovery::select_recovery_session(

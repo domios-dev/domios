@@ -765,6 +765,7 @@ impl ServiceContext {
                 })
                 .unwrap_or((None, None));
             let inner = crate::service::tab_chat::structured_sink::make_sink(
+                svc.lifecycle_journal.clone(),
                 app,
                 svc.mux.clone(),
                 source_session_id,

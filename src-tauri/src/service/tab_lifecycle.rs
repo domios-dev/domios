@@ -14,8 +14,9 @@ impl ServiceContext {
                 .and_then(|_| mux.lifecycle_key(tab_id))
         };
         if let Some(key) = key {
-            if let Err(error) =
-                TabLifecycleJournal::shared().note_conversation_started(key, session_id)
+            if let Err(error) = self
+                .lifecycle_journal
+                .note_conversation_started(key, session_id)
             {
                 log::warn!("[conversation-evidence] Tab {tab_id}: {error}");
             }
@@ -34,7 +35,7 @@ impl ServiceContext {
         {
             return None;
         }
-        let journal = TabLifecycleJournal::shared();
+        let journal = &self.lifecycle_journal;
         let epoch = journal.next_epoch_for_tab(tab_id);
         let key = LifecycleKey::new(tab_id, epoch, uuid::Uuid::new_v4().to_string());
         if !self
@@ -61,15 +62,15 @@ impl ServiceContext {
             );
             return;
         };
-        append(TabLifecycleJournal::shared(), key, transition);
+        append(&self.lifecycle_journal, key, transition);
     }
 
     pub(crate) fn record_agent_type_write(&self, tab_id: &str, transition: LifecycleTransition) {
         let open_operation = self.mux.read().lifecycle_key(tab_id);
         match open_operation {
-            Some(key) => append(TabLifecycleJournal::shared(), key, transition),
+            Some(key) => append(&self.lifecycle_journal, key, transition),
             None => append_minted(
-                TabLifecycleJournal::shared(),
+                &self.lifecycle_journal,
                 tab_id,
                 "agent-type-write",
                 transition,
@@ -89,7 +90,7 @@ impl ServiceContext {
             peer_name,
             caller_tab_id,
         };
-        let journal = TabLifecycleJournal::shared();
+        let journal = &self.lifecycle_journal;
         match self.mux.read().lifecycle_key(tab_id) {
             Some(key) => append(journal, key, transition),
             None => append_minted(journal, tab_id, "ownership-release", transition),
@@ -127,7 +128,7 @@ impl ServiceContext {
         else {
             return;
         };
-        let journal = TabLifecycleJournal::shared();
+        let journal = &self.lifecycle_journal;
         let key = lifecycle_key.unwrap_or_else(|| {
             LifecycleKey::new(
                 tab_id,

@@ -14,7 +14,7 @@ use super::{
 use crate::agent::provider_identity::provider_for_claimed_session;
 use crate::multiplexer::types::{PriorBindingNonce, Tab, TabBacking};
 use crate::service::ServiceContext;
-use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
+use crate::session::lifecycle::{JournalRecord, LifecycleTransition};
 
 pub(crate) const EXIT_RECOVERY_NO_LIVE_SHELL: &str = "exit_recovery_no_live_shell";
 pub(crate) const EXIT_RECOVERY_NO_VERIFIED_SESSION: &str = "exit_recovery_no_verified_session";
@@ -219,7 +219,7 @@ impl ServiceContext {
     ) -> Result<RestartOutcome, RestartAttemptError> {
         let shell = self.exited_shell(tab_id, attempt)?;
         let restart_claim = self.claim_restart(tab_id, automatic)?;
-        let records = TabLifecycleJournal::shared().load().records;
+        let records = self.lifecycle_journal.load().records;
         let recovery = select_journal_recovery_session(&records, tab_id, None, &shell.lineage)
             .and_then(|session_id| {
                 recovery_provider(&self.agent_registry, shell.cwd.as_deref(), &session_id)
