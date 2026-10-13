@@ -4,12 +4,24 @@ export function chatViewportLayoutChanged(before: ChatViewportGeometry, after: C
   return before.scrollHeight !== after.scrollHeight || before.clientHeight !== after.clientHeight;
 }
 
-export function shouldCaptureChatAnchor(before: ChatViewportGeometry, after: ChatViewportGeometry): boolean {
-  return !chatViewportLayoutChanged(before, after)
+export function shouldCaptureChatAnchor(before: ChatViewportGeometry, after: ChatViewportGeometry, userScrolling = false): boolean {
+  return (!chatViewportLayoutChanged(before, after) || (userScrolling && chatUserScrollChanged(before, after)))
     && Math.abs(after.scrollTop - before.scrollTop) >= 1
     && after.scrollTop < after.scrollHeight - after.clientHeight - 1;
 }
 
 export function chatLayoutScrollTarget(mode: ChatViewportMode, viewport: ChatViewportGeometry, anchorTop: number | null): number {
   return mode === "pinned" ? viewport.scrollHeight : anchorTop ?? viewport.scrollTop;
+}
+
+export function chatScrollWriteTarget(viewport: ChatViewportGeometry, requested: number, userScrolling: boolean): number | null {
+  if (userScrolling || !Number.isFinite(requested)) return null;
+  const target = Math.max(0, Math.min(requested, Math.max(0, viewport.scrollHeight - viewport.clientHeight)));
+  return target === viewport.scrollTop ? null : target;
+}
+
+export function chatUserScrollChanged(before: ChatViewportGeometry, after: ChatViewportGeometry): boolean {
+  const max = Math.max(0, after.scrollHeight - after.clientHeight);
+  const clampedTop = Math.max(0, Math.min(before.scrollTop, max));
+  return after.scrollTop >= 0 && after.scrollTop <= max && Math.abs(after.scrollTop - clampedTop) > 0.5;
 }
