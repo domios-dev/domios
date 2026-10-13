@@ -28,10 +28,18 @@
 #   CR_TIMEOUT=120 ./run.sh             # per-turn poll budget (s)
 #   CR_KEEP=1 ./run.sh                  # leave tabs/workspace for inspection
 set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+source "$ROOT/evals/_lib/bench.sh"
+bench_require python3 curl
 
 report_verdict() {
   local failures="$1" providers="$2"
   echo
+  if [ "$BENCH_ASSERTIONS" -eq 0 ]; then
+    echo "FAIL no messaging assertions executed" >&2
+    return 1
+  fi
+  bench_complete
   if [ "$failures" -eq 0 ]; then
     echo "[messaging-core] ALL PASS — delivery + messaging core proven for: $providers"
     return 0
@@ -42,9 +50,11 @@ report_verdict() {
 
 if [ "${1:-}" = "--verdict-only" ]; then
   [[ "${2:-}" =~ ^[0-9]+$ ]] || {
-    echo "usage: $0 --verdict-only <failure-count>" >&2
+    echo "usage: $0 --verdict-only <failure-count> <executed-assertion-count>" >&2
     exit 2
   }
+  [[ "${3:-0}" =~ ^[0-9]+$ ]] || exit 2
+  BENCH_ASSERTIONS="${3:-0}"
   report_verdict "$2" "${CR_PROVIDERS:-claude codex}"
   exit $?
 fi
@@ -52,7 +62,7 @@ fi
 ROOT="$(git rev-parse --show-toplevel)"
 # shellcheck source=/dev/null
 source "$ROOT/evals/_lib/lib.sh"   # auto dev_env + `dc` (locked to dev 7686)
-PY="$(command -v python3 || command -v python)"
+PY="$(command -v python3)"
 RT="$ROOT/evals/chat-roundtrip/rt_lib.py"
 
 PROVIDERS="${CR_PROVIDERS:-claude codex}"
@@ -63,8 +73,8 @@ OUT_DIR="$ROOT/target-check/evals/chat-roundtrip"
 mkdir -p "$WS_CWD" "$OUT_DIR"
 
 FAILS=0
-pass() { echo "  ✓ $1"; }
-fail() { echo "  ✗ $1" >&2; FAILS=$((FAILS + 1)); }
+pass() { bench_assertion; echo "  ✓ $1"; }
+fail() { bench_assertion; echo "  ✗ $1" >&2; FAILS=$((FAILS + 1)); }
 
 now_ms() { $PY -c 'import time;print(int(time.time()*1000))'; }
 
@@ -173,7 +183,7 @@ with urllib.request.urlopen(request, timeout=30) as response:
 current = next((row.get("state") for row in rows if row.get("send_id") == send_id), "absent")
 
 while True:
-    if current == "confirmed":
+    if current == "delivered":
         print(current)
         raise SystemExit(0)
     if current == "unknown":
@@ -194,10 +204,10 @@ while True:
 PY
 }
 
-assert_confirmed_state() {
+assert_delivered_state() {
   local provider="$1" case_name="$2" state="$3"
   case "$state" in
-    confirmed) pass "$provider $case_name: exact turn evidence confirmed delivery" ;;
+    delivered) pass "$provider $case_name: exact turn evidence confirmed delivery" ;;
     accepted) fail "$provider $case_name: deadline reached while delivery remained accepted" ;;
     unknown) fail "$provider $case_name: delivery remained genuinely unconfirmed" ;;
     failed) fail "$provider $case_name: delivery failed" ;;
@@ -427,13 +437,17 @@ case_picker() {
   # /model shows the model picker — a real interactive menu that ALWAYS renders.
   # (Approval menus are suppressed when the tab is auto-approve/skip-permissions,
   # which is CodeTerm's spawn default — so they're not a reliable picker trigger.)
-  send_raw_keys "$tab" "/model"
+  if ! picker_probe_trigger "$provider" "$tab"; then
+    fail "$provider picker: trigger or evidence capture failed"
+    return 1
+  fi
   local deadline=$((SECONDS + TIMEOUT)) cap=""
   while [ "$SECONDS" -lt "$deadline" ]; do
     cap="$(mux_state | $PY "$RT" pending-prompt "$tab")"
     [ -n "$cap" ] && break
     sleep 2
   done
+  capture_chat_roundtrip_evidence "$provider" "$tab" picker-result || fail "$provider picker: result evidence capture failed"
   if [ -z "$cap" ]; then
     fail "$provider picker: no interactive prompt was extracted into pending_prompt within ${TIMEOUT}s"
     return 1
@@ -453,19 +467,19 @@ case_picker() {
 
 # --- Case: ledger transaction (POST /chat-send) ----------------------
 # The Chat composer's REAL seam. Asserts the authoritative ledger reaches
-# state=confirmed for the exact send_id, the user turn lands EXACTLY once, and no
+# state=delivered for the exact send_id, the user turn lands EXACTLY once, and no
 # failed entry (the false-Retry class) is retained for the tab.
 case_ledger() {
   local provider="$1" tab="$2"
   local nonce; nonce="LG$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: LEDGER-$nonce"
-  echo "[chat-roundtrip] $provider: ledger — chat-send reaches confirmed, exactly one user turn, no failure retained"
+  echo "[chat-roundtrip] $provider: ledger — chat-send reaches delivered, exactly one user turn, no failure retained"
   local resp send_id
   resp="$(ledger_send "$tab" "$prompt")"
   send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
   if [ -z "$send_id" ]; then fail "$provider ledger: chat-send rejected: $resp"; return 1; fi
   local final; final="$(await_ledger_state "$tab" "$send_id")"
-  assert_confirmed_state "$provider" "ledger send_id=$send_id" "$final"
+  assert_delivered_state "$provider" "ledger send_id=$send_id" "$final"
   local n; n="$(count_user_turns "$tab" "LEDGER-$nonce")"
   if [ "$n" = "1" ]; then
     pass "$provider ledger: exactly one user turn in transcript"
@@ -484,17 +498,18 @@ case_ledger() {
 # --- Case: detached ledger delivery (closed-Chat evidence) -----------
 # Stops the live chat stream FIRST, then sends through the ledger: no delta
 # sink exists while the turn persists, so only the append-window evidence scan
-# (run by GET /chat-send) can classify it. Reattach => confirmed, no Retry.
+# (run by GET /chat-send) can classify it. Reattach => delivered, no Retry.
 case_ledger_detached() {
   local provider="$1" tab="$2"
   local nonce; nonce="LD$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: DETACH-$nonce"
-  echo "[chat-roundtrip] $provider: ledger-detached — no live sink during delivery; reattach reconciles to confirmed"
+  echo "[chat-roundtrip] $provider: ledger-detached — no live sink during delivery; reattach reconciles to delivered"
   # Runs first on the fresh tab, before any chat subscription starts.
   # so no delta tailer/poller exists — detached by construction.
   local resp send_id
   resp="$(ledger_send "$tab" "$prompt")"
   send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
+  capture_detached_send_evidence "$provider" "$tab" detached-admitted "$send_id" "$prompt" "$resp" || fail "$provider detached: admission evidence capture failed"
   if [ -z "$send_id" ]; then fail "$provider ledger-detached: chat-send rejected: $resp"; return 1; fi
   # Wait for the turn to persist via the STATELESS transcript read (spawns no
   # tailer), then reattach through the ledger read that runs the scan.
@@ -510,12 +525,13 @@ case_ledger_detached() {
   fi
   pass "$provider ledger-detached: exact turn persisted while detached"
   local final; final="$(await_ledger_state "$tab" "$send_id")"
-  assert_confirmed_state "$provider" "ledger-detached send_id=$send_id" "$final"
+  capture_detached_send_evidence "$provider" "$tab" detached-final "$send_id" "$prompt" "$resp" || fail "$provider detached: final evidence capture failed"
+  assert_delivered_state "$provider" "ledger-detached send_id=$send_id" "$final"
 }
 
 # --- Case: ledger send after agent restart (rebind exact-once) -------
 # Restart the agent (fresh PTY under the same tab), then a ledger send must
-# reach confirmed with the payload written exactly once into the NEW session flow.
+# reach delivered with the payload written exactly once into the NEW session flow.
 case_ledger_restart() {
   local provider="$1" tab="$2"
   echo "[chat-roundtrip] $provider: ledger-restart — agent restart + rebind, then exact-once ledger send"
@@ -534,7 +550,7 @@ case_ledger_restart() {
   send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
   if [ -z "$send_id" ]; then fail "$provider ledger-restart: chat-send rejected: $resp"; return 1; fi
   local final; final="$(await_ledger_state "$tab" "$send_id")"
-  assert_confirmed_state "$provider" "ledger-restart send_id=$send_id" "$final"
+  assert_delivered_state "$provider" "ledger-restart send_id=$send_id" "$final"
   local n; n="$(count_user_turns "$tab" "REBIND-$nonce")"
   if [ "$n" = "1" ]; then
     pass "$provider ledger-restart: exactly one user turn after rebind"
@@ -679,4 +695,5 @@ main() {
   report_verdict "$FAILS" "$PROVIDERS"
 }
 
+source "$ROOT/evals/chat-roundtrip/evidence.sh" || exit 7
 main "$@"

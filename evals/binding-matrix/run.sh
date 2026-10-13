@@ -25,7 +25,10 @@
 #   BM_BIND_TIMEOUT secs to wait for a fleet to bind    (default 75)
 #   BM_KEEP         1 = keep test workspaces afterwards (default 0 = cleanup)
 set -uo pipefail
-source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+source "$REPO_ROOT/evals/_lib/bench.sh"
+bench_require python3 node curl
+source "$REPO_ROOT/evals/_lib/lib.sh"
 source "$(git rev-parse --show-toplevel)/evals/_lib/role_preset.sh"
 
 PROVIDERS="${BM_PROVIDERS:-claude}"
@@ -34,6 +37,7 @@ WS_COUNT="${BM_WS:-3}"
 PER_WS="${BM_PER_WS:-4}"
 BIND_TIMEOUT="${BM_BIND_TIMEOUT:-75}"
 KEEP="${BM_KEEP:-0}"
+[[ "$WS_COUNT" =~ ^[1-9][0-9]*$ ]] && [[ "$PER_WS" =~ ^[1-9][0-9]*$ ]] && [ -n "$PROVIDERS" ] || { echo "FAIL empty or invalid binding fixture" >&2; exit 1; }
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 RUN_TS="$(date +%s)"
@@ -53,8 +57,8 @@ count_mismatch() {
 MISMATCH_BASELINE="$(count_mismatch)"
 
 PASS=0; FAIL=0
-ok()   { echo "  ✅ $*"; PASS=$((PASS+1)); }
-bad()  { echo "  ❌ $*"; FAIL=$((FAIL+1)); }
+ok()   { bench_assertion; echo "  ✅ $*"; PASS=$((PASS+1)); }
+bad()  { bench_assertion; echo "  ❌ $*"; FAIL=$((FAIL+1)); }
 hr()   { echo "------------------------------------------------------------"; }
 
 if ! dev_alive; then echo "dev daemon not up on 7686 — ./build.sh dev first"; exit 7; fi
@@ -87,21 +91,9 @@ spawn_one() {
 
 # Wait until every tracked, still-live tab has a session id (or timeout).
 wait_for_bindings() {
-  local timeout="$1" elapsed=0 pending
-  while [ "$elapsed" -lt "$timeout" ]; do
-    dev_get /api/tabs > "$OUT/tabs.json" 2>/dev/null
-    pending=$(python3 - "$TRACK" "$OUT/tabs.json" <<'PY'
-import json,sys
-tracked={l.split()[0] for l in open(sys.argv[1]) if l.strip()}
-tabs={p['id']:p for p in json.load(open(sys.argv[2]))}
-pend=[pid for pid in tracked if pid in tabs and not tabs[pid].get('agent_session_id')]
-print(len(pend))
-PY
-)
-    [ "$pending" = "0" ] && return 0
-    sleep 4; elapsed=$((elapsed+4))
-  done
-  return 1
+  local timeout="$1"
+  shift
+  dev_run node "$REPO_ROOT/evals/binding-matrix/wait-bindings.mjs" "$timeout" "$TRACK" "$OUT/tabs.json" "$@"
 }
 
 # Full-fleet invariant check. $1 = label.
@@ -109,36 +101,7 @@ check_invariants() {
   local label="$1"
   hr; echo "CHECK: $label"
   dev_get /api/tabs > "$OUT/tabs.json" 2>/dev/null
-  python3 - "$TRACK" "$OUT/tabs.json" "$label" <<'PY'
-import json,sys,os
-tracked={}
-for l in open(sys.argv[1]):
-    if not l.strip(): continue
-    pid,prov,ws,cwd=l.split(None,3)
-    tracked[pid]=(prov,cwd.strip())
-tabs={p['id']:p for p in json.load(open(sys.argv[2]))}
-
-live={pid:tabs[pid] for pid in tracked if pid in tabs}
-unbound=[pid for pid in live if not live[pid].get('agent_session_id')]
-
-# uniqueness: sid -> [tabs]
-from collections import defaultdict
-bysid=defaultdict(list)
-for pid,p in live.items():
-    sid=p.get('agent_session_id')
-    if sid: bysid[sid].append(pid)
-dupes={sid:ps for sid,ps in bysid.items() if len(ps)>1}
-
-print(f"  tracked={len(tracked)} live={len(live)} bound={len(live)-len(unbound)} unbound={len(unbound)}")
-rc=0
-if unbound:
-    print(f"  UNBOUND tabs: {unbound[:8]}"); rc=1
-if dupes:
-    for sid,ps in list(dupes.items())[:8]:
-        print(f"  DUPLICATE sid {sid[:12]} claimed by {ps}")
-    rc=1
-sys.exit(rc)
-PY
+  python3 "$REPO_ROOT/evals/binding-matrix/check_fleet.py" "$TRACK" "$OUT/tabs.json" "$label"
   local rc=$?
   if [ "$rc" = "0" ]; then ok "$label — all bound + unique"; else bad "$label — invariant violated (see above)"; fi
 }
@@ -170,6 +133,7 @@ for w in $(seq 1 "$WS_COUNT"); do
   done
 done
 
+[ "$(wc -l < "$TRACK")" -eq "$((WS_COUNT * PER_WS))" ] || { echo "FAIL incomplete spawned fleet" >&2; exit 1; }
 echo "waiting for fleet to bind (timeout ${BIND_TIMEOUT}s)..."
 wait_for_bindings "$BIND_TIMEOUT" || echo "  (timeout — some still pending; check will report)"
 check_invariants "A+B mass spawn / same-cwd clusters"
@@ -177,19 +141,24 @@ assert_no_misbind
 
 # --- Scenario C: /new churn on claude tabs ---------------------------
 echo; echo "=== Scenario C: /new (claude /clear) churn ==="
-mapfile -t CLAUDE_TABS < <(awk '$2=="claude"{print $1}' "$TRACK")
+CLAUDE_TABS=()
+CLAUDE_COUNT=0
+while IFS= read -r tab; do
+  CLAUDE_TABS+=("$tab")
+  CLAUDE_COUNT=$((CLAUDE_COUNT + 1))
+done < <(awk '$2=="claude"{print $1}' "$TRACK")
+if [ "$CLAUDE_COUNT" -gt 0 ]; then
 # capture pre-clear sids
 dev_get /api/tabs > "$OUT/pre-clear.json" 2>/dev/null
-CHURN_N=$(( ${#CLAUDE_TABS[@]} / 2 ))
-[ "$CHURN_N" -lt 1 ] && CHURN_N=${#CLAUDE_TABS[@]}
+CHURN_N=$(( $CLAUDE_COUNT / 2 ))
+[ "$CHURN_N" -lt 1 ] && CHURN_N=$CLAUDE_COUNT
 for i in $(seq 0 $((CHURN_N-1))); do
   p="${CLAUDE_TABS[$i]}"
   [ -z "$p" ] && continue
   dc send "/clear" --tab "$p" >/dev/null 2>&1
   echo "  /clear -> $p"
 done
-sleep 20
-wait_for_bindings "$BIND_TIMEOUT" || true
+wait_for_bindings "$BIND_TIMEOUT" "$OUT/pre-clear.json" "${CLAUDE_TABS[@]:0:$CHURN_N}" || true
 # assert the cleared tabs are still bound + their sid changed (rebind to new session)
 dev_get /api/tabs > "$OUT/post-clear.json" 2>/dev/null
 python3 - "$OUT/pre-clear.json" "$OUT/post-clear.json" "${CLAUDE_TABS[@]:0:$CHURN_N}" <<'PY'
@@ -203,14 +172,25 @@ for p in cleared:
     if b: still+=1
     if a and b and a!=b: changed+=1
 print(f"  cleared={len(cleared)} still-bound={still} rebound-to-new-sid={changed}")
+sys.exit(0 if changed == len(cleared) else 1)
 PY
+if [ "$?" -eq 0 ]; then ok "cleared tabs rebound"; else bad "cleared tabs failed to rebind"; fi
 check_invariants "C after /clear churn"
 assert_no_misbind
+else
+  echo "SKIP Claude /clear churn: no Claude tabs requested"
+fi
 
 # --- Scenario D: close + respawn churn --------------------------------
 echo; echo "=== Scenario D: close + respawn ==="
-mapfile -t ALL_TABS < <(awk '{print $0}' "$TRACK")
-CLOSE_N=$(( ${#ALL_TABS[@]} / 3 )); [ "$CLOSE_N" -lt 1 ] && CLOSE_N=1
+ALL_TABS=()
+ALL_COUNT=0
+while IFS= read -r line; do
+  ALL_TABS+=("$line")
+  ALL_COUNT=$((ALL_COUNT + 1))
+done < "$TRACK"
+[ "$ALL_COUNT" -gt 0 ] || { echo "FAIL empty fleet before respawn" >&2; exit 1; }
+CLOSE_N=$(( $ALL_COUNT / 3 )); [ "$CLOSE_N" -lt 1 ] && CLOSE_N=1
 for i in $(seq 0 $((CLOSE_N-1))); do
   line="${ALL_TABS[$i]}"; [ -z "$line" ] && continue
   pid=$(echo "$line" | awk '{print $1}'); prov=$(echo "$line" | awk '{print $2}')
@@ -218,10 +198,11 @@ for i in $(seq 0 $((CLOSE_N-1))); do
   dc tab close "$pid" >/dev/null 2>&1
   echo "  closed $pid ($prov), respawning in same cwd"
   # remove from track, spawn replacement
-  grep -v "^$pid " "$TRACK" > "$TRACK.tmp" && mv "$TRACK.tmp" "$TRACK"
+  awk -v pid="$pid" '$1 != pid' "$TRACK" > "$TRACK.tmp" && mv "$TRACK.tmp" "$TRACK"
   np=$(spawn_one "$prov" "$ws" "$cwd" "$prov-respawn-$i")
   echo "    -> $np"
 done
+[ "$(wc -l < "$TRACK")" -eq "$((WS_COUNT * PER_WS))" ] || { echo "FAIL incomplete respawned fleet" >&2; exit 1; }
 echo "waiting for respawn fleet to bind..."
 wait_for_bindings "$BIND_TIMEOUT" || true
 check_invariants "D after close+respawn"
@@ -236,4 +217,5 @@ if [ "$KEEP" != "1" ]; then
     [ -n "${WS_IDS[$w]:-}" ] && dc workspace close "${WS_IDS[$w]}" >/dev/null 2>&1
   done
 fi
+bench_complete
 [ "$FAIL" = "0" ] && exit 0 || exit 1
