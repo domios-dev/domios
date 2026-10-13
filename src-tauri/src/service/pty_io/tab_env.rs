@@ -166,10 +166,29 @@ impl ServiceContext {
             .map(|pad| pad.env_value());
         let session_binding_nonce = self.ensure_session_binding_nonce(tab_id);
         let shell_nonce = self.ensure_shell_integration_nonce(tab_id);
-        let identity = {
+        let (identity, binding_task) = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
-                .map(tab_identity_env)
+                .map(|tab| {
+                    let task = tab
+                        .task_binding
+                        .as_ref()
+                        .map(|binding| {
+                            let mut task = HashMap::new();
+                            for (key, value) in [
+                                ("CODETERM_PLAN_ID", &binding.plan_id),
+                                ("CODETERM_TASK_ID", &binding.task_id),
+                                ("CODETERM_ATTEMPT_ID", &binding.attempt_id),
+                            ] {
+                                if let Some(value) = value {
+                                    task.insert(key.into(), value.clone());
+                                }
+                            }
+                            task
+                        })
+                        .unwrap_or_default();
+                    (tab_identity_env(tab), task)
+                })
                 .unwrap_or_default()
         };
         TabLaunchEnv {
@@ -178,7 +197,11 @@ impl ServiceContext {
             session_binding_nonce,
             shell_nonce,
             identity,
-            task: tab_task_env(&self.plan_store, tab_id),
+            task: {
+                let mut task = binding_task;
+                task.extend(tab_task_env(&self.plan_store, tab_id));
+                task
+            },
         }
     }
 
