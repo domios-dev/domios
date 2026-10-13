@@ -56,27 +56,17 @@ impl ServiceContext {
             .task
             .execution_attempts
             .iter()
-            .find(|entry| {
-                entry.id == attempt
-                    && entry.executor_tab_id == tab_id
-                    && entry.closed_at.is_none()
-                    && entry.retired_at.is_none()
-            })
+            .find(|entry| entry.id == attempt && entry.executor_tab_id == tab_id)
             .ok_or("Runtime task attempt changed")?;
-        if existing
-            .session_id
-            .as_deref()
-            .is_some_and(|bound| bound != thread)
-            || (!restored
-                && existing
-                    .session_binding_nonce
-                    .as_deref()
-                    .is_some_and(|bound| bound != nonce))
-        {
-            return Err("Runtime task session rebound".into());
-        }
-        if existing.session_id.is_none() || existing.session_binding_nonce.as_deref() != Some(nonce)
-        {
+        if needs_attempt_finalization(
+            existing.session_id.as_deref(),
+            existing.session_binding_nonce.as_deref(),
+            existing.closed_at.is_some(),
+            existing.retired_at.is_some(),
+            restored,
+            thread,
+            nonce,
+        )? {
             self.plan_store
                 .finish_task_dispatch(
                     &plan,
@@ -94,10 +84,93 @@ impl ServiceContext {
     }
 }
 
+fn needs_attempt_finalization(
+    saved_thread: Option<&str>,
+    saved_nonce: Option<&str>,
+    closed: bool,
+    retired: bool,
+    restored: bool,
+    thread: &str,
+    nonce: &str,
+) -> Result<bool, String> {
+    if retired {
+        return Err("Runtime task attempt retired".into());
+    }
+    if saved_thread.is_some_and(|bound| bound != thread)
+        || (!restored && saved_nonce.is_some_and(|bound| bound != nonce))
+    {
+        return Err("Runtime task session rebound".into());
+    }
+    if closed {
+        return if saved_thread == Some(thread) {
+            Ok(false)
+        } else {
+            Err("Closed runtime attempt has no bound conversation".into())
+        };
+    }
+    Ok(saved_thread.is_none() || saved_nonce != Some(nonce))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::store_with_task;
     use super::*;
+    #[test]
+    fn completed_attempt_resumes_only_its_conversation_without_reopening_execution() {
+        assert_eq!(
+            needs_attempt_finalization(Some("own"), Some("old"), true, false, true, "own", "new"),
+            Ok(false)
+        );
+        assert!(needs_attempt_finalization(
+            Some("other"),
+            Some("old"),
+            true,
+            false,
+            true,
+            "own",
+            "new"
+        )
+        .is_err());
+        assert!(
+            needs_attempt_finalization(None, Some("old"), true, false, true, "own", "new").is_err()
+        );
+        assert!(needs_attempt_finalization(
+            Some("own"),
+            Some("old"),
+            true,
+            false,
+            false,
+            "own",
+            "new"
+        )
+        .is_err());
+        assert!(needs_attempt_finalization(
+            Some("own"),
+            Some("old"),
+            true,
+            true,
+            true,
+            "own",
+            "new"
+        )
+        .is_err());
+        assert_eq!(
+            needs_attempt_finalization(Some("own"), Some("old"), false, false, true, "own", "new"),
+            Ok(true)
+        );
+        assert_eq!(
+            needs_attempt_finalization(
+                Some("own"),
+                Some("same"),
+                false,
+                false,
+                false,
+                "own",
+                "same"
+            ),
+            Ok(false)
+        );
+    }
     #[test]
     fn prepared_task_attempt_is_committed_once_before_runtime_and_finalized_on_exact_session() {
         let dir = tempfile::tempdir().unwrap();
