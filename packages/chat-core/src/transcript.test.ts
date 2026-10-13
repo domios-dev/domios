@@ -28,8 +28,7 @@ function eq(actual: unknown, expected: unknown, name: string) {
 
 const SESSION = { sourceSessionId: "sid-1", sessionBindingNonce: "nonce-1" };
 
-/** Window-local ids/seq exactly as a bounded parse emits them: both restart at
- *  the window start, so they collide across independently parsed windows. */
+/** Fixture rows receive record identities at the simulated source boundary. */
 function windowRows(
   contents: string[],
   type: NormalizedChatMessage["type"] = "assistant",
@@ -50,7 +49,9 @@ function batch(
   rows: NormalizedChatMessage[],
   authority = SESSION,
 ): TranscriptBatch {
-  return { kind, authority, range: { start, end }, rows };
+  const anchored = rows.map((row, ordinal) => /^\d+-0$/.test(row.id)
+    ? { ...row, id: `${start}:${ordinal}` } : row);
+  return { kind, authority, range: { start, end }, rows: anchored };
 }
 
 function contents(state: TranscriptState): string[] {
@@ -223,7 +224,7 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   eq(live.pending.length, 0, "one glued provider row settles all three optimistic sends");
   eq(
     live.rows.filter((row) => row.type === "user").map((row) => [row.id, row.sourceMessageId]),
-    [["0:0", "merged-row"]],
+    [["merged-row", undefined]],
     "live Chat projection renders one user group without duplicate bubbles",
   );
   eq(
@@ -248,7 +249,7 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   eq(reloaded.pending.length, 0, "persisted echo identities settle after transcript reload");
   eq(
     reloaded.rows.filter((row) => row.type === "user").map((row) => [row.id, row.sourceMessageId]),
-    [["0:0", "merged-row"]],
+    [["merged-row", undefined]],
     "reloaded Chat projection keeps the same single merged user group",
   );
   eq(
@@ -345,7 +346,7 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   eq(live.rows.map((row) => row.content), expected, "the committed mid-turn user row takes its transcript position");
   eq(
     live.rows.filter((row) => row.type === "user").map((row) => row.id),
-    ["300:1"],
+    ["c-1"],
     "exactly one user row remains and the committed source row owns it",
   );
   const recorded = sends.map((entry) => ({ ...entry, echo: live.echoes.get(entry.id) }));
@@ -582,28 +583,27 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   );
 }
 
-// ── 5b. Ranged identity is derived from the batch range plus the row's
-// position, so reused transport ids and seq cannot alias across batches.
+// Distinct byte records have distinct source identities even when seq repeats.
 {
   const base = reduceTranscript(
     createTranscriptState(),
     batch("snapshot", 0, 100, windowRows(["history"])),
   ).state;
-  const live = (content: string): NormalizedChatMessage[] => [
-    { id: "stream-7", type: "assistant", content, seq: 7, sourceSessionId: SESSION.sourceSessionId },
+  const live = (offset: number, content: string): NormalizedChatMessage[] => [
+    { id: `rec-${offset}-0-0`, type: "assistant", content, seq: 7, sourceSessionId: SESSION.sourceSessionId },
   ];
-  const firstLive = reduceTranscript(base, batch("delta", 100, 200, live("first live"))).state;
-  const secondLive = reduceTranscript(firstLive, batch("delta", 200, 300, live("second live")));
+  const firstLive = reduceTranscript(base, batch("delta", 100, 200, live(100, "first live"))).state;
+  const secondLive = reduceTranscript(firstLive, batch("delta", 200, 300, live(200, "second live")));
   eq(secondLive.outcome, "adopted", "a contiguous second live batch adopts");
   eq(
     contents(secondLive.state),
     ["history", "first live", "second live"],
-    "two live batches reusing one transport id and seq stay distinct rows",
+    "distinct source records with reused seq stay distinct rows",
   );
   eq(
     transcriptRows(secondLive.state).map((row) => row.id),
-    ["0:0", "100:0", "200:0"],
-    "row identity comes from the authoritative batch range plus ordinal",
+    ["0:0", "rec-100-0-0", "rec-200-0-0"],
+    "record identities survive byte reconciliation",
   );
   const replayed = reduceTranscript(
     secondLive.state,

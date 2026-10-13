@@ -11,7 +11,7 @@ import {
 
 const authority = { sourceSessionId: "session", sessionBindingNonce: "nonce" };
 const batch = (start: number, end: number, kind: TranscriptBatch["kind"] = "snapshot"): TranscriptBatch => ({
-  kind, authority, range: { start, end },
+  kind, authority, range: { unit: "items", start, end },
   rows: Array.from({ length: end - start }, (_, index) => ({
     id: `item-${start + index}`, type: "assistant", content: `answer-${start + index}`,
   })),
@@ -21,11 +21,11 @@ test("bounded same-authority snapshot preserves loaded history and detached row"
   clearTranscriptWindows();
   commitTranscriptBatch("A", batch(200, 400));
   commitTranscriptBatch("A", batch(0, 200, "backfill"));
-  setTranscriptAnchor("A", "0:50");
+  setTranscriptAnchor("A", "item-50");
   reconcileTranscriptWindow("A", batch(200, 400));
   const window = readTranscriptWindow("A");
   assert.equal(transcriptRows(window.transcript).length, 400);
-  assert.equal(window.anchorKey, "0:50");
+  assert.equal(window.anchorKey, "item-50");
   assert.equal(transcriptRows(window.transcript).find((row) => row.id === window.anchorKey)?.content, "answer-50");
   resetTranscriptWindow("A");
   reconcileTranscriptWindow("A", batch(200, 400));

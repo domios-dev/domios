@@ -211,6 +211,7 @@ pub fn start(
     let start = total.saturating_sub(200);
     Ok(crate::commands::ChatStartResult {
         text: String::new(),
+        offset_kind: crate::commands::ChatOffsetKind::Items,
         start_offset: start as u64,
         offset: total as u64,
         pending: false,
@@ -233,6 +234,7 @@ pub fn backfill(
     let start = end.saturating_sub(200);
     Ok(crate::commands::ChatBackfillResult {
         text: String::new(),
+        offset_kind: crate::commands::ChatOffsetKind::Items,
         start_offset: start as u64,
         end_offset: end as u64,
         messages: messages.into_iter().skip(start).take(end - start).collect(),
