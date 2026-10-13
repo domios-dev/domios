@@ -78,5 +78,10 @@ export function deliveryProjectionSends(
   sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
   return sends.filter((send) => resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
-    .map((send) => ({ ...send, echoEligible: deliveryState(send) !== "failed" }));
+    .map((send) => ({
+      ...send,
+      echoEligible: deliveryState(send) !== "failed",
+      flowAtMs: send.status && ["written", "submit_unconfirmed", "delivered"].includes(send.status.state)
+        ? send.sentAtMs : undefined,
+    }));
 }
