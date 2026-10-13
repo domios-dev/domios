@@ -739,9 +739,7 @@ fn role_and_team_removal_are_journaled() {
 
     fixture.service.clear_tab_role(&planner_tab).unwrap();
 
-    let records = crate::session::lifecycle::TabLifecycleJournal::shared()
-        .load()
-        .records;
+    let records = fixture.service.lifecycle_journal.load().records;
     let transitions = records.into_iter().filter_map(|record| match record {
         crate::session::lifecycle::JournalRecord::Transition { entry }
             if entry.key.tab_id == planner_tab =>
