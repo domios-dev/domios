@@ -2,7 +2,7 @@ import type { ClientCheckpoint } from "./checkpoint";
 import type { Safety } from "./model";
 import type { FrontendSignals } from "./runtime";
 
-export function createFrontendSignals(initial: ClientCheckpoint, safety: Safety, restore: (checkpoint: ClientCheckpoint) => void): FrontendSignals & {
+export function createFrontendSignals(initial: ClientCheckpoint, safety: Safety, restore: (checkpoint: ClientCheckpoint) => ClientCheckpoint | void): FrontendSignals & {
   edit(checkpoint: ClientCheckpoint): void;
   signal(patch: Partial<Safety>): void;
 } {
@@ -13,7 +13,7 @@ export function createFrontendSignals(initial: ClientCheckpoint, safety: Safety,
   return {
     checkpoint: () => structuredClone(checkpoint),
     safety: () => ({ ...currentSafety }),
-    hydrate(value) { restore(value); checkpoint = structuredClone(value); },
+    hydrate(value) { checkpoint = structuredClone(restore(value) ?? value); },
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     edit(value) { checkpoint = structuredClone(value); emit("checkpoint"); },
     signal(patch) { currentSafety = { ...currentSafety, ...patch }; emit("safety"); },
