@@ -97,7 +97,6 @@ export function deliveryProjectionSends(
     .map((send) => ({
       ...send,
       echoEligible: deliveryState(send) !== "failed",
-      flowAtMs: send.status && ["written", "submit_unconfirmed", "delivered"].includes(send.status.state)
-        ? send.sentAtMs : undefined,
+      flowAtMs: send.sentAtMs,
     }));
 }
