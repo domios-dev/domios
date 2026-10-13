@@ -21,6 +21,23 @@ pub struct AgentRuntimeCapability {
     pub command: AgentRuntimeCommand,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inherited_environment_exclusions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login: Option<RuntimeLoginCapability>,
     pub request_methods: BTreeMap<String, Vec<String>>,
     pub notification_methods: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeLoginCapability {
+    pub methods: Vec<RuntimeLoginMethod>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_command: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeLoginMethod {
+    Browser,
+    Device,
+    ApiKey,
 }

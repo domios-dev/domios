@@ -43,11 +43,14 @@
         "thread/settings/update",
         "thread/compact/start",
         "thread/inject_items",
-        "account/read"
+        "account/read",
+        "account/login/start",
+        "account/login/cancel"
       ]
     },
     "notificationMethods": [
       "account/updated",
+      "account/login/completed",
       "thread/started",
       "thread/status/changed",
       "thread/settings/updated",
@@ -72,7 +75,15 @@
       "item/mcpToolCall/progress",
       "serverRequest/resolved",
       "error"
-    ]
+    ],
+    "login": {
+      "methods": [
+        "browser",
+        "device",
+        "apiKey"
+      ],
+      "terminalCommand": "codex login"
+    }
   },
   "chatBackend": {
     "spawnable": true,

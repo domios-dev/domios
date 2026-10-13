@@ -87,3 +87,25 @@ fn runtime_manifest_schema_and_consent_fail_closed() {
     raw["capabilities"]["agentRuntime"]["runtime"] = json!("shell");
     assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
 }
+
+#[test]
+fn runtime_login_declaration_confines_terminal_to_its_binary() {
+    let mut value = manifest();
+    value["capabilities"]["agentRuntime"]["login"] =
+        json!({"methods":["browser","device","apiKey"],"terminalCommand":"runtime-engine login"});
+    assert!(PluginManifest::from_json_str(&value.to_string())
+        .unwrap()
+        .validate_agent_runtime()
+        .is_ok());
+    for command in [
+        "other-engine login",
+        "runtime-engine login; env",
+        "runtime-engine login\n",
+    ] {
+        value["capabilities"]["agentRuntime"]["login"]["terminalCommand"] = command.into();
+        assert!(PluginManifest::from_json_str(&value.to_string())
+            .unwrap()
+            .validate_agent_runtime()
+            .is_err());
+    }
+}

@@ -456,6 +456,37 @@ function runtimeItems(raw, seq) {
   return row2 ? [row2] : [];
 }
 
+// plugins/provider-codex/src/runtimeLogin.ts
+function loginPlan(raw) {
+  const value = object(raw);
+  if (value.action === "cancel" && text(value.loginId)) return {
+    action: { kind: "request", call: { method: "account/login/cancel", params: { loginId: String(value.loginId) } } },
+    state: { stage: "loginCancel", loginId: String(value.loginId) }
+  };
+  const types = { browser: "chatgpt", device: "chatgptDeviceCode", apiKey: "apiKey" };
+  const method = String(value.method);
+  if (!["browser", "device", "apiKey"].includes(method) || method === "apiKey" && !text(value.apiKey)) throw { code: "invalid_schema", message: "Invalid login request" };
+  return { action: { kind: "request", call: { method: "account/login/start", params: json({ type: types[method], ...method === "apiKey" ? { apiKey: value.apiKey } : {} }) } }, state: { stage: "loginStart", method } };
+}
+function loginResponse(state, value) {
+  if (state.stage === "loginCancel") {
+    if (value.status !== "canceled" && value.status !== "notFound") throw { code: "invalid_schema", message: "Invalid cancellation result" };
+    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "canceled", loginId: String(state.loginId) } }] };
+  }
+  if (state.method === "apiKey" && value.type === "apiKey") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "completed", method: "apiKey" } }] };
+  const loginId = text(value.loginId);
+  const url = text(value.authUrl) ?? text(value.verificationUrl);
+  if (!loginId || !url || !["chatgpt", "chatgptDeviceCode"].includes(String(value.type))) throw { code: "invalid_schema", message: "Invalid login start result" };
+  const method = state.method === "device" ? "device" : "browser";
+  const userCode = text(value.userCode);
+  if (method === "device" && !userCode) throw { code: "invalid_schema", message: "Missing device code" };
+  return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "pending", method, loginId, url, ...userCode ? { userCode } : {} } }] };
+}
+function loginCompleted(value) {
+  const loginId = text(value.loginId);
+  return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
+}
+
 // plugins/provider-codex/src/runtimeAuth.ts
 function accountAuth(value) {
   const response = object(value);
@@ -758,6 +789,10 @@ function runtimeReduce(ctx, raw, frames) {
   const events = [];
   for (const frame of frames) {
     const params = object(frame.params);
+    if (frame.kind === "notification" && frame.method === "account/login/completed") {
+      events.push(loginCompleted(params));
+      continue;
+    }
     if (frame.kind === "notification" && frame.method === "account/updated") {
       events.push(notificationAuth(params));
       continue;
@@ -1018,9 +1053,10 @@ function runtimePlan(ctx, op) {
       return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
     }
     case "control": {
+      if (op.action === "login") return loginPlan(op.value);
+      if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
       const thread = op.threadId ?? ctx.threadId;
       if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
-      if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
       if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
@@ -1041,6 +1077,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   const state = object(raw);
   if (reply.kind === "error") {
+    if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
       return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", items: [], openItems: [], questions: [], seq: 0 }));
@@ -1084,6 +1121,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "done" } };
     }
     case "control": {
+      if (op.action === "login") return loginResponse(state, value);
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
       return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
     }

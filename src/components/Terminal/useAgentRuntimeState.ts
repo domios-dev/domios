@@ -15,6 +15,11 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   const current = useRef(record);
   const revision = useRef(0);
   const generation = useRef(0);
+  const snapshotAuth = snapshot?.auth;
+  const snapshotLogin = snapshot?.login;
+  const snapshotLoginMethods = snapshot?.loginMethods;
+  const snapshotLoginProviderName = snapshot?.loginProviderName;
+  const snapshotLoginTerminal = snapshot?.loginTerminal;
   const snapshotState = snapshot?.state;
   const snapshotEpoch = snapshot?.epoch;
   const snapshotReason = snapshot?.reason;
@@ -29,13 +34,13 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   useEffect(() => {
     revision.current++;
     const next = snapshotState !== undefined && snapshotEpoch !== undefined
-      ? { state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason,
+      ? { state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason, auth:snapshotAuth, login:snapshotLogin, loginMethods:snapshotLoginMethods, loginProviderName:snapshotLoginProviderName, loginTerminal:snapshotLoginTerminal,
         active_turn_started_at_ms: snapshotStartedAt, last_turn_duration_ms: snapshotDuration } : null;
     const state = runtimeStateFromSnapshot(current.current.key === key ? current.current.state : null, next);
     if (current.current.key === key && current.current.state === state && current.current.questions === snapshotQuestions) return;
     current.current = { key, state, questions: snapshotQuestions };
     setRecord(current.current);
-  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotQuestions]);
+  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal]);
 
   useEffect(() => {
     generation.current++;

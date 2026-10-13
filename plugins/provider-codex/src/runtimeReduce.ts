@@ -2,6 +2,7 @@ import type { RuntimeContext, JsonValue, RuntimeFrame, RuntimeReduction, AgentEv
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
 import { json, runtimeItem, runtimeItems } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
+import { loginCompleted } from "./runtimeLogin";
 import { notificationAuth } from "./runtimeAuth";
 import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
@@ -109,6 +110,9 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
   const events: AgentEvent[] = [];
   for (const frame of frames) {
     const params = object(frame.params);
+    if (frame.kind === "notification" && frame.method === "account/login/completed") {
+      events.push(loginCompleted(params)); continue;
+    }
     if (frame.kind === "notification" && frame.method === "account/updated") {
       events.push(notificationAuth(params)); continue;
     }
