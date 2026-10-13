@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import type { ChatContentAnchor } from "./chatAnchorModel";
 import { getPersistedChatScrollState } from "./chatViewport";
+import { chatScrollBookmark } from "./chatScrollMemory";
 import { mountedChatWindowFromGeometry, sameMountedChatWindow } from "./chatMountedWindow";
 import { indexChatTranscript, indexedChatAnchor, type ChatTranscriptIndex } from "./chatMountedTranscript";
 
@@ -15,8 +16,10 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
 }) {
   const heights = useRef(new Map<string, number>());
   const persisted = getPersistedChatScrollState(sessionKey);
+  const bookmark = chatScrollBookmark(persisted);
+  const activeRef = useRef(false);
   const viewport = useRef({ top: persisted?.scrollTop ?? 0, height: 0 });
-  const anchorRef = useRef<ChatContentAnchor | null>(persisted?.anchor ?? null);
+  const anchorRef = useRef<ChatContentAnchor | null>(bookmark.mode === "detached" ? bookmark.anchor : null);
   const keyRef = useRef(sessionKey);
   const transcriptRef = useRef<ChatTranscriptIndex | undefined>(undefined);
   const targetRef = useRef<string | null>(null);
@@ -25,10 +28,17 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     keyRef.current = sessionKey;
     heights.current.clear();
     transcriptRef.current = undefined;
-    anchorRef.current = persisted?.anchor ?? null;
+    anchorRef.current = bookmark.mode === "detached" ? bookmark.anchor : null;
     viewport.current = { top: persisted?.scrollTop ?? 0, height: 0 };
     targetRef.current = null;
+    followTailRef.current = bookmark.mode === "pinned";
   }
+  if (active && !activeRef.current) {
+    anchorRef.current = bookmark.mode === "detached" ? bookmark.anchor : null;
+    viewport.current = { top: 0, height: 0 };
+    followTailRef.current = bookmark.mode === "pinned";
+  }
+  activeRef.current = active;
   const transcript = useMemo(() => {
     const next = indexChatTranscript(rows.map(({ msg }) => msg), heights.current, transcriptRef.current);
     transcriptRef.current = next;
@@ -40,7 +50,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   const anchoredTop = anchorIndex < 0 ? viewport.current.top : transcript.geometry.offset(anchorIndex) - anchorRef.current!.offset;
   const targetIndex = targetRef.current == null ? -1 : transcript.byId.get(targetRef.current) ?? -1;
   const range = mountedChatWindowFromGeometry({ geometry: transcript.geometry, scrollTop: anchoredTop, viewportHeight: viewport.current.height,
-    active, pinned: viewport.current.height === 0 ? persisted?.mode !== "detached" && followTailRef.current : followTailRef.current,
+    active, pinned: followTailRef.current,
     targetIndex: targetIndex >= 0 ? targetIndex : viewport.current.height === 0 && anchorIndex >= 0 ? anchorIndex : undefined });
   const live = useRef({ transcript, range, active });
   live.current = { transcript, range, active };
@@ -52,6 +62,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     const origin = spacer.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
     const top = el.scrollTop - origin;
     const current = live.current;
+    if (!current.active) return;
     if (captureAnchor) {
       const wrapper = Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"))
         .find((row) => row.offsetTop >= el.scrollTop && row.offsetTop < el.scrollTop + el.clientHeight);
@@ -95,7 +106,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
       });
     };
     el.addEventListener("scroll", onScroll, { passive: true });
-    readViewport();
+    readViewport(false);
     return () => {
       el.removeEventListener("scroll", onScroll);
       if (frame != null) window.cancelAnimationFrame(frame);

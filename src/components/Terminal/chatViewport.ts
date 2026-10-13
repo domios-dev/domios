@@ -1,6 +1,7 @@
 import { chatUserScrollChanged, chatViewportLayoutChanged } from "./chatScrollDecisions";
 import { editFrontendScroll } from "../../lib/frontendUpdate/appState";
-import type { ChatContentAnchor } from "./chatAnchorModel";
+import { ChatScrollMemory, type ChatScrollState } from "./chatScrollMemory";
+export type { ChatScrollState } from "./chatScrollMemory";
 
 const VIEWPORT_TOLERANCE_PX = 0.5;
 
@@ -67,30 +68,17 @@ export function shouldRestoreChatViewport(
   return active && !loading && messageCount > 0 && currentKey !== restoredKey;
 }
 
-export interface ChatScrollState {
-  anchor?: ChatContentAnchor | null;
-  mode: ChatViewportMode;
-  scrollTop: number;
-}
-
-const persistedChatScrollStates = new Map<string, ChatScrollState>();
-const MAX_PERSISTED_CHAT_SCROLL_STATES = 32;
+const persistedChatScrollStates = new ChatScrollMemory();
 
 export function getPersistedChatScrollState(key: string): ChatScrollState | null {
-  return persistedChatScrollStates.get(key) ?? null;
+  return persistedChatScrollStates.read(key);
 }
 
 export function setPersistedChatScrollState(key: string, state: ChatScrollState): void {
   editFrontendScroll(key, "chat", JSON.stringify(state));
-  persistedChatScrollStates.delete(key);
-  persistedChatScrollStates.set(key, state);
-  while (persistedChatScrollStates.size > MAX_PERSISTED_CHAT_SCROLL_STATES) {
-    const oldest = persistedChatScrollStates.keys().next().value;
-    if (oldest == null) break;
-    persistedChatScrollStates.delete(oldest);
-  }
+  persistedChatScrollStates.save(key, state);
 }
 
 export function clearPersistedChatScrollState(key: string): void {
-  persistedChatScrollStates.delete(key);
+  persistedChatScrollStates.clear(key);
 }

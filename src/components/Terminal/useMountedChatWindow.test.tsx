@@ -63,8 +63,8 @@ function Harness({ active }: { active: boolean }) {
     <div>
       <div style={{ height: active ? prefixHeight : 0 }} />
       <div ref={mountApi.topSpacerRef} style={{ height: mountApi.range.top }} />
-      {rows.slice(mountApi.range.start, mountApi.range.end).map(({ msg, height }) => <div key={msg.id} data-chat-window-row={msg.id} data-height={height}>
-        <div data-message-id={msg.id} data-source-message-id={msg.sourceMessageId}>{msg.id}</div>
+      {rows.slice(mountApi.range.start, mountApi.range.end).map(({ msg, height }, index) => <div key={msg.id} data-chat-window-row={msg.id} data-height={height}>
+        <div data-message-id={msg.id} data-source-message-id={msg.sourceMessageId} data-source-message-ordinal={mountApi.identities[mountApi.range.start + index].ordinal}>{msg.id}</div>
       </div>)}
       <div style={{ height: mountApi.range.bottom }} />
       <div style={{ height: bottomInset }} />
@@ -275,6 +275,41 @@ describe("mounted chat wiring", () => {
     await render();
     expect(followTail.current).toBe(false);
     expect(host.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!.offsetTop - scroller().scrollTop).toBe(before);
+  });
+  it("falls back to bottom when the saved source row disappears while hidden", async () => {
+    await render();
+    await move(10000);
+    await render(false);
+    rows = rows.slice(150);
+    await render();
+    expect(followTail.current).toBe(true);
+    expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
+  });
+  it.each([422, 768, 900])("restores a source ordinal across hidden layout changes at viewport height %s", async (height) => {
+    rows = rows.map((row, index) => ({ ...row, msg: { ...row.msg, sourceMessageId: `s${Math.floor(index / 3)}` } }));
+    prefixHeight = 300;
+    await render();
+    await move(10037);
+    const anchor = mounted().find((row) => row.offsetTop >= scroller().scrollTop)!;
+    const source = anchor.dataset.sourceMessageId;
+    const ordinal = anchor.dataset.sourceMessageOrdinal;
+    const before = anchor.offsetTop - scroller().scrollTop;
+    await render(false);
+    await act(async () => scroller().dispatchEvent(new Event("scroll", { bubbles: true })));
+    prefixHeight = 700;
+    viewportHeight = height;
+    rows = rows.map((row) => ({ ...row, msg: { ...row.msg, id: `rekey-${row.msg.id}` } }));
+    await render();
+    const restored = mounted().find((row) => row.dataset.sourceMessageId === source && row.dataset.sourceMessageOrdinal === ordinal)!;
+    expect(restored).toBeDefined();
+    expect(restored.offsetTop - scroller().scrollTop).toBe(before);
+    expect(followTail.current).toBe(false);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    followTail = { current: true };
+    await render();
+    const remounted = mounted().find((row) => row.dataset.sourceMessageId === source && row.dataset.sourceMessageOrdinal === ordinal)!;
+    expect(remounted.offsetTop - scroller().scrollTop).toBe(before);
   });
   it("holds a detached anchor through row growth, prepend and warm return", async () => {
     await render();
