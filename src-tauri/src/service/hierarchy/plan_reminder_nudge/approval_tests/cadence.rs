@@ -15,12 +15,13 @@ fn plan_reminder_choice_churning_ticks_only_call_and_journal_at_cadence() {
         }
         f.admit(ReminderKind::Owner, minute * 60);
     }
-    assert_eq!(f.model.calls(), 2);
+    assert_eq!(f.model.calls(), 1);
     let decisions = f.decisions();
     assert_eq!(decisions.len(), 2);
     assert_eq!(decisions[0]["time"], 0);
     assert_eq!(decisions[1]["time"], 1800);
-    assert_eq!(f.emits(), 0);
+    assert_eq!(decisions[1]["decided_by"], "cadence");
+    assert_eq!(f.emits(), 1);
 }
 
 #[test]
@@ -51,12 +52,16 @@ fn plan_reminder_choice_cached_tick_adds_no_journal_reflex() {
     let f = fixture(ReminderKind::Owner, approve());
     assert_eq!(f.admit(ReminderKind::Owner, 0), ReminderOutcome::Accepted);
     let journal = f.journal();
-    for now in [60, 1800, 3600] {
+    for now in [60, 1799] {
         assert_eq!(
             f.admit(ReminderKind::Owner, now),
             ReminderOutcome::Suppressed("same_snapshot")
         );
     }
     assert_eq!(f.journal(), journal);
+    assert_eq!(
+        f.admit(ReminderKind::Owner, 1800),
+        ReminderOutcome::Accepted
+    );
     assert_eq!(f.model.calls(), 1);
 }
