@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn split_creates_children_with_parent_and_inherited_routing() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
@@ -94,7 +93,6 @@ fn split_creates_children_with_parent_and_inherited_routing() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn split_invalid_second_child_is_atomic() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
@@ -144,7 +142,6 @@ fn split_invalid_second_child_is_atomic() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn split_rejects_terminal_and_child_parents() {
     for status in [Some(TaskStatus::Done), Some(TaskStatus::Cancelled), None] {
@@ -215,7 +212,6 @@ fn split_rejects_terminal_and_child_parents() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn task_update_cancel_parent_with_open_child_returns_open_subtasks() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
@@ -270,7 +266,6 @@ fn task_update_cancel_parent_with_open_child_returns_open_subtasks() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn draft_split_children_remain_locked_until_plan_approval() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();

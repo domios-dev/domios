@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescriptor {
     let platform = current_platform_tag();
+    let runtime = provider.agent_runtime();
     let mut settings = provider.settings_schema();
     if provider.structured_control().is_some() {
         settings.push(SettingField::Section {
@@ -22,7 +23,7 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
-        agent_runtime: provider.agent_runtime(),
+        agent_runtime: runtime.clone(),
         supports_session_fork: provider.fork_session_args().is_some(),
         structured_control: provider.structured_control(),
         schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
@@ -55,15 +56,19 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         fresh_context_command: provider.fresh_context_command().map(|s| s.to_string()),
         compact_command: provider.compact_command().map(|s| s.to_string()),
         integration_trust_grant: provider.integration_trust_grant_capability(),
-        supports_stop: provider.stop_keys().is_some(),
-        supports_chat_ui: provider.supports_chat_ui(),
+        supports_stop: runtime.as_ref().is_some_and(|cap| {
+            cap.request_methods
+                .get("interrupt")
+                .is_some_and(|methods| !methods.is_empty())
+        }) || provider.stop_keys().is_some(),
+        supports_chat_ui: runtime.is_some() || provider.supports_chat_ui(),
         supports_structured_prompts: provider.supports_structured_prompts(),
         supports_prompt_answers: provider.supports_prompt_answers(),
         supports_permission_auto_confirm: provider.supports_permission_auto_confirm(),
         supports_watcher: false,
         paste_limit_bytes: provider.paste_limit_bytes(),
         trust: provider.trust(),
-        transport: if provider.agent_runtime().is_some() {
+        transport: if runtime.is_some() {
             ProviderTransport::ChatBackend
         } else {
             ProviderTransport::Pty

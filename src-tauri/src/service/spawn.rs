@@ -91,6 +91,20 @@ pub struct SpawnTabSpec {
     #[serde(default)]
     pub eager: bool,
     pub command: TabCommand,
+    #[serde(skip)]
+    pub(crate) chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ChatBackendLaunchMetadata {
+    pub(crate) agent: AgentSpawnSpec,
+    pub(crate) params: super::SpawnAgentParams,
+    pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RuntimeOwnerLinkage {
+    CronRun { job_id: String, run_id: String },
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -248,6 +262,11 @@ impl ServiceContext {
                     .or(spec.creator_tab_id.as_deref()),
                 spec.cwd.as_deref(),
             )?;
+        }
+        if let TabCommand::Agent(agent) = &spec.command {
+            if super::agent_runtime::engine::requested(self, &agent.provider) {
+                spec.route_agent_to_chatbackend()?;
+            }
         }
         spawn_tab_identity::prepare_tab_identity(&mut spec)?;
         match (&spec.visibility, &spec.command) {

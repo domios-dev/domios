@@ -13,6 +13,7 @@ pub struct TurnControls {
     reported_session_binding_nonce: Option<String>,
     model: Option<String>,
     effort: Option<String>,
+    mode: Option<String>,
 }
 
 fn validate_controls(
@@ -90,6 +91,7 @@ pub async fn turn_controls(
                 reported_session_binding_nonce: tab.reported_session_binding_nonce.clone(),
                 model,
                 effort,
+                mode: tab.structured_runtime_mode.clone(),
             },
             &query.session_id,
             &nonce,
@@ -147,6 +149,7 @@ mod tests {
             reported_session_binding_nonce: Some("nonce".into()),
             model: None,
             effort: None,
+            mode: None,
         };
         assert!(validate_controls(controls.clone(), "session", "nonce").is_ok());
         assert!(validate_controls(controls.clone(), "foreign", "nonce").is_err());

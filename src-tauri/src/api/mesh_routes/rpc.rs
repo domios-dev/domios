@@ -336,7 +336,6 @@ mod tests {
         )
     }
 
-    #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
     #[tokio::test]
     async fn mesh_rpc_remote_lifecycle_rejects_unauthenticated_unpaired_and_read_only_peers() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -401,7 +400,6 @@ mod tests {
         }
     }
 
-    #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
     #[tokio::test]
     async fn relayed_remote_lifecycle_uses_the_verified_sender_access() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();

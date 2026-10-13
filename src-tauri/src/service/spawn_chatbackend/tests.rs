@@ -371,3 +371,133 @@ fn guardrail_group_includes_the_orchestrator() {
     assert!(group.contains("worker-1"));
     assert_eq!(group.len(), 3);
 }
+
+#[test]
+fn runtime_task_is_separate_and_preamble_is_preserved() {
+    let mut agent = crate::service::spawn::AgentSpawnSpec {
+        task: Some("opaque-task".into()),
+        task_preamble: Some("opaque-prefix".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        super::runtime_initial_payload(&agent).as_deref(),
+        Some("opaque-prefixopaque-task")
+    );
+    agent.task = Some("  ".into());
+    assert!(super::runtime_initial_payload(&agent).is_none());
+}
+
+#[test]
+fn runtime_worker_identity_is_stamped_before_launch() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.create_workspace("fixture".into(), None);
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
+    let metadata = crate::service::spawn::ChatBackendLaunchMetadata {
+        agent: crate::service::spawn::AgentSpawnSpec {
+            provider: "runtime-fixture".into(),
+            worker_id: Some("worker-exact".into()),
+            provisioned_cwd: Some("/fixture".into()),
+            report_target_tab_id: Some("report-exact".into()),
+            model: Some("model-exact".into()),
+            reasoning_effort: Some("effort-exact".into()),
+            ..Default::default()
+        },
+        params: Default::default(),
+        owner_linkage: None,
+    };
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    super::stamp_chatbackend_launch_identity(tab, &metadata);
+    assert_eq!(tab.worker_id.as_deref(), Some("worker-exact"));
+    assert_eq!(tab.agent_type.as_deref(), Some("runtime-fixture"));
+    assert_eq!(tab.report_target_tab_id.as_deref(), Some("report-exact"));
+    assert_eq!(tab.agent_requested_model.as_deref(), Some("model-exact"));
+    assert_eq!(
+        tab.reasoning_effort_identity.requested.as_deref(),
+        Some("effort-exact")
+    );
+}
+
+#[test]
+fn runtime_resume_preserves_exact_thread_and_refuses_replacement() {
+    assert_eq!(
+        super::runtime_resume_thread(Some("thread-a"), Some("thread-a"))
+            .unwrap()
+            .as_deref(),
+        Some("thread-a")
+    );
+    assert_eq!(
+        super::runtime_resume_thread(Some("thread-a"), None)
+            .unwrap()
+            .as_deref(),
+        Some("thread-a")
+    );
+    assert_eq!(
+        super::runtime_resume_thread(None, Some("thread-a"))
+            .unwrap()
+            .as_deref(),
+        Some("thread-a")
+    );
+    assert!(super::runtime_resume_thread(Some("thread-a"), Some("thread-b")).is_err());
+    assert!(super::runtime_resume_thread(None, None).unwrap().is_none());
+}
+
+#[test]
+fn runtime_launch_mode_uses_authorized_host_choice() {
+    assert_eq!(super::runtime_launch_mode(true), "full-access");
+    assert_eq!(super::runtime_launch_mode(false), "auto-accept-edits");
+}
+
+#[test]
+fn chatbackend_manager_placement_preserves_named_profile() {
+    let (mut mux, root) = crate::multiplexer::state::MultiplexerState::new();
+    mux.set_orchestrator_role(&root).unwrap();
+    let workspace = mux.find_workspace_for_tab(&root).unwrap();
+    let planner = mux.create_tab(&workspace).unwrap();
+    super::place_chatbackend_role_kind(
+        &mut mux,
+        &planner,
+        "Manager",
+        Some("planner"),
+        Some(&root),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        mux.get_tab(&planner).unwrap().role_profile.as_deref(),
+        Some("planner")
+    );
+    let anchor = mux.create_tab(&workspace).unwrap();
+    super::place_chatbackend_role_kind(
+        &mut mux,
+        &anchor,
+        "Manager",
+        Some("orchestrator"),
+        None,
+        Some(true),
+    )
+    .unwrap();
+    assert_eq!(
+        mux.get_tab(&anchor).unwrap().role_profile.as_deref(),
+        Some("orchestrator")
+    );
+}
+
+#[test]
+fn runtime_pending_initial_claim_is_retained_without_replacement() {
+    let agent = crate::service::spawn::AgentSpawnSpec {
+        task: Some("new-task".into()),
+        ..Default::default()
+    };
+    let record = crate::multiplexer::types::PendingDeliveryRecord::new(
+        "original-digest".into(),
+        crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+    )
+    .with_send_id("original-send".into());
+    assert!(super::runtime_pending_payload(Some(&record), &agent).is_none());
+    assert_eq!(record.send_id(), Some("original-send"));
+    assert_eq!(record.content_digest, "original-digest");
+    assert_eq!(
+        super::runtime_pending_payload(None, &agent).as_deref(),
+        Some("new-task")
+    );
+}

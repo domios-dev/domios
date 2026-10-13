@@ -188,7 +188,6 @@ impl Drop for LateLaunch {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn retained_launch_early_ack_completes_only_same_attempt_then_exact_load() {
     let launch = LateLaunch::new();
     let before = launch.task();
@@ -235,7 +234,6 @@ fn retained_launch_early_ack_completes_only_same_attempt_then_exact_load() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn retained_launch_refuses_missing_replaced_finalized_and_foreign_live_authority() {
     for variant in [
         "absent",
@@ -291,7 +289,6 @@ fn retained_launch_refuses_missing_replaced_finalized_and_foreign_live_authority
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn retained_launch_refuses_partial_foreign_ambiguous_retired_epoch_and_manifest() {
     for variant in [
         "partial_session",

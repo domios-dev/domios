@@ -382,7 +382,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn attempt_records_actual_effort_for_claude_and_codex() {
         use crate::agent::test_provider::MockProvider;
         use crate::plan::{OrchestratorRef, Plan};

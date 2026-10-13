@@ -7,7 +7,10 @@ use crate::{keepawake, mesh, update};
 use super::states::AppStates;
 
 /// Start the persistence worker and background monitoring threads.
-pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
+pub(crate) fn start_background_tasks(
+    app_handle: &crate::app_runtime::AppHandle,
+    states: &AppStates,
+) {
     if let Err(error) = crate::service::session_persist::start_worker(app_handle) {
         log::error!("[session-persist] worker startup failed: {error}");
     }

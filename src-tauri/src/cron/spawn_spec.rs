@@ -16,6 +16,7 @@ mod tests;
 
 pub(crate) struct CronSpawnInputs {
     pub(crate) job_id: String,
+    pub(crate) run_id: String,
     pub(crate) job_name: String,
     pub(crate) agent: String,
     pub(crate) model: Option<String>,
@@ -52,17 +53,28 @@ pub(crate) fn build_cron_spawn_spec(
         spawned_by_tab_id: inputs.creator_tab_id.clone(),
         ..Default::default()
     };
-    crate::service::move_chatbackend_task_to_system_prompt(
-        chatbackends,
-        &inputs.agent,
-        &mut params,
-    );
+    if !chatbackends
+        .descriptor(&inputs.agent)
+        .is_some_and(|descriptor| descriptor.agent_runtime.is_some())
+    {
+        crate::service::move_chatbackend_task_to_system_prompt(
+            chatbackends,
+            &inputs.agent,
+            &mut params,
+        );
+    }
 
     let mut spec = SpawnTabSpec::from_agent_params_with_chatbackends(chatbackends, params);
     spec.team_id = inputs.team_id;
     spec.creator_tab_id = inputs.creator_tab_id;
     // Cron runs are observed through the run history viewer, never as a live tab.
     spec.visibility = TabVisibility::Hidden;
+    if let Some(metadata) = spec.chatbackend_launch.as_mut() {
+        metadata.owner_linkage = Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun {
+            job_id: inputs.job_id.clone(),
+            run_id: inputs.run_id,
+        });
+    }
     if let Some(agent) = spec.agent_launch_mut() {
         agent.spawned_by = Some(format!("cron:{}", inputs.job_id));
         agent.launch_purpose = crate::service::unattended_launch::LaunchPurpose::CronRun;

@@ -6,6 +6,7 @@ import { UPDATE_INTENT_KEY } from "../../lib/updatePanelModel";
 
 const fake = vi.hoisted(() => ({
   offer: null as { releaseId: string; version: string } | null, check: vi.fn(), install: vi.fn(), plugin: vi.fn(), accept: vi.fn(), hold: vi.fn(),
+  availabilityChanged: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null,
 }));
 vi.mock("../../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
 vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ installing: false, error: null, applyUpdate: fake.install }) }));
@@ -14,7 +15,10 @@ vi.mock("../../lib/frontendUpdate/browser", () => ({
   acceptFrontendUpdate: fake.accept, setFrontendUpdateHeld: fake.hold,
   frontendUpdateOffer: () => fake.offer, subscribeFrontendUpdateOffer: () => () => {},
 }));
-vi.mock("../../lib/bridge", () => ({ listen: async () => () => {} }));
+vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typeof fake.availabilityChanged) => {
+  fake.availabilityChanged = handler;
+  return () => { fake.availabilityChanged = null; };
+} }));
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
 import { UpdateTray } from "./UpdateTray";
 
@@ -93,3 +97,35 @@ for (const actionName of ["Apply Interface update", "Update all"]) {
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 }
+
+it("resumes the next plugin from availability values and ignores equivalent snapshots during an action", async () => {
+  localStorage.setItem(UPDATE_INTENT_KEY, JSON.stringify({ appTarget: "2.0.0", stage: "app", pluginIds: ["plugin", "second"], interfaceRequested: false }));
+  const available: UpdateAvailabilitySnapshot = { ...snapshot, items: [
+    ...snapshot.items.filter(item => item.kind !== "frontend"),
+    { ...snapshot.items[1], id: "second" },
+  ] };
+  fake.check.mockResolvedValue(available);
+  let release: () => void = () => { throw new Error("plugin action was not started"); };
+  fake.plugin.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }))
+    .mockResolvedValueOnce({ plugins: [], channels: [], diff: [] });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const resumed: UpdateAvailabilitySnapshot = { ...available, items: available.items.map(item => item.kind === "app"
+    ? { ...item, installed: "2.0.0", state: "up_to_date" } : item) };
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTray /></UpdatePanelProvider>));
+    expect(fake.plugin).not.toHaveBeenCalled();
+    expect(fake.availabilityChanged).not.toBeNull();
+    await act(async () => fake.availabilityChanged!({ payload: resumed }));
+    expect(fake.plugin).toHaveBeenCalledExactlyOnceWith({ kind: "update", pluginId: "plugin" });
+    await act(async () => fake.availabilityChanged!({ payload: structuredClone(resumed) }));
+    expect(fake.plugin).toHaveBeenCalledTimes(1);
+    fake.check.mockResolvedValue(resumed);
+    await act(async () => release());
+    expect(fake.plugin.mock.calls).toEqual([[{ kind: "update", pluginId: "plugin" }], [{ kind: "update", pluginId: "second" }]]);
+    expect(localStorage.getItem(UPDATE_INTENT_KEY)).toBeNull();
+    await act(async () => fake.availabilityChanged!({ payload: structuredClone(resumed) }));
+    expect(fake.plugin).toHaveBeenCalledTimes(2);
+    expect(fake.install).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});

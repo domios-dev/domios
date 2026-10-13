@@ -1,7 +1,9 @@
 #[path = "spawn/cwd.rs"]
 mod cwd;
 mod dispatch_rollback;
+mod runtime_prompt;
 use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
+use runtime_prompt::compose_runtime_system_prompt;
 
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
@@ -370,6 +372,11 @@ impl ServiceContext {
                 .map(str::to_string);
             self.bind_worker_plan_task_or_rollback_tab_async(&bind_params, &handle.tab_id)
                 .await?;
+            self.bind_planner_spawn(
+                bind_params.plan_id.as_deref(),
+                role_profile.as_deref(),
+                &handle.tab_id,
+            );
             if let Some(reservation) = worker_persona_reservation {
                 reservation.commit_to_tab(&handle.tab_id);
             }
@@ -388,8 +395,11 @@ impl ServiceContext {
                 requested_model,
                 provider_resolved_model: None,
                 actual_model: None,
-                reasoning_effort: None,
-                reasoning_effort_provenance: ReasoningEffortProvenance::default(),
+                reasoning_effort: bind_params.reasoning_effort.clone(),
+                reasoning_effort_provenance: resolved_effort_provenance(
+                    bind_params.planned_reasoning_effort.clone(),
+                    bind_params.reasoning_effort.clone(),
+                ),
                 title,
                 description: handle.description,
                 role,
@@ -1096,6 +1106,10 @@ impl ServiceContext {
         agent: &str,
         params: &mut SpawnAgentParams,
     ) -> Result<(), String> {
+        if crate::service::agent_runtime::engine::requested(self, agent) {
+            params.system_prompt = compose_runtime_system_prompt(params);
+            return Ok(());
+        }
         move_chatbackend_task_to_system_prompt(self.chatbackend_registry.as_ref(), agent, params);
         Ok(())
     }

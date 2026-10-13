@@ -33,10 +33,6 @@ fn register_receiver(service: &ServiceContext) {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn delayed_send_create_update_delete_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -86,10 +82,6 @@ fn delayed_send_create_update_delete_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn sticky_notification_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -133,10 +125,6 @@ fn sticky_notification_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn receiver_target_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -175,10 +163,6 @@ fn receiver_target_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn remote_worker_and_kpi_ledger_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -230,10 +214,6 @@ fn remote_worker_and_kpi_ledger_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn memory_fact_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -273,10 +253,6 @@ fn memory_fact_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn plugin_channel_registry_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());

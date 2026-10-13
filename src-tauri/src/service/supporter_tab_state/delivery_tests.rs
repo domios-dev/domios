@@ -32,10 +32,10 @@ fn metadata(options: Vec<NumberedPromptOption>) -> TabStateMetadata {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_strong_trust_emits_orchestrator_event_with_options() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().pending_prompt = Some(codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque prompt".into(),
         options: vec![codeterm_types::pty::PromptOption {
             label: "Allow once".into(),
@@ -80,7 +80,6 @@ fn tab_state_strong_trust_emits_orchestrator_event_with_options() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_strong_auth_emits_orchestrator_event() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -109,7 +108,6 @@ fn tab_state_strong_auth_emits_orchestrator_event() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_single_strong_hint_is_marked_non_actionable() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

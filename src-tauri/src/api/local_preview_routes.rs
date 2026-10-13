@@ -24,18 +24,24 @@ const PERMIT_DEADLINE: Duration = Duration::from_secs(10);
 pub(super) struct Admission {
     window: Mutex<(Instant, usize)>,
     active: Arc<Semaphore>,
+    clock: Arc<dyn Fn() -> Instant + Send + Sync>,
 }
 
 impl Default for Admission {
     fn default() -> Self {
-        Self {
-            window: Mutex::new((Instant::now(), 0)),
-            active: Arc::new(Semaphore::new(4)),
-        }
+        Self::with_clock(Arc::new(Instant::now))
     }
 }
 
 impl Admission {
+    pub(super) fn with_clock(clock: Arc<dyn Fn() -> Instant + Send + Sync>) -> Self {
+        Self {
+            window: Mutex::new((clock(), 0)),
+            active: Arc::new(Semaphore::new(4)),
+            clock,
+        }
+    }
+
     fn count(&self, now: Instant) -> Result<(), StatusCode> {
         let mut window = self.window.lock();
         if now.saturating_duration_since(window.0) >= WINDOW {
@@ -104,7 +110,7 @@ pub(super) async fn read(
     Extension(admission): Extension<Arc<Admission>>,
     Json(body): Json<ReadBody>,
 ) -> Response {
-    let permit = match admission.admit(Instant::now()).await {
+    let permit = match admission.admit((admission.clock)()).await {
         Ok(permit) => permit,
         Err(status) => return status.into_response(),
     };
@@ -132,7 +138,7 @@ pub(super) async fn check(
     if body.paths.len() > MAX_BATCH {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    let permit = match admission.admit(Instant::now()).await {
+    let permit = match admission.admit((admission.clock)()).await {
         Ok(permit) => permit,
         Err(status) => return status.into_response(),
     };

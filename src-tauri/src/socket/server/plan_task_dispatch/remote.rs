@@ -68,14 +68,16 @@ fn remote_model_selection(
 
 pub(super) fn dispatch(
     params: &Option<Value>,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
     let peer_target = owned_str(p, "mesh_peer")
         .filter(|peer| !peer.trim().is_empty())
-        .ok_or_else(|| invalid_dispatch("mesh dispatch requires a paired peer instance ID"))?;
+        .ok_or_else(|| {
+            invalid_dispatch("mesh dispatch requires a paired peer name or instance ID")
+        })?;
     let (plan_id, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
     let detail = svc
         .plan_store
@@ -100,6 +102,11 @@ pub(super) fn dispatch(
             message,
             data: Some(json!({"type": "plan_orchestrator_authorization_required"})),
         })?;
+    super::remote_recovery::recover_remote_attempts(svc, &plan_id, &task_id, now, false)?;
+    let detail = svc
+        .plan_store
+        .show_task(&task_id)
+        .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
     let plan = svc
         .plan_store
         .get(&plan_id)
@@ -378,7 +385,7 @@ pub(super) fn dispatch(
 
 pub(crate) fn merge_lane(
     params: &Option<Value>,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -615,7 +622,7 @@ enum PeerState {
 }
 
 fn select_peer(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     target: &str,
 ) -> Result<
     (
@@ -628,19 +635,7 @@ fn select_peer(
 > {
     let mesh_handle = app.state::<crate::MeshStateHandle>();
     let mesh = mesh_handle.lock();
-    let mut candidates: Vec<_> = mesh
-        .paired_peers
-        .values()
-        .filter(|peer| peer_matches_id(&peer.instance_id, target))
-        .collect();
-    candidates.sort_by(|a, b| {
-        b.online
-            .cmp(&a.online)
-            .then_with(|| a.instance_id.cmp(&b.instance_id))
-    });
-    let peer = candidates
-        .first()
-        .ok_or_else(|| invalid_dispatch("mesh peer is not paired"))?;
+    let peer = resolve_dispatch_peer(&mesh.paired_peers, target)?;
     if peer.access_level != crate::mesh::types::AccessLevel::Full {
         return Err(invalid_dispatch(
             "mesh task dispatch requires Full peer access",
@@ -660,8 +655,15 @@ fn select_peer(
     ))
 }
 
-fn peer_matches_id(instance_id: &str, target: &str) -> bool {
-    instance_id == target
+fn resolve_dispatch_peer<'a>(
+    peers: &'a std::collections::HashMap<String, crate::mesh::types::PairedPeer>,
+    target: &str,
+) -> Result<&'a crate::mesh::types::PairedPeer, JsonRpcError> {
+    crate::mesh::paired_resolve::resolve_paired_by_name(peers, target).map_err(|error| {
+        invalid_dispatch(&format!(
+            "mesh peer resolution failed: {error:?}; use a paired instance ID"
+        ))
+    })
 }
 
 /// An unreachable identify is left to the offline path; only a peer that
@@ -818,9 +820,38 @@ mod tests {
     }
 
     #[test]
-    fn mesh_peer_selection_requires_stable_instance_id() {
-        assert!(peer_matches_id("peer-instance-1", "peer-instance-1"));
-        assert!(!peer_matches_id("peer-instance-1", "Display Name"));
+    fn mesh_peer_selection_accepts_names_and_refuses_ambiguity() {
+        let peer = |id: &str, name: &str, online: bool| crate::mesh::types::PairedPeer {
+            instance_id: id.into(),
+            instance_name: name.into(),
+            online,
+            addresses: vec![],
+            api_port: 7685,
+            public_key: "key".into(),
+            paired_at: "now".into(),
+            last_seen: None,
+            is_primary: false,
+            access_level: crate::mesh::types::AccessLevel::Full,
+            version: None,
+            web_ui: None,
+            relay_protocol_version: 1,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        };
+        let mut peers = std::collections::HashMap::new();
+        peers.insert("id-a".into(), peer("id-a", "ROG", true));
+        peers.insert("id-old".into(), peer("id-old", "ROG", false));
+        assert_eq!(
+            resolve_dispatch_peer(&peers, "rog").unwrap().instance_id,
+            "id-a"
+        );
+        assert_eq!(
+            resolve_dispatch_peer(&peers, "id-old").unwrap().instance_id,
+            "id-old"
+        );
+        assert!(resolve_dispatch_peer(&peers, "foreign").is_err());
+        peers.insert("id-b".into(), peer("id-b", "ROG", true));
+        assert!(resolve_dispatch_peer(&peers, "ROG").is_err());
     }
 
     #[test]

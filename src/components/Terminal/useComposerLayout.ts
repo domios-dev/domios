@@ -5,7 +5,7 @@ import { COMPOSER_MIN_HEIGHT, COMPOSER_MAX_HEIGHT, measureComposerAutosize } fro
 import { resolveComposerLayout, type ComposerLayout } from "./composerLayoutModel";
 import { useComposerHeight } from "./useComposerHeight";
 
-export function useComposerLayout(input: string, textareaRef: RefObject<HTMLTextAreaElement | null>, shellRef: RefObject<HTMLDivElement | null>, gate: CompositionGate) {
+export function useComposerLayout(input: string, textareaRef: RefObject<HTMLTextAreaElement | null>, shellRef: RefObject<HTMLDivElement | null>, gate: CompositionGate, inputVisible = true) {
   const { keyboardOpen } = useKeyboardInset();
   const [layout, setLayout] = useState<ComposerLayout>({ mode: "docked", editorPx: COMPOSER_MIN_HEIGHT, scrolls: false });
   const previous = useRef(layout);
@@ -30,7 +30,7 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
       setLayout(next);
     }
   }, [gate, keyboardOpen, shellRef, textareaRef]);
-  useLayoutEffect(() => { measure(); }, [input, measure]);
+  useLayoutEffect(() => { measure(); }, [input, measure, inputVisible]);
   useLayoutEffect(() => {
     const shell = shellRef.current;
     const textarea = textareaRef.current;
@@ -41,6 +41,6 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     observer.observe(textarea);
     window.visualViewport?.addEventListener("resize", measure);
     return () => { observer.disconnect(); window.visualViewport?.removeEventListener("resize", measure); };
-  }, [measure, shellRef, textareaRef]);
+  }, [measure, shellRef, textareaRef, inputVisible]);
   return { layout, measure };
 }

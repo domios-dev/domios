@@ -28,7 +28,6 @@ fn spawn_rejects_invalid_cwd() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn spawn_rejects_invalid_cwd_before_creating_a_tab() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

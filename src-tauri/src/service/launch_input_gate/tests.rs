@@ -469,6 +469,7 @@ fn resumed_transcript_question_does_not_block_without_an_active_structured_promp
     );
 
     let active_prompt = codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "Active structured choice".into(),
         options: vec![
             codeterm_types::pty::PromptOption {
@@ -846,10 +847,6 @@ fn codex_update_and_folder_trust_frames_block_lazy_readiness() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn lazy_session_spawn_with_modal_or_dead_provider_still_fails_at_deadline() {
     fn await_blocked_launch(
         classification: Option<TabState>,

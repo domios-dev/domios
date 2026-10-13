@@ -307,10 +307,6 @@ fn mux_refresh_reads_only_new_or_replaced_ptys() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn dirty_untracked_tab_output_before_mux_event_is_seeded_and_emitted() {
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-new".into());
@@ -343,10 +339,6 @@ fn dirty_untracked_tab_output_before_mux_event_is_seeded_and_emitted() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn replacement_pty_output_before_mux_event_starts_at_zero() {
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-old".into());

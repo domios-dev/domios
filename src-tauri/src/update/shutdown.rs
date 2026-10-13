@@ -11,7 +11,7 @@ const SPAWN_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// happen in the NEW process via `lib.rs::init_states` (snapshot reload) and
 /// `commands::spawn_pty` (auto-resume by `agent_session_id`).
 pub async fn graceful_shutdown(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     _initiating_tab_id: Option<&str>,
 ) -> Result<Vec<String>, String> {
     log::info!("[updater] graceful_shutdown: starting");
@@ -59,7 +59,7 @@ pub async fn graceful_shutdown(
     Ok(swept)
 }
 
-async fn shutdown_storage_off_runtime(app: &tauri::AppHandle) -> Result<(), String> {
+async fn shutdown_storage_off_runtime(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     let app = app.clone();
     tokio::task::spawn_blocking(move || {
         crate::service::session_persist::stop_worker(&app)?;
@@ -151,7 +151,10 @@ fn pty_shutdown_disposition(count: usize, failures: Vec<String>) -> Result<usize
     }
 }
 
-pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
+pub(crate) fn persist_session(
+    app: &crate::app_runtime::AppHandle,
+    svc: &ServiceState,
+) -> Result<(), String> {
     let result = crate::service::session_persist::write_session_snapshot(app, &svc.mux);
     if matches!(result, Ok(crate::session::store::SaveOutcome::Saved)) {
         let snapshot = svc.mux.read().to_session_snapshot();
@@ -195,7 +198,7 @@ async fn capture_desk_before<T>(
 
 /// Saves the pre-teardown desk and refreshes live tab identities before committing.
 async fn persist_desk_off_runtime(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     mux: &crate::MuxState,
     desk: crate::session::SessionSnapshot,
 ) -> Result<(), String> {
@@ -261,10 +264,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn recorded_desk_keeps_tabs_removed_during_teardown() {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::{AgentRole, TabCloseReason};

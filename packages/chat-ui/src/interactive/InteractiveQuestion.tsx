@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useRef, useState } from "react";
 import { Check, CornerDownLeft, MessageCircleQuestionMark } from "lucide-react";
-import type { InteractiveQuestion as Question } from "@codeterm/chat-core";
+import { emptyQuestionSelection, questionOptionValue, selectQuestionOption, selectQuestionFreeText,
+  questionAnswerSelection, questionAnswerText, type InteractiveQuestion as Question } from "@codeterm/chat-core";
 
-const OTHER_KEY = "__other__";
 
 export interface InteractiveAnswerHandler {
-  (text: string, element: Question): void | Promise<void>;
+  (text: string, element: Question, selection: { values: string[]; text?: string }): void | Promise<void>;
 }
 
 export function InteractiveQuestion({
@@ -18,46 +18,30 @@ export function InteractiveQuestion({
   /** Externally-driven answered state (kept across remounts via message id). */
   answered?: boolean;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [otherText, setOtherText] = useState("");
+  const [selected, setSelected] = useState(emptyQuestionSelection);
   const [submitted, setSubmitted] = useState(false);
+  const pending = useRef(false);
   const isAnswered = answered || submitted;
-
-  const toggle = (label: string) => {
+  const toggle = (value: string) => {
     if (isAnswered) return;
-    setSelected((prev) => {
-      if (question.multiSelect) {
-        const next = new Set(prev);
-        next.has(label) ? next.delete(label) : next.add(label);
-        return next;
-      }
-      return new Set([label]);
-    });
+    setSelected((previous) => selectQuestionOption(question, previous, value));
   };
-
-  const composedAnswer = useMemo(() => {
-    const labels = question.options
-      .map((o) => o.label)
-      .filter((l) => selected.has(l));
-    if (selected.has(OTHER_KEY) && otherText.trim()) {
-      labels.push(otherText.trim());
-    }
-    return labels.join(", ");
-  }, [question.options, selected, otherText]);
+  const composedAnswer = questionAnswerText(question, selected);
 
   const canSubmit = !isAnswered && composedAnswer.length > 0 && !!onAnswer;
 
   const submit = async () => {
-    if (!canSubmit || !onAnswer) return;
+    if (!canSubmit || !onAnswer || pending.current) return;
+    pending.current = true;
     setSubmitted(true);
     try {
-      await onAnswer(composedAnswer, question);
+      await onAnswer(composedAnswer, question, questionAnswerSelection(question, selected));
     } catch {
       setSubmitted(false);
-    }
+    } finally { pending.current = false; }
   };
 
-  const otherSelected = selected.has(OTHER_KEY);
+  const otherSelected = selected.freeText;
 
   return (
     <div data-testid="interactive-question" className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
@@ -73,14 +57,15 @@ export function InteractiveQuestion({
         <div className="ct-card__body">
           <div role="group" aria-label="Options" className="-mx-2 flex flex-col gap-px">
             {question.options.map((opt) => {
-              const checked = selected.has(opt.label);
+              const value = questionOptionValue(opt);
+              const checked = selected.values.includes(value);
               return (
                 <button
-                  key={opt.label}
+                  key={value}
                   type="button"
                   disabled={isAnswered}
                   aria-pressed={checked}
-                  onClick={() => toggle(opt.label)}
+                  onClick={() => toggle(value)}
                   className={`ct-row flex items-start gap-2.5 px-2 py-1.5 text-left disabled:cursor-default${checked ? " ct-row--selected" : ""}`}
                   style={{ color: "var(--ct-fg)" }}
                 >
@@ -93,11 +78,11 @@ export function InteractiveQuestion({
               );
             })}
 
-            <div className={`ct-row flex items-center gap-2.5 px-2 py-1.5${otherSelected ? " ct-row--selected" : ""}`}>
+            {question.allowFreeText !== false && <div className={`ct-row flex items-center gap-2.5 px-2 py-1.5${otherSelected ? " ct-row--selected" : ""}`}>
               <button
                 type="button"
                 disabled={isAnswered}
-                onClick={() => toggle(OTHER_KEY)}
+                onClick={() => setSelected((previous) => otherSelected ? { ...previous, freeText: false } : selectQuestionFreeText(question, previous, previous.text))}
                 aria-label="Other"
                 aria-pressed={otherSelected}
                 className="flex shrink-0 disabled:cursor-default"
@@ -107,10 +92,9 @@ export function InteractiveQuestion({
               <input
                 type="text"
                 disabled={isAnswered}
-                value={otherText}
+                value={selected.text}
                 onChange={(e) => {
-                  setOtherText(e.target.value);
-                  if (e.target.value && !otherSelected) toggle(OTHER_KEY);
+                  setSelected((previous) => selectQuestionFreeText(question, previous, e.target.value));
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -122,7 +106,7 @@ export function InteractiveQuestion({
                 className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--ct-muted-fg)]"
                 style={{ color: "var(--ct-fg)" }}
               />
-            </div>
+            </div>}
           </div>
 
           <div className="mt-2.5 flex items-center justify-end">

@@ -132,6 +132,69 @@ fn render_latest(v: &serde_json::Value) {
     let week_reset = v.get("weekly_resets_at").and_then(|x| x.as_i64());
     println!("session: {}  reset {}", fmt_pct(sess), fmt_ts(sess_reset));
     println!("weekly:  {}  reset {}", fmt_pct(week), fmt_ts(week_reset));
+    for line in runtime_usage_lines(v) {
+        println!("{line}");
+    }
+}
+
+fn runtime_usage_lines(value: &serde_json::Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    let Some(readings) = value
+        .get("runtime_usage")
+        .and_then(|value| value.as_array())
+    else {
+        return lines;
+    };
+    for reading in readings {
+        let tab = reading
+            .get("tab_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or("?");
+        if let Some(usage) = reading
+            .pointer("/token_usage/value")
+            .filter(|value| value.is_object())
+        {
+            let counters = [
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "used_tokens",
+                "window_tokens",
+            ]
+            .into_iter()
+            .filter_map(|key| {
+                usage
+                    .get(key)
+                    .and_then(|value| value.as_u64())
+                    .map(|value| format!("{key}={value}"))
+            })
+            .collect::<Vec<_>>();
+            if !counters.is_empty() {
+                lines.push(format!("tab {tab}: {}", counters.join("  ")));
+            }
+        }
+        if let Some(windows) = reading
+            .pointer("/rate_limits/value")
+            .and_then(|value| value.as_array())
+        {
+            for window in windows {
+                let Some(name) = window.get("window").and_then(|value| value.as_str()) else {
+                    continue;
+                };
+                let Some(used) = window.get("usedPercent").and_then(|value| value.as_f64()) else {
+                    continue;
+                };
+                let reset = window.get("resetsAt").and_then(|value| value.as_i64());
+                lines.push(format!(
+                    "tab {tab}: {name} {}  reset {}",
+                    fmt_pct(Some(used)),
+                    fmt_ts(reset)
+                ));
+            }
+        }
+    }
+    lines
 }
 
 fn render_rebuild(v: &serde_json::Value) {
@@ -236,5 +299,32 @@ fn fmt_ts(ts: Option<i64>) -> String {
             format!("{:04}-{:02}-{:02} {:02}:{:02}", y, m, d, hh, mm)
         }
         _ => "—".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn latest_renders_runtime_token_counters_and_all_normalized_windows() {
+        let value = serde_json::json!({"runtime_usage":[{
+            "tab_id":"own",
+            "token_usage":{"value":{"input_tokens":12,"output_tokens":3,"cache_read_tokens":4,"used_tokens":15,"window_tokens":100}},
+            "rate_limits":{"value":[{"window":"short","usedPercent":12.5},{"window":"extra","usedPercent":97.0}]}
+        }]});
+        assert_eq!(runtime_usage_lines(&value), vec![
+            "tab own: input_tokens=12  output_tokens=3  cache_read_tokens=4  used_tokens=15  window_tokens=100",
+            "tab own: short 12%  reset —",
+            "tab own: extra 97%  reset —",
+        ]);
+    }
+
+    #[test]
+    fn legacy_and_missing_runtime_counters_add_no_lines() {
+        assert!(
+            runtime_usage_lines(&serde_json::json!({"session_pct":10,"weekly_pct":20})).is_empty()
+        );
+        assert!(runtime_usage_lines(&serde_json::json!({"runtime_usage":[{"tab_id":"own","token_usage":null,"rate_limits":null}]})).is_empty());
     }
 }

@@ -154,10 +154,6 @@ impl Moved {
 /// response still reads as a success, so a former Orchestrator receives a report
 /// about a task it no longer holds, from an agent it no longer manages.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn a_stale_task_hint_delivers_to_the_live_recipient_not_the_stale_plan_owner() {
     let h = moved_worker(true);
     let live_orch = h.live_orch.clone().unwrap();
@@ -203,10 +199,6 @@ fn a_stale_task_hint_delivers_to_the_live_recipient_not_the_stale_plan_owner() {
 /// Nobody to deliver to is a state, not a silent drop: nothing is stored, nothing
 /// is delivered, and the sender is told both halves of why.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn no_live_recipient_surfaces_nowhere_to_deliver_rather_than_a_stale_delivery() {
     let h = moved_worker(false);
 
@@ -234,10 +226,6 @@ fn no_live_recipient_surfaces_nowhere_to_deliver_rather_than_a_stale_delivery() 
 /// destination and the milestone still lands on the held task. This fails if the
 /// change were broadened to skip the plan-owner override for every report.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn a_current_task_hint_delivers_and_attributes_exactly_as_today() {
     let h = moved_worker(true);
 

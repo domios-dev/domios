@@ -129,7 +129,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
     }
 }
 
-struct AppMemEventSink(tauri::AppHandle);
+struct AppMemEventSink(crate::app_runtime::AppHandle);
 
 impl MemEventSink for AppMemEventSink {
     fn emit_graph_worker_spawned(&self, info: &GraphWorkerInfo) {

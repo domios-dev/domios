@@ -42,7 +42,6 @@ async fn frontend_bundle_routes_contract_bundled_index_and_relative_assets() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn frontend_bundle_routes_contract_central_bearer_registration() {
     use crate::{
         api::routes::create_router_with_frontend, multiplexer::state::MultiplexerState,

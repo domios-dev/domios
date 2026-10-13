@@ -18,7 +18,11 @@ struct DebounceState {
     pending_count: u8,
 }
 
-pub fn start(store: Arc<ServicesStore>, activity: ActivityWriter, app_handle: tauri::AppHandle) {
+pub fn start(
+    store: Arc<ServicesStore>,
+    activity: ActivityWriter,
+    app_handle: crate::app_runtime::AppHandle,
+) {
     tauri::async_runtime::spawn(async move {
         log::info!(
             "[services] health scheduler started (tick {}s, debounce {} ticks)",
@@ -36,7 +40,7 @@ pub fn start(store: Arc<ServicesStore>, activity: ActivityWriter, app_handle: ta
 async fn run_tick(
     store: &Arc<ServicesStore>,
     activity: &ActivityWriter,
-    app_handle: &tauri::AppHandle,
+    app_handle: &crate::app_runtime::AppHandle,
     state: &mut HashMap<String, DebounceState>,
 ) {
     let services = match store.list(None, Some(true)) {

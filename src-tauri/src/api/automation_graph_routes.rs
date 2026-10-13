@@ -515,7 +515,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_http_router_auth_peer_refusal_and_host_stop_persist_actual_state() {
             let fixture = Fixture::new(None);
             let job = fixture.create();
@@ -627,7 +626,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_delete_removes_the_graph_from_the_list_and_persisted_file() {
             let fixture = Fixture::new(None);
             let job = fixture.create();
@@ -661,7 +659,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn legacy_sentinel_rest_alias_deletes_the_persisted_blueprint() {
             let fixture = Fixture::new(None);
             let job = fixture.create();
@@ -695,7 +692,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_http_declared_tab_never_falls_back_after_failed_nonce_or_creator_check(
         ) {
             let fixture = Fixture::new(None);
@@ -748,7 +744,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_http_unreadable_inventory_is_unavailable_and_never_overwritten() {
             for raw in [
                 "{invalid-json",
@@ -792,7 +787,6 @@ mod tests {
             }
         }
         #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_actual_connected_cron_change_emits_scoped_invalidation_then_current_snapshot(
         ) {
             use tauri::Listener;
@@ -867,7 +861,6 @@ mod tests {
             fixture.runtime.service.app_handle.unlisten(listener);
         }
         #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_actual_connected_worker_status_event_refreshes_authoritative_snapshot(
         ) {
             use crate::agent::status::TabStatus;

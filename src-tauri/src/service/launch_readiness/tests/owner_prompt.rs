@@ -52,7 +52,6 @@ fn owner_prompt_readiness_round_trip(prefix: &str) {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn auto_answered_prompt_does_not_suspend_readiness() {
     use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
@@ -60,6 +59,7 @@ fn auto_answered_prompt_does_not_suspend_readiness() {
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let tab_id = mux.create_tab(&workspace_id).unwrap();
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque-question".into(),
         options: vec![PromptOption {
             label: "opaque-option".into(),

@@ -1,10 +1,6 @@
 use super::idle_restart_termination_allowed;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn agent_restart_only_proven_lifecycle_exit_releases_exit_submission() {
     for proven_exit in [false, true] {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
@@ -17,6 +13,7 @@ fn agent_restart_only_proven_lifecycle_exit_releases_exit_submission() {
         tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let claim = crate::service::pty_io::submit_transaction::claim_exit_submit_cycle(&pty_id);
+        claim.enqueue_test_payload();
         let cleared = if proven_exit {
             fixture
                 .service

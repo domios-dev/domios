@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn taskless_evidence_report_cannot_carry_a_task_transition_status() {
     let h = plan_evidence_harness();
     let token = "status-refused-e28c4d71";

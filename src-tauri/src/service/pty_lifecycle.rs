@@ -909,46 +909,26 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn updater_shutdown_pty_death_does_not_prune_role_tabs() {
         assert_shutdown_death_preserves_role_tabs(ShutdownReason::Update);
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn signal_shutdown_pty_death_does_not_prune_role_tabs() {
         assert_shutdown_death_preserves_role_tabs(ShutdownReason::Signal);
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn window_exit_shutdown_pty_death_does_not_prune_role_tabs() {
         assert_shutdown_death_preserves_role_tabs(ShutdownReason::UserExit);
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn restart_shutdown_pty_death_does_not_prune_role_tabs() {
         assert_shutdown_death_preserves_role_tabs(ShutdownReason::Restart);
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn abrupt_pty_death_preserves_live_provider_sessions_for_restore() {
         for provider in ["claude", "codex", "opencode", "grok"] {
             let (fixture, tab_id, generation) = role_pty_fixture(AgentRole::Worker);
@@ -985,10 +965,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn in_session_agent_death_without_shutdown_still_prunes_role_tabs() {
         for role in [AgentRole::Worker, AgentRole::Manager] {
             let (fixture, tab, generation) = role_pty_fixture(role);

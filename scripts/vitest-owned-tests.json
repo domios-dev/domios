@@ -197,5 +197,12 @@
   "src/components/Extensions/PluginUiHost.test.tsx",
   "src/lib/updateAvailability.test.ts",
   "src/components/Titlebar/UpdateTray.test.tsx",
-  "src/components/Canvas/graphToolbar.wiring.test.tsx"
+  "src/components/Canvas/graphToolbar.wiring.test.tsx",
+  "src/lib/agentRuntimeState.test.ts",
+  "src/components/Terminal/AgentRuntimeBanner.test.tsx",
+  "src/components/Terminal/TabContent.runtime.test.tsx",
+  "src/lib/agentRuntimeTiming.test.ts",
+  "packages/chat-core/src/questionSelection.test.ts",
+  "src/lib/agentRuntimeQuestions.test.ts",
+  "src/components/Terminal/RuntimeQuestionCard.test.tsx"
 ]

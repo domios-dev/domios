@@ -10,7 +10,6 @@ use std::sync::Arc;
 use super::super::dispatch;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -124,7 +123,7 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             provider_id,
         )
-        .with_launch_binary("cmd.exe"),
+        .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture
         .service

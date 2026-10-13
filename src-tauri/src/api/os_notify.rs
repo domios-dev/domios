@@ -46,12 +46,12 @@ fn record_toast_permission(state: PermissionState) {
 /// toast switch instead of trusting the stub; a truthful macOS probe still
 /// needs to replace this function's other platform arm.
 #[cfg(windows)]
-fn ask_the_os(_app: &tauri::AppHandle) -> PermissionState {
+fn ask_the_os(_app: &crate::app_runtime::AppHandle) -> PermissionState {
     windows_shell_permission()
 }
 
 #[cfg(not(windows))]
-fn ask_the_os(app: &tauri::AppHandle) -> PermissionState {
+fn ask_the_os(app: &crate::app_runtime::AppHandle) -> PermissionState {
     app.notification()
         .request_permission()
         .unwrap_or(PermissionState::Denied)
@@ -59,12 +59,12 @@ fn ask_the_os(app: &tauri::AppHandle) -> PermissionState {
 
 /// The same seam, reading rather than asking: it must never raise a prompt.
 #[cfg(windows)]
-fn read_the_os(_app: &tauri::AppHandle) -> Option<PermissionState> {
+fn read_the_os(_app: &crate::app_runtime::AppHandle) -> Option<PermissionState> {
     Some(windows_shell_permission())
 }
 
 #[cfg(not(windows))]
-fn read_the_os(app: &tauri::AppHandle) -> Option<PermissionState> {
+fn read_the_os(app: &crate::app_runtime::AppHandle) -> Option<PermissionState> {
     app.notification().permission_state().ok()
 }
 
@@ -101,7 +101,10 @@ fn establish_with(
 
 /// The enabling gesture, wired to the OS: on asks and remembers the answer, off
 /// reports what is already known without raising a prompt.
-pub fn establish_toast_permission(app: &tauri::AppHandle, enabling: bool) -> PermissionState {
+pub fn establish_toast_permission(
+    app: &crate::app_runtime::AppHandle,
+    enabling: bool,
+) -> PermissionState {
     match establish_with(enabling, || ask_the_os(app)) {
         Some(state) => {
             record_toast_permission(state);
@@ -113,7 +116,7 @@ pub fn establish_toast_permission(app: &tauri::AppHandle, enabling: bool) -> Per
 
 /// Fill an unasked slot from the OS without prompting. An answer already given
 /// this process is never overwritten, so a refusal outlives every later send.
-fn refresh_unasked_permission(app: &tauri::AppHandle) {
+fn refresh_unasked_permission(app: &crate::app_runtime::AppHandle) {
     if established_toast_permission() != PermissionState::Prompt {
         return;
     }
@@ -123,7 +126,7 @@ fn refresh_unasked_permission(app: &tauri::AppHandle) {
 }
 
 /// What the OS says right now, without asking the user for anything.
-pub fn toast_permission(app: &tauri::AppHandle) -> PermissionState {
+pub fn toast_permission(app: &crate::app_runtime::AppHandle) -> PermissionState {
     refresh_unasked_permission(app);
     established_toast_permission()
 }
@@ -273,7 +276,7 @@ mod toast_delivery_tests;
 /// Single notification popup via system notification API.
 /// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
 #[cfg_attr(test, allow(unreachable_code))]
-pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
+pub fn _send_os_notification(app: &crate::app_runtime::AppHandle, title: &str, body: Option<&str>) {
     #[cfg(test)]
     {
         let _ = (app, title, body);
@@ -345,7 +348,7 @@ fn document_write(html: &str) -> String {
 /// Every webview handle in this path is obtained, used and dropped inside this
 /// closure, on the main thread. The caller runs on a tokio worker, a socket
 /// thread or the updater runtime and never touches one.
-fn raise_popup(app: &tauri::AppHandle, request: NotifRequest) {
+fn raise_popup(app: &crate::app_runtime::AppHandle, request: NotifRequest) {
     let poster = app.clone();
     let app = app.clone();
     let posted = poster.run_on_main_thread(move || {

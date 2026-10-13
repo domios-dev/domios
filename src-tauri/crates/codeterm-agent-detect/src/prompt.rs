@@ -499,6 +499,7 @@ mod tests {
 
     fn make_prompt(q: &str, opts: &[(&str, &str)]) -> PendingPrompt {
         PendingPrompt {
+            request_id: None,
             question: q.to_string(),
             options: opts
                 .iter()
