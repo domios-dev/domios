@@ -104,10 +104,12 @@ Run `codeterm mem secret sync` locally on each authorized builder. Build setup
 reads `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key` into process
 environment only, exports endpoint `http://100.88.47.88:9000`, bucket `sccache`,
 region `us-east-1`, SSL `false`, and reuses a running server whose storage
-matches. A storage change restarts sccache only on an idle machine. Never put
+matches. Missing keys never downgrade an existing S3 server; its own
+credentials keep serving builds. Local-to-S3 switches require resolved keys
+and an idle machine. Never put
 cache credentials in runner `.env`, workflow arguments,
-reports or files. If either entry cannot resolve, build setup logs one local disk
-fallback line and preserves `SCCACHE_CACHE_SIZE` (default `10G`). Shared macOS
+reports or files. If either entry cannot resolve and no S3 server is running,
+build setup logs one local disk fallback line and preserves `SCCACHE_CACHE_SIZE` (default `10G`). Shared macOS
 paths must permit builder accounts to write source and disposable artifacts.
 The build skill owns troubleshooting and the statistics measurement procedure.
 
