@@ -14,6 +14,7 @@ fn provenance(tab_id: &str) -> NotificationProvenance {
 
 fn prompt_actions() -> Vec<NotificationAction> {
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque".into(),
         options: vec![PromptOption {
             label: "opaque choice".into(),

@@ -49,6 +49,7 @@ pub(super) fn parse_screen_prompt(screen: &str) -> Option<PendingPrompt> {
         .collect();
 
     Some(PendingPrompt {
+        request_id: None,
         question,
         options: rows
             .into_iter()
