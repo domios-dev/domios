@@ -572,6 +572,35 @@ function runtimeAnswer(method, params, id, answer) {
   }
 }
 
+// plugins/provider-codex/src/runtimeContext.ts
+function invalid(message) {
+  throw { code: "invalid_schema", message };
+}
+function exactObject(raw, keys) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid("Invalid restoreContext object");
+  const value = object(raw);
+  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid("Invalid restoreContext fields");
+  return value;
+}
+function restoreContextItems(raw) {
+  const value = exactObject(raw, ["instructions", "additionalContext"]);
+  if (value.instructions !== null && typeof value.instructions !== "string") invalid("Invalid restoreContext instructions");
+  if (!Array.isArray(value.additionalContext)) invalid("Invalid restoreContext additionalContext");
+  const keys = /* @__PURE__ */ new Set();
+  for (const rawEntry of value.additionalContext) {
+    const entry = exactObject(rawEntry, ["key", "kind", "value"]);
+    if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid("Invalid restoreContext entry");
+    if (keys.has(entry.key)) invalid("Duplicate restoreContext key");
+    keys.add(entry.key);
+  }
+  const context = value;
+  const item = (role, text6) => ({ type: "message", role, content: [{ type: "input_text", text: text6 }] });
+  const items = context.instructions ? [item("developer", context.instructions)] : [];
+  for (const entry of context.additionalContext) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
+  if (!items.length) invalid("Empty restoreContext");
+  return items;
+}
+
 // plugins/provider-codex/src/runtimeSettings.ts
 function codexRuntimePolicy(settings) {
   const selected = settings.mode ?? "auto-accept-edits";
@@ -955,7 +984,7 @@ function runtimePlan(ctx, op) {
     case "openThread":
       return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
     case "resumeThread":
-      return request("thread/resume", { ...settingsParams(ctx, op.settings), threadId: op.threadId, excludeTurns: true });
+      return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
     case "readHistory":
       return request(
         "thread/turns/list",
@@ -984,7 +1013,7 @@ function runtimePlan(ctx, op) {
       if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
       if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
-      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: op.value });
+      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? object(op.value) : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
@@ -1029,7 +1058,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       ));
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
+      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
       if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
       return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings } };
@@ -2973,24 +3002,24 @@ function collectExistingPaths(config) {
   let currentTable = [];
   let rootInline = null;
   let projectsTableSeen = false;
-  let invalid = false;
+  let invalid2 = false;
   for (const line of lines) {
     const parts = headerParts(line);
     if (parts) {
       currentTable = parts;
       if (parts[0] === "projects") {
-        if (rootInline) invalid = true;
+        if (rootInline) invalid2 = true;
         if (parts.length === 1) {
-          if (projectsTableSeen) invalid = true;
+          if (projectsTableSeen) invalid2 = true;
           projectsTableSeen = true;
         } else {
           const key = normalizedPath(parts[1]);
           const headerKey = JSON.stringify([key, ...parts.slice(2)]);
-          if (projectHeaders.has(headerKey)) invalid = true;
+          if (projectHeaders.has(headerKey)) invalid2 = true;
           projectHeaders.add(headerKey);
           paths.add(key);
           if (parts.length === 2) {
-            if (directTables.has(key) || parentKeys.has(key)) invalid = true;
+            if (directTables.has(key) || parentKeys.has(key)) invalid2 = true;
             directTables.add(key);
           } else {
             nestedTables.add(key);
@@ -3001,33 +3030,33 @@ function collectExistingPaths(config) {
     }
     const relevantHeader = withoutComment(line).trim();
     if (relevantHeader.startsWith("[")) {
-      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid = true;
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid2 = true;
       currentTable = [];
       continue;
     }
     const assignment = assignmentParts(line);
     if (!assignment) {
-      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid = true;
-      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid = true;
+      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid2 = true;
+      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid2 = true;
       continue;
     }
     if (currentTable.length === 0 && assignment.key[0] === "projects") {
       if (assignment.key.length === 1) {
         const keys = inlineTableKeys(assignment.value);
         if (!keys || rootInline) {
-          invalid = true;
+          invalid2 = true;
           continue;
         }
         rootInline = /* @__PURE__ */ new Set();
         for (const key of keys) {
           const normalized = normalizedPath(key);
-          if (rootInline.has(normalized)) invalid = true;
+          if (rootInline.has(normalized)) invalid2 = true;
           rootInline.add(normalized);
           paths.add(normalized);
         }
       } else {
         const key = normalizedPath(assignment.key[1]);
-        if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+        if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
         parentKeys.add(key);
         paths.add(key);
       }
@@ -3035,16 +3064,16 @@ function collectExistingPaths(config) {
     }
     if (currentTable.length === 1 && currentTable[0] === "projects") {
       const key = normalizedPath(assignment.key[0]);
-      if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+      if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
       parentKeys.add(key);
       paths.add(key);
     }
   }
   for (const key of parentKeys) {
-    if (nestedTables.has(key)) invalid = true;
+    if (nestedTables.has(key)) invalid2 = true;
   }
-  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid = true;
-  return { paths, rootInline, invalid };
+  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid2 = true;
+  return { paths, rootInline, invalid: invalid2 };
 }
 function mergeTrustedProjectEntries(profile, config) {
   const entries = collectProfileEntries(profile);
