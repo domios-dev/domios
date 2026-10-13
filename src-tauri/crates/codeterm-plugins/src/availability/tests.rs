@@ -136,3 +136,19 @@ fn core_plugins_never_offer_a_user_action_even_when_newer() {
         assert_eq!(item.state, AvailabilityState::CoreSilent);
     }
 }
+
+#[test]
+fn frontend_staging_requires_a_new_compatible_unstaged_offer() {
+    let mut item =
+        AvailabilityItem::release("frontend", UpdateKind::Frontend, "0.1.2", "0.1.3", true);
+    assert!(frontend_stage_needed(&item, None));
+    assert!(!frontend_stage_needed(&item, Some("0.1.3")));
+    assert!(frontend_stage_needed(&item, Some("0.1.2")));
+    item.state = AvailabilityState::Incompatible;
+    assert!(!frontend_stage_needed(&item, None));
+    item.state = AvailabilityState::UpToDate;
+    assert!(!frontend_stage_needed(&item, None));
+    item.kind = UpdateKind::Plugin;
+    item.state = AvailabilityState::UpdateAvailable;
+    assert!(!frontend_stage_needed(&item, None));
+}

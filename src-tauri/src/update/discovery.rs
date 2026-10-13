@@ -28,6 +28,7 @@ pub async fn check(
         data_root: crate::paths::data_dir(),
         version: Some(env!("CARGO_PKG_VERSION").into()),
     };
+    let stage_bundles = bundles.clone();
     let result = tokio::task::spawn_blocking(move || {
         let mut snapshot: AvailabilitySnapshot =
             serde_json::from_value(codeterm_plugins::update_inventory(ctx, force)?)
@@ -56,6 +57,19 @@ pub async fn check(
     .await
     .map_err(|e| e.to_string())??;
     publish(app, &result);
+    if let Some(bundles) = stage_bundles {
+        if let Some(item) = result
+            .items
+            .iter()
+            .find(|item| item.kind == UpdateKind::Frontend)
+        {
+            let status = bundles.status();
+            if codeterm_plugins::frontend_stage_needed(item, status["pending"]["version"].as_str())
+            {
+                crate::startup::frontend_bundles::check(bundles);
+            }
+        }
+    }
     Ok(result)
 }
 
