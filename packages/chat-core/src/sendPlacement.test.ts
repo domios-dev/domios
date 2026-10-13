@@ -23,15 +23,14 @@ test("later rows push two written sends up without sorting source rows", () => {
 test("absent timestamps do not fabricate placement or delivery", () => {
   const sends = [send("written", 0), { id: "held", content: "held", sentAtMs: at }];
   assert.deepEqual(placePendingSends([row("unknown"), row("later", 1000)], sends).map((item) => item.id),
-    ["unknown", "written", "held", "later"]);
+    ["unknown", "written", "later", "held"]);
   assert.deepEqual(placePendingSends([row("unknown")], sends).map((item) => item.id), ["unknown", "written", "held"]);
 });
 
-for (const state of ["failed", "held", "unclassified"]) {
-  test(`${state} sends without an explicit flow anchor use their send time`, () => {
-    const pending = [{ id: state, content: state, sentAtMs: at }];
-    assert.deepEqual(placePendingSends([row("old", -1)], pending).map((item) => item.id), ["old", state]);
-    const later = [row("old", -1), row("new", 1), row("newer", 2)];
-    assert.deepEqual(placePendingSends(later, pending).map((item) => item.id), ["old", state, "new", "newer"]);
-  });
-}
+test("only an explicit flow anchor places a send inside the flow", () => {
+  const later = [row("old", -1), row("new", 1), row("newer", 2)];
+  const unanchored = [{ id: "pending", content: "pending", sentAtMs: at }];
+  assert.deepEqual(placePendingSends(later, unanchored).map((item) => item.id), ["old", "new", "newer", "pending"]);
+  const anchored = [{ ...unanchored[0], flowAtMs: at }];
+  assert.deepEqual(placePendingSends(later, anchored).map((item) => item.id), ["old", "pending", "new", "newer"]);
+});
