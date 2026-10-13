@@ -6,10 +6,12 @@ use std::sync::Arc;
 use tauri::Manager;
 
 fn app_state(fixture: &ServiceFixture) -> AppState {
-    let mut config = crate::config::schema::AppConfig::default();
-    config.utility_tabs.max_per_team.build = Some(1);
-    let config = Arc::new(parking_lot::Mutex::new(config));
-    assert!(fixture._app.manage(config.clone()));
+    let config = fixture
+        ._app
+        .state::<crate::config::ConfigState>()
+        .inner()
+        .clone();
+    config.lock().utility_tabs.max_per_team.build = Some(1);
     let mut mesh = crate::mesh::MeshManager::new("utility-tabs-test".into(), 0);
     mesh.disk_persist = false;
     AppState {

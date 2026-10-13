@@ -88,7 +88,7 @@ impl ServiceContext {
             self.observe_provider_process_tree_for_key(key).state()
                 == crate::service::process_tree::ProviderTreeState::GoneAfterSeen
         });
-        let config = crate::config::load_config();
+        let config = self.configuration();
         let general = &config.general_agent;
         let episode = recovery_episode::store().snapshot();
         let evidence = EventEvidence {
@@ -277,10 +277,8 @@ impl ServiceContext {
     }
 }
 
-fn general_limit(_service: &ServiceContext) -> u32 {
-    crate::config::load_config()
-        .general_agent
-        .max_restart_attempts
+fn general_limit(service: &ServiceContext) -> u32 {
+    service.configuration().general_agent.max_restart_attempts
 }
 
 #[cfg(test)]

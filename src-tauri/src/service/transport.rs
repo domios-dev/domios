@@ -97,6 +97,7 @@ impl AgentTransport for PtyTransport {
         ctx: &TransportLaunchCtx<'_>,
     ) -> Result<Option<String>, String> {
         let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &svc.configuration(),
             &svc.agent_registry,
             ctx.provider_id,
             ctx.model.map(str::to_string),
@@ -266,7 +267,7 @@ impl ServiceContext {
         ui: bool,
     ) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
-            crate::config::default_agent_provider()
+            self.configuration().general_agent.agent_provider
         } else {
             params.agent_id.clone()
         };
@@ -334,6 +335,7 @@ impl ServiceContext {
         params: &AtomicSpawnParams,
     ) -> Result<(), String> {
         let launch_model = crate::service::spawn::resolve_fresh_agent_model(
+            &self.configuration(),
             &self.agent_registry,
             provider,
             params.model.clone(),
@@ -396,11 +398,13 @@ impl ServiceContext {
         if ui {
             super::supporter_notify::record_ui_origin(&tab_id);
         }
-        let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
-            &self.agent_registry,
-            provider,
-        )?
-        .is_some();
+        let permission_bypass =
+            crate::service::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
+                &self.agent_registry,
+                provider,
+            )?
+            .is_some();
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             tab.auto_approve = permission_bypass;
         }

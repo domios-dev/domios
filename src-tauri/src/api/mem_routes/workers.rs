@@ -48,7 +48,7 @@ pub async fn workers_spawn(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
-    let mem_cfg = crate::config::memory_config();
+    let mem_cfg = state.svc.configuration().memory;
     let parent = b
         .parent
         .clone()
@@ -57,7 +57,7 @@ pub async fn workers_spawn(
         b.agent.as_deref(),
         &mem_cfg.extraction_agent,
         &mem_cfg.extraction_model,
-        &crate::config::default_agent_provider(),
+        &state.svc.configuration().general_agent.agent_provider,
         &mem_cfg.worker_model,
         &crate::service::spawn::CatalogBackgroundModelPort,
     );

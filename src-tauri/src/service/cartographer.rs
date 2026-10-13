@@ -162,8 +162,7 @@ pub(crate) fn boundary_digest_lines(plan: &Plan, availability: MapAvailability) 
 
 /// The same contribution, resolved against the owner's config and the plan's
 /// own project root.
-pub(crate) fn digest_lines(plan: &Plan) -> Vec<String> {
-    let enabled = crate::config::load_config().orchestration.map.enabled;
+pub(crate) fn digest_lines(plan: &Plan, enabled: bool) -> Vec<String> {
     let root = if plan.canonical_project_path.is_empty() {
         plan.project_path.as_str()
     } else {

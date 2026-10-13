@@ -366,7 +366,7 @@ impl ServiceContext {
             .as_deref()
             .is_some_and(|agent| agent.trim().is_empty())
         {
-            patch.agent = Some(crate::config::default_agent_provider());
+            patch.agent = Some(self.configuration().general_agent.agent_provider);
         }
         let (provider, model, cwd, effort) = {
             let store = cron.lock();
@@ -715,7 +715,7 @@ impl ServiceContext {
         );
 
         let model = model.or_else(|| {
-            let mem_cfg = crate::config::memory_config();
+            let mem_cfg = self.configuration().memory;
             let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
                 &mem_cfg.dreaming_model,
                 &mem_cfg.worker_model,
@@ -766,7 +766,7 @@ impl ServiceContext {
                 }
                 // Register with the auto-complete watcher (cron flavor).
                 if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.tab_id).cloned() {
-                    let global_timeout = crate::config::memory_config().worker_timeout_seconds;
+                    let global_timeout = self.configuration().memory.worker_timeout_seconds;
                     let timeout = job_timeout.unwrap_or(global_timeout);
                     if job_timeout.is_some() {
                         log::info!(

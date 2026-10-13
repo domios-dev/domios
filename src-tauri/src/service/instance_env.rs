@@ -9,8 +9,7 @@ pub(crate) struct InstanceEnv {
 }
 
 impl InstanceEnv {
-    pub(crate) fn resolve() -> Self {
-        let api = crate::config::load_config().api;
+    pub(crate) fn from_api_config(api: crate::config::schema::ApiConfig) -> Self {
         let (api_url, api_port) = crate::config::api_callback_url(&api);
         Self {
             socket_path: crate::socket::server::socket_display_path(),

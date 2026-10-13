@@ -242,7 +242,7 @@ pub async fn mem_calibration_stale(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
-    let hygiene = crate::config::memory_config().dream_hygiene;
+    let hygiene = svc.configuration().memory.dream_hygiene;
     tokio::task::spawn_blocking(move || {
         svc.mem
             .with_conn(|conn| stale_from_params(conn, &p, &hygiene))

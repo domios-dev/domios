@@ -1,6 +1,5 @@
 mod inventory;
 
-use crate::config::load_config;
 use crate::plan::{Plan, TaskStatus};
 use crate::service::plan::digest_rules::{evaluate_digest_rules, plan_digest_counters};
 use crate::service::plan::usage_digest::{
@@ -168,7 +167,10 @@ pub(crate) fn deliver_exact_role_target(
 
 fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
     let mut out = Vec::new();
-    out.extend(crate::service::cartographer::digest_lines(plan));
+    out.extend(crate::service::cartographer::digest_lines(
+        plan,
+        svc.configuration().orchestration.map.enabled,
+    ));
     out.extend(queue_pressure_lines(svc, plan, tab_id));
     out.extend(usage_lines(svc));
     out.truncate(8);
@@ -176,7 +178,7 @@ fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>)
 }
 
 fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
-    let cfg = load_config().orchestration.digests;
+    let cfg = svc.configuration().orchestration.digests;
     let now_ms = now_epoch_ms();
     let stalled = count_stalled_lanes(plan, now_ms);
     let mut counters = plan_digest_counters(plan, now_ms, stalled);
@@ -205,7 +207,7 @@ fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>)
 }
 
 fn usage_lines(svc: &ServiceContext) -> Vec<String> {
-    let cfg = load_config().usage;
+    let cfg = svc.configuration().usage;
     if !cfg.enabled || !cfg.heartbeat {
         return Vec::new();
     }
@@ -227,7 +229,9 @@ fn usage_rows(svc: &ServiceContext, now_ms: i64, freshness_ms: i64) -> Vec<Usage
             .agent_registry
             .with_provider(&provider_id, |p| p.usage_parser().is_some())
             .unwrap_or(false);
-        if !capable || !crate::config::usage_tracking_enabled(&provider_id) {
+        if !capable
+            || !crate::config::usage_tracking_enabled_from(&svc.configuration(), &provider_id)
+        {
             continue;
         }
         let latest = svc

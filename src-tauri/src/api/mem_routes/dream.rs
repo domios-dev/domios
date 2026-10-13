@@ -81,7 +81,7 @@ pub async fn mem_dream(
     // Run calibration directly in daemon to ensure results are real and history rows are durable.
     if phase == "all" {
         let svc = state.svc.clone();
-        let hygiene = crate::config::memory_config().dream_hygiene;
+        let hygiene = state.svc.configuration().memory.dream_hygiene;
         let calib = tokio::task::spawn_blocking(move || {
             svc.mem.with_conn(|conn| {
                 crate::api::mem_routes::calibration::run_nightly_calibration(
@@ -117,8 +117,8 @@ pub async fn mem_dream(
     // REM worker only fires on a full nightly run; targeted phase calls skip it.
     if phase == "all" {
         let svc = state.svc.clone();
-        let mem_cfg = crate::config::memory_config();
-        let default_agent = crate::config::default_agent_provider();
+        let mem_cfg = state.svc.configuration().memory;
+        let default_agent = state.svc.configuration().general_agent.agent_provider;
         std::thread::spawn(move || dreaming::spawn_rem_worker(&svc, &mem_cfg, &default_agent));
     }
 
@@ -141,7 +141,7 @@ async fn run_recluster_inline(
     use crate::mem::dreaming::recluster::{run_recluster_phase_with_lock, AnthropicCaller};
 
     // Recluster uses the fixed Claude model catalog rather than an agent-provider ladder.
-    let mem_cfg = crate::config::memory_config();
+    let mem_cfg = state.svc.configuration().memory;
     let (model, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
         &mem_cfg.dreaming_model,
         &mem_cfg.worker_model,

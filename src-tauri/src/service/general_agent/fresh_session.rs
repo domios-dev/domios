@@ -81,10 +81,13 @@ impl ServiceContext {
         };
         validate_request(&self.mux.read(), &general, &request)?;
         self.require_agent_provider_ready(&request.provider_id)?;
-        let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
+        let permission_bypass = crate::service::permission_policy::authorize_permission_bypass(
             &self.agent_registry,
             &request.provider_id,
-        )?
+            crate::service::permission_policy::require_full_access_choice(
+                config.lock().agent.full_access,
+            )?,
+        )
         .is_some();
         let chat_view = super::default_chat_view_for_provider(
             &config.lock(),
@@ -111,7 +114,11 @@ impl ServiceContext {
         }
         super::ensure_directories();
         super::state::mark_independent_sessions()?;
-        super::instructions::generate_instructions(&request.provider_id, Some(&self.mem));
+        super::instructions::generate_instructions(
+            general.capability_hints,
+            &request.provider_id,
+            Some(&self.mem),
+        );
         let tab_id = {
             let mut mux = self.mux.write();
             validate_request(&mux, &general, &request)?;

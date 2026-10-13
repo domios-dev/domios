@@ -27,36 +27,21 @@ pub(crate) fn authorize_permission_bypass(
     })
 }
 
-pub(crate) fn configured_full_access() -> Result<bool, String> {
-    require_full_access_choice(crate::config::load_config().agent.full_access)
-}
-
 pub(crate) fn configured_full_access_for(
     app: &crate::app_runtime::AppHandle,
 ) -> Result<bool, String> {
     let choice = app
         .try_state::<crate::config::ConfigState>()
         .map(|config| config.lock().agent.full_access)
-        .unwrap_or_else(|| crate::config::load_config().agent.full_access);
+        .ok_or_else(|| "Agent configuration state is unavailable".to_string())?;
     require_full_access_choice(choice)
 }
 
-fn require_full_access_choice(choice: Option<bool>) -> Result<bool, String> {
+pub(crate) fn require_full_access_choice(choice: Option<bool>) -> Result<bool, String> {
     choice.ok_or_else(|| {
         "Choose agent access before starting the first agent Tab: Settings > Agents > Full access for agents"
             .to_string()
     })
-}
-
-pub(crate) fn configured_permission_bypass(
-    registry: &AgentRegistry,
-    provider_id: &str,
-) -> Result<Option<PermissionBypassAuthorization>, String> {
-    Ok(authorize_permission_bypass(
-        registry,
-        provider_id,
-        configured_full_access()?,
-    ))
 }
 
 pub(crate) fn configured_permission_bypass_for(
@@ -103,5 +88,21 @@ mod tests {
         assert!(require_full_access_choice(None).is_err());
         assert!(require_full_access_choice(Some(true)).unwrap());
         assert!(!require_full_access_choice(Some(false)).unwrap());
+    }
+
+    #[test]
+    fn configured_access_uses_injected_choices_and_refuses_unset() {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        assert!(!configured_full_access_for(&fixture.service.app_handle).unwrap());
+        fixture.set_agent_full_access(true);
+        assert!(configured_full_access_for(&fixture.service.app_handle).unwrap());
+        fixture
+            ._app
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .agent
+            .full_access = None;
+        assert!(configured_full_access_for(&fixture.service.app_handle).is_err());
     }
 }

@@ -140,6 +140,7 @@ fn launch(
         selection.reasoning_effort = tab.reasoning_effort_identity.requested.clone();
     }
     let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+        &svc.configuration(),
         &svc.agent_registry,
         provider,
         selection.model.clone(),
@@ -151,7 +152,11 @@ fn launch(
         resolution.model.as_deref(),
         selection.reasoning_effort.as_deref(),
     )?;
-    let prompt = instructions::render_system_prompt(provider, Some(&svc.mem));
+    let prompt = instructions::render_system_prompt(
+        svc.configuration().general_agent.capability_hints,
+        provider,
+        Some(&svc.mem),
+    );
     let bootstrap = (ownership.bootstrap() && !resuming)
         .then(|| compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md")))
         .flatten();

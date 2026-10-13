@@ -44,7 +44,10 @@ pub(crate) struct BlockedNotice {
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(plan_reminder_poll_secs())).await;
+            tokio::time::sleep(Duration::from_secs(plan_reminder_poll_secs(
+                &svc.configuration().orchestration,
+            )))
+            .await;
             let svc_for_scan = svc.clone();
             if let Err(e) = tauri::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
@@ -58,8 +61,7 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     });
 }
 
-fn plan_reminder_poll_secs() -> u64 {
-    let cfg = crate::config::load_config().orchestration;
+fn plan_reminder_poll_secs(cfg: &crate::config::schema::OrchestrationConfig) -> u64 {
     cfg.nudge_interval_secs
         .clamp(1, MAX_PLAN_REMINDER_POLL_SECS)
 }
@@ -414,9 +416,7 @@ impl<'a> LiveHost<'a> {
     fn new(svc: &'a ServiceContext) -> Self {
         Self {
             svc,
-            interval: crate::config::load_config()
-                .orchestration
-                .nudge_interval_secs,
+            interval: svc.configuration().orchestration.nudge_interval_secs,
             plans: None,
         }
     }
@@ -549,7 +549,7 @@ impl ReminderHost for LiveHost<'_> {
 
 impl ServiceContext {
     fn send_due_plan_time_reminders(&self) {
-        let cfg = crate::config::load_config().orchestration;
+        let cfg = self.configuration().orchestration;
         if !cfg.plan_reminders || cfg.nudge_interval_secs == 0 {
             self.plan_turn_counter.clear_time_reminders();
             return;
@@ -616,7 +616,10 @@ impl ServiceContext {
                     crate::service::plan::complete_wrapup::complete_wrapup_message(&plan.id);
                 // A complete plan gets no heartbeat, so the release map boundary
                 // rides the one wrapup this plan is sent.
-                for line in crate::service::cartographer::digest_lines(plan) {
+                for line in crate::service::cartographer::digest_lines(
+                    plan,
+                    self.configuration().orchestration.map.enabled,
+                ) {
                     text.push_str("\n\n");
                     text.push_str(&line);
                 }

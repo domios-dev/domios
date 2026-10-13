@@ -153,7 +153,7 @@ pub(super) fn dispatch(
     let model = remote_model_selection(
         owned_str(p, "agent").as_deref(),
         requested_model.as_deref(),
-        &crate::config::default_agent_provider(),
+        &svc.configuration().general_agent.agent_provider,
         &svc.agent_registry.provider_ids(),
     )?;
     super::preflight::preflight_review_capacity(&plan, &detail.task)

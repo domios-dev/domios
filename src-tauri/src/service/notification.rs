@@ -643,12 +643,14 @@ impl ServiceContext {
         if !offer.accepted_by(label) {
             return;
         }
-        let mut cfg = crate::config::load_config();
+        let mut cfg = self.configuration();
         authority::apply(proof, &mut cfg.notifications, &offer.target, level);
         if let Err(reason) = crate::config::save_config_pub(&cfg) {
             log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
             return;
         }
+        use tauri::Manager;
+        *self.app_handle.state::<crate::config::ConfigState>().lock() = cfg.clone();
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "config-changed",

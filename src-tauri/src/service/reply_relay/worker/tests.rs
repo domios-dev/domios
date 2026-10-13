@@ -206,7 +206,6 @@ fn foreign_session_or_mismatched_payload_cannot_publish_a_task_report() {
         .is_none());
 }
 
-#[cfg(windows)]
 #[path = "integration.rs"]
 mod integration;
 

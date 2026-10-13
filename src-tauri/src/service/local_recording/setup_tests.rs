@@ -245,6 +245,7 @@ fn lark_recording_contract_production_adapter_fails_closed_before_native_acquisi
     assert!(error.teardown.is_none());
 }
 
+#[cfg(any(windows, target_os = "macos"))]
 #[tokio::test]
 async fn lark_recording_contract_production_enable_uses_injected_readiness_boundary() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -279,6 +280,7 @@ async fn lark_recording_contract_production_enable_uses_injected_readiness_bound
         .unwrap();
 }
 
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 fn lark_recording_contract_enable_without_devices_emits_setup_status() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();

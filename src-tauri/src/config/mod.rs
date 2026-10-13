@@ -248,7 +248,10 @@ pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
     provider_config_from(&load_config(), provider_id)
 }
 
-fn provider_config_from(config: &schema::AppConfig, provider_id: &str) -> schema::ProviderConfig {
+pub(crate) fn provider_config_from(
+    config: &schema::AppConfig,
+    provider_id: &str,
+) -> schema::ProviderConfig {
     let mut out = config.agents.get(provider_id).cloned().unwrap_or_default();
     // Back-compat: fall through to global [agent] for any field not set in the per-provider section. Lets existing configs keep working without an explicit [agents.<id>] block.
     if out.resume_sessions.is_none() {
@@ -266,11 +269,14 @@ pub fn resume_sessions_enabled(provider_id: &str) -> bool {
 /// `agents.<id>.usage_tracking_enabled`; when unset, usage-capable providers
 /// default to on.
 pub fn usage_tracking_enabled(provider_id: &str) -> bool {
-    let cfg = load_config();
+    usage_tracking_enabled_from(&load_config(), provider_id)
+}
+
+pub(crate) fn usage_tracking_enabled_from(cfg: &schema::AppConfig, provider_id: &str) -> bool {
     if !cfg.usage.enabled {
         return false;
     }
-    match provider_config(provider_id).usage_tracking_enabled {
+    match provider_config_from(cfg, provider_id).usage_tracking_enabled {
         Some(false) => false,
         Some(true) | None => true,
     }
