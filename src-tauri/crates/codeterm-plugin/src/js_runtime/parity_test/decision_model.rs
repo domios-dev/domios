@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::js_runtime::{JsDecisionModel, PluginVm};
 
-struct NativeDecisionModel(TokenMode);
+pub(super) struct NativeDecisionModel(pub(super) TokenMode);
 
 impl DecisionModel for NativeDecisionModel {
     fn supports_calibrated_choice_confidence(&self) -> bool {

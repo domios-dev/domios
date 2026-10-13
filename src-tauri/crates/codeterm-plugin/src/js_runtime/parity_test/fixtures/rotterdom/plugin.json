@@ -1,0 +1,48 @@
+{
+  "id": "rotterdom",
+  "version": "0.2.0",
+  "minCodeterm": "1.14.2",
+  "hostApi": 2,
+  "displayName": "Rotterdom",
+  "description": "A lightweight profile harness for OpenAI-compatible endpoints.",
+  "readme": "README.md",
+  "icon": "icon.svg",
+  "entry": "plugin.js",
+  "capabilities": {
+    "chatBackend": {
+      "spawnable": true,
+      "sessionConfig": true,
+      "contextOwner": "plugin",
+      "agentTasks": true
+    },
+    "decisionModel": {
+      "tokenMode": "none"
+    }
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "localhost:1234",
+        "127.0.0.1:1234",
+        "localhost:11434",
+        "127.0.0.1:11434"
+      ]
+    },
+    "subprocess": {
+      "allow": [
+        "sh",
+        "powershell",
+        "codeterm"
+      ]
+    },
+    "secrets": true,
+    "projectFiles": [
+      "/root",
+      "/profiles/*/root"
+    ]
+  },
+  "configHelp": "Configure endpoints and profiles. Each profile selects an endpoint, model, exact systemPrompt, absolute root, sampling params, budgets, allow and deny tools. Host grants remain the ceiling. Arbitrary shell is disabled for readOnly profiles; shell permission also permits filesystem writes. Remote endpoints require exact-host grants.",
+  "modelCatalogue": {
+    "authority": "free_form"
+  }
+}
