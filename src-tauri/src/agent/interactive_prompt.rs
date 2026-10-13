@@ -36,16 +36,20 @@ fn resolve_live_prompt(
     parsed: Option<(PendingPrompt, PromptKind)>,
     classification: Option<&TabStateClassification>,
 ) -> Option<(PendingPrompt, PromptKind)> {
-    let active = classification.is_none_or(|value| {
-        value.confidence >= 0.8
-            && matches!(
-                value.state,
-                TabState::WaitingOnAuth
-                    | TabState::UpdatePrompt
-                    | TabState::RateLimited
-                    | TabState::ClarifyingQuestion
-            )
-    });
+    let directory_trust = parsed
+        .as_ref()
+        .is_some_and(|(_, kind)| *kind == PromptKind::DirectoryTrust);
+    let active = directory_trust
+        || classification.is_none_or(|value| {
+            value.confidence >= 0.8
+                && matches!(
+                    value.state,
+                    TabState::WaitingOnAuth
+                        | TabState::UpdatePrompt
+                        | TabState::RateLimited
+                        | TabState::ClarifyingQuestion
+                )
+        });
     active.then_some(parsed).flatten()
 }
 

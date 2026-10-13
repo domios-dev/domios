@@ -278,3 +278,15 @@ fn captured_msg07_model_picker_replays_parser_structure_and_prompt_detector() {
         }
     }
 }
+
+#[test]
+fn directory_trust_capability_is_authoritative_over_generic_classification() {
+    for state in [TabState::Working, TabState::Unknown, TabState::IdleStuck] {
+        let parsed = Some((prompt(), PromptKind::DirectoryTrust));
+        assert_eq!(
+            resolve_live_prompt(parsed.clone(), Some(&classification(state, 0.1))),
+            parsed
+        );
+        assert!(resolve_live_prompt(None, Some(&classification(state, 0.1))).is_none());
+    }
+}
