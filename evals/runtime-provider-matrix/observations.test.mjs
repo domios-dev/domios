@@ -47,3 +47,43 @@ test('assistant reply is reread after idle and excludes stale answers and user e
   });
   assert.equal(result, 'final assigned role');
 });
+
+test('N/A preserves explicit coverage evidence and never hides ordinary failures', async () => {
+  const { NotApplicable, captureOutcome } = await import('./observations.mjs');
+  const evidence = { capability: false, reason: 'injected unsupported surface' };
+  assert.deepEqual(await captureOutcome(async () => { throw new NotApplicable(evidence); }), {
+    status: 'N/A', evidence,
+  });
+  assert.deepEqual(await captureOutcome(async () => { throw new Error('injected runtime refusal'); }), {
+    status: 'FAIL', evidence: 'injected runtime refusal',
+  });
+});
+
+test('approval selection requires the owned action and current epoch/nonce and grants only one turn', async () => {
+  const { turnApproval } = await import('./observations.mjs');
+  const target = '/owned/approval.txt', marker = 'injected-token';
+  const tab = { agent_session_id: 'owned-thread', session_binding_nonce: 'owned-nonce',
+    backing: { kind: 'chat_backend' }, agent_runtime_state: { state: 'loaded', epoch: 4 } };
+  const prompt = { request_id: JSON.stringify([4, 'owned-nonce', 9]), question: `write ${target} ${marker}`,
+    options: [{ label: 'Approve for session', value: 'broad' }, { label: 'Approve', value: 'one-shot' }] };
+  assert.deepEqual(turnApproval(tab, { data: { pending_prompt: prompt } }, target, marker), {
+    prompt, option: prompt.options[1], index: 2,
+  });
+  for (const request_id of [JSON.stringify([3, 'owned-nonce', 9]), JSON.stringify([4, 'foreign-nonce', 9]), 'invalid']) {
+    assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, request_id } }, target, marker), null);
+  }
+  assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, question: '/foreign/file injected-token' } }, target, marker), null);
+  assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, question: `write ${target} wrong-token` } }, target, marker), null);
+  assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, options: [prompt.options[0]] } }, target, marker), null);
+});
+
+test('approval action matching accepts provider shell escaping of an owned Windows path', async () => {
+  const { turnApproval } = await import('./observations.mjs');
+  const target = 'C:\\owned\\approval.txt', marker = 'injected-token';
+  const tab = { agent_session_id: 'owned-thread', session_binding_nonce: 'own',
+    backing: { kind: 'chat_backend' }, agent_runtime_state: { state: 'loaded', epoch: 1 } };
+  const prompt = { request_id: JSON.stringify([1, 'own', 'request']),
+    question: `writeFileSync(${JSON.stringify(target)}, ${JSON.stringify(marker)})`,
+    options: [{ label: 'Grant for turn', value: 'turn-scope' }] };
+  assert.equal(turnApproval(tab, { pending_prompt: prompt }, target, marker)?.index, 1);
+});

@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { unwrap, taskStatus, restoredOnNewBuild, isCompactionItem, completedAssistantReply } from './observations.mjs';
+import { unwrap, taskStatus, restoredOnNewBuild, isCompactionItem, completedAssistantReply, NotApplicable, captureOutcome, turnApproval } from './observations.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '../..');
@@ -17,7 +17,7 @@ const resumeFixture = process.env.MATRIX_RESUME_FIXTURE
   ? JSON.parse(readFileSync(process.env.MATRIX_RESUME_FIXTURE, 'utf8')) : null;
 const codeword = resumeFixture?.codeword || `opaque${process.pid}${Date.now()}`;
 const rows = [];
-const owned = { tabs: [], workers: [], crons: [], workspace: null, plan: null, owner: null };
+const owned = { tabs: [], workers: [], crons: [], workspace: null, plan: null, owner: null, files: [] };
 let sequence = 0;
 
 async function bridge(mode, ...args) {
@@ -57,12 +57,7 @@ async function poll(read, predicate, label) {
   throw new Error(`${label}: deadline; last evidence=${JSON.stringify(evidence)}`);
 }
 async function row(id, name, action) {
-  try {
-    const evidence = await action();
-    rows.push({ id, name, status: 'PASS', evidence });
-  } catch (error) {
-    rows.push({ id, name, status: 'FAIL', evidence: error.message });
-  }
+  rows.push({ id, name, ...await captureOutcome(action) });
   const result = rows.at(-1);
   console.log(`${result.status} ${id} ${name}: ${JSON.stringify(result.evidence)}`);
   writeFileSync(join(out, 'results.json'), JSON.stringify(rows, null, 2));
@@ -154,19 +149,20 @@ try {
     assert(answer.includes(codeword), { answer, codeword });
     return { oldPid, newPid, answer };
   });
-  await row('3', 'restored_native_and_legacy_history', async () => {
+  await row('3.native', 'restored_native_history', async () => {
     assert(restartObserved, { reason: 'no observed daemon restart' });
     const tab = await inspect(bare);
     const messages = await history(bare);
     assert(tab.backing?.kind === 'chat_backend' && tab.agent_session_id === session && messages.length > 0,
       { backing: tab.backing, session: tab.agent_session_id, count: messages.length });
-    assert(process.env.MATRIX_LEGACY_TAB, { reason: 'legacy PTY fixture missing; requires an owned pre-runtime tab before operator restart' });
-    const legacy = await inspect(process.env.MATRIX_LEGACY_TAB);
-    assert(legacy.workspace_id === owned.workspace && !legacy.protected, { reason: 'legacy fixture must be in owned workspace' });
-    assert(legacy.backing?.kind === 'chat_backend' && legacy.agent_session_id === process.env.MATRIX_LEGACY_SESSION,
-      { backing: legacy.backing, session: legacy.agent_session_id });
-    assert((await history(legacy.id)).length > 0, { reason: 'legacy history empty' });
-    return { native: tab.id, legacy: legacy.id, count: messages.length };
+    return { native: tab.id, session: tab.agent_session_id, count: messages.length };
+  });
+  await row('3.legacy', 'restored_legacy_history', async () => {
+    throw new NotApplicable({ reason: 'No workspace-scoped session snapshot import API exists in the audited route registry.',
+      sources: ['prod-docs/API-STATE.md: Session Snapshot', 'src-tauri/src/api/routes.rs: /api/session routes'],
+      available: ['session/save', 'session/backups', 'session/backups/{name}/restore'],
+      limitation: 'Backup restore is full-desk and cannot seed only an owned legacy tab.',
+      proposedHook: 'DEV-only typed import confined to a bench-owned workspace; see README post-release hooks.' });
   });
   await row('4', 'model_cli_self_and_peer', async () => {
     assert(bare && models.length >= 2, { reason: 'two provider models and calibration tab required' });
@@ -223,14 +219,13 @@ try {
     planner = await spawnTab('Surveyor', ['--role', 'Planner', '--plan', owned.plan, '--parent-tab', orchestrator]);
     return identity(planner, ['Planner']);
   });
-  await row('7', 'orchestrator_and_general_identity', async () => {
+  await row('7.orchestrator', 'orchestrator_identity', async () => {
     assert(orchestrator, { reason: 'owned Orchestrator required' });
-    const conductor = await identity(orchestrator, ['Orchestrator']);
-    assert(process.env.MATRIX_GENERAL_TAB, { conductor, reason: 'No workspace-scoped General Agent spawn surface; shared protected General tab must not be used.' });
-    const general = await inspect(process.env.MATRIX_GENERAL_TAB);
-    assert(general.workspace_id === ws.id && !general.protected, { reason: 'General fixture not owned' });
-    owned.tabs.push(general.id);
-    return { conductor, general: await identity(general.id, ['General Agent']) };
+    return identity(orchestrator, ['Orchestrator']);
+  });
+  await row('7.general', 'general_identity_shared_dev', async () => {
+    throw new NotApplicable({ reason: 'General Agent is instance-scoped; shared DEV Main is outside bench ownership.',
+      scope: 'shared DEV', ownerTabsTouched: false, postReleaseHook: 'Operator-provisioned isolated DEV instance with an owned General Agent.' });
   });
   await row('8', 'compaction_identity', async () => {
     assert(worker && planner && orchestrator, { reason: 'all three owned role tabs required' });
@@ -265,7 +260,7 @@ try {
     assert(idle.agent_session_id === working.agent_session_id, { stopped, working, idle });
     return { stopped, session: idle.agent_session_id, state: idle.agent_state };
   });
-  await row('11', 'cron_hidden_worker_and_dreamer_reports', async () => {
+  await row('11.cron', 'cron_report', async () => {
     assert(orchestrator, { reason: 'owned Team required' });
     const task = `Report calibration ${codeword} using cron complete with your own run id. Do not change memory, edit files, or send messages.`;
     const job = data(await cli('--as-tab', orchestrator, 'cron', 'create', 'Calibration', '--schedule', 'in 1h', '--once',
@@ -275,30 +270,53 @@ try {
     owned.crons.push(jobId);
     await cli('cron', 'trigger', jobId);
     const runs = await poll(() => cli('cron', 'history', jobId), result => JSON.stringify(result).includes(codeword), 'persisted cron report');
-    const hidden = data(await cli('mem', 'worker', 'spawn', '--agent', provider, '--intent', runId,
-      '--task', `Do not read or modify memory. Report ${codeword} through mem worker report, then stop.`, '--parent', orchestrator));
-    const hiddenId = hidden.id || hidden.worker_id || hidden.worker?.id;
-    assert(hiddenId, hidden);
-    owned.workers.push(hiddenId);
-    const report = await poll(() => cli('mem', 'worker', 'get', hiddenId), result => JSON.stringify(result).includes(codeword)
-      && ['done', 'completed'].includes((result.worker || result).status), 'hidden worker report');
-    throw new Error(JSON.stringify({ runs, report, reason: 'Dreamer has no provider/workspace override; shared DEV memory must not be consolidated by bench. Isolated dreamer adapter required.' }));
+    return { job: jobId, runs };
   });
-  await row('12', 'native_question_round_trip', async () => {
-    assert(descriptor.supports_prompt_answers, { reason: 'provider does not advertise prompt answers' });
-    const questionTab = await spawnTab('Question');
-    await cli('send', '--tab', questionTab, '--from-file', padFile(prompts.question), '--require-agent');
-    const pending = await poll(() => inspect(questionTab), tab => tab.agent_runtime_questions?.length > 0, 'native pending question');
-    const prompt = pending.agent_runtime_questions[0];
-    const before = new Set((await history(questionTab)).map(message => message.id));
-    const response = await cli('tab', 'respond', '1', '--tab', questionTab);
-    const messages = await poll(() => history(questionTab), messages => messages.some(message =>
-      message.type === 'assistant' && !before.has(message.id) && /Amber/.test(message.content)), 'question final answer');
-    return { prompt, response, answer: messages.filter(message => message.type === 'assistant' && !before.has(message.id)) };
+  await row('11.hidden', 'hidden_worker_shared_dev', async () => {
+    throw new NotApplicable({ reason: 'Hidden worker spawn has no workspace selector; parent is only report provenance.',
+      sources: ['src-tauri/src/mem_host/worker_spawn_spec.rs', 'src-tauri/src/service/spawn.rs: spawn_hidden_agent_impl'],
+      fallback: 'active workspace or first workspace',
+      postReleaseHook: 'Add explicit workspace_id to hidden-worker spawn and validate its ownership.' });
+  });
+  await row('11.dreamer', 'dreamer_shared_dev', async () => {
+    throw new NotApplicable({ reason: 'Dream run has no provider/workspace override; shared DEV memory is outside bench ownership.',
+      source: 'codeterm mem dream run --help', postReleaseHook: 'Operator-provisioned isolated DEV memory and provider-scoped dream run.' });
+  });
+  await row('12', 'native_approval_round_trip', async () => {
+    if (descriptor.supports_prompt_answers === false) {
+      throw new NotApplicable({ provider, supports_prompt_answers: false, reason: 'Provider explicitly declares no prompt answers.' });
+    }
+    assert(descriptor.supports_prompt_answers === true, { provider, reason: 'Prompt-answer capability is unknown.' });
+    const approvalTab = await spawnTab('Approval');
+    const initial = await inspect(approvalTab);
+    assert(initial.agent_session_model, { reason: 'approval probe model not observed', tab: initial });
+    const staged = await post(`/api/tabs/${approvalTab}/agent/model`, {
+      model: initial.agent_session_model, runtime_mode: 'approval-required',
+    });
+    const target = join(ws.cwd, `approval-${runId}.txt`);
+    assert(!existsSync(target), { reason: 'approval target already exists', target });
+    owned.files.push(target);
+    const program = `const fs=require("node:fs");fs.writeFileSync(${JSON.stringify(target)},${JSON.stringify(codeword)});process.stdout.write(fs.readFileSync(${JSON.stringify(target)},"utf8"));`;
+    const request = prompts.approval.replaceAll('{{PROGRAM}}', program).replaceAll('{{TARGET}}', target);
+    const before = new Set((await history(approvalTab)).map(message => message.id));
+    await cli('send', '--tab', approvalTab, '--from-file', padFile(request), '--require-agent');
+    const pending = await poll(async () => ({ tab: await inspect(approvalTab), status: await cli('tab', 'status', '--tab', approvalTab) }),
+      snapshot => Boolean(turnApproval(snapshot.tab, snapshot.status, target, codeword)), 'bound native approval request');
+    const selection = turnApproval(pending.tab, pending.status, target, codeword);
+    assert(pending.tab.agent_session_id === initial.agent_session_id
+      && (pending.tab.agent_runtime_config?.mode === 'approval-required' || pending.tab.structured_runtime_mode === 'approval-required'),
+      { reason: 'approval mode or owned thread not confirmed', tab: pending.tab, staged });
+    assert(!existsSync(target), { reason: 'file was written before approval', target });
+    const response = await cli('tab', 'respond', String(selection.index), '--tab', approvalTab);
+    await poll(() => inspect(approvalTab), tab => tab.agent_state?.state === 'idle' && !tab.pending_prompt, 'idle after approval');
+    assert(existsSync(target) && readFileSync(target, 'utf8') === codeword, { reason: 'approved file content missing or changed', target });
+    const answer = (await history(approvalTab)).filter(message => message.type === 'assistant' && !before.has(message.id));
+    return { tab: approvalTab, staged, mode: 'approval-required', prompt: selection.prompt,
+      selected: selection.option, response, target, content: readFileSync(target, 'utf8'), answer };
   });
 } catch (error) {
   console.log(`FAIL setup: ${error.message}`);
-  for (let id = 1; id <= 12; id++) if (!rows.some(row => row.id === String(id))) {
+  for (let id = 1; id <= 12; id++) if (!rows.some(row => row.id.split('.')[0] === String(id))) {
     rows.push({ id: String(id), name: 'unreached', status: 'FAIL', evidence: error.message });
   }
 } finally {
@@ -323,6 +341,7 @@ try {
         }
       });
     }
+    for (const path of owned.files) await cleanupCall(async () => { if (existsSync(path)) unlinkSync(path); });
     if (owned.plan) await cleanupCall(() => cli('--as-tab', owned.owner, 'plan', 'delete', owned.plan, '--yes'));
     if (owned.workspace) await cleanupCall(() => cli('workspace', 'close', owned.workspace, '--force'));
     assert(failures.length === 0, { cleanupFailures: failures });
