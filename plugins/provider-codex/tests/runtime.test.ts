@@ -374,4 +374,35 @@ check("provider settings cannot replace the authorized launch mode",()=> {
   assert.equal(params.sandbox,"read-only");assert.equal(params.approvalPolicy,"untrusted");
   assert.deepEqual(params.config,{check_for_update_on_startup:false,project_doc_max_bytes:65536});
 });
+check("A12b workspace-write network settings preserve false and provider defaults",()=> {
+  for(const networkAccess of [true,false,undefined]) {
+    const settings={mode:"auto-accept-edits",additionalDirectories:["/work/shared"],...(networkAccess !== undefined ? {networkAccess} : {})};
+    const context={...ctx,settings};
+    for(const op of [{kind:"openThread",instructions:"task",settings},{kind:"resumeThread",threadId:ctx.threadId!,settings}] as Operation[]) {
+      const plan=plain(hooks.runtimePlan(context,op));
+      if(plan.action.kind !== "request")throw new Error("Expected thread request");
+      const params=plan.action.call.params as Record<string,JsonValue>;
+      const config=params.config as Record<string,JsonValue>;
+      assert.equal(config["sandbox_workspace_write.network_access"],networkAccess);
+      assert.equal(Object.prototype.hasOwnProperty.call(config,"sandbox_workspace_write.network_access"),networkAccess !== undefined);
+      assert.equal(params.sandbox,"workspace-write");
+    }
+    const plan=plain(hooks.runtimePlan(context,{...submit,settings} as Operation));
+    if(plan.action.kind !== "request")throw new Error("Expected turn request");
+    const policy=(plan.action.call.params as Record<string,JsonValue>).sandboxPolicy as Record<string,JsonValue>;
+    assert.deepEqual(policy,{type:"workspaceWrite",writableRoots:["/work/shared"],...(networkAccess !== undefined ? {networkAccess} : {})});
+  }
+  for(const mode of ["approval-required","full-access"]) {
+    const settings={mode,networkAccess:true};
+    const context={...ctx,settings};
+    const plan=plain(hooks.runtimePlan(context,{kind:"openThread",instructions:"task",settings}));
+    if(plan.action.kind !== "request")throw new Error("Expected thread request");
+    const config=(plan.action.call.params as Record<string,JsonValue>).config as Record<string,JsonValue>;
+    assert.equal(Object.prototype.hasOwnProperty.call(config,"sandbox_workspace_write.network_access"),false);
+    const turn=plain(hooks.runtimePlan(context,{...submit,settings} as Operation));
+    if(turn.action.kind !== "request")throw new Error("Expected turn request");
+    const policy=(turn.action.call.params as Record<string,JsonValue>).sandboxPolicy as Record<string,JsonValue>;
+    assert.equal(Object.prototype.hasOwnProperty.call(policy,"networkAccess"),false);
+  }
+});
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);

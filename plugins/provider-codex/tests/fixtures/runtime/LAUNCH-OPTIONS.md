@@ -15,7 +15,7 @@ User CLI profiles and caller-supplied launch args are different from those absen
 | Authorized skip permissions / autoApproveFlags | Adds bypass-approvals-and-sandbox and bypass-hook-trust | A12 host-authorized `mode: full-access` -> approval `never`, sandbox `danger-full-access` / policy `dangerFullAccess`; hook trust has no fabricated equivalent |
 | Manifest `additionalWritableDirFlag`: `--add-dir` | Allows writes outside cwd | A12 host-validated `additionalDirectories` -> start/resume `config["sandbox_workspace_write.writable_roots"]`, workspace-write turn policy `writableRoots` |
 | Host launch sandbox git metadata / agent pad directories | Appends add-dir for granted worktree metadata and pad | Same A12 directory handoff; host decides which directories are granted |
-| Manifest Linux sandbox network args | `-c sandbox_workspace_write.network_access=true` when the host applies its network policy | No A12 network field: host must supply its intended network policy explicitly through an approved typed handoff; activation decision needed if sandboxed Linux still requires this override |
+| Manifest Linux sandbox network args | `-c sandbox_workspace_write.network_access=true` when the host applies its network policy | A12b host-derived `networkAccess` -> start/resume config `sandbox_workspace_write.network_access` and workspace-write turn policy `networkAccess`; omitted preserves Codex defaults |
 | `CODEX_LAUNCH_CONFIG` | Disables startup update check, raises project instruction budget to 65536 bytes | Start/resume config contains `check_for_update_on_startup:false`, `project_doc_max_bytes:65536` |
 | Task / system prompt | Unix developer_instructions config; Windows generated per-tab profile; optional initial prompt | `openThread.instructions` -> `developerInstructions`; initial user input remains ordinary submitTurn |
 | Unix / Windows resume helpers | Exact session id, `resume`, `--no-daemon`; Windows owned profile for task/trust | Exact thread/resume; direct owned stdio process replaces daemon selection; no profile-file artifacts |
@@ -37,7 +37,7 @@ Source references: `plugins/provider-codex/plugin.json` spawn/commands; `src/plu
 
 ## Structured runtime settings
 
-The plugin consumes the A12 RuntimeSettings fields only: model, effort, host-authorized mode, and host-validated additionalDirectories. ProviderSettings cannot override the authorized sandbox/approval mode or inject arbitrary launch config/argv. No new profile/argv parser or permission bypass is introduced.
+The plugin consumes the A12/A12b RuntimeSettings fields: model, effort, host-authorized mode, host-validated additionalDirectories, and host-decided networkAccess. ProviderSettings cannot override the authorized sandbox/approval mode or inject arbitrary launch config/argv. No new profile/argv parser or permission bypass is introduced.
 
 Start/resume config merges the existing provider launch defaults, host directories, then RuntimeSettings effort. Additional directories are effective only in workspace-write; full access already permits them and read-only remains read-only. Hook code never authorizes a requested bypass: the host supplies the already-authorized mode per A12.
 
@@ -45,4 +45,4 @@ T3 counterpart: `CodexAdapterV2.ts` codexRuntimeModeTurnDefaults and codexThread
 
 ## Decisions still owned by the host / Orchestrator
 
-A12 makes model, effort, authorized mode and directories structurally available; host launch/restore integration must supply them before activation. General CLI profiles and raw args remain visibly refused by decision. There is no claim of backward-compatible arbitrary argv launches. Hook-trust bypass is not implied by model execution permission: the owner must decide whether native Codex hooks remain enabled/trusted on runtime sessions. Linux launch network policy also needs explicit host-to-provider-settings handoff if it must differ from configured Codex defaults.
+A12 makes model, effort, authorized mode and directories structurally available; host launch/restore integration must supply them before activation. General CLI profiles and raw args remain visibly refused by decision. There is no claim of backward-compatible arbitrary argv launches. Native hook trust is unaffected on the runtime path; session binding comes from the RPC thread. A12b derives network access through the same pure host helper as the PTY Linux path.

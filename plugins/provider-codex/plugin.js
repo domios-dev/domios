@@ -585,13 +585,16 @@ function codexRuntimePolicy(settings) {
   if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
   return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
     type: policy[2],
+    ...policy[2] === "workspaceWrite" && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
     ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
   } };
 }
 function codexThreadConfig(settings) {
+  const workspaceWrite = codexRuntimePolicy(settings).sandboxPolicy.type === "workspaceWrite";
   return {
     check_for_update_on_startup: false,
     project_doc_max_bytes: 65536,
+    ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
     ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
     ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
   };
