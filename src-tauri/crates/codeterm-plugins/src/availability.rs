@@ -158,3 +158,12 @@ impl AvailabilityItem {
         item
     }
 }
+
+pub fn frontend_stage_needed(item: &AvailabilityItem, pending_version: Option<&str>) -> bool {
+    item.kind == UpdateKind::Frontend
+        && item.state == AvailabilityState::UpdateAvailable
+        && item
+            .latest
+            .as_deref()
+            .is_some_and(|latest| Some(latest) != pending_version)
+}
