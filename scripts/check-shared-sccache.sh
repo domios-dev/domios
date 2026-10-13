@@ -15,7 +15,7 @@ codeterm() {
 }
 sccache() {
   case "$1" in
-    --stop-server) printf 'stop\n' >> "$WORK/events" ;;
+    --stop-server) printf 'stop\n' >> "$WORK/events"; rm -f "$WORK/location" ;;
     --start-server)
       printf 'start\n' >> "$WORK/events"
       [ "${FIXTURE_START_FAILURE:-0}" = 0 ] || return 1
@@ -25,12 +25,18 @@ sccache() {
         [ -z "${AWS_SESSION_TOKEN:-}" ]
         [ "$SCCACHE_ENDPOINT" = http://100.88.47.88:9000 ]
         [ "$SCCACHE_BUCKET:$SCCACHE_REGION:$SCCACHE_S3_USE_SSL" = sccache:us-east-1:false ]
+        printf 's3, name: sccache, prefix: /%s' "${SCCACHE_S3_KEY_PREFIX:-}" > "$WORK/location"
       else
         [ -z "${SCCACHE_BUCKET:-}${SCCACHE_ENDPOINT:-}" ]
+        printf 'Local disk: "fixture-disk"' > "$WORK/location"
       fi
       ;;
     --version) printf 'sccache fixture\n' ;;
-    --show-stats) printf 'Cache location fixture\n' ;;
+    --show-stats)
+      printf 'Cache location '
+      if [ -e "$WORK/location" ]; then cat "$WORK/location"; else printf fixture; fi
+      printf '\n'
+      ;;
   esac
 }
 pgrep() { [ "${FIXTURE_BUSY:-0}" = 1 ]; }
@@ -41,7 +47,7 @@ ct_repo_root() { printf '%s\n' "$WORK"; }
   export AWS_SESSION_TOKEN=fixture-old-session
   ct_configure_sccache
   [ "$SCCACHE_CACHE_SIZE" = 10G ]
-  ct_configure_sccache
+  FIXTURE_BUSY=1 ct_configure_sccache
   [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
 ) > "$WORK/shared.log"
 ! rg -q 'fixture-access|fixture-secret|fixture-old-session' "$WORK/shared.log"
@@ -88,11 +94,31 @@ printf 'PASS CI target paths and developer target isolation\n'
   rm -f "$WORK/events"
   export SCCACHE_CACHE_SIZE=10G
   curl() { printf 200; }
+  printf 'Local disk: "fixture-disk"' > "$WORK/location"
   ct_sccache_status
   [ ! -e "$WORK/events" ]
 ) > "$WORK/status.log"
 rg -q '^sccache: shared S3 cache at http://100.88.47.88:9000/sccache$' "$WORK/status.log"
-rg -q '^running server: Cache location fixture$' "$WORK/status.log"
+rg -q '^running server: Cache location Local disk:' "$WORK/status.log"
 rg -q '^shared endpoint health: 200$' "$WORK/status.log"
 ! rg -q 'fixture-access|fixture-secret' "$WORK/status.log"
 printf 'PASS read-only cache status and endpoint health\n'
+
+(
+  export SCCACHE_CACHE_SIZE=10G FIXTURE_BUSY=1
+  rm -f "$WORK/events"
+  printf 's3, name: sccache, prefix: /' > "$WORK/location"
+  unset CT_SCCACHE_CONFIGURED
+  ct_configure_sccache
+  [ ! -e "$WORK/events" ]
+  printf 'Local disk: "fixture-disk"' > "$WORK/location"
+  FIXTURE_ACCESS=0 ct_configure_sccache
+  [ ! -e "$WORK/events" ]
+  printf 's3, name: other-bucket, prefix: /' > "$WORK/location"
+  if ct_configure_sccache; then exit 1; else [ "$?" = 75 ]; fi
+  [ ! -e "$WORK/events" ]
+  printf 's3, name: sccache, prefix: /other-prefix/' > "$WORK/location"
+  if ct_configure_sccache; then exit 1; else [ "$?" = 75 ]; fi
+  [ ! -e "$WORK/events" ]
+) > "$WORK/idempotent.log" 2>&1
+printf 'PASS busy matching servers are reused; mismatches refuse without stop\n'

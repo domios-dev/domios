@@ -150,6 +150,21 @@ ct_sccache_status() {
   printf 'shared endpoint health: %s\n' "$http_status"
 }
 
+ct_sccache_storage_matches() {
+  local prefix
+  if [ "$CT_SCCACHE_STORAGE" = shared ]; then
+    prefix="${SCCACHE_S3_KEY_PREFIX:-}"
+    prefix="/${prefix#/}"
+    case "$prefix" in */) ;; *) prefix="$prefix/" ;; esac
+    [ "$1" = "s3, name: $SCCACHE_BUCKET, prefix: $prefix" ]
+  else
+    case "$1" in
+      'Local disk:'*) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+}
+
 ct_sccache_restart() {
   if command -v pgrep >/dev/null 2>&1 && { pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; }; then
     echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
@@ -183,15 +198,18 @@ ct_configure_sccache() {
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
   echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
   echo "[cache-policy] $(sccache --version)"
-  if [ "${CT_SCCACHE_CONFIGURED:-0}" != 1 ]; then
-    ct_sccache_storage
-    ct_sccache_print_location
-    ct_sccache_restart || return $?
-    export CT_SCCACHE_CONFIGURED=1
+  local stats location
+  stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
+  ct_sccache_storage
+  ct_sccache_print_location
+  if ct_sccache_storage_matches "$location"; then
+    echo "[cache-policy] reusing running sccache server"
   else
-    ct_sccache_print_location
+    ct_sccache_restart || return $?
+    stats="$(sccache --show-stats 2>/dev/null)" || stats=""
   fi
-  sccache --show-stats 2>/dev/null | sed -n '/Cache location/,$p' || true
+  printf '%s\n' "$stats" | sed -n '/Cache location/,$p'
 }
 
 ct_require_prestarted_sccache() {

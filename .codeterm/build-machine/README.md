@@ -103,8 +103,9 @@ do not change developer toolchain defaults.
 Run `codeterm mem secret sync` locally on each authorized builder. Build setup
 reads `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key` into process
 environment only, exports endpoint `http://100.88.47.88:9000`, bucket `sccache`,
-region `us-east-1`, SSL `false`, and restarts sccache before compilation on an idle
-machine. Never put cache credentials in runner `.env`, workflow arguments,
+region `us-east-1`, SSL `false`, and reuses a running server whose storage
+matches. A storage change restarts sccache only on an idle machine. Never put
+cache credentials in runner `.env`, workflow arguments,
 reports or files. If either entry cannot resolve, build setup logs one local disk
 fallback line and preserves `SCCACHE_CACHE_SIZE` (default `10G`). Shared macOS
 paths must permit builder accounts to write source and disposable artifacts.
