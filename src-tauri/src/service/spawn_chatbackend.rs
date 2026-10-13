@@ -257,6 +257,37 @@ where
     tauri::async_runtime::spawn(fut);
 }
 
+fn stamp_chatbackend_launch_identity(
+    tab: &mut crate::multiplexer::types::Tab,
+    metadata: &super::spawn::ChatBackendLaunchMetadata,
+) {
+    let agent = &metadata.agent;
+    tab.worker_id = agent.worker_id.clone();
+    tab.provisioned_cwd = agent.provisioned_cwd.clone();
+    tab.report_target_tab_id = agent.report_target_tab_id.clone();
+    tab.spawned_by_tab_id = agent.spawned_by_tab_id.clone();
+    tab.agent_type = Some(agent.provider.clone());
+    tab.agent_planned_model = agent.planned_model.clone();
+    tab.agent_requested_model = agent.model.clone();
+    tab.agent_provider_resolved_model = agent.model.clone();
+    super::reasoning_effort::persist_launch_identity(
+        tab,
+        agent.planned_reasoning_effort.as_deref(),
+        agent.reasoning_effort.as_deref(),
+    );
+}
+
+fn runtime_initial_payload(agent: &super::spawn::AgentSpawnSpec) -> Option<String> {
+    let task = agent
+        .task
+        .as_deref()
+        .filter(|task| !task.trim().is_empty())?;
+    Some(match agent.task_preamble.as_deref() {
+        Some(preamble) => format!("{preamble}{task}"),
+        None => task.into(),
+    })
+}
+
 impl ServiceContext {
     pub(crate) fn spawn_chatbackend_impl_with_state_change(
         &self,
@@ -324,6 +355,8 @@ impl ServiceContext {
             result
         };
 
+        let launch = spec.chatbackend_launch.as_deref();
+
         // Persisted as the JSONL `_meta` header so a restored tab can re-open from the same config.
         let history_meta = config.clone();
 
@@ -335,6 +368,11 @@ impl ServiceContext {
                     session_id: String::new(),
                 };
                 tab.chat_view = true;
+                tab.hidden = spec.visibility == super::spawn::TabVisibility::Hidden;
+                tab.show_in_tabbar = !tab.hidden;
+                if let Some(launch) = launch {
+                    stamp_chatbackend_launch_identity(tab, launch);
+                }
                 tab.audience = spec.audience;
                 tab.role_profile = role_profile.clone();
                 tab.watcher = watcher.clone();
@@ -378,6 +416,15 @@ impl ServiceContext {
             self.rollback_provisional_tab(&ws_id, &tab_id);
         })?;
 
+        if super::agent_runtime::engine::requested(self, &plugin_id) {
+            if let Some(launch) = launch {
+                if let Err(error) = self.prepare_chatbackend_runtime_launch(&tab_id, launch) {
+                    self.rollback_provisional_tab(&ws_id, &tab_id);
+                    let _ = self.revoke_agent_pad(&tab_id);
+                    return Err(error);
+                }
+            }
+        }
         if let Err(error) = self.chatbackend_launch(plugin_id, tab_id.clone(), config, history_meta)
         {
             if !super::agent_runtime::requested_for_tab(self, &tab_id) {
@@ -397,11 +444,63 @@ impl ServiceContext {
             pty_id: None,
             workspace_id: ws_id,
             description: spec.description,
-            worker_id: None,
+            worker_id: launch.and_then(|launch| launch.agent.worker_id.clone()),
             warning: None,
             model_fallback: None,
             budget_notice,
         })
+    }
+
+    pub(crate) fn prepare_chatbackend_runtime_launch(
+        &self,
+        tab_id: &str,
+        metadata: &super::spawn::ChatBackendLaunchMetadata,
+    ) -> Result<(), String> {
+        self.ensure_agent_pad(tab_id)?;
+        self.ensure_session_binding_nonce(tab_id);
+        {
+            let mut mux = self.mux.write();
+            let tab = mux.get_tab_mut(tab_id).ok_or("Runtime launch tab absent")?;
+            stamp_chatbackend_launch_identity(tab, metadata);
+        }
+        self.prepare_runtime_worker_binding(&metadata.params, tab_id)?;
+        self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
+        let has_pending = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.pending_delivery.is_some());
+        if !has_pending {
+            if let Some(payload) = runtime_initial_payload(&metadata.agent) {
+                let payload = self.spawn_task_message(tab_id, &payload).unwrap_or(payload);
+                self.create_pending_delivery_with_send_id(
+                    tab_id,
+                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                    &payload,
+                    Some(&uuid::Uuid::new_v4().to_string()),
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn launch_chatbackend_runtime_existing(
+        &self,
+        tab_id: &str,
+        metadata: &super::spawn::ChatBackendLaunchMetadata,
+        config: serde_json::Value,
+    ) -> Result<(), String> {
+        if !super::agent_runtime::engine::requested(self, &metadata.agent.provider) {
+            return Err("Existing-tab runtime launch requires agentRuntime".into());
+        }
+        self.prepare_chatbackend_runtime_launch(tab_id, metadata)?;
+        self.chatbackend_launch(
+            metadata.agent.provider.clone(),
+            tab_id.into(),
+            config.clone(),
+            config,
+        )
     }
 
     /// Opens and binds the provider session before spawn success is reported.
