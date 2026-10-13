@@ -46,6 +46,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CODETERM_SCCACHE_VERIFY_ONLY: '1'
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -227,7 +228,7 @@ jobs:
         run: |
           source build.sh env
           ct_configure_sccache
-          ./build.sh cache-status
+          ./build.sh cache-verify
           node scripts/ci-rust-archives.mjs
       - uses: actions/upload-artifact@v4
         with:
