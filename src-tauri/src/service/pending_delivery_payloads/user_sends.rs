@@ -511,14 +511,12 @@ impl UserSendStore {
             && record.state == UserSendState::Queued
             && !tab.revoked.load(Ordering::Acquire)
             && !tab.failed.load(Ordering::Acquire)
-            && !ready_launch::admission_order_blocks(
-                record.held_before_readiness,
-                tab.admissions
-                    .lock()
-                    .pending
-                    .iter()
-                    .any(|ordinal| *ordinal <= record.reservation),
-            )
+            && !tab
+                .admissions
+                .lock()
+                .pending
+                .iter()
+                .any(|ordinal| *ordinal <= record.reservation)
     }
 
     pub(crate) fn claim<'a>(

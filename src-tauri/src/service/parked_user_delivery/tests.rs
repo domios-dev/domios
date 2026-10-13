@@ -775,6 +775,10 @@ pub(crate) fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
             .recv_timeout(TEST_DEADLINE)
             .expect("user owner reaches its idle boundary");
         if !owner.running.load(Ordering::Acquire) {
+            fixture
+                .service
+                .ready_user_send_tasks
+                .wait(tab_id, TEST_DEADLINE);
             return;
         }
     }
@@ -861,3 +865,5 @@ mod recording_contract;
 mod retained_uncertainty;
 
 mod ready_order;
+
+pub(super) mod queued_boundary;

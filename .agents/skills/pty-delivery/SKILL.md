@@ -30,9 +30,9 @@ well-meaning "one more heuristic" changes. Read this before touching
    originals: 32 unsettled records and 4 MiB prepared/body bytes per tab, with
    original storage separately bounded. Sends are held only until the current
    launch's exact PTY generation reaches `AgentReady`, then queued sends flush in
-   admission order. Admission order applies only to sends held before readiness.
-   Every later send is written immediately while the agent is working or an
-   earlier cycle is unsettled, cancelling that cycle's remaining keys. If exact
+   admission order. Every later send enters the same ordered PTY write owner,
+   waiting only for earlier preparation or payload enqueue, never agent work or
+   submit recovery. A newer payload cancels the previous cycle's remaining keys. If exact
    session binding is missing before that readiness,
    the owner-approved adapter fallback may release a restored head only after two
    distinct same-launch, same-generation ready-idle verdicts at least 0.90, with
@@ -169,4 +169,4 @@ Claimed or uncertain records remain held and are never replayed.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
