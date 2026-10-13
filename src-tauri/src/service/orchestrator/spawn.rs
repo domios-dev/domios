@@ -338,7 +338,14 @@ impl ServiceContext {
             .await
             .map_err(|_| "preset resolution worker failed")??;
         }
-        let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
+        let svc = self.clone();
+        let probe = params.clone();
+        let probe_agent = agent_cmd.clone();
+        let is_shell = tokio::task::spawn_blocking(move || {
+            svc.classify_spawn_target_for_params(&probe_agent, &probe)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
         let tab_created_by_spawn = params.existing_tab_id.is_none();
         if is_shell {
             let role = params.role.clone();

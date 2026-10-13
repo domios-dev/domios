@@ -155,3 +155,27 @@ fn workspace_current_resolution_reports_focus_fallback_source() {
     assert_eq!(resolved.id, "focused");
     assert_eq!(resolved.source.as_str(), "focus-fallback");
 }
+
+#[test]
+fn workspace_set_cwd_preserves_target_host_path_in_mesh_contract() {
+    use clap::Parser;
+    let command = crate::Cli::try_parse_from([
+        "codeterm",
+        "workspace",
+        "set-cwd",
+        "existing",
+        r"C:\Developer\codeterm",
+    ])
+    .unwrap()
+    .command;
+    assert!(matches!(&command, crate::Commands::Workspace {
+        action: crate::WorkspaceAction::SetCwd { id, path }
+    } if id == "existing" && path == r"C:\Developer\codeterm"));
+    let (method, url, body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
+    assert_eq!(method, "POST");
+    assert_eq!(url, "/api/workspaces/existing/cwd");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
+        serde_json::json!({"cwd": r"C:\Developer\codeterm"})
+    );
+}

@@ -209,6 +209,10 @@ pub fn create_router_with_frontend(
             post(workspace_routes::focus_workspace),
         )
         .route(
+            "/api/workspaces/{id}/cwd",
+            post(workspace_routes::set_workspace_cwd),
+        )
+        .route(
             "/api/workspaces/{id}/rename",
             post(workspace_routes::rename_workspace),
         )

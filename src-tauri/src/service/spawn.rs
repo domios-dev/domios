@@ -240,6 +240,15 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        if !matches!(&spec.command, TabCommand::Shell) {
+            self.validate_request_cwd(
+                spec.workspace_id.as_deref(),
+                spec.parent_tab_id
+                    .as_deref()
+                    .or(spec.creator_tab_id.as_deref()),
+                spec.cwd.as_deref(),
+            )?;
+        }
         spawn_tab_identity::prepare_tab_identity(&mut spec)?;
         match (&spec.visibility, &spec.command) {
             (TabVisibility::Visible, TabCommand::Agent(_)) => {

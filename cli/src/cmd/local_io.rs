@@ -201,6 +201,10 @@ pub(crate) fn handle_workspace_action(
             "workspace.focus",
             Some(serde_json::json!({ "workspace_id": id })),
         )),
+        WorkspaceAction::SetCwd { id, path } => Some(client.call(
+            "workspace.set_cwd",
+            Some(serde_json::json!({"workspace_id": id, "cwd": path})),
+        )),
         WorkspaceAction::Rename { id, name } => Some(client.call(
             "workspace.rename",
             Some(serde_json::json!({ "workspace_id": id, "name": name })),

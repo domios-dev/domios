@@ -5,7 +5,7 @@ import type { AppConfig, Workspace } from "../../lib/types";
 
 const fixture = vi.hoisted(() => {
   const workspace = {
-    id: "workspace", name: "Workspace", tabs: [] as string[], active_tab_id: null, cwd: "/workspace",
+    id: "workspace", name: "Workspace", tabs: [] as string[], active_tab_id: null, cwd: "/workspace", cwd_missing: false,
   };
   return {
     workspace,
@@ -14,8 +14,10 @@ const fixture = vi.hoisted(() => {
       spawnAgentTab: vi.fn(async () => null),
       createOrchestrationPair: vi.fn(async () => ({ orchestrator_tab_id: "lead-tab" })),
       selectTabByTab: vi.fn(async () => undefined),
-      addNotification: () => undefined,
+      addNotification: vi.fn(),
+      setWorkspaceCwd: vi.fn(async () => ({ warnings: [] })),
     },
+    folderDialog: vi.fn(async () => "/relocated"),
     providers: {
       providers: [
         {
@@ -50,6 +52,11 @@ vi.mock("../../lib/bridge", async (importOriginal) => ({
   listen: vi.fn(async () => () => undefined),
 }));
 
+vi.mock("../../lib/nativeBridge", () => ({
+  nativeBridge: { dialogs: {} }, nativeFolderDialog: fixture.folderDialog,
+}));
+
+import { TransportError } from "../../lib/transportClient";
 import { NewSessionPicker } from "./NewSessionPicker";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,8 +67,14 @@ let host: HTMLDivElement;
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode" }));
-  fixture.actions.spawnAgentTab.mockClear();
-  fixture.actions.createOrchestrationPair.mockClear();
+  fixture.workspace.cwd_missing = false;
+  fixture.actions.addNotification.mockClear();
+  fixture.actions.setWorkspaceCwd.mockReset();
+  fixture.actions.setWorkspaceCwd.mockResolvedValue({ warnings: [] });
+  fixture.actions.spawnAgentTab.mockReset();
+  fixture.actions.spawnAgentTab.mockResolvedValue(null);
+  fixture.actions.createOrchestrationPair.mockReset();
+  fixture.actions.createOrchestrationPair.mockResolvedValue({ orchestrator_tab_id: "lead-tab" });
   fixture.actions.selectTabByTab.mockClear();
   fixture.state.workspaces = [fixture.workspace];
   fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [] }] as never[];
@@ -256,4 +269,56 @@ describe("NewSessionPicker modal", () => {
 
     expect(buttonNamed("Agent model")?.getAttribute("data-value")).toBe("live-model");
   });
+});
+
+it("keeps a team request open and busy, then renders its backend failure inline", async () => {
+  const onClose = vi.fn();
+  let reject!: (error: unknown) => void;
+  fixture.actions.createOrchestrationPair.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+  await renderPicker({ fullAccess: false, onClose });
+  await act(async () => buttonNamed("Team")!.click());
+  const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
+  await act(async () => start.click());
+  expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledTimes(1);
+  expect(start.disabled).toBe(true);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(buttonNamed("Close new session dialog")!.disabled).toBe(true);
+  const message = "opaque backend workspace/path/recovery sentence";
+  await act(async () => reject(new TransportError(422, "/api/orchestration/new",
+    JSON.stringify({ error: { code: "workspace_cwd_missing", message } }))));
+  expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(message);
+  expect(start.disabled).toBe(false);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(fixture.actions.addNotification).not.toHaveBeenCalled();
+});
+
+it("renders a single-agent failure inline without a bell notification", async () => {
+  const message = "opaque session refusal";
+  fixture.actions.spawnAgentTab.mockRejectedValueOnce(new TransportError(422, "/api/agents/spawn",
+    JSON.stringify({ error: { message } })));
+  const onClose = vi.fn();
+  await renderPicker({ fullAccess: false, onClose });
+  await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+  expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(message);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(fixture.actions.addNotification).not.toHaveBeenCalled();
+});
+
+it("offers folder relocation instead of session or team start for a missing workspace", async () => {
+  fixture.workspace.cwd_missing = true;
+  fixture.actions.setWorkspaceCwd.mockImplementationOnce(async () => {
+    fixture.workspace.cwd_missing = false;
+    return { warnings: [] };
+  });
+  await renderPicker({ fullAccess: false });
+  expect(dialog().querySelector('[data-testid="picker-confirm"]')).toBeNull();
+  expect(buttonNamed("Team")).toBeNull();
+  const choose = Array.from(dialog().querySelectorAll("button")).find((button) => button.textContent === "Choose folder");
+  expect(choose).toBeDefined();
+  await act(async () => choose!.click());
+  expect(fixture.actions.setWorkspaceCwd).toHaveBeenCalledExactlyOnceWith("workspace", "/relocated");
+  await renderPicker({ fullAccess: false });
+  expect(dialog().querySelector('[data-testid="picker-confirm"]')).not.toBeNull();
+  expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+  expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
 });

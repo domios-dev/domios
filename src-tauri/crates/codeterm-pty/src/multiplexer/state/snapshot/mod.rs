@@ -317,6 +317,7 @@ impl MultiplexerState {
                     Some(tab_id)
                 }).collect(),
                 cwd: normalized_snapshot_cwd(ws.cwd.as_deref()),
+                cwd_missing: false,
                 provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                 protected: ws.protected,
                 sort_order: ws.sort_order,
@@ -416,6 +417,7 @@ impl MultiplexerState {
                         tabs: added_tab_ids,
                         active_tab_id,
                         cwd: workspace_cwd,
+                        cwd_missing: false,
                         provisioned_cwd: normalized_snapshot_cwd(
                             ws_snap.provisioned_cwd.as_deref(),
                         ),

@@ -242,6 +242,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::WorkspaceAction::Focus { id } => {
                 ("POST".into(), format!("/api/workspaces/{}/focus", id), None)
             }
+            crate::WorkspaceAction::SetCwd { id, path } => (
+                "POST".into(), format!("/api/workspaces/{id}/cwd"),
+                Some(serde_json::json!({"cwd": path}).to_string()),
+            ),
             crate::WorkspaceAction::Rename { id, name } => (
                 "POST".into(),
                 format!("/api/workspaces/{}/rename", id),

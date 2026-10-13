@@ -25,6 +25,14 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 
 Tab creation accepts `shell` (profile id). `GET /api/shells?refresh=true` refreshes detection; otherwise cached. Socket: `tab.new` (`shell`), `tab.shells` (`refresh`). Unknown ids refuse creation. Shells alone accept profiles; agents remain native.
 
+A workspace's `cwd_missing` flag is derived on daemon start, workspace open and spawn refusal. A missing folder or retired volume shows a workspace error with **Choose folder**, and session/team starts are unavailable until relocation. No folder fallback or polling occurs.
+
+```bash
+codeterm workspace set-cwd <workspace-id> <absolute-folder>
+```
+
+This CLI command and the UI use the same relocation service. A spawn or pair request with an unusable cwd returns HTTP `422`, code `workspace_cwd_missing`, class `requires_workspace_repair`, the `path` and `workspace_id`, and a human message naming the workspace and recovery action.
+
 ### Text input routes: `/send` vs `/chat-send`
 
 Both routes exist as distinct handlers; choosing is route selection.
@@ -52,7 +60,8 @@ Neither route promises the recipient *answered*. Replies come through the sender
 |---|---|---|---|
 | GET | `/api/workspaces` | — | List all workspaces |
 | POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` is required, non-empty, one line, at most 64 characters, and has no control characters (absent or invalid name: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
-| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
+| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace and check its folder |
+| POST | `/api/workspaces/{id}/cwd` | `{cwd}` | Choose an existing absolute folder for the same workspace. Returns `workspace_id`, `cwd`, `updated_tabs`, `updated_plans` and `warnings`. Invalid folders return `422`. Identity, Teams, Plans and sessions are retained; idle tab and stored launch paths beneath the old root are rebased. Active tabs and paths outside that root are reported unchanged. |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace with the same name limits as create. |
 | POST | `/api/workspaces/{id}/close` | `{force?, confirm?}` or no body | Close the workspace. Agent tabs require `force: true`. A request without `X-CodeTerm-Tab-Id` is Human only when it sends `{force: true, confirm: "<workspace_id>"}` after the user confirms (logged `human-attributed (headerless, confirmed)`); otherwise it is refused as Unattributed and logged. A coordinator agent cannot close its own workspace even with `force: true`. Every Team with members here is closed through Team close before remaining tabs are removed. |
 | GET | `/api/workspaces/{id}/recently-closed` | — | This workspace's recently-closed tabs as `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
@@ -224,4 +233,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->

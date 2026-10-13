@@ -575,3 +575,20 @@ fn enumeration_agrees_with_the_shared_resolver() {
 }
 
 mod spawn_input;
+
+#[test]
+fn cwd_refusal_is_unprocessable_not_server_error() {
+    let rejection = SpawnRejection::from(crate::service::spawn_cwd::CwdRefusal {
+        path: "/missing".into(),
+        workspace_id: Some("ws".into()),
+        workspace_name: Some("project".into()),
+        problem: "does not exist".into(),
+        missing: true,
+    });
+    assert_eq!(rejection.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(rejection.body["error"]["code"], "workspace_cwd_missing");
+    assert_eq!(
+        rejection.body["error"]["class"],
+        "requires_workspace_repair"
+    );
+}

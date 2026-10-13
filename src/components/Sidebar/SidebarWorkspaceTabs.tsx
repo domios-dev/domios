@@ -514,7 +514,7 @@ export function SidebarWorkspaceTabs({
         {rows}
       </SortableContext>
       <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
-        {onNewSession && <CursorTooltip
+        {onNewSession && !ws.cwd_missing && <CursorTooltip
           active={newSessionDisabled}
           content="Finish Get started first"
           className="flex min-w-0 flex-1"
