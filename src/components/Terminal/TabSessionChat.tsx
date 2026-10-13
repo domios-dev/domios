@@ -309,6 +309,9 @@ export function TabSessionChat({
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
   const runtimeUnavailable = runtime.state != null && runtime.state.state !== "loaded";
+  const runtimeDegraded = runtime.state?.state === "degraded";
+  const runtimeReplacement = runtimeDegraded
+    ? <AgentRuntimeBanner state={runtime.state} onRetry={() => { void runtime.retry(); }} /> : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
@@ -784,7 +787,6 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      <AgentRuntimeBanner state={runtime.state} onRetry={() => { void runtime.retry(); }} />
       {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
       <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
@@ -956,7 +958,7 @@ export function TabSessionChat({
       </div>
       <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
       {isWatcherTab && watcherSpec ? (
-        <WatcherReadOnlyBar
+        runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
           modelBubble={watcherModelBubble}
         />
@@ -967,6 +969,7 @@ export function TabSessionChat({
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
+          runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatChannelLoading}
           channelLoadingLabel={chatChannelLoadingRow(chatChannelLoading, setupView) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
@@ -993,12 +996,13 @@ export function TabSessionChat({
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {uploadStatus}
-      {!managedTabPresentation(tab?.managed).locked && <ChatComposer
+      {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
-        isActive={isActive}
+        isActive={isActive && !runtimeDegraded}
+        replacement={runtimeReplacement}
         pendingPrompt={pendingPrompt}
         attachments={attachments}
         addAttachments={addAttachments}

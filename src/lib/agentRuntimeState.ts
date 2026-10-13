@@ -2,6 +2,8 @@ export interface AgentRuntimeState {
   state: "loading" | "loaded" | "unloaded" | "degraded";
   epoch: number;
   reason?: string | null;
+  active_turn_started_at_ms?: number | null;
+  last_turn_duration_ms?: number | null;
 }
 
 export interface AgentRuntimeStateEvent {
@@ -21,7 +23,11 @@ export function runtimeStateFromSnapshot(
 ): AgentRuntimeState | null {
   if (!next) return null;
   if (current && next.epoch < current.epoch) return current;
-  if (next.state === "loaded") return { state: "loaded", epoch: next.epoch };
+  if (next.state === "loaded") {
+    const loaded = { ...next };
+    delete loaded.reason;
+    return loaded;
+  }
   if (next.state === "loading") return { ...next, reason: next.reason ?? current?.reason };
   return { ...next, reason: next.reason?.trim() || "Agent runtime unavailable" };
 }

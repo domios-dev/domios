@@ -14,6 +14,8 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   const snapshotState = snapshot?.state;
   const snapshotEpoch = snapshot?.epoch;
   const snapshotReason = snapshot?.reason;
+  const snapshotStartedAt = snapshot?.active_turn_started_at_ms;
+  const snapshotDuration = snapshot?.last_turn_duration_ms;
   const pending = useRef(false);
   const publish = (state: AgentRuntimeState | null) => {
     current.current = { key, state };
@@ -23,12 +25,13 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   useEffect(() => {
     revision.current++;
     const next = snapshotState !== undefined && snapshotEpoch !== undefined
-      ? { state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason } : null;
+      ? { state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason,
+        active_turn_started_at_ms: snapshotStartedAt, last_turn_duration_ms: snapshotDuration } : null;
     const state = runtimeStateFromSnapshot(current.current.key === key ? current.current.state : null, next);
     if (current.current.key === key && current.current.state === state) return;
     current.current = { key, state };
     setRecord(current.current);
-  }, [key, snapshotState, snapshotEpoch, snapshotReason]);
+  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration]);
 
   useEffect(() => {
     generation.current++;
