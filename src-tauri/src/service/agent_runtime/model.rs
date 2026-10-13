@@ -23,6 +23,7 @@ pub enum RuntimeFailure {
     Deadline,
     HookFailed(String),
     Refused(String),
+    PrewriteRefused(String),
     Superseded,
 }
 

@@ -357,7 +357,10 @@ fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgen
                         .lock()
                         .working(context.active_turn_id == turn_id, at, started_at)
                 }
-                RuntimeTurnState::Idle => session.state.lock().completed(at, completed_at),
+                RuntimeTurnState::Idle => {
+                    engine::record_completed_turn(session, &thread_id, turn_id.as_deref());
+                    session.state.lock().completed(at, completed_at);
+                }
                 RuntimeTurnState::NeedsInput => {}
             }
             let verdict = match state {
