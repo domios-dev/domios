@@ -5,7 +5,7 @@ use crate::multiplexer::types::{Tab, TabBacking};
 use crate::service::hierarchy::report_plan_ctx::tab_holds;
 use crate::session::lifecycle::{
     checkpoint_history, AgentTypeWriteOrigin, JournalLoad, JournalRecord, LifecycleCheckpoint,
-    LifecycleTransition, TabLifecycleJournal, TailStatus,
+    LifecycleTransition, TailStatus,
 };
 
 use super::provider_identity::{AgentTypeWriteOutcome, TabAgentTypeState};
@@ -362,8 +362,9 @@ impl ServiceContext {
         let inspected_tab = target.tab_id.clone();
         let inspected_session = session_id.clone();
         let inspected_provider = provider.clone();
+        let journal = self.lifecycle_journal.clone();
         let plan = tokio::task::spawn_blocking(move || {
-            let load = TabLifecycleJournal::shared().load();
+            let load = journal.load();
             select_journal_restore(
                 &load,
                 &inspected_tab,

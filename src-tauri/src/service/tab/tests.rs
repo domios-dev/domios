@@ -2,7 +2,7 @@ use crate::multiplexer::types::AgentRole;
 use crate::service::launch_readiness::{self, LaunchAttempt, LaunchExitProof};
 use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeKey};
 use crate::service::test_fixture::ServiceFixture;
-use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
+use crate::session::lifecycle::{JournalRecord, LifecycleTransition};
 use codeterm_types::pty::{RemoteOwnership, RemoteOwnershipTeam};
 use std::collections::HashSet;
 
@@ -230,7 +230,9 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
             .and_then(|tab| tab.ownership.as_ref())
             .map(|owner| owner.peer_id.clone()),
     ));
-    assert!(TabLifecycleJournal::shared()
+    assert!(fixture
+        .service
+        .lifecycle_journal
         .load()
         .records
         .iter()

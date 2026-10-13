@@ -23,6 +23,42 @@ impl ServiceContext {
             handoff_history,
             fresh,
         } = options;
+        let (resolved, current_provider, backing) = {
+            let mux = self.mux.read();
+            let resolved = mux
+                .resolve_tab_id(tab_id)
+                .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {tab_id} not found")))?;
+            let tab = mux
+                .get_tab(&resolved)
+                .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {resolved} not found")))?;
+            (resolved, tab.agent_type.clone(), tab.backing.clone())
+        };
+        if let Some(source) = current_provider.as_deref() {
+            if let Some(target) = target_provider
+                .as_deref()
+                .filter(|target| *target != source)
+            {
+                self.require_restart_provider_handoff(source, target)?;
+            }
+            let declared = crate::service::agent_runtime::engine::requested(self, source);
+            if super::runtime::restart_route(declared, &backing)
+                == super::runtime::RestartRoute::Runtime
+            {
+                if fresh && (target_provider.is_some() || handoff_history) {
+                    return Err(AgentRestartError::BadRequest(
+                        "fresh restart cannot change provider or hand off history".into(),
+                    )
+                    .into());
+                }
+                if handoff_history && target_provider.is_none() {
+                    return Err(AgentRestartError::BadRequest(
+                        "history handoff requires a target provider".into(),
+                    )
+                    .into());
+                }
+                return self.restart_runtime_agent(&resolved, force, fresh);
+            }
+        }
         if fresh {
             if target_provider.is_some() || handoff_history {
                 return Err(AgentRestartError::BadRequest(

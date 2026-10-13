@@ -11,6 +11,7 @@ pub trait CommandPort: Send + Sync {
     fn ensure_storage_available(&self) -> Result<(), String> {
         Ok(())
     }
+    fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad;
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
     /// The status-bearing snapshot, waiting for the state locks no later than
     /// `deadline`. `None` means a writer held them past the deadline.
@@ -484,7 +485,8 @@ fn cmd_tab_inspect(
             .tabs
             .get(&tab_ids[0])
             .ok_or_else(|| "requested Tab was not found".to_string())?;
-        tabs[0]["lifecycle"] = crate::session::lifecycle::inspect_tab_lifecycle(tab);
+        tabs[0]["lifecycle"] =
+            crate::session::lifecycle::inspect_tab_lifecycle(tab, &ctx.lifecycle_journal());
     }
     Ok(CommandResult::Json(serde_json::json!(tabs)))
 }

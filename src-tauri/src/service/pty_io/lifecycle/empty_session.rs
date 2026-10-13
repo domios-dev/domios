@@ -214,7 +214,7 @@ impl ServiceContext {
             provider_id,
             session_id,
             session_exists,
-            TabLifecycleJournal::shared(),
+            &self.lifecycle_journal,
         )
     }
 
@@ -321,7 +321,11 @@ impl ServiceContext {
 
     pub(super) fn emit_empty_restore_notice(&self, tab_id: &str) {
         let mut notices = Vec::new();
-        crate::service::tab_chat::restore_notice::append_restore_notice(tab_id, &mut notices);
+        crate::service::tab_chat::restore_notice::append_restore_notice(
+            &self.lifecycle_journal,
+            tab_id,
+            &mut notices,
+        );
         let authority = self.mux.read().get_tab(tab_id).map(|tab| {
             (
                 tab.agent_session_id.clone(),

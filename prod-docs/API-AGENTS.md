@@ -5,6 +5,8 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 
 Restart a live agent through its provider exit command, bounded shell-ready wait and PTY replacement. Resume its recorded session if present; otherwise launch fresh. Unobserved liveness allows fresh launch only with `LaunchBindingUnconfirmed`, no owning launch, a live shell prompt and no verified lineage/journal recovery session; it replaces the PTY and clears the unverified binding without sending exit. Other unobserved states refuse. An observed exited provider recovers in its surviving shell without teardown: select the newest lineage session (journal fallback), require nonce-verification evidence and exactly one owning provider, then resume through normal launch.
 
+Chat tabs with `agentRuntime` resume the same thread with a new epoch and nonce, retaining identity and launch options without replay. Explicit `fresh: true` opens a new thread under fresh guards. Readiness requires `thread_loaded`; PTY ids are null. Failures degrade. Handoff refuses with `runtime_provider_handoff_unsupported`.
+
 ```json
 {"force": false, "grace_secs": 10, "provider": null, "handoff_history": false}
 ```
@@ -26,7 +28,7 @@ Restart a live agent through its provider exit command, bounded shell-ready wait
 }
 ```
 
-`session_action` is `resumed` or `fresh_launch`; CLI success requires `agent_ready: true`. Transition fields are observations: `restart_accepted` records validation/rate-limit acceptance, `old_pty_torn_down` records prior PTY/tree exit, and `agent_ready` requires new `AgentReady` evidence for a distinct `new_pty_id`. Old readiness never qualifies. In-place recovery keeps matching PTY ids and retires the old shell stage first. `session_was_stale: true` means missing JSONL and fresh launch.
+`session_action` is `resumed` or `fresh_launch`; CLI success requires `agent_ready: true`. Transition fields are observations: `restart_accepted` records validation/rate-limit acceptance, `old_pty_torn_down` records prior PTY/tree exit, and, for PTY replacement, `agent_ready` requires new `AgentReady` evidence for a distinct `new_pty_id`. Old readiness never qualifies. In-place recovery keeps matching PTY ids and retires the old shell stage first. `session_was_stale: true` means missing JSONL and fresh launch.
 
 **Errors:**
 - `404` — tab id not found
@@ -35,7 +37,7 @@ Restart a live agent through its provider exit command, bounded shell-ready wait
 - `500` — teardown or relaunch failed
 - `504` — the replacement PTY did not reach `AgentReady` inside the bounded readiness deadline
 
-Failures after acceptance include `error` plus the same transition fields. Every boolean stays false unless that leg was observed; `new_pty_id` appears only if a replacement PTY was linked. Rejections (`400`, `404`, `429`) precede acceptance and keep compact error bodies. A failed restart is never returned in the ready `202` shape.
+Failures include `error` and observed transition fields; `new_pty_id` requires a linked PTY. Rejections precede acceptance. A failed restart never returns ready `202`.
 
 CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N] [--provider PROVIDER [--handoff-history]]`.
 Provider changes discard source launch settings; history handoff requires explicit opt-in.
@@ -192,7 +194,7 @@ Plan surface contracts — planner authority over task structure, partial `plan 
 
 A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->
 
 ### Background work and session forks
 

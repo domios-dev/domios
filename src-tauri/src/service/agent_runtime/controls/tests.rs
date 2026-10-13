@@ -101,11 +101,12 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
         crate::storage::StorageConfig::default(),
     )
     .unwrap();
-    crate::service::session_persist::install_storage_desk_adapter(
-        fixture._app.handle(),
-        crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
-    )
-    .unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    let initial = fixture.service.mux.read().to_session_snapshot();
+    adapter.import_snapshot(&initial, Vec::new()).unwrap();
+    assert!(!adapter.state().unwrap().snapshot.workspaces.is_empty());
+    crate::service::session_persist::install_storage_desk_adapter(fixture._app.handle(), adapter)
+        .unwrap();
     let methods = [
         "initialize",
         "resumeThread",
