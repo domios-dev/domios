@@ -66,6 +66,16 @@ fn macos_process_is_translated() -> bool {
 }
 
 pub async fn fetch(url: &str) -> Result<Manifest, String> {
+    if codeterm_plugins::update_source::fixture_root().is_some() {
+        let url = url.to_owned();
+        return tokio::task::spawn_blocking(move || {
+            let bytes =
+                codeterm_plugins::update_source::discovery_source().fetch(&url, 1024 * 1024)?;
+            serde_json::from_slice(&bytes).map_err(|e| format!("update fixture: {e}"))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     let lower = url.to_ascii_lowercase();
 
     if lower.starts_with("file://") {
@@ -135,6 +145,16 @@ fn load_file_manifest(url: &str) -> Result<Manifest, String> {
 }
 
 async fn fetch_http(url: &str) -> Result<Manifest, String> {
+    if url.starts_with("https://") {
+        let url = url.to_string();
+        return tokio::task::spawn_blocking(move || {
+            let bytes =
+                codeterm_plugins::update_source::discovery_source().fetch(&url, 1024 * 1024)?;
+            serde_json::from_slice(&bytes).map_err(|e| format!("manifest: {e}"))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     let client = reqwest::Client::builder()
         .user_agent("CodeTerm-Updater")
         .build()

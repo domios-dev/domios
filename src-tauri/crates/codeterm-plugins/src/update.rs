@@ -43,7 +43,7 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
     };
     refresh_channel(Some(channel))?;
     let status = installed_update_status(id, before.as_deref(), Some(&provenance));
-    if status["available"] != true {
+    if status["reason"] != "newer_version" {
         return Err(format!(
             "plugin '{id}' is not updatable: {}",
             status["reason"].as_str().unwrap_or("unknown")
@@ -92,6 +92,10 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
 pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Value, String> {
     ensure_system_channel()?;
     refresh_channel(Some(SYSTEM_CHANNEL_NAME))?;
+    update_system_cached(id)
+}
+
+pub(super) fn update_system_cached(id: Option<String>) -> Result<serde_json::Value, String> {
     let reg = read_channel_registry()?;
     let channel = reg
         .channels
@@ -151,6 +155,11 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
                 "system plugin '{id}' is not installable: {}",
                 decision.reason
             ));
+            continue;
+        }
+        if decision.reason == "same_version"
+            && manifest_hash(&plugin_dir(&parsed_id)).ok() == manifest_hash(&source_dir).ok()
+        {
             continue;
         }
         let record = InstallRecord {

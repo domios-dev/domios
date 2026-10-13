@@ -221,7 +221,7 @@ fn system_channel_named_refresh_returns_materialization_error() {
 }
 
 #[test]
-fn system_channel_aggregate_refresh_skips_failed_materialization() {
+fn system_channel_aggregate_refresh_reports_failure_and_refreshes_healthy_channels() {
     with_data_root(|root| {
         let missing_source = root.join("missing-system-source");
         std::env::set_var(
@@ -245,7 +245,8 @@ fn system_channel_aggregate_refresh_skips_failed_materialization() {
             &[("refreshed-plugin", "provider-new")],
         );
 
-        refresh_channel(None).expect("aggregate refresh skips core failure");
+        let error = refresh_channel(None).expect_err("aggregate refresh reports core failure");
+        assert!(error.contains(SYSTEM_CHANNEL_NAME));
 
         let registry = read_channel_registry().unwrap();
         let healthy = registry.channels.get("healthy").expect("healthy channel");
@@ -281,5 +282,22 @@ fn system_channel_list_stays_virtual_without_network() {
         assert_eq!(core["removable"], false);
         assert!(read_channel_registry().unwrap().channels.is_empty());
         assert!(!channels_root().exists());
+    });
+}
+
+#[test]
+fn git_diff_uses_validated_cache_without_a_second_fetch() {
+    with_data_root(|root| {
+        let cache = root.join("cache");
+        write_channel(&cache, "cached", &[("demo", "demo")]);
+        let channel = ChannelRecord {
+            name: "cached".into(),
+            path: cache.to_string_lossy().into_owned(),
+            url: format!("file://{}", root.join("unreachable-origin").display()),
+            kind: ChannelKind::Git,
+        };
+        let rows = diff_channel_rows(&channel).expect("completed cache stays available offline");
+        assert_eq!(rows[0].remote_version.as_deref(), Some("1.0.0"));
+        assert_eq!(rows[0].id, "demo");
     });
 }

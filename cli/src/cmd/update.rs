@@ -440,9 +440,9 @@ pub fn handle_update(
     match resolved.unwrap_or(UpdateAction::Check { force: false }) {
         UpdateAction::Check { force } => {
             let url = if force {
-                format!("{}/api/update/check?force=true", base_url)
+                format!("{}/api/update/availability?force=true", base_url)
             } else {
-                format!("{}/api/update/check", base_url)
+                format!("{}/api/update/availability", base_url)
             };
             match http.get(&url).send() {
                 Ok(resp) if resp.status().is_success() => {
@@ -453,24 +453,20 @@ pub fn handle_update(
                             serde_json::to_string_pretty(&body).unwrap_or_default()
                         );
                     } else {
-                        let current = body["current_version"].as_str().unwrap_or("?");
-                        let latest = body["latest_version"].as_str().unwrap_or("?");
-                        let method = body["install_method"].as_str().unwrap_or("unknown");
-                        let available = body["update_available"].as_bool().unwrap_or(false);
-
-                        println!(
-                            "Current: v{}  Latest: v{}  Install: {}",
-                            current, latest, method
-                        );
-                        if available {
-                            println!("Update available!");
-                            if let Some(cmd) = body["update_command"].as_str() {
-                                println!("Run: {}", cmd);
-                            } else if let Some(url) = body["download_url"].as_str() {
-                                println!("Download: {}", url);
-                            }
-                        } else {
-                            println!("Up to date.");
+                        for item in body["items"].as_array().into_iter().flatten() {
+                            println!(
+                                "{}: {} → {} ({})",
+                                item["id"].as_str().unwrap_or("?"),
+                                item["installed"].as_str().unwrap_or("unknown"),
+                                item["latest"].as_str().unwrap_or("unknown"),
+                                item["state"].as_str().unwrap_or("unknown")
+                            );
+                        }
+                        for (source, error) in body["errors"].as_object().into_iter().flatten() {
+                            println!(
+                                "WARNING: {source}: {}",
+                                error.as_str().unwrap_or("discovery failed")
+                            );
                         }
                     }
                 }
