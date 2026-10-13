@@ -474,6 +474,11 @@ runner from the shared pool or replace its service/global PATH to hide failure.
 
 ## CI archive extraction
 
+If archive classification rejects a generated `include!`, the classifier needs
+the package's exact Cargo `build-script-executed` OUT_DIR. The archive builder
+captures Cargo JSON and passes that directory to the classifier, which traverses
+the generated Rust source and refuses missing or unsupported include expressions.
+
 If nextest archive creation succeeds but extraction fails canonicalizing the
 destination with OS error 2, the extract directory has not been created.
 The builder classification and consumer helpers create their job-local extract

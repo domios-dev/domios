@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { archivePlatform, archiveRunArgs, validateArchiveSuite, verifyArchiveBuilds } from '../ci-rust-archives.mjs';
+import { archivePlatform, archiveRunArgs, generatedDirectories, validateArchiveSuite, verifyArchiveBuilds } from '../ci-rust-archives.mjs';
 
 const builds = () => ['macOS', 'Linux', 'Windows'].map((os) => ({ os, arch: os === 'macOS' ? 'ARM64' : 'X64', sha: 'TOKEN_SHA', exit: 0, runner: os + '-builder', seconds: 10 }));
 const receipts = () => builds().map(({ os, arch, sha }) => ({ os, arch, sha }));
+test('generated source directories come from executed Cargo package messages', () => {
+  const messages = [{reason: 'compiler-artifact', package_id: 'A'}, {reason: 'build-script-executed', package_id: 'A', out_dir: '/exact/out'}];
+  assert.deepEqual(generatedDirectories(messages.map(JSON.stringify).join('\n')), { A: '/exact/out' });
+});
 test('archive identity binds operating system and architecture', () => {
   assert.equal(archivePlatform('macOS', 'ARM64'), 'macOS-ARM64');
   assert.throws(() => archivePlatform('Linux', 'unknown'));

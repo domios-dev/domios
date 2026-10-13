@@ -92,12 +92,50 @@ impl<'ast> Visit<'ast> for BodyPlatform {
     }
 }
 
+fn include_path(tokens: impl ToTokens, source: &Path, out_dir: Option<&Path>) -> PathBuf {
+    let tokens = tokens.to_token_stream();
+    if let Ok(literal) = syn::parse2::<syn::LitStr>(tokens.clone()) {
+        return source.join(literal.value());
+    }
+    let expression: syn::ExprMacro = syn::parse2(tokens).expect("unsupported include expression");
+    assert!(
+        expression.mac.path.is_ident("concat"),
+        "unsupported include macro"
+    );
+    let parts = expression
+        .mac
+        .parse_body_with(syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)
+        .expect("include concat arguments");
+    let mut value = String::new();
+    for part in parts {
+        match part {
+            syn::Expr::Lit(lit) => match lit.lit {
+                syn::Lit::Str(text) => value.push_str(&text.value()),
+                _ => panic!("include concat requires strings"),
+            },
+            syn::Expr::Macro(mac) if mac.mac.path.is_ident("env") => {
+                let name: syn::LitStr = mac.mac.parse_body().expect("include env name");
+                assert_eq!(name.value(), "OUT_DIR", "unsupported include environment");
+                value.push_str(
+                    out_dir
+                        .expect("include requires Cargo build-script OUT_DIR")
+                        .to_str()
+                        .expect("OUT_DIR UTF-8"),
+                );
+            }
+            _ => panic!("unsupported include concat expression"),
+        }
+    }
+    source.join(value)
+}
+
 fn walk(
     file: &Path,
     directory: &Path,
     prefix: &str,
     inherited: bool,
     output: &mut Vec<serde_json::Value>,
+    out_dir: Option<&Path>,
 ) {
     let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
     let parsed = syn::parse_file(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
@@ -108,6 +146,7 @@ fn walk(
         prefix,
         inherited || platform(&parsed.attrs),
         output,
+        out_dir,
     );
 }
 
@@ -118,6 +157,7 @@ fn items(
     prefix: &str,
     inherited: bool,
     output: &mut Vec<serde_json::Value>,
+    out_dir: Option<&Path>,
 ) {
     for item in declarations {
         match item {
@@ -133,6 +173,7 @@ fn items(
                         &next_prefix,
                         gated,
                         output,
+                        out_dir,
                     );
                 } else {
                     let explicit = module.attrs.iter().find_map(|attr| {
@@ -161,7 +202,7 @@ fn items(
                     } else {
                         path.parent().unwrap().join(path.file_stem().unwrap())
                     };
-                    walk(&path, &child_dir, &next_prefix, gated, output);
+                    walk(&path, &child_dir, &next_prefix, gated, output, out_dir);
                 }
             }
             Item::Fn(function) => {
@@ -180,14 +221,14 @@ fn items(
                 }
             }
             Item::Macro(invocation) if invocation.mac.path.is_ident("include") => {
-                let relative: syn::LitStr = syn::parse2(invocation.mac.tokens.clone())
-                    .expect("include! source must be a literal path");
+                let path = include_path(invocation.mac.tokens.clone(), source_directory, out_dir);
                 walk(
-                    &source_directory.join(relative.value()),
+                    &path,
                     directory,
                     prefix,
                     inherited || platform(&invocation.attrs),
                     output,
+                    out_dir,
                 );
             }
             Item::Macro(invocation) if invocation.ident.is_none() => {
@@ -222,7 +263,15 @@ fn main() {
             .expect("usage: ci-test-classifier ROOT_RS"),
     );
     let mut output = Vec::new();
-    walk(&root, root.parent().unwrap(), "", false, &mut output);
+    let out_dir = env::args().nth(2).map(PathBuf::from);
+    walk(
+        &root,
+        root.parent().unwrap(),
+        "",
+        false,
+        &mut output,
+        out_dir.as_deref(),
+    );
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
@@ -240,8 +289,32 @@ mod tests {
             "",
             false,
             &mut output,
+            None,
         );
         output
+    }
+
+    #[test]
+    fn resolves_generated_include_from_exact_cargo_output() {
+        let tokens = quote::quote!(concat!(env!("OUT_DIR"), "/generated.rs"));
+        assert_eq!(
+            include_path(tokens, Path::new("src"), Some(Path::new("/build/out"))),
+            PathBuf::from("/build/out/generated.rs")
+        );
+        assert_eq!(
+            include_path(quote::quote!("tests.rs"), Path::new("src"), None),
+            PathBuf::from("src/tests.rs")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Cargo build-script OUT_DIR")]
+    fn missing_generated_directory_refuses_classification() {
+        include_path(
+            quote::quote!(concat!(env!("OUT_DIR"), "/generated.rs")),
+            Path::new("src"),
+            None,
+        );
     }
 
     #[test]

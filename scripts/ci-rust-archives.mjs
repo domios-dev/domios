@@ -23,6 +23,15 @@ export function archiveRunArgs(archive, workspace, extract, config, partition = 
     '--status-level', 'pass', '--failure-output', 'immediate-final', ...(alone ? ['--test-threads', '1'] : [])];
 }
 
+export function generatedDirectories(messages) {
+  const directories = {};
+  for (const line of messages.split('\n').filter(Boolean)) {
+    const message = JSON.parse(line);
+    if (message.reason === 'build-script-executed') directories[message.package_id] = message.out_dir;
+  }
+  return directories;
+}
+
 export function verifyArchiveBuilds(builds, receipts) {
   if (builds.length < 3 || !['macOS', 'Linux', 'Windows'].every((os) => builds.some((b) => b.os === os))) throw new Error('Missing OS archive build');
   const seen = new Set();
@@ -62,7 +71,8 @@ function build() {
       const include = lane === 'workspace' ? '\narchive.include = [{ path = ' + JSON.stringify('debug/' + runtime) + ', relative-to = "target", on-missing = "error" }]\n' : '\n';
       fs.writeFileSync(config, '[profile.default]\ndefault-filter = "all()"' + include);
       const archive = path.resolve('ci-rust-archives', lane + '.tar.zst');
-      execFileSync('cargo', ['nextest', 'archive', '--manifest-path', manifest, '--workspace', '--locked', ...(lane === 'workspace' ? ['--lib'] : []), '--config-file', config, '--archive-file', archive], { stdio: 'inherit' });
+      const messages = execFileSync('cargo', ['nextest', 'archive', '--manifest-path', manifest, '--workspace', '--locked', ...(lane === 'workspace' ? ['--lib'] : []), '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+      const generated = generatedDirectories(messages);
       if (lane === 'workspace' && !fs.statSync(path.join(metadata.target_directory, 'debug', runtime)).size) throw new Error('Runtime embed sidecar was overwritten while archiving');
       const extract = path.resolve(process.env.RUNNER_TEMP, 'rust-archive-classify', lane);
       fs.mkdirSync(extract, { recursive: true });
@@ -72,7 +82,7 @@ function build() {
         const pkg = metadata.packages.find((p) => p.id === suite['package-id']);
         const target = pkg?.targets.find((t) => t.name === suite['binary-name'] && (suite.kind === 'lib' ? t.kind.some((k) => ['lib', 'rlib', 'cdylib', 'staticlib'].includes(k)) : t.kind.includes(suite.kind)));
         if (!target) throw new Error('No source root for ' + suite['binary-id']);
-        sources[suite['binary-id']] = commandJson('cargo', ['run', '--quiet', '--locked', '--manifest-path', 'scripts/ci-test-classifier/Cargo.toml', '--', target.src_path]);
+        sources[suite['binary-id']] = commandJson('cargo', ['run', '--quiet', '--locked', '--manifest-path', 'scripts/ci-test-classifier/Cargo.toml', '--', target.src_path, ...(generated[pkg.id] ? [generated[pkg.id]] : [])]);
       }
       fs.writeFileSync(path.resolve('ci-rust-archives', lane + '.suite.json'), JSON.stringify({ os, arch, sha, rows: classifyInventory(inventory, sources) }));
     }
