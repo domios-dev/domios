@@ -26,7 +26,7 @@ The round avatar and chevron immediately left of Settings open the Account menu.
 
 ## Product analytics
 
-Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter first reads build-time `DOMIOS_AMPLITUDE_API_KEY_TEST` or `DOMIOS_AMPLITUDE_API_KEY_PROD`, then reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store. It holds the queue while the key is missing; analytics status reports `vendor_available=false`. Every sink shares the consent gate, the closed product event catalog below, the persisted queue and the bounded retry policy.
+Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter first reads build-time DOMIOS_AMPLITUDE_API_KEY_TEST or DOMIOS_AMPLITUDE_API_KEY_PROD, then reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store and holds the queue while it is missing; analytics status reports vendor_available=false. Every sink shares the consent gate, the closed product event catalog below, the persisted queue and the bounded retry policy.
 
 Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Sign-out removes it from subsequent events; events already queued keep the identity that owned them. Sign-in while analytics is off does not persist an analytics account ID. Opting in while signed in attaches the current account ID. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
 
@@ -65,7 +65,6 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 - **Feature:** `dreaming_run`, `cron_created`, `blueprint_created`, `theme_changed`, `telegram_bridge_used`, `voice_input_used`, `plugin_installed`, `team_created`, `memory_saved`, `web_ui_opened`
 - **ProviderId:** `claude`, `codex`, `cursor`, `opencode`, `other`
 <!-- analytics-catalog:end -->
-
 
 ## Local API
 

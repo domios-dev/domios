@@ -1,0 +1,19 @@
+[package]
+name = "codeterm-repowatch"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+git2 = { version = "0.19", features = ["vendored-openssl"] }
+notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
+notify-debouncer-mini = "0.5"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+codeterm-util = { path = "../codeterm-util" }
+tempfile = "3"

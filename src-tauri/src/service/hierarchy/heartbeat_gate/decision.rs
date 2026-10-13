@@ -154,21 +154,43 @@ pub(super) fn classify(
         decision.worker_labels.insert(worker.tab_id.clone(), label);
     }
     if decision.wake {
-        let mut steps: Vec<String> = snapshot
-            .hard
-            .iter()
-            .map(|hard| hard.next_step(&snapshot.plan_id))
-            .collect();
-        steps.append(&mut decision.next_steps);
-        if steps.is_empty() {
-            steps.push(format!(
-                "inspect the new plan evidence with codeterm plan state {} and choose its next action",
-                snapshot.plan_id
-            ));
-        }
-        decision.next_steps = steps;
+        decision.next_steps = wake_steps(snapshot, std::mem::take(&mut decision.next_steps));
     }
     Ok(decision)
+}
+
+/// The Owner floor: a deterministic wake with heuristic Worker steps, so a missing,
+/// failing or denying adapter never silences a plan that still has actionable work.
+pub(super) fn cadence(snapshot: &Snapshot) -> Decision {
+    let mut decision = suppressed(snapshot, "cadence", "actionable_cadence");
+    decision.wake = true;
+    decision.tick_label = "action_needed".into();
+    let worker_steps = snapshot
+        .workers
+        .iter()
+        .filter_map(|worker| {
+            let label = worker.heuristic_label();
+            (label != "on_track").then(|| worker.next_step(label))
+        })
+        .collect();
+    decision.next_steps = wake_steps(snapshot, worker_steps);
+    decision
+}
+
+fn wake_steps(snapshot: &Snapshot, mut worker_steps: Vec<String>) -> Vec<String> {
+    let mut steps: Vec<String> = snapshot
+        .hard
+        .iter()
+        .map(|hard| hard.next_step(&snapshot.plan_id))
+        .collect();
+    steps.append(&mut worker_steps);
+    if steps.is_empty() {
+        steps.push(format!(
+            "inspect the new plan evidence with codeterm plan state {} and choose its next action",
+            snapshot.plan_id
+        ));
+    }
+    steps
 }
 
 pub(super) fn error_reason(error: &DecisionError) -> &'static str {

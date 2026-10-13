@@ -1,0 +1,15 @@
+[package]
+name = "codeterm-notification-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+codeterm-types = { path = "../codeterm-types" }
+codeterm-util = { path = "../codeterm-util" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+
+[dev-dependencies]
+tempfile = "3"

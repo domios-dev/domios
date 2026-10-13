@@ -1,29 +1,4 @@
-//! App-crate `Command`-spawning helpers. The generic std/macOS spawn helpers live
-//! in `codeterm_util::process_util`; the tokio variant stays here because the util
-//! leaf crate must not pull the tokio runtime, and the Windows spawn audit must
-//! scan this crate's `src` tree (via `CARGO_MANIFEST_DIR`).
-
 pub use codeterm_util::process_util::*;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-/// Same idea as `no_window_std` for `tokio::process::Command`. tokio exposes
-/// `creation_flags` as an inherent method on Windows, so no trait
-/// import is needed here.
-#[cfg(windows)]
-pub fn no_window_tokio(cmd: &mut tokio::process::Command) {
-    cmd.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(windows)]
-pub fn no_window_tokio_suspended(cmd: &mut tokio::process::Command) {
-    cmd.creation_flags(CREATE_NO_WINDOW | 0x0000_0004);
-}
-
-#[cfg(not(windows))]
-#[inline]
-pub fn no_window_tokio(_cmd: &mut tokio::process::Command) {}
 
 #[cfg(test)]
 mod spawn_audit_tests {
