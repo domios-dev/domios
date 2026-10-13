@@ -519,5 +519,5 @@ fn commands_without_context_stay_without_it() {
             arm.split_whitespace().next().unwrap_or("?")
         );
     }
-    assert_eq!(seen, 7, "workspace arm count is frozen");
+    assert_eq!(seen, 8, "workspace arm count is frozen");
 }
