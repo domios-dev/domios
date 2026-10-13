@@ -205,8 +205,9 @@ pub(crate) fn send_envelope(
     tab: &str,
     input: &str,
     token: &str,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    super::envelope_delivery::send(svc, tab, input, token)
+    super::envelope_delivery::send(svc, tab, input, token, observer)
 }
 
 pub fn control(

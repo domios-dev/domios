@@ -27,6 +27,7 @@ pub(super) fn send(
     tab: &str,
     input: &str,
     token: &str,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<Delivery, String> {
     let token = format!("runtime-envelope:{token}");
     svc.restore_durable_user_statuses(tab)?;
@@ -39,11 +40,12 @@ pub(super) fn send(
         if status.state == ChatSendState::Pending {
             super::user_delivery::drain(svc, tab)?;
         }
-        return outcome(
-            svc.chat_send_ledger
-                .status(&id)
-                .ok_or("Durable runtime envelope status unavailable")?,
-        );
+        let status = svc
+            .chat_send_ledger
+            .status(&id)
+            .ok_or("Durable runtime envelope status unavailable")?;
+        record_write(svc, &status)?;
+        return outcome(status);
     }
     tauri::async_runtime::block_on(super::engine::ensure(svc, tab))
         .map_err(|reason| reason.to_string())?;
@@ -59,10 +61,11 @@ pub(super) fn send(
                 crate::service::parked_user_delivery::UserWake::Admission,
             );
         }
+        record_write(svc, &status)?;
         return outcome(status);
     }
     let store = &svc.pending_delivery_payloads.user_sends;
-    let record = store.admit_with_follow_up(&reservation, input, input, None, None, false)?;
+    let record = store.admit_runtime_envelope(&reservation, input, observer)?;
     let status = svc.chat_send_ledger.admit_user(&record);
     let status = svc
         .chat_send_ledger
@@ -81,6 +84,33 @@ pub(super) fn send(
         .status(&record.send_id)
         .ok_or("Runtime envelope outcome unavailable")?;
     outcome(status)
+}
+
+pub(super) fn record_write(svc: &ServiceContext, status: &ChatSendStatus) -> Result<(), String> {
+    let observation = svc
+        .pending_delivery_payloads
+        .user_sends
+        .take_runtime_write_observer(status);
+    match observation {
+        Ok(Some(observer)) => {
+            svc.record_runtime_delivery_written(&status.tab_id, &status.send_id, observer)
+        }
+        Ok(None) => {}
+        Err(reason) => {
+            if let Some(session) = super::engine::for_tab(&status.tab_id) {
+                if super::engine::validate_binding(svc, &session).is_ok() {
+                    let epoch = session.state.lock().epoch;
+                    session.state.lock().degrade(
+                        epoch,
+                        &super::model::RuntimeFailure::HookFailed(reason.clone()),
+                    );
+                    super::engine::publish(svc, &status.tab_id, &session);
+                }
+            }
+            return Err(reason);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
