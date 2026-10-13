@@ -325,6 +325,54 @@ impl PlanStore {
         Ok(project_root)
     }
 
+    pub fn relocate_workspace_projects(
+        &self,
+        tab_ids: &[String],
+        team_ids: &[String],
+        rebase: impl Fn(&str) -> Option<String>,
+    ) -> std::io::Result<(Vec<String>, Vec<String>)> {
+        let _writer_turn = self.mutation_writer.enter();
+        let mut updated = Vec::new();
+        let mut warnings = Vec::new();
+        for mut plan in self.list_full() {
+            let bound = plan
+                .owner
+                .tab_id
+                .as_ref()
+                .is_some_and(|id| tab_ids.contains(id))
+                || plan
+                    .team_id
+                    .as_ref()
+                    .is_some_and(|id| team_ids.contains(id));
+            if !bound {
+                continue;
+            }
+            let mut changed = false;
+            for (label, path) in [
+                ("project", &mut plan.project_path),
+                ("canonical project", &mut plan.canonical_project_path),
+            ] {
+                if path.is_empty() {
+                    continue;
+                }
+                if let Some(new) = rebase(path) {
+                    changed |= *path != new;
+                    *path = new;
+                } else {
+                    warnings.push(format!(
+                        "Plan {} {label}: {path} is outside the old workspace folder; unchanged",
+                        plan.id
+                    ));
+                }
+            }
+            if changed {
+                self.save_in_writer(&mut plan, unix_time_millis())?;
+                updated.push(plan.id);
+            }
+        }
+        Ok((updated, warnings))
+    }
+
     pub fn save(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
         let _writer_turn = self.mutation_writer.enter();
         self.save_in_writer(plan, now_ms)

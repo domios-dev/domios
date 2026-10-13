@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
+import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus, AlertTriangle } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useShellProfiles } from "../../hooks/useShellProfiles";
@@ -164,8 +164,8 @@ function WorkspaceItemInner({
         danger: true,
       });
     }
-    return items;
-  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError]);
+    return workspace.cwd_missing ? items.filter((item) => !["New session", "Quick spawn", "New Terminal"].includes(item.label ?? "")) : items;
+  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, workspace.cwd_missing, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError]);
 
   return <>
     <div
@@ -247,6 +247,7 @@ function WorkspaceItemInner({
             </span>
           </button>
         )}
+        {workspace.cwd_missing && <span role="img" aria-label={`Folder missing for ${workspace.name}`} title={`Folder not found: ${workspace.cwd}`} className="shrink-0 text-[var(--ct-red)]"><AlertTriangle size={13} aria-hidden /></span>}
         <span className={`${workspaceCountText} text-[var(--ct-muted)]`}>
           {workspace.tabs.length}
         </span>

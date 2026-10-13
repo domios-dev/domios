@@ -19,7 +19,7 @@ fn has_confirmed_headerless_workspace_close(
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    mux: &MuxState,
+    _mux: &MuxState,
     _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
@@ -109,16 +109,27 @@ pub(super) fn dispatch(
 
         "workspace.focus" => {
             let id = get_string_param(params, "workspace_id")?;
-            {
-                let mut mux = mux.write();
-                mux.set_active_workspace(&id).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                    data: None,
-                })?;
-            }
-            svc.emit_mux_state_changed_empty();
+            svc.focus_workspace(&id).map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })?;
             Ok(serde_json::json!({"ok": true}))
+        }
+
+        "workspace.set_cwd" => {
+            let workspace_id = get_string_param(params, "workspace_id")?;
+            let cwd = get_string_param(params, "cwd")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceSetCwd { workspace_id, cwd },
+                svc.as_ref(),
+            )
+            .map(|result| result.into_json())
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })
         }
 
         "workspace.rename" => {

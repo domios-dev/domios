@@ -91,6 +91,7 @@ function muxActions(): MultiplexerActionsContextType {
     setActiveWorkspace: noop,
     closeWorkspace: noop,
     renameWorkspace: noop,
+    setWorkspaceCwd: async () => ({ warnings: [] }),
     moveTab: noop,
     reorderTabs: noop,
     reorderDisplay: noop,

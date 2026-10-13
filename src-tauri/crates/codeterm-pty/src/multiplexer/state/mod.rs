@@ -51,6 +51,7 @@ pub struct WorkspaceInfo {
     pub tab_count: usize,
     pub is_active: bool,
     pub cwd: Option<String>,
+    pub cwd_missing: bool,
     pub protected: bool,
     pub tab_ids: Vec<String>,
     /// Set to true when create_workspace deduped by cwd (no new ws was created).
@@ -329,6 +330,7 @@ impl MultiplexerState {
             title: names::generate_tab_name(),
             description: None,
             cwd: None,
+            cwd_missing: false,
             provisioned_cwd: None,
             url: None,
             agent_type: None,

@@ -24,6 +24,8 @@ import { ModeCards } from "./NewSessionPickerParts";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
+import { spawnErrorMessage } from "../../lib/spawnErrorMessage";
+import { WorkspaceFolderError } from "../Sidebar/WorkspaceFolderError";
 import { createPortal } from "react-dom";
 
 export function NewSessionPicker({
@@ -55,6 +57,7 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const [busy, setBusy] = useState(false);
+  const [spawnError, setSpawnError] = useState<string | null>(null);
   const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
@@ -156,6 +159,7 @@ export function NewSessionPicker({
     runner: () => Promise<{ workspaceId: string; tabId: string } | null>,
   ) => {
     setBusy(true);
+    setSpawnError(null);
     try {
       const created = await runner();
       if (created) {
@@ -163,19 +167,11 @@ export function NewSessionPicker({
         onClose();
       }
     } catch (e) {
-      addNotification({
-        tab_id: null,
-        workspace_id: workspaceId,
-        title: "Session start failed",
-        body: e instanceof Error ? e.message : String(e),
-        severity: "Error",
-        level: "failure",
-        sticky: true,
-      });
+      setSpawnError(spawnErrorMessage(e));
     } finally {
       setBusy(false);
     }
-  }, [addNotification, onClose, selectTabByTab, workspaceId]);
+  }, [onClose, selectTabByTab]);
 
   const runProviderSpawn = useCallback(async (
     providerId: string,
@@ -203,7 +199,7 @@ export function NewSessionPicker({
     await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
   }, [choice, runProviderSpawn]);
 
-  const runPairSpawn = useCallback(() => {
+  const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")) return;
     if (
       disabledProviderIds.has(choice.orchestratorProviderId)
@@ -211,35 +207,25 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    const wsId = workspaceId;
-    onClose();
-    void createOrchestrationPair({
-      orchestratorAgent: choice.orchestratorProviderId,
-      orchestratorModel: choice.orchestratorModelId,
-      orchestratorReasoningEffort: choice.orchestratorEffortId,
-      plannerAgent: choice.plannerProviderId,
-      plannerModel: choice.plannerModelId,
-      plannerReasoningEffort: choice.plannerEffortId,
-      workspaceId: wsId,
-    })
-      .then((result) => selectTabByTab(wsId, result.orchestrator_tab_id))
-      .catch((e) => {
-        addNotification({
-          tab_id: null,
-          workspace_id: wsId,
-          title: "Orchestration start failed",
-          body: e instanceof Error ? e.message : String(e),
-          severity: "Error",
-          level: "failure",
-          sticky: true,
-        });
+    await finishSpawn(async () => {
+      const result = await createOrchestrationPair({
+        orchestratorAgent: choice.orchestratorProviderId,
+        orchestratorModel: choice.orchestratorModelId,
+        orchestratorReasoningEffort: choice.orchestratorEffortId,
+        plannerAgent: choice.plannerProviderId,
+        plannerModel: choice.plannerModelId,
+        plannerReasoningEffort: choice.plannerEffortId,
+        workspaceId,
       });
-  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, workspaceId, section]);
+      return { workspaceId, tabId: result.orchestrator_tab_id };
+    });
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section]);
 
   const handleStart = useCallback(() => {
+    if (busy || selectedWorkspace?.cwd_missing) return;
     const start = async () => {
       if (choice.mode === "pair") {
-        runPairSpawn();
+        await runPairSpawn();
       } else {
         await runSingleSpawn();
       }
@@ -268,6 +254,8 @@ export function NewSessionPicker({
       });
   }, [
     addNotification,
+    busy,
+    selectedWorkspace?.cwd_missing,
     agentConfig?.full_access,
     choice.mode,
     firstAccessFull,
@@ -342,6 +330,7 @@ export function NewSessionPicker({
           <X aria-hidden size={14} />
         </button>
 
+        {selectedWorkspace?.cwd_missing ? <WorkspaceFolderError workspace={selectedWorkspace} /> : <>
         <div className="relative mb-4" role="group" aria-label="Session mode">
           <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} />
         </div>
@@ -451,6 +440,7 @@ export function NewSessionPicker({
           </label>
         )}
 
+        {spawnError && <p role="alert" className="relative mt-4 text-xs text-[var(--ct-red)]">{spawnError}</p>}
         <div className="relative mt-4 flex justify-end">
           <Button
             variant="primary"
@@ -462,6 +452,7 @@ export function NewSessionPicker({
             {choice.mode === "pair" ? "Start team" : "Start session"}
           </Button>
         </div>
+        </>}
       </div>
 
     </div>,

@@ -88,6 +88,11 @@ impl CommandPort for ServiceContext {
         ServiceContext::create_provisioned_workspace(self, name, activate)
     }
 
+    fn set_workspace_cwd(&self, ws_id: &str, cwd: &str) -> Result<serde_json::Value, String> {
+        serde_json::to_value(ServiceContext::set_workspace_cwd(self, ws_id, cwd)?)
+            .map_err(|error| error.to_string())
+    }
+
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String> {
         ServiceContext::rename_workspace(self, ws_id, name)
     }

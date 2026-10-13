@@ -229,6 +229,7 @@ pub(crate) use worker_lane::{
 };
 mod worker_persona;
 mod workspace;
+pub(crate) mod workspace_cwd;
 mod workspace_provision;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
@@ -306,6 +307,7 @@ pub struct ServiceContext {
     pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,
+    pub(crate) workspace_relocation_lock: Arc<parking_lot::Mutex<()>>,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,

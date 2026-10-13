@@ -604,6 +604,7 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
                 account: Arc::new(tokio::sync::OnceCell::new()),
                 billing: Arc::new(tokio::sync::OnceCell::new()),
                 analytics: Arc::new(tokio::sync::OnceCell::new()),

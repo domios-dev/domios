@@ -48,6 +48,8 @@ pub enum WorkspaceAction {
         /// Workspace ID
         id: String,
     },
+    /// Relocate a workspace to an existing absolute folder, preserving its identity
+    SetCwd { id: String, path: String },
     /// Rename a workspace
     Rename {
         /// Workspace ID

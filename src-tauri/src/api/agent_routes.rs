@@ -312,6 +312,17 @@ pub async fn spawn_agent(
         structured_prompt_server: None,
         remote_task_binding: None,
     };
+    let cwd_params = params.clone();
+    spawn_rejection::validate_spawn_cwd(
+        &state.svc,
+        cwd_params.workspace_id.as_deref(),
+        cwd_params
+            .parent_tab_id
+            .as_deref()
+            .or(cwd_params.spawned_by_tab_id.as_deref()),
+        cwd_params.cwd.as_deref(),
+    )
+    .await?;
     let default_provider = crate::config::default_agent_provider();
     let provider_id = params.agent.as_deref().unwrap_or(&default_provider);
     model_error::validate_agent_model(
@@ -326,17 +337,43 @@ pub async fn spawn_agent(
     } else {
         (None, None)
     };
-    let result = state
-        .svc
-        .spawn_agent(params, ready_tx)
-        .await
-        .map_err(SpawnRejection::from)?;
+    let result = match state.svc.spawn_agent(params, ready_tx).await {
+        Ok(result) => result,
+        Err(error) => {
+            spawn_rejection::validate_spawn_cwd(
+                &state.svc,
+                cwd_params.workspace_id.as_deref(),
+                cwd_params
+                    .parent_tab_id
+                    .as_deref()
+                    .or(cwd_params.spawned_by_tab_id.as_deref()),
+                cwd_params.cwd.as_deref(),
+            )
+            .await?;
+            return Err(SpawnRejection::from(error));
+        }
+    };
     let launch = match ready_rx {
         Some(ready_rx) => {
             verify_spawn_delivery(&state, &result.tab_id, ready_rx).await?;
             None
         }
-        None => Some(spawn_rejection::await_spawn_launch(&state.svc, &result.tab_id).await?),
+        None => match spawn_rejection::await_spawn_launch(&state.svc, &result.tab_id).await {
+            Ok(launch) => Some(launch),
+            Err(error) => {
+                spawn_rejection::validate_spawn_cwd(
+                    &state.svc,
+                    cwd_params.workspace_id.as_deref(),
+                    cwd_params
+                        .parent_tab_id
+                        .as_deref()
+                        .or(cwd_params.spawned_by_tab_id.as_deref()),
+                    cwd_params.cwd.as_deref(),
+                )
+                .await?;
+                return Err(error);
+            }
+        },
     };
     let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
         match state.svc.arm_bound_worker_ack_deadline_for_tab(

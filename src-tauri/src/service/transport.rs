@@ -361,6 +361,7 @@ impl ServiceContext {
         ui: bool,
     ) -> Result<AtomicSpawn, String> {
         let (ws_id, ws_cwd) = self.resolve_spawn_workspace(params.workspace_id.clone())?;
+        self.validate_request_cwd(Some(&ws_id), None, params.cwd.as_deref())?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
 
         let tab_id = {

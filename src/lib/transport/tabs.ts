@@ -40,6 +40,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             force: a.force === true,
             confirm: s(a, "workspaceId"),
         }),
+        mux_set_workspace_cwd: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/cwd`, { cwd: a.cwd }),
         mux_rename_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/rename`, {
             name: a.name,
         }),

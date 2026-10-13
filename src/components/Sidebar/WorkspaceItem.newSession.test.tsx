@@ -160,6 +160,20 @@ async function testShellProfileMenuSelection() {
   } finally { await act(async () => root.unmount()); }
 }
 
+async function testMissingFolderHidesSpawnAndShowsErrorMark() {
+  workspace.cwd_missing = true;
+  const { root, menuItem } = await openWorkspaceMenu(false, () => {});
+  try {
+    assert(document.querySelector('[role="img"][aria-label="Folder missing for Workspace"]'),
+      "missing workspace folder has an accessible error mark");
+    assert(!menuItem("New session"), "missing workspace does not offer a session");
+    assert(!menuItem("Quick spawn"), "missing workspace does not offer quick spawn");
+  } finally {
+    await act(async () => root.unmount());
+    workspace.cwd_missing = false;
+  }
+}
+
 async function main() {
   __setInvokeForTest(async () => { throw new Error("bridge unavailable in test"); });
   __setListenForTest(async () => () => {});
@@ -167,6 +181,7 @@ async function main() {
   await testNewSessionOpensThePickerOnce();
   await testDetailHeaderNavigation(false);
   await testDetailHeaderNavigation(true);
+  await testMissingFolderHidesSpawnAndShowsErrorMark();
   await testShellProfileMenuSelection();
   __setInvokeForTest(null);
   __setListenForTest(null);

@@ -19,6 +19,7 @@ export interface MultiplexerActionsContextType {
   createWorkspace: (name: string, cwd?: string, opts?: { activate?: boolean }) => Promise<{ id: string; name: string } | undefined>;
   setActiveWorkspace: (id: string) => void;
   closeWorkspace: (id: string, force?: boolean) => void;
+  setWorkspaceCwd: (id: string, cwd: string) => Promise<{ warnings: string[] }>;
   renameWorkspace: (id: string, name: string) => void;
   moveTab: (tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => void;
   /** Reorder a tab group within its hierarchy level. `parentTabId` set →
