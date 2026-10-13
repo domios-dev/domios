@@ -414,7 +414,7 @@ impl ServiceContext {
                 tab.pty_id.clone(),
             )
         };
-        let journal = crate::session::lifecycle::TabLifecycleJournal::shared().load();
+        let journal = self.lifecycle_journal.load();
         let Some(provider) = provider_for_restored_session(&journal, tab_id, &evidence) else {
             let reason = format!(
                 "restored_provider_unresolved: Tab {tab_id} retains its session but has no unique lifecycle journal owner"

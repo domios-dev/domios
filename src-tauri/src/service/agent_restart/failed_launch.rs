@@ -74,9 +74,7 @@ impl ServiceContext {
             tab.agent_session_id.clone()
         } else {
             let selected = super::exit_recovery::select_journal_recovery_session(
-                &crate::session::lifecycle::TabLifecycleJournal::shared()
-                    .load()
-                    .records,
+                &self.lifecycle_journal.load().records,
                 &tab.id,
                 tab.agent_session_id.as_deref(),
                 &tab.prior_session_binding_nonces,

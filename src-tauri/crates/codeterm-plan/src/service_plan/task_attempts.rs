@@ -11,6 +11,8 @@ pub mod remote_dispatch;
 mod remote_retirement;
 mod report_ingest;
 mod restore_binding;
+mod runtime_restart;
+pub use runtime_restart::{RuntimeRestartBinding, RuntimeRestartMode};
 
 pub use launch_binding::CompleteAcknowledgedDispatchBinding;
 pub use restore_binding::{RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult};

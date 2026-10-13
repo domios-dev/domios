@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::record::{
     JournalRecord, JournalSeq, LifecycleCheckpoint, LifecycleEntry, LifecycleEpoch, LifecycleKey,
@@ -71,12 +71,20 @@ pub struct TabLifecycleJournal {
     cursor: Mutex<WriteCursor>,
 }
 
-static SHARED: OnceLock<TabLifecycleJournal> = OnceLock::new();
+static SHARED: OnceLock<Arc<TabLifecycleJournal>> = OnceLock::new();
 
 impl TabLifecycleJournal {
     /// Process-wide journal in the same directory the session store writes to.
     pub fn shared() -> &'static Self {
-        SHARED.get_or_init(|| Self::for_dir(codeterm_paths::data_dir().join("sessions")))
+        Self::shared_owner().as_ref()
+    }
+
+    pub fn shared_arc() -> Arc<Self> {
+        Arc::clone(Self::shared_owner())
+    }
+
+    fn shared_owner() -> &'static Arc<Self> {
+        SHARED.get_or_init(|| Arc::new(Self::for_dir(codeterm_paths::data_dir().join("sessions"))))
     }
 
     pub fn for_dir(dir: PathBuf) -> Self {

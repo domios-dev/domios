@@ -378,7 +378,6 @@ mod tests {
         impl Fixture {
             fn new(raw: Option<&str>) -> Self {
                 let mut env = codeterm_util::test_env::EnvGuard::lock();
-                crate::session::lifecycle::TabLifecycleJournal::shared();
                 env.set(
                     "CODETERM_INSTANCE",
                     format!("sentinel-graph-test-{}", uuid::Uuid::new_v4().simple()),

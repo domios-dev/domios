@@ -618,6 +618,7 @@ fn emit_chat_part(
     };
     tool_diffs::apply(svc, tab_id, &update.part, &mut chat_message);
     let sink = crate::service::tab_chat::structured_sink::make_sink(
+        svc.lifecycle_journal.clone(),
         svc.app_handle.clone(),
         svc.mux.clone(),
         Some(binding.session_id),
