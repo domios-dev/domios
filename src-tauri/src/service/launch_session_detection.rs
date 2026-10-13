@@ -223,9 +223,6 @@ pub(crate) fn append_sandbox_agent_pad_arg(
     tab_id: &str,
     args: &mut Vec<String>,
 ) {
-    if skip_permissions {
-        return;
-    }
     let Some(flag) = registry
         .with_provider(provider_id, |provider| {
             provider.additional_writable_dir_flag()
@@ -234,27 +231,99 @@ pub(crate) fn append_sandbox_agent_pad_arg(
     else {
         return;
     };
-    if !sandbox_additional_writable_dirs_allowed(registry, provider_id, cwd, "agent_pad") {
-        return;
+    match sandbox_agent_pad_root(
+        registry,
+        provider_id,
+        skip_permissions,
+        cwd,
+        data_dir,
+        tab_id,
+    ) {
+        Ok(root) => {
+            let roots = combine_host_writable_roots(root, None);
+            for root in &roots {
+                args.extend([flag.clone(), root.to_string_lossy().into_owned()]);
+            }
+            log_sandbox_additional_roots_included(tab_id, roots.len());
+        }
+        Err(error) => {
+            log::warn!("[sandbox-agent-pad] tab={tab_id} provider={provider_id} skipped: {error}")
+        }
     }
-    let pad = match crate::service::agent_pad::restore(
+}
+
+fn sandbox_agent_pad_root(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    skip_permissions: bool,
+    cwd: Option<&str>,
+    data_dir: &std::path::Path,
+    tab_id: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    if skip_permissions
+        || !supports_additional_roots(registry, provider_id)
+        || !sandbox_additional_writable_dirs_allowed(registry, provider_id, cwd, "agent_pad")
+    {
+        return Ok(None);
+    }
+    let pad = crate::service::agent_pad::restore(
         data_dir,
         tab_id,
         crate::service::agent_pad::AgentPadRole::General,
-    ) {
-        Ok(pad) => pad,
-        Err(error) => {
-            log::warn!("[sandbox-agent-pad] tab={tab_id} provider={provider_id} skipped: {error}");
-            return;
-        }
-    };
-    let Some(path) = canonical_path_from_path(pad.path()) else {
-        log::warn!("[sandbox-agent-pad] tab={tab_id} provider={provider_id} skipped: pad path does not resolve");
-        return;
-    };
-    args.push(flag);
-    args.push(path.to_string_lossy().into_owned());
-    log_sandbox_additional_roots_included(tab_id, 1);
+    )?;
+    canonical_path_from_path(pad.path())
+        .map(Some)
+        .ok_or_else(|| "AgentPad path does not resolve".into())
+}
+
+fn supports_additional_roots(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) -> bool {
+    registry
+        .with_provider(provider_id, |provider| {
+            provider.additional_writable_dir_flag().is_some()
+        })
+        .unwrap_or(false)
+}
+
+pub(crate) fn host_writable_roots(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    skip_permissions: bool,
+    cwd: Option<&str>,
+    canonical_project: Option<&str>,
+    data_dir: &std::path::Path,
+    tab_id: &str,
+) -> Result<Vec<std::path::PathBuf>, String> {
+    Ok(combine_host_writable_roots(
+        sandbox_agent_pad_root(
+            registry,
+            provider_id,
+            skip_permissions,
+            cwd,
+            data_dir,
+            tab_id,
+        )?,
+        sandbox_git_metadata_roots(
+            registry,
+            provider_id,
+            skip_permissions,
+            cwd,
+            canonical_project,
+        )?,
+    ))
+}
+
+fn combine_host_writable_roots(
+    pad: Option<std::path::PathBuf>,
+    metadata: Option<[std::path::PathBuf; 4]>,
+) -> Vec<std::path::PathBuf> {
+    let mut seen = HashSet::new();
+    pad.into_iter()
+        .chain(metadata.into_iter().flatten())
+        .filter(|root| seen.insert(root.clone()))
+        .collect()
 }
 
 pub(crate) fn append_sandbox_linux_network_args(
@@ -275,18 +344,60 @@ pub(crate) fn append_sandbox_linux_network_args(
     else {
         return;
     };
+    let configured = configured_network_access(
+        &capability.network_access_config_path,
+        &capability.network_access_setting,
+    );
+    let access = sandbox_network_access_policy(
+        skip_permissions,
+        platform,
+        !capability.network_access_args.is_empty(),
+        configured,
+    );
     let setting_override = format!("{}=true", capability.network_access_setting);
-    if capability.network_access_args.is_empty()
-        || configured_network_access(
-            &capability.network_access_config_path,
-            &capability.network_access_setting,
-        )
+    if access != Some(true)
+        || configured
+        || capability.network_access_args.is_empty()
         || args.iter().any(|arg| arg == &setting_override)
     {
         return;
     }
     log::info!("[sandbox-network] granting Linux CodeTerm connectivity for provider={provider_id}");
     args.extend(capability.network_access_args);
+}
+
+pub(crate) fn host_network_access(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    skip_permissions: bool,
+    platform: &str,
+) -> Option<bool> {
+    if skip_permissions || platform != "linux" {
+        return None;
+    }
+    let capability = registry
+        .with_provider(provider_id, |provider| {
+            provider.sandboxed_linux_launch_capability()
+        })
+        .flatten()?;
+    sandbox_network_access_policy(
+        skip_permissions,
+        platform,
+        !capability.network_access_args.is_empty(),
+        configured_network_access(
+            &capability.network_access_config_path,
+            &capability.network_access_setting,
+        ),
+    )
+}
+
+fn sandbox_network_access_policy(
+    skip_permissions: bool,
+    platform: &str,
+    can_enable: bool,
+    configured: bool,
+) -> Option<bool> {
+    (!skip_permissions && platform == "linux").then_some(can_enable || configured)
 }
 
 fn configured_network_access(path: &str, setting: &str) -> bool {
@@ -339,9 +450,6 @@ pub(crate) fn append_sandbox_git_metadata_args(
     tab_id: &str,
     args: &mut Vec<String>,
 ) {
-    if skip_permissions || canonical_project.is_none() {
-        return;
-    }
     let Some(flag) = registry
         .with_provider(provider_id, |provider| {
             provider.additional_writable_dir_flag()
@@ -350,25 +458,41 @@ pub(crate) fn append_sandbox_git_metadata_args(
     else {
         return;
     };
-    if !sandbox_additional_writable_dirs_allowed(registry, provider_id, cwd, "git_metadata") {
-        return;
-    }
-    let Some(cwd) = cwd else { return };
-    let canonical_project = canonical_project.expect("checked above");
-    let paths = match git_worktree_metadata_dirs(cwd, canonical_project) {
-        Ok(Some(paths)) => paths,
-        Ok(None) => return,
-        Err(error) => {
-            log::warn!("[sandbox-git-roots] refused provider={provider_id}: {error}");
-            return;
+    match sandbox_git_metadata_roots(
+        registry,
+        provider_id,
+        skip_permissions,
+        cwd,
+        canonical_project,
+    ) {
+        Ok(roots) => {
+            let roots = combine_host_writable_roots(None, roots);
+            for root in &roots {
+                args.extend([flag.clone(), root.to_string_lossy().into_owned()]);
+            }
+            log_sandbox_additional_roots_included(tab_id, roots.len());
         }
-    };
-    let root_count = paths.len();
-    for path in paths {
-        args.push(flag.clone());
-        args.push(path.to_string_lossy().into_owned());
+        Err(error) => log::warn!("[sandbox-git-roots] refused provider={provider_id}: {error}"),
     }
-    log_sandbox_additional_roots_included(tab_id, root_count);
+}
+
+fn sandbox_git_metadata_roots(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    skip_permissions: bool,
+    cwd: Option<&str>,
+    canonical_project: Option<&str>,
+) -> Result<Option<[std::path::PathBuf; 4]>, String> {
+    if skip_permissions
+        || !supports_additional_roots(registry, provider_id)
+        || !sandbox_additional_writable_dirs_allowed(registry, provider_id, cwd, "git_metadata")
+    {
+        return Ok(None);
+    }
+    match (cwd, canonical_project) {
+        (Some(cwd), Some(project)) => git_worktree_metadata_dirs(cwd, project),
+        _ => Ok(None),
+    }
 }
 
 fn sandbox_additional_roots_log(tab_id: &str, root_count: usize) -> Option<String> {

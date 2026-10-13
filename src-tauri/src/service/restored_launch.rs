@@ -48,6 +48,13 @@ pub(crate) fn capture_tab_launch_parameters(
             )
         })
         .flatten();
+    let runtime_launch_options = mux.read().get_tab(tab_id).and_then(|tab| {
+        captured_runtime_launch_options(
+            capture.provider_id,
+            tab.session_binding_nonce.as_deref(),
+            tab.restorable_launch.runtime_launch_options.as_ref(),
+        )
+    });
     let launch = RestorableLaunchParameters {
         failed_provider: None,
         structured_runtime_mode: None,
@@ -63,11 +70,24 @@ pub(crate) fn capture_tab_launch_parameters(
         agent_name: capture.agent_name,
         identity_instructions,
         permission_bypass_requested: capture.permission_bypass_requested,
+        runtime_launch_options,
     };
     if let Some(tab) = mux.write().get_tab_mut(tab_id) {
         tab.restorable_launch = launch.clone();
     }
     launch
+}
+
+fn captured_runtime_launch_options(
+    provider: &str,
+    nonce: Option<&str>,
+    options: Option<&crate::multiplexer::types::RestorableRuntimeLaunchOptions>,
+) -> Option<crate::multiplexer::types::RestorableRuntimeLaunchOptions> {
+    options
+        .filter(|options| {
+            options.provider_id == provider && nonce == Some(options.binding_nonce.as_str())
+        })
+        .cloned()
 }
 
 pub(crate) fn launch_prompt_capable(registry: &AgentRegistry, provider_id: &str) -> bool {
@@ -269,7 +289,9 @@ impl RestoredFreshLaunchInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{capture_tab_launch_parameters, RestorableLaunchCapture};
+    use super::{
+        capture_tab_launch_parameters, captured_runtime_launch_options, RestorableLaunchCapture,
+    };
 
     #[test]
     fn restored_target_uses_only_newest_own_lineage() {
@@ -378,5 +400,26 @@ mod tests {
         );
         assert_eq!(input.params.cwd.as_deref(), Some("/opaque/worker"));
         assert!(input.params.task.is_none());
+    }
+    #[test]
+    fn recapture_keeps_runtime_options_only_for_the_exact_provider_binding() {
+        let options = crate::multiplexer::types::RestorableRuntimeLaunchOptions {
+            provider_id: "fixture-provider".into(),
+            binding_nonce: "own".into(),
+            mode: "auto-accept-edits".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            captured_runtime_launch_options("fixture-provider", Some("own"), Some(&options)),
+            Some(options.clone())
+        );
+        assert!(
+            captured_runtime_launch_options("fixture-provider", Some("new"), Some(&options))
+                .is_none()
+        );
+        assert!(
+            captured_runtime_launch_options("other-provider", Some("own"), Some(&options))
+                .is_none()
+        );
     }
 }

@@ -6,6 +6,7 @@ pub mod engine;
 mod envelope_delivery;
 mod environment;
 mod initialize;
+mod launch_options;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod model;

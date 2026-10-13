@@ -13,7 +13,8 @@ pub use model_identity::{
     SessionModelIdentity,
 };
 pub use restorable_launch::{
-    ReasoningEffortIdentity, RestorableLaunchParameters, RestorableWorkerTurn, WorkerRestartState,
+    ReasoningEffortIdentity, RestorableLaunchParameters, RestorableRuntimeLaunchOptions,
+    RestorableWorkerTurn, WorkerRestartState,
 };
 pub use turn_resume::{
     observe_turn, request_continue, request_continue_for_restored_start, request_continue_from,

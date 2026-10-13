@@ -225,7 +225,16 @@ pub fn settings_from_config(
         model: config["model"].as_str().map(str::to_string),
         effort: config["effort"].as_str().map(str::to_string),
         mode: config["mode"].as_str().map(str::to_string),
-        ..Default::default()
+        additional_directories: config["additionalDirectories"]
+            .as_array()
+            .map(|paths| {
+                paths
+                    .iter()
+                    .map(|path| path.as_str().unwrap_or_default().to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        network_access: config["networkAccess"].as_bool(),
     }
 }
 
