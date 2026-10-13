@@ -111,7 +111,7 @@ fn owner_rules_survive_empty_and_non_owner_supporter_selection() {
         }
         for (index, fragment) in fragments.iter().enumerate() {
             let included = match selection {
-                Some(ids) if ids.is_empty() => false,
+                Some([]) => false,
                 Some(_) => index < 3,
                 None => index >= 2,
             };
