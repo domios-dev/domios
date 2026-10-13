@@ -192,6 +192,8 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 .or_else(|| ended.borrow().clone())
                 .unwrap_or(RuntimeFailure::PipeEof);
             let expired = session.context.lock().clone();
+            super::login::forget(&session);
+            session.login.lock().login = None;
             super::prompt_answers::clear(&svc, &expired);
             session.prompts.lock().clear();
             if unload_retaining_degradation(&mut session.state.lock(), epoch, &reason) {
@@ -352,6 +354,7 @@ fn apply(
     }
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
     match event {
+        AgentRuntimeEvent::AuthLogin { login } => super::login::apply(svc, session, epoch, login),
         AgentRuntimeEvent::Auth { state, detail } => {
             let previous = std::mem::replace(&mut *session.auth.lock(), state.clone());
             if matches!(state, RuntimeAuthState::SignedIn)

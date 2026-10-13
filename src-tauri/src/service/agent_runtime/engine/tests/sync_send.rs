@@ -88,6 +88,7 @@ module.exports = {
         completions: Mutex::new(Default::default()),
         state: Mutex::new(state),
         cache: Mutex::new(Default::default()),
+        login: Mutex::new(Default::default()),
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
         hook_state: Mutex::new(Value::Null),

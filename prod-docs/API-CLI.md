@@ -160,4 +160,20 @@ Login opens the system browser for a configured hosted provider and waits for a 
 
 Local account: Login waits for completion and returns the identity. Account routes require the local daemon credential and refuse peer or service callers. No account tokens are returned.
 
-<!-- revision: 39 -->
+Runtime provider sign-in is available from the Chat banner or CLI:
+
+```bash
+codeterm agent login --tab <ID>
+codeterm agent login --tab <ID> --device
+codeterm agent login --tab <ID> --api-key-stdin
+codeterm agent login --tab <ID> --cancel
+```
+
+The API key is read only from stdin; never put it in command arguments. Browser
+sign-in uses the default system browser. Device sign-in prints the link and code.
+Mesh sign-in shows the URL and code for the user to open; API keys stay on the
+provider's own machine. Completion verifies the account and resumes the tab's
+same thread without restarting or replaying input. Only one sign-in per provider
+can be pending; Cancel releases it before a retry.
+
+<!-- revision: 40 -->

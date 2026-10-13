@@ -10,6 +10,8 @@ use std::io::Read;
 mod agent_cli;
 #[path = "agent_compatibility.rs"]
 mod agent_compatibility;
+#[path = "agent_login.rs"]
+mod agent_login;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
@@ -314,6 +316,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Login {
+            tab,
+            device,
+            api_key_stdin,
+            cancel,
+        } => agent_login::run(&local_http, &base, json, tab, device, api_key_stdin, cancel),
         AgentAction::Turns { tab, last, after } => {
             let mut params = serde_json::json!({"tab_id":tab,"last":last,"after_offset":after});
             CallerContext::from_env().apply_trusted_session(&mut params);
