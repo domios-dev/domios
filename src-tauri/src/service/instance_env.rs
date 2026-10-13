@@ -5,6 +5,7 @@ pub(crate) struct InstanceEnv {
     pub api_url: String,
     pub api_port: String,
     pub api_token: Option<String>,
+    pub cli_path: Option<PathBuf>,
 }
 
 impl InstanceEnv {
@@ -16,6 +17,7 @@ impl InstanceEnv {
             api_url,
             api_port,
             api_token: api.token,
+            cli_path: instance_cli_binary_path(),
         }
     }
 }

@@ -853,7 +853,7 @@ impl ServiceContext {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         }
 
-        let mut env_vars: HashMap<String, String> = HashMap::new();
+        let mut env_vars = self.tab_env(&tab_id);
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
         let agent_pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);

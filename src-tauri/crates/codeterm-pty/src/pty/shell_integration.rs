@@ -30,6 +30,10 @@ const BASH_RC: &str = include_bash_rc();
 const FISH_CONF: &str = include_fish_conf();
 
 const POWERSHELL_PS1: &str = r#"# CodeTerm shell integration - do not edit
+if ($env:CODETERM_CLI_PATH) {
+  $cliDir = [System.IO.Path]::GetDirectoryName($env:CODETERM_CLI_PATH)
+  $env:PATH = (@($cliDir) + (($env:PATH -split ';') | Where-Object { $_ -ne $cliDir })) -join ';'
+}
 if (-not $global:__CodeTermShellIntegrationLoaded) {
   $global:__CodeTermShellIntegrationLoaded = $true
   $global:__CodeTermLastHistoryId = 0
@@ -94,41 +98,31 @@ pub fn ensure_scripts() {
         return;
     }
 
-    // their startup files, then installs the OSC 633 precmd/preexec hooks last.
-    let zshrc = dir.join(".zshrc");
-    let zshrc_content = format!(
-        r#"# CodeTerm shell integration — do not edit
-if [[ -n "$CODETERM_ORIG_ZDOTDIR" ]]; then
-  ZDOTDIR="$CODETERM_ORIG_ZDOTDIR"
-  unset CODETERM_ORIG_ZDOTDIR
-else
-  ZDOTDIR="$HOME"
+    write_scripts(&dir);
+}
+
+fn write_scripts(dir: &std::path::Path) {
+    let cli_path = include_str!("cli_path.sh");
+    let zsh_user_startup = |file: &str| {
+        format!(
+            r#"if [[ -z "$CODETERM_USER_ZDOTDIR" ]]; then
+  export CODETERM_USER_ZDOTDIR="${{CODETERM_ORIG_ZDOTDIR:-$HOME}}"
 fi
-
-[[ -f "$ZDOTDIR/.zshenv" ]]   && source "$ZDOTDIR/.zshenv"
-[[ -f "$ZDOTDIR/.zprofile" ]] && source "$ZDOTDIR/.zprofile"
-[[ -f "$ZDOTDIR/.zshrc" ]]    && source "$ZDOTDIR/.zshrc"
-
-{ZSH_HOOKS}
+ZDOTDIR="$CODETERM_USER_ZDOTDIR"
+[[ -f "$ZDOTDIR/{file}" ]] && source "$ZDOTDIR/{file}"
+export ZDOTDIR="${{CODETERM_INTEGRATION_ZDOTDIR}}"
+{cli_path}
 "#
-    );
-    let _ = std::fs::write(&zshrc, zshrc_content);
+        )
+    };
+    for file in [".zshenv", ".zprofile", ".zlogin"] {
+        let _ = std::fs::write(dir.join(file), zsh_user_startup(file));
+    }
+    let zshrc_content = format!("{}\n{ZSH_HOOKS}", zsh_user_startup(".zshrc"));
+    let _ = std::fs::write(dir.join(".zshrc"), zshrc_content);
 
-    // .zshenv: pass through to the user's .zshenv (covers non-interactive shells).
-    let zshenv = dir.join(".zshenv");
-    let zshenv_content = r#"# CodeTerm — pass through to user's .zshenv
-if [[ -n "$CODETERM_ORIG_ZDOTDIR" ]]; then
-  [[ -f "$CODETERM_ORIG_ZDOTDIR/.zshenv" ]] && source "$CODETERM_ORIG_ZDOTDIR/.zshenv"
-elif [[ -f "$HOME/.zshenv" ]]; then
-  source "$HOME/.zshenv"
-fi
-"#;
-    let _ = std::fs::write(&zshenv, zshenv_content);
-
-    // bash: sourced via --rcfile (interactive) / BASH_ENV (non-interactive).
-    // Sources ~/.bashrc first, then installs the hooks last so they survive.
-    let bashrc = dir.join("bashrc");
-    let _ = std::fs::write(&bashrc, BASH_RC);
+    let bashrc = BASH_RC.replacen("\n\n", &format!("\n{cli_path}\n"), 1);
+    let _ = std::fs::write(dir.join("bashrc"), bashrc);
 
     let powershell = dir.join("powershell.ps1");
     let _ = std::fs::write(&powershell, POWERSHELL_PS1);
@@ -141,7 +135,7 @@ fi
         let _ = std::fs::write(fish_dir.join("00-codeterm.fish"), FISH_CONF);
     }
 
-    log::info!("Shell integration scripts ready at {}", dir.display());
+    log::debug!("Shell integration scripts ready at {}", dir.display());
 }
 
 /// Apply shell integration wiring (env + args) to a CommandBuilder for the shell.
@@ -161,6 +155,10 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
                 );
             }
             cmd.env("ZDOTDIR", dir.to_string_lossy().as_ref());
+            cmd.env(
+                "CODETERM_INTEGRATION_ZDOTDIR",
+                dir.to_string_lossy().as_ref(),
+            );
         } else if shell.contains("bash") {
             let bashrc_path = dir.join("bashrc");
             if bashrc_path.exists() {
@@ -430,6 +428,10 @@ function __ct_cmd_finished --on-event fish_postexec
 end
 
 function __ct_update_cwd --on-event fish_prompt
+  if set -q CODETERM_CLI_PATH
+    set -l cli_dir (path dirname "$CODETERM_CLI_PATH")
+    set -gx PATH $cli_dir (string match -v -- "$cli_dir" $PATH)
+  end
   __ct_esc P Cwd=(__ct_escape_value "$PWD")
   builtin printf '\e]7;file://%s%s\e\\' (hostname) "$PWD"
 end
@@ -634,3 +636,7 @@ if ((PSConsoleHostReadLine) -ne '') { throw 'Empty input changed' }
         assert!(stdout.contains("\x1b]633;A\x07\x1b]633;B\x07"));
     }
 }
+
+#[cfg(test)]
+#[path = "shell_integration/cli_tests.rs"]
+mod cli_tests;
