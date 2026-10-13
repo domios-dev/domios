@@ -20,7 +20,7 @@ description: >-
 
 1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). The nightly schedule runs the full matrix on `develop`.
 2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
-3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. The full test matrix (`tests.yml` via `workflow_call`, every platform) and every bundle build run in parallel from the exact pushed SHA; a newer push cancels the run.
+3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. The full test matrix (`tests.yml` via `workflow_call`, every platform) and every bundle build run in parallel from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
 4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
 5. **One branch, one version.** After publication a further change needs `release/X.Y.(Z+1)`.
 
@@ -51,9 +51,9 @@ means a frontend release.
    `master` back into `develop`, and deletes the branch.
 4. Both frontend jobs run on `[self-hosted, Linux, light]`. Linux runners have `minisign` and `gh`;
    the workflow also fetches pinned, SHA256-checked copies when a runner lacks them.
-5. A failed publish leaves an unpublished draft in `codeterm-releases`. Delete that draft
-   (`gh release delete frontend-vX.Y.Z -R rollacode/codeterm-releases -y`, only while `isDraft` is
-   true), fix the cause on the branch and push again.
+5. Rerun a failed publish job with its saved build artifact. An existing draft is reused, incomplete
+   slots are cleared and uploads are replaced before byte verification. If the version is already
+   published, retry verifies immutable bytes and repairs discovery only; it refuses changed bytes.
 
 How an installed app picks it up (`src-tauri/src/startup/frontend_bundles.rs`, `src-tauri/src/frontend_bundle/`): the daemon checks `frontend-latest/frontend-manifest.json` at start and on every app update check (desktop native check and `GET /api/update/check`, 30-minute UI cadence), or on `POST /api/frontend/check`. It verifies the minisign signature with the baked key, the API range and the version floor, follows GitHub's signed asset redirect, checks the archive SHA256, stages it, and emits `frontend-update-ready`. The UI activates it with `/api/frontend/activate`, reloads only the window, reports `/api/frontend/healthy`, and rolls back on failure. Apps up to 1.14.2 rejected the signed redirect URL and cannot receive any frontend release; 1.14.4 is the first app that can.
 
@@ -81,9 +81,8 @@ If a plugin check reports "Vitest failed to access its internal state", its Vite
 ## ⚡ Default release path: a push to release/X.Y.Z (automated, self-hosted CI)
 
 Each push of `release/X.Y.Z` by `rollacode` starts one `.github/workflows/release.yml` run. It prepares draft
-releases, then runs the full test matrix and three reusable platform jobs in parallel: Mac `codeterm-builder` builds
-macOS and arm64 Linux, Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
-builds x86_64 Linux. A final `release-manifest` job needs all three jobs, merges their updater
+releases, then runs the full test matrix and four reusable platform callers in parallel: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
+builds x86_64 Linux. A final `release-manifest` job needs all four callers and tests, merges their updater
 fragments, publishes the signed public manifests, marks the releases, verifies served bytes, and
 closes eligible public issues. The platform workflows are reusable pieces and do not start their
 own tag runs. Each platform job clears incomplete upload slots before building, so a failed platform
@@ -95,8 +94,8 @@ only for a dry run; it leaves the private release draft unpublished and skips pu
 
 **Normal change flow:** verify the UI from the main checkout on `release/X.Y.Z`, clean old lane
 worktrees, then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`,
-open a PR from `release/X.Y.Z` into `master`, wait for its CI to be green, tag the PR head, and
-merge the PR only after the release is published and verified.
+open a PR from `release/X.Y.Z` into `master`, and let the release run tag and promote the verified
+head only after publication succeeds.
 
 **Step one of every release — every release runner is online:**
 
@@ -115,7 +114,7 @@ gh run watch --repo rollacode/codeterm --exit-status "$(gh run list --repo rolla
 It runs `scripts/check-release-credentials-mac.sh` on the Mac builder (Developer ID, minisign key,
 `gh`, Apple notary) and checks the updater signing key and repository write tokens on the Linux and
 Windows runners. The release builder runs the same Mac script, so a green check here is what the
-tag run will see. 1.12.2 was tagged before anyone looked and the Mac job died on
+release run will see. 1.12.2 was tagged before anyone looked and the Mac job died on
 `403 A required agreement is missing or has expired`: the Account Holder must accept the new Apple
 Developer agreement at https://developer.apple.com/account; the password is not the problem, and
 Apple may take a minute or two to honour a fresh acceptance. The weekly schedule surfaces an
@@ -175,7 +174,7 @@ git push origin --delete "release/$VER"
 
 A fix found after publication is a new patch release through the normal flow.
 
-A push to `release/X.Y.Z` creates one Actions run. After release preparation, its Mac + arm64 Linux,
+A push to `release/X.Y.Z` creates one Actions run. After release preparation, its macOS, arm64 Linux,
 x86_64 Linux, and Windows build jobs run in parallel. The Mac job signs and notarizes macOS
 artifacts; Linux jobs package AppImage and Debian assets; Windows builds the NSIS installers. The
 final `release-manifest` job runs only after all platform jobs succeed. It merges every updater
@@ -203,6 +202,56 @@ the failed platform (`gh run rerun <id> --failed`); each platform job clears its
 uploads, so the green platforms keep their assets. Do not
 move or overwrite a published release tag/artifact by default. If a public bad release was deleted
 intentionally, cut the correction as a new patch version through the normal flow.
+
+### Artifact graph and granular reruns
+
+`prepare` fans out to `tests`, `macos`, `linux-arm64`, `linux-x86_64`, and `windows`.
+`release-manifest` needs every caller **and** `tests`; frontend publication needs its tests too.
+macOS arm64 and x64 are independent matrix jobs, as are Windows x64 and arm64: both matrices
+use `fail-fast: false`, so one architecture failure preserves the other's successful uploads.
+Runner variables and their existing-label defaults live in the build-machine README.
+
+For an environmental failure in the same immutable source run, list failed job IDs and rerun
+one selected job (the numeric Actions job ID, not a matrix index):
+
+```bash
+gh run view <run-id> --repo rollacode/codeterm --json jobs \
+  --jq '.jobs[] | [.databaseId, .name, .conclusion] | @tsv'
+gh run rerun <run-id> --repo rollacode/codeterm --job <failed-job-id>
+# Or rerun all failed jobs and their downstream gates:
+gh run rerun <run-id> --repo rollacode/codeterm --failed
+```
+
+Green artifact jobs stay valid when only tests or another artifact fail. Do not select “Re-run all
+jobs”: that rebuilds and re-signs green artifacts. A Linux arm64 retry does not touch either macOS
+bundle. Retry upload cleanup matches only the job's own asset names. A code fix needs a new SHA
+and therefore a new complete run; artifacts from different source commits cannot be mixed.
+After publication has started, recover the failed manifest/promote job in its original run rather
+than pushing a replacement build under the published version.
+
+Dry runs default `dry_run_tests: true`: they execute the full test matrix, structural bundle checks,
+CLI version checks where executable, and local updater signature verification. Setting it false is
+an explicit bundle-only diagnostic. Dry runs skip draft creation, uploads, publication, public
+served-byte verification and promotion; they cannot prove write-token permissions or CDN behavior.
+
+For 1.14.7 smoke is structural: unpack the just-built artifact, require target machine types for
+app/CLI/embed, full source SHA, resources and embedded plugin bytes, and verify the CLI's exact
+release version without a daemon where executable. macOS also verifies deep strict codesigning
+and the stapled DMG. Windows records Authenticode status; it is not required until signing is
+provisioned. Windows arm64 checks PE/resources/version only on its x64 cross-builder. No app is
+launched: release builds currently have no isolated profile mode. Isolated execution smoke and a
+native Windows ARM64 VM runner are proposed post-release work.
+
+Troubleshooting: `Bundle structural smoke failed` is a platform failure before upload; inspect the
+named missing file, machine type, plugin or version. Do not bypass it. A Linux Docker preflight
+failure requires restoring the baked arm64 image/daemon; CI never starts Desktop with a sleep loop.
+A local/draft signature failure requires rebuilding the owning artifact and fragment in the same
+run. No manifest is published until downloaded draft artifact signatures verify. If publication
+or promote fails, rerun that job; promotion pins the PR head to the verified source SHA.
+
+Self-hosted job failures emit an Actions error and failed-job event as soon as the owning step
+exits, and smoke writes its result to the job summary. The release Orchestrator owns the Blueprint
+watch of this run's job events; no runner assumes an arbitrary local Orchestrator tab identity.
 
 > **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
 > you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
@@ -481,7 +530,7 @@ node scripts/check-release-closure.mjs \
   --evidence "$RUNNER_TEMP/manifest-verification.json" --version "$VER" --issue <n>
 ```
 
-The consolidated `release-manifest` job is the only automatic verifier. It runs after the Mac +
+The consolidated `release-manifest` job is the only automatic verifier. It runs after the macOS,
 arm64 Linux, x86_64 Linux, and Windows jobs succeed, requires all six platform keys, and verifies
 the public served bytes before minting `issue-closure-boundary.json`. A partial platform recovery
 must not mint closure authority.
@@ -916,7 +965,7 @@ gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate \
   --jq '.jobs[] | [.name, .started_at, .completed_at, .conclusion] | @tsv'
 ```
 
-The next run should show three parallel platform jobs inside one caller run, one `release-inputs`
+The next run should show four parallel platform callers inside one caller run, one `release-inputs`
 and one Tauri build per target, no cache-save step, and the final manifest job waiting on every
 platform job. The release remains incomplete until six-platform updater verification passes.
 
@@ -1001,8 +1050,8 @@ issue prose but reject malformed `Public-Issue:` metadata. The validator uses
 prints the normalized set in the check summary. This metadata is deliberately not a GitHub
 closing keyword, so merging private source cannot close a public issue prematurely.
 
-The single `release.yml` run has three parallel reusable platform jobs and a final
-`release-manifest` job whose `needs` includes all three. That final job rebuilds `latest.json` and
+The single `release.yml` run has four parallel reusable platform callers and a final
+`release-manifest` job whose `needs` includes all four and tests. That final job rebuilds `latest.json` and
 the Debian manifest from every uploaded updater fragment, uploads both manifests to the source
 release and public mirror, publishes the releases, and verifies the public served bytes. Only a
 successful verification proceeds to resolve commits and associated private PRs in the release

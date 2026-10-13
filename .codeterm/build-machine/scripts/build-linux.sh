@@ -18,7 +18,7 @@ fi
 rm -rf /src
 git clone -q "/work/${TAG}.bundle" /src
 cd /src
-git checkout -q "tags/${TAG}"
+if [ "$TAG" != source ]; then git checkout -q "tags/${TAG}"; fi
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/src/src-tauri/target}"
 export CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}"
 echo "HEAD=$(git rev-parse HEAD)  bundles=$BUNDLES  target=${CARGO_BUILD_TARGET:-native}"
@@ -36,7 +36,7 @@ if [ "${CHECK:-0}" = "1" ]; then
   exit 0
 fi
 
-corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+corepack prepare pnpm@10.32.1 --activate >/dev/null 2>&1 || true
 # Cross builds need externalBin/resource stubs pre-created (tauri-build glob validation runs
 # during the embed/cli cargo builds, before bundle scripts stage the real cross binaries).
 if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
@@ -45,15 +45,16 @@ if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
   touch "src-tauri/bundled-embed/codeterm-embed-$(rustc -vV | awk '/^host:/{print $2}')"
   touch src-tauri/bundled-cli/codeterm
 fi
-pnpm install
+pnpm install --frozen-lockfile
 ./build.sh release-inputs
 pnpm tauri build ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
   --features "$CODETERM_RELEASE_FEATURES" --bundles "$BUNDLES" \
-  || echo "tauri build returned non-zero (updater-sign step has no key in-container; bundles built before it)"
+  --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
 mkdir -p /work/out
 SUB="${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}"
 find "src-tauri/target/${SUB}release/bundle" -maxdepth 2 -type f \
   \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp -v {} /work/out/ \;
+node scripts/release-bundle-smoke.mjs linux /work/out "$(git rev-parse HEAD)"
 ls -la /work/out/
 echo "BUILD_LINUX_DONE tag=$TAG"

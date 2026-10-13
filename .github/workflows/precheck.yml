@@ -11,27 +11,36 @@ on:
         required: true
         default: "1.5.2"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: precheck-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CODETERM_SCCACHE_VERIFY_ONLY: '1'
+
 jobs:
   precheck:
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
 
       - name: Ensure Docker is running
         run: |
-          if ! docker info >/dev/null 2>&1; then
-            open -a Docker || true
-            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
-          fi
-          docker info >/dev/null 2>&1 || { echo "::error::Docker not available"; exit 1; }
+          docker info >/dev/null
+          docker image inspect codeterm-build-linux-arm64 >/dev/null
 
       - name: Cross-platform compile precheck
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          TAG="v${{ inputs.version }}"
-          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null \
-            || git tag -a "$TAG" "$GITHUB_SHA" -m "$TAG" 2>/dev/null || true
+          TAG="v$VERSION"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
           .codeterm/build-machine/scripts/precheck.sh "$TAG"
