@@ -9,7 +9,7 @@ import { interruptTargets } from "./runtimeInterrupt";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexReportedSettings } from "./runtimeSettings";
+import { codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings } from "./runtimeSettings";
 export { runtimeReduce } from "./runtimeReduce";
 
 function fail(code: RuntimeFailure["code"], message: string): never {
@@ -76,8 +76,8 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       if (op.action === "compact") return request("thread/compact/start",{threadId:thread});
       if (op.action === "restoreContext") return request("thread/inject_items",{threadId:thread,items:restoreContextItems(op.value)});
       if (!["model","effort","mode","settings"].includes(op.action)) fail("unsupported",`Unsupported control: ${op.action}`);
-      const settings = op.action === "settings" ? object(op.value) : {...ctx.settings,[op.action]:op.value};
-      for (const key of ["model","effort","mode"]) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
+      const settings = op.action === "settings" ? {...ctx.settings,...object(op.value)} : {...ctx.settings,[op.action]:op.value};
+      for (const key of ["model","effort","mode"] as const) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
       const parsed = settings as RuntimeSettings;
       return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
     }
@@ -135,8 +135,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
     }
     case "control": {
       if (state.stage === "auth") return {kind:"complete",result:{kind:"done"},events:[accountAuth(value)]};
-      const reported = state.stage === "thread/settings/update" ? codexReportedSettings(value) : {};
-      return {kind:"complete",result:{kind:"done"},...(Object.keys(reported).length ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
+      return {kind:"complete",result:{kind:"done"},...(state.stage === "thread/settings/update" ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
     }
     case "answer": case "answerQuestion": return {kind:"complete",result:{kind:"done"}};
   }
