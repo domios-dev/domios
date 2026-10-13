@@ -1,0 +1,348 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [
+      {
+        "sendId": "steer",
+        "threadId": "thread-fixture",
+        "input": {
+          "text": "Adjust the result",
+          "attachments": []
+        }
+      },
+      {
+        "sendId": "fallback",
+        "threadId": "thread-fixture",
+        "input": {
+          "text": "Next request",
+          "attachments": []
+        }
+      }
+    ],
+    "activeTurnId": "turn-a",
+    "activeTurns": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread-fixture",
+        "sendId": "steer",
+        "input": {
+          "text": "Adjust the result",
+          "attachments": []
+        },
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "activeTurnId": "turn-a"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread-fixture",
+        "sendId": "fallback",
+        "input": {
+          "text": "Next request",
+          "attachments": []
+        },
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "activeTurnId": "turn-a"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/steer",
+          "params": {
+            "threadId": "thread-fixture",
+            "clientUserMessageId": "steer",
+            "input": [
+              {
+                "type": "text",
+                "text": "Adjust the result"
+              }
+            ],
+            "expectedTurnId": "turn-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "turn-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "steer-user",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "Adjust the result"
+              }
+            ],
+            "clientId": "steer"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/steer",
+          "params": {
+            "threadId": "thread-fixture",
+            "clientUserMessageId": "fallback",
+            "input": [
+              {
+                "type": "text",
+                "text": "Next request"
+              }
+            ],
+            "expectedTurnId": "turn-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32600,
+          "message": "no active turn to steer"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "thread-fixture",
+            "clientUserMessageId": "fallback",
+            "input": [
+              {
+                "type": "text",
+                "text": "Next request"
+              }
+            ],
+            "cwd": "/work/project",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "workspaceWrite"
+            },
+            "model": "fixture-model",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "turn-b"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-b",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-b",
+          "item": {
+            "id": "fallback-user",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "Next request"
+              }
+            ],
+            "clientId": "fallback"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-b",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "thread-fixture",
+            "sendId": "steer",
+            "turnId": "turn-a"
+          }
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "thread-fixture",
+            "sendId": "fallback",
+            "turnId": "turn-b"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "steer-user",
+          "seq": 1,
+          "type": "user",
+          "content": "Adjust the result",
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "thread-fixture",
+        "sendId": "steer",
+        "turnId": "turn-a"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-b",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "fallback-user",
+          "seq": 2,
+          "type": "user",
+          "content": "Next request",
+          "toolFlowId": "turn-b"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "thread-fixture",
+        "sendId": "fallback",
+        "turnId": "turn-b"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-b",
+        "state": "idle"
+      }
+    ]
+  }
+}

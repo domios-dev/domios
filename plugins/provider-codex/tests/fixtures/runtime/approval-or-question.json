@@ -1,0 +1,319 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "answer",
+        "requestId": 7,
+        "answer": {
+          "kind": "choice",
+          "values": [
+            "decline"
+          ]
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "pendingRequest": {
+          "requestId": 7,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "turn-a",
+            "command": "git status"
+          }
+        },
+        "activeTurns": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "answer",
+        "requestId": "q-1",
+        "answer": {
+          "kind": "choice",
+          "values": [
+            "JSON"
+          ]
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.14.7",
+        "tabId": "tab-fixture",
+        "bindingNonce": "nonce-fixture",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "pendingRequest": {
+          "requestId": "q-1",
+          "method": "item/tool/requestUserInput",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "turn-a",
+            "questions": [
+              {
+                "id": "format",
+                "header": "Format",
+                "question": "Choose format",
+                "options": [
+                  {
+                    "label": "JSON"
+                  },
+                  {
+                    "label": "Text"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "activeTurns": []
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "request",
+        "requestId": 7,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "command": "git status"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "reply",
+        "requestId": 7,
+        "result": {
+          "kind": "success",
+          "value": {
+            "decision": "decline"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": null
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "serverRequest/resolved",
+        "params": {
+          "threadId": "thread-fixture",
+          "requestId": 7
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "request",
+        "requestId": "q-1",
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "questions": [
+            {
+              "id": "format",
+              "header": "Format",
+              "question": "Choose format",
+              "options": [
+                {
+                  "label": "JSON"
+                },
+                {
+                  "label": "Text"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "reply",
+        "requestId": "q-1",
+        "result": {
+          "kind": "success",
+          "value": {
+            "answers": {
+              "format": {
+                "answers": [
+                  "JSON"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": null
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "serverRequest/resolved",
+        "params": {
+          "threadId": "thread-fixture",
+          "requestId": "q-1"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "prompt",
+        "threadId": "thread-fixture",
+        "requestId": 7,
+        "prompt": {
+          "question": "git status",
+          "options": [
+            {
+              "label": "Approve",
+              "value": "accept"
+            },
+            {
+              "label": "Approve for session",
+              "value": "acceptForSession"
+            },
+            {
+              "label": "Decline",
+              "value": "decline"
+            },
+            {
+              "label": "Cancel",
+              "value": "cancel"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "needs_input"
+      },
+      {
+        "kind": "promptResolved",
+        "threadId": "thread-fixture",
+        "requestId": 7
+      },
+      {
+        "kind": "prompt",
+        "threadId": "thread-fixture",
+        "requestId": "q-1",
+        "prompt": {
+          "question": "Choose format",
+          "options": [
+            {
+              "label": "JSON",
+              "value": "JSON"
+            },
+            {
+              "label": "Text",
+              "value": "Text"
+            }
+          ],
+          "sections": [
+            {
+              "label": "Format"
+            }
+          ],
+          "multi_select": false
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "needs_input"
+      },
+      {
+        "kind": "promptResolved",
+        "threadId": "thread-fixture",
+        "requestId": "q-1"
+      }
+    ]
+  }
+}
