@@ -65,6 +65,7 @@ export function readUpdateIntent(value: string | null): UpdateIntent | null {
 
 
 export function hasUpdateBadge(item: UpdateAvailabilityItem | undefined): boolean {
+  if (item?.state === "ready_to_apply") return item.kind === "frontend" && item.compatible && item.latest !== null;
   return item?.state === "update_available" && item.compatible
     && item.installed !== null && item.latest !== null && item.installed !== item.latest;
 }
@@ -74,7 +75,7 @@ export function panelItems(items: readonly UpdateAvailabilityItem[]): UpdateItem
     id: item.id,
     group: item.kind === "app" ? "App" : item.kind === "frontend" ? "Interface" : "Plugins",
     name: item.kind === "app" ? "Domios" : item.kind === "frontend" ? "Interface" : item.id,
-    currentVersion: item.installed!, targetVersion: item.latest!,
+    currentVersion: item.installed ?? "Bundled", targetVersion: item.latest!,
   }));
 }
 

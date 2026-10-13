@@ -401,6 +401,24 @@ fn frontend_discovery_stages_once_and_emits_one_ready_event_while_unapplied() {
         }
     }
     assert_eq!(staged, 1);
+    let available = bundles.local_availability();
+    assert_eq!(
+        available.state,
+        codeterm_plugins::AvailabilityState::ReadyToApply
+    );
+    assert_eq!(available.latest.as_deref(), Some("1.0.0"));
+    assert!(available.compatible);
+    let reopened = super::FrontendBundles::open(
+        root.path(),
+        2,
+        "0.0.0",
+        Some(PUBLIC_KEY.into()),
+        "https://example.test/frontend-manifest.json".into(),
+        false,
+        std::sync::Arc::new(|_, _| {}),
+    )
+    .unwrap();
+    assert_eq!(reopened.local_availability(), available);
     let events = events.lock().unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].0, "frontend-update-ready");
@@ -408,4 +426,50 @@ fn frontend_discovery_stages_once_and_emits_one_ready_event_while_unapplied() {
     assert_eq!(bundles.status()["pending"]["releaseId"], "frontend-v1.0.0");
     assert!(bundles.status()["active"].is_null());
     assert!(bundles.status()["loading"].is_null());
+}
+
+#[test]
+fn staged_frontend_availability_publishes_transitions_and_retires_failed_offers() {
+    let root = tempfile::tempdir().unwrap();
+    Store::open(root.path())
+        .unwrap()
+        .install(&verified(), SIGNATURE, ARCHIVE)
+        .unwrap();
+    let bundles = super::FrontendBundles::open(
+        root.path(),
+        2,
+        "0.0.0",
+        Some(PUBLIC_KEY.into()),
+        "https://example.test/frontend-manifest.json".into(),
+        false,
+        std::sync::Arc::new(|_, _| {}),
+    )
+    .unwrap();
+    let changes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let changed = changes.clone();
+    bundles.bind_availability_observer(std::sync::Arc::new(move || {
+        changed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    bundles.stage_verified(&verified()).unwrap();
+    bundles.stage_verified(&verified()).unwrap();
+    assert_eq!(changes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        bundles.local_availability().state,
+        codeterm_plugins::AvailabilityState::ReadyToApply
+    );
+    let activated = bundles
+        .activate("frontend-v1.0.0", vec!["client-a".into()], u64::MAX)
+        .unwrap();
+    assert_ne!(
+        bundles.local_availability().state,
+        codeterm_plugins::AvailabilityState::ReadyToApply
+    );
+    bundles
+        .fail("frontend-v1.0.0", activated["generation"].as_u64().unwrap())
+        .unwrap();
+    assert_ne!(
+        bundles.local_availability().state,
+        codeterm_plugins::AvailabilityState::ReadyToApply
+    );
+    assert_eq!(changes.load(std::sync::atomic::Ordering::SeqCst), 3);
 }

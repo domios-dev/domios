@@ -73,6 +73,7 @@ mod tests;
 pub enum AvailabilityState {
     UpToDate,
     UpdateAvailable,
+    ReadyToApply,
     Incompatible,
     CoreSilent,
 }

@@ -5,14 +5,14 @@ import type { UpdateAvailabilitySnapshot } from "../../lib/updateAvailability";
 import { UPDATE_INTENT_KEY } from "../../lib/updatePanelModel";
 
 const fake = vi.hoisted(() => ({
-  check: vi.fn(), install: vi.fn(), plugin: vi.fn(), accept: vi.fn(), hold: vi.fn(),
+  offer: null as { releaseId: string; version: string } | null, check: vi.fn(), install: vi.fn(), plugin: vi.fn(), accept: vi.fn(), hold: vi.fn(),
 }));
 vi.mock("../../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
 vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ installing: false, error: null, applyUpdate: fake.install }) }));
 vi.mock("../../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin }));
 vi.mock("../../lib/frontendUpdate/browser", () => ({
   acceptFrontendUpdate: fake.accept, setFrontendUpdateHeld: fake.hold,
-  frontendUpdateOffer: () => null, subscribeFrontendUpdateOffer: () => () => {},
+  frontendUpdateOffer: () => fake.offer, subscribeFrontendUpdateOffer: () => () => {},
 }));
 vi.mock("../../lib/bridge", () => ({ listen: async () => () => {} }));
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
@@ -25,7 +25,7 @@ const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
   { id: "frontend", kind: "frontend", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "update_available", reason: "newer", channel: null },
   { id: "core", kind: "plugin", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "core_silent", reason: "silent", channel: "core" },
 ] };
-afterEach(() => { localStorage.clear(); vi.clearAllMocks(); });
+afterEach(() => { localStorage.clear(); fake.offer = null; vi.clearAllMocks(); });
 
 it("opens grouped offers and the Update all handler persists intent before installation", async () => {
   fake.check.mockResolvedValue(snapshot);
@@ -65,3 +65,31 @@ it("reconnects persisted intent to plugin actions after the new host is observed
     expect(localStorage.getItem(UPDATE_INTENT_KEY)).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+for (const actionName of ["Apply Interface update", "Update all"]) {
+  it(`offers a staged Interface and consents once through ${actionName}`, async () => {
+    fake.offer = { releaseId: "frontend-v2.0.0", version: "2.0.0" };
+    const staged: UpdateAvailabilitySnapshot = { errors: {}, items: [
+      { ...snapshot.items[0], latest: "1.0.0", state: "up_to_date" },
+      { ...snapshot.items[2], installed: null, state: "ready_to_apply" },
+    ] };
+    fake.check.mockResolvedValue(staged);
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<UpdatePanelProvider><UpdateTray /></UpdatePanelProvider>));
+      expect(fake.check).toHaveBeenCalledWith();
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!.click());
+      const panel = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
+      expect(panel.querySelector('section[aria-label="Interface updates"]')).not.toBeNull();
+      const action = [...panel.querySelectorAll("button")].find(button => (button.getAttribute("aria-label") ?? button.textContent) === actionName)!;
+      expect(action).not.toBeNull();
+      expect(action.disabled).toBe(false);
+      await act(async () => action.click());
+      expect(fake.accept).toHaveBeenCalledTimes(1);
+      expect(fake.install).not.toHaveBeenCalled();
+      expect(fake.plugin).not.toHaveBeenCalled();
+      expect(localStorage.getItem(UPDATE_INTENT_KEY)).toBeNull();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+}

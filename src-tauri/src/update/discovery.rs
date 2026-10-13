@@ -17,6 +17,66 @@ pub async fn check(
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
+    let mut cached = LAST.lock().clone().unwrap_or_default();
+    if let Some(bundles) = &bundles {
+        let local = bundles.local_availability();
+        let previous = cached
+            .items
+            .iter()
+            .find(|item| item.kind == UpdateKind::Frontend);
+        if local.state == codeterm_plugins::AvailabilityState::ReadyToApply
+            || previous
+                .is_none_or(|item| item.state == codeterm_plugins::AvailabilityState::ReadyToApply)
+        {
+            replace_frontend(&mut cached, local);
+        }
+    }
+    if !cached.items.iter().any(|item| item.kind == UpdateKind::App) {
+        cached.items.push(AvailabilityItem::release(
+            "app",
+            UpdateKind::App,
+            env!("CARGO_PKG_VERSION"),
+            env!("CARGO_PKG_VERSION"),
+            true,
+        ));
+    }
+    let app = app.clone();
+    let state = state.clone();
+    cache::serve(
+        cached,
+        force,
+        move || async move { refresh(&app, &state, bundles, force).await },
+        |job| {
+            if REFRESHING
+                .compare_exchange(
+                    false,
+                    true,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = job.await {
+                        log::debug!("[update] background discovery failed: {error}");
+                    }
+                    REFRESHING.store(false, std::sync::atomic::Ordering::Release);
+                });
+            }
+        },
+    )
+    .await
+}
+
+static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+mod cache;
+
+async fn refresh(
+    app: &tauri::AppHandle,
+    state: &crate::UpdateStateHandle,
+    bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
+    force: bool,
+) -> Result<AvailabilitySnapshot, String> {
     let method = state.lock().install_method.clone();
     let app_result = super::checker::check_for_update(&method).await;
     if let Ok(info) = &app_result {
@@ -29,7 +89,7 @@ pub async fn check(
         version: Some(env!("CARGO_PKG_VERSION").into()),
     };
     let stage_bundles = bundles.clone();
-    let result = tokio::task::spawn_blocking(move || {
+    let mut result = tokio::task::spawn_blocking(move || {
         let mut snapshot: AvailabilitySnapshot =
             serde_json::from_value(codeterm_plugins::update_inventory(ctx, force)?)
                 .map_err(|e| e.to_string())?;
@@ -56,6 +116,12 @@ pub async fn check(
     })
     .await
     .map_err(|e| e.to_string())??;
+    if let Some(bundles) = &stage_bundles {
+        let local = bundles.local_availability();
+        if local.state == codeterm_plugins::AvailabilityState::ReadyToApply {
+            replace_frontend(&mut result, local);
+        }
+    }
     publish(app, &result);
     if let Some(bundles) = stage_bundles {
         if let Some(item) = result
@@ -219,6 +285,32 @@ pub fn frontend_installed(app: &tauri::AppHandle, installed: &str) {
         } else {
             *item = next;
             Some(snapshot.clone())
+        }
+    };
+    if let Some(snapshot) = next {
+        crate::api::events::emit_everywhere(app, "update-availability-changed", snapshot);
+    }
+}
+
+pub fn replace_frontend(snapshot: &mut AvailabilitySnapshot, item: AvailabilityItem) {
+    snapshot
+        .items
+        .retain(|item| item.kind != UpdateKind::Frontend);
+    snapshot.items.push(item);
+    snapshot.errors.remove("frontend");
+    snapshot.items.sort_by(|a, b| a.id.cmp(&b.id));
+}
+
+pub fn publish_frontend(app: &tauri::AppHandle, item: AvailabilityItem) {
+    let next = {
+        let mut last = LAST.lock();
+        let mut snapshot = last.clone().unwrap_or_default();
+        replace_frontend(&mut snapshot, item);
+        if last.as_ref() == Some(&snapshot) {
+            None
+        } else {
+            *last = Some(snapshot.clone());
+            Some(snapshot)
         }
     };
     if let Some(snapshot) = next {
