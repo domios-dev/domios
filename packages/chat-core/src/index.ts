@@ -191,4 +191,4 @@ export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactD
 
 export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";
 
-export { parseMessageParts, splitExactSendTexts, projectMessageParts, projectTranscriptParts, type MessagePart, type ExactSendText } from "./messageParts";
+export { messageRowParts, parseMessageParts, splitExactSendTexts, projectMessageParts, projectTranscriptParts, type MessagePart, type ExactSendText } from "./messageParts";
