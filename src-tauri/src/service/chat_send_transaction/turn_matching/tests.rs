@@ -71,3 +71,26 @@ fn identical_sends_need_distinct_occurrences_within_record() {
         ["a", "b"]
     );
 }
+
+#[test]
+fn normalized_containment_requires_distinct_occurrences_in_one_normalization_scope() {
+    let normalization = crate::agent::provider::TurnEvidenceNormalization {
+        collapse_horizontal_whitespace: true,
+        ..Default::default()
+    };
+    let candidates = [
+        ("a".into(), "opaque\tbody".into(), normalization),
+        ("b".into(), "opaque\tbody".into(), normalization),
+        (
+            "foreign-policy".into(),
+            "opaque body".into(),
+            Default::default(),
+        ),
+    ];
+    assert_eq!(matching_turn_send_ids("opaque body", &candidates), ["a"]);
+    assert_eq!(
+        matching_turn_send_ids("opaque body\nopaque body", &candidates),
+        ["a", "b"]
+    );
+    assert!(matching_turn_send_ids("opaque", &candidates).is_empty());
+}
