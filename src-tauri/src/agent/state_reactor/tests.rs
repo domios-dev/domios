@@ -1020,3 +1020,69 @@ Press enter to confirm";
     };
     assert!(prompt_is_composer_text(second_turn, &fallback));
 }
+
+#[test]
+fn numbered_terminal_choice_requires_contiguous_visible_options_and_key_bindings() {
+    let prompt = reactor_test_prompt();
+    let screen = "Opaque heading\n› 1. opaque option alpha\n  2. opaque option beta\nenter accept · esc dismiss";
+    assert!(has_numbered_terminal_choice(screen, &prompt));
+    for input in [
+        screen.replace("2. opaque", "4. opaque"),
+        screen.replace("enter accept · esc dismiss", "accept · dismiss"),
+        screen.replace("enter accept · esc dismiss", "enter accept"),
+        format!("{screen}\n› composer"),
+    ] {
+        assert!(!has_numbered_terminal_choice(&input, &prompt));
+    }
+    let mut noncontiguous = prompt.clone();
+    noncontiguous.options[1].value = "4".into();
+    assert!(!has_numbered_terminal_choice(
+        &screen.replace("2. opaque", "4. opaque"),
+        &noncontiguous
+    ));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn captured_picker_reactor_surfaces_all_choices_with_auto_confirm_enabled() {
+    use crate::agent::provider::AgentProvider;
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    let manifest: PluginManifest = serde_json::from_str(include_str!(
+        "../../../../plugins/provider-codex/plugin.json"
+    ))
+    .unwrap();
+    let vm = PluginVm::from_source(
+        "capture",
+        include_str!("../../../../plugins/provider-codex/plugin.js").into(),
+    )
+    .unwrap();
+    let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
+    let screen = include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt");
+    let prompt = provider
+        .parse_prompt(screen)
+        .expect("captured seven-choice picker");
+    for (auto_approve, permission_auto_confirm) in [(true, false), (false, true), (true, true)] {
+        let (fixture, service, tab_id, _) = classified_prompt_fixture(screen, prompt.clone());
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.auto_approve = auto_approve;
+            tab.permission_auto_confirm = permission_auto_confirm;
+        }
+        assert!(route_classified_prompt(
+            &service,
+            &tab_id,
+            "structural-fixture",
+            screen,
+            Some(&classification(TabState::ClarifyingQuestion, 1.0, None)),
+            auto_approve,
+            permission_auto_confirm
+        ));
+        assert_pending_prompt_without_owner_notice(
+            &fixture,
+            &tab_id,
+            &prompt,
+            codeterm_types::pty::PromptKind::Provider,
+        );
+    }
+}
