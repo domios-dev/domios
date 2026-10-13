@@ -560,13 +560,12 @@ mod tests {
         let first = ServiceFixture::new(mux);
         let second = ServiceFixture::new(MultiplexerState::from_session_snapshot(&snapshot));
         first.service.mux.write().get_tab_mut(&tab_id).unwrap().role = Some(AgentRole::Worker);
-        second
-            .service
-            .mux
-            .write()
-            .get_tab_mut(&tab_id)
-            .unwrap()
-            .role = Some(AgentRole::Manager);
+        {
+            let mut mux = second.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.role = Some(AgentRole::Manager);
+            tab.role_profile = Some("planner".into());
+        }
         let first_key = first.service.open_lifecycle_epoch(&tab_id).unwrap();
         assert!(second.service.lifecycle_journal.load().records.is_empty());
         let second_key = second.service.open_lifecycle_epoch(&tab_id).unwrap();
@@ -574,7 +573,8 @@ mod tests {
         let records = second.service.lifecycle_journal.load().records;
         assert!(records.iter().any(|record| matches!(record,
             JournalRecord::Transition { entry } if matches!(&entry.transition,
-                LifecycleTransition::RoleBinding { role: Some(role), .. } if role == "Planner"
+                LifecycleTransition::RoleBinding { role: Some(role), role_profile: Some(profile), .. }
+                    if role == "Manager" && profile == "planner"
             )
         )));
         first.service.lifecycle_journal.compact().unwrap();
