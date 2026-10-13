@@ -52,6 +52,8 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
     let origin = "http://127.0.0.1:7686";
     let unavailable = unavailable_url().unwrap();
     let fallback = fallback_url().unwrap();
+    assert_eq!(external_link(&unavailable, Some(origin)), None);
+    assert_eq!(external_link(&fallback, Some(origin)), None);
     assert!(navigation_allowed(
         &unavailable,
         Some(origin),
