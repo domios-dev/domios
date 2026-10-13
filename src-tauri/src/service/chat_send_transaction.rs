@@ -14,6 +14,7 @@ pub(crate) use live_evidence::{LiveProvenance, TurnPosition};
 use turn_matching::matching_turn_send_ids;
 pub(crate) use turn_matching::{
     contains_written_payload, normalize_turn_evidence_with, normalize_written_payload,
+    written_payload_match_end,
 };
 
 use super::pending_delivery_payloads::user_sends::{
