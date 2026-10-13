@@ -20,3 +20,16 @@ export function promptMessagePart(
 export function isFreeTextPromptOption(option: PromptOption): boolean {
   return /^(?:\(?\s*)?(?:other|custom|none of (?:the above|these)|type (?:your own|something(?: else)?)|write your own|enter (?:your own|custom|text)|free[\s-]?text|something else)/i.test(option.label.trim());
 }
+
+export function promptResponseArgs(tabId: string, value: string, prompt: PendingPrompt | null) {
+  return {
+    tabId, value,
+    ...(prompt?.request_id != null ? {
+      identity: {
+        kind: "structured" as const,
+        options: prompt.options.map((option) => ({ ...option })),
+        request_id: prompt.request_id,
+      },
+    } : {}),
+  };
+}

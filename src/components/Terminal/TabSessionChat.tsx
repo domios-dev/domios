@@ -2,7 +2,7 @@ import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
-import { promptMessagePart } from "../../lib/promptAnswers";
+import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
@@ -394,7 +394,7 @@ export function TabSessionChat({
       promptResponseInFlight.current = true;
       if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       try {
-        await invoke("mux_respond_prompt", { tabId, value });
+        await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt));
       } catch (error) {
         setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
