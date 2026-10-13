@@ -148,6 +148,7 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   sourceMessageId?: string;
   type: ChatMessageKind;
   content: string;
+  messageParts?: import("./messageParts").MessagePart[];
   attachments?: ChatAttachment[];
   timestamp?: string;
   /** Monotonic source-order ordinal supplied by the server (JSONL line/rich-message
