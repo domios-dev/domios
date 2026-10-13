@@ -78,6 +78,24 @@ selections use `bash scripts/plugin-tests.sh <provider>`.
 
 Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
 
+Nextest keeps normal suite parallelism. A parallel timing above one second is a
+candidate when new or above its recorded alone allowance. The gate reruns only
+those candidates serially from the same binaries/Cargo metadata, reports both
+timings, and rejects units that remain above one second alone or regress above
+an existing allowance. `scripts/slow-unit-tests.json` records alone durations;
+its exact identities and recorded times may only shrink against the base ref.
+
+```bash
+node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]
+node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base REF]
+node --test scripts/check-slow-unit-tests.test.mjs
+```
+
+Candidate JSON contains exact validated binary/test IDs and a nextest filter,
+never shell commands. No candidates means no rerun; missing/incomplete timing
+logs or missing candidate confirmations fail closed. A plain log-only guard
+works when no serial confirmations are required.
+
 ### Unified entrypoint: `./build.sh test:all`
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:

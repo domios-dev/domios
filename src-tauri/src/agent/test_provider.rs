@@ -15,6 +15,14 @@ use super::provider::{
     ReadinessStrategy, ReasoningEffortInfo, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
+pub fn test_shell_binary() -> &'static str {
+    if cfg!(windows) {
+        "cmd.exe"
+    } else {
+        "sh"
+    }
+}
+
 pub struct MockProvider {
     id: String,
     launch_binary: Option<String>,
@@ -382,7 +390,7 @@ impl MockProvider {
     pub fn with_empty_launch_command(id: &str) -> Self {
         Self {
             empty_launch_command: true,
-            launch_binary: Some(if cfg!(windows) { "cmd.exe" } else { "sh" }.into()),
+            launch_binary: Some(test_shell_binary().into()),
             ..Self::new(id)
         }
     }
@@ -390,7 +398,7 @@ impl MockProvider {
     pub fn with_empty_launch_command_when_task_present(id: &str) -> Self {
         Self {
             empty_launch_command_when_task_present: true,
-            launch_binary: Some(if cfg!(windows) { "cmd.exe" } else { "sh" }.into()),
+            launch_binary: Some(test_shell_binary().into()),
             system_prompt_delivery: SystemPromptDelivery::SessionConfig,
             task_delivery: TaskDelivery::InlineFlag,
             ..Self::new(id)

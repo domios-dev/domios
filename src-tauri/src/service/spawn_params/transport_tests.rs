@@ -73,7 +73,8 @@ fn spawn_rejects_transport_mismatched_flags() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
-        MockProvider::new(PROVIDER).with_launch_binary("cmd.exe"),
+        MockProvider::new(PROVIDER)
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
 
     for (flag, params) in mismatched_cases() {

@@ -358,7 +358,7 @@ fn headless_launch_confirms_from_bound_session_evidence() {
     tab.reported_session_binding_nonce = Some("launch-nonce".into());
     tab.boot_stage = Some(BootStage::ProviderReady);
     let fixture = ServiceFixture::new(mux);
-    let root = fixture.temp.path().to_path_buf();
+    let root = fixture.temp.path().canonicalize().unwrap();
     std::fs::write(root.join("launch-session.jsonl"), b"").unwrap();
     fixture
         .service

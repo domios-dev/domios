@@ -397,8 +397,22 @@ target is its own test binary and prints its own `test result` line, so a
 target reporting `0 passed` only means the filter matched nothing there. Judge
 the run by the per-test `... ok` lines of the target that owns the test.
 `nextest <scope> [filterset]` uses the build gateway, compiles with
-`cargo nextest run --no-run`, then runs through `scripts/test-capped.sh` with
+`cargo nextest list --list-type binaries-only`, then runs through `scripts/test-capped.sh` with
 `--no-tests=fail`; it accepts the same scope names plus Cargo package names.
+Every `nextest` operation compiles a binaries-metadata inventory, saves Cargo
+metadata and reuses that exact inventory for execution. It captures per-test
+timings at normal parallelism. `check-slow-unit-tests.mjs LOG --candidates JSON`
+selects new or over-baseline timings above one second; the runner measures only
+those exact tests alone, reusing metadata without any Cargo build flags.
+`check-slow-unit-tests.mjs LOG --alone ALONE_LOG` reports both measurements and
+rejects new units still over one second alone or existing alone regressions.
+`scripts/slow-unit-tests.json` records alone durations and may only shrink against
+`origin/develop` (`SLOW_UNIT_TESTS_BASE` overrides the ref). Missing or partial
+timings fail closed, and test failures retain their original exit codes.
+For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
+SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
+refuses that mode without serial execution. Ordinary suites retain default
+parallelism.
 Filtersets use nextest's `--filter-expr` syntax. A filterset containing
 `rdeps(...)` runs workspace targets so reverse dependents remain in scope.
 `verify` runs the standard
@@ -525,6 +539,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
 | `verify` downloads FastEmbed into a temporary test data directory and fails on a model-host outage | The Rust test wrapper let fixture-owned `CODETERM_DATA_DIR` choose the immutable model cache. | Use the current wrapper, which exports one machine-shared `CODETERM_EMBED_CACHE_DIR`; override it explicitly only for cache diagnostics. |
+| Nextest metadata reuse exits 2 with `--manifest-path cannot be used with --cargo-metadata` before selecting tests | The reuse invocation retained a Cargo build selector. | Pass only the saved binaries/Cargo metadata and runtime/filter options to the capped execution phase; keep manifest/package/feature selectors exclusively on the inventory compilation. Rerun the same bounded selector, preserving the zero-executed receipt. |
 | macOS task-authority tests panic creating a Tauri `EventLoop` | The fixture built Wry on a libtest thread. | Use `app_runtime::builder()` and runtime aliases so `cfg(test)` constructs MockRuntime; remove fixture-only desktop ignores. Keep real native window oracles explicitly platform-gated. |
 | Unix REST lifecycle bind gets `Address already in use` | A guessed test port can collide; restart listeners overlap during handoff. | Prebind OS-assigned generation one; enable `SO_REUSEPORT` on every Unix bind. |
 | REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |

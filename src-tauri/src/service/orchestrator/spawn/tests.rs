@@ -58,7 +58,7 @@ fn sync_spawn_persists_restorable_launch_parameters() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("sync-restorable")
-            .with_launch_binary("cmd.exe"),
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
 
     let result = fixture
@@ -128,7 +128,7 @@ fn task_specific_empty_provider_command_is_refused_before_task_binding_and_clean
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "task-sensitive-empty-launch",
         )
-        .with_launch_binary("cmd.exe"),
+        .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture
         .service
@@ -366,7 +366,7 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("task-pending-failure")
-            .with_launch_binary("cmd.exe"),
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     let mut plan = fixture
         .service

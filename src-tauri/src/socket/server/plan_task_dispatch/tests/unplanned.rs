@@ -62,7 +62,7 @@ fn fixture() -> UnplannedFixture {
     fixture.service.plan_store.save(&mut plan, 2).unwrap();
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("unplanned-dispatch-provider")
-            .with_launch_binary("cmd.exe"),
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture
         .service
@@ -239,7 +239,7 @@ fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
         .agent_registry
         .register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new(provider_id)
-                .with_launch_binary("cmd.exe"),
+                .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
         ));
     crate::agent::model_catalog::put_live(
         provider_id,

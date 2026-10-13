@@ -672,7 +672,7 @@ fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "pair-empty-orchestrator",
         )
-        .with_launch_binary("powershell"),
+        .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("pair-valid-planner")
@@ -717,7 +717,7 @@ fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "pair-empty-orchestrator-claimed",
         )
-        .with_launch_binary("powershell"),
+        .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("pair-valid-planner-claimed")
@@ -773,13 +773,13 @@ fn pair_planner_launch_failure_preserves_claimed_tab_and_removes_created_tab() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("pair-valid-orchestrator")
-            .with_launch_binary("powershell"),
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "pair-empty-planner",
         )
-        .with_launch_binary("powershell"),
+        .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
     let teams_before = fixture.service.mux.read().team_count();
