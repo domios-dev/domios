@@ -10,7 +10,7 @@ captured: {cliVersion:string; model:string; scenario:string};
 receiptMs:number; // monotonic milliseconds since session start
 ```
 
-Every unsolicited frame has an exact context override. Before a thread is loaded, the context has no threadId and no claimedSends. Each submit operation attaches its exact claim at handoff, and the claim is removed after its first live user item. Parent/active-turn state is host input; the interrupt capture includes its bound active turn. Initialize records its notification write acknowledgement and account/read before the initialized/auth result.
+Every unsolicited frame has an exact context override. Before a thread is loaded, the context has no threadId and no claimedSends. Each submit operation attaches its exact claim at handoff, and the claim is removed after its first live user item. Parent/active-turn state is host input; the interrupt capture includes its bound active turn. Initialize records its notification write acknowledgement and account/read before the initialized/auth result. The auth response event is included in the full expected.events stream as well as the expected terminal step.
 
 `multi-turn.json`, `interrupt.json`, and `approval.json` prove the two-turn conversation, interrupted native completion, and blocking command approval round trip (Decline). `streaming-short.json` is the requested approximately 400-word no-tool streaming session. It completed in less than ten seconds, so it cannot establish a sustained ten-second rate. `streaming.json` is an additional 800-word no-tool session that provides a complete observed ten-second interval. Both are real traffic, not generated load.
 
