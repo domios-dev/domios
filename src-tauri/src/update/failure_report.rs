@@ -1,8 +1,3 @@
-//! Failure visibility for updates that abort AFTER destructive teardown.
-//! Writes a diagnostic artifact under the `~/.codeterm/crashes/` convention and
-//! raises a user-visible failure signal, so a torn-down workspace never fails
-//! silently into a buried ERROR log line.
-
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
@@ -78,9 +73,7 @@ fn render_abort(abort: &UpdateAbort) -> String {
     s
 }
 
-/// Production sink: durable artifact + error state (drives the update toast) +
-/// dedicated frontend event + OS-level toast that survives an unfocused/torn-down
-/// webview.
+/// Retains abort evidence and runtime status without raising a notification.
 pub struct AppFailureSink {
     pub app: tauri::AppHandle,
     pub update_state: crate::UpdateStateHandle,
@@ -110,11 +103,7 @@ impl UpdateFailureSink for AppFailureSink {
             abort.cause,
             artifact_str.as_deref().unwrap_or("unavailable")
         );
-        crate::api::os_notify::_send_os_notification(
-            &self.app,
-            "Domios update failed",
-            Some(&body),
-        );
+        log::error!("[updater] update aborted: {body}");
     }
 }
 

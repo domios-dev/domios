@@ -26,22 +26,15 @@ fn notify_level_wire_parse_rejects_the_retired_names() {
     );
 }
 
-/// Structural, not behavioural: the desktop sink is reachable only from the
-/// explicit `codeterm notify` verb and two pre-existing app-lifecycle callers.
-/// No code may decide on an agent's behalf that it wants to interrupt.
+/// The desktop sink is reachable only from the explicit notify-send boundary.
 mod no_inference {
     use std::fs;
     use std::path::{Path, PathBuf};
 
     const SINK: &str = "_send_os_notification";
 
-    /// The sink's own definition, the explicit notify verb guarded by the gate,
-    /// and the updater reporting its own abort. Nothing else may name the toast.
-    const SINK_CALLERS: [&str; 3] = [
-        "api/os_notify.rs",
-        "service/notification.rs",
-        "update/failure_report.rs",
-    ];
+    /// System and automation events may not reach the desktop sink.
+    const SINK_CALLERS: [&str; 2] = ["api/os_notify.rs", "service/notification.rs"];
 
     const EXPLICIT_CREATORS: [&str; 3] = [
         "api/notification_routes.rs",

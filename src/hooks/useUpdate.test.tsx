@@ -88,7 +88,8 @@ async function main() {
     value: async () => ({ ok: false, status: 404 }),
   });
 
-  nativeBridge.updater = { check: async () => updateInfo, status: async () => runtimeStatus("idle"), install: async () => await installResponse as { status: string } };
+  let restoredPhase: "idle" | "error" = "error";
+  nativeBridge.updater = { check: async () => updateInfo, status: async () => runtimeStatus(restoredPhase), install: async () => await installResponse as { status: string } };
   __setListenForTest(async () => () => {});
   __setInvokeForTest(async <T,>(command: string) => {
     switch (command) {
@@ -107,19 +108,22 @@ async function main() {
 
   try {
     const unmount = await mount();
+    assert.equal(state().status, "error");
+    assert.equal(state().toastOpen, false);
+    restoredPhase = "idle";
     const firstApply = state().applyUpdate();
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
     assert.equal(state().installing, true);
-    assert.equal(state().toastOpen, true);
+    assert.equal(state().toastOpen, false);
     assert.equal(state().status, "checking");
 
     resolveInstall({ status: "already_in_flight", message: "opaque" });
     assert.equal((await firstApply)?.status, "already_in_flight");
     assert.equal(state().installing, true);
-    assert.equal(state().toastOpen, true);
+    assert.equal(state().toastOpen, false);
     assert.equal((await state().applyUpdate())?.status, "already_in_flight");
 
     let observation = observeInstallPhase("checking", false, false);
@@ -131,6 +135,18 @@ async function main() {
     assert.equal(returned.finished, true);
 
     await unmount();
+    nativeBridge.updater = {
+      check: async () => updateInfo,
+      status: async () => runtimeStatus("idle"),
+      install: async () => { throw new Error("opaque refusal"); },
+    };
+    const unmountFailure = await mount();
+    await act(async () => { await state().applyUpdate(); });
+    assert.equal(state().status, "error");
+    assert.equal(state().toastOpen, true);
+    await act(async () => { await state().applyUpdate({ failureSurface: "inline" }); });
+    assert.equal(state().toastOpen, false);
+    await unmountFailure();
   } finally {
     nativeBridge.updater = undefined;
     __setInvokeForTest(null);

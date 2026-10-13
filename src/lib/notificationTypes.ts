@@ -31,7 +31,6 @@ export interface NotificationAnswer {
 }
 
 export interface Notification {
-  blueprint_run?: import("./blueprintRun").BlueprintRunPopup;
   lifetime_ms?: number;
   ephemeral?: boolean;
   update_only?: boolean;
