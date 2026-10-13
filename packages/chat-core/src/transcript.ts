@@ -1,5 +1,6 @@
+import { placePendingSends } from "./sendPlacement";
 import { mergeById } from "./merge";
-import { reconcileSends, sendRow, type ChatSend, type SendEcho } from "./sendOrder";
+import { reconcileSends, type ChatSend, type SendEcho } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open byte range `[start, end)` of a session source, both ends on a
@@ -317,5 +318,5 @@ export function projectTranscript(
 ): TranscriptProjection {
   const committedRows = transcriptRows(state);
   const { echoes, pending } = reconcileSends(sends, committedRows);
-  return { rows: [...committedRows, ...pending.map(sendRow)], pending, echoes };
+  return { rows: placePendingSends(committedRows, pending), pending, echoes };
 }
