@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFrameFeed, type FrameFeed } from "./frameFeed";
-import { frameMatchesViewport, viewportAction, type FrameMetadata, type StreamViewport } from "./streamModel";
+import { frameMatchesViewport, type FrameMetadata, type StreamViewport } from "./streamModel";
+import { streamLifecycleAction } from "./streamLifecycle";
 import type { SurfaceState } from "./surfaceChromeModel";
 import { isPreviewPaused, resizeArgs, SURFACE_METHOD, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 
@@ -19,10 +20,8 @@ interface Connection {
   disconnect: Disconnect | null;
   sent: StreamViewport | null;
   latest: StreamViewport | null;
-  healedAt: number;
+  mismatch: string | null;
 }
-
-export const FRAME_HEAL_INTERVAL_MS = 3000;
 
 // Only the visible, focused window may claim the viewport every viewer shares.
 function documentActive(): boolean {
@@ -31,13 +30,13 @@ function documentActive(): boolean {
   return document.visibilityState === "visible" && focused;
 }
 
-export function useSurfaceStream(transport: SurfaceStreamTransport, initialState: SurfaceState): SurfaceStream {
+export function useSurfaceStream(transport: SurfaceStreamTransport, initialState: SurfaceState, visible = true): SurfaceStream {
   const [state, setState] = useState<SurfaceState>(initialState);
   const [notice, setNotice] = useState<SurfaceNotice | null>(null);
   const [paused, setPaused] = useState<SurfaceNotice | null>(null);
   const pausedRef = useRef(false);
   const [feed] = useState(createFrameFeed);
-  const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null, healedAt: Number.NEGATIVE_INFINITY });
+  const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null, mismatch: null });
 
   const sendResize = useCallback((viewport: StreamViewport) => {
     connection.current.sent = viewport;
@@ -49,10 +48,14 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
   const heal = useCallback((meta: FrameMetadata) => {
     const current = connection.current;
     // sent is null while the stage is hidden; a hidden stage must not claim the shared viewport.
-    if (!current.latest || !current.sent || frameMatchesViewport(meta, current.latest) || !documentActive()) return;
-    const now = Date.now();
-    if (now - current.healedAt <= FRAME_HEAL_INTERVAL_MS) return;
-    current.healedAt = now;
+    if (!current.latest || !current.sent || !documentActive()) return;
+    if (frameMatchesViewport(meta, current.latest)) {
+      current.mismatch = null;
+      return;
+    }
+    const mismatch = `${meta.deviceWidth}:${meta.deviceHeight}:${current.latest.w}:${current.latest.h}:${current.latest.dpr}`;
+    if (current.mismatch === mismatch) return;
+    current.mismatch = mismatch;
     sendResize(current.latest);
   }, [sendResize]);
 
@@ -84,7 +87,6 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
 
   useEffect(() => {
     const current = connection.current;
-    if (current.latest) connect(current.latest);
     return () => {
       current.disconnect?.();
       current.disconnect = null;
@@ -92,16 +94,35 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
     };
   }, [connect]);
 
+  useEffect(() => {
+    const current = connection.current;
+    if (!visible) {
+      current.disconnect?.();
+      current.disconnect = null;
+      current.sent = null;
+    } else if (current.latest && !current.disconnect) {
+      connect(current.latest);
+    }
+  }, [connect, visible]);
+
   const onViewport = useCallback((viewport: StreamViewport) => {
     const current = connection.current;
     current.latest = viewport;
-    const action = viewportAction(current.disconnect !== null, current.sent, viewport);
+    const action = streamLifecycleAction(visible, current.disconnect !== null, current.sent, viewport);
     if (action === "connect") connect(viewport);
     else if (action === "resize") sendResize(viewport);
-  }, [connect, sendResize]);
+    else if (action === "disconnect") {
+      current.disconnect?.();
+      current.disconnect = null;
+      current.sent = null;
+    }
+  }, [connect, sendResize, visible]);
 
   const onHidden = useCallback(() => {
-    connection.current.sent = null;
+    const current = connection.current;
+    current.disconnect?.();
+    current.disconnect = null;
+    current.sent = null;
   }, []);
 
   return { state, notice, paused, frames: feed, setNotice, onViewport, onHidden };

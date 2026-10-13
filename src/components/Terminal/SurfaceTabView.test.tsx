@@ -126,8 +126,8 @@ describe("surface tab view", () => {
   it("holds no stream while the stream tab is hidden", async () => {
     const { created, factory } = fakeTransports();
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible={false} decl={streamDecl} createTransport={factory} />);
-    expect(byRole("toolbar", "Jev's Board controls")).toBeNull();
-    expect(created).toEqual([]);
+    expect(byRole("toolbar", "Jev's Board controls")).not.toBeNull();
+    expect(created).toHaveLength(1);
   });
 
   it("renders nothing while the declaration loads and explains an unsupported renderer", async () => {
