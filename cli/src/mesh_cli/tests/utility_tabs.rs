@@ -1,4 +1,5 @@
 use super::*;
+use crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH;
 
 #[test]
 fn tab_new_purpose_mesh_json_field() {
