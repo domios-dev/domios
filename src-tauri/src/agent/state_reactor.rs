@@ -562,12 +562,36 @@ fn is_enter_binding_footer(line: &str) -> bool {
         .any(|(index, key)| key.eq_ignore_ascii_case("enter") && parts.len() > index + 1)
 }
 
+// A separator-delimited hint row such as `Type to filter • Enter to select • Tab to edit`;
+// unlike `is_key_binding_footer` it needs no Esc, so it only admits, never auto-confirms.
+fn is_enter_choice_footer(line: &str) -> bool {
+    let segments = line.trim().split(['·', '•']).collect::<Vec<_>>();
+    segments.len() >= 2
+        && segments.iter().all(|segment| {
+            let mut words = segment.split_whitespace();
+            words
+                .next()
+                .is_some_and(|key| key.chars().all(|ch| ch.is_alphabetic()))
+                && words.next().is_some()
+        })
+        && segments.iter().any(|segment| {
+            segment
+                .split_whitespace()
+                .next()
+                .is_some_and(|key| key.eq_ignore_ascii_case("enter"))
+        })
+}
+
 fn has_terminal_prompt_footer(lines: &[&str], last_option_row: usize) -> bool {
     let footer_row = lines
         .iter()
         .enumerate()
         .skip(last_option_row + 1)
-        .filter(|(_, line)| is_key_binding_footer(line) || is_enter_binding_footer(line))
+        .filter(|(_, line)| {
+            is_key_binding_footer(line)
+                || is_enter_binding_footer(line)
+                || is_enter_choice_footer(line)
+        })
         .map(|(index, _)| index)
         .next_back();
     let Some(footer_row) = footer_row else {
