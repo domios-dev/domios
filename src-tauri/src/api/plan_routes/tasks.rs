@@ -407,6 +407,16 @@ fn task_update_core(
         .map_err(plan_authority_err)?;
     crate::service::ensure_planner_task_fields_are_structural(&author, &body)
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    if body.get("status").and_then(Value::as_str) == Some("pending") {
+        crate::socket::server::plan_task_dispatch::remote_recovery::recover_remote_attempts(
+            service,
+            id,
+            tid,
+            epoch_ms(),
+            true,
+        )
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.message))?;
+    }
     let files = body
         .get("files")
         .map(|value| {
@@ -910,6 +920,42 @@ pub async fn task_respawn(
     let original_task = crate::plan::task_key::find_task(&plan.tasks, &tid)
         .cloned()
         .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    if let Some(source) = original_task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == body.attempt_id && attempt.mesh_peer.is_some())
+        .cloned()
+    {
+        let caller = crate::api::tab_routes::authenticated_plan_caller(&headers);
+        let mut params = serde_json::to_value(&body)
+            .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error.to_string()))?;
+        params["plan_id"] = serde_json::json!(id);
+        params["task_id"] = serde_json::json!(tid);
+        params["caller_tab_id"] = serde_json::json!(caller.tab_id);
+        params["session_id"] = serde_json::json!(caller.session_id);
+        params["session_binding_nonce"] = serde_json::json!(caller.binding_nonce);
+        let service = state.svc.clone();
+        return tokio::task::spawn_blocking(move || {
+            crate::socket::server::plan_task_dispatch::remote_recovery::respawn_remote(
+                &Some(params),
+                &service.app_handle,
+                &service,
+                &id,
+                &tid,
+                &source,
+                epoch_ms(),
+            )
+            .map(Json)
+            .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.message))
+        })
+        .await
+        .map_err(|error| {
+            text_err(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                error.to_string(),
+            )
+        })?;
+    }
     if matches!(
         original_task.status,
         crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::Blocked

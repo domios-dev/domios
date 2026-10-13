@@ -626,6 +626,14 @@ pub(super) fn dispatch(
                 message,
                 data: None,
             })?;
+            if p.and_then(|value| value.get("status"))
+                .and_then(Value::as_str)
+                == Some("pending")
+            {
+                super::plan_task_dispatch::remote_recovery::recover_remote_attempts(
+                    svc, &id, &tid, now, true,
+                )?;
+            }
             if let Some(files) = files {
                 store
                     .update_task_files(&id, &tid, files, now)
@@ -949,6 +957,16 @@ pub(super) fn dispatch(
                 .iter()
                 .find(|task| task.id == tid)
                 .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+            let source_id = get_string_param(params, "attempt_id")?;
+            if let Some(source) = task
+                .execution_attempts
+                .iter()
+                .find(|attempt| attempt.id == source_id && attempt.mesh_peer.is_some())
+            {
+                return super::plan_task_dispatch::remote_recovery::respawn_remote(
+                    params, app, svc, &id, &tid, source, now,
+                );
+            }
             if task.status == TaskStatus::Pending {
                 crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
                     .map_err(plan_rpc_err)?;
