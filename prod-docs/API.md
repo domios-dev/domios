@@ -119,6 +119,8 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 
 The desktop `chat_start` command and web-mirror `POST /api/tabs/{id}/chat-raw/start` return the same bounded snapshot shape. `source_session_id` and `session_binding_nonce` are derived from the Tab and form one authority generation; a client adopts snapshots and `tab-chat-msg-{id}` deltas only when both match the Tab's current generation.
 
+Snapshots and backfill return `offset_kind`: `bytes` identifies complete-record byte windows; `items` identifies structured item paging positions. Paging positions never identify rows or imply byte gaps. Message `id` remains the provider item or source-record identity across snapshots, live deltas and backfill; equal content under different ids remains distinct.
+
 `pending=true` without session authority means the Tab awaits its own session and never falls back to another; with authority and a subscription it awaits its own store. `pending=false` is a complete bounded snapshot, possibly empty. Visible Chat owns one subscription and takes a fresh snapshot on reactivation or resync.
 
 #### Agent Hierarchy
@@ -187,4 +189,4 @@ Local analytics: `/api/analytics/{status,consent,event}` (see ACCOUNT).
 
 Account and plan routes: see `ACCOUNT`.
 
-<!-- revision: 194 -->
+<!-- revision: 195 -->

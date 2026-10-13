@@ -77,9 +77,9 @@ function bindingKey(sessionId: string | null, nonce: string | null | undefined):
   return `${sessionId ?? ""}|${nonce ?? ""}`;
 }
 
-function batchRange(start: number | undefined, end: number | undefined): TranscriptRange | null {
+function batchRange(start: number | undefined, end: number | undefined, kind?: "bytes" | "items"): TranscriptRange | null {
   if (start == null || end == null || end <= 0) return null;
-  return { start, end };
+  return { start, end, unit: kind };
 }
 
 export function useChatSession({
@@ -250,7 +250,7 @@ export function useChatSession({
         sourceSessionId: payload.source_session_id,
         sessionBindingNonce: payload.session_binding_nonce,
       },
-      range: batchRange(payload.start_offset, payload.offset),
+      range: batchRange(payload.start_offset, payload.offset, payload.offset_kind),
       rows: payload.messages,
     };
     if (!replaceOnNextLiveEventRef.current) {
@@ -310,7 +310,7 @@ export function useChatSession({
           sourceSessionId: res.source_session_id,
           sessionBindingNonce: res.session_binding_nonce,
         },
-        { start: res.start_offset, end: res.end_offset },
+        { start: res.start_offset, end: res.end_offset, unit: res.offset_kind },
         page,
       ) === "adopted";
     } catch (e) {
@@ -545,7 +545,7 @@ export function useChatSession({
           return;
         }
         replaceOnNextLiveEventRef.current = false;
-        const snapshotRange = batchRange(res.start_offset, res.offset);
+        const snapshotRange = batchRange(res.start_offset, res.offset, res.offset_kind);
         if (snapshotRange != null || (res.messages?.length ?? 0) > 0) replaceTranscriptWindow(
           windowKeyRef.current,
           {
