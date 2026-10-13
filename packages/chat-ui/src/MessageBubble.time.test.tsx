@@ -18,6 +18,7 @@ describe("message hover time wiring", () => {
       const row = host.firstElementChild!;
       await act(async () => row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
       expect(host.querySelector("time")?.dateTime).toBe(FIRST_TIME);
+      expect(host.querySelector("time")?.getAttribute("aria-label")).toBeTruthy();
       await act(async () => row.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
       expect(host.querySelector("time")).toBeNull();
     } finally {
@@ -33,6 +34,7 @@ describe("message hover time wiring", () => {
       await act(async () => root.render(<MessageTimeFrame timestamp={FIRST_TIME} side="left"><button>{name}</button></MessageTimeFrame>));
       await act(async () => host.querySelector("button")!.focus());
       expect(host.querySelector("time")?.dateTime).toBe(FIRST_TIME);
+      expect(host.querySelector("time")?.getAttribute("aria-label")).toBeTruthy();
     } finally {
       await act(async () => root.unmount());
       host.remove();
