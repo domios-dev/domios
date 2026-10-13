@@ -137,3 +137,46 @@ async fn stdout_eof_fails_inflight_while_peer_stdin_remains_open() {
     assert!(client.0.state.lock().pending.is_empty());
     drop(peer_stdin);
 }
+
+struct RecordingWriter(Arc<Mutex<Vec<u8>>>);
+impl tokio::io::AsyncWrite for RecordingWriter {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.0.lock().extend_from_slice(bytes);
+        std::task::Poll::Ready(Ok(bytes.len()))
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+#[tokio::test]
+async fn writer_revalidates_authority_before_any_bytes_and_reports_proven_refusal() {
+    let (read, peer) = tokio::io::duplex(4096);
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let client = Client::attach(read, RecordingWriter(bytes.clone()));
+    let guard: PrewriteGuard = Arc::new(|| Err(RuntimeFailure::Superseded));
+    let call = RpcCall {
+        method: "fixture/submit".into(),
+        params: json!({"input":"opaque"}),
+        target: None,
+    };
+    assert!(matches!(
+        client.request_guarded(&call, Some(guard)).await,
+        Err(RuntimeFailure::PrewriteRefused(_))
+    ));
+    assert!(bytes.lock().is_empty());
+    assert!(client.0.state.lock().pending.is_empty());
+    drop(peer);
+}

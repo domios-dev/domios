@@ -46,6 +46,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 pub fn stop(tab: &str) {
     super::authority::revoke(tab);
     super::environment::revoke(tab);
+    super::capture::revoke(tab);
     if let Some(session) = SESSIONS.lock().remove(tab) {
         if let Some(process) = session.process.lock().take() {
             process.stop();
@@ -520,7 +521,25 @@ async fn run_inner(
                         "RPC method outside declared contract".into(),
                     ));
                 }
-                process.client.request(call).await?
+                let owner = svc.clone();
+                let runtime = session.clone();
+                let epoch = context.epoch;
+                let captured_send = match &operation {
+                    RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
+                    _ => None,
+                };
+                let guard: super::rpc::PrewriteGuard = Arc::new(move || {
+                    if runtime.context.lock().epoch != epoch {
+                        return Err(RuntimeFailure::Superseded);
+                    }
+                    validate_binding(&owner, &runtime)?;
+                    if let Some(send) = &captured_send {
+                        let tab = runtime.context.lock().tab_id.clone();
+                        super::capture::validate_if_present(&owner, &tab, send)?;
+                    }
+                    Ok(())
+                });
+                process.client.request_guarded(call, Some(guard)).await?
             }
             RuntimeAction::Notification { notification } => {
                 if !super::model::permits(&capability, &operation, &notification.method) {
