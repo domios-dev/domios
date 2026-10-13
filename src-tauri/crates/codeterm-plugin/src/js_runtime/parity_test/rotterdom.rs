@@ -38,13 +38,12 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     ))
     .unwrap();
     let (reads, writes) = crate::js_runtime::loader::confined_roots(&manifest, &bundle, &data);
+    // Without explicit profiles the plugin derives its own predefined ones, so the
+    // fixture stays valid as the plugin's profile schema evolves.
     let settings = json!({
         "endpoints": [{"id": "local", "baseUrl": "http://127.0.0.1:1234/v1", "models": ["fixture-model"]}],
-        "profiles": [{
-            "id": "coding", "endpoint": "local", "model": "fixture-model", "root": project_root,
-            "systemPrompt": "", "allow": [], "deny": []
-        }],
-        "defaultProfile": "coding"
+        "model": "fixture-model",
+        "root": project_root
     });
     let sandbox = Arc::new(
         PluginSandbox::restricted(reads, writes)
