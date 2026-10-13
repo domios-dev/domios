@@ -5,6 +5,10 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "spawn_chatbackend/launch_options.rs"]
+mod launch_options;
+use launch_options::runtime_launch_mode;
+
 use super::spawn::{SpawnTabSpec, TabCommand, TabHandle};
 use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
@@ -306,14 +310,6 @@ fn runtime_resume_thread(
     }
 }
 
-fn runtime_launch_mode(full_access: bool) -> &'static str {
-    if full_access {
-        "full-access"
-    } else {
-        "auto-accept-edits"
-    }
-}
-
 fn runtime_pending_payload(
     existing: Option<&crate::multiplexer::types::PendingDeliveryRecord>,
     agent: &super::spawn::AgentSpawnSpec,
@@ -368,8 +364,14 @@ impl ServiceContext {
                     &metadata.agent.extra_args,
                 )?;
             }
-            let full_access =
-                super::permission_policy::configured_full_access_for(&self.app_handle)?;
+            let params = launch_options::authorize(
+                self,
+                &plugin_id,
+                spec.chatbackend_launch
+                    .as_ref()
+                    .map(|metadata| &metadata.params),
+            )?;
+            let full_access = params.permission_bypass_requested(&plugin_id);
             if config.is_null() {
                 config = serde_json::json!({});
             }
@@ -565,6 +567,8 @@ impl ServiceContext {
             &metadata.agent.provider,
             &metadata.agent.extra_args,
         )?;
+        let params =
+            launch_options::authorize(self, &metadata.agent.provider, Some(&metadata.params))?;
         self.ensure_agent_pad(tab_id)?;
         self.ensure_session_binding_nonce(tab_id);
         {
@@ -598,7 +602,7 @@ impl ServiceContext {
         {
             self.prepare_runtime_cron_owner(tab_id, job_id, run_id)?;
         }
-        self.prepare_runtime_worker_binding(&metadata.params, tab_id)?;
+        self.prepare_runtime_worker_binding(&params, tab_id)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
         let payload = {
             let mux = self.mux.read();
