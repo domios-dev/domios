@@ -153,10 +153,13 @@ Store this server configuration in `test_billing/config` for sandbox or
 }
 ```
 
-`checkoutUrl` must be an HTTPS URL without query or fragment, on the approved
+`checkoutUrl` must be an HTTPS URL without query or fragment, on the
 website/default payment link. Sandbox uses its own price catalog and a `test_`
-client token. The website and Paddle Website approval must exist before even a
-sandbox transaction journey can be proven for that domain. The website team owns
+client token. [Paddle's default-payment-link documentation](https://developer.paddle.com/build/transactions/default-payment-link/)
+permits localhost or a test domain in sandbox; domain verification is required
+for live accounts. A configured default payment link is still required before
+creating transactions in either mode, and the page must include Paddle.js to
+open checkout. No sandbox dashboard setting was changed here. The website team owns
 `web/` and `/checkout`, pricing, terms, privacy, and refund pages; this task ships
 only the framework-free checkout contract.
 
@@ -167,11 +170,33 @@ Three credential roles must remain distinct:
 - `paddleClientToken`: public checkout configuration, never an API key. The
   owner's live vault reference is `domios-paddle-live-client-token`.
 - `PADDLE_SANDBOX_WEBHOOK_SECRET` / `PADDLE_LIVE_WEBHOOK_SECRET`: Secret Manager,
-  separate endpoint secrets. Provision using `firebase functions:secrets:set NAME`.
+  separate endpoint secrets. The sandbox vault reference will be
+  `domios-paddle-sandbox-webhook-secret` once a destination exists.
+  Provision using `firebase functions:secrets:set NAME`.
 
-Sandbox credentials and both webhook endpoint secrets are owner prerequisites.
+Sandbox vault references are `domios-paddle-sandbox-api-key` and
+`domios-paddle-sandbox-client-token`. Real sandbox tests must resolve them from
+the secret store at test time into process memory only; never write their values
+to files, environment profiles or logs. Secret Manager provisioning, both webhook
+endpoint secrets and a working default-payment-link page remain owner
+prerequisites; live also requires Website approval.
 Firebase Blaze is required for deployment. Do not deploy, mutate the Paddle
 dashboard, or perform a live charge/subscription as part of local verification.
+
+### Provisioned sandbox test catalog
+
+The authorized sandbox-only product is `pro_01m4t8yye0v0dcag7qgbksy3tt`, named
+`Domios Pro (sandbox test)`. Its monthly recurring price is
+`pri_01m4t8yykc2t54qr3nxar4fxra`, a placeholder 10 USD monthly amount marked
+sandbox test only. Real plans/prices remain pending the owner.
+
+`cloud/billing.sandbox.example.json` records these ids and the sandbox `pro`
+allow-list. Provision its configuration only into `test_billing/config`, replacing
+the public-token placeholder from the sandbox client-token vault reference at
+provisioning time. Do not seed live `billing/config` with these ids. This is
+configuration for the existing mode-selected allow-list, not a live price default.
+No secret value is stored in the example. No transaction, charge, subscription,
+webhook destination or live catalog item was created during this provisioning.
 
 ### Website checkout contract
 
@@ -278,7 +303,7 @@ Provider API calls are faked. Tests prove persisted lifecycle state, duplicates,
 mode isolation, bad signatures, authentication, price allow-list and ownership
 refusals, public-token checkout configuration and the website module call contract.
 A real sandbox checkout and persisted active `test_entitlements/{uid}` are still
-required once the owner supplies credentials and the website is approved.
+required once the sandbox config and endpoint secret are provisioned and a working checkout page exists.
 
 Local/fake adapters remain test-only and require the emulator outside the local
 accounts server. The local `/billing` journey still applies signed local events
