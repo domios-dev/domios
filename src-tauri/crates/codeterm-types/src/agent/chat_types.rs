@@ -40,6 +40,8 @@ pub struct InteractiveQuestion {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct InteractiveOption {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
