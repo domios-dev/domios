@@ -17,8 +17,9 @@ export function classifyInventory(inventory, sources) {
     for (const [name, test] of Object.entries(suite.testcases)) {
       const matches = definitions.filter((entry) => entry.scope ? name.startsWith(entry.name) : name === entry.name || name.startsWith(`${entry.name}::`));
       if (!matches.length) throw new Error(`Unclassified test: ${suite['binary-id']} ${name}`);
-      if (test.ignored) throw new Error(`Ignored test requires an explicit owner decision: ${suite['binary-id']} ${name}`);
-      rows.push({ id: `${suite['binary-id']}::${name}`, binary: suite['binary-name'], package: suite['package-name'], name, platform: matches.some((entry) => entry.platform) });
+      const reason = matches.find((entry) => entry.ignore_reason)?.ignore_reason;
+      if (test.ignored && !reason) throw new Error(`Ignored test lacks a source-authored reason: ${suite['binary-id']} ${name}`);
+      rows.push({ id: `${suite['binary-id']}::${name}`, binary: suite['binary-name'], package: suite['package-name'], name, ignored: test.ignored, reason: test.ignored ? reason : undefined, platform: matches.some((entry) => entry.platform) });
     }
   }
   return rows;
@@ -29,7 +30,7 @@ export function filterFor(rows, mode) {
   for (const row of rows) {
     const key = JSON.stringify([row.package, row.binary]);
     if (!groups.has(key)) groups.set(key, []);
-    if (row.platform) groups.get(key).push(regexEscape(row.name));
+    if (mode === 'shared' ? row.platform || row.ignored : row.platform && !row.ignored) groups.get(key).push(regexEscape(row.name));
   }
   return [...groups].map(([key, names]) => {
     const [pkg, binary] = JSON.parse(key);
@@ -45,13 +46,14 @@ export function verifyCoverage(receipts, shards = 12) {
   if (new Set(platforms.map((r) => r.os)).size !== 3 || !['Linux', 'macOS', 'Windows'].every((os) => platforms.some((r) => r.os === os))) throw new Error('Missing native OS');
   if (new Set(receipts.map((r) => r.sha)).size !== 1) throw new Error('Mixed source SHAs');
   if (receipts.some((r) => r.exit !== 0)) throw new Error('Failed test job');
-  const expected = platforms[0].all.filter((r) => !r.platform).map((r) => r.id).sort();
+  const expected = platforms[0].all.filter((r) => !r.platform && !r.ignored).map((r) => r.id).sort();
   if (!expected.length) throw new Error('Empty shared inventory');
   for (const receipt of receipts) {
-    const shared = receipt.all.filter((r) => !r.platform).map((r) => r.id).sort();
+    if (receipt.all.some((row) => row.ignored && !row.reason?.trim())) throw new Error('Unexplained ignored test');
+    const shared = receipt.all.filter((r) => !r.platform && !r.ignored).map((r) => r.id).sort();
     if (JSON.stringify(shared) !== JSON.stringify(expected)) throw new Error(`Shared inventory differs on ${receipt.runner}`);
     if (receipt.mode === 'platform') {
-      const native = receipt.all.filter((r) => r.platform).map((r) => r.id).sort();
+      const native = receipt.all.filter((r) => r.platform && !r.ignored).map((r) => r.id).sort();
       if (JSON.stringify([...receipt.selected].sort()) !== JSON.stringify(native)) throw new Error('Incomplete native coverage');
     }
   }
@@ -59,7 +61,16 @@ export function verifyCoverage(receipts, shards = 12) {
   if (workers.length !== shards || new Set(workers.map((r) => r.shard)).size !== shards || workers.some((r) => r.shard < 1 || r.shard > shards)) throw new Error('Duplicate or invalid shard');
   const actual = workers.flatMap((r) => r.selected).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Shared tests omitted, duplicated, or misclassified');
-  return receipts.map((r) => `| ${r.mode === 'shared' ? `shard ${r.shard}/${shards}` : r.os} | ${r.runner} | ${r.os} | ${r.selected.length} | ${r.seconds.toFixed(1)} s |`).join('\n');
+  const ignored = platforms.flatMap((r) => r.all.filter((t) => t.ignored).map((t) => `- ${r.os}: ${t.id}: ${t.reason}`));
+  const reasons = new Map();
+  for (const receipt of platforms) for (const row of receipt.all.filter((r) => r.ignored)) {
+    if (!reasons.has(row.reason)) reasons.set(row.reason, { entries: 0, tests: new Set() });
+    const counts = reasons.get(row.reason);
+    counts.entries++;
+    counts.tests.add(row.id);
+  }
+  const reasonCounts = [...reasons].map(([reason, counts]) => `- ${reason}: ${counts.tests.size} distinct tests, ${counts.entries} OS/test entries`).join('\n');
+  return receipts.map((r) => `| ${r.mode === 'shared' ? `shard ${r.shard}/${shards}` : r.os} | ${r.runner} | ${r.os} | ${r.selected.length} | ${r.seconds.toFixed(1)} s |`).join('\n') + (ignored.length ? `\n\nIgnore counts per source reason:\n${reasonCounts}\n\nExplicit source ignores (${ignored.length} OS/test entries):\n${ignored.join('\n')}` : '');
 }
 
 function run(mode, shard, total) {
@@ -86,6 +97,7 @@ function run(mode, shard, total) {
         sources[suite['binary-id']] = jsonCommand(['run', '--quiet', '--locked', '--manifest-path', classifier, '--', target.src_path]);
       }
       const rows = classifyInventory(inventory, sources);
+      for (const row of rows.filter((r) => r.ignored)) console.log(`[explicit ignore on ${receipt.runner}] ${row.id}: ${row.reason}`);
       receipt.all.push(...rows);
       const filter = filterFor(rows, mode);
       const partition = mode === 'shared' ? ['--partition', `hash:${shard}/${total}`] : [];
