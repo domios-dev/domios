@@ -1,3 +1,5 @@
+import { planOutputResync } from "./outputResync";
+
 export interface OutputCursor {
     boot: string;
     ptyId: string;
@@ -24,6 +26,24 @@ export function planOutputReplay(cursor: OutputCursor | undefined, frame: Output
 }
 export class TerminalOutputReplay {
     private cursors = new WeakMap<object, Map<string, OutputCursor>>();
+    resync(terminal: object, tabId: string, boot: string, ptyId: string, from: number, reportGap: () => void): void {
+        let tabs = this.cursors.get(terminal);
+        if (!tabs) {
+            tabs = new Map();
+            this.cursors.set(terminal, tabs);
+        }
+        const previous = tabs.get(tabId);
+        const result = planOutputResync(this.offset(terminal, tabId, boot, ptyId), from);
+        if (!result.reportGap) return;
+        tabs.set(tabId, { boot, ptyId, offset: result.offset });
+        try {
+            reportGap();
+        } catch (error) {
+            if (previous) tabs.set(tabId, previous);
+            else tabs.delete(tabId);
+            throw error;
+        }
+    }
     offset(terminal: object, tabId: string, boot: string, ptyId: string): number {
         const cursor = this.cursors.get(terminal)?.get(tabId);
         return cursor?.boot === boot && cursor.ptyId === ptyId ? cursor.offset : 0;
