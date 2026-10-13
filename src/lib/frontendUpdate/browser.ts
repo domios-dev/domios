@@ -1,5 +1,5 @@
 import type { TransportClient } from "../transportClient";
-import { COMPOSER_DRAFT_PREFIX } from "../composerDraftGc";
+import { restoreComposerDrafts } from "./drafts";
 import { setPersistedChatScrollState, type ChatScrollState } from "../../components/Terminal/chatViewport";
 import { frontendSignals, setCheckpointRestorer } from "./appState";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions, type FrontendUpdateOffer } from "./runtime";
@@ -23,19 +23,12 @@ function publishOffer(next: FrontendUpdateOffer | null): void {
 }
 
 export async function initializeBrowserFrontendUpdates(client: TransportClient, context: Pick<FrontendRuntimeOptions, "clientId" | "boot" | "bundled" | "onError">) {
-  const checkpoint = frontendSignals.checkpoint();
-  for (let index = 0; index < localStorage.length; index++) {
-    const key = localStorage.key(index);
-    if (key?.startsWith(COMPOSER_DRAFT_PREFIX)) checkpoint.drafts[key.slice(COMPOSER_DRAFT_PREFIX.length)] = {
-      text: localStorage.getItem(key) ?? "", attachmentIds: [], replyTo: null,
-    };
-  }
-  frontendSignals.edit(checkpoint);
   setCheckpointRestorer(value => {
-    for (const [scope, draft] of Object.entries(value.drafts)) localStorage.setItem(COMPOSER_DRAFT_PREFIX + scope, draft.text);
-    for (const [key, scroll] of Object.entries(value.scroll)) {
+    const restored = restoreComposerDrafts(value, localStorage);
+    for (const [key, scroll] of Object.entries(restored.scroll)) {
       if (scroll.chat) setPersistedChatScrollState(key, JSON.parse(scroll.chat) as ChatScrollState);
     }
+    return restored;
   });
   const syncFocus = () => frontendSignals.signal({ focused: document.hasFocus(),
     typing: document.activeElement instanceof HTMLTextAreaElement || (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable) });
