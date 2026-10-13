@@ -1,5 +1,5 @@
 use crate::{
-    state::{self, Queued, State, BATCH_CAP, QUEUE_CAP, RETRY_DELAYS_MS},
+    state::{Queued, State, BATCH_CAP, QUEUE_CAP, RETRY_DELAYS_MS},
     AnalyticsSink, Config, Consent, Counters, DeliveryEvent, DeliveryResult, Event, Mode,
 };
 use serde::Serialize;
@@ -26,6 +26,7 @@ pub(crate) struct Engine {
 impl Engine {
     pub fn open(path: PathBuf, config: Config) -> Result<Self, String> {
         let mut state = State::read(&path)?;
+        state.user_id = None;
         if state.consent == Consent::Off {
             state.clear();
         }
@@ -89,7 +90,10 @@ impl Engine {
         if self.state.consent == Consent::Off {
             return Ok(());
         }
-        if uid.as_deref().is_some_and(|uid| !state::valid_uid(uid)) {
+        if uid
+            .as_deref()
+            .is_some_and(|uid| !crate::state::valid_uid(uid))
+        {
             return Err("invalid account uid".into());
         }
         let mut next = self.state.clone();
@@ -98,10 +102,34 @@ impl Engine {
     }
 
     pub fn enqueue(&mut self, event: Event, now: u64) -> Result<bool, String> {
+        self.enqueue_on_day(event, now, chrono::Local::now().date_naive())
+    }
+    pub fn enqueue_on_day(
+        &mut self,
+        event: Event,
+        now: u64,
+        day: chrono::NaiveDate,
+    ) -> Result<bool, String> {
         if self.state.consent != Consent::On || !self.sink.enabled() {
             return Ok(false);
         }
+        match &event {
+            Event::ActiveDay { .. } if self.state.last_active_day == Some(day) => return Ok(false),
+            Event::FeatureUsed { feature }
+                if self.state.feature_days.get(feature) == Some(&day) =>
+            {
+                return Ok(false)
+            }
+            _ => {}
+        }
         let mut next = self.state.clone();
+        match &event {
+            Event::ActiveDay { .. } => next.last_active_day = Some(day),
+            Event::FeatureUsed { feature } => {
+                next.feature_days.insert(*feature, day);
+            }
+            _ => {}
+        }
         next.queue.push_back(Queued {
             insert_id: Uuid::new_v4(),
             time: now,

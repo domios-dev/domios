@@ -164,6 +164,9 @@ pub(crate) fn run_action(
             remove_channel_plugins(channel, action.force)?;
         }
         let output = run_plugin_cli(&args)?;
+        if action.kind == "install" {
+            svc.record_product_feature(codeterm_analytics::Feature::PluginInstalled);
+        }
         if action.kind == "remove" {
             let plugin_id = action
                 .plugin_id

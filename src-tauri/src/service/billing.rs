@@ -52,7 +52,12 @@ impl ServiceContext {
                     "fake" if cfg!(debug_assertions) => Arc::new(adapters::fake::Fake::default()),
                     _ => return Err("Unknown or unavailable billing provider".into()),
                 };
-                Ok::<_, String>(Arc::new(Billing::new(adapter)))
+                let mut billing = Billing::new(adapter);
+                if let Ok(worker) = self.analytics_worker().await {
+                    billing =
+                        billing.with_observer(super::analytics::billing_observer(worker.clone()));
+                }
+                Ok::<_, String>(Arc::new(billing))
             })
             .await?;
         Ok(billing.clone())
@@ -110,7 +115,12 @@ impl ServiceContext {
             .await
             .map_err(|_| "System browser unavailable")?
             .map_err(|_| "System browser unavailable")?;
-        billing.browser_opened(&session);
+        match plan {
+            Some(plan) => {
+                billing.checkout_browser_opened(&session, codeterm_billing::Plan::parse(plan)?)
+            }
+            None => billing.browser_opened(&session),
+        }
         Ok(())
     }
 }
