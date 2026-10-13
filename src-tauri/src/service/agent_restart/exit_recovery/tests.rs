@@ -1,6 +1,7 @@
 use super::*;
 use crate::session::lifecycle::{
     CommittedAuthority, LifecycleCheckpoint, LifecycleEntry, LifecycleEpoch, LifecycleKey,
+    TabLifecycleJournal,
 };
 
 fn key(tab_id: &str) -> LifecycleKey {

@@ -61,8 +61,9 @@ pub async fn snapshot(
     let tab_id = resolve_tab(&state, &raw_tab_id)?;
     if chat_read_target(&state.svc.mux, &tab_id)? == ChatReadTarget::Unbound {
         let since = query.since;
+        let journal = state.svc.lifecycle_journal.clone();
         let (messages, count) = tokio::task::spawn_blocking(move || {
-            crate::service::tab_chat::restore_notice::snapshot(&tab_id, Vec::new(), since)
+            crate::service::tab_chat::restore_notice::snapshot(&journal, &tab_id, Vec::new(), since)
         })
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "chat snapshot cancelled"))?;

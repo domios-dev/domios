@@ -98,6 +98,9 @@ fn test_command_result_into_json() {
 struct StartupBlockedPort;
 
 impl CommandPort for StartupBlockedPort {
+    fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad {
+        crate::session::lifecycle::JournalLoad::empty()
+    }
     fn mark_user_activity(&self) {}
 
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot {

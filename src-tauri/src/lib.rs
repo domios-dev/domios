@@ -605,6 +605,7 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
                 #[cfg(test)]
                 ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
                 workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
