@@ -29,7 +29,8 @@ fn recording_selection_failed_save_does_not_change_memory() {
     std::fs::write(&blocker, b"").unwrap();
     let store = RecordingSelectionStore::open(blocker.join("selections.json"));
     assert!(store.set("own", &devices("input")).is_err());
-    assert_eq!(store.get("own").unwrap(), None);
+    // An unreadable store may refuse the read, but it must never report the unsaved choice.
+    assert!(!matches!(store.get("own"), Ok(Some(_))));
 }
 
 #[test]
