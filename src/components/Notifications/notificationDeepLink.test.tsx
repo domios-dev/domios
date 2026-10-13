@@ -278,7 +278,7 @@ describe("Needs you notification rows", () => {
 });
 
 describe("transcript source identity", () => {
-  it("keeps the emitted id as sourceMessageId while render keys stay range ordinals", () => {
+  it("keeps emitted ids as render keys across byte windows", () => {
     const authority = { sourceSessionId: "sid-1", sessionBindingNonce: "nonce-1" };
     const row = (id: string, content: string, seq: number): NormalizedChatMessage => ({
       id,
@@ -294,7 +294,7 @@ describe("transcript source identity", () => {
       rows: [row("uuid-a-0", "first", 0), row("uuid-b-0", "second", 1)],
     });
     expect(transcriptRows(snapshot.state).map((entry) => [entry.id, entry.sourceMessageId]))
-      .toEqual([["100:0", "uuid-a-0"], ["100:1", "uuid-b-0"]]);
+      .toEqual([["uuid-a-0", undefined], ["uuid-b-0", undefined]]);
 
     const delta = reduceTranscript(snapshot.state, {
       kind: "delta",
@@ -303,7 +303,7 @@ describe("transcript source identity", () => {
       rows: [row("uuid-c-0", "third", 0)],
     });
     const rows = transcriptRows(delta.state);
-    expect(rows[rows.length - 1]).toMatchObject({ id: "200:0", sourceMessageId: "uuid-c-0" });
+    expect(rows[rows.length - 1]).toMatchObject({ id: "uuid-c-0" });
   });
 });
 

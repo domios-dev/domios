@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createTranscriptState, reduceTranscript, transcriptRows } from "@codeterm/chat-core";
 import fs from "node:fs";
 import vm from "node:vm";
 import plugin from "../src/plugin";
@@ -121,6 +122,26 @@ for (const parser of parsers) {
   ]);
   assert.deepEqual(reasoning[1].blocks, [{ kind: "thinking", data: { text: "Response summary" } }]);
   assert.ok(!JSON.stringify(reasoning).includes("opaque"), "encrypted, raw, and non-summary reasoning never crosses the boundary");
+
+  const chunks = [
+    withTurn(completed({ type: "Reasoning", id: "rs-split", summary_text: ["Split thought"] }), "turn-r"),
+    responseReasoning("rs-split", [{ type: "summary_text", text: "Split thought" }]),
+  ];
+  let transcript = createTranscriptState();
+  chunks.forEach((chunk, index) => {
+    const [message] = parse([chunk]);
+    assert.equal(message.uuid, "reasoning-rs-split");
+    transcript = reduceTranscript(transcript, {
+      kind: index === 0 ? "snapshot" : "delta",
+      authority: { sourceSessionId: "own-session", sessionBindingNonce: "nonce" },
+      range: { start: index * 100, end: (index + 1) * 100 },
+      rows: message.blocks.map((block, ordinal) => ({
+        id: `${message.uuid}-${ordinal}`, type: "thinking", content: String(block.data.text),
+      })),
+    }).state;
+  });
+  assert.deepEqual(transcriptRows(transcript).map(({ id, content }) => ({ id, content })),
+    [{ id: "reasoning-rs-split-0", content: "Split thought" }], "split completion/response reasoning shares one row");
 
   const collab = parse([withTurn(completed({
     type: "CollabAgentToolCall", id: "call-spawn", tool: "spawn_agent", status: "completed", sender_thread_id: "thread-root",
