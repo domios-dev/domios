@@ -499,7 +499,7 @@ fn run_plan(
             client,
             "plan.set_project",
             json!({"plan_id": plan_id, "project_path": path}),
-        )?,
+        ),
         PlanAction::Move {
             plan_id,
             from,
