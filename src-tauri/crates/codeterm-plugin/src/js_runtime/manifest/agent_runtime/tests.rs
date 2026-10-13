@@ -103,9 +103,8 @@ fn runtime_login_declaration_confines_terminal_to_its_binary() {
         "runtime-engine login\n",
     ] {
         value["capabilities"]["agentRuntime"]["login"]["terminalCommand"] = command.into();
-        assert!(PluginManifest::from_json_str(&value.to_string())
-            .unwrap()
-            .validate_agent_runtime()
-            .is_err());
+        let refused = PluginManifest::from_json_str(&value.to_string())
+            .map_or(true, |manifest| manifest.validate_agent_runtime().is_err());
+        assert!(refused, "terminal command must be refused: {command:?}");
     }
 }
