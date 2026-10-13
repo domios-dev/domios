@@ -75,7 +75,7 @@ jobs:
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
           fetch-depth: 2
@@ -89,8 +89,8 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          tree=$(git rev-parse HEAD^{tree})
-          for parent in $(git rev-parse HEAD^@); do
+          tree=$(git rev-parse 'HEAD^{tree}')
+          for parent in $(git rev-parse 'HEAD^@'); do
             if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
               echo "HEAD tree $tree already carried by parent $parent"
               echo "run=false" >> "$GITHUB_OUTPUT"
@@ -99,7 +99,7 @@ jobs:
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         if: steps.tree.outputs.run == 'true'
         with:
           package-manager-cache: false
@@ -118,11 +118,12 @@ jobs:
     needs: changed
     if: ${{ needs.changed.result == 'success' }}
     runs-on: [self-hosted, linux-ci]
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
@@ -134,19 +135,20 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
     runs-on: [self-hosted, linux-ci]
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -164,7 +166,7 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       # Light runners include Linux services whose PATH can miss the runner user's rustup.
@@ -201,7 +203,7 @@ jobs:
             arch: X64
             label: windows-ci
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
           fetch-depth: 0
@@ -209,14 +211,16 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: 'true'
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
       - name: Prepare runner tool paths
         run: node scripts/ci-runner-paths.mjs
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.95.0
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-nextest@0.9.100
       - name: Prepare compile fixtures
@@ -230,17 +234,19 @@ jobs:
           ct_configure_sccache
           ./build.sh cache-verify
           node scripts/ci-rust-archives.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
+          overwrite: true
           name: rust-archive-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             ci-rust-archives/*.tar.zst
             ci-rust-archives/*.suite.json
           compression-level: 0
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
+          overwrite: true
           name: rust-build-receipt-${{ matrix.os }}-${{ matrix.arch }}
           path: ci-rust-builds/*.json
           if-no-files-found: error
@@ -259,7 +265,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
@@ -267,16 +273,16 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: 'true'
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
       - name: Prepare runner tool paths
         run: node scripts/ci-runner-paths.mjs
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-nextest@0.9.100
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: rust-archive-${{ runner.os }}-${{ runner.arch }}
           path: ci-rust-archives
@@ -286,9 +292,10 @@ jobs:
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
         run: node scripts/ci-rust-shards.mjs shared ${{ matrix.shard }} 12
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
+          overwrite: true
           name: rust-receipt-shard-${{ matrix.shard }}
           path: |
             ci-rust-receipts/*.json
@@ -312,7 +319,7 @@ jobs:
           - os: Windows
             label: windows-ci
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
@@ -320,16 +327,16 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: 'true'
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
       - name: Prepare runner tool paths
         run: node scripts/ci-runner-paths.mjs
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-nextest@0.9.100
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: rust-archive-${{ runner.os }}-${{ runner.arch }}
           path: ci-rust-archives
@@ -339,9 +346,10 @@ jobs:
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
         run: node scripts/ci-rust-shards.mjs platform
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
+          overwrite: true
           name: rust-receipt-platform-${{ matrix.os }}
           path: |
             ci-rust-receipts/*.json
@@ -355,19 +363,19 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: rust-receipt-*
           path: ci-rust-receipts
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: rust-build-receipt-*
           path: ci-rust-builds
@@ -388,11 +396,11 @@ jobs:
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
@@ -422,17 +430,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -465,7 +473,7 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Ensure Rust toolchain on PATH
@@ -477,13 +485,13 @@ jobs:
           echo "cargo not found; restore Rust on the runner" >&2
           exit 1
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -502,17 +510,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -531,17 +539,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -563,17 +571,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -595,17 +603,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -615,7 +623,7 @@ jobs:
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Release test and publication gate contracts
-        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs
+        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/release-job-graph.test.mjs scripts/tests/release-bundle-smoke.test.mjs scripts/tests/release-asset-scope.test.mjs
       - name: Rust shard coverage contracts
         run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs
       - name: Release metadata contract tests
