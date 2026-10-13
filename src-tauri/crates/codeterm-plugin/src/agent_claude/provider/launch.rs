@@ -22,11 +22,7 @@ pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> Opt
 }
 
 fn write_launch_prompt(task: &str) -> Option<String> {
-    let rule: String = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/src/launchPromptRule.json"
-    )))
-    .ok()?;
+    let rule = crate::agent_claude::launch_prompt_rule()?;
     let fragment = format!("{task}\n\n{rule}");
     let body = if cfg!(target_os = "windows") {
         format!("\u{feff}{fragment}")
