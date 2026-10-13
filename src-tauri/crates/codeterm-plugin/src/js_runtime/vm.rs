@@ -468,6 +468,10 @@ impl PluginVm {
         self.sandbox.agent_commands_allowed()
     }
 
+    pub(super) fn lifecycle_permission_allowed(&self, permission: &str) -> bool {
+        self.sandbox.lifecycle_permission_allowed(permission)
+    }
+
     pub fn graph_events_allowed(&self) -> bool {
         self.sandbox.graph_events_allowed()
     }

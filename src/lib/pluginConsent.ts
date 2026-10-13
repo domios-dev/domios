@@ -8,7 +8,7 @@ export async function setPluginPermission(pluginId: string, permission: string, 
 }
 
 async function grantPermission(request: GrantRequest) {
-  await setPluginPermission(request.pluginId, request.permission, true);
+  await runPluginSnapshotAction({ kind: "permission", pluginId: request.pluginId, permission: request.permission, allowed: true, permissionSource: "action" });
 }
 
 export async function invokePluginWithConsent<T>(command: string, args: Record<string, unknown> & { pluginId: string }, isCurrent: () => boolean = () => true): Promise<T> {
