@@ -348,4 +348,30 @@ check("display JSON is identical for recursively reordered frame keys",()=> {
   const prompt:RuntimeFrame={kind:"request",requestId:"permissions",method:"item/permissions/requestApproval",params:{threadId:ctx.threadId!,permissions:{z:{b:2,a:1},a:3}}};
   assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[prompt]).events),plain(hooks.runtimeReduce(ctx,null,[{...prompt,params:reorder(prompt.params)}]).events));
 });
+check("structured A12 launch options preserve PTY settings",()=> {
+  const settings={model:"chosen-model",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"]};
+  const context={...ctx,settings};
+  const thread=plain(hooks.runtimePlan(context,{kind:"openThread",instructions:"task",settings}));
+  assert.equal(thread.action.kind,"request");
+  if(thread.action.kind !== "request")throw new Error("Expected thread request");
+  assert.deepEqual(thread.action.call.params,{cwd:ctx.cwd,model:"chosen-model",threadSource:"user",config:{check_for_update_on_startup:false,project_doc_max_bytes:65536,"sandbox_workspace_write.writable_roots":["/work/shared"],model_reasoning_effort:"high"},approvalPolicy:"never",approvalsReviewer:"user",sandbox:"danger-full-access",developerInstructions:"task"});
+  const workspace={...settings,mode:"auto-accept-edits"};
+  const op={...submit,settings:workspace} as Extract<Operation,{kind:"submitTurn"}>;
+  const turn=plain(hooks.runtimePlan({...ctx,settings:workspace},op));
+  assert.equal(turn.action.kind,"request");
+  if(turn.action.kind !== "request")throw new Error("Expected turn request");
+  assert.deepEqual((turn.action.call.params as Record<string,JsonValue>).sandboxPolicy,{type:"workspaceWrite",writableRoots:["/work/shared"]});
+  const resume=hooks.runtimePlan(context,{kind:"resumeThread",threadId:ctx.threadId!,settings});
+  assert.equal(resume.action.kind,"request");
+  if(resume.action.kind !== "request")throw new Error("Expected resume request");
+  assert.equal((resume.action.call.params as Record<string,JsonValue>).sandbox,"danger-full-access");
+});
+check("provider settings cannot replace the authorized launch mode",()=> {
+  const context={...ctx,providerSettings:{runtimeSettings:{sandbox:"danger-full-access",approvalPolicy:"never",config:{sandbox_mode:"danger-full-access"}},args:["--dangerously-bypass-approvals-and-sandbox"]}};
+  const plan=plain(hooks.runtimePlan(context,{kind:"openThread",settings:{mode:"approval-required"},instructions:"task"}));
+  if(plan.action.kind !== "request")throw new Error("Expected request");
+  const params=plan.action.call.params as Record<string,JsonValue>;
+  assert.equal(params.sandbox,"read-only");assert.equal(params.approvalPolicy,"untrusted");
+  assert.deepEqual(params.config,{check_for_update_on_startup:false,project_doc_max_bytes:65536});
+});
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
