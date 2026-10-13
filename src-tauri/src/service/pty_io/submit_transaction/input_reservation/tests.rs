@@ -66,12 +66,19 @@ fn send_claims_refuse_switches_without_blocking_newer_sends() {
     let pty_id = "model-refuses-active-send";
     let first = claim_submit_cycle(pty_id);
     assert!(reserve_command_input(pty_id, Instant::now() + Duration::from_secs(2)).is_err());
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    first.payload_enqueued(sender);
     let second = claim_submit_cycle(pty_id);
+    assert!(second.command_wait().is_none());
+    assert!(first.is_current());
+    assert!(reserve_command_input(pty_id, Instant::now() + Duration::from_secs(2)).is_err());
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    second.payload_enqueued(sender);
     assert!(!first.is_current());
     assert!(second.is_current());
-    drop(first);
-    assert!(reserve_command_input(pty_id, Instant::now() + Duration::from_secs(2)).is_err());
     drop(second);
+    assert!(reserve_command_input(pty_id, Instant::now() + Duration::from_secs(2)).is_err());
+    drop(first);
     assert!(reserve_command_input(pty_id, Instant::now() + Duration::from_secs(2)).is_ok());
 }
 
