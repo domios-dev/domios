@@ -2,6 +2,16 @@
   "version": 1,
   "entries": [
     {
+      "binary": "codeterm-cli::bin/codeterm",
+      "test": "cmd::report_lane::tests::explicit_base_overrides_task_derived_fallback",
+      "measuredSeconds": 1.897
+    },
+    {
+      "binary": "codeterm-cli::json_error_contract",
+      "test": "json_error_contract_all_subcommands",
+      "measuredSeconds": 3.758
+    },
+    {
       "binary": "codeterm-plan",
       "test": "service_plan::mutations::team_close_transaction_tests::detaching_a_large_unfinished_team_plan_is_one_database_write",
       "measuredSeconds": 1.313
