@@ -91,8 +91,17 @@ Interpret the cases from observed evidence:
   the captured write result: the write-queue acknowledgement bound, not Codex's
   handling of CR, prevented submission.
 
-This is a measurement bench. A non-reproduction is valid: preserve and report
-the printed screens, send exits, input-frame sequence, and audit events for all
-cases.
+Timing remains diagnostic. Each case must also prove one `delivered` ledger
+row, exactly one matching own-session user turn followed by an assistant reply,
+and exactly one captured payload frame. Missing evidence fails the bench.
+`assert-transcript.json`, `assert-ledger.json`, and `trace.cast` retain that oracle.
+Exit zero requires at least one executed assertion and completion of all cases.
+A non-reproduction of the timing symptom is valid only when these delivery
+assertions pass; retain all screens and audit events.
 
-<!-- revision: 5 -->
+The runner supports macOS Bash 3.2, Linux Bash, and Windows Git Bash. It requires
+`python3`, `curl`, `mktemp`, and `mkfifo`; missing prerequisites fail before setup.
+The gate uses a FIFO and a saved background PID so early child exit cannot erase
+its output or status during cleanup.
+
+<!-- revision: 6 -->
