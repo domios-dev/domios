@@ -1,5 +1,6 @@
 pub(crate) mod authority;
 mod bootstrap;
+pub(crate) mod capture;
 mod completions;
 pub mod engine;
 mod environment;

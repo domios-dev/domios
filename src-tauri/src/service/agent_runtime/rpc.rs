@@ -18,8 +18,11 @@ use tokio::{
 pub type Reply = Result<Value, RpcFailure>;
 type Pending = oneshot::Sender<Result<Reply, RuntimeFailure>>;
 
+pub(crate) type PrewriteGuard = Arc<dyn Fn() -> Result<(), RuntimeFailure> + Send + Sync>;
+
 struct Write {
     text: String,
+    guard: Option<PrewriteGuard>,
     written: oneshot::Sender<Result<(), RuntimeFailure>>,
 }
 
@@ -72,6 +75,12 @@ impl Client {
                     _ = ended.changed() => break,
                     text = messages.recv() => match text {Some(text)=>text,None=>break},
                 };
+                if let Some(reason) = text.guard.as_ref().and_then(|guard| guard().err()) {
+                    let _ = text
+                        .written
+                        .send(Err(RuntimeFailure::PrewriteRefused(reason.to_string())));
+                    continue;
+                }
                 let sent = tokio::select! {
                     _ = ended.changed() => break,
                     sent = tokio::time::timeout(Duration::from_secs(15), async {
@@ -152,6 +161,14 @@ impl Client {
     }
 
     pub async fn request(&self, call: &RpcCall) -> Result<Reply, RuntimeFailure> {
+        self.request_guarded(call, None).await
+    }
+
+    pub(crate) async fn request_guarded(
+        &self,
+        call: &RpcCall,
+        guard: Option<PrewriteGuard>,
+    ) -> Result<Reply, RuntimeFailure> {
         let id = RpcId::Number(self.0.next_id.fetch_add(1, Ordering::Relaxed));
         let (reply, received) = oneshot::channel();
         {
@@ -165,8 +182,11 @@ impl Client {
             client: self.clone(),
             id: id.clone(),
         };
-        self.queue(json!({"id":id,"method":call.method,"params":call.params}))
-            .await?;
+        self.queue_guarded(
+            json!({"id":id,"method":call.method,"params":call.params}),
+            guard,
+        )
+        .await?;
         let result = tokio::time::timeout(Duration::from_secs(30), received)
             .await
             .map_err(|_| RuntimeFailure::Deadline)?
@@ -187,6 +207,13 @@ impl Client {
         .await
     }
     async fn queue(&self, frame: Value) -> Result<(), RuntimeFailure> {
+        self.queue_guarded(frame, None).await
+    }
+    async fn queue_guarded(
+        &self,
+        frame: Value,
+        guard: Option<PrewriteGuard>,
+    ) -> Result<(), RuntimeFailure> {
         if let Some(reason) = self.0.state.lock().closed.clone() {
             return Err(reason);
         }
@@ -197,7 +224,11 @@ impl Client {
         let (written, receipt) = oneshot::channel();
         self.0
             .outgoing
-            .try_send(Write { text, written })
+            .try_send(Write {
+                text,
+                guard,
+                written,
+            })
             .map_err(|error| RuntimeFailure::PipeFailure {
                 stream: "stdin".into(),
                 reason: error.to_string(),
