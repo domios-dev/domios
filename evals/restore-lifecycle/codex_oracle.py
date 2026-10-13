@@ -102,13 +102,13 @@ def restart_logs(log, tabs, idle=False):
         require(len(delivered) == (0 if idle else 1), f"{tab}: delivered continue outcomes={len(delivered)}\n" + "\n".join(delivered))
 
 
-def daemon_environment(raw, mode):
+def daemon_environment(raw, mode, instance="restartqa", port="7692"):
     paths = re.findall(r"(?:^|\s)PATH=([^\s]*)", raw)
     require(len(paths) == 1, "daemon environment has no unique PATH")
     if mode == "gui":
         require(paths[0] == GUI_PATH, f"daemon PATH={paths[0]!r}, expected {GUI_PATH!r}")
-    require(re.search(r"(?:^|\s)CODETERM_INSTANCE=restartqa(?:\s|$)", raw), "daemon instance is not restartqa")
-    require(re.search(r"(?:^|\s)CODETERM_API_PORT=7692(?:\s|$)", raw), "daemon port is not 7692")
+    require(re.search(r"(?:^|\s)CODETERM_INSTANCE=" + re.escape(instance) + r"(?:\s|$)", raw), f"daemon instance is not {instance!r}")
+    require(re.search(r"(?:^|\s)CODETERM_API_PORT=" + re.escape(port) + r"(?:\s|$)", raw), f"daemon port is not {port}")
 
 
 def current_attempt(detail, tab):

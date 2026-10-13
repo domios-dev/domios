@@ -115,6 +115,13 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, '7692'):
             oracle.daemon_environment(env.replace('7692', '7686'), 'gui')
 
+    def test_canonical_target_keeps_environment_identity_assertions(self):
+        env = 'PATH=' + oracle.GUI_PATH + ' CODETERM_INSTANCE= CODETERM_API_PORT=7686'
+        oracle.daemon_environment(env, 'gui', '', '7686')
+        for altered in [env.replace('7686', '7692'), env.replace('CODETERM_INSTANCE=', 'CODETERM_INSTANCE=restartqa'), env.replace(oracle.GUI_PATH, '/custom/bin')]:
+            with self.assertRaises(AssertionError):
+                oracle.daemon_environment(altered, 'gui', '', '7686')
+
     def test_closed_attempt_cannot_pass_respawn(self):
         attempt = dict(id='new', executor_tab_id='b', acknowledged_at=1)
         self.assertEqual(oracle.current_attempt({'task': {'execution_attempts': [attempt]}}, 'b')['id'], 'new')
