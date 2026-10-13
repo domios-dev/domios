@@ -661,6 +661,10 @@
         "turnId": "turn-a"
       },
       {
+        "kind": "auth",
+        "state": "signedIn"
+      },
+      {
         "kind": "turnState",
         "threadId": "thread-fixture",
         "turnId": "turn-b",

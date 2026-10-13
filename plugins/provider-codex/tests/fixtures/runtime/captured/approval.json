@@ -1771,6 +1771,10 @@
     ],
     "events": [
       {
+        "kind": "auth",
+        "state": "signedIn"
+      },
+      {
         "kind": "turnState",
         "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
         "state": "working"
