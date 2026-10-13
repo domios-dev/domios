@@ -499,7 +499,7 @@ mod tests {
             .write()
             .get_tab_mut(&tab_id)
             .unwrap()
-            .role = Some(AgentRole::Planner);
+            .role = Some(AgentRole::Manager);
         let first_key = first.service.open_lifecycle_epoch(&tab_id).unwrap();
         assert!(second.service.lifecycle_journal.load().records.is_empty());
         let second_key = second.service.open_lifecycle_epoch(&tab_id).unwrap();
