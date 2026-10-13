@@ -73,6 +73,64 @@ ct_effective_cache_key_scope() {
   ct_abs_path "$(ct_repo_root)"
 }
 
+ct_exceptional_target_dir() {
+  case "$1" in
+    /Users/Shared/domios-ci/work/codeterm|/opt/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
+      printf '%s/target-check\n' "$1"
+      ;;
+    *) printf '%s/targets/exceptional/%s\n' "$2" "$3" ;;
+  esac
+}
+
+ct_sccache_secret() (
+  if [ -n "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
+    unset CODETERM_INSTANCE CODETERM_API_PORT CODETERM_API_URL CODETERM_SOCKET_PATH CODETERM_API_TOKEN CODETERM_DATA_DIR
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_API_URL_SET:-}" = x ]; then export CODETERM_API_URL="$DEV_NOTIFY_PARENT_CODETERM_API_URL"; fi
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH_SET:-}" = x ]; then export CODETERM_SOCKET_PATH="$DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH"; fi
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_API_TOKEN_SET:-}" = x ]; then export CODETERM_API_TOKEN="$DEV_NOTIFY_PARENT_CODETERM_API_TOKEN"; fi
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_DATA_DIR_SET:-}" = x ]; then export CODETERM_DATA_DIR="$DEV_NOTIFY_PARENT_CODETERM_DATA_DIR"; fi
+  fi
+  "${DEV_NOTIFY_PARENT_CLI:-codeterm}" mem secret get --name "$1" 2>/dev/null
+)
+
+ct_sccache_storage() {
+  local trace_enabled=0 access_key secret_key
+  case "$-" in *x*) trace_enabled=1; set +x ;; esac
+  access_key="$(ct_sccache_secret domios-sccache-s3-access-key)" || access_key=""
+  secret_key="$(ct_sccache_secret domios-sccache-s3-secret-key)" || secret_key=""
+  if [ -n "$access_key" ] && [ -n "$secret_key" ]; then
+    export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"
+    unset AWS_SESSION_TOKEN
+    export SCCACHE_ENDPOINT=http://100.64.10.5:9000 SCCACHE_BUCKET=sccache
+    export SCCACHE_REGION=us-east-1 SCCACHE_S3_USE_SSL=false
+    CT_SCCACHE_STORAGE=shared
+    echo "[cache-policy] shared S3 sccache: build-mac/sccache"
+  else
+    unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
+    CT_SCCACHE_STORAGE=local
+    echo "[cache-policy] shared sccache secrets unavailable; using local disk cache ($SCCACHE_CACHE_SIZE)"
+  fi
+  unset access_key secret_key
+  [ "$trace_enabled" = 0 ] || set -x
+}
+
+ct_sccache_restart() {
+  if command -v pgrep >/dev/null 2>&1 && { pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; }; then
+    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+    return 75
+  fi
+  if command -v cygpath >/dev/null 2>&1 &&
+      powershell.exe -NoProfile -NonInteractive -Command 'if (Get-Process cargo,rustc -ErrorAction SilentlyContinue) { exit 0 }; exit 1' >/dev/null 2>&1; then
+    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+    return 75
+  fi
+  sccache --stop-server >/dev/null 2>&1 || true
+  if ! sccache --start-server >/dev/null 2>&1; then
+    echo "[cache-policy] ERROR: sccache server failed to start with $CT_SCCACHE_STORAGE storage" >&2
+    return 2
+  fi
+}
+
 ct_configure_sccache() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   [ "${CODETERM_USE_SCCACHE:-1}" = "0" ] && return 0
@@ -89,7 +147,11 @@ ct_configure_sccache() {
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
   echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
   echo "[cache-policy] $(sccache --version)"
-  sccache --start-server >/dev/null 2>&1 || true
+  if [ "${CT_SCCACHE_CONFIGURED:-0}" != 1 ]; then
+    ct_sccache_storage
+    ct_sccache_restart || return $?
+    export CT_SCCACHE_CONFIGURED=1
+  fi
   sccache --show-stats 2>/dev/null | sed -n '/Cache location/,$p' || true
 }
 

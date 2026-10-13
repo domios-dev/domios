@@ -75,6 +75,41 @@ and the apt deps listed in `release-linux.yml` (`libwebkit2gtk-4.1-dev`, `libgtk
 `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev`, `patchelf`). Same signing/mirror
 secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac can't.
 
+## Shared sccache path contract
+
+CI builders use the shared S3 compile cache on build-mac through `build.sh`.
+Provision these identical physical paths before checkout and export the listed
+`CARGO_HOME` only in the builder process:
+
+| OS / builders | Checkout | CARGO_HOME |
+|---|---|---|
+| macOS: eight, air | `/Users/Shared/domios-ci/work/codeterm` | `/Users/Shared/domios-ci/cargo` |
+| Windows: ROG, BLACKSTAR, green | `C:\domios-ci\work\codeterm` | `C:\domios-ci\cargo` |
+| Linux: ubunta | `/opt/domios-ci/work/codeterm` | `/opt/domios-ci/cargo` |
+
+Only these exact CI checkouts use their checkout-local `target-check` for
+exceptional test compilation; other worktrees keep their gateway targets.
+Keep Cargo targets machine-local and checkout-local. Pin the repository's Rust
+toolchain and match target, profile, features and compilation environment on each
+same-OS pair. Sccache 0.17's Rust cache key hashes cwd and Cargo paths;
+`SCCACHE_BASEDIRS` does not normalize them. Developer checkout paths remain
+unchanged; upstream Rust normalization is deferred. Also match
+toolchain executable paths: `CARGO` is hashed. Select the pinned toolchain under
+`/Users/Shared/domios-ci/rustup/toolchains/` on macOS,
+`C:\domios-ci\rustup\toolchains\` on Windows, or
+`/opt/domios-ci/rustup/toolchains/` on Linux in the builder process PATH;
+do not change developer toolchain defaults.
+
+Run `codeterm mem secret sync` locally on each authorized builder. Build setup
+reads `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key` into process
+environment only, exports endpoint `http://100.64.10.5:9000`, bucket `sccache`,
+region `us-east-1`, SSL `false`, and restarts sccache before compilation on an idle
+machine. Never put cache credentials in runner `.env`, workflow arguments,
+reports or files. If either entry cannot resolve, build setup logs one local disk
+fallback line and preserves `SCCACHE_CACHE_SIZE` (default `10G`). Shared macOS
+paths must permit builder accounts to write source and disposable artifacts.
+The build skill owns troubleshooting and the statistics measurement procedure.
+
 ## Run
 
 ```bash
@@ -174,4 +209,4 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
