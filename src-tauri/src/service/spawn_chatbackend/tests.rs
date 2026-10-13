@@ -371,3 +371,47 @@ fn guardrail_group_includes_the_orchestrator() {
     assert!(group.contains("worker-1"));
     assert_eq!(group.len(), 3);
 }
+
+#[test]
+fn runtime_task_is_separate_and_preamble_is_preserved() {
+    let mut agent = crate::service::spawn::AgentSpawnSpec {
+        task: Some("opaque-task".into()),
+        task_preamble: Some("opaque-prefix".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        super::runtime_initial_payload(&agent).as_deref(),
+        Some("opaque-prefixopaque-task")
+    );
+    agent.task = Some("  ".into());
+    assert!(super::runtime_initial_payload(&agent).is_none());
+}
+
+#[test]
+fn runtime_worker_identity_is_stamped_before_launch() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.create_workspace("fixture".into(), None);
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
+    let metadata = crate::service::spawn::ChatBackendLaunchMetadata {
+        agent: crate::service::spawn::AgentSpawnSpec {
+            provider: "runtime-fixture".into(),
+            worker_id: Some("worker-exact".into()),
+            provisioned_cwd: Some("/fixture".into()),
+            report_target_tab_id: Some("report-exact".into()),
+            model: Some("model-exact".into()),
+            reasoning_effort: Some("effort-exact".into()),
+            ..Default::default()
+        },
+        params: Default::default(),
+    };
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    super::stamp_chatbackend_launch_identity(tab, &metadata);
+    assert_eq!(tab.worker_id.as_deref(), Some("worker-exact"));
+    assert_eq!(tab.agent_type.as_deref(), Some("runtime-fixture"));
+    assert_eq!(tab.report_target_tab_id.as_deref(), Some("report-exact"));
+    assert_eq!(tab.agent_requested_model.as_deref(), Some("model-exact"));
+    assert_eq!(
+        tab.reasoning_effort_identity.requested.as_deref(),
+        Some("effort-exact")
+    );
+}
