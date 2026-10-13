@@ -49,6 +49,10 @@ function userThread(value, expected) {
 function steerRefused(error, turn) {
   return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
 }
+function archivedResume(message) {
+  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
+  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
+}
 var serverRequestMethods = [
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
@@ -125,14 +129,6 @@ function runtimeFileDiffs(changes) {
     } else rows = recordedPatchDiff(path, diff, "modify");
     const movePath = text(kind.move_path);
     return rows.map((row2) => ({ ...row2, ...movePath ? { kind: "rename", movePath } : {} }));
-  });
-}
-function runtimeTurnDiff(diff) {
-  const groups = diff.split(/(?=^diff --git )/m);
-  return groups.flatMap((group) => {
-    const path = /^\+\+\+ b\/(.+)$/m.exec(group)?.[1] ?? /^--- a\/(.+)$/m.exec(group)?.[1];
-    if (!path) return [];
-    return recordedPatchDiff(path, group, /^deleted file mode /m.test(group) ? "delete" : /^new file mode /m.test(group) ? "add" : "modify");
   });
 }
 
@@ -337,7 +333,7 @@ function runtimeItem(raw, seq, previous) {
     case "agentMessage":
     case "plan":
       row2.type = "assistant";
-      row2.content = String(item.text ?? "");
+      row2.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
       if (item.delivery === "async" && list(item.questions).length) {
         row2.toolInput = item;
         row2.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
@@ -361,6 +357,7 @@ function runtimeItem(raw, seq, previous) {
       row2.toolSummary = String(item.command ?? "");
       row2.toolDetail = row2.toolSummary;
       if (typeof item.aggregatedOutput === "string") row2.toolResult = item.aggregatedOutput;
+      else if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
       if (typeof item.exitCode === "number") row2.toolExitCode = item.exitCode;
       if (item.status === "interrupted") row2.toolInterrupted = true;
       break;
@@ -773,7 +770,7 @@ function runtimeReduce(ctx, raw, frames) {
       if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
       continue;
     }
-    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId)) {
+    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId) && frame.method !== "serverRequest/resolved") {
       const threadId2 = params.threadId;
       const turnId2 = text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId2) continue;
@@ -807,15 +804,21 @@ function runtimeReduce(ctx, raw, frames) {
       if (windows.length) events.push({ kind: "rateLimits", rateLimits: windows });
       continue;
     }
+    const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
+    if (ctx.threadId && (params.threadId === ctx.threadId || descendant) && frame.kind === "request") {
+      if (!serverRequestMethods.includes(frame.method)) continue;
+      const prompt = runtimePrompt(frame.method, params, frame.requestId);
+      const turnId2 = descendant ? ctx.activeTurnId : text(params.turnId);
+      if (prompt) events.push({ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", ...turnId2 ? { turnId: turnId2 } : {} });
+      continue;
+    }
+    if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
+      if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: params.requestId });
+      continue;
+    }
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
-    if (frame.kind === "request") {
-      if (!serverRequestMethods.includes(frame.method)) continue;
-      const prompt = runtimePrompt(frame.method, params, frame.requestId);
-      if (prompt) events.push({ kind: "prompt", threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId, state: "needs_input", ...turnId ? { turnId } : {} });
-      continue;
-    }
     switch (frame.method) {
       case "turn/started":
         if (!turnId || state.completed.includes(turnId)) break;
@@ -827,8 +830,11 @@ function runtimeReduce(ctx, raw, frames) {
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
         delete state.activeTurnId;
-        const error = text(object(object(params.turn).error).message);
-        if (error) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error, systemSubtype: "api_error" }, params) });
+        const failure = object(object(params.turn).error);
+        if (text(failure.message)) {
+          const error = runtimeError(failure);
+          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
+        }
         events.push({ kind: "turnState", threadId, turnId, state: "idle", ...timing(params) });
         break;
       }
@@ -865,7 +871,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       case "turn/diff/updated": {
         const diff = text(params.diff);
-        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", fileDiffs: runtimeTurnDiff(diff), toolResult: diff, collapsed: true }, params) });
+        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", toolResult: diff, collapsed: true }, params) });
         break;
       }
       case "thread/goal/updated": {
@@ -1033,11 +1039,11 @@ function runtimeResponse(ctx, op, raw, reply) {
   const state = object(raw);
   if (reply.kind === "error") {
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
-    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32601)
+    if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
       return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", items: [], openItems: [], questions: [], seq: 0 }));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
-    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && (reply.error.message.includes("codex unarchive") || reply.error.message.includes("session ") && reply.error.message.includes(" is archived")))
+    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
       return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive" }));
     return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
   }

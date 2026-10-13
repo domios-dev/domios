@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { sessionChanges } from "../../../packages/chat-core/src/sessionChanges";
+import type { NormalizedChatMessage } from "../../../packages/chat-core/src/types";
 import fs from "node:fs";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
@@ -222,7 +224,11 @@ check("file change and turn diff use app-server arrays and exact hunks",()=> {
   const result=hooks.runtimeReduce(ctx,null,[frame]);const event=result.events[0];assert.ok(event.kind === "chatItem");
   assert.deepEqual(event.item.fileDiffs && plain(event.item.fileDiffs),[{path:"file.txt",kind:"modify",additions:1,deletions:1,hunks:[{oldStart:1,oldLines:1,newStart:1,newLines:1,lines:["-old","+new"]}]}]);
   const turn=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"turn/diff/updated",params:{threadId:ctx.threadId!,turnId:"turn-a",diff:`diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n${diff}`}}]).events[0];
-  assert.ok(turn.kind === "chatItem");assert.deepEqual(plain(turn.item.fileDiffs),plain(event.item.fileDiffs));
+  assert.ok(turn.kind === "chatItem");assert.equal(turn.item.fileDiffs,undefined);
+  assert.equal(turn.item.toolResult,`diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n${diff}`);
+  const changes=sessionChanges([event.item,turn.item] as NormalizedChatMessage[]);
+  assert.equal(changes.cumulative.length,1);
+  assert.equal(changes.cumulative[0].additions,1);assert.equal(changes.cumulative[0].deletions,1);
 });
 console.log(`runtime expanded hooks: ${count} checks passed`);
 check("descendant interrupt walks deepest first with explicit targets",()=> {
@@ -514,3 +520,75 @@ check("restoreContext validates and injects developer and user context without e
 });
 function objectError(value:unknown):{code?:string} {return value as {code?:string};}
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
+
+check("unsupported turn pagination falls back only on method absence",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const plan=hooks.runtimePlan(ctx,op);
+  const fallback=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}));
+  assert.equal(fallback.kind,"continue");
+  if(fallback.kind !== "continue")throw new Error("Expected snapshot fallback");
+  assert.deepEqual(fallback.plan.action,{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId!,includeTurns:true}}});
+  assert.equal(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message:"Permission denied"}}).kind,"refused");
+  assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}).kind,"refused");
+});
+check("archived resume recovery is case insensitive and bounded",()=> {
+  const op:Operation={kind:"resumeThread",threadId:ctx.threadId!,settings:ctx.settings};
+  const plan=hooks.runtimePlan(ctx,op);
+  for(const message of ["Session saved is archived", "Run CODEX UNARCHIVE to recover"]) {
+    const first=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message}}));
+    if(first.kind !== "continue")throw new Error("Expected unarchive");
+    assert.deepEqual(first.plan.action,{kind:"request",call:{method:"thread/unarchive",params:{threadId:ctx.threadId!}}});
+    const second=hooks.runtimeResponse(ctx,op,first.plan.state,{kind:"success",value:{}});
+    if(second.kind !== "continue")throw new Error("Expected resume");
+    assert.equal(hooks.runtimeResponse(ctx,op,second.plan.state,{kind:"error",error:{code:-32000,message}}).kind,"refused");
+  }
+  for(const message of ["session invalid", "An item is archived", "codex unarchiveable"]) {
+    assert.equal(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message}}).kind,"refused");
+  }
+});
+check("item snapshots retain streamed output only when the final field is absent",()=> {
+  for(const type of ["agentMessage", "commandExecution"]) {
+    const method=type === "agentMessage" ? "item/agentMessage/delta" : "item/commandExecution/outputDelta";
+    const frame:RuntimeFrame={kind:"notification",method,params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"streamed",delta:"kept"}};
+    const completed:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed"}}};
+    const result=hooks.runtimeReduce(ctx,null,[frame,completed]);
+    const row=result.events.at(-1);if(row?.kind !== "chatItem")throw new Error("Expected item");
+    assert.equal(type === "agentMessage" ? row.item.content : row.item.toolResult,"kept");
+    const final={...completed,params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed",[type === "agentMessage" ? "text" : "aggregatedOutput"]:""}}} as RuntimeFrame;
+    const authoritative=hooks.runtimeReduce(ctx,null,[frame,final]).events.at(-1);
+    if(authoritative?.kind !== "chatItem")throw new Error("Expected final item");
+    assert.equal(type === "agentMessage" ? authoritative.item.content : authoritative.item.toolResult,"");
+  }
+});
+check("terminal turn errors retain classified failure metadata without a prior error notification",()=> {
+  const result=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:"turn-a",status:"failed",error:{message:"Quota exhausted",codexErrorInfo:"usageLimitExceeded"}}}}]);
+  assert.equal(result.events.length,2);
+  const row=result.events[0];if(row.kind !== "chatItem")throw new Error("Expected error item");
+  assert.equal(row.item.content,"Quota exhausted");
+  assert.deepEqual(plain(row.item.toolInput),{code:"usageLimitExceeded",class:"usage_limit",retryable:false});
+  assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,turnId:"turn-a",state:"idle"});
+});
+console.log(`runtime comparison regressions: ${count} checks passed`);
+
+check("verified descendant approvals surface on the root without adopting the child turn",()=> {
+  const context={...ctx,activeTurnId:"root-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"child",turnId:"child-turn",parentThreadId:ctx.threadId!}],threadParents:[{threadId:"child",parentThreadId:ctx.threadId!}]};
+  for(const method of ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request"]) {
+    const params={threadId:"child",turnId:"child-turn",command:"tool",permissions:{},mode:"form",requestedSchema:{},questions:[{id:"q",question:"Pick",options:[{label:"Yes"}]}]};
+    const request:RuntimeFrame={kind:"request",method,requestId:37,params};
+    const result=hooks.runtimeReduce(context,null,[request]);
+    assert.equal(result.events.length,2);
+    const prompt=result.events[0];if(prompt.kind !== "prompt")throw new Error("Expected root prompt");
+    assert.equal(prompt.threadId,ctx.threadId);assert.equal(prompt.requestId,37);
+    assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,state:"needs_input",turnId:"root-turn"});
+    const value=method === "item/permissions/requestApproval" ? "deny" : method === "item/tool/requestUserInput" ? "Yes" : "decline";
+    const answer=plain(hooks.runtimePlan({...context,pendingRequest:{requestId:37,method,params}},{kind:"answer",requestId:37,answer:{kind:"choice",values:[value]}}));
+    assert.equal(answer.action.kind,"reply");
+    if(answer.action.kind !== "reply")throw new Error("Expected exact reply");
+    assert.equal(answer.action.requestId,37);
+    assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[request]).events),[]);
+  }
+  const resolved:RuntimeFrame={kind:"notification",method:"serverRequest/resolved",params:{threadId:"child",requestId:37}};
+  assert.deepEqual(plain(hooks.runtimeReduce(context,null,[resolved]).events),[{kind:"promptResolved",threadId:ctx.threadId!,requestId:37}]);
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[resolved]).events),[]);
+});
+console.log(`runtime descendant prompt regressions: ${count} checks passed`);
