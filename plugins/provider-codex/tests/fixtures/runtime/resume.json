@@ -133,6 +133,13 @@
         "value": {
           "thread": {
             "id": "thread-fixture"
+          },
+          "model": "effective-resume-model",
+          "reasoningEffort": "low",
+          "approvalPolicy": "on-request",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "workspaceWrite"
           }
         }
       }
@@ -496,8 +503,8 @@
             "kind": "threadLoaded",
             "threadId": "thread-fixture",
             "settings": {
-              "model": "fixture-model",
-              "effort": "high",
+              "model": "effective-resume-model",
+              "effort": "low",
               "mode": "auto-accept-edits"
             }
           }
