@@ -168,6 +168,7 @@ fn prompt(
     let input = serde_json::to_string(input).unwrap_or_default();
     let summary: String = input.chars().take(2000).collect();
     PendingPrompt {
+        request_id: None,
         question: format!("Allow {tool}?\n{summary}"),
         options: capability
             .options

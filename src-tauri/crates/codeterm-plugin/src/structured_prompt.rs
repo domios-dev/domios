@@ -101,6 +101,7 @@ fn prompt_from_questions(questions: &[&InteractiveQuestion]) -> PendingPrompt {
             .collect()
     });
     PendingPrompt {
+        request_id: None,
         question: first.prompt.clone(),
         options,
         sections,
