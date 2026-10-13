@@ -1,4 +1,4 @@
-const QUESTION_RULE = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
+import QUESTION_RULE from "./launchPromptRule.json";
 
 export function writeClaudeLaunchPrompt(task: string): string | null {
   const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
