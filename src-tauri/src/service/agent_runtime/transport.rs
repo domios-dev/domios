@@ -51,21 +51,11 @@ pub fn send(
     if context.binding_nonce != expected {
         return Err(before_write(tab, RuntimeFailure::Superseded));
     }
-    let thread = context
-        .thread_id
-        .clone()
-        .ok_or_else(|| before_write(tab, RuntimeFailure::Superseded))?;
     let process = session
         .process
         .lock()
         .clone()
         .ok_or_else(|| before_write(tab, RuntimeFailure::PipeEof))?;
-    let provider = svc
-        .mux
-        .read()
-        .get_tab(tab)
-        .and_then(|tab| tab.agent_type.clone())
-        .ok_or_else(|| before_write(tab, RuntimeFailure::Superseded))?;
     let pending = match send_id {
         Some(id) => svc.chat_send_ledger.status(id).ok_or_else(|| {
             before_write(
@@ -78,11 +68,44 @@ pub fn send(
             .try_start_scoped_with_normalization(tab, text, None, None, Default::default())
             .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?,
     };
+    tauri::async_runtime::block_on(svc.gateway.submit_runtime_loaded_turn(
+        svc,
+        &session,
+        &process,
+        &pending.send_id,
+        TurnInput {
+            text: text.into(),
+            attachments: Vec::new(),
+        },
+    ))
+}
+
+pub(crate) async fn submit_loaded(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Arc<super::process::Process>,
+    send_id: &str,
+    input: TurnInput,
+) -> Result<(), DeliveryError> {
+    let context = session.context.lock().clone();
+    let tab = context.tab_id.as_str();
+    let thread = context
+        .thread_id
+        .clone()
+        .ok_or_else(|| before_write(tab, RuntimeFailure::Superseded))?;
+    let pending = svc.chat_send_ledger.status(send_id).ok_or_else(|| {
+        before_write(
+            tab,
+            RuntimeFailure::Refused("Ledger admission absent".into()),
+        )
+    })?;
     if pending.tab_id != tab {
         return Err(before_write(tab, RuntimeFailure::Superseded));
     }
     engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
-    if context.claimed_sends.len() >= MAX_RUNTIME_BATCH || text.len() > MAX_RUNTIME_VALUE_BYTES {
+    if context.claimed_sends.len() >= MAX_RUNTIME_BATCH
+        || serde_json::to_vec(&input).map_or(true, |value| value.len() > MAX_RUNTIME_VALUE_BYTES)
+    {
         return Err(before_write(
             tab,
             RuntimeFailure::Refused("Runtime input or outstanding claim limit".into()),
@@ -100,15 +123,13 @@ pub fn send(
             detail: "Runtime send already claimed".into(),
         });
     }
-    let input = TurnInput {
-        text: text.into(),
-        attachments: Vec::new(),
-    };
     session.context.lock().claimed_sends.push(ClaimedSend {
         send_id: pending.send_id.clone(),
         thread_id: thread.clone(),
         input: input.clone(),
     });
+    let before_completion = session.completions.lock().sequence();
+    let submitted_turn = context.active_turn_id.clone();
     let operation = RuntimeOperation::SubmitTurn {
         thread_id: thread.clone(),
         active_turn_id: context.active_turn_id,
@@ -116,12 +137,27 @@ pub fn send(
         input,
         settings: context.settings,
     };
-    let result =
-        tauri::async_runtime::block_on(engine::run(svc, &provider, &session, &process, operation));
+    let result = engine::run(svc, &session.provider, session, process, operation).await;
     match result {
         Ok(RuntimeResult::TurnAccepted {
-            thread_id, send_id, ..
+            thread_id,
+            send_id,
+            turn_id,
         }) if thread_id == thread && send_id == pending.send_id => {
+            if let Some(turn) = turn_id {
+                let mut current = session.context.lock();
+                if current.epoch == context.epoch
+                    && session.completions.lock().permits_receipt(
+                        &thread,
+                        &turn,
+                        current.active_turn_id.as_deref(),
+                        submitted_turn.as_deref(),
+                        before_completion,
+                    )
+                {
+                    current.active_turn_id = Some(turn);
+                }
+            }
             if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
                 crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
             }
@@ -137,6 +173,43 @@ pub fn send(
             })
         }
     }
+}
+
+pub(crate) fn send_envelope(
+    svc: &ServiceContext,
+    tab: &str,
+    input: &str,
+) -> Result<crate::service::messenger::Delivery, String> {
+    let pending = svc.chat_send_ledger.try_start_scoped_with_normalization(
+        tab,
+        input,
+        None,
+        None,
+        Default::default(),
+    )?;
+    let pending = svc
+        .chat_send_ledger
+        .attach_system_send(
+            &pending.send_id,
+            input,
+            chrono::Utc::now().timestamp_millis().max(0) as u64,
+        )
+        .ok_or("Runtime envelope admission disappeared")?;
+    crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &pending);
+    let result = send(svc, tab, input, Some(&pending.send_id));
+    if let Some(status) = svc.chat_send_ledger.finish(
+        &pending.send_id,
+        result
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| reason.ledger_message()),
+    ) {
+        crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+    }
+    result.map_err(|reason| reason.ledger_message())?;
+    Ok(crate::service::messenger::Delivery::ChatBackend {
+        message_id: pending.send_id,
+    })
 }
 
 pub fn control(

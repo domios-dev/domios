@@ -113,6 +113,7 @@ fn provider_context_excludes_credentials_but_retains_nonsecret_settings() {
 fn prompt_answers_cannot_select_a_foreign_option_or_duplicate_values() {
     use codeterm_plugin::agent_runtime::PromptAnswer;
     let prompt = codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque".into(),
         options: vec![codeterm_types::pty::PromptOption {
             label: "opaque".into(),

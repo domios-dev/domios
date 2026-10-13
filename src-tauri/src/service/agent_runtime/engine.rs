@@ -21,6 +21,7 @@ pub struct Session {
     pub provider: String,
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
+    pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
     pub auth: Mutex<RuntimeAuthState>,
@@ -44,6 +45,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 }
 pub fn stop(tab: &str) {
     super::authority::revoke(tab);
+    super::environment::revoke(tab);
     if let Some(session) = SESSIONS.lock().remove(tab) {
         if let Some(process) = session.process.lock().take() {
             process.stop();
@@ -92,6 +94,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                 Arc::new(Session {
                     provider: provider.clone(),
                     adapter: Mutex::new(None),
+                    completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
                         epoch: 0,
                         tab_id: tab.into(),
@@ -185,6 +188,7 @@ async fn ensure_locked(
         session
             .thread_loaded
             .store(false, std::sync::atomic::Ordering::Release);
+        *session.completions.lock() = Default::default();
         session.initialization.reset();
         *session.auth.lock() = RuntimeAuthState::Unknown;
         publish(svc, tab, session);
@@ -226,7 +230,7 @@ async fn ensure_locked(
                 .ok_or_else(|| RuntimeFailure::SpawnFailed {
                     reason: "Runtime cwd missing".into(),
                 })?;
-            let mut env = owner.tab_env(&target);
+            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce);
             env.extend(
                 owner
                     .model_provider_launch_env(&provider_id)
@@ -337,6 +341,18 @@ async fn ensure_locked(
         context.settings = settings;
     }
     bind(svc, session, &thread_id)?;
+    let settings = session.context.lock().settings.clone();
+    super::projections::controls(svc, session, settings);
+    let owner = svc.clone();
+    let target = tab.to_string();
+    let thread = thread_id.clone();
+    let nonce = session.context.lock().binding_nonce.clone();
+    tokio::task::spawn_blocking(move || {
+        owner.finalize_runtime_worker_session(&target, &thread, &nonce)
+    })
+    .await
+    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
+    .map_err(RuntimeFailure::HookFailed)?;
     let owner = svc.clone();
     let target = tab.to_string();
     let thread = thread_id.clone();
@@ -408,6 +424,7 @@ async fn ensure_locked(
         }
         cursor = Some(next);
     }
+    super::bootstrap::submit(svc, session, &process).await?;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
@@ -589,6 +606,12 @@ async fn run_inner(
         }
     }
     Err(RuntimeFailure::HookFailed("Operation step limit".into()))
+}
+
+pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Option<&str>) {
+    if let Some(turn) = turn {
+        session.completions.lock().record(thread, turn);
+    }
 }
 
 pub fn validate_binding(svc: &ServiceContext, session: &Session) -> Result<(), RuntimeFailure> {

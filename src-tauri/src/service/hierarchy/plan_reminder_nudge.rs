@@ -687,21 +687,26 @@ impl ServiceContext {
     ) -> Result<bool, String> {
         let mut envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         envelope.delivery_observer = observer;
-        crate::service::messenger::Messenger::deliver(self, tab_id, envelope, text)
-            .map(|delivery| {
-                if delivery.is_written() {
-                    self.record_kpi_event(
-                        tab_id,
-                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
-                        text.len(),
-                    );
-                }
-                delivery.is_written()
-            })
-            .map_err(|e| {
-                log::warn!("[plan-reminder] deliver to {} failed: {}", tab_id, e);
-                e
-            })
+        self.gateway_deliver(
+            tab_id,
+            envelope,
+            text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        )
+        .map(|delivery| {
+            if delivery.is_written() {
+                self.record_kpi_event(
+                    tab_id,
+                    crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                    text.len(),
+                );
+            }
+            delivery.is_written()
+        })
+        .map_err(|e| {
+            log::warn!("[plan-reminder] deliver to {} failed: {}", tab_id, e);
+            e
+        })
     }
 
     fn notify_blocked(&self, _owner_tab: &str, notice: &BlockedNotice) {

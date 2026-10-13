@@ -104,3 +104,35 @@ async fn process_start_notification_is_retained_before_subscriber_attachment() {
         matches!(events.try_recv().unwrap(), RuntimeFrame::Notification { method, .. } if method == "fixture/started")
     );
 }
+
+#[tokio::test]
+async fn stdout_eof_fails_inflight_while_peer_stdin_remains_open() {
+    let (host, peer) = tokio::io::duplex(4096);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    let (peer_read, mut peer_write) = tokio::io::split(peer);
+    let server = async {
+        let mut peer_read = BufReader::new(peer_read);
+        let mut frame = String::new();
+        peer_read.read_line(&mut frame).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap()["method"],
+            "fixture/submit"
+        );
+        peer_write.shutdown().await.unwrap();
+        peer_read
+    };
+    let request = client.request(&RpcCall {
+        method: "fixture/submit".into(),
+        params: json!({"input":"opaque"}),
+        target: None,
+    });
+    let (result, peer_stdin) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(request, server)
+    })
+    .await
+    .unwrap();
+    assert_eq!(result, Err(RuntimeFailure::PipeEof));
+    assert!(client.0.state.lock().pending.is_empty());
+    drop(peer_stdin);
+}

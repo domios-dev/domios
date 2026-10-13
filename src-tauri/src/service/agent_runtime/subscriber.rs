@@ -133,6 +133,9 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 .clone()
                 .or_else(|| ended.borrow().clone())
                 .unwrap_or(RuntimeFailure::PipeEof);
+            let expired = session.context.lock().clone();
+            super::prompt_answers::clear(&svc, &expired);
+            session.prompts.lock().clear();
             if session.state.lock().unload(epoch, &reason) {
                 session
                     .thread_loaded
@@ -214,6 +217,9 @@ pub(super) async fn publish_events(
             .map_err(RuntimeFailure::HookFailed)?;
             super::question_delivery::publish(svc, &context.tab_id, session, questions)
                 .map_err(RuntimeFailure::HookFailed)?;
+        }
+        if let AgentRuntimeEvent::RateLimits { rate_limits, .. } = &event.event {
+            super::projections::rate_limits(svc, session, rate_limits.clone(), at).await?;
         }
         super::model::observe_turn(&mut session.context.lock(), &event.event);
         let send_id = match &event.event {
@@ -351,7 +357,10 @@ fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgen
                         .lock()
                         .working(context.active_turn_id == turn_id, at, started_at)
                 }
-                RuntimeTurnState::Idle => session.state.lock().completed(at, completed_at),
+                RuntimeTurnState::Idle => {
+                    engine::record_completed_turn(session, &thread_id, turn_id.as_deref());
+                    session.state.lock().completed(at, completed_at);
+                }
                 RuntimeTurnState::NeedsInput => {}
             }
             let verdict = match state {
@@ -385,13 +394,17 @@ fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgen
             request_id,
             prompt,
         } if owned(&thread_id) => {
-            if let Some(pending) = session.prompts.lock().get_mut(&request_id) {
-                pending.prompt = Some(prompt.clone());
-                svc.notify_event(
-                    "agent-runtime-prompt",
-                    serde_json::json!({"tab_id":context.tab_id,"prompt":prompt}),
-                );
-                svc.mark_agent_waiting(&context.tab_id);
+            let accepted = {
+                let mut prompts = session.prompts.lock();
+                if let Some(pending) = prompts.get_mut(&request_id) {
+                    pending.prompt = Some(prompt.clone());
+                    true
+                } else {
+                    false
+                }
+            };
+            if accepted {
+                super::prompt_answers::publish(svc, session, request_id, prompt);
             }
         }
         AgentRuntimeEvent::PromptResolved {
@@ -399,18 +412,16 @@ fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgen
             request_id,
         } if owned(&thread_id) => {
             session.prompts.lock().remove(&request_id);
+            super::prompt_answers::resolve(svc, session, &request_id);
         }
         AgentRuntimeEvent::Usage { thread_id, usage } if owned(&thread_id) => {
-            svc.notify_event(
-                "agent-runtime-usage",
-                serde_json::json!({"tab_id":context.tab_id,"thread_id":thread_id,"usage":usage}),
-            );
+            super::projections::usage(svc, session, usage, at);
         }
         AgentRuntimeEvent::ControlsConfirmed {
             thread_id,
             settings,
         } if owned(&thread_id) => {
-            session.context.lock().settings = settings;
+            super::projections::controls(svc, session, settings);
         }
         AgentRuntimeEvent::ContextCompacted { thread_id, .. } if owned(&thread_id) => {}
         _ => {}
