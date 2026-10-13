@@ -5,8 +5,6 @@ pub(crate) fn register_commands(
 ) -> tauri::Builder<crate::app_runtime::Runtime> {
     builder.invoke_handler(tauri::generate_handler![
         commands::get_windows_build_number,
-        commands::agent_runtime::agent_runtime_retry,
-        commands::agent_runtime::agent_runtime_answer_question,
         commands::materialize_dropped_files,
         clipboard_files::read_clipboard_files,
         clipboard_files::read_clipboard_text,
