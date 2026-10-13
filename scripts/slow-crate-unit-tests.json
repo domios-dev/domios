@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "binary": "codeterm-cli::bin/codeterm",
+      "test": "cmd::report_lane::tests::explicit_base_overrides_task_derived_fallback",
+      "measuredSeconds": 1.897
+    },
+    {
+      "binary": "codeterm-cli::json_error_contract",
+      "test": "json_error_contract_all_subcommands",
+      "measuredSeconds": 3.758
+    },
+    {
+      "binary": "codeterm-plan",
+      "test": "service_plan::mutations::team_close_transaction_tests::detaching_a_large_unfinished_team_plan_is_one_database_write",
+      "measuredSeconds": 1.313
+    },
+    {
+      "binary": "codeterm-plan",
+      "test": "service_plan::review_gate::bounce::cleaned_bounce_tests::review_bounce_cleaned_refuses_invalid_generation_order",
+      "measuredSeconds": 1.038
+    },
+    {
+      "binary": "codeterm-plan",
+      "test": "service_plan::review_gate::bounce::cleaned_bounce_tests::review_bounce_cleaned_refuses_owner_or_placement",
+      "measuredSeconds": 1.435
+    },
+    {
+      "binary": "codeterm-plan",
+      "test": "service_plan::task_attempts::restore_binding::tests::attempt_binding_restore_refuses_nonworker_remote_or_retired_authority_without_mutation",
+      "measuredSeconds": 7.746
+    },
+    {
+      "binary": "codeterm-plan",
+      "test": "service_plan::task_attempts::restore_binding::tests::attempt_binding_restore_refuses_stale_epoch_assignment_and_team_without_mutation",
+      "measuredSeconds": 1.312
+    },
+    {
+      "binary": "codeterm-plugin",
+      "test": "js_runtime::parity_test::codex::codex_folder_trust_prompt_parses_as_numbered_choices",
+      "measuredSeconds": 3.409
+    },
+    {
+      "binary": "codeterm-plugin",
+      "test": "js_runtime::parity_test::codex::directory_trust_prompt_response_reads_wrapped_codex_trust_frames",
+      "measuredSeconds": 2.599
+    },
+    {
+      "binary": "codeterm-plugin",
+      "test": "js_runtime::parity_test::runtime::replay::runtime_shared_provider_fixture_replay",
+      "measuredSeconds": 1.543
+    },
+    {
+      "binary": "codeterm-plugin",
+      "test": "js_runtime::parity_test::update_prompt::parity_update_prompt_availability",
+      "measuredSeconds": 1.95
+    },
+    {
+      "binary": "codeterm-plugin",
+      "test": "js_runtime::parity_test::update_prompt::parity_update_prompt_safe_choice",
+      "measuredSeconds": 2.394
+    },
+    {
+      "binary": "codeterm-plugins",
+      "test": "config::tests::replacing_array_key_leaves_no_orphan_lines",
+      "measuredSeconds": 1.066
+    },
+    {
+      "binary": "codeterm-pty",
+      "test": "multiplexer::state::closed::store::tests::global_group_cap_drops_oldest_groups",
+      "measuredSeconds": 1.097
+    },
+    {
+      "binary": "codeterm-pty",
+      "test": "multiplexer::state::closed::store::tests::per_workspace_cap_drops_oldest",
+      "measuredSeconds": 1.4
+    },
+    {
+      "binary": "codeterm-pty",
+      "test": "multiplexer::state::closed::tests::history_is_bounded_at_cap",
+      "measuredSeconds": 1.944
+    },
+    {
+      "binary": "codeterm-repowatch",
+      "test": "tests::ref_events::repository_watcher_emits_ref_and_index_events",
+      "measuredSeconds": 1.741
+    },
+    {
+      "binary": "codeterm-repowatch",
+      "test": "tests::silence::repository_watcher_stays_silent_on_irrelevant_churn",
+      "measuredSeconds": 15.437
+    },
+    {
+      "binary": "codeterm-repowatch",
+      "test": "tests::working_tree::repository_watcher_emits_working_tree_events",
+      "measuredSeconds": 2.29
+    }
+  ]
+}

@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const baselinePath = 'scripts/slow-unit-tests.json';
+export const crateBaselinePath = 'scripts/slow-crate-unit-tests.json';
+export const benchmarkPath = 'scripts/unit-test-benchmarks.json';
 export const thresholdSeconds = 1;
 export const newSlowFailureSeconds = 1.25;
 export const regressionLimit = seconds => seconds + Math.max(seconds * 0.2, 0.25);
@@ -59,9 +61,33 @@ export function checkBaseline(document, previousDocument) {
   });
 }
 
-export function selectCandidates(timings, document) {
+export function validateBenchmarks(document) {
+  if (!document || Object.keys(document).sort().join(',') !== 'entries,version' || document.version !== 1 || !Array.isArray(document.entries)) {
+    throw new Error('benchmark exemptions require only version: 1 and entries');
+  }
+  const seen = new Set();
+  for (const entry of document.entries) {
+    if (!entry || Object.keys(entry).sort().join(',') !== 'binary,reason,test' ||
+        typeof entry.binary !== 'string' || !exactName.test(entry.binary) ||
+        typeof entry.test !== 'string' || !exactName.test(entry.test) ||
+        typeof entry.reason !== 'string' || !entry.reason.trim() || seen.has(identity(entry))) {
+      throw new Error('benchmark exemption requires a unique exact identity and explicit reason');
+    }
+    seen.add(identity(entry));
+  }
+  return document.entries;
+}
+
+export function checkBenchmarks(document, previousDocument) {
+  const previous = new Map(validateBenchmarks(previousDocument).map(entry => [identity(entry), entry.reason]));
+  return validateBenchmarks(document).flatMap(entry => previous.get(identity(entry)) === entry.reason
+    ? [] : [`added or changed benchmark exemption: ${entry.binary} ${entry.test}`]);
+}
+
+export function selectCandidates(timings, document, benchmarks = []) {
   const allowed = new Map(validateBaseline(document).map(entry => [identity(entry), entry.measuredSeconds]));
-  return timings.filter(entry => entry.measuredSeconds > (allowed.get(identity(entry)) ?? thresholdSeconds));
+  const exempt = new Set(benchmarks.map(identity));
+  return timings.filter(entry => !exempt.has(identity(entry)) && entry.measuredSeconds > (allowed.get(identity(entry)) ?? thresholdSeconds));
 }
 
 export function candidateFilter(entries) {
@@ -71,11 +97,15 @@ export function candidateFilter(entries) {
   }).join(' | ');
 }
 
-export function checkSlowTests(timings, document, previousDocument = document, alone = []) {
+export function checkSlowTests(timings, document, previousDocument = document, alone = [], benchmarks = []) {
   const errors = checkBaseline(document, previousDocument);
   const allowed = new Map(validateBaseline(document).map(entry => [identity(entry), entry.measuredSeconds]));
   const measuredAlone = new Map(alone.map(entry => [identity(entry), entry.measuredSeconds]));
-  for (const candidate of selectCandidates(timings, document)) {
+  const exempt = new Set(benchmarks.map(identity));
+  for (const entry of document.entries) {
+    if (exempt.has(identity(entry))) errors.push(`benchmark must not be baselined: ${entry.binary} ${entry.test}`);
+  }
+  for (const candidate of selectCandidates(timings, document, benchmarks)) {
     const seconds = measuredAlone.get(identity(candidate));
     if (seconds === undefined) {
       errors.push(`missing alone timing: ${candidate.binary} ${candidate.test}`);
@@ -116,12 +146,30 @@ function main() {
   }
   if (options.candidates && options.alone) throw new Error('--candidates and --alone are mutually exclusive');
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-  const document = JSON.parse(readFileSync(resolve(root, baselinePath), 'utf8'));
   const resolved = execFileSync('git', ['rev-parse', '--verify', `${options.base}^{commit}`], { cwd: root, encoding: 'utf8' }).trim();
-  const exists = execFileSync('git', ['ls-tree', '--name-only', resolved, '--', baselinePath], { cwd: root, encoding: 'utf8' }).trim();
-  const previous = exists ? JSON.parse(execFileSync('git', ['show', `${resolved}:${baselinePath}`], { cwd: root, encoding: 'utf8' })) : document;
+  const load = (path, optional = false) => {
+    let current;
+    try { current = JSON.parse(readFileSync(resolve(root, path), 'utf8')); }
+    catch (error) { if (!optional || error.code !== 'ENOENT') throw error; current = {version: 1, entries: []}; }
+    const exists = execFileSync('git', ['ls-tree', '--name-only', resolved, '--', path], {cwd: root, encoding: 'utf8'}).trim();
+    const previous = exists ? JSON.parse(execFileSync('git', ['show', `${resolved}:${path}`], {cwd: root, encoding: 'utf8'})) : current;
+    return {current, previous};
+  };
+  const app = load(baselinePath);
+  const crates = load(crateBaselinePath, true);
+  const exemption = load(benchmarkPath, true);
+  const benchmarkErrors = checkBenchmarks(exemption.current, exemption.previous);
+  if (benchmarkErrors.length) throw new Error(benchmarkErrors.join('\n'));
+  const benchmarks = validateBenchmarks(exemption.current);
+  const document = {version: 1, entries: [...validateBaseline(app.current), ...validateBaseline(crates.current)]};
+  const previous = {version: 1, entries: [...validateBaseline(app.previous), ...validateBaseline(crates.previous)]};
   const timings = parseTimings(readFileSync(report, 'utf8'));
-  const candidates = selectCandidates(timings, document);
+  const candidates = selectCandidates(timings, document, benchmarks);
+  const timed = new Map(timings.map(entry => [identity(entry), entry.measuredSeconds]));
+  for (const entry of benchmarks) {
+    const seconds = timed.get(identity(entry));
+    if (seconds !== undefined) console.log(`Unit benchmark EXEMPT: parallel=${seconds.toFixed(3)}s ${entry.binary} ${entry.test}; ${entry.reason}`);
+  }
   if (options.candidates) {
     const errors = checkBaseline(document, previous);
     if (errors.length) throw new Error(errors.join('\n'));
@@ -139,7 +187,7 @@ function main() {
   }
   console.log("Unit timing rule: 1s target; new alone >1.25s fails; regression above baseline + max(20%, 0.25s) fails.");
   for (const warning of timingWarnings(alone, document)) console.log(warning);
-  const errors = checkSlowTests(timings, document, previous, alone);
+  const errors = checkSlowTests(timings, document, previous, alone, benchmarks);
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(`Slow unit ratchet PASS: ${timings.length} measured tests, ${candidates.length} serial confirmations, ${document.entries.length} existing slow units; baseline ${options.base}.`);
 }
