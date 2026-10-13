@@ -22,6 +22,22 @@ export function deliveryState(send: DeliverySend): DeliveryState {
   return send.status?.state === "held" ? "queued" : "sending";
 }
 
+export function deliveryPresentation(
+  send: DeliverySend, rows: readonly NormalizedChatMessage[],
+): DeliveryState | "settled" {
+  const state = deliveryState(send);
+  if (send.status?.state !== "written" && send.status?.state !== "submit_unconfirmed") return state;
+  const position = rows.findIndex((row) => row.id === send.id
+    || (send.correlationId != null && row.correlationId === send.correlationId));
+  if (position < 0) return state;
+  const laterOutput = rows.slice(position + 1).some((row) => {
+    if (!["assistant", "thinking", "tool_call", "tool_result", "tool_flow"].includes(row.type)) return false;
+    const at = timestampMs(row.timestamp);
+    return at != null && at > send.sentAtMs;
+  });
+  return laterOutput ? "settled" : state;
+}
+
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
   if (status.correlationId !== send.correlationId) return send;
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence > status.sequence) return send;
