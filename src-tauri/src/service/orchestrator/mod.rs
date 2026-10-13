@@ -28,7 +28,8 @@ pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task};
 pub(crate) use prompt_compose::{role_onboarding_task, spawn_onboarding_task};
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
 pub(crate) use spawn::{
-    move_chatbackend_task_to_system_prompt, remote_task_binding_matches_authority,
+    compose_runtime_system_prompt, ensure_tab_runtime_prompt,
+    move_chatbackend_task_to_system_prompt, remote_task_binding_matches_authority, ROLE_AUTHORITY,
 };
 pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
 pub(crate) use types::{RemoteTaskBinding, TaskLaunchAuthority};

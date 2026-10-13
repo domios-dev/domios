@@ -147,7 +147,7 @@ impl SpawnTabSpec {
     }
 
     pub(crate) fn route_agent_to_chatbackend(&mut self) -> Result<(), String> {
-        let params = self
+        let mut params = self
             .chatbackend_launch
             .as_ref()
             .ok_or("Runtime routing requires original spawn parameters")?
@@ -164,7 +164,17 @@ impl SpawnTabSpec {
             &agent.provider,
             &agent.extra_args,
         )?;
-        let agent = agent.clone();
+        let mut agent = agent.clone();
+        params.task = agent
+            .task
+            .as_ref()
+            .map(|task| match agent.task_preamble.as_deref() {
+                Some(preamble) => format!("{preamble}{task}"),
+                None => task.clone(),
+            });
+        params.system_prompt = super::orchestrator::compose_runtime_system_prompt(&mut params);
+        agent.task = params.task.clone();
+        agent.task_preamble = None;
         let mut config = chatbackend_spawn_config(
             params.system_prompt.as_deref(),
             params.preset.as_deref(),
