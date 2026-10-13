@@ -40,6 +40,10 @@ impl AttachmentStorePort for AppAttachmentStorePort {
 pub struct ServiceBridgeTabPort(pub ServiceContext);
 
 impl BridgeTabPort for ServiceBridgeTabPort {
+    fn telegram_used(&self) {
+        self.0
+            .record_product_feature(codeterm_analytics::Feature::TelegramBridgeUsed);
+    }
     fn resolve_general_tab(&self) -> Result<String, String> {
         self.0
             .mux

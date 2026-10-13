@@ -248,6 +248,12 @@ pub async fn patch_config_api(
     crate::config::save_config_and_apply(&state.config, new_cfg.clone())
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
+    if new_cfg.theme.name != current_theme_name {
+        state
+            .svc
+            .record_product_feature(codeterm_analytics::Feature::ThemeChanged);
+    }
+
     crate::agent::model_binary_watch::refresh_after_settings_change(
         &state.svc.agent_registry,
         &state.svc.chatbackend_registry,

@@ -168,6 +168,7 @@ impl super::ServiceContext {
         let staged = handle.store.lock().stage_insert(job.clone());
         staged.settle(&handle.store)?;
         handle.notify();
+        self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         let owner = match spec.owner {
             BlueprintOwner::Tab => json!({"kind":"tab", "id":caller.tab}),
             BlueprintOwner::Team => json!({"kind":"team", "id":caller.team}),

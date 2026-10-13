@@ -1,70 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(
-    tag = "event_type",
-    content = "event_properties",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum Event {
-    AppStarted {
-        version: Version,
-    },
-    SettingsOpened {
-        section: Section,
-    },
-    TabCreated {
-        kind: TabKind,
-    },
-    SessionCompleted {
-        outcome: Outcome,
-        duration_ms: u32,
-        message_count: u32,
-    },
-    FeatureUsed {
-        feature: Feature,
-        enabled: bool,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Section {
-    General,
-    Privacy,
-    Notifications,
-    Agents,
-    Jobs,
-    Logs,
-    Guide,
-    About,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TabKind {
-    Shell,
-    Agent,
-    Chat,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Outcome {
-    Completed,
-    Cancelled,
-    Failed,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Feature {
-    Voice,
-    Chat,
-    Blueprint,
-    Mesh,
-}
+mod generated;
+pub use generated::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Version {
@@ -74,6 +11,11 @@ pub struct Version {
 }
 
 impl Version {
+    pub fn from_release(value: &str) -> Option<Self> {
+        let numeric = value.split(['-', '+']).next()?;
+        serde_json::from_value(serde_json::Value::String(numeric.to_string())).ok()
+    }
+
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
             major,

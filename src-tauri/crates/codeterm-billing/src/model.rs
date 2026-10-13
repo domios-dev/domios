@@ -2,6 +2,27 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum Plan {
+    Free,
+    Pro,
+}
+impl Plan {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "free" => Ok(Self::Free),
+            "pro" => Ok(Self::Pro),
+            _ => Err("Unknown billing plan".into()),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Free => "free",
+            Self::Pro => "pro",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Status {
     Active,
     Trialing,
@@ -14,7 +35,7 @@ pub enum Status {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entitlements {
-    pub plan: String,
+    pub plan: Plan,
     pub status: Status,
     pub current_period_end: u64,
     pub cancel_at_period_end: bool,
@@ -22,7 +43,7 @@ pub struct Entitlements {
 impl Default for Entitlements {
     fn default() -> Self {
         Self {
-            plan: "free".into(),
+            plan: Plan::Free,
             status: Status::Active,
             current_period_end: 0,
             cancel_at_period_end: false,

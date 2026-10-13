@@ -78,6 +78,29 @@ impl CredentialStore for AccountCredentials {
         }
     }
 }
+struct AnalyticsIdentity(codeterm_analytics::Worker);
+#[async_trait]
+impl codeterm_account::IdentityObserver for AnalyticsIdentity {
+    async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
+        if self
+            .0
+            .set_user_id(identity.map(|value| value.uid.clone()))
+            .await
+            .is_err()
+        {
+            log::debug!("[analytics] identity unavailable");
+            return;
+        }
+        if let Some(auth_provider) = identity
+            .and_then(|value| codeterm_analytics::AuthProvider::from_catalog(&value.provider))
+        {
+            let _ = self
+                .0
+                .record(codeterm_analytics::Event::SignedIn { auth_provider })
+                .await;
+        }
+    }
+}
 struct SystemBrowser(tauri::AppHandle);
 #[async_trait]
 impl Browser for SystemBrowser {
@@ -108,11 +131,18 @@ impl super::ServiceContext {
                 }
                 let provider =
                     codeterm_account::adapters::configured(&config).map_err(|e| e.to_string())?;
-                let account = Arc::new(Account::new(
+                let analytics = self.analytics_worker().await.ok().cloned();
+                let account = Account::new(
                     provider,
                     Arc::new(AccountCredentials::new(self.secrets.clone())),
                     Duration::from_secs(config.login_timeout_secs),
-                ));
+                );
+                let account = Arc::new(match analytics {
+                    Some(worker) => {
+                        account.with_identity_observer(Arc::new(AnalyticsIdentity(worker)))
+                    }
+                    None => account,
+                });
                 let _ = account.refresh().await;
                 Ok::<_, String>(account)
             })

@@ -1,0 +1,94 @@
+{
+  "enums": {
+    "Platform": [
+      "macos",
+      "windows",
+      "linux"
+    ],
+    "AuthProvider": [
+      "local",
+      "fake",
+      "firebase"
+    ],
+    "PlanKey": [
+      "free",
+      "pro"
+    ],
+    "SubscriptionStatus": [
+      "active",
+      "past_due",
+      "canceled",
+      "revoked",
+      "incomplete",
+      "trialing",
+      "unpaid",
+      "paused"
+    ],
+    "Role": [
+      "general",
+      "orchestrator",
+      "planner",
+      "worker",
+      "manager",
+      "supporter",
+      "none",
+      "other"
+    ],
+    "UpdateKind": [
+      "app",
+      "frontend"
+    ],
+    "Feature": [
+      "dreaming_run",
+      "cron_created",
+      "blueprint_created",
+      "theme_changed",
+      "telegram_bridge_used",
+      "voice_input_used",
+      "plugin_installed",
+      "team_created",
+      "memory_saved",
+      "web_ui_opened"
+    ]
+  },
+  "events": {
+    "app_started": {
+      "version": "Version",
+      "platform": "Platform",
+      "mesh_machines": "u32",
+      "workspaces": "u32"
+    },
+    "mesh_peer_paired": {
+      "mesh_machines": "u32"
+    },
+    "workspace_created": {
+      "workspaces": "u32"
+    },
+    "signed_in": {
+      "auth_provider": "AuthProvider"
+    },
+    "checkout_started": {
+      "plan": "PlanKey"
+    },
+    "subscription_changed": {
+      "plan": "PlanKey",
+      "status": "SubscriptionStatus"
+    },
+    "analytics_opted_in": {},
+    "agent_spawned": {
+      "provider_id": "ProviderId",
+      "role": "Role"
+    },
+    "update_installed": {
+      "kind": "UpdateKind"
+    },
+    "plan_created": {},
+    "active_day": {
+      "mesh_machines": "u32",
+      "workspaces": "u32"
+    },
+    "feature_used": {
+      "feature": "Feature"
+    }
+  }
+}

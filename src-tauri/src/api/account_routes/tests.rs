@@ -95,7 +95,7 @@ async fn account_plan_routes_local_journey() {
     *fixture.service.secrets.write().await = Arc::new(crate::secrets::mock::MockStore::new());
     let provider = Arc::new(codeterm_billing::adapters::fake::Fake::default());
     *provider.value.lock() = Ok(codeterm_billing::Entitlements {
-        plan: "pro".into(),
+        plan: codeterm_billing::Plan::Pro,
         current_period_end: 2000000000,
         ..Default::default()
     });

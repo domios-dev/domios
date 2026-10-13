@@ -191,6 +191,11 @@ pub async fn mem_save(
         })
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !is_auto_extracted {
+        state
+            .svc
+            .record_product_feature(codeterm_analytics::Feature::MemorySaved);
+    }
     let id = result.id;
     let outcome = result.outcome;
     emit_activity(&state, &headers, "write", vec![id.clone()]);

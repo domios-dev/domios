@@ -43,7 +43,13 @@ pub async fn mem_dream(
 
     // recluster is opt-in only: never part of "all", never cron-driven. Runs in-process so the LLM call has direct access to the mem manager.
     if phase == "recluster" {
-        return run_recluster_inline(&state).await;
+        let result = run_recluster_inline(&state).await;
+        if result.is_ok() {
+            state
+                .svc
+                .record_product_feature(codeterm_analytics::Feature::DreamingRun);
+        }
+        return result;
     }
 
     let phases: Vec<WorkerKind> = match phase.as_str() {
@@ -66,6 +72,9 @@ pub async fn mem_dream(
                 format!("{}: {}", kind.as_arg(), e),
             )
         })?;
+        state
+            .svc
+            .record_product_feature(codeterm_analytics::Feature::DreamingRun);
         reports.push(report);
     }
 
