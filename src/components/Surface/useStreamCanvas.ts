@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useLayoutEffect, useEffect, useRef, type RefObject } from "react";
 import { createLatestWins } from "./latestWins";
 import type { DecodedFrame, FrameDecoder, FrameFeed } from "./frameFeed";
 import {
@@ -26,6 +26,7 @@ export interface StreamCanvasHandle {
 }
 
 interface UseStreamCanvasOptions {
+  visible: boolean;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   stageRef: RefObject<HTMLDivElement | null>;
   frames: FrameFeed;
@@ -41,7 +42,7 @@ function currentDpr(): number {
   return typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
 }
 
-export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewport, onHidden, onError }: UseStreamCanvasOptions): StreamCanvasHandle {
+export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, onViewport, onHidden, onError }: UseStreamCanvasOptions): StreamCanvasHandle {
   const css = useRef<Size>({ width: 0, height: 0 });
   const dpr = useRef(currentDpr());
   const drawCss = useRef<Rect>(EMPTY_RECT);
@@ -90,6 +91,23 @@ export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewpor
     frame.current = null;
   }, []);
 
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    const box = stage.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) {
+      css.current = { width: box.width, height: box.height };
+      dpr.current = currentDpr();
+      paintRef.current();
+      const request = viewportRequest(css.current, dpr.current);
+      if (request) {
+        reported.current = request;
+        callbacks.current.onViewport(request);
+      }
+    }
+  }, [visible, stageRef]);
+
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || typeof ResizeObserver === "undefined") return;
@@ -97,8 +115,8 @@ export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewpor
     const apply = () => {
       scheduled = 0;
       dpr.current = currentDpr();
-      paintRef.current();
       const request = viewportRequest(css.current, dpr.current);
+      if (request) paintRef.current();
       if (!request) {
         // The shared server viewport may change while hidden, so the next visible size must be re-sent.
         if (reported.current) {
@@ -142,7 +160,7 @@ export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewpor
     mapPoint(clientX, clientY) {
       const canvas = canvasRef.current;
       if (!canvas) return null;
-      return canvasToPage(clientX, clientY, canvas.getBoundingClientRect(), drawCss.current, meta.current);
+      return canvasToPage(clientX, clientY, canvas.getBoundingClientRect(), drawCss.current, meta.current, css.current);
     },
     localPoint(clientX, clientY) {
       const rect = canvasRef.current?.getBoundingClientRect();

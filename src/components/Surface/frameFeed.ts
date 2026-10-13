@@ -13,12 +13,15 @@ export interface FramePublisher extends FrameFeed {
 
 export function createFrameFeed(): FramePublisher {
   const listeners = new Set<FrameListener>();
+  let latest: StreamFrame | null = null;
   return {
     subscribe(listener) {
       listeners.add(listener);
+      if (latest) listener(latest);
       return () => { listeners.delete(listener); };
     },
     publish(frame) {
+      latest = frame;
       for (const listener of listeners) listener(frame);
     },
   };

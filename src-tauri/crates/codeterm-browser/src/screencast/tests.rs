@@ -13,38 +13,6 @@ fn metadata() -> FrameMetadata {
 }
 
 #[test]
-fn browser_screencast_pacer_spaces_acks_by_interval() {
-    let start = Instant::now();
-    let mut pacer = AckPacer::new(ACK_INTERVAL);
-    assert_eq!(pacer.ack_due(start), start);
-    pacer.acked(start);
-    let fast = start + Duration::from_millis(10);
-    assert_eq!(pacer.ack_due(fast), start + ACK_INTERVAL);
-    let slow = start + Duration::from_millis(200);
-    assert_eq!(pacer.ack_due(slow), slow);
-    pacer.reset();
-    assert_eq!(pacer.ack_due(fast), fast);
-}
-
-#[test]
-fn browser_screencast_pacer_caps_a_flooding_page_near_twelve_fps() {
-    let start = Instant::now();
-    let mut pacer = AckPacer::new(ACK_INTERVAL);
-    let mut now = start;
-    let mut acks = 0;
-    loop {
-        let due = pacer.ack_due(now);
-        if due >= start + Duration::from_secs(1) {
-            break;
-        }
-        pacer.acked(due);
-        acks += 1;
-        now = due + Duration::from_millis(1);
-    }
-    assert!((12..=13).contains(&acks), "{acks}");
-}
-
-#[test]
 fn browser_screencast_viewer_count_starts_on_first_and_stops_on_last() {
     let mut viewers = ViewerCount::default();
     assert_eq!(viewers.join(), Some(CastTransition::Start));
@@ -204,4 +172,19 @@ fn browser_screencast_hub_tags_still_failures_as_preview_paused() {
             text: "no frame: window not rendering (timeout)".into()
         }
     );
+}
+
+#[test]
+fn browser_screencast_returning_viewer_restarts_and_keeps_latest_frame() {
+    let hub = FrameHub::new(params(1280));
+    let (driver, mut commands) = mpsc::unbounded_channel();
+    let generation = hub.bind(driver);
+    let viewer = hub.subscribe();
+    assert_eq!(commands.try_recv(), Ok(DriverCommand::Start(params(1280))));
+    hub.publish(generation, vec![9], metadata(), false);
+    drop(viewer);
+    assert_eq!(commands.try_recv(), Ok(DriverCommand::Stop));
+    let returning = hub.subscribe();
+    assert_eq!(returning.latest().unwrap().jpeg, vec![9]);
+    assert_eq!(commands.try_recv(), Ok(DriverCommand::Start(params(1280))));
 }

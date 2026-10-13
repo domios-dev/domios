@@ -32,6 +32,10 @@ pub fn sanitize_profile_name(raw: &str) -> String {
     }
 }
 
+pub fn owner_profile(scope: &str) -> String {
+    format!("owner_{}", sanitize_profile_name(scope))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProfileKind {
     Clean { session_id: String },
@@ -163,6 +167,17 @@ mod tests {
         assert_eq!(sanitize_profile_name("nul"), "_nul");
         assert_eq!(sanitize_profile_name("COM1"), "_COM1");
         assert_eq!(sanitize_profile_name("console"), "console");
+    }
+
+    #[test]
+    fn browser_profile_owner_scope_survives_reopen_and_keeps_owners_separate() {
+        let layout = ProfileLayout::new(PathBuf::from("data/browsers"));
+        let first = ProfileKind::from_request(&owner_profile("a123"));
+        let reopened = ProfileKind::from_request(&owner_profile("a123"));
+        let other = ProfileKind::from_request(&owner_profile("b456"));
+        assert!(first.is_persistent());
+        assert_eq!(layout.dir_for(&first), layout.dir_for(&reopened));
+        assert_ne!(layout.dir_for(&first), layout.dir_for(&other));
     }
 
     #[test]
