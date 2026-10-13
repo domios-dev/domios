@@ -305,7 +305,7 @@ impl ServiceContext {
         )
         .map_err(|reason| ModelSwitchError::InputNotReady(reason.into()))?
         .on_completion(move || {
-            completion_service.schedule_agent_delivery_flush(&completion_tab);
+            completion_service.wake_agent_deliveries_on_state_change(&completion_tab);
             completion_service.wake_user_owner(
                 &completion_tab,
                 crate::service::parked_user_delivery::UserWake::Readiness,

@@ -2,6 +2,8 @@ use super::ServiceContext;
 use crate::agent::status::TabStatus;
 use tauri::Manager;
 
+pub(crate) mod delivery_readiness;
+
 impl ServiceContext {
     #[cfg(debug_assertions)]
     pub(crate) fn feed_pty_output(&self, pty_id: &str, data: &[u8]) -> (TabStatus, TabStatus) {
@@ -93,10 +95,15 @@ impl ServiceContext {
         let watcher_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
         let statuses = self.process_pty_output(pty_id, data);
-        let changed_tab = self.mux.read().tab_id_for_pty(pty_id);
-        if let Some(tab_id) = changed_tab {
-            self.wake_agent_deliveries_on_state_change(&tab_id);
-            self.wake_user_owner_on_state_change(&tab_id);
+        let readiness_changed =
+            super::pty_io::submit_transaction::observe_delivery_readiness(self, pty_id)
+                .unwrap_or(false);
+        if statuses.0 != statuses.1 || readiness_changed {
+            let changed_tab = self.mux.read().tab_id_for_pty(pty_id);
+            if let Some(tab_id) = changed_tab {
+                self.wake_agent_deliveries_on_state_change(&tab_id);
+                self.wake_user_owner_on_state_change(&tab_id);
+            }
         }
         crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
             pty_id, statuses.0, statuses.1,
