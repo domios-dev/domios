@@ -201,5 +201,8 @@
   "src/lib/agentRuntimeState.test.ts",
   "src/components/Terminal/AgentRuntimeBanner.test.tsx",
   "src/components/Terminal/TabContent.runtime.test.tsx",
-  "src/lib/agentRuntimeTiming.test.ts"
+  "src/lib/agentRuntimeTiming.test.ts",
+  "packages/chat-core/src/questionSelection.test.ts",
+  "src/lib/agentRuntimeQuestions.test.ts",
+  "src/components/Terminal/RuntimeQuestionCard.test.tsx"
 ]

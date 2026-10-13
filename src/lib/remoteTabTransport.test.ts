@@ -2,6 +2,12 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("routes native question answers to the exact peer and item", () => {
+    const answers = [{ questionId: "q", values: ["native-a"] }];
+    expect(remoteTransportCall("agent_runtime_answer_question", { tabId: "mesh:peer/owned", itemId: "item/a", answers }))
+      .toMatchObject({ peerId: "peer", remoteTabId: "owned", method: "POST", suffix: "/agent/runtime/questions/item%2Fa/answer", body: { answers } });
+  });
+
   it("routes runtime Retry to the exact peer tab without a send payload", () => {
     expect(remoteTransportCall("agent_runtime_retry", { tabId: "mesh:peer/owned" })).toEqual({
       ordinaryTabId: "mesh:peer/owned", peerId: "peer", remoteTabId: "owned",

@@ -17,6 +17,7 @@ function fixture(responses: unknown[] = [{}]) {
 }
 
 const simple = [
+  ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
   ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
   ["chat_send_admissions", "POST", "/api/tabs/tab/chat-send/admissions"],
   ["mux_get_state", "GET", "/api/mux/state"],
@@ -67,7 +68,7 @@ const simple = [
   ["write_pty_launch_command", "POST", "/api/pty/pty/launch-command"],
 ] as const;
 
-const args = { tabId: "tab", workspaceId: "ws", parentTabId: "parent", groupId: "group", ptyId: "pty", clientId: "client", callerTabId: "caller" };
+const args = { tabId: "tab", itemId: "question", workspaceId: "ws", parentTabId: "parent", groupId: "group", ptyId: "pty", clientId: "client", callerTabId: "caller" };
 
 describe("tab command HTTP contract", () => {
   it.each(simple)("%s resolves to %s %s with caller routing", async (name, method, path) => {
@@ -75,6 +76,14 @@ describe("tab command HTTP contract", () => {
     await transport[name](args);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ method, path, opts: { callerTabId: "caller" } });
+  });
+
+  it("keeps runtime question answers on their item-scoped ledger route", async () => {
+    const receipt = { send_id: "receipt", state: "written" };
+    const { transport, calls } = fixture([receipt]);
+    const answers = [{ questionId: "q", values: ["native-value"], text: "free text" }];
+    expect(await transport.agent_runtime_answer_question({ tabId: "owned", itemId: "item/a", answers })).toBe(receipt);
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/agent/runtime/questions/item%2Fa/answer", body: { answers } });
   });
 
   it("maps cwd, chat, session and resize bodies without replaying a payload", async () => {
