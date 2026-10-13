@@ -124,10 +124,12 @@ mod tests {
             header: Some(format!("H{idx}")),
             options: vec![
                 InteractiveOption {
+                    value: None,
                     label: "Alpha".into(),
                     description: None,
                 },
                 InteractiveOption {
+                    value: None,
                     label: "Beta".into(),
                     description: Some("the second".into()),
                 },

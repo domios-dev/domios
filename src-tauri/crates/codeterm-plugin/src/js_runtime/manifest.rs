@@ -9,6 +9,7 @@
 //! The Rust core never hardcodes provider names — it reads manifests
 //! at startup and instantiates one generic `JsProvider` per plugin.
 
+mod agent_runtime;
 mod capabilities;
 mod config;
 mod graph_nodes;
@@ -21,6 +22,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub use agent_runtime::RuntimeManifestError;
 pub use capabilities::{
     Capabilities, ChatBackendCap, ChatPreprocessorCap, DecisionModelCap, SecretBackendCap,
     WebhookReceiverCap, WebhookReceiverKind,
@@ -241,6 +243,7 @@ fn default_capabilities() -> Capabilities {
         glance_view: false,
         status_bubble: false,
         view: false,
+        agent_runtime: None,
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,

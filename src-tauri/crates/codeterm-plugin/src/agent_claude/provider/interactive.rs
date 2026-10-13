@@ -191,6 +191,7 @@ pub(super) fn parse_interactive_events(msg: &RichMessage) -> Vec<InteractiveElem
                 .filter_map(|o| {
                     let label = o.get("label").and_then(|v| v.as_str())?.to_string();
                     Some(InteractiveOption {
+                        value: None,
                         label,
                         description: o
                             .get("description")

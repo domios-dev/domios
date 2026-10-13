@@ -178,6 +178,11 @@ pub enum RuntimeOperation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         active_turn_id: Option<String>,
     },
+    AnswerQuestion {
+        thread_id: String,
+        item_id: String,
+        answers: Vec<RuntimeQuestionAnswer>,
+    },
     Answer {
         request_id: RpcId,
         answer: PromptAnswer,
@@ -200,6 +205,7 @@ impl RuntimeOperation {
             Self::SubmitTurn { .. } => "submitTurn",
             Self::Interrupt { .. } => "interrupt",
             Self::Answer { .. } => "answer",
+            Self::AnswerQuestion { .. } => "answerQuestion",
             Self::Control { .. } => "control",
         }
     }
@@ -220,6 +226,7 @@ pub struct RpcCall {
     deny_unknown_fields
 )]
 pub enum RuntimeAction {
+    QuestionAnswer { input: TurnInput },
     Request { call: RpcCall },
     Notification { notification: RpcCall },
     Reply { request_id: RpcId, result: RpcReply },
@@ -323,6 +330,17 @@ pub enum RuntimeTurnState {
     deny_unknown_fields
 )]
 pub enum AgentRuntimeEvent {
+    Question {
+        thread_id: String,
+        item_id: String,
+        questions: Vec<RuntimeQuestion>,
+        response: RuntimeQuestionResponse,
+    },
+    RateLimits {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        rate_limits: Vec<RuntimeRateLimit>,
+    },
     ChatItem {
         thread_id: String,
         item: ChatMsg,
@@ -331,6 +349,10 @@ pub enum AgentRuntimeEvent {
         thread_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        started_at: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        completed_at: Option<u64>,
         state: RuntimeTurnState,
     },
     SendEvidence {
@@ -366,4 +388,49 @@ pub enum AgentRuntimeEvent {
 pub struct RuntimeReduction {
     pub state: Value,
     pub events: Vec<AgentRuntimeEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostAgentRuntimeEvent {
+    pub at: u64,
+    #[serde(flatten)]
+    pub event: AgentRuntimeEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeRateLimit {
+    pub window: String,
+    pub used_percent: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_minutes: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeQuestion {
+    pub id: String,
+    pub text: String,
+    pub options: Vec<codeterm_types::pty::PromptOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_select: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_free_text: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeQuestionAnswer {
+    pub question_id: String,
+    pub values: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeQuestionResponse {
+    Message,
 }
