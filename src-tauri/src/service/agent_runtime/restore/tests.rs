@@ -47,7 +47,6 @@ fn legacy_pty_snapshot_runtime_materializes_same_thread_with_exact_authority_for
         tab.session_binding_nonce = Some(nonce.clone());
         tab.role = role;
         tab.role_profile = profile.map(str::to_string);
-        tab.hidden = role == Some(AgentRole::Worker);
         let snapshot = mux.to_session_snapshot();
         let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(&snapshot));
         register_runtime(&fixture.service);
@@ -141,4 +140,21 @@ fn retained_authority_for_same_tab_id_does_not_collide_across_distinct_bindings(
         ));
     }
     super::super::authority::revoke(&id);
+}
+
+#[test]
+fn recovered_hidden_worker_materializes_without_changing_worker_identity() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("restore-runtime".into());
+    tab.agent_session_id = Some("worker-thread".into());
+    tab.worker_id = Some("exact-worker-id".into());
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    tab.hidden = true;
+    tab.restored_from_snapshot = true;
+    assert!(materialize(tab, true));
+    assert!(tab.hidden);
+    assert_eq!(tab.worker_id.as_deref(), Some("exact-worker-id"));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("worker-thread"));
+    assert_eq!(tab.role, Some(crate::multiplexer::types::AgentRole::Worker));
 }
