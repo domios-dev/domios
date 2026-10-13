@@ -22,6 +22,9 @@ impl ServiceContext {
         thread: &str,
         nonce: &str,
     ) -> Result<(), String> {
+        if self.finalize_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
+            return Ok(());
+        }
         let (binding, restored, remote) = self
             .mux
             .read()

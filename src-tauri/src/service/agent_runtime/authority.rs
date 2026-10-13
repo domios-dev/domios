@@ -82,3 +82,17 @@ pub(crate) fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &
 pub(super) fn revoke(tab: &str) {
     LAUNCHES.lock().retain(|key, _| key.tab != tab);
 }
+
+pub(crate) fn rotate_restart(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    old_nonce: &str,
+) -> Result<String, String> {
+    if !verifies(svc, tab, provider, old_nonce) {
+        return Err("Runtime restart authority changed".into());
+    }
+    let nonce = svc.rotate_session_binding_nonce(tab);
+    record_spawn(svc, tab, provider, &nonce)?;
+    Ok(nonce)
+}
