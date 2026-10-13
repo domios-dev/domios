@@ -129,56 +129,160 @@ function is invoked (invalid JSON syntax or platform body-size limits) use the
 platform error response; the generic JSON error applies to requests reaching the
 redemption handler. Callers must send a JSON object as specified above.
 
-## Billing setup and verification
+## Paddle billing setup and verification
 
-Billing callables accept a verified Firebase session. `createCheckoutSession`
-accepts only `{plan: "pro"}` (or another configured plan key), returns `{url}`,
-and derives the account from the token. `createPortalSession` returns the portal
-URL for that account's stored customer. Both functions reject missing authentication.
+Billing is selected with `BILLING_PROVIDER=paddle` and `BILLING_MODE=test` (Paddle
+sandbox) or `live`. `createCheckoutSession` accepts only `{plan: "pro"}` or
+another configured plan key. It verifies the Firebase ID token, derives the uid,
+creates a Paddle transaction for one allow-listed price, and returns `{url}` on
+the configured default payment link. `createPortalSession` verifies the same
+identity, loads its stored Paddle customer, and creates a fresh server-side
+`POST /customers/{customer_id}/portal-sessions` session. Desktop Upgrade and
+Manage already consume these callable URLs and open the system browser; the
+`codeterm-billing` crate remains vendor-free.
 
-Set `BILLING_PROVIDER=stripe` and `BILLING_MODE=test` or `live` in the deployed
-function parameters. Store `{plans: {pro: "price_..."}, hostedOrigin:
-"https://domios-d9357.web.app"}` in `test_billing/config` for test mode and
-`billing/config` for live mode. The HTTPS origin is server configuration; checkout
-always uses `/billing/success` and `/billing/cancel`, and the portal returns to
-`/billing`. Those Hosting pages must exist before the owner performs a live journey.
+Store this server configuration in `test_billing/config` for sandbox or
+`billing/config` for live. Values shown are placeholders, not credentials:
 
-Provision Secret Manager values `BILLING_TEST_API_KEY`, `BILLING_LIVE_API_KEY`,
-`BILLING_TEST_ENDPOINT_SECRET`, and `BILLING_LIVE_ENDPOINT_SECRET` through
-`firebase functions:secrets:set NAME`. Configure the corresponding signed webhook
-endpoint at `/stripeWebhook` for the selected mode. Register checkout completion,
-subscription created/updated/deleted, invoice paid/payment failed, charge refunded
-and charge dispute created. The adapter targets Stripe SDK 23's API shape
-(`2026-09-30.endive`); configure the endpoint to that version. Customers, events,
-and entitlements use `test_` collections in test mode; live collections have no
-prefix. A mismatched event or API key is refused. Firestore rules deny client
-access to all billing collections.
+```json
+{
+  "plans": {"pro": "pri_REPLACE_WITH_26_CHARACTER_ID"},
+  "hostedOrigin": "https://domios.dev",
+  "checkoutUrl": "https://domios.dev/checkout",
+  "paddleClientToken": "live_REPLACE_WITH_PUBLIC_CLIENT_TOKEN"
+}
+```
 
-Customer creation uses a stable per-account, per-mode provider idempotency key.
-Only verified webhooks modify entitlements. Unknown customers return an error
-without recording the event, allowing a provider retry. The event record and
-entitlement share a transaction. Older event timestamps cannot replace newer
-state; revocation stays in effect until an audited admin repair (owned separately).
-Refunds and disputes revoke the customer's entitlement, including partial refunds.
+`checkoutUrl` must be an HTTPS URL without query or fragment, on the approved
+website/default payment link. Sandbox uses its own price catalog and a `test_`
+client token. The website and Paddle Website approval must exist before even a
+sandbox transaction journey can be proven for that domain. The website team owns
+`web/` and `/checkout`, pricing, terms, privacy, and refund pages; this task ships
+only the framework-free checkout contract.
 
-`npm --prefix cloud/functions test -- billing` builds once and runs the billing
-selectors with Auth, Firestore and Functions emulators. Java 21+ is required.
-The runner creates disposable fixture secrets only when `.secret.local` is absent
-and removes its file afterward; existing developer secrets are left intact.
-Fixtures under `test/fixtures/stripe/` are representative SDK event snapshots,
-not captured customer data. Tests sign them with `generateTestHeaderString` and
-prove persisted lifecycle state, replay no-ops, mode separation, HTTP signature
-refusal, token verification and allow-list refusal. Provider API calls are faked.
-After account setup, the owner still needs one real test checkout and an observed
-active `test_entitlements/{uid}` document before production deployment.
+Three credential roles must remain distinct:
 
-Local development needs no payment account: the existing local accounts server
-serves `/billing` with Activate Pro and Cancel plan controls. Each action travels
-through the local signed-event adapter and updates the in-memory entitlement.
-`/api/createCheckoutSession`, `/api/createPortalSession`, and `/api/entitlement`
-use the existing local session. Local/fake providers are test-only, and deployment
-refuses them outside the emulator. Restarting local development clears billing data.
+- `PADDLE_SANDBOX_API_KEY` / `PADDLE_LIVE_API_KEY`: Secret Manager, server-only.
+  The owner's live vault reference is `domios-paddle-live-api-key`.
+- `paddleClientToken`: public checkout configuration, never an API key. The
+  owner's live vault reference is `domios-paddle-live-client-token`.
+- `PADDLE_SANDBOX_WEBHOOK_SECRET` / `PADDLE_LIVE_WEBHOOK_SECRET`: Secret Manager,
+  separate endpoint secrets. Provision using `firebase functions:secrets:set NAME`.
 
+Sandbox credentials and both webhook endpoint secrets are owner prerequisites.
+Firebase Blaze is required for deployment. Do not deploy, mutate the Paddle
+dashboard, or perform a live charge/subscription as part of local verification.
+
+### Website checkout contract
+
+The importable module is `cloud/checkout/paddle.ts`; copy/import it into the
+website build without React dependencies. It loads the official
+`https://cdn.paddle.com/paddle/v2/paddle.js` script and waits for its load event.
+Exact public config names and values are:
+
+```ts
+const config = {
+  paddleEnvironment: "production", // "sandbox" for test mode
+  paddleClientToken: "live_REPLACE_WITH_PUBLIC_CLIENT_TOKEN",
+};
+await openPaddleCheckout(config, undefined, {
+  onCompleted(transactionId) { showSuccessAndOpenDomiosButton(transactionId); },
+  onClosed() { showCanceledCheckout(); },
+  onError(error) { showCheckoutError(error.message); },
+});
+```
+
+`openPaddleCheckout` calls `Paddle.Environment.set(config.paddleEnvironment)`,
+then `Paddle.Initialize({token: config.paddleClientToken, eventCallback})`, then
+`Paddle.Checkout.open({transactionId})`. Its default transaction id comes from
+`_ptxn` in the current URL, so both Paddle's default-payment-link flow and the
+server-returned `https://domios.dev/checkout?_ptxn=txn_...` work. A page that
+already has a server-created id may call `openPaddleCheckout(config, transactionId)`.
+Missing/invalid ids and mismatched token environments fail before loading Paddle.
+The page should show a retryable error for a rejected promise and offer a return
+to the app. The returned promise signals only that checkout was opened. `onCompleted(id)`
+receives a matching `checkout.completed` event once; only then show success and
+the Open Domios button. `onClosed()` receives `checkout.closed` only if checkout
+has not completed, once. `onError(error: Error)` surfaces checkout and payment
+errors. Pass these typed callbacks as the third argument. Completion is a UI
+signal only and is never an entitlement grant; refresh
+`getEntitlements` and wait for the persisted verified webhook result.
+
+`billingCheckoutConfig` is an unauthenticated GET endpoint returning exactly
+`{paddleEnvironment, paddleClientToken}` for the deployment's mode, with
+`Cache-Control: no-store`. It has no mounted secrets and never returns an API key
+or webhook secret. The Vercel website may expose these two public fields as build
+configuration or proxy this endpoint on its own origin. It must select the same
+environment as the function deployment. No cross-origin browser fetch is required.
+
+Merge these additions into the website's CSP (keep its existing sources):
+
+```text
+script-src: https://cdn.paddle.com
+frame-src: https://buy.paddle.com https://sandbox-buy.paddle.com
+connect-src: https://*.paddle.com
+img-src: https://*.paddle.com data:
+```
+
+These cover the SDK, live/sandbox checkout frames and Paddle services. Payment
+provider resources inside Paddle's cross-origin frames use the frame's own CSP.
+No `unsafe-eval` or inline script exception is needed by the module. Serve the
+module from the website's own bundle. Use a no-referrer policy on `/checkout`.
+
+The website's return link is `domios://billing/return`, optionally
+`domios://billing/return?status=completed` or `?status=canceled`. The sole allowed
+parameter is `status`, an opaque 1–64-character ASCII alphanumeric/underscore/hyphen
+flag for UI copy. Duplicate status, other parameters, fragments, credentials and
+ports are refused. It carries no uid, plan, entitlement or redirect target. The
+app dispatches one `CheckoutReturned` entitlement refresh, then shows, unminimizes
+and focuses its main window; the normal focus refresh is throttled by that read.
+The status never grants access. A webhook may arrive after the browser return;
+until a subsequent normal refresh sees it, the app retains its last verified
+entitlements. No retry timer is installed. Offer this as a user-activated return
+link after completion/cancel, rather than assuming a browser may open a custom
+scheme without a gesture.
+
+The server fixes `items: [{price_id, quantity: 1}]`, `collection_mode: automatic`,
+`checkout.url`, and `custom_data.uid` from the verified ID token. It adds
+`custom_data.billing_binding`, an HMAC bound to uid and mode, to prevent a
+transaction created with the public client token from forging an account grant.
+Do not modify the transaction's custom data in Paddle.js. Paddle copies transaction
+custom data to the new subscription. Only verified webhook custom data can bind
+a previously unknown customer; conflicting account/customer bindings are refused.
+
+### Webhooks and proof
+
+Register `/paddleWebhook` for subscription.created, activated, updated, canceled,
+past_due; transaction.completed, payment_failed; adjustment.created and updated.
+The handler verifies `Paddle-Signature` over the exact raw bytes (`ts:body`,
+HMAC-SHA256, constant-time comparison, five-second timestamp tolerance), supports
+multiple `h1` values, and uses the selected mode's endpoint secret. Paddle event
+payloads have no live-mode field: separation is enforced by distinct secrets,
+mode-specific API origins, and a store refusing events of another mode.
+
+Event ids and entitlement updates share one Firestore transaction using
+`test_billingEvents`/`billingEvents`. Sandbox also uses `test_billingCustomers`
+and `test_entitlements`; it never writes live collections. Older events cannot
+replace newer state. Approved partial/full refunds and chargebacks revoke access;
+pending/rejected refunds do not. Revocation remains sticky until audited admin
+repair. Unknown customers return an error without recording a grant event,
+allowing retry. Transaction events retrieve their subscription from the selected
+server API to validate the allow-listed price and billing period.
+
+Run `npm --prefix cloud/functions test -- billing paddle` for focused emulator
+proof, and `npm --prefix cloud/functions test` for canonical cloud QA. Java 21+
+is required. The runner builds/typechecks once and creates disposable fixture
+secrets only when `.secret.local` is absent, then removes them. Fixtures under
+`test/fixtures/paddle/` contain no customer data and are signed with a test secret.
+Provider API calls are faked. Tests prove persisted lifecycle state, duplicates,
+mode isolation, bad signatures, authentication, price allow-list and ownership
+refusals, public-token checkout configuration and the website module call contract.
+A real sandbox checkout and persisted active `test_entitlements/{uid}` are still
+required once the owner supplies credentials and the website is approved.
+
+Local/fake adapters remain test-only and require the emulator outside the local
+accounts server. The local `/billing` journey still applies signed local events
+and persists in-memory entitlements; restarting local development clears them.
 
 ## Deploy-time sign-in configuration
 
