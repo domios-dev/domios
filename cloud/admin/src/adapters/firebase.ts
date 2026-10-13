@@ -58,16 +58,13 @@ export class FirebaseDataProvider implements DataProvider {
   async detail(uid: string) {
     const record = await this.findUser(uid);
     if (!record) return null;
-    const [entitlement, customer, audit] = await Promise.all([
+    const [entitlement, audit] = await Promise.all([
       this.db.doc(`entitlements/${uid}`).get(),
-      this.db.doc(`billingCustomers/${uid}`).get(),
       this.db.collection("adminAudit").where("uid", "==", uid).get(),
     ]);
-    const customerId: unknown = customer.data()?.customer;
     return {
       user: record, entitlement: (entitlement.data() as Entitlement | undefined) ?? null,
-      customerUrl: typeof customerId === "string" && /^cus_[a-zA-Z0-9]+$/.test(customerId)
-        ? `https://dashboard.stripe.com/customers/${customerId}` : null,
+      customerUrl: null,
       audit: audit.docs.map(doc => doc.data() as AuditEntry).sort((a, b) => b.created_at - a.created_at),
     };
   }

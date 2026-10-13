@@ -28,16 +28,22 @@ export class FirestoreBillingStore implements BillingStore {
   async apply(event: BillingEvent): Promise<boolean> {
     if (event.mode !== this.mode) throw new Error("Billing mode mismatch");
     return this.db.runTransaction(async tx => {
-      const eventRef = this.db.doc(`${collectionName(this.mode,"stripeEvents")}/${event.id}`);
+      const eventRef = this.db.doc(`${collectionName(this.mode,"billingEvents")}/${event.id}`);
       if ((await tx.get(eventRef)).exists) return false;
       const matches = event.customer ? await tx.get(this.customers().where("customer","==",event.customer).limit(2)) : null;
       if (matches && matches.size > 1) throw new Error("Ambiguous customer owner");
-      const uid = matches?.docs[0]?.id;
+      const owner = matches?.docs[0]?.id;
+      if (owner && event.uid && owner !== event.uid) throw new Error("Billing owner mismatch");
+      const uid = owner ?? event.uid;
+      const customerRef = uid ? this.customers().doc(uid) : null;
+      const existing = customerRef ? (await tx.get(customerRef)).data()?.customer : undefined;
+      if (existing && existing !== event.customer) throw new Error("Billing customer mismatch");
       const entitlementRef = uid ? this.db.doc(`${collectionName(this.mode,"entitlements")}/${uid}`) : null;
       const previous = entitlementRef ? (await tx.get(entitlementRef)).data() as Entitlement | undefined : undefined;
       if (event.change && !uid) throw new Error("Unknown billing customer");
       const next = reduceEntitlement(previous,event);
       tx.create(eventRef,{created:event.created});
+      if (customerRef && event.customer && !existing && event.change) tx.create(customerRef,{customer:event.customer});
       if (entitlementRef && next && next !== previous) tx.set(entitlementRef,next);
       return true;
     });

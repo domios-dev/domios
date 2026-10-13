@@ -20,7 +20,10 @@ export class BillingService {
       throw new BillingError("invalid-argument", "Unknown billing plan");
     }
     const price = this.config.plans[data.plan];
-    const customer = await this.store.ensureCustomer(uid, () => this.gateway.createCustomer(uid, `billing:${this.config.mode}:${uid}`));
+    const create = this.gateway.createCustomer?.bind(this.gateway);
+    const customer = create
+      ? await this.store.ensureCustomer(uid, () => create(uid, `billing:${this.config.mode}:${uid}`))
+      : await this.store.customer(uid) ?? "";
     return {url: await this.gateway.createCheckout({uid,customer,price,successUrl:`${this.config.hostedOrigin}/billing/success`,cancelUrl:`${this.config.hostedOrigin}/billing/cancel`})};
   }
   async portal(uid: string | undefined): Promise<{url: string}> {

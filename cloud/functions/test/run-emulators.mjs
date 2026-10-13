@@ -5,10 +5,10 @@ const root = fileURLToPath(new URL("../",import.meta.url));
 const secrets = new URL("../.secret.local",import.meta.url);
 const created = !existsSync(secrets);
 if (created) writeFileSync(secrets,[
-  "BILLING_TEST_API_KEY=sk_test_fixture",
-  "BILLING_LIVE_API_KEY=sk_live_fixture",
-  "BILLING_TEST_ENDPOINT_SECRET=whsec_fixture_only",
-  "BILLING_LIVE_ENDPOINT_SECRET=whsec_fixture_live_only",
+  "PADDLE_SANDBOX_API_KEY=pdl_sdbx_apikey_fixture",
+  "PADDLE_LIVE_API_KEY=pdl_live_apikey_fixture",
+  "PADDLE_SANDBOX_WEBHOOK_SECRET=fixture_endpoint_secret",
+  "PADDLE_LIVE_WEBHOOK_SECRET=fixture_live_endpoint_secret",
 ].join("\n")+"\n");
 let exit = 1;
 try {
