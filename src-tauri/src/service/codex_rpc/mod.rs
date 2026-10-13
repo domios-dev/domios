@@ -17,6 +17,7 @@ pub mod normalize;
 #[cfg(any(unix, test))]
 mod ownership;
 pub mod process;
+mod process_output;
 pub mod protocol;
 pub mod recovery;
 pub mod routing;
