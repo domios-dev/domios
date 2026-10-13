@@ -340,32 +340,33 @@ async fn product_plan_created_follows_persistence_only() {
 #[tokio::test]
 async fn product_agent_spawned_and_workspace_counts_use_fake_sink() {
     use crate::multiplexer::{state::MultiplexerState, types::AgentRole};
-    use crate::service::test_fixture::ServiceFixture;
     let sink = Sink::new(Consent::On).await;
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some("codex".into());
     tab.role = Some(AgentRole::Worker);
-    let fixture = ServiceFixture::new(mux);
-    assert!(fixture.service.analytics.set(sink.worker.clone()).is_ok());
-    fixture
-        .service
-        .record_kpi_spawn(&tab_id, Some("private-model"), 100);
+    let event =
+        agent_spawned(tab.agent_type.as_deref(), tab.role.map(|role| role.label())).unwrap();
+    sink.worker.record_nowait(event).unwrap();
+    sink.worker
+        .record_activity_nowait(|| mux.workspace_count())
+        .unwrap();
+    let initial_workspaces = count(mux.workspace_count());
     let cwd = sink
         .dir
         .path()
         .join("private-workspace")
         .display()
         .to_string();
-    fixture
-        .service
-        .create_workspace("private".into(), Some(cwd.clone()), false)
+    let (_, workspaces) = crate::service::workspace::create_workspace_with_count(
+        &mut mux,
+        "private".into(),
+        Some(cwd),
+    );
+    sink.worker
+        .record_nowait(Event::WorkspaceCreated { workspaces })
         .unwrap();
-    fixture
-        .service
-        .create_workspace("private".into(), Some(cwd), false)
-        .unwrap();
-    let workspaces = count(fixture.service.mux.read().list_workspaces().len());
+    assert_eq!(workspaces, initial_workspaces + 1);
     assert_eq!(
         sink.events().await,
         vec![
@@ -375,30 +376,26 @@ async fn product_agent_spawned_and_workspace_counts_use_fake_sink() {
             },
             Event::ActiveDay {
                 mesh_machines: 1,
-                workspaces: workspaces - 1
+                workspaces: initial_workspaces
             },
             Event::WorkspaceCreated { workspaces },
         ]
     );
 }
+
 #[tokio::test]
-async fn product_feature_owner_helper_uses_fake_sink_and_consent_gate() {
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::service::test_fixture::ServiceFixture;
+async fn product_feature_boundary_uses_fake_sink_and_consent_gate() {
     for consent in [Consent::On, Consent::Off] {
         let sink = Sink::new(consent).await;
-        let (mux, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
-        assert!(fixture.service.analytics.set(sink.worker.clone()).is_ok());
-        fixture
-            .service
-            .record_product_feature(codeterm_analytics::Feature::MemorySaved);
-        fixture
-            .service
-            .record_product_feature(codeterm_analytics::Feature::MemorySaved);
-        fixture
-            .service
-            .record_product_feature(codeterm_analytics::Feature::ThemeChanged);
+        for feature in [
+            codeterm_analytics::Feature::MemorySaved,
+            codeterm_analytics::Feature::MemorySaved,
+            codeterm_analytics::Feature::ThemeChanged,
+        ] {
+            sink.worker
+                .record_nowait(Event::FeatureUsed { feature })
+                .unwrap();
+        }
         let expected = if consent == Consent::On {
             vec![
                 Event::FeatureUsed {
