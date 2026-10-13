@@ -73,9 +73,6 @@ resume_sessions = true
 continue_after_restart = true  # false disables it (codeterm docs TAB-LIFECYCLE)
 full_access = true
 
-[agents.codex]
-structured_control_enabled = true # Default; false selects plain PTY
-
 [supporter]
 adapter = "typesafe-jev"
 deadline_ms = 3000
@@ -227,9 +224,11 @@ The General Agent is an always-on Claude Code instance in the "General" workspac
 
 Provisioning creates an isolated git worktree and launches the agent there; it installs no dependencies and links nothing from the canonical checkout (`node_modules` is never shared by symlink or junction, and no package-manager command precedes the agent command). An isolated check that needs dependencies installs them inside its own lane; full rebuilds stay in canonical.
 
-## Codex structured control
+## Codex Chat runtime
 
-Codex structured control is enabled by default in 1.12.4. The provider declares the `codex-app-server` capability with minimum version `0.159.0`; `[agents.codex] structured_control_enabled = false` explicitly selects the plain PTY lane. Each structured tab owns its app-server, port and authentication token. The server owns session binding, thread identity and busy/idle state; provider hooks are telemetry only for those tabs. PTY fallback tabs retain ordinary hook behavior. Unsupported versions, failed readiness, unknown extra terminal arguments and Windows `.cmd`/`.bat` wrappers automatically select the plain PTY fallback. Launch diagnostics record the reason. No token value appears in launch arguments or diagnostics.
+In 1.14.7 Codex runs only in Chat through the provider-codex plugin. Its `agentRuntime` capability selects a tab-owned stdio JSON-RPC process (`codex app-server`), with no terminal, `--remote` attachment, listening port or authentication-token file. The plugin owns the provider protocol; Domios owns process lifetime, session binding and delivery. Raw keys and terminal resize are explicitly unsupported. The former `structured_control_enabled` option is removed.
+
+Process exit or pipe failure preserves the tab's exact saved thread and shows the failure reason, including captured exit status and bounded stderr when available. Provider readiness, a send, a command or the visible Retry action attempts initialization and resume within a failure deadline. Recovery reconciles history without duplicating items or replaying uncertain input or the launch brief. A missing saved thread is reported honestly. There is no silent plain-PTY fallback or timer-driven retry. These rules apply to General, project, mesh-remote and restored tabs, including after app restarts or provider updates. Stop interrupts the active turn; it leaves the runtime available.
 
 ## Related documents
 
@@ -237,4 +236,4 @@ Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `cod
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `codeterm plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
 Domios account sign-in and product analytics settings: `codeterm docs ACCOUNT`.
 
-<!-- revision: 116 -->
+<!-- revision: 117 -->

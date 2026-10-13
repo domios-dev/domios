@@ -49,7 +49,7 @@ Switch one agent tab to another model. Domios never types a provider model comma
 {"model": "sonnet", "reasoning_effort": "high"}
 ```
 
-A `next_turn` sidecar returns `mode_used: "next_turn"`, `model_confirmation: "pending"` and no restart, including while busy. The next turn carries model and effort; thread settings/model events confirm them. Optional `runtime_mode` accepts `approval-required`, `auto-accept-edits`, `auto`, or `full-access` and requires a live sidecar. Settings stay per-thread. Without a sidecar, switching uses idle RestartResume.
+An `agentRuntime` Chat provider with `next_turn` control returns `mode_used: "next_turn"`, `model_confirmation: "pending"` and no restart, including while busy. The next turn carries model and effort; thread settings/model events confirm them. Optional `runtime_mode` accepts `approval-required`, `auto-accept-edits`, `auto`, or `full-access` and requires the bound runtime to be loaded. Settings stay per-thread. Runtime failure is visible and retryable through exact-thread resume; it never selects a terminal fallback. Providers declaring RestartResume keep their idle-only switching contract.
 
 The live session GET or, after a RestartResume fallback, the current binding's launch report or first post-relaunch assistant turn can confirm the model. A live request whose session record does not show the requested model returns pending with `confirmation_detail`; no screen output or POST status is treated as confirmation. After the bounded RestartResume confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A live request failure or a confirmed different RestartResume model remains an error.
 
@@ -192,7 +192,7 @@ Plan surface contracts — planner authority over task structure, partial `plan 
 
 A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->
 
 ### Background work and session forks
 

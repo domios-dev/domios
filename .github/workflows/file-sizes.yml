@@ -1,10 +1,6 @@
 name: file-sizes
 
-# Source-file size discipline: scripts/check-file-sizes.sh.
-# Runs in --fail mode from day one. Legacy >1000 files are baselined in
-# scripts/file-size-allowlist.txt and only fail CI if they grow past
-# their baseline. Phase 2 drains the allowlist; once empty, the rule
-# bites unconditionally on every file.
+# Source size and exact provider boundary guards.
 
 on:
   pull_request:
@@ -14,7 +10,12 @@ on:
       - '**/*.tsx'
       - '**/*.py'
       - '**/*.swift'
-      - 'scripts/file-size-allowlist.txt'
+      - 'scripts/provider-boundary-allowlist.json'
+      - 'scripts/check-provider-boundary.mjs'
+      - 'scripts/tests/check-provider-boundary.test.mjs'
+      - 'src-tauri/src/**'
+      - 'src-tauri/crates/**'
+      - 'crates/**'
       - 'scripts/check-file-sizes.sh'
       - '.github/workflows/file-sizes.yml'
   push:
@@ -32,5 +33,16 @@ jobs:
     runs-on: [self-hosted, linux-ci]
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test provider boundary guard
+        run: node --test scripts/tests/check-provider-boundary.test.mjs
+      - name: Check provider boundary against target baseline
+        env:
+          PROVIDER_BOUNDARY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/check-provider-boundary.mjs
