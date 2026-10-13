@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - light
+    - linux-ci
+    - windows-ci
+    - rust-shard

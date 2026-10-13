@@ -376,7 +376,7 @@ engines must each be self-starting:
    cd ~/actions-runner
    TOKEN=$(gh api -X POST repos/rollacode/codeterm/actions/runners/registration-token --jq .token)
    ./config.sh --url https://github.com/rollacode/codeterm --token "$TOKEN" \
-     --name codeterm-builder --labels codeterm-builder --unattended --replace
+     --name codeterm-builder --labels codeterm-builder,rust-shard --unattended --replace
    ./svc.sh install && ./svc.sh start        # launchd LaunchAgent, RunAtLoad=true
    ```
    (Runner registration creates a persistent code-execution surface with access to keychain/vault/VM
@@ -482,7 +482,9 @@ The output must prove command resolution from the exact runner `.env` PATH:
 - the official runner service is installed and running under the intended runner account; no Startup `run.cmd` fallback remains
 - GitHub reports the registered runner online and idle after restarting only that service
 
-Then dispatch the non-secret `tests.yml` workflow and confirm `rust (windows)` reaches `Rust lib tests`. A fully restored builder must complete `rust (windows)` successfully before release workflows are trusted.
+Registration labels include `windows-ci,rust-shard` in addition to packaging labels. Every machine needs one qualified `rust-shard` runner; preserve OS labels for native cfg tests. See `.codeterm/build-machine/README.md` for the shared pool and coverage contract.
+
+Then dispatch `tests.yml` on a reviewed `ci/` branch. A restored builder must pass its native Windows job and any shared shard it accepts; inspect the final coverage summary for runner identities and durations before release workflows are trusted.
 
 ## Secret Handling
 

@@ -97,7 +97,7 @@ function jobRuns(job, scope) {
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {
   const frontendJobs = ["ts-static", "ts-unit", "ts-vitest"];
-  const rustJobs = ["fmt", "rust-linux", "rust-macos", "rust-windows", "cli-linux", "cli-macos", "cli-windows", "clippy-linux", "ts-plugins", "release-contracts"];
+  const rustJobs = ["fmt", "rust-shards", "rust-platform", "clippy-linux", "ts-plugins", "release-contracts"];
   for (const [scope, frontend, rust] of [[frontendOnly, true, false], [rustOnly, false, true], [both, true, true]]) {
     for (const job of frontendJobs) assert.equal(jobRuns(job, scope), frontend, job);
     for (const job of rustJobs) assert.equal(jobRuns(job, scope), rust, job);
@@ -107,7 +107,7 @@ test("workflow wiring skips Rust jobs for frontend diffs and preserves generated
 
 test("workflow wiring runs only fast checks on pull requests", () => {
   const pullRequest = scopeForRun(["src-tauri/src/lib.rs", "src/App.tsx"], plugins, false, true);
-  for (const job of ["rust-linux", "rust-macos", "rust-windows", "cli-linux", "cli-macos", "cli-windows", "clippy-linux"]) {
+  for (const job of ["rust-shards", "rust-platform", "clippy-linux"]) {
     assert.equal(jobRuns(job, pullRequest), false, job);
   }
   for (const job of ["fmt", "ts-plugins", "release-contracts", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
@@ -130,5 +130,5 @@ test("a frontend release call runs the frontend checks and no Rust gate", () => 
   assert.deepEqual(scopeForRun(["src-tauri/src/lib.rs"], plugins, false, false, true), { frontend: true, rust: false, plugins: [], heavy: false });
   const scope = scopeForRun([], plugins, false, false, true);
   for (const job of ["ts-static", "ts-unit", "ts-vitest", "ts-types"]) assert.equal(jobRuns(job, scope), true, job);
-  for (const job of ["fmt", "rust-linux", "rust-macos", "rust-windows", "cli-linux", "clippy-linux", "release-contracts"]) assert.equal(jobRuns(job, scope), false, job);
+  for (const job of ["fmt", "rust-shards", "rust-platform", "clippy-linux", "release-contracts"]) assert.equal(jobRuns(job, scope), false, job);
 });
