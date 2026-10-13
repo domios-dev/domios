@@ -334,14 +334,20 @@ impl ServiceContext {
         agent_cmd: &str,
         params: &SpawnAgentParams,
     ) -> Result<bool, String> {
-        self.validate_request_cwd(
-            params.workspace_id.as_deref(),
-            params
-                .parent_tab_id
-                .as_deref()
-                .or(params.spawned_by_tab_id.as_deref()),
-            params.cwd.as_deref(),
-        )?;
+        if params.cwd.is_some()
+            || params.workspace_id.is_some()
+            || params.parent_tab_id.is_some()
+            || params.spawned_by_tab_id.is_some()
+        {
+            self.validate_request_cwd(
+                params.workspace_id.as_deref(),
+                params
+                    .parent_tab_id
+                    .as_deref()
+                    .or(params.spawned_by_tab_id.as_deref()),
+                params.cwd.as_deref(),
+            )?;
+        }
         validate_watcher_spawn_target(
             &self.provider_registry,
             &self.chatbackend_registry,

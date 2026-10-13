@@ -159,3 +159,36 @@ fn scan_project_from_workspace_cwd_preserves_owner_and_planner_binding() {
         }) if tab_id == "planner-tab" && session_id == "planner-session"
     ));
 }
+
+#[test]
+fn workspace_relocation_preserves_plan_bindings_and_reports_foreign_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(temp.path());
+    let mut plan = crate::plan::Plan::new(
+        "relocate".into(),
+        temp.path().display().to_string(),
+        OrchestratorRef::from_tab("owner"),
+    );
+    plan.team_id = Some("team".into());
+    plan.canonical_project_path = "/outside/root".into();
+    let id = plan.id.clone();
+    store.save(&mut plan, 1).unwrap();
+    let before = store.get(&id).unwrap();
+    let old = before.project_path.clone();
+    let new = temp.path().join("new").display().to_string();
+    let (updated, warnings) = store
+        .relocate_workspace_projects(&[], &["team".into()], |path| {
+            (path == old).then(|| new.clone())
+        })
+        .unwrap();
+    assert_eq!(updated, vec![id.clone()]);
+    assert_eq!(warnings.len(), 1);
+    let after = store.get(&id).unwrap();
+    assert_eq!(after.id, before.id);
+    assert_eq!(after.owner, before.owner);
+    assert_eq!(after.team_id, before.team_id);
+    assert_eq!(after.project_path, new);
+    assert_eq!(after.canonical_project_path, before.canonical_project_path);
+    let reloaded = PlanStore::new_for_test(temp.path()).get(&id).unwrap();
+    assert_eq!(reloaded.project_path, after.project_path);
+}

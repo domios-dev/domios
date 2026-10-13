@@ -1,3 +1,4 @@
+import { WorkspaceFolderError } from "./components/Sidebar/WorkspaceFolderError";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -869,7 +870,7 @@ function AppInner() {
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && tab.protected === true;
-                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
+                const shouldMountTab = !ws.cwd_missing && (isActiveTab || isMainTab || prewarmTabIds.has(tabId));
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;
                 return (
@@ -906,6 +907,9 @@ function AppInner() {
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
+          {mainView === "workspace" && !pluginViewId && activeWs?.cwd_missing && (
+            <div className="absolute inset-0 z-30"><WorkspaceFolderError workspace={activeWs} /></div>
+          )}
           <PlanSidePanelHost api={stableApiConfig} />
         </main>
         </div>
