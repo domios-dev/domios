@@ -57,9 +57,12 @@ fn reconciled_completion_is_observable_once_on_shared_event_channel() {
             &mux, &tracker, &registry,
         )
         .unwrap();
-        publish_statuses(&mut published, &statuses, |name, payload| {
-            events.publish_generic(name, payload)
-        });
+        publish_statuses(
+            &mut published,
+            &statuses,
+            |name, payload| events.publish_generic(name, payload),
+            |_| {},
+        );
     };
     emit_snapshot();
     assert_status(&mut receiver, &tab_id, "Working");
@@ -194,9 +197,12 @@ fn rpc_declared_turns_publish_once_and_reconcile_pty_idle() {
                 &mux, &tracker, &registry,
             );
             assert_eq!(snapshot.tab_statuses.get(&tab_id), Some(&expected));
-            publish_statuses(&mut published, &statuses, |name, payload| {
-                events.publish_generic(name, payload)
-            });
+            publish_statuses(
+                &mut published,
+                &statuses,
+                |name, payload| events.publish_generic(name, payload),
+                |_| {},
+            );
         }
         assert_status(&mut receiver, &tab_id, &format!("{expected:?}"));
         assert!(receiver.try_recv().is_err());
@@ -245,4 +251,27 @@ fn rpc_turn_status_owner_updates_api_and_publishes_once() {
             assert!(receiver.try_recv().is_err());
         }
     }
+}
+
+#[test]
+fn outbox_wake_follows_observable_idle_edges_only() {
+    let tab = "status-tab".to_string();
+    let mut published = HashMap::new();
+    let mut wakes = Vec::new();
+    for status in [
+        TabStatus::Working,
+        TabStatus::Working,
+        TabStatus::Idle,
+        TabStatus::Idle,
+        TabStatus::Waiting,
+        TabStatus::Idle,
+    ] {
+        publish_statuses(
+            &mut published,
+            &HashMap::from([(tab.clone(), status)]),
+            |_, _| {},
+            |tab_id| wakes.push(tab_id.to_string()),
+        );
+    }
+    assert_eq!(wakes, [tab.clone(), tab]);
 }
