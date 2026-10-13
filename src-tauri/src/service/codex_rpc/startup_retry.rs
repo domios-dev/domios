@@ -12,8 +12,11 @@ pub(super) fn verify_launch(expected: &str, actual: Option<&str>) -> Result<(), 
 }
 
 fn transient(error: &str) -> bool {
+    let reason = error
+        .split_once(": pid=")
+        .map_or(error, |(reason, _)| reason);
     matches!(
-        error,
+        reason,
         "Sidecar listening deadline"
             | "RPC WebSocket readiness deadline"
             | "RPC WebSocket connection failed"
