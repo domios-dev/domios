@@ -330,3 +330,22 @@ check("reinitialize response auth is part of the full replay event stream",()=> 
   assert.throws(()=>replay(fixture));
 });
 console.log(`runtime full event hooks: ${count} checks passed`);
+check("display JSON is identical for recursively reordered frame keys",()=> {
+  const frame:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"ordered",type:"mcpToolCall",server:"fixture",tool:"lookup",status:"completed",
+    arguments:{z:{b:2,a:1},a:[{z:4,a:3}],"2":"two","10":"ten"},result:{content:[{type:"text",text:"Found"}],metadata:{z:2,a:1},isError:false}}}};
+  function reorder(value:JsonValue):JsonValue {
+    if(Array.isArray(value))return value.map(reorder);
+    if(value !== null && typeof value === "object")return Object.fromEntries(Object.entries(value).reverse().map(([key,entry])=>[key,reorder(entry)]));
+    return value;
+  }
+  const reversed:RuntimeFrame={...frame,params:reorder(frame.params)};
+  const first=hooks.runtimeReduce(ctx,null,[frame]).events[0];const second=hooks.runtimeReduce(ctx,null,[reversed]).events[0];
+  assert.ok(first.kind === "chatItem" && second.kind === "chatItem");
+  assert.deepEqual(plain(first),plain(second));
+  assert.equal(first.item.toolSummary,'{\n  "10": "ten",\n  "2": "two",\n  "a": [\n    {\n      "a": 3,\n      "z": 4\n    }\n  ],\n  "z": {\n    "a": 1,\n    "b": 2\n  }\n}');
+  assert.equal(first.item.toolArgs,first.item.toolSummary);
+  assert.equal(first.item.toolResult,'{\n  "content": [\n    {\n      "text": "Found",\n      "type": "text"\n    }\n  ],\n  "isError": false,\n  "metadata": {\n    "a": 1,\n    "z": 2\n  }\n}');
+  const prompt:RuntimeFrame={kind:"request",requestId:"permissions",method:"item/permissions/requestApproval",params:{threadId:ctx.threadId!,permissions:{z:{b:2,a:1},a:3}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[prompt]).events),plain(hooks.runtimeReduce(ctx,null,[{...prompt,params:reorder(prompt.params)}]).events));
+});
+console.log(`runtime canonical JSON hooks: ${count} checks passed`);

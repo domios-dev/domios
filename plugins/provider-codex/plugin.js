@@ -57,6 +57,23 @@ var serverRequestMethods = [
   "mcpServer/elicitation/request"
 ];
 
+// plugins/provider-codex/src/canonicalJson.ts
+function canonicalJson(value, indentation = 0) {
+  const normalized = JSON.parse(JSON.stringify(value ?? null));
+  const gap = " ".repeat(Math.max(0, Math.min(10, Math.trunc(indentation))));
+  const render = (node, depth) => {
+    if (node === null || typeof node !== "object") return JSON.stringify(node);
+    const parts = Array.isArray(node) ? node.map((entry) => render(entry, depth + 1)) : Object.keys(node).sort().map((key) => `${JSON.stringify(key)}:${gap ? " " : ""}${render(node[key], depth + 1)}`);
+    const [open, close] = Array.isArray(node) ? ["[", "]"] : ["{", "}"];
+    if (!parts.length) return open + close;
+    return gap ? `${open}
+${gap.repeat(depth + 1)}${parts.join(`,
+${gap.repeat(depth + 1)}`)}
+${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
+  };
+  return render(normalized, 0);
+}
+
 // packages/plugin-sdk/src/fileDiffs.ts
 function recordedPatchDiff(path, patch, kind) {
   if (!path.trim()) return [];
@@ -140,7 +157,7 @@ function runtimeQuestions(value) {
   }));
 }
 function questionAnswerInput(itemId, answers) {
-  return { text: JSON.stringify({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
+  return { text: canonicalJson({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
 }
 function answersMatch(questions, raw) {
   const answers = list(raw).map(object);
@@ -284,7 +301,7 @@ function toolOutput(value) {
   return display(Array.isArray(result) ? mapped : parts.length ? { ...object(result), content: mapped } : result);
 }
 function display(value) {
-  return typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
+  return typeof value === "string" ? value : canonicalJson(value, 2);
 }
 function runtimeItem(raw, seq, previous) {
   const item = object(raw);
@@ -483,10 +500,10 @@ function fail(message) {
 }
 function decisionOptions(data) {
   const decisions = list(data.availableDecisions);
-  const supported = decisions.length ? decisions : ["accept", "acceptForSession", "decline", "cancel"];
+  const supported = decisions.length ? [...decisions] : ["accept", "acceptForSession", "decline", "cancel"];
   if (!supported.includes("decline")) supported.push("decline");
   const labels = { accept: "Approve", acceptForSession: "Approve for session", decline: "Decline", cancel: "Cancel" };
-  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : JSON.stringify(value) }));
+  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : canonicalJson(value) }));
 }
 function runtimePrompt(method, params, _id) {
   const data = object(params);
@@ -508,7 +525,7 @@ function runtimePrompt(method, params, _id) {
     case "item/fileChange/requestApproval":
       return { question: String(data.command ?? data.reason ?? "Approve this operation?"), options: decisionOptions(data) };
     case "item/permissions/requestApproval":
-      return { question: `Grant permissions: ${JSON.stringify(data.permissions ?? null)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
+      return { question: `Grant permissions: ${canonicalJson(data.permissions)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
     case "mcpServer/elicitation/request":
       if (data.mode !== "form" || list(object(data.requestedSchema).required).length)
         return { question: String(data.message ?? "Unsupported tool request"), options: [{ label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
@@ -1079,7 +1096,7 @@ function codexToolOutputText(output) {
   if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
     return output.map((item) => item.text).join("");
   }
-  return typeof output === "object" ? JSON.stringify(output) : String(output);
+  return typeof output === "object" ? canonicalJson(output) : String(output);
 }
 
 // plugins/provider-shared/accessError.ts

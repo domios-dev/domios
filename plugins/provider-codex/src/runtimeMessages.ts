@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonicalJson";
 import type { ChatMsg } from "@codeterm/plugin-sdk";
 import { object, text, list } from "./runtimeProtocol";
 import { runtimeFileDiffs } from "./runtimeDiffs";
@@ -21,7 +22,7 @@ function toolOutput(value:unknown): string {
 }
 
 function display(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
+  return typeof value === "string" ? value : canonicalJson(value, 2);
 }
 
 export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): ChatMsg | undefined {

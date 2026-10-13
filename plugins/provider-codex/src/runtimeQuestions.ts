@@ -1,3 +1,4 @@
+import { canonicalJson } from "./canonicalJson";
 import type {RuntimeQuestion, RuntimeQuestionAnswer, RuntimeHistoryQuestion, TurnInput} from "@codeterm/plugin-sdk";
 import {list,object,text} from "./runtimeProtocol";
 
@@ -16,7 +17,7 @@ export function runtimeQuestions(value:unknown): RuntimeQuestion[] {
   }));
 }
 export function questionAnswerInput(itemId:string, answers:readonly RuntimeQuestionAnswer[]): TurnInput {
-  return {text:JSON.stringify({itemId,answers:answers.map(answer=>({questionId:answer.questionId,values:[...answer.values],...(answer.text !== undefined ? {text:answer.text} : {})}))}),attachments:[]};
+  return {text:canonicalJson({itemId,answers:answers.map(answer=>({questionId:answer.questionId,values:[...answer.values],...(answer.text !== undefined ? {text:answer.text} : {})}))}),attachments:[]};
 }
 
 function answersMatch(questions:readonly RuntimeQuestion[], raw:unknown): boolean {
