@@ -17,6 +17,21 @@ impl ServiceContext {
     }
 
     pub(crate) fn spawn_visible_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
+        if let Some(timeout) = spec.timeout.as_deref() {
+            super::utility_deadline_model::parse_timeout(timeout)?;
+            let owner = spec
+                .creator_tab_id
+                .as_deref()
+                .ok_or("timeout requires an owning agent")?;
+            if !self
+                .mux
+                .read()
+                .get_tab(owner)
+                .is_some_and(|tab| tab.agent_type.is_some())
+            {
+                return Err("timeout requires a live owning agent".into());
+            }
+        }
         let profile = self.resolve_shell_profile(spec.shell.as_deref())?;
         let _spawn_guard = super::utility_tabs::SPAWN_LOCK.lock();
         let (ws_id, ws_cwd) = {
@@ -95,6 +110,7 @@ impl ServiceContext {
                 tab.audience = spec.audience;
                 tab.purpose = spec.purpose;
                 tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+                    utility_owner_tab_id: spec.creator_tab_id.clone(),
                     command: spec.cmd.clone(),
                     ..Default::default()
                 });
@@ -114,6 +130,18 @@ impl ServiceContext {
             }
             result
         };
+        if let Some(timeout) = spec.timeout.as_deref() {
+            if let Err(error) = self.set_utility_timeout(
+                &tab_id,
+                spec.creator_tab_id.as_deref().unwrap_or_default(),
+                timeout,
+            ) {
+                let _ = self.close_tab(&tab_id);
+                return Err(error);
+            }
+        } else if reused.is_some() {
+            self.cancel_utility_timeout(&tab_id)?;
+        }
         self.emit_state_changed();
 
         let pty_id = if spec.eager || spec.cmd.is_some() || reused.is_some() {
@@ -127,10 +155,7 @@ impl ServiceContext {
         };
 
         if let Some(command) = spec.cmd.as_deref() {
-            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
-                tab.utility_command_pending = true;
-                tab.shell_command_state = Default::default();
-            }
+            self.prepare_utility_command(&tab_id, command);
             if let Err(error) = self.send_shell_cmd(&tab_id, command) {
                 if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
                     tab.utility_command_pending = false;

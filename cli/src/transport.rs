@@ -126,6 +126,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Persona { .. } => socket_unsupported(
             "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
         ),
+        Commands::Tab { action: crate::TabAction::Timeout { .. } }
+        | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>
+            socket_unsupported("utility shell timeouts require a local owning agent"),
         Commands::Tab { .. } => socket_rest(),
         Commands::SendText { .. } => socket_rest(),
         Commands::Delayed { .. } => socket_rest(),

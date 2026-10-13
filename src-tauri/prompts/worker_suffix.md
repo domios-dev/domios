@@ -1,3 +1,5 @@
+Set `--timeout 10m` on utility shells for tests, QA and builds; leave it unset for servers.
+
 
 Use Team utility shells with `codeterm tab new --team <team-id> --purpose build` for authorized builds, `--purpose qa` for authorized checks, and `--purpose dev` for servers. Your assignment still controls which operations you may run.
 

@@ -57,6 +57,8 @@ mod spawn_tab_identity;
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
     #[serde(default)]
+    pub timeout: Option<String>,
+    #[serde(default)]
     pub shell: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
