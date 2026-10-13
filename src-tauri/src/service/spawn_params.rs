@@ -116,10 +116,11 @@ impl SpawnTabSpec {
             activate: params.activate,
             launch_purpose: Default::default(),
         };
-        let chatbackend_launch = command.as_ref().map(|_| {
+        let chatbackend_launch = Some({
             Box::new(super::spawn::ChatBackendLaunchMetadata {
                 agent: agent.clone(),
                 params: params.clone(),
+                owner_linkage: None,
             })
         });
         let agent_command = command.unwrap_or(TabCommand::Agent(agent));
@@ -146,7 +147,14 @@ impl SpawnTabSpec {
     }
 
     pub(crate) fn route_agent_to_chatbackend(&mut self) -> Result<(), String> {
-        let params = self.to_agent_params()?;
+        let params = match self.chatbackend_launch.as_ref() {
+            Some(metadata) => metadata.params.clone(),
+            None => self.to_agent_params()?,
+        };
+        let owner_linkage = self
+            .chatbackend_launch
+            .as_ref()
+            .and_then(|metadata| metadata.owner_linkage.clone());
         let TabCommand::Agent(agent) = &self.command else {
             return Err("Runtime routing requires agent launch metadata".into());
         };
@@ -173,6 +181,7 @@ impl SpawnTabSpec {
         self.chatbackend_launch = Some(Box::new(super::spawn::ChatBackendLaunchMetadata {
             agent,
             params,
+            owner_linkage,
         }));
         Ok(())
     }
