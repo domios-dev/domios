@@ -153,6 +153,10 @@ impl SpawnTabSpec {
     pub(crate) fn agent_launch_mut(&mut self) -> Option<&mut AgentSpawnSpec> {
         match &mut self.command {
             TabCommand::Agent(agent) => Some(agent),
+            TabCommand::ChatBackend { .. } => self
+                .chatbackend_launch
+                .as_mut()
+                .map(|launch| &mut launch.agent),
             _ => None,
         }
     }
