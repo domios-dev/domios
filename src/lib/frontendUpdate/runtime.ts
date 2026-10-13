@@ -49,7 +49,7 @@ export function updateOffer(state: SwapState): FrontendUpdateOffer | null {
 export async function initializeFrontendUpdateRuntime(client: TransportClient, options: FrontendRuntimeOptions) {
   const api = createFrontendUpdateClient({ json: (method, path, body) => client.localJson(method, path, body, { signal: AbortSignal.timeout(5000) }) }, options.clientId);
   const restored = await api.checkpoint().catch(error => { throw new FrontendUpdateError("checkpoint-unavailable", error); });
-  if (restored) options.signals.hydrate(restored.payload);
+  options.signals.hydrate(restored?.payload ?? options.signals.checkpoint());
   const status = await client.localJson<FrontendStatus>("GET", "/api/frontend/status", undefined, { signal: AbortSignal.timeout(5000) })
     .catch(error => { throw new FrontendUpdateError("status-unavailable", error); });
   if (!frontendApiCompatible(status.apiVersion)) throw new FrontendUpdateError("api-incompatible");

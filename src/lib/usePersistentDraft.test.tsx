@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { Window } from "happy-dom";
+import { frontendSignals } from "./frontendUpdate/appState";
 import { usePersistentDraft } from "./usePersistentDraft";
 
 type TestFn = () => void | Promise<void>;
@@ -16,16 +17,13 @@ function assert(condition: unknown, message: string) {
   if (!condition) throw new Error(message);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 interface HarnessHandle {
   setValue: (value: string) => void;
   value: string;
 }
 
 function setupDom() {
+  frontendSignals.hydrate({ activeWorkspaceId: null, activeTabId: null, drafts: {}, scroll: {} });
   const win = new Window({ url: "http://localhost" });
   Object.assign(globalThis, {
     window: win,
@@ -63,7 +61,7 @@ function Harness({ scope, handle }: { scope: string; handle: HarnessHandle }) {
   return <textarea value={value} onChange={(e) => setValue(e.target.value)} />;
 }
 
-test("debounces rapid edits and stores the exact final value", async () => {
+test("captures rapid edits and stores the exact final value synchronously", async () => {
   const { handle, render, storage, unmount } = setupDom();
   await render("rapid");
   await act(async () => {
@@ -71,9 +69,8 @@ test("debounces rapid edits and stores the exact final value", async () => {
     handle.setValue("ab");
     handle.setValue("abc");
   });
-  assert(storage.getItem("codeterm:composer-draft:rapid") === null, "draft wrote synchronously");
-  await delay(420);
-  assert(storage.getItem("codeterm:composer-draft:rapid") === "abc", "final debounced value not stored");
+  assert(frontendSignals.checkpoint().drafts.rapid.text === "abc", "collector missed the final edit");
+  assert(storage.getItem("codeterm:composer-draft:rapid") === "abc", "final value not stored");
   await unmount();
 });
 
@@ -109,9 +106,27 @@ test("quota failures are swallowed and controlled value remains live", async () 
   };
   await render("quota");
   await act(async () => handle.setValue("survives"));
-  await delay(420);
   assert(handle.value === "survives", "controlled value was lost after quota failure");
   storage.setItem = original;
+  await unmount();
+});
+
+test("registers local fallback with the collector and restores daemon data without local storage", async () => {
+  const { handle, render, storage, unmount } = setupDom();
+  storage.setItem("codeterm:composer-draft:tab-session-chat:restored", "unsent fallback");
+  await render("tab-session-chat:restored");
+  assert(handle.value === "unsent fallback", "fallback was not restored");
+  assert(frontendSignals.checkpoint().drafts["tab-session-chat:restored"].text === "unsent fallback", "fallback missing from collector");
+  storage.clear();
+  frontendSignals.hydrate({ activeWorkspaceId: null, activeTabId: null, drafts: {
+    "tab-session-chat:daemon": { text: "daemon draft", attachmentIds: ["image1"], replyTo: null, capsules: { image1: { label: "image1", path: "/uploads/image.png", kind: "image" } } },
+  }, scroll: {} });
+  await render("tab-session-chat:daemon");
+  assert(handle.value === "daemon draft", "checkpoint draft was not restored");
+  assert(storage.length === 0, "restore depended on local storage");
+  assert(frontendSignals.checkpoint().drafts["tab-session-chat:daemon"].attachmentIds[0] === "image1", "metadata was lost on mount");
+  await render("tab-session-chat-capsules:daemon");
+  assert(handle.value.includes("/uploads/image.png"), "attachment reference was not restored");
   await unmount();
 });
 
