@@ -7,6 +7,13 @@ pub(super) struct Admission {
     events: BTreeSet<String>,
 }
 
+impl Admission {
+    /// A floor reminder is a judgement too, so the model is not re-asked right after it.
+    pub(super) fn judged(&mut self, now: u64) {
+        self.last_judgement = Some(now);
+    }
+}
+
 pub(super) fn admit(
     previous: &Admission,
     snapshot: &Snapshot,

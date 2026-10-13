@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::multiplexer::types::Tab;
-use crate::plan::{Plan, PlanMode, PlanStatus};
+use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
     self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, Supporter,
 };
@@ -202,7 +202,7 @@ fn admit_claimed(
         .connected(&scope.tab_id)
         .zip(supporter.generation());
     let floor = scope.kind == ReminderKind::Owner
-        && !orchestrator_actionable_task_ids(&plan).is_empty()
+        && owner_can_act(&plan)
         && gate.cadence_due(key, now, host.interval());
     if connection.is_none() && !floor {
         return suppress(gate, claim, "no_adapter");
@@ -319,6 +319,14 @@ fn admit_claimed(
             ReminderOutcome::Failed(error)
         }
     }
+}
+
+/// Blocked tasks wait on the owner or an outside party and carry their own notice.
+fn owner_can_act(plan: &Plan) -> bool {
+    let actionable = orchestrator_actionable_task_ids(plan);
+    plan.tasks
+        .iter()
+        .any(|task| task.status != TaskStatus::Blocked && actionable.contains(&task.id))
 }
 
 /// The connection epoch and adapter fingerprint, or its absence for a floor
