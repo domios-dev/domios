@@ -8,6 +8,7 @@ use super::{PlanError, PlanStore};
 mod launch_binding;
 mod plan_skill_evidence;
 pub mod remote_dispatch;
+mod remote_retirement;
 mod report_ingest;
 mod restore_binding;
 

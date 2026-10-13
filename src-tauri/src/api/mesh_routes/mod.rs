@@ -17,6 +17,8 @@ pub mod remote_tabs;
 pub mod rpc;
 pub mod send_dedupe;
 pub mod worker_dispatch;
+pub mod worker_observation;
+pub use worker_observation::mesh_worker_observation;
 
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
 pub use connection::{
