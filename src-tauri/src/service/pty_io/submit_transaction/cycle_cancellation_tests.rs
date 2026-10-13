@@ -5,7 +5,14 @@ use crate::service::pty_io::submit_transaction::cycle::submit_cycle_registered;
 fn submit_cycle_cancellation_is_scoped_to_one_pty() {
     let first = claim_submit_cycle("cycle-scope-first");
     let second = claim_submit_cycle("cycle-scope-second");
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    first.payload_enqueued(sender);
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    second.payload_enqueued(sender);
     let newer_first = claim_submit_cycle("cycle-scope-first");
+    assert!(first.is_current());
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    newer_first.payload_enqueued(sender);
 
     assert!(!first.is_current());
     assert!(newer_first.is_current());
@@ -43,7 +50,11 @@ fn superseded_claim_is_refused_before_any_write_or_parser_side_effect() {
     mux.link_pty(&tab_id, pty_id.to_string());
     let fixture = ServiceFixture::new(mux);
     let superseded = claim_submit_cycle(pty_id);
-    let _current = claim_submit_cycle(pty_id);
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    superseded.payload_enqueued(sender);
+    let current = claim_submit_cycle(pty_id);
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    current.payload_enqueued(sender);
 
     let error = submit_text_with_key_claimed_and_follow_up(
         &fixture.service,

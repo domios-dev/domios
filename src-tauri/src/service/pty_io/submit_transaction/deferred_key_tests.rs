@@ -37,6 +37,7 @@ struct EventTransport {
     paste_release_tx: Sender<()>,
     paste_release_rx: Mutex<Receiver<()>>,
     cycle_events: Mutex<Option<(SubmitCycleClaim, Receiver<SubmitCycleSignal>)>>,
+    cycle_sender: Mutex<Option<mpsc::SyncSender<SubmitCycleSignal>>>,
 }
 
 impl EventTransport {
@@ -77,6 +78,7 @@ impl EventTransport {
                 paste_release_tx,
                 paste_release_rx: Mutex::new(paste_release_rx),
                 cycle_events: Mutex::new(None),
+                cycle_sender: Mutex::new(None),
             }),
             paste_rx,
             deferred_wait_rx,
@@ -107,7 +109,7 @@ impl EventTransport {
 
     fn connect_submit_cycle_claim(&self, claim: SubmitCycleClaim) {
         let (sender, receiver) = mpsc::sync_channel(1);
-        claim.cycle.install_waiter(claim.generation, sender);
+        *self.cycle_sender.lock().unwrap() = Some(sender);
         *self.cycle_events.lock().unwrap() = Some((claim, receiver));
     }
 }
@@ -241,6 +243,11 @@ impl SubmitTransport for EventTransport {
             state.turn_started = true;
         }
         drop(state);
+        if let Some(sender) = self.cycle_sender.lock().unwrap().take() {
+            if let Some((claim, _)) = self.cycle_events.lock().unwrap().as_ref() {
+                claim.payload_enqueued(sender);
+            }
+        }
         let _ = self.paste_tx.send(());
         if pause_after_paste {
             self.paste_release_rx
@@ -702,13 +709,14 @@ fn a_new_send_cancels_remaining_keys_and_writes_while_the_prior_cycle_is_open() 
         .recv_timeout(Duration::from_secs(2))
         .expect("the first cycle reaches its remaining-key wait");
     let second_claim = claim_submit_cycle(pty_id);
-    assert!(!first_claim.is_current());
+    assert!(first_claim.is_current());
     assert!(second_claim.is_current());
     second.connect_submit_cycle_claim(second_claim.clone());
     let second_send = start_claimed_send(second_claim, Arc::clone(&second), "second", None);
     second_paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("the second payload writes without waiting for the first cycle");
+    assert!(!first_claim.is_current());
     let first_result = join(first_send, "cancelled prior cycle send")
         .unwrap()
         .unwrap();
@@ -757,7 +765,9 @@ fn superseding_a_written_payload_preserves_its_initial_enter() {
     let sender = Arc::clone(&transport);
     let send = std::thread::spawn(move || run_with_readiness_guard(&sender, "first"));
     pasted.recv_timeout(Duration::from_secs(2)).unwrap();
-    let _newer = claim_submit_cycle(pty_id);
+    let newer = claim_submit_cycle(pty_id);
+    let (sender, _) = mpsc::sync_channel(1);
+    newer.payload_enqueued(sender);
     assert!(!first_claim.is_current());
     transport.release_paste();
     let result = join(send, "superseded initial Enter").unwrap().unwrap();

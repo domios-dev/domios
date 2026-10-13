@@ -6,12 +6,16 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
-fn newer_ingress_claim_cancels_the_prior_submit_cycle() {
+fn refused_ingress_claim_preserves_the_written_submit_cycle() {
     let first = claim_submit_cycle("rapid-ingress-claim");
+    let (sender, _) = std::sync::mpsc::sync_channel(1);
+    first.payload_enqueued(sender);
     let second = claim_submit_cycle("rapid-ingress-claim");
 
-    assert!(!first.is_current());
+    assert!(first.is_current());
     assert!(second.is_current());
+    drop(second);
+    assert!(first.is_current());
 }
 
 // A CR before the post-paste frame reproduces bf1278870; the turn never starts.

@@ -176,8 +176,8 @@ impl WriteQueue {
                     completed: Some(completed),
                 })
                 .map_err(|_| "PTY write channel closed".to_string())?;
+            on_enqueued();
         }
-        on_enqueued();
         receiver
             .recv_timeout(timeout)
             .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
@@ -230,8 +230,8 @@ impl WriteQueue {
                     completed: Some(completed),
                 })
                 .map_err(|_| "PTY write channel closed".to_string())?;
+            on_enqueued();
         }
-        on_enqueued();
         receiver
             .recv_timeout(timeout)
             .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
@@ -284,6 +284,43 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn enqueue_callbacks_keep_payload_order_under_contention() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let queue = Arc::new(WriteQueue::new(Box::new(MockWriter {
+            data: writes.clone(),
+        })));
+        let callbacks = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
+        let first_queue = queue.clone();
+        let first_callbacks = callbacks.clone();
+        let first = std::thread::spawn(move || {
+            first_queue
+                .send_and_wait_with_enqueued(b"first".to_vec(), Duration::from_secs(2), || {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                    first_callbacks.lock().unwrap().push(1);
+                })
+                .unwrap();
+        });
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let second_queue = queue.clone();
+        let second_callbacks = callbacks.clone();
+        let second = std::thread::spawn(move || {
+            second_queue
+                .send_and_wait_with_enqueued(b"second".to_vec(), Duration::from_secs(2), || {
+                    second_callbacks.lock().unwrap().push(2);
+                })
+                .unwrap();
+        });
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        assert_eq!(*callbacks.lock().unwrap(), [1, 2]);
+        assert_eq!(*writes.lock().unwrap(), b"firstsecond");
     }
 
     #[test]

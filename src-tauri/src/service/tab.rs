@@ -646,37 +646,26 @@ impl ServiceContext {
         if queued.is_empty() {
             return;
         }
-        let pty_id = match self.resolve_pty_id(tab_id) {
-            Ok(id) => id,
-            Err(e) => {
-                log::warn!(
-                    "[bridge] cannot replay {} queued for tab={}: {}",
-                    queued.len(),
-                    tab_id,
-                    e,
-                );
-                for msg in queued {
-                    crate::bridge::inbound_buffer::push(tab_id, msg);
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        let new_type = new_type.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            log::debug!(
+                "[bridge] admitting {} buffered messages tab={} provider={}",
+                queued.len(),
+                tab_id,
+                new_type
+            );
+            let mut messages = queued.into_iter();
+            while let Some(message) = messages.next() {
+                if let Err(error) = service.start_chat_send(&tab_id, message.clone(), None, None) {
+                    log::warn!("[bridge] buffered message admission held tab={tab_id}: {error}");
+                    crate::bridge::inbound_buffer::push(&tab_id, message);
+                    for remaining in messages {
+                        crate::bridge::inbound_buffer::push(&tab_id, remaining);
+                    }
+                    break;
                 }
-                return;
-            }
-        };
-        log::info!(
-            "[bridge] replayed {} queued messages to tab={} after agent_type transition None -> Some({:?})",
-            queued.len(), tab_id, new_type,
-        );
-        let pty = self.pty.clone();
-        std::thread::spawn(move || {
-            for msg in queued {
-                let paste = format!("\x1b[200~{}\x1b[201~", msg);
-                if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
-                    log::warn!("[bridge] replay write failed for pty={}: {}", pty_id, e);
-                    return;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = pty.lock().write(&pty_id, b"\r");
-                std::thread::sleep(std::time::Duration::from_millis(2000));
-                let _ = pty.lock().write(&pty_id, b"\r");
             }
         });
     }

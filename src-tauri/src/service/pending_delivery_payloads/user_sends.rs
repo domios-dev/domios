@@ -12,8 +12,10 @@ mod admission_evidence;
 mod admission_tokens;
 pub(crate) use admission_evidence::UserAdmissionEvidence;
 pub(crate) mod continuity;
+mod ready_launch;
 mod reservations;
 use admission_tokens::{AdmissionTokens, TokenEntry};
+use ready_launch::ReadyLaunchLatch;
 
 pub(crate) const MAX_UNSETTLED: usize = 32;
 pub(crate) const MAX_PREPARED_BYTES: usize = 4 * 1024 * 1024;
@@ -32,14 +34,6 @@ pub(crate) struct UserSendAuthority {
     pub(crate) observed_session_id: Option<String>,
     #[serde(default)]
     pub(crate) prelaunch: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ReadyUserLaunch {
-    pty_id: String,
-    binding_nonce: String,
-    pty_session_generation: u64,
-    provider_id: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,7 +117,7 @@ pub(crate) struct UserTab {
     pub(crate) wake_generation: AtomicU64,
     pub(crate) dispatch_generation: AtomicU64,
     pub(crate) dispatch_events: tokio::sync::watch::Sender<u64>,
-    ready_launch: Mutex<Option<ReadyUserLaunch>>,
+    ready_launch: Mutex<ReadyLaunchLatch>,
     ended_launch_nonce: Mutex<Option<String>>,
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
@@ -213,7 +207,7 @@ impl UserSendStore {
                     wake_generation: AtomicU64::new(0),
                     dispatch_generation: AtomicU64::new(0),
                     dispatch_events,
-                    ready_launch: Mutex::new(None),
+                    ready_launch: Mutex::default(),
                     ended_launch_nonce: Mutex::new(None),
                     admission_wake: Mutex::new(None),
                 })
@@ -222,40 +216,17 @@ impl UserSendStore {
     }
 
     pub(crate) fn latch_ready_launch(&self, authority: &UserSendAuthority) -> bool {
-        let Some(pty_id) = authority.pty_id.as_ref() else {
-            return false;
-        };
-        let Some(pty_session_generation) = authority.pty_session_generation else {
-            return false;
-        };
-        let tab = self.tab(&authority.tab_id);
-        let mut ready_launch = tab.ready_launch.lock();
-        let current = ReadyUserLaunch {
-            pty_id: pty_id.clone(),
-            binding_nonce: authority.binding_nonce.clone(),
-            pty_session_generation,
-            provider_id: authority.provider_id.clone(),
-        };
-        *ready_launch = Some(current);
-        true
+        self.tab(&authority.tab_id)
+            .ready_launch
+            .lock()
+            .mark_ready(authority)
     }
 
     pub(crate) fn ready_launch_is_latched(&self, authority: &UserSendAuthority) -> bool {
-        let Some(pty_id) = authority.pty_id.as_ref() else {
-            return false;
-        };
-        let Some(pty_session_generation) = authority.pty_session_generation else {
-            return false;
-        };
-        let current = ReadyUserLaunch {
-            pty_id: pty_id.clone(),
-            binding_nonce: authority.binding_nonce.clone(),
-            pty_session_generation,
-            provider_id: authority.provider_id.clone(),
-        };
-        let tab = self.tab(&authority.tab_id);
-        let latched = tab.ready_launch.lock().as_ref() == Some(&current);
-        latched
+        self.tab(&authority.tab_id)
+            .ready_launch
+            .lock()
+            .is_ready(authority)
     }
 
     pub(crate) fn set_admission_wake(&self, tab_id: &str, wake: Arc<dyn Fn() + Send + Sync>) {
@@ -502,12 +473,14 @@ impl UserSendStore {
             && record.state == UserSendState::Queued
             && !tab.revoked.load(Ordering::Acquire)
             && !tab.failed.load(Ordering::Acquire)
-            && !tab
-                .admissions
-                .lock()
-                .pending
-                .iter()
-                .any(|ordinal| *ordinal <= record.reservation)
+            && !ready_launch::admission_order_blocks(
+                record.held_before_readiness,
+                tab.admissions
+                    .lock()
+                    .pending
+                    .iter()
+                    .any(|ordinal| *ordinal <= record.reservation),
+            )
     }
 
     pub(crate) fn claim<'a>(
