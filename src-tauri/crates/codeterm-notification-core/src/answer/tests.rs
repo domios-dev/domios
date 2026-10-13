@@ -274,3 +274,30 @@ fn notify_answer_choice_set_refuses_blank_and_duplicate_labels() {
         vec!["Rebase", "Merge"]
     );
 }
+
+#[test]
+fn answer_claim_is_exclusive_until_delivery_finishes() {
+    use crate::answer_delivery::AnswerDeliveryPlan;
+    let (mut store, id) = asked_from(Some("asking-tab"));
+    assert_eq!(store.answer_delivery_plan(&id), AnswerDeliveryPlan::Nothing);
+    assert_eq!(
+        store.record_answer(&id, "Rebase"),
+        AnswerAdmission::Recorded("Rebase".into())
+    );
+    assert!(matches!(
+        store.claim_answer_delivery(&id),
+        Some(AnswerDeliveryPlan::Owed(_))
+    ));
+    for label in ["Rebase", "Merge"] {
+        assert_eq!(
+            store.record_answer(&id, label),
+            AnswerAdmission::AlreadyAnswered("Rebase".into())
+        );
+        assert_eq!(store.claim_answer_delivery(&id), None);
+    }
+    assert!(store.mark_answer_delivered(&id));
+    assert_eq!(
+        store.claim_answer_delivery(&id),
+        Some(AnswerDeliveryPlan::AlreadyDelivered)
+    );
+}

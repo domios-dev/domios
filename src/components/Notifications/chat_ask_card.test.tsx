@@ -273,6 +273,14 @@ async function run() {
     "the fixture must actually distinguish the two tones for this assertion to mean anything",
   );
 
+  const pendingView = await renderCard(ask({ answer_pending: true }), answerThroughStore);
+  const pendingChoices = Array.from(pendingView.querySelectorAll<HTMLButtonElement>('[data-testid="chat-ask-choice"]'));
+  assert(pendingChoices.length > 0 && pendingChoices.every((button) => button.disabled), "chat disables every pending choice");
+  assert(pendingView.querySelector('[role="status"]'), "chat announces pending delivery");
+  const failedView = await renderCard(ask({ answer_error: "Tab unavailable" }), answerThroughStore);
+  assert(failedView.querySelector('[role="alert"]')?.textContent === "Tab unavailable", "chat exposes delivery failure");
+  assert(Array.from(failedView.querySelectorAll<HTMLButtonElement>('[data-testid="chat-ask-choice"]')).every((button) => !button.disabled), "chat re-enables failed choices");
+
   await act(async () => root.unmount());
   console.log(`chat_ask_card tests: ${checked} assertions passed`);
 }

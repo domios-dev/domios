@@ -1,3 +1,4 @@
+import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { teamCallerClaim } from "../../lib/teamActions";
 import {
@@ -399,15 +400,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "UPDATE_NOTIFICATION_SUMMARY", ...event.payload });
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    listen<{ id: string; answered: string; delivered?: boolean }>(
+    listen<{ id: string; answered: string; delivered?: boolean; deliveryError?: string; refusal?: { reason: string; detail?: string } }>(
       "notification-answered",
       (event) => {
         if (!event.payload?.id) return;
         dispatch({
-          type: "ANSWER_NOTIFICATION",
+          type: "UPDATE_NOTIFICATION_ANSWER",
           id: event.payload.id,
-          answered: event.payload.answered,
-          delivered: event.payload.delivered === true,
+          update: { answered: event.payload.answered, delivered: event.payload.delivered === true,
+            error: event.payload.deliveryError ?? event.payload.refusal?.detail ?? event.payload.refusal?.reason },
         });
       },
     ).then((unlisten) => unlisteners.push(unlisten));
@@ -994,22 +995,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Use the stored target tab because a second tap must not change the answer already recorded.
+  const pendingAnswers = useRef(new Set<string>());
   const answerNotification = useCallback((id: string, label: string) => {
-    void invoke<{ answered?: string; delivered?: boolean }>("answer_notification", { id, label })
-      .then((result) => {
-        if (result?.answered) {
-          dispatch({
-            type: "ANSWER_NOTIFICATION",
-            id,
-            answered: result.answered,
-            delivered: result.delivered === true,
-          });
-        }
-      })
-      .catch((err) => {
-        console.warn("Failed to record notification answer:", err);
-      });
+    void sendNotificationAnswer(
+      id, label, pendingAnswers.current,
+      stateRef.current.notifications.find((entry) => entry.id === id),
+      (answerId, answerLabel) => invoke<AnswerResult>("answer_notification", { id: answerId, label: answerLabel }),
+      (answerId, update) => dispatch({ type: "UPDATE_NOTIFICATION_ANSWER", id: answerId, update }),
+    );
   }, []);
 
   const clearNotifications = useCallback(() => {
