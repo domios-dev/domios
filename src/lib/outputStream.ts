@@ -16,6 +16,7 @@ import {
 } from "./remoteChannelRecovery";
 import { createTransportClient, type TransportClient } from "./transportClient";
 import { TerminalOutputReplay } from "./outputReplay";
+import { planOutputResync } from "./outputResync";
 import { DEV_BUILD } from "./devBuild";
 
 function selectedRelayTarget() {
@@ -165,12 +166,18 @@ function handleFrame(msg: OutputFrame): void {
     return;
   }
   if (msg.truncated && typeof msg.from === "number") {
-    if (set) for (const s of set) s.onTruncated(msg.from);
+    offsets.set(tab, planOutputResync(offsets.get(tab), msg.from).offset);
+    if (set) for (const sink of set) deliverTruncation(tab, sink, msg.from, boot ?? "");
     return;
   }
   if (msg.ended) {
     if (set) for (const s of set) s.onEnded();
   }
+}
+
+function deliverTruncation(tabId: string, sink: TabOutputSink, from: number, bootId: string): void {
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: tabId };
+  replay.resync(identity.terminal, tabId, bootId, identity.ptyId, from, () => sink.onTruncated(from));
 }
 
 function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): void {
@@ -235,7 +242,7 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
   const cached = retainedOutput.snapshot(tabId);
   if (cached && cached.ptyId === ptyId) {
     const from = cached.offset - cached.bytes.length;
-    if (replay.offset(terminal, tabId, cached.boot, ptyId) < from) sink.onTruncated(from);
+    deliverTruncation(tabId, sink, from, cached.boot);
     replay.deliver(terminal, tabId, cached, (bytes) => writeSinkBytes(sink, bytes));
     sink.onReady?.();
   }
@@ -375,6 +382,16 @@ function handleRemoteOutputFrame(
   message: OutputFrame,
 ): void {
   if (message.tab_id && message.tab_id !== remoteTabId) return;
+  if (message.truncated && typeof message.from === "number") {
+    if (!record.recovery.isCurrent(generation)) return;
+    const previous = record.recovery.currentCursor();
+    const next = { ...previous, offset: planOutputResync(previous?.offset, message.from).offset };
+    record.recovery.noteProgress(generation, next);
+    for (const target of remoteSinks.get(ordinaryTabId) ?? []) {
+      deliverTruncation(ordinaryTabId, target, message.from, next.boot ?? "");
+    }
+    return;
+  }
   if (typeof message.output === "string") {
     const prev = record.recovery.currentCursor();
     const next: RemoteOutputCursor = {
@@ -394,8 +411,7 @@ function handleRemoteOutputFrame(
   }
   if (!record.recovery.isCurrent(generation)) return; // stale generation never delivers control frames.
   for (const target of remoteSinks.get(ordinaryTabId) ?? []) {
-    if (message.truncated && typeof message.from === "number") target.onTruncated(message.from);
-    else if (message.ended) target.onEnded();
+    if (message.ended) target.onEnded();
   }
 }
 
