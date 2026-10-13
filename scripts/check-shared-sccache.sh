@@ -54,6 +54,7 @@ ct_repo_root() { printf '%s\n' "$WORK"; }
 printf 'PASS shared configuration and nested reuse\n'
 
 for missing in ACCESS SECRET; do
+  printf 'Local disk: "fixture-disk"' > "$WORK/location"
   (
     unset CT_SCCACHE_CONFIGURED
     export SCCACHE_CACHE_SIZE=3G SCCACHE_BUCKET=stale SCCACHE_ENDPOINT=stale
@@ -118,7 +119,29 @@ printf 'PASS read-only cache status and endpoint health\n'
   if ct_configure_sccache; then exit 1; else [ "$?" = 75 ]; fi
   [ ! -e "$WORK/events" ]
   printf 's3, name: sccache, prefix: /other-prefix/' > "$WORK/location"
-  if ct_configure_sccache; then exit 1; else [ "$?" = 75 ]; fi
+  SCCACHE_S3_KEY_PREFIX=desired-prefix/ ct_configure_sccache
   [ ! -e "$WORK/events" ]
 ) > "$WORK/idempotent.log" 2>&1
-printf 'PASS busy matching servers are reused; mismatches refuse without stop\n'
+printf 'PASS busy matching servers are reused; wrong buckets refuse without stop\n'
+
+(
+  export SCCACHE_CACHE_SIZE=10G FIXTURE_BUSY=1
+  rm -f "$WORK/events"
+  printf 's3, name: sccache, prefix: /' > "$WORK/location"
+  FIXTURE_ACCESS=0 ct_configure_sccache
+  [ ! -e "$WORK/events" ]
+  [ "$(cat "$WORK/location")" = 's3, name: sccache, prefix: /' ]
+  FIXTURE_SECRET=0 ct_configure_sccache
+  [ ! -e "$WORK/events" ]
+  SCCACHE_S3_KEY_PREFIX=/ ct_configure_sccache
+  [ ! -e "$WORK/events" ]
+  printf 'Local disk: "fixture-disk"' > "$WORK/location"
+  if ct_configure_sccache; then exit 1; else [ "$?" = 75 ]; fi
+  [ ! -e "$WORK/events" ]
+  FIXTURE_BUSY=0 ct_configure_sccache
+  [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
+  [ "$(cat "$WORK/location")" = 's3, name: sccache, prefix: /' ]
+) > "$WORK/no-downgrade.log" 2>&1
+[ "$(rg -c 'using running server credentials' "$WORK/no-downgrade.log")" = 2 ]
+! rg -q '^sccache: local disk cache at' "$WORK/no-downgrade.log"
+printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle\n'

@@ -151,15 +151,14 @@ ct_sccache_status() {
 }
 
 ct_sccache_storage_matches() {
-  local prefix
   if [ "$CT_SCCACHE_STORAGE" = shared ]; then
-    prefix="${SCCACHE_S3_KEY_PREFIX:-}"
-    prefix="/${prefix#/}"
-    case "$prefix" in */) ;; *) prefix="$prefix/" ;; esac
-    [ "$1" = "s3, name: $SCCACHE_BUCKET, prefix: $prefix" ]
+    case "$1" in
+      "s3, name: $SCCACHE_BUCKET, prefix: "*) return 0 ;;
+      *) return 1 ;;
+    esac
   else
     case "$1" in
-      'Local disk:'*) return 0 ;;
+      'Local disk:'*|'s3, name: '*) return 0 ;;
       *) return 1 ;;
     esac
   fi
@@ -202,7 +201,13 @@ ct_configure_sccache() {
   stats="$(sccache --show-stats 2>/dev/null)" || stats=""
   location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
   ct_sccache_storage
-  ct_sccache_print_location
+  if [ "$CT_SCCACHE_STORAGE" = local ] && [[ "$location" == 's3, name: '* ]]; then
+    local running_bucket="${location#s3, name: }"
+    running_bucket="${running_bucket%%, prefix:*}"
+    printf 'sccache: shared S3 cache at http://100.64.10.5:9000/%s (using running server credentials)\n' "$running_bucket"
+  else
+    ct_sccache_print_location
+  fi
   if ct_sccache_storage_matches "$location"; then
     echo "[cache-policy] reusing running sccache server"
   else
