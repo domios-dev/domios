@@ -1107,6 +1107,7 @@ dependencies = [
  "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-mesh",
+ "codeterm-notification-core",
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
@@ -1375,6 +1376,19 @@ dependencies = [
  "tokio",
  "uuid",
  "x25519-dalek",
+]
+
+[[package]]
+name = "codeterm-notification-core"
+version = "0.1.0"
+dependencies = [
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
 ]
 
 [[package]]

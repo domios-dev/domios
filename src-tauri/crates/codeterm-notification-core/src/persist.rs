@@ -236,3 +236,6 @@ fn set_aside_unreadable(path: &Path, reason: &str) {
         ),
     }
 }
+
+#[cfg(test)]
+mod tests;

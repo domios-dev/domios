@@ -9,6 +9,7 @@ const scopeAliases = new Map([
   ["codeterm", "app"],
   ["codeterm-agent-detect", "agent-detect"],
   ["codeterm-analytics", "analytics"],
+  ["codeterm-notification-core", "notification-core"],
   ["codeterm-account", "account"],
   ["codeterm-billing", "billing"],
   ["codeterm-cli", "cli"],

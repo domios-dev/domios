@@ -212,9 +212,6 @@ pub fn resolve_audience(cfg: &PushChannelConfig) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod push_body;
-
-#[cfg(test)]
 mod push_render {
     use super::*;
 
