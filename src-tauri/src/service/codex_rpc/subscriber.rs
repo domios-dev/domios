@@ -219,6 +219,7 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                 super::status::observe(&svc, &tab, &current, &sidecar, method);
             }
             if method == "turn/completed" {
+                recover_restored_turn(&svc, &tab, &current, &sidecar, params).await;
                 let first = super::control::turn_id(params)
                     .is_some_and(|turn| sidecar.control.lock().completed(&current, turn));
                 if first {
@@ -295,12 +296,43 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
     });
 }
 
+async fn recover_restored_turn(
+    svc: &ServiceContext,
+    tab: &str,
+    thread: &str,
+    sidecar: &Sidecar,
+    params: &Value,
+) {
+    let Some(turn) = super::control::turn_id(params) else {
+        return;
+    };
+    let ids = sidecar.normalizer.lock().finish_restored_turn(thread, turn);
+    if ids.is_empty() {
+        return;
+    }
+    match super::transcript::history(&sidecar.client, thread).await {
+        Ok(history) if owns_endpoint(tab, sidecar) && *sidecar.thread.lock() == thread => {
+            let messages =
+                sidecar
+                    .normalizer
+                    .lock()
+                    .replace_restored_items(thread, &ids, history.messages);
+            for message in messages {
+                super::transcript::emit(svc, tab, thread, message);
+            }
+        }
+        Err(error) => log::debug!(
+            "[codex-rpc] tab={tab} restored turn={turn} history failed: {error}; snapshot retained"
+        ),
+        _ => {}
+    }
+}
+
 async fn resynchronize(svc: &ServiceContext, tab: &str, sidecar: &Sidecar) {
     let thread = sidecar.thread.lock().clone();
     match super::transcript::history(&sidecar.client, &thread).await {
         Ok(history) if owns_endpoint(tab, sidecar) && *sidecar.thread.lock() == thread => {
-            *sidecar.normalizer.lock() =
-                super::normalize::Normalizer::from_history(&thread, history.messages.clone());
+            *sidecar.normalizer.lock() = history.normalizer(&thread);
             sidecar.control.lock().restore(
                 &thread,
                 history.active_turn.as_deref(),
@@ -417,8 +449,7 @@ async fn discover(
             if !owns_endpoint(tab, sidecar) {
                 return;
             }
-            *sidecar.normalizer.lock() =
-                super::normalize::Normalizer::from_history(candidate, history.messages);
+            *sidecar.normalizer.lock() = history.normalizer(candidate);
             sidecar.control.lock().retired_roots.insert(current.into());
             sidecar.compaction.lock().additional_context.clear();
             sidecar.control.lock().restore(
