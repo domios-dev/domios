@@ -324,6 +324,7 @@ fn launch_parameters() -> RestorableLaunchParameters {
         agent_name: Some("restore-agent".into()),
         identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: false,
+        runtime_launch_options: None,
         structured_runtime_mode: None,
     }
 }

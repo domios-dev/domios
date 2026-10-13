@@ -665,3 +665,59 @@ fn sqlite_resume_binds_only_the_claimed_session_without_a_session_file() {
     assert_eq!(tab.agent_session_id.as_deref(), Some("own"));
     assert!(tab.launch_session_authenticated());
 }
+
+#[test]
+fn pty_and_runtime_host_roots_share_order_and_exact_deduplication() {
+    let root = std::env::current_dir().unwrap();
+    let pad = root.join("pad");
+    let metadata = [
+        root.join("worktree"),
+        root.join("objects"),
+        root.join("refs"),
+        root.join("logs"),
+    ];
+    let combined = combine_host_writable_roots(Some(pad.clone()), Some(metadata.clone()));
+    let separately = combine_host_writable_roots(Some(pad.clone()), None)
+        .into_iter()
+        .chain(combine_host_writable_roots(None, Some(metadata.clone())))
+        .collect::<Vec<_>>();
+    assert_eq!(combined, separately);
+    let duplicate = [
+        pad.clone(),
+        metadata[1].clone(),
+        metadata[2].clone(),
+        metadata[3].clone(),
+    ];
+    assert_eq!(
+        combine_host_writable_roots(Some(pad), Some(duplicate)).len(),
+        4
+    );
+}
+
+#[test]
+fn pty_and_runtime_linux_network_policy_keeps_existing_access_and_host_scope() {
+    assert_eq!(
+        sandbox_network_access_policy(false, "linux", true, false),
+        Some(true)
+    );
+    assert_eq!(
+        sandbox_network_access_policy(false, "linux", false, true),
+        Some(true)
+    );
+    assert_eq!(
+        sandbox_network_access_policy(false, "linux", false, false),
+        Some(false)
+    );
+    assert_eq!(
+        sandbox_network_access_policy(true, "linux", true, true),
+        None
+    );
+    assert_eq!(
+        sandbox_network_access_policy(false, "macos", true, false),
+        None
+    );
+    assert_eq!(
+        sandbox_network_access_policy(false, "windows", true, false),
+        None
+    );
+}
