@@ -168,3 +168,39 @@ fn hidden_worker_path_prefers_instance_cli_dir() {
         .expect("a codeterm executable resolves on the configured PATH");
     assert_eq!(resolved_cli, instance_cli);
 }
+
+#[test]
+fn runtime_memory_workers_keep_exact_report_identity_and_environment() {
+    let registry =
+        crate::service::spawn_capability::test_backend::registry_with_runtime("runtime-fixture");
+    for intent in ["dream", "extract"] {
+        let spec = build_mem_worker_spawn_spec(
+            &registry,
+            worker_cwd(),
+            MemWorkerSpawnInputs {
+                intent: intent.into(),
+                instance_cli_path: Some(
+                    std::path::PathBuf::from("/fixture/bin/codeterm").into_os_string(),
+                ),
+                inherited_path: std::ffi::OsString::from("/usr/bin"),
+                ..inputs("runtime-fixture")
+            },
+        )
+        .unwrap();
+        assert_eq!(spec.visibility, TabVisibility::Hidden);
+        let metadata = spec.chatbackend_launch.as_ref().unwrap();
+        assert_eq!(metadata.agent.worker_id.as_deref(), Some("wk-42"));
+        assert_eq!(metadata.agent.task.as_deref(), Some(TASK));
+        assert_eq!(metadata.agent.spawned_by.as_deref(), Some("mem:auto"));
+        assert_eq!(
+            metadata.agent.extra_env["CODETERM_CLI_PATH"],
+            "/fixture/bin/codeterm"
+        );
+        let path = std::env::split_paths(std::ffi::OsStr::new(&metadata.agent.extra_env["PATH"]))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            path.first(),
+            Some(&std::path::PathBuf::from("/fixture/bin"))
+        );
+    }
+}

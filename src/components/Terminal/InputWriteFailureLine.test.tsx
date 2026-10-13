@@ -1,6 +1,7 @@
 import "./ChatComposer.composition.harness";
 import { readFileSync } from "node:fs";
 import { act } from "react";
+import ts from "typescript";
 import { createRoot } from "react-dom/client";
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import { useInputWriteFailure } from "../../hooks/terminal/useInputWriteFailure";
@@ -47,7 +48,15 @@ describe("inline terminal input status wiring", () => {
     expect(terminal.includes("addNotification")).toBe(false);
     expect(terminal.includes("inputStatus={inputFailureLine}")).toBe(true);
     expect(terminal.includes('uiMode === "terminal" && !showTerminalKeyBar && inputFailureLine')).toBe(true);
-    expect(chat.indexOf("{inputStatus &&") >= 0 && chat.indexOf("{inputStatus &&") < chat.indexOf("&& <ChatComposer")).toBe(true);
+    const source = ts.createSourceFile("TabSessionChat.tsx", chat, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    let composerPosition = -1;
+    const visit = (node: ts.Node) => {
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && node.tagName.getText(source) === "ChatComposer") composerPosition = node.getStart(source);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    expect(composerPosition >= 0).toBe(true);
+    expect(chat.indexOf("{inputStatus &&") >= 0 && chat.indexOf("{inputStatus &&") < composerPosition).toBe(true);
   });
 });
 finish();

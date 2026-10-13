@@ -355,6 +355,7 @@ fn owner_prompt_fixture() -> (crate::service::test_fixture::ServiceFixture, Stri
 
 fn owner_prompt() -> codeterm_types::pty::PendingPrompt {
     codeterm_types::pty::PendingPrompt {
+        request_id: None,
         question: "opaque-question-62".into(),
         options: vec![
             codeterm_types::pty::PromptOption {
@@ -413,7 +414,6 @@ fn cron_reap_requires_a_seen_then_absent_provider_tree() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_run_not_failed_before_own_launch_issued() {
     use crate::service::launch_readiness::{self, LaunchAttempt, LaunchExitProof};
     use crate::service::process_tree::{
@@ -493,7 +493,6 @@ fn cron_run_not_failed_before_own_launch_issued() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn idle_poll_stores_provider_prompt_without_notification() {
     let (fixture, tab_id, pty_id) = owner_prompt_fixture();
 
@@ -534,7 +533,6 @@ fn idle_poll_stores_provider_prompt_without_notification() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn dead_cron_run_is_reaped_on_process_exit() {
     use tauri::{Listener as _, Manager as _};
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
@@ -666,7 +664,6 @@ fn dead_cron_run_is_reaped_on_process_exit() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
     use codeterm_mem::dream_status::deadline::{DEADLINE_REASON, DREAM_DIARY_TAG};
     use codeterm_mem::dream_status::{diary_evidence, DreamRunStatus, ExecutionEnd};
@@ -746,7 +743,6 @@ fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
     use codeterm_mem::dream_status::deadline::{APPROVAL_PROMPT_REASON, DREAM_DIARY_TAG};
     use codeterm_mem::dream_status::{
@@ -906,7 +902,6 @@ fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
     use codeterm_mem::dream_status::{
         diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd,

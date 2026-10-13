@@ -1,7 +1,8 @@
 //! `cron.*` JSON-RPC handlers.
 
+use crate::app_runtime::AppHandle;
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::Manager;
 
 use crate::service::ServiceState;
 

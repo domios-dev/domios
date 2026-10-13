@@ -133,7 +133,7 @@ fn lane_checkpoint_preserves_user_index_worktree_branches_and_stash() {
         root.path(),
         "attempt_safe",
         1,
-        Instant::now() + Duration::from_secs(8),
+        Instant::now() + CHECKPOINT_DEADLINE,
     )
     .unwrap();
 
@@ -169,92 +169,134 @@ fn lane_checkpoint_preserves_user_index_worktree_branches_and_stash() {
     );
 }
 
+#[derive(Default)]
+struct FixedRepository {
+    lfs: bool,
+    sparse: bool,
+    refs: String,
+    commands: Vec<(Vec<String>, bool)>,
+}
+
+impl checkpoint::Repository for FixedRepository {
+    fn uses_lfs(&mut self) -> Result<bool, CaptureFailure> {
+        Ok(self.lfs)
+    }
+    fn non_cone_sparse(&mut self) -> Result<bool, CaptureFailure> {
+        Ok(self.sparse)
+    }
+    fn run(&mut self, args: &[&str], isolated_index: bool) -> Result<String, CaptureFailure> {
+        self.commands.push((
+            args.iter().map(|arg| (*arg).to_owned()).collect(),
+            isolated_index,
+        ));
+        Ok(match args[0] {
+            "write-tree" => "tree-object\n".into(),
+            "-c" => "commit-object\n".into(),
+            "for-each-ref" => self.refs.clone(),
+            _ => String::new(),
+        })
+    }
+}
+
 #[test]
 fn lane_checkpoint_refuses_lfs_repository() {
-    let root = repository();
-    fs::write(
-        root.path().join(".gitattributes"),
-        "*.bin filter=lfs diff=lfs merge=lfs -text\n",
-    )
-    .unwrap();
-    git(root.path(), &["add", ".gitattributes"]);
-    git(root.path(), &["commit", "-m", "lfs attributes"]);
-
-    let result = create_checkpoint(
-        root.path(),
-        "attempt_lfs",
-        1,
-        Instant::now() + CHECKPOINT_DEADLINE,
-    )
-    .unwrap();
-
+    let mut repository = FixedRepository {
+        lfs: true,
+        ..Default::default()
+    };
     assert!(matches!(
-        result,
+        checkpoint::create(&mut repository, "attempt_lfs", 1).unwrap(),
         CheckpointResult::Refused(LaneCheckpointRefusal::LfsRepository)
     ));
+    assert!(repository.commands.is_empty());
 }
 
 #[test]
 fn lane_checkpoint_refuses_non_cone_sparse_checkout() {
-    let root = repository();
-    git(root.path(), &["config", "core.sparseCheckout", "true"]);
-    git(root.path(), &["config", "core.sparseCheckoutCone", "false"]);
-
-    let result = create_checkpoint(
-        root.path(),
-        "attempt_sparse",
-        1,
-        Instant::now() + CHECKPOINT_DEADLINE,
-    )
-    .unwrap();
-
+    let mut repository = FixedRepository {
+        sparse: true,
+        ..Default::default()
+    };
     assert!(matches!(
-        result,
+        checkpoint::create(&mut repository, "attempt_sparse", 1).unwrap(),
         CheckpointResult::Refused(LaneCheckpointRefusal::NonConeSparseCheckout)
     ));
+    assert!(repository.commands.is_empty());
 }
 
 #[test]
 fn lane_checkpoint_retains_latest_twenty_turn_refs() {
-    let root = repository();
-    git(
-        root.path(),
-        &[
-            "update-ref",
-            "refs/domios/checkpoints/attempt_retention/metadata",
-            "HEAD",
-        ],
+    let prefix = "refs/domios/checkpoints/attempt_retention";
+    let refs = (1..=23)
+        .rev()
+        .map(|turn| format!("{prefix}/{turn}\n"))
+        .collect::<String>()
+        + &format!("{prefix}/metadata\nrefs/domios/checkpoints/foreign/1\n{prefix}/1/nested\n");
+    let mut repository = FixedRepository {
+        refs,
+        ..Default::default()
+    };
+    assert!(
+        matches!(checkpoint::create(&mut repository, "attempt_retention", 23).unwrap(),
+        CheckpointResult::Created(name) if name == format!("{prefix}/23"))
     );
-    for turn in 1..=23 {
-        create_checkpoint(
-            root.path(),
-            "attempt_retention",
-            turn,
-            Instant::now() + CHECKPOINT_DEADLINE,
-        )
-        .unwrap();
-    }
-    let refs = git_text(
-        root.path(),
-        &[
-            "for-each-ref",
-            "--format=%(refname)",
-            "refs/domios/checkpoints/attempt_retention",
-        ],
-    );
-    assert!(refs
-        .lines()
-        .any(|reference| reference == "refs/domios/checkpoints/attempt_retention/metadata"));
-    let mut turns: Vec<u32> = refs
-        .lines()
-        .filter_map(|reference| {
-            checkpoint_turn("refs/domios/checkpoints/attempt_retention", reference)
-        })
+    let deleted: Vec<_> = repository
+        .commands
+        .iter()
+        .filter(|(args, _)| args.starts_with(&["update-ref".into(), "-d".into()]))
+        .map(|(args, _)| args[2].clone())
         .collect();
-    assert_eq!(turns.len(), CHECKPOINTS_PER_ATTEMPT);
-    turns.sort_unstable();
-    assert_eq!(turns.first(), Some(&4));
-    assert_eq!(turns.last(), Some(&23));
+    let retained: Vec<_> = repository
+        .refs
+        .lines()
+        .filter(|reference| !deleted.iter().any(|deleted| deleted == reference))
+        .filter_map(|reference| checkpoint_turn(prefix, reference))
+        .collect();
+    assert_eq!(retained.len(), CHECKPOINTS_PER_ATTEMPT);
+    assert_eq!(retained.iter().min(), Some(&4));
+    assert_eq!(retained.iter().max(), Some(&23));
+    assert!(repository
+        .refs
+        .lines()
+        .filter(|reference| !deleted.iter().any(|deleted| deleted == reference))
+        .any(|reference| reference == format!("{prefix}/metadata")));
+    assert_eq!(
+        deleted,
+        (1..=3)
+            .map(|turn| format!("{prefix}/{turn}"))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        repository
+            .commands
+            .iter()
+            .filter(|(_, isolated)| *isolated)
+            .count(),
+        3
+    );
+    assert_eq!(
+        repository.commands[0],
+        (vec!["read-tree".into(), "HEAD".into()], true)
+    );
+    assert_eq!(
+        repository.commands[1],
+        (
+            vec!["add".into(), "-A".into(), "--".into(), ".".into()],
+            true
+        )
+    );
+    assert!(repository.commands[3].0.contains(&"tree-object".into()));
+    assert_eq!(
+        repository.commands[4],
+        (
+            vec![
+                "update-ref".into(),
+                format!("{prefix}/23"),
+                "commit-object".into()
+            ],
+            false
+        )
+    );
 }
 
 #[test]

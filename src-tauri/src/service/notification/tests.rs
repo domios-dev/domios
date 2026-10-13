@@ -113,6 +113,7 @@ fn explicit_prompt_notification_answer_routes_the_value_without_message_delivery
     use std::cell::Cell;
 
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque question".into(),
         options: vec![
             PromptOption {
@@ -153,7 +154,6 @@ fn explicit_prompt_notification_answer_routes_the_value_without_message_delivery
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn explicit_prompt_notification_answer_refuses_a_stale_prompt_structurally() {
     use codeterm_types::notification::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
@@ -161,6 +161,7 @@ fn explicit_prompt_notification_answer_refuses_a_stale_prompt_structurally() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque question".into(),
         options: vec![
             PromptOption {

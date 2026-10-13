@@ -65,7 +65,6 @@ fn captured() -> Value {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn switched_turn_records_actual_model_from_sse_and_http() {
     let (fixture, tab_id) = fixture();
     let svc = &fixture.service;
@@ -137,7 +136,6 @@ fn switched_turn_records_actual_model_from_sse_and_http() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn turn_model_rejects_foreign_session_and_unverified_binding() {
     let (fixture, tab_id) = fixture();
     let svc = &fixture.service;

@@ -16,7 +16,9 @@ pub(crate) struct SidecarSyncReport {
     pub skipped: Vec<(String, String)>,
 }
 
-fn sidecar_state(app: &tauri::AppHandle) -> Option<(MuxState, OutputBufferState, SessionState)> {
+fn sidecar_state(
+    app: &crate::app_runtime::AppHandle,
+) -> Option<(MuxState, OutputBufferState, SessionState)> {
     let (Some(mux), Some(output_buf), Some(session)) = (
         app.try_state::<MuxState>(),
         app.try_state::<OutputBufferState>(),
@@ -34,7 +36,10 @@ fn sidecar_state(app: &tauri::AppHandle) -> Option<(MuxState, OutputBufferState,
 /// The single gate every post-save sidecar sync goes through: pruning keys off
 /// the LIVE tab set, which a refused reduction has just declared less
 /// trustworthy than the desk already on disk.
-pub(crate) fn sync_scrollback_sidecars_after_save(app: &tauri::AppHandle, outcome: &SaveOutcome) {
+pub(crate) fn sync_scrollback_sidecars_after_save(
+    app: &crate::app_runtime::AppHandle,
+    outcome: &SaveOutcome,
+) {
     if let Some((mux, output_buf, session)) = sidecar_state(app) {
         sync_scrollback_sidecars_after_save_with(outcome, &mux, &output_buf, &session);
     }

@@ -68,7 +68,7 @@ fn remote_model_selection(
 
 pub(super) fn dispatch(
     params: &Option<Value>,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -385,7 +385,7 @@ pub(super) fn dispatch(
 
 pub(crate) fn merge_lane(
     params: &Option<Value>,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -622,7 +622,7 @@ enum PeerState {
 }
 
 fn select_peer(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     target: &str,
 ) -> Result<
     (

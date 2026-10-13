@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerablePrompt, promptMessagePart, isFreeTextPromptOption } from "./promptAnswers";
+import { answerablePrompt, promptMessagePart, isFreeTextPromptOption, promptResponseArgs } from "./promptAnswers";
 
 describe("answerablePrompt", () => {
   const prompt = { question: "opaque", options: ["a", "b"] };
@@ -41,5 +41,30 @@ describe("promptMessagePart", () => {
   it("recognizes only free text choices", () => {
     expect(isFreeTextPromptOption({ label: "Other", value: "a" })).toBe(true);
     expect(isFreeTextPromptOption({ label: "Option one", value: "b" })).toBe(false);
+  });
+});
+
+describe("promptResponseArgs", () => {
+  const options = [{ label: "Display label", value: "native-value" }];
+  it("returns the captured opaque request id and native value without rewriting either", () => {
+    const request_id = '[17,"binding",{"opaque":"007"}]';
+    expect(promptResponseArgs("owned", "native-value", { question: "fixture", options, request_id })).toEqual({
+      tabId: "owned", value: "native-value", identity: { kind: "structured", options, request_id },
+    });
+  });
+  it("keeps identical-option requests distinct and remounts their prompt part", () => {
+    const first = { question: "fixture", options, request_id: "opaque-first" };
+    const next = { ...first, request_id: "opaque-next" };
+    expect(promptResponseArgs("owned", "native-value", first).identity?.request_id).not.toBe(promptResponseArgs("owned", "native-value", next).identity?.request_id);
+    const descriptor = { supports_prompt_answers: true, supports_structured_prompts: true };
+    expect(promptMessagePart(descriptor, first)?.id).not.toBe(promptMessagePart(descriptor, next)?.id);
+  });
+  it("copies the option snapshot and retains the unscoped legacy call", () => {
+    const prompt = { question: "fixture", options: [{ label: "display", value: "native" }], request_id: "opaque" };
+    const captured = promptResponseArgs("owned", "native", prompt);
+    prompt.options[0].value = "changed";
+    expect(captured.identity?.options[0].value).toBe("native");
+    expect(promptResponseArgs("owned", "native", { question: "fixture", options })).toEqual({ tabId: "owned", value: "native" });
+    expect(promptResponseArgs("owned", "native", null)).toEqual({ tabId: "owned", value: "native" });
   });
 });

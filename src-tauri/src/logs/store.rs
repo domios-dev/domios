@@ -53,7 +53,7 @@ pub struct LogStore {
     conn: Mutex<Connection>,
     ring: Mutex<VecDeque<PendingLog>>,
     db_path: PathBuf,
-    app_handle: Mutex<Option<tauri::AppHandle>>,
+    app_handle: Mutex<Option<crate::app_runtime::AppHandle>>,
 }
 
 #[derive(Clone)]
@@ -122,7 +122,7 @@ impl LogStore {
         &self.db_path
     }
 
-    pub fn attach_app(&self, handle: tauri::AppHandle) {
+    pub fn attach_app(&self, handle: crate::app_runtime::AppHandle) {
         *self.app_handle.lock() = Some(handle);
     }
 

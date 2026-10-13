@@ -1,0 +1,485 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "readHistory",
+        "threadId": "thread-fixture"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/resume",
+          "params": {
+            "cwd": "/work/project",
+            "model": "fixture-model",
+            "threadSource": "user",
+            "config": {
+              "check_for_update_on_startup": false,
+              "project_doc_max_bytes": 65536,
+              "model_reasoning_effort": "high"
+            },
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandbox": "workspace-write",
+            "threadId": "thread-fixture",
+            "excludeTurns": true
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32600,
+          "message": "session thread-fixture is archived"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/unarchive",
+          "params": {
+            "threadId": "thread-fixture"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/resume",
+          "params": {
+            "cwd": "/work/project",
+            "model": "fixture-model",
+            "threadSource": "user",
+            "config": {
+              "check_for_update_on_startup": false,
+              "project_doc_max_bytes": 65536,
+              "model_reasoning_effort": "high"
+            },
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandbox": "workspace-write",
+            "threadId": "thread-fixture",
+            "excludeTurns": true
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "thread-fixture"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/read",
+          "params": {
+            "threadId": "thread-fixture",
+            "includeTurns": false
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "thread-fixture",
+            "source": "appServer"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/turns/list",
+          "params": {
+            "threadId": "thread-fixture",
+            "itemsView": "notLoaded",
+            "sortDirection": "asc",
+            "limit": 100
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "id": "historical",
+              "status": "completed",
+              "startedAt": 10
+            },
+            {
+              "id": "active",
+              "status": "inProgress",
+              "startedAt": 20
+            }
+          ],
+          "nextCursor": "turn-page-2"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/items/list",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "historical",
+            "sortDirection": "asc",
+            "limit": 100
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "item": {
+                "id": "old-user",
+                "type": "userMessage",
+                "clientId": "old-send",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Old question"
+                  }
+                ]
+              },
+              "completedAtMs": 10
+            }
+          ],
+          "nextCursor": "item-page-2"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/items/list",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "historical",
+            "sortDirection": "asc",
+            "limit": 100,
+            "cursor": "item-page-2"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "item": {
+                "id": "old-assistant",
+                "type": "agentMessage",
+                "text": "Old answer"
+              },
+              "completedAtMs": 11
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/items/list",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "active",
+            "sortDirection": "asc",
+            "limit": 100
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "item": {
+                "id": "open-assistant",
+                "type": "agentMessage",
+                "text": "Partial",
+                "delivery": "async",
+                "questions": [
+                  {
+                    "id": "color",
+                    "title": "Choose color",
+                    "options": [
+                      "red",
+                      "blue"
+                    ]
+                  }
+                ]
+              },
+              "completedAtMs": null
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "thread-fixture",
+            "settings": {
+              "model": "fixture-model",
+              "effort": "high",
+              "mode": "auto-accept-edits"
+            }
+          }
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "historyPage",
+            "threadId": "thread-fixture",
+            "items": [
+              {
+                "id": "old-user",
+                "seq": 1,
+                "type": "user",
+                "content": "Old question",
+                "toolFlowId": "historical",
+                "timestamp": "1970-01-01T00:00:00.010Z"
+              },
+              {
+                "id": "old-assistant",
+                "seq": 2,
+                "type": "assistant",
+                "content": "Old answer",
+                "toolFlowId": "historical",
+                "timestamp": "1970-01-01T00:00:00.011Z"
+              },
+              {
+                "id": "open-assistant",
+                "seq": 3,
+                "type": "assistant",
+                "content": "Partial",
+                "toolFlowId": "active",
+                "toolInput": {
+                  "id": "open-assistant",
+                  "type": "agentMessage",
+                  "text": "Partial",
+                  "delivery": "async",
+                  "questions": [
+                    {
+                      "id": "color",
+                      "title": "Choose color",
+                      "options": [
+                        "red",
+                        "blue"
+                      ]
+                    }
+                  ]
+                },
+                "interactive": [
+                  {
+                    "type": "question",
+                    "id": "color",
+                    "toolUseId": "open-assistant",
+                    "prompt": "Choose color",
+                    "options": [
+                      {
+                        "value": "red",
+                        "label": "red"
+                      },
+                      {
+                        "value": "blue",
+                        "label": "blue"
+                      }
+                    ],
+                    "multiSelect": false
+                  }
+                ]
+              }
+            ],
+            "openItems": [
+              {
+                "turnId": "active",
+                "item": {
+                  "id": "open-assistant",
+                  "seq": 3,
+                  "type": "assistant",
+                  "content": "Partial",
+                  "toolFlowId": "active",
+                  "toolInput": {
+                    "id": "open-assistant",
+                    "type": "agentMessage",
+                    "text": "Partial",
+                    "delivery": "async",
+                    "questions": [
+                      {
+                        "id": "color",
+                        "title": "Choose color",
+                        "options": [
+                          "red",
+                          "blue"
+                        ]
+                      }
+                    ]
+                  },
+                  "interactive": [
+                    {
+                      "type": "question",
+                      "id": "color",
+                      "toolUseId": "open-assistant",
+                      "prompt": "Choose color",
+                      "options": [
+                        {
+                          "value": "red",
+                          "label": "red"
+                        },
+                        {
+                          "value": "blue",
+                          "label": "blue"
+                        }
+                      ],
+                      "multiSelect": false
+                    }
+                  ]
+                }
+              }
+            ],
+            "nextCursor": "turn-page-2",
+            "questions": [
+              {
+                "threadId": "thread-fixture",
+                "itemId": "open-assistant",
+                "questions": [
+                  {
+                    "id": "color",
+                    "text": "Choose color",
+                    "options": [
+                      {
+                        "value": "red",
+                        "label": "red"
+                      },
+                      {
+                        "value": "blue",
+                        "label": "blue"
+                      }
+                    ]
+                  }
+                ],
+                "response": "message"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "events": []
+  }
+}

@@ -246,7 +246,6 @@ fn lark_recording_contract_production_adapter_fails_closed_before_native_acquisi
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn lark_recording_contract_production_enable_uses_injected_readiness_boundary() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -281,7 +280,6 @@ async fn lark_recording_contract_production_enable_uses_injected_readiness_bound
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn lark_recording_contract_enable_without_devices_emits_setup_status() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -311,7 +309,6 @@ fn lark_recording_contract_enable_without_devices_emits_setup_status() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_capture() {
     use crate::service::local_recording::chat::ChatIdentity;
     use crate::service::local_recording::completion::complete_capture;

@@ -105,7 +105,6 @@ fn model_row<'a>(providers: &'a [ProviderSpend], provider: &str) -> &'a [ModelSp
 /// A tab the model poller has not reached still knows which session it claims, so the
 /// provider's own record for that session is the model — never a provider-shaped guess.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_records_the_verified_session_model_for_an_unfocused_tab() {
     let mut fixture = fixture();
     let session = fixture.temp.path().join("rollout.jsonl");
@@ -164,7 +163,6 @@ fn mission_control_spend_records_the_verified_session_model_for_an_unfocused_tab
 /// own session's rows, and those rows must reach the same machine spend surface as
 /// every other provider's.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_ingests_a_provider_declared_session_scoped_usage_log() {
     let mut fixture = fixture();
     let db = fixture.temp.path().join("opencode.db");
@@ -209,7 +207,6 @@ fn mission_control_spend_ingests_a_provider_declared_session_scoped_usage_log() 
 
 /// Rows written before the model was resolvable must stay visible as their own bucket.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_keeps_unresolved_models_as_their_own_visible_bucket() {
     let mut fixture = fixture();
     let ledger = ledger_on(&mut fixture);
@@ -248,7 +245,6 @@ fn mission_control_spend_keeps_unresolved_models_as_their_own_visible_bucket() {
 /// An Orchestrator owning open work and a Planner registered on a plan both carry plan
 /// context without any task assignment.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_charges_orchestrator_and_planner_tabs_to_their_active_plan() {
     let mut fixture = fixture();
     let orchestrator = agent_tab(&fixture, "mock", "sess-orch");
@@ -329,7 +325,6 @@ fn mission_control_spend_charges_orchestrator_and_planner_tabs_to_their_active_p
 
 /// The documented rule for the cases that have no single answer.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_leaves_unbound_and_ambiguous_tabs_unassigned() {
     let mut fixture = fixture();
     let unbound = agent_tab(&fixture, "mock", "sess-unbound");
@@ -382,7 +377,6 @@ fn mission_control_spend_leaves_unbound_and_ambiguous_tabs_unassigned() {
 /// A plan whose every task is paused still costs its owner tokens, so the owner is
 /// charged to it; only the planner branch used to survive this state.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_charges_the_owner_of_a_fully_paused_plan() {
     let mut fixture = fixture();
     let orchestrator = agent_tab(&fixture, "mock", "sess-paused-owner");
@@ -452,7 +446,6 @@ fn mission_control_spend_charges_the_owner_of_a_fully_paused_plan() {
 
 /// The card's own reading: machine-wide, token_usage only, grouped and shared.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_groups_machine_token_usage_by_provider_and_model() {
     let mut fixture = fixture();
     let ledger = ledger_on(&mut fixture);
@@ -561,7 +554,6 @@ fn mission_control_spend_reports_provider_windows_as_allowance_used() {
 
 /// Disabled, unreadable and empty ledgers each keep their own explicit state.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_states_stay_explicit_without_ledger_rows() {
     use codeterm_plan::service_plan::state::mission_control::KPI_ENABLED_SETTING;
 
@@ -601,7 +593,6 @@ fn mission_control_spend_states_stay_explicit_without_ledger_rows() {
 /// The route's own payload, so the Board reads a machine scope it cannot mistake for
 /// a plan total.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_reaches_the_plan_state_route_as_a_machine_scope() {
     let mut fixture = fixture();
     let ledger = ledger_on(&mut fixture);
@@ -638,7 +629,6 @@ fn mission_control_spend_reaches_the_plan_state_route_as_a_machine_scope() {
 /// idle, and that alone has to produce one pass. Every other fixture in this file
 /// calls `request_kpi_usage_ingest` itself, so only this one proves a caller.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_ingests_a_settled_turn_with_no_status_transition() {
     let mut fixture = fixture();
     let session = fixture.temp.path().join("session.jsonl");
@@ -744,7 +734,6 @@ fn codex_usage_line(ts: &str, input: u64, cached: u64, output: u64) -> String {
 /// one: every other fixture ingests once into a fresh ledger, so none of them proves
 /// that turn two of the same session records anything at all.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn mission_control_spend_records_a_second_turn_in_the_same_session() {
     use std::io::Write;
 

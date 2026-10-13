@@ -547,10 +547,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn hook_identity_write_applies_verified_claim() {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let evidence = {
@@ -591,10 +587,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn hook_identity_write_refuses_stale_claim_evidence() {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let evidence = {

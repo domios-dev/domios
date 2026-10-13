@@ -78,6 +78,26 @@ selections use `bash scripts/plugin-tests.sh <provider>`.
 
 Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
 
+Nextest keeps normal suite parallelism. A parallel timing above one second is a
+candidate when new or above its recorded alone allowance. The gate reruns only
+those candidates serially from the same binaries/Cargo metadata, reports both
+timings, and keeps the one-second target visible. New alone times above 1.25 seconds
+fail; times over 1.0 through 1.25 seconds warn. Existing regressions fail only
+above baseline + max(20%, 0.25 seconds); smaller increases warn.
+`scripts/slow-unit-tests.json` records alone durations;
+its exact identities and recorded times may only shrink against the base ref.
+
+```bash
+node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]
+node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base REF]
+node --test scripts/check-slow-unit-tests.test.mjs
+```
+
+Candidate JSON contains exact validated binary/test IDs and a nextest filter,
+never shell commands. No candidates means no rerun; missing/incomplete timing
+logs or missing candidate confirmations fail closed. A plain log-only guard
+works when no serial confirmations are required.
+
 ### Unified entrypoint: `./build.sh test:all`
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
@@ -382,11 +402,10 @@ and warm reruns are incremental. To reclaim disk:
 
 ### Cross-platform CI troubleshooting
 
-- A Tauri test harness that must populate a production `AppHandle` uses
-  `tauri::Builder::default()`. `mock_builder()` changes the runtime type. A
-  libtest-thread harness uses `any_thread()` on Windows; macOS requires the
-  process main thread and headless Linux cannot initialize GTK, so the real
-  AppHandle oracle runs on Windows while pure lifecycle tests cover every OS.
+- ServiceFixture uses `app_runtime::Runtime`: Wry in production and Tauri's
+  MockRuntime under `cfg(test)`. Unit harnesses construct `app_runtime::builder()`
+  without an OS event loop; fixture-only desktop ignores are forbidden. Real OS
+  window or native API oracles retain a specific platform gate.
 - Real-socket tests that reserve an ephemeral address and then rebind it must
   serialize that reservation inside the test module. Parallel bind-drop-bind
   fixtures can claim each other's released ports, especially on Windows.

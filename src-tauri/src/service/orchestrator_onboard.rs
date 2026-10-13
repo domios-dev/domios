@@ -338,6 +338,9 @@ mod tests {
             boot_stage: None,
             boot_failure_reason: None,
             provisional_launch: None,
+            agent_runtime_state: None,
+            agent_runtime_config: None,
+            agent_runtime_questions: None,
         }
     }
 

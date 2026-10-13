@@ -12,7 +12,7 @@ pub struct AvailabilitySnapshot {
 static LAST: parking_lot::Mutex<Option<AvailabilitySnapshot>> = parking_lot::Mutex::new(None);
 
 pub async fn check(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     state: &crate::UpdateStateHandle,
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
@@ -72,7 +72,7 @@ static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 mod cache;
 
 async fn refresh(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     state: &crate::UpdateStateHandle,
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
@@ -139,7 +139,7 @@ async fn refresh(
     Ok(result)
 }
 
-pub fn publish(app: &tauri::AppHandle, snapshot: &AvailabilitySnapshot) {
+pub fn publish(app: &crate::app_runtime::AppHandle, snapshot: &AvailabilitySnapshot) {
     let changed = {
         let mut last = LAST.lock();
         if last.as_ref() == Some(snapshot) {
@@ -162,7 +162,7 @@ pub fn replace_plugins(snapshot: &mut AvailabilitySnapshot, items: Vec<Availabil
     snapshot.items.sort_by(|a, b| a.id.cmp(&b.id));
 }
 
-pub fn publish_plugins(app: &tauri::AppHandle, items: Vec<AvailabilityItem>) {
+pub fn publish_plugins(app: &crate::app_runtime::AppHandle, items: Vec<AvailabilityItem>) {
     let next = {
         let mut last = LAST.lock();
         let mut snapshot = last.clone().unwrap_or_default();
@@ -179,7 +179,7 @@ pub fn publish_plugins(app: &tauri::AppHandle, items: Vec<AvailabilityItem>) {
     }
 }
 
-pub async fn plugins_changed(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn plugins_changed(app: crate::app_runtime::AppHandle) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let inventory = codeterm_plugins::update_inventory(
             PluginCtx {
@@ -197,7 +197,7 @@ pub async fn plugins_changed(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-pub fn publish_plugin_snapshot(app: &tauri::AppHandle, snapshot: &serde_json::Value) {
+pub fn publish_plugin_snapshot(app: &crate::app_runtime::AppHandle, snapshot: &serde_json::Value) {
     let items = snapshot["plugins"]
         .as_array()
         .into_iter()
@@ -257,7 +257,7 @@ mod tests {
     }
 }
 
-pub fn frontend_installed(app: &tauri::AppHandle, installed: &str) {
+pub fn frontend_installed(app: &crate::app_runtime::AppHandle, installed: &str) {
     let next = {
         let mut last = LAST.lock();
         let Some(snapshot) = last.as_mut() else {
@@ -301,7 +301,7 @@ pub fn replace_frontend(snapshot: &mut AvailabilitySnapshot, item: AvailabilityI
     snapshot.items.sort_by(|a, b| a.id.cmp(&b.id));
 }
 
-pub fn publish_frontend(app: &tauri::AppHandle, item: AvailabilityItem) {
+pub fn publish_frontend(app: &crate::app_runtime::AppHandle, item: AvailabilityItem) {
     let next = {
         let mut last = LAST.lock();
         let mut snapshot = last.clone().unwrap_or_default();

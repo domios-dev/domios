@@ -3,7 +3,7 @@ use codeterm_types::pty::PendingPrompt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RpcId {
     String(String),
@@ -53,6 +53,10 @@ pub struct RuntimeSettings {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_directories: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_access: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,9 +128,13 @@ pub struct PendingRuntimeRequest {
     pub params: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeContext {
+    #[serde(default)]
+    pub thread_parents: Vec<RuntimeThreadParent>,
+    #[serde(default)]
+    pub active_turns: Vec<RuntimeActiveTurn>,
     pub epoch: u64,
     pub tab_id: String,
     pub binding_nonce: String,
@@ -214,6 +222,8 @@ impl RuntimeOperation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RpcCall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<RuntimeCallTarget>,
     pub method: String,
     pub params: Value,
 }
@@ -265,6 +275,8 @@ pub enum RuntimeResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         next_cursor: Option<String>,
         open_items: Vec<OpenItem>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        questions: Option<Vec<RuntimeHistoryQuestion>>,
     },
     TurnAccepted {
         thread_id: String,
@@ -290,6 +302,8 @@ pub enum RuntimeStep {
     },
     Complete {
         result: RuntimeResult,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        events: Option<Vec<AgentRuntimeEvent>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         notification: Option<RpcCall>,
     },
@@ -330,6 +344,11 @@ pub enum RuntimeTurnState {
     deny_unknown_fields
 )]
 pub enum AgentRuntimeEvent {
+    Auth {
+        state: RuntimeAuthState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
     Question {
         thread_id: String,
         item_id: String,
@@ -353,6 +372,8 @@ pub enum AgentRuntimeEvent {
         started_at: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         completed_at: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_thread_id: Option<String>,
         state: RuntimeTurnState,
     },
     SendEvidence {
@@ -420,6 +441,17 @@ pub struct RuntimeQuestion {
     pub allow_free_text: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeHistoryQuestion {
+    pub thread_id: String,
+    pub item_id: String,
+    pub questions: Vec<RuntimeQuestion>,
+    pub response: RuntimeQuestionResponse,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeQuestionAnswer {
@@ -433,4 +465,36 @@ pub struct RuntimeQuestionAnswer {
 #[serde(rename_all = "camelCase")]
 pub enum RuntimeQuestionResponse {
     Message,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeActiveTurn {
+    pub thread_id: String,
+    pub turn_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeAuthState {
+    SignedIn,
+    SignedOut,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeCallTarget {
+    pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeThreadParent {
+    pub thread_id: String,
+    pub parent_thread_id: String,
 }

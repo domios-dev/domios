@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurnId": "turn-a",
+    "activeTurns": [
+      {
+        "threadId": "thread-fixture",
+        "turnId": "turn-a"
+      }
+    ],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "interrupt",
+        "threadId": "thread-fixture",
+        "activeTurnId": "turn-a"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "command-a",
+            "type": "commandExecution",
+            "command": "python check.py",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/interrupt",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "turn-a"
+          },
+          "target": {
+            "threadId": "thread-fixture",
+            "turnId": "turn-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "command-a",
+            "type": "commandExecution",
+            "command": "python check.py",
+            "status": "interrupted",
+            "aggregatedOutput": "Stopped"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "command-a",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "command",
+          "toolSummary": "python check.py",
+          "toolDetail": "python check.py",
+          "toolId": "command-a",
+          "toolName": "commandExecution",
+          "toolInput": {
+            "id": "command-a",
+            "type": "commandExecution",
+            "command": "python check.py",
+            "status": "inProgress"
+          },
+          "toolArgs": "python check.py",
+          "collapsed": true,
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "command-a",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "command",
+          "toolSummary": "python check.py",
+          "toolDetail": "python check.py",
+          "toolId": "command-a",
+          "toolName": "commandExecution",
+          "toolInput": {
+            "id": "command-a",
+            "type": "commandExecution",
+            "command": "python check.py",
+            "status": "interrupted",
+            "aggregatedOutput": "Stopped"
+          },
+          "toolArgs": "python check.py",
+          "collapsed": true,
+          "toolFlowId": "turn-a",
+          "toolResult": "Stopped",
+          "toolInterrupted": true
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "idle"
+      }
+    ]
+  }
+}

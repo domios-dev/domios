@@ -5,11 +5,13 @@ use serde_json::{json, Value};
 
 mod agent_provider;
 mod command_template;
+mod integration;
 mod integration_rules;
 mod launch_artifacts;
 mod manifest_sessions;
 mod prompt_parse;
 mod reply_relay;
+mod runtime_hooks;
 mod session_content;
 mod session_delta;
 mod wire;

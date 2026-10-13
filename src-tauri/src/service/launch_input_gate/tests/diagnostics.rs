@@ -44,10 +44,6 @@ fn capture_gate_diagnostic(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn diagnostic_success_keeps_actual_inputs_and_unchecked_process_unknown() {
     let (fixture, attempt) = diagnostic_fixture(Box::new(MockProvider::new("opaque-gate")));
     {
@@ -81,10 +77,6 @@ fn diagnostic_success_keeps_actual_inputs_and_unchecked_process_unknown() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn diagnostic_refusal_excludes_classifier_content() {
     use codeterm_plugin::tab_state::{Surface, TabStateAction};
     let secret = "opaque-classifier-content-1a37";
@@ -117,10 +109,6 @@ fn diagnostic_refusal_excludes_classifier_content() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn diagnostic_lazy_deadline_preserves_negative_process_and_input_evidence() {
     let (fixture, attempt) = diagnostic_fixture(Box::new(MockProvider::new("opaque-gate")));
     let (result, snapshot) = capture_gate_diagnostic(
@@ -142,10 +130,6 @@ fn diagnostic_lazy_deadline_preserves_negative_process_and_input_evidence() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn diagnostic_superseded_attempt_never_claims_evaluated_readiness() {
     let (fixture, mut attempt) = diagnostic_fixture(Box::new(MockProvider::new("opaque-gate")));
     attempt.binding_nonce = "opaque-old-nonce".into();
@@ -160,10 +144,6 @@ fn diagnostic_superseded_attempt_never_claims_evaluated_readiness() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn diagnostic_onboarding_deadline_records_unknown_unevaluated_predicates() {
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
     let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");

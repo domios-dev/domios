@@ -30,6 +30,1081 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-codex/src/runtimeProtocol.ts
+function object(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function text(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+function userThread(value, expected) {
+  const thread = object(object(value).thread);
+  const id = text(thread.id);
+  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
+  return id;
+}
+function steerRefused(error, turn) {
+  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
+}
+var serverRequestMethods = [
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+  "item/tool/requestUserInput",
+  "mcpServer/elicitation/request"
+];
+
+// plugins/provider-codex/src/canonicalJson.ts
+function canonicalJson(value, indentation = 0) {
+  const normalized = JSON.parse(JSON.stringify(value ?? null));
+  const gap = " ".repeat(Math.max(0, Math.min(10, Math.trunc(indentation))));
+  const render = (node, depth) => {
+    if (node === null || typeof node !== "object") return JSON.stringify(node);
+    const parts = Array.isArray(node) ? node.map((entry) => render(entry, depth + 1)) : Object.keys(node).sort().map((key) => `${JSON.stringify(key)}:${gap ? " " : ""}${render(node[key], depth + 1)}`);
+    const [open, close] = Array.isArray(node) ? ["[", "]"] : ["{", "}"];
+    if (!parts.length) return open + close;
+    return gap ? `${open}
+${gap.repeat(depth + 1)}${parts.join(`,
+${gap.repeat(depth + 1)}`)}
+${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
+  };
+  return render(normalized, 0);
+}
+
+// packages/plugin-sdk/src/fileDiffs.ts
+function recordedPatchDiff(path, patch, kind) {
+  if (!path.trim()) return [];
+  const hunks = [];
+  let current;
+  for (const line of patch.replace(/\n$/, "").split("\n")) {
+    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (header) {
+      current = { oldStart: Number(header[1]), oldLines: Number(header[2] ?? 1), newStart: Number(header[3]), newLines: Number(header[4] ?? 1), lines: [] };
+      hunks.push(current);
+    } else if (current) {
+      if (!/^[ +\-\\]/.test(line)) return [];
+      current.lines.push(line);
+    }
+  }
+  if (hunks.some((h) => h.lines.filter((l) => /^[ -]/.test(l)).length !== h.oldLines || h.lines.filter((l) => /^[ +]/.test(l)).length !== h.newLines)) return [];
+  if (!hunks.length && kind === "modify") return [];
+  const lines = hunks.flatMap((h) => h.lines);
+  return [{
+    path,
+    kind,
+    additions: lines.filter((l) => l.startsWith("+")).length,
+    deletions: lines.filter((l) => l.startsWith("-")).length,
+    hunks
+  }];
+}
+
+// plugins/provider-codex/src/runtimeDiffs.ts
+function runtimeFileDiffs(changes) {
+  return list(changes).map(object).flatMap((change) => {
+    const path = text(change.path);
+    const kind = object(change.kind);
+    const diff = text(change.diff);
+    if (!path || diff === void 0) return [];
+    const selected = kind.type === "update" ? "modify" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : void 0;
+    if (!selected) return [];
+    let rows;
+    if (/^Binary files|^GIT binary patch/m.test(diff)) rows = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
+    else if (selected === "add" || selected === "delete") {
+      const lines = diff.replace(/\n$/, "").split("\n");
+      const add = selected === "add";
+      rows = [{
+        path,
+        kind: selected,
+        additions: add ? lines.length : 0,
+        deletions: add ? 0 : lines.length,
+        hunks: [{ oldStart: add ? 0 : 1, oldLines: add ? 0 : lines.length, newStart: add ? 1 : 0, newLines: add ? lines.length : 0, lines: lines.map((line) => (add ? "+" : "-") + line) }]
+      }];
+    } else rows = recordedPatchDiff(path, diff, "modify");
+    const movePath = text(kind.move_path);
+    return rows.map((row2) => ({ ...row2, ...movePath ? { kind: "rename", movePath } : {} }));
+  });
+}
+function runtimeTurnDiff(diff) {
+  const groups = diff.split(/(?=^diff --git )/m);
+  return groups.flatMap((group) => {
+    const path = /^\+\+\+ b\/(.+)$/m.exec(group)?.[1] ?? /^--- a\/(.+)$/m.exec(group)?.[1];
+    if (!path) return [];
+    return recordedPatchDiff(path, group, /^deleted file mode /m.test(group) ? "delete" : /^new file mode /m.test(group) ? "add" : "modify");
+  });
+}
+
+// plugins/provider-codex/src/runtimeQuestions.ts
+function nativeOption(value) {
+  if (typeof value === "string") return { value, label: value };
+  const option = object(value);
+  const label = text(option.label) ?? text(option.title);
+  const id = text(option.value) ?? text(option.id) ?? label;
+  return label && id ? { value: id, label } : void 0;
+}
+function runtimeQuestions(value) {
+  return list(value).map(object).map((question, index) => ({
+    id: text(question.id) ?? String(index),
+    text: text(question.title) ?? text(question.question) ?? "Choose an answer",
+    options: list(question.options).flatMap((option) => {
+      const parsed = nativeOption(option);
+      return parsed ? [parsed] : [];
+    }),
+    ...typeof question.multiSelect === "boolean" ? { multiSelect: question.multiSelect } : {},
+    ...typeof question.allowFreeText === "boolean" ? { allowFreeText: question.allowFreeText } : {}
+  }));
+}
+function questionAnswerInput(itemId, answers) {
+  return { text: canonicalJson({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
+}
+function answersMatch(questions, raw) {
+  const answers = list(raw).map(object);
+  if (answers.length !== questions.length || new Set(answers.map((answer) => answer.questionId)).size !== answers.length) return false;
+  return questions.every((question) => {
+    const answer = answers.find((answer2) => answer2.questionId === question.id);
+    if (!answer || !Array.isArray(answer.values)) return false;
+    const values = answer.values;
+    if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
+    if (!question.multiSelect && values.length > 1) return false;
+    const freeText = text(answer.text);
+    if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
+    return values.length > 0 || !!freeText;
+  });
+}
+function reconcileHistoryQuestions(threadId, raw, previous) {
+  const item = object(raw);
+  const itemId = text(item.id);
+  if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
+    const old = previous.find((question2) => question2.itemId === itemId);
+    const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
+    return [...previous.filter((existing) => existing.itemId !== itemId), question];
+  }
+  if (item.type !== "userMessage") return [...previous];
+  const content = list(item.content).map(object).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  let answer;
+  try {
+    answer = object(JSON.parse(content));
+  } catch {
+    return [...previous];
+  }
+  return previous.map((question) => answer.itemId === question.itemId && answersMatch(question.questions, answer.answers) ? { ...question, resolved: true } : question);
+}
+
+// plugins/provider-codex/src/fileDiffs.ts
+var LINE_MARKERS = " +-\\";
+var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+function splitLines(text6) {
+  const lines = text6.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+function contentHunks(content, marker) {
+  const lines = content ? splitLines(content) : [];
+  if (lines.length === 0) return [];
+  const added = marker === "+";
+  return [{
+    oldStart: added ? 0 : 1,
+    oldLines: added ? 0 : lines.length,
+    newStart: added ? 1 : 0,
+    newLines: added ? lines.length : 0,
+    lines: lines.map((line) => marker + line)
+  }];
+}
+function unifiedHunks(diff) {
+  const hunks = [];
+  let current = null;
+  for (const line of splitLines(diff)) {
+    const header = HUNK_HEADER.exec(line);
+    if (header) {
+      current = {
+        oldStart: Number(header[1]),
+        oldLines: header[2] === void 0 ? 1 : Number(header[2]),
+        newStart: Number(header[3]),
+        newLines: header[4] === void 0 ? 1 : Number(header[4]),
+        lines: []
+      };
+      hunks.push(current);
+    } else if (!current) {
+      if (line.indexOf("--- ") !== 0 && line.indexOf("+++ ") !== 0) return null;
+    } else if (!line || LINE_MARKERS.indexOf(line.charAt(0)) < 0) {
+      return null;
+    } else {
+      current.lines.push(line);
+    }
+  }
+  return hunks.length > 0 ? hunks : null;
+}
+function fileDiff(path, hunks, movePath) {
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      if (line.charAt(0) === "+") additions++;
+      else if (line.charAt(0) === "-") deletions++;
+    }
+  }
+  return movePath ? { path, movePath, additions, deletions, hunks } : { path, additions, deletions, hunks };
+}
+function changeDiff(path, value) {
+  if (!path.trim() || !value || typeof value !== "object" || Array.isArray(value)) return null;
+  const change = value;
+  if ((change.type === "add" || change.type === "delete") && typeof change.content === "string") {
+    return { ...fileDiff(path, contentHunks(change.content, change.type === "add" ? "+" : "-"), ""), kind: change.type };
+  }
+  if (change.type !== "update" || typeof change.unified_diff !== "string") return null;
+  const movePath = typeof change.move_path === "string" && change.move_path.trim() ? change.move_path : "";
+  const binary = /^(Binary files|GIT binary patch)/m.test(change.unified_diff);
+  const hunks = unifiedHunks(change.unified_diff) ?? (binary || movePath && !change.unified_diff ? [] : null);
+  if (!hunks) return null;
+  if (binary) return { ...fileDiff(path, [], movePath), binary: true, kind: movePath ? "rename" : "modify" };
+  return { ...fileDiff(path, hunks, movePath), kind: movePath ? "rename" : "modify" };
+}
+function changedPaths(changes) {
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) return [];
+  return Object.keys(changes).filter((path) => path.trim().length > 0);
+}
+function codexFileDiffs(changes) {
+  const diffs = [];
+  for (const path of changedPaths(changes)) {
+    const diff = changeDiff(path, changes[path]);
+    if (diff) diffs.push(diff);
+  }
+  return diffs;
+}
+function diffEdits(diffs) {
+  const edits = [];
+  for (const diff of diffs) {
+    for (const hunk of diff.hunks) {
+      const oldLines = hunk.lines.filter((line) => line.charAt(0) === "-").map((line) => line.substring(1));
+      const newLines = hunk.lines.filter((line) => line.charAt(0) === "+").map((line) => line.substring(1));
+      if (oldLines.length > 0 || newLines.length > 0) edits.push({ path: diff.path, old: oldLines.join("\n"), new: newLines.join("\n") });
+    }
+  }
+  return edits;
+}
+
+// plugins/provider-codex/src/runtimeMessages.ts
+function json(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+function toolOutput(value) {
+  const result = json(value);
+  const parts = Array.isArray(result) ? result : list(object(result).content);
+  const mapped = parts.map((part) => {
+    const item = object(part);
+    if (item.type === "image") return { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
+    if (item.type === "inputImage") return { type: "image_url", image_url: { url: item.imageUrl } };
+    return part;
+  });
+  return display(Array.isArray(result) ? mapped : parts.length ? { ...object(result), content: mapped } : result);
+}
+function display(value) {
+  return typeof value === "string" ? value : canonicalJson(value, 2);
+}
+function runtimeItem(raw, seq, previous) {
+  const item = object(raw);
+  const id = text(item.id);
+  if (!id) return void 0;
+  const row2 = { id, seq: previous?.seq ?? seq, type: "tool_call", content: "" };
+  if (previous?.timestamp) row2.timestamp = previous.timestamp;
+  switch (item.type) {
+    case "userMessage": {
+      row2.type = "user";
+      row2.content = list(item.content).map(object).filter((p) => p.type === "text").map((p) => p.text).join("\n");
+      const attachments = list(item.content).map(object).flatMap((p, index) => {
+        if (p.type !== "image" && p.type !== "localImage") return [];
+        const url = text(p.url);
+        const data = url?.match(/^data:([^;]+);base64,(.*)$/);
+        return [{
+          id: `${id}-image-${index}`,
+          mimeType: data?.[1] ?? "image/png",
+          ...data ? { data: data[2] } : url ? { url } : {},
+          ...text(p.path) ? { path: String(p.path) } : {}
+        }];
+      });
+      if (attachments.length) row2.attachments = attachments;
+      return row2;
+    }
+    case "toolFlow":
+      return { ...row2, type: "tool_flow", content: String(item.state ?? "") };
+    case "sessionIntent":
+      return { ...row2, type: "custom", sessionIntent: { ...text(item.title) ? { title: String(item.title) } : {}, ...text(item.objective) ? { goal: String(item.objective) } : {} } };
+    case "sleep":
+      row2.toolSummary = `Wait ${item.durationMs} ms`;
+      break;
+    case "agentMessage":
+    case "plan":
+      row2.type = "assistant";
+      row2.content = String(item.text ?? "");
+      if (item.delivery === "async" && list(item.questions).length) {
+        row2.toolInput = item;
+        row2.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
+      }
+      return row2;
+    case "reasoning":
+      row2.type = "thinking";
+      row2.collapsed = true;
+      row2.content = list(item.summary).join("\n") || list(item.content).join("\n");
+      return row2;
+    case "contextCompaction":
+      return { ...row2, type: "system", content: "context compacted", systemSubtype: "contextCompaction", timelineMarker: { kind: "context_compaction" } };
+    case "error":
+      return { ...row2, type: "system", content: String(item.message ?? ""), systemSubtype: "api_error" };
+    case "hookPrompt":
+    case "enteredReviewMode":
+    case "exitedReviewMode":
+      return { ...row2, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
+    case "commandExecution":
+      row2.toolKind = "command";
+      row2.toolSummary = String(item.command ?? "");
+      row2.toolDetail = row2.toolSummary;
+      if (typeof item.aggregatedOutput === "string") row2.toolResult = item.aggregatedOutput;
+      if (typeof item.exitCode === "number") row2.toolExitCode = item.exitCode;
+      if (item.status === "interrupted") row2.toolInterrupted = true;
+      break;
+    case "fileChange":
+      row2.toolKind = "edit";
+      row2.fileDiffs = runtimeFileDiffs(item.changes);
+      row2.toolEdits = diffEdits(row2.fileDiffs);
+      row2.toolSummary = list(item.changes).map(object).map((p) => p.path).join("\n");
+      row2.toolDetail = row2.toolSummary;
+      break;
+    case "mcpToolCall":
+    case "dynamicToolCall": {
+      const prefix = text(item.server) ?? text(item.namespace);
+      row2.toolKind = "generic";
+      row2.toolName = [prefix, text(item.tool)].filter(Boolean).join(" \xB7 ");
+      row2.toolInput = item.arguments ?? null;
+      row2.toolSummary = display(item.arguments);
+      row2.toolTitle = row2.toolName;
+      if (item.result != null || item.contentItems != null) row2.toolResult = toolOutput(item.result ?? item.contentItems);
+      if (item.error != null) {
+        row2.toolResult = display(item.error);
+        row2.toolError = true;
+      }
+      if (item.success === false || object(item.result).isError === true) row2.toolError = true;
+      break;
+    }
+    case "functionCallOutput":
+      return { ...row2, type: "tool_result", toolId: id, toolName: String(item.name ?? ""), toolResult: display(item.output) };
+    case "webSearch":
+      row2.toolKind = "web";
+      row2.toolSummary = String(item.query ?? "");
+      row2.toolRichResult = json({
+        kind: "web",
+        query: item.query,
+        action: object(item.action).type,
+        url: object(item.action).url,
+        pattern: object(item.action).pattern,
+        resultCount: Array.isArray(item.results) ? item.results.length : void 0
+      });
+      if (item.results != null) row2.toolResult = display(item.results);
+      break;
+    case "imageView":
+    case "imageGeneration":
+      row2.toolKind = "image";
+      row2.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
+      row2.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
+      if (text(item.result)) row2.toolResult = String(item.result).startsWith("data:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
+      break;
+    case "collabAgentToolCall":
+    case "subAgentActivity": {
+      const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
+      const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
+      row2.toolKind = "agent";
+      row2.toolName = "agent_activity";
+      row2.toolSummary = agent;
+      row2.toolInput = json({
+        agent_id: agent,
+        agent_path: item.agentPath,
+        agent_state: { pendingInit: "started", errored: "failed", shutdown: "closed" }[status] ?? status,
+        agent_call_id: id,
+        description: item.prompt,
+        model: item.model,
+        result: object(object(item.agentsStates)[agent]).message
+      });
+      break;
+    }
+    case "planUpdate":
+      row2.toolName = "update_plan";
+      row2.toolSummary = String(item.explanation ?? "");
+      row2.toolResult = display(item.plan);
+      break;
+    default:
+      return void 0;
+  }
+  row2.toolId = id;
+  row2.toolName ?? (row2.toolName = String(item.type));
+  row2.toolInput ?? (row2.toolInput = item);
+  row2.toolArgs = row2.toolSummary;
+  row2.collapsed = true;
+  if (typeof item.durationMs === "number") row2.toolDurationMs = item.durationMs;
+  if (row2.toolError == null) {
+    if (typeof item.exitCode === "number") row2.toolError = item.exitCode !== 0;
+    else if (["failed", "declined", "error"].includes(String(item.status))) row2.toolError = true;
+    else if (item.status === "completed") row2.toolError = false;
+  }
+  return row2;
+}
+function runtimeItems(raw, seq) {
+  const item = object(raw);
+  const receivers = list(item.receiverThreadIds);
+  if (item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver, index) => {
+    const row3 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver] }, seq + index);
+    return row3 ? [row3] : [];
+  });
+  const row2 = runtimeItem(raw, seq);
+  return row2 ? [row2] : [];
+}
+
+// plugins/provider-codex/src/runtimeAuth.ts
+function accountAuth(value) {
+  const response = object(value);
+  if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
+  const account = object(response.account);
+  if (text(account.type)) return { kind: "auth", state: "signedIn" };
+  return { kind: "auth", state: "unknown" };
+}
+function notificationAuth(value) {
+  const params = object(value);
+  if (params.authMode === null) return { kind: "auth", state: "signedOut" };
+  if (text(params.authMode)) return { kind: "auth", state: "signedIn" };
+  return { kind: "auth", state: "unknown" };
+}
+
+// plugins/provider-codex/src/runtimeInterrupt.ts
+function interruptTargets(ctx, root) {
+  const turns = [...ctx.activeTurns];
+  const depth = (thread) => {
+    let current = thread;
+    let count = 0;
+    const seen = /* @__PURE__ */ new Set();
+    while (current !== root) {
+      if (seen.has(current)) return -1;
+      seen.add(current);
+      const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
+      if (!parent) return -1;
+      current = parent;
+      count++;
+    }
+    return count;
+  };
+  return turns.map((turn) => ({ turn, depth: depth(turn.threadId) })).filter((entry) => entry.depth >= 0).sort((a, b) => b.depth - a.depth || a.turn.threadId.localeCompare(b.turn.threadId)).map((entry) => entry.turn);
+}
+
+// plugins/provider-codex/src/runtimePrompts.ts
+function fail(message) {
+  throw { code: "provider_refused", message };
+}
+function decisionOptions(data) {
+  const decisions = list(data.availableDecisions);
+  const supported = decisions.length ? [...decisions] : ["accept", "acceptForSession", "decline", "cancel"];
+  if (!supported.includes("decline")) supported.push("decline");
+  const labels = { accept: "Approve", acceptForSession: "Approve for session", decline: "Decline", cancel: "Cancel" };
+  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : canonicalJson(value) }));
+}
+function runtimePrompt(method, params, _id) {
+  const data = object(params);
+  if (method === "item/tool/requestUserInput") {
+    const questions = list(data.questions).map(object);
+    if (!questions.length) return void 0;
+    return {
+      question: questions.map((q) => String(q.question ?? "")).join("\n"),
+      options: questions.flatMap((q) => list(q.options).flatMap((o) => {
+        const parsed = nativeOption(o);
+        return parsed ? [parsed] : [];
+      })),
+      sections: questions.map((q) => ({ label: String(q.header ?? q.question ?? "") })),
+      multi_select: questions.length > 1
+    };
+  }
+  switch (method) {
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+      return { question: String(data.command ?? data.reason ?? "Approve this operation?"), options: decisionOptions(data) };
+    case "item/permissions/requestApproval":
+      return { question: `Grant permissions: ${canonicalJson(data.permissions)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
+    case "mcpServer/elicitation/request":
+      if (data.mode !== "form" || list(object(data.requestedSchema).required).length)
+        return { question: String(data.message ?? "Unsupported tool request"), options: [{ label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
+      return { question: String(data.message ?? "Respond to the tool request"), options: [{ label: "Accept", value: "accept" }, { label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
+    default:
+      return void 0;
+  }
+}
+function runtimeAnswer(method, params, id, answer) {
+  const data = object(params);
+  const values = answer.kind === "choice" ? answer.values : [];
+  const prompt = runtimePrompt(method, params, id);
+  if (!prompt) fail("Unsupported server request");
+  if (values.some((value2) => !prompt.options.some((o) => o.value === value2))) fail("Invalid native option value");
+  if (method === "item/tool/requestUserInput") {
+    const questions = list(data.questions).map(object);
+    const answers = {};
+    if (answer.kind === "cancel") fail("Questions cannot be cancelled without an answer");
+    for (const q of questions) {
+      const key = text(q.id);
+      if (!key) fail("Missing question id");
+      const selected = list(q.options).flatMap((o) => {
+        const parsed = nativeOption(o);
+        return parsed && values.includes(parsed.value) ? [parsed.value] : [];
+      });
+      const value2 = answer.kind === "text" && questions.length === 1 ? answer.text : selected.length === 1 ? selected[0] : void 0;
+      if (!value2?.trim()) fail("Each question requires one answer");
+      answers[key] = { answers: [value2] };
+    }
+    return json({ answers });
+  }
+  if (answer.kind === "text" || answer.kind === "choice" && values.length !== 1) fail("Approval requires one declared option");
+  const value = answer.kind === "cancel" ? "cancel" : values[0];
+  switch (method) {
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+      return { decision: value.startsWith("{") ? JSON.parse(value) : value };
+    case "item/permissions/requestApproval":
+      return json({ permissions: value === "turn" || value === "session" ? data.permissions ?? {} : {}, scope: value === "session" ? "session" : "turn" });
+    case "mcpServer/elicitation/request":
+      return json({ action: value, ...value === "accept" ? { content: {} } : {} });
+    default:
+      return fail("Unsupported server request");
+  }
+}
+
+// plugins/provider-codex/src/runtimeSettings.ts
+function codexRuntimePolicy(settings) {
+  const selected = settings.mode ?? "auto-accept-edits";
+  const policies = {
+    "approval-required": ["untrusted", "user", "readOnly"],
+    "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
+    "auto": ["on-request", "auto_review", "workspaceWrite"],
+    "full-access": ["never", "user", "dangerFullAccess"]
+  };
+  const policy = policies[selected];
+  if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
+  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
+    type: policy[2],
+    ...policy[2] === "workspaceWrite" && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
+    ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
+  } };
+}
+function codexThreadConfig(settings) {
+  const workspaceWrite = codexRuntimePolicy(settings).sandboxPolicy.type === "workspaceWrite";
+  return {
+    check_for_update_on_startup: false,
+    project_doc_max_bytes: 65536,
+    ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
+    ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
+    ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
+  };
+}
+
+// plugins/provider-codex/src/runtimeErrors.ts
+function runtimeError(value, willRetry = false) {
+  const error = object(value);
+  const info = error.codexErrorInfo;
+  const code = typeof info === "string" ? info : Object.keys(object(info))[0];
+  const message = text(error.additionalDetails) ?? text(error.message) ?? "Provider request failed";
+  const category = code === "usageLimitExceeded" || code === "rateLimitExceeded" ? "usage_limit" : code?.startsWith("http") || code?.startsWith("responseStream") ? "transport_error" : "provider_error";
+  return { message, metadata: { ...code ? { code } : {}, class: category, retryable: willRetry } };
+}
+
+// plugins/provider-codex/src/runtimeReduce.ts
+function initial(ctx, raw) {
+  const state = object(raw);
+  if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
+    const restored = JSON.parse(JSON.stringify(state));
+    restored.items = Object.assign(/* @__PURE__ */ Object.create(null), restored.items);
+    if (restored.parents) restored.parents = Object.assign(/* @__PURE__ */ Object.create(null), restored.parents);
+    return restored;
+  }
+  return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
+}
+function timing(params) {
+  const turn = object(params.turn);
+  return {
+    ...typeof turn.startedAt === "number" && turn.startedAt >= 0 ? { startedAt: turn.startedAt * 1e3 } : {},
+    ...typeof turn.completedAt === "number" && turn.completedAt >= 0 ? { completedAt: turn.completedAt * 1e3 } : {}
+  };
+}
+function usage(params) {
+  const token = object(params.tokenUsage);
+  const total = object(token.total);
+  if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
+  return {
+    input_tokens: total.inputTokens,
+    output_tokens: total.outputTokens,
+    ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
+    ...typeof total.cachedInputTokens === "number" ? { cache_read_tokens: total.cachedInputTokens } : {},
+    ...typeof object(token.last).totalTokens === "number" ? { used_tokens: Number(object(token.last).totalTokens) } : {},
+    ...typeof token.modelContextWindow === "number" ? { window_tokens: token.modelContextWindow } : {}
+  };
+}
+function sendEvidence(ctx, item, turnId) {
+  if (item.type !== "userMessage" || !turnId) return void 0;
+  const sendId = text(item.clientId);
+  const claim = ctx.claimedSends.find((c) => c.sendId === sendId && c.threadId === ctx.threadId);
+  if (!claim) return void 0;
+  const parts = list(item.content).map(object);
+  const content = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
+  if (content !== claim.input.text) return void 0;
+  const images = parts.filter((p) => p.type === "image" || p.type === "localImage");
+  if (images.length !== claim.input.attachments.length) return void 0;
+  if (!images.every((image, index) => {
+    const expected = claim.input.attachments[index];
+    if (expected.data) return image.type === "image" && image.url === `data:${expected.mimeType};base64,${expected.data}`;
+    if (expected.url) return image.type === "image" && image.url === expected.url;
+    return !!expected.path && image.type === "localImage" && image.path === expected.path;
+  })) return void 0;
+  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId };
+}
+function stamp(state, row2, params) {
+  const previous = state.items[row2.id];
+  row2.seq = previous?.seq ?? ++state.seq;
+  const ms = params.startedAtMs ?? params.completedAtMs;
+  if (previous?.timestamp) row2.timestamp = previous.timestamp;
+  else if (typeof ms === "number" && Number.isFinite(ms)) row2.timestamp = new Date(ms).toISOString();
+  const turnId = text(params.turnId) ?? text(object(params.turn).id);
+  if (turnId) row2.toolFlowId = turnId;
+  state.items[row2.id] = row2;
+  return row2;
+}
+function mapItem(state, method, params) {
+  const raw = object(params.item);
+  const id = text(raw.id) ?? text(params.itemId);
+  if (!id) return void 0;
+  const previous = state.items[id];
+  if (method === "item/started" || method === "item/completed") {
+    const row3 = runtimeItem(raw, state.seq + 1, previous);
+    return row3 ? stamp(state, row3, params) : void 0;
+  }
+  const delta = text(params.delta) ?? text(params.message);
+  if (!delta) return void 0;
+  const row2 = previous ? { ...previous } : { id, seq: state.seq + 1, type: "assistant", content: "" };
+  switch (method) {
+    case "item/agentMessage/delta":
+    case "item/plan/delta":
+      row2.type = "assistant";
+      row2.content += delta;
+      break;
+    case "item/reasoning/textDelta":
+    case "item/reasoning/summaryTextDelta":
+      row2.type = "thinking";
+      row2.collapsed = true;
+      row2.content += delta;
+      break;
+    case "item/commandExecution/outputDelta":
+    case "item/fileChange/outputDelta":
+      row2.type = "tool_call";
+      row2.toolKind = method === "item/commandExecution/outputDelta" ? "command" : "edit";
+      row2.toolId = id;
+      row2.toolResult = (row2.toolResult ?? "") + delta;
+      break;
+    case "item/mcpToolCall/progress":
+      row2.type = "tool_call";
+      row2.toolKind = "generic";
+      row2.toolId = id;
+      row2.toolDetail = delta;
+      break;
+    default:
+      return void 0;
+  }
+  return stamp(state, row2, params);
+}
+function runtimeReduce(ctx, raw, frames) {
+  const state = initial(ctx, raw);
+  const events = [];
+  for (const frame of frames) {
+    const params = object(frame.params);
+    if (frame.kind === "notification" && frame.method === "account/updated") {
+      events.push(notificationAuth(params));
+      continue;
+    }
+    state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
+    if (frame.kind === "notification" && frame.method === "thread/started") {
+      const thread = object(params.thread);
+      const id = text(thread.id);
+      const parent = text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+      if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
+      continue;
+    }
+    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId)) {
+      const threadId2 = params.threadId;
+      const turnId2 = text(object(params.turn).id) ?? text(params.turnId);
+      if (!turnId2) continue;
+      state.childActive ?? (state.childActive = {});
+      state.childCompleted ?? (state.childCompleted = []);
+      if (frame.method === "turn/started" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
+        state.childActive[threadId2] = turnId2;
+        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "working", ...timing(params) });
+      } else if (frame.method === "turn/completed" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
+        state.childCompleted.push(`${threadId2}:${turnId2}`);
+        if (state.childActive[threadId2] && state.childActive[threadId2] !== turnId2) continue;
+        delete state.childActive[threadId2];
+        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "idle", ...timing(params) });
+      }
+      continue;
+    }
+    if (frame.kind === "notification" && frame.method === "account/rateLimits/updated") {
+      const limits = object(params.rateLimits);
+      if (limits.limitId && limits.limitId !== "codex") continue;
+      state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
+      const windows = ["primary", "secondary"].flatMap((window) => {
+        const value = object(state.rateLimitSnapshot?.[window]);
+        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
+        return [{
+          window,
+          usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
+          ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
+          ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
+        }];
+      });
+      if (windows.length) events.push({ kind: "rateLimits", rateLimits: windows });
+      continue;
+    }
+    if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
+    const threadId = ctx.threadId;
+    const turnId = text(params.turnId) ?? text(object(params.turn).id);
+    if (frame.kind === "request") {
+      if (!serverRequestMethods.includes(frame.method)) continue;
+      const prompt = runtimePrompt(frame.method, params, frame.requestId);
+      if (prompt) events.push({ kind: "prompt", threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId, state: "needs_input", ...turnId ? { turnId } : {} });
+      continue;
+    }
+    switch (frame.method) {
+      case "turn/started":
+        if (!turnId || state.completed.includes(turnId)) break;
+        state.activeTurnId = turnId;
+        events.push({ kind: "turnState", threadId, turnId, state: "working", ...timing(params) });
+        break;
+      case "turn/completed": {
+        if (!turnId || state.completed.includes(turnId)) break;
+        state.completed.push(turnId);
+        if (state.activeTurnId && state.activeTurnId !== turnId) break;
+        delete state.activeTurnId;
+        const error = text(object(object(params.turn).error).message);
+        if (error) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error, systemSubtype: "api_error" }, params) });
+        events.push({ kind: "turnState", threadId, turnId, state: "idle", ...timing(params) });
+        break;
+      }
+      case "thread/status/changed": {
+        const status = object(params.status);
+        const type = typeof params.status === "string" ? params.status : status.type;
+        if (type === "idle") events.push({ kind: "turnState", threadId, state: "idle" });
+        else if (type === "active") events.push({ kind: "turnState", threadId, state: list(status.activeFlags).some((f) => f === "waitingOnApproval" || f === "waitingOnUserInput") ? "needs_input" : "working" });
+        break;
+      }
+      case "thread/tokenUsage/updated": {
+        const mapped = usage(params);
+        if (mapped) events.push({ kind: "usage", threadId, usage: mapped });
+        break;
+      }
+      case "thread/settings/updated": {
+        const settings = object(params.threadSettings);
+        const model = text(settings.model);
+        const effort = text(settings.effort);
+        const sandbox = object(settings.sandboxPolicy).type;
+        const mode = settings.approvalPolicy === "untrusted" ? "approval-required" : settings.approvalPolicy === "never" && sandbox === "dangerFullAccess" ? "full-access" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "auto_review" ? "auto" : settings.approvalPolicy === "on-request" && settings.approvalsReviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0;
+        if (model || effort || mode) events.push({ kind: "controlsConfirmed", threadId, settings: { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} } });
+        break;
+      }
+      case "serverRequest/resolved":
+        if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId, requestId: params.requestId });
+        break;
+      case "model/rerouted": {
+        const model = text(params.toModel);
+        if (model) {
+          events.push({ kind: "controlsConfirmed", threadId, settings: { model } });
+          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId ?? "thread"}:model-rerouted`, seq: state.seq + 1, type: "system", content: `Model changed to ${model}`, systemSubtype: "model_rerouted", toolInput: params }, params) });
+        }
+        break;
+      }
+      case "thread/goal/cleared":
+        events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: {} }, params) });
+        break;
+      case "turn/diff/updated": {
+        const diff = text(params.diff);
+        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", fileDiffs: runtimeTurnDiff(diff), toolResult: diff, collapsed: true }, params) });
+        break;
+      }
+      case "thread/goal/updated": {
+        const goal = text(object(params.goal).objective);
+        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: { goal } }, params) });
+        break;
+      }
+      case "turn/plan/updated": {
+        const row2 = runtimeItem({ id: `${turnId}:plan`, type: "planUpdate", plan: params.plan, explanation: params.explanation }, state.seq + 1);
+        if (row2) events.push({ kind: "chatItem", threadId, item: stamp(state, row2, params) });
+        break;
+      }
+      case "error": {
+        const error = runtimeError(params.error, params.willRetry === true);
+        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: params.willRetry === true ? "provider_retry" : "api_error", toolInput: error.metadata }, params) });
+        break;
+      }
+      default: {
+        let row2;
+        const rawItem = object(params.item);
+        if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
+          const itemId = text(rawItem.id);
+          state.questions ?? (state.questions = []);
+          if (itemId && !state.questions.includes(itemId)) {
+            state.questions.push(itemId);
+            events.push({ kind: "question", threadId, itemId, questions: runtimeQuestions(rawItem.questions), response: "message" });
+          }
+          continue;
+        }
+        const reasoningId = text(rawItem.id) ?? text(params.itemId);
+        if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
+          state.reasoning ?? (state.reasoning = {});
+          const parts = state.reasoning[reasoningId] ?? { summary: [], content: [] };
+          state.reasoning[reasoningId] = parts;
+          if (rawItem.type === "reasoning") {
+            if (list(rawItem.summary).length) parts.summary = list(rawItem.summary).map(String);
+            if (list(rawItem.content).length) parts.content = list(rawItem.content).map(String);
+          } else {
+            const stream = frame.method === "item/reasoning/summaryTextDelta" ? "summary" : "content";
+            const index = Number(params.summaryIndex ?? params.contentIndex ?? 0);
+            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
+          }
+          row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.join("\n") || parts.content.join("\n"), collapsed: true }, params);
+        } else if ((frame.method === "item/started" || frame.method === "item/completed") && rawItem.type === "collabAgentToolCall" && list(rawItem.receiverThreadIds).length) {
+          for (const activity of runtimeItems(rawItem, state.seq + 1)) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
+        } else row2 = mapItem(state, frame.method, params);
+        if (row2) events.push({ kind: "chatItem", threadId, item: row2 });
+        if (frame.method === "item/started" || frame.method === "item/completed") {
+          const evidence = sendEvidence(ctx, object(params.item), turnId);
+          if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
+            state.evidenced.push(evidence.sendId);
+            events.push(evidence);
+          }
+          const item = object(params.item);
+          const id = text(item.id);
+          if (frame.method === "item/completed" && item.type === "contextCompaction" && id && !state.compacted.includes(id)) {
+            state.compacted.push(id);
+            events.push({ kind: "contextCompacted", threadId, itemId: id });
+          }
+        }
+      }
+    }
+  }
+  return { state: json(state), events };
+}
+
+// plugins/provider-codex/src/runtime.ts
+function fail2(code, message) {
+  throw { code, message };
+}
+function request(method, params, state = { stage: method }) {
+  const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
+  return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
+}
+function settingsParams(ctx, settings, instructions) {
+  const policies = codexRuntimePolicy(settings);
+  const sandbox = object(policies.sandboxPolicy).type;
+  return {
+    cwd: ctx.cwd,
+    model: settings.model,
+    threadSource: "user",
+    config: codexThreadConfig(settings),
+    approvalPolicy: policies.approvalPolicy,
+    approvalsReviewer: policies.approvalsReviewer,
+    sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
+    ...instructions !== void 0 ? { developerInstructions: instructions } : {}
+  };
+}
+function turnParams(ctx, op) {
+  const input = [{ type: "text", text: op.input.text }];
+  for (const attachment of op.input.attachments) {
+    if (attachment.data) input.push({ type: "image", url: `data:${attachment.mimeType};base64,${attachment.data}` });
+    else if (attachment.url) input.push({ type: "image", url: attachment.url });
+    else if (attachment.path) input.push({ type: "localImage", path: attachment.path });
+    else fail2("invalid_schema", "Attachment has no image source");
+  }
+  return {
+    threadId: op.threadId,
+    clientUserMessageId: op.sendId,
+    input,
+    cwd: ctx.cwd,
+    ...codexRuntimePolicy(op.settings),
+    model: op.settings.model,
+    effort: op.settings.effort
+  };
+}
+function validateBinding(ctx, op) {
+  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail2("binding_mismatch", "Thread differs from the bound thread");
+  if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail2("binding_mismatch", "Active turn differs from the bound turn");
+}
+function runtimePlan(ctx, op) {
+  validateBinding(ctx, op);
+  switch (op.kind) {
+    case "initialize":
+      return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: object(ctx.providerSettings).includeTurnDiffs === true ? [] : ["turn/diff/updated"] } });
+    case "openThread":
+      return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
+    case "resumeThread":
+      return request("thread/resume", { ...settingsParams(ctx, op.settings), threadId: op.threadId, excludeTurns: true });
+    case "readHistory":
+      return request(
+        "thread/turns/list",
+        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 100, cursor: op.cursor },
+        { stage: "turns", turns: [], cursors: [], items: [], openItems: [], seq: 0 }
+      );
+    case "submitTurn": {
+      const params = turnParams(ctx, op);
+      if (!op.activeTurnId) return request("turn/start", params);
+      return request("turn/steer", { threadId: op.threadId, clientUserMessageId: op.sendId, input: params.input, expectedTurnId: op.activeTurnId });
+    }
+    case "interrupt": {
+      const turns = interruptTargets(ctx, op.threadId);
+      if (!turns.length) fail2("provider_refused", "No active turn to interrupt");
+      return request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) });
+    }
+    case "answerQuestion":
+      return { action: { kind: "questionAnswer", input: questionAnswerInput(op.itemId, op.answers) }, state: null };
+    case "answer": {
+      const pending = ctx.pendingRequest;
+      if (!pending || pending.requestId !== op.requestId) fail2("binding_mismatch", "Answer has no exact pending request");
+      return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
+    }
+    case "control": {
+      const thread = op.threadId ?? ctx.threadId;
+      if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
+      if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
+      if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
+      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: op.value });
+      if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
+      const settings = op.action === "settings" ? object(op.value) : { ...ctx.settings, [op.action]: op.value };
+      for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
+      const parsed = settings;
+      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort });
+    }
+  }
+}
+function refused(message, beforeAcceptance = false) {
+  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance };
+}
+function continuation(plan, beforeAcceptance) {
+  return { kind: "continue", plan, ...beforeAcceptance ? { beforeAcceptance } : {} };
+}
+function runtimeResponse(ctx, op, raw, reply) {
+  validateBinding(ctx, op);
+  const state = object(raw);
+  if (reply.kind === "error") {
+    if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
+    if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
+      return continuation(request("turn/start", turnParams(ctx, op)), true);
+    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && (reply.error.message.includes("codex unarchive") || reply.error.message.includes("session ") && reply.error.message.includes(" is archived")))
+      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive" }));
+    return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
+  }
+  const value = object(reply.value);
+  switch (op.kind) {
+    case "initialize":
+      if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: { stage: "initializedNotification" } });
+      if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
+      return { kind: "complete", result: { kind: "initialized" }, events: [accountAuth(value)] };
+    case "openThread": {
+      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: op.settings } };
+      const threadId = userThread(value);
+      if (!threadId) return refused("New thread identity unverified");
+      return continuation(request(
+        "thread/inject_items",
+        { threadId, items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "Domios thread binding marker." }] }] },
+        { stage: "materialize", threadId }
+      ));
+    }
+    case "resumeThread": {
+      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
+      if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
+      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify" }));
+      return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: op.settings } };
+    }
+    case "readHistory":
+      return historyResponse(op, state, value);
+    case "submitTurn": {
+      const turnId = text(object(value.turn).id) ?? text(value.turnId);
+      return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
+    }
+    case "interrupt": {
+      const turns = list(state.remaining).map(object);
+      if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
+      return { kind: "complete", result: { kind: "done" } };
+    }
+    case "control":
+      return { kind: "complete", result: { kind: "done" }, ...state.stage === "auth" ? { events: [accountAuth(value)] } : {} };
+    case "answer":
+    case "answerQuestion":
+      return { kind: "complete", result: { kind: "done" } };
+  }
+}
+function historyResponse(op, state, value) {
+  if (state.stage === "goal") {
+    const objective = text(object(value.goal).objective);
+    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: { goal: objective } }];
+    return historyComplete(op, state);
+  }
+  if (!Array.isArray(value.data)) return refused("Missing history page data");
+  if (state.stage === "turns") {
+    const turns2 = list(value.data).map(object);
+    const next2 = text(value.nextCursor);
+    if (next2 && next2 === op.cursor) return refused("Repeated history cursor");
+    const collected2 = { ...state, turns: turns2, nextCursor: next2, index: 0, stage: "items" };
+    if (!turns2.length) return historyGoal(op, collected2);
+    return historyItems(op, collected2);
+  }
+  if (state.stage !== "items") return refused("Invalid history state");
+  const turns = list(state.turns).map(object);
+  const turn = turns[Number(state.index)];
+  if (!turn || !text(turn.id)) return refused("Missing history turn id");
+  const items = list(state.items);
+  const openItems = list(state.openItems);
+  let seq = Number(state.seq);
+  let questions = list(state.questions);
+  for (const entry of value.data) {
+    const record4 = object(entry);
+    const rawItem = record4.item ?? record4;
+    questions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
+    const rows = runtimeItems(rawItem, seq + 1);
+    seq += rows.length;
+    for (const row2 of rows) {
+      row2.toolFlowId = String(turn.id);
+      const timestamp = record4.startedAtMs ?? record4.completedAtMs;
+      if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
+      items.push(row2);
+      if (turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status))) openItems.push({ turnId: String(turn.id), item: row2 });
+    }
+  }
+  const next = text(value.nextCursor);
+  const cursors = list(state.cursors);
+  if (next && cursors.includes(next)) return refused("Repeated history cursor");
+  const collected = { ...state, items, openItems, seq, questions };
+  if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
+  const index = Number(state.index) + 1;
+  if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
+  return historyGoal(op, collected);
+}
+function historyItems(op, state, cursor) {
+  const turn = object(list(state.turns)[Number(state.index)]);
+  if (!text(turn.id)) return refused("Missing history turn id");
+  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, state));
+}
+function historyGoal(op, state) {
+  if (text(state.nextCursor)) return historyComplete(op, state);
+  return continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" }));
+}
+function historyComplete(op, state) {
+  return { kind: "complete", result: {
+    kind: "historyPage",
+    threadId: op.threadId,
+    items: list(state.items),
+    openItems: list(state.openItems),
+    ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
+    ...list(state.questions).length ? { questions: list(state.questions) } : {}
+  } };
+}
+
 // plugins/provider-codex/src/toolOutput.ts
 function codexToolOutputText(output) {
   if (typeof output === "string") return output;
@@ -37,16 +1112,16 @@ function codexToolOutputText(output) {
   if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
     return output.map((item) => item.text).join("");
   }
-  return typeof output === "object" ? JSON.stringify(output) : String(output);
+  return typeof output === "object" ? canonicalJson(output) : String(output);
 }
 
 // plugins/provider-shared/accessError.ts
-function object(value) {
+function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function classifyAccessError(error, record4) {
-  const detail = object(error);
-  const info = object(detail?.codexErrorInfo);
+  const detail = object2(error);
+  const info = object2(detail?.codexErrorInfo);
   const fields = [
     typeof error === "string" ? error : null,
     detail?.type,
@@ -57,7 +1132,7 @@ function classifyAccessError(error, record4) {
     detail?.httpStatusCode,
     detail?.codexErrorInfo,
     ...Object.keys(info ?? {}),
-    ...Object.values(info ?? {}).map((value) => object(value)?.httpStatusCode),
+    ...Object.values(info ?? {}).map((value) => object2(value)?.httpStatusCode),
     record4.status,
     record4.statusCode,
     record4.status_code,
@@ -497,8 +1572,8 @@ function rolloutCarriesMarker(path, id, marker) {
     if (payload.role !== "developer" && payload.role !== "user") continue;
     const content = Array.isArray(payload.content) ? payload.content : [];
     for (let j = 0; j < content.length; j++) {
-      const text5 = content[j] && content[j].text;
-      if (typeof text5 === "string" && text5.indexOf(marker) !== -1) return true;
+      const text6 = content[j] && content[j].text;
+      if (typeof text6 === "string" && text6.indexOf(marker) !== -1) return true;
     }
   }
   return false;
@@ -630,9 +1705,9 @@ function parseMenuOptions(screen) {
   return options;
 }
 function joinWrappedLabel(label, row2) {
-  const continuation = row2.trim();
+  const continuation2 = row2.trim();
   const pathBoundary = /[\\/]$/.test(label);
-  return `${label}${pathBoundary ? "" : " "}${continuation}`;
+  return `${label}${pathBoundary ? "" : " "}${continuation2}`;
 }
 function parseActiveTerminalChoice(screen) {
   const lines = normalizeLines(screen);
@@ -707,8 +1782,8 @@ function questionForMenu(lines, firstLine) {
   }
   return "Permission required";
 }
-function normalizeLines(text5) {
-  return String(text5 || "").replace(/\r*\n|\r/g, "\n").split("\n");
+function normalizeLines(text6) {
+  return String(text6 || "").replace(/\r*\n|\r/g, "\n").split("\n");
 }
 function lastMeaningfulLineIndex(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -774,8 +1849,8 @@ function parseCodexUsage(rawText, nowMs) {
       raw_text: raw
     };
   }
-  const text5 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-  const lines = text5.split("\n");
+  const text6 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
+  const lines = text6.split("\n");
   const limits = parseCodexLimits(lines, nowMs);
   const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
   const weekly = limits.find((line) => line.family === "weekly");
@@ -877,8 +1952,8 @@ function codexPctToUsed(value, mode) {
   return Math.min(100, Math.max(0, pct));
 }
 var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
-function codexLimitFamily(text5, sectionHeader) {
-  const lower = String(text5 || "").toLowerCase();
+function codexLimitFamily(text6, sectionHeader) {
+  const lower = String(text6 || "").toLowerCase();
   const hasGeneral = /\bgeneral\b/.test(lower);
   const hasWeekly = /\bweekly\b/.test(lower);
   const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
@@ -1208,7 +2283,7 @@ function clip(value) {
   if (compact.length <= MAX_TITLE_CHARS) return compact;
   return compact.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
 }
-function text(value) {
+function text2(value) {
   return typeof value === "string" ? value : "";
 }
 function baseName(path) {
@@ -1221,8 +2296,8 @@ function commandHead(command) {
   return tokens.slice(0, width).join(" ");
 }
 function actionTitle(fields) {
-  const summary = text(fields.tool_summary);
-  const detail = text(fields.tool_detail);
+  const summary = text2(fields.tool_summary);
+  const detail = text2(fields.tool_detail);
   if (fields.tool_kind === "command") {
     const more = /\(\+(\d+) more\)$/.exec(summary);
     return clip(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
@@ -1230,7 +2305,7 @@ function actionTitle(fields) {
   if (fields.tool_kind === "read" && summary) return clip(`Read ${baseName(summary)}`);
   if (fields.tool_kind === "edit") {
     const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
-    const paths = edits.map((edit) => text(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
+    const paths = edits.map((edit) => text2(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
     if (paths.length > 0) return clip(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
   }
   return clip(summary || "Tool activity");
@@ -1248,7 +2323,7 @@ var AGENT_STATES = {
   shutdown: "closed",
   closed: "closed"
 };
-function text2(value) {
+function text3(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 function record2(value) {
@@ -1261,7 +2336,7 @@ function row(uuid, blocks, ts, timestamp) {
 function agentBlock(fields, summary, turnId) {
   const input = {};
   for (const key in fields) if (fields[key]) input[key] = fields[key];
-  const flowId = text2(turnId);
+  const flowId = text3(turnId);
   return { kind: "tool_use", data: {
     name: "agent_activity",
     input,
@@ -1273,7 +2348,7 @@ function agentBlock(fields, summary, turnId) {
 }
 function thoughtRow(id, summaries, ts, timestamp) {
   const blocks = summaries.filter((summary) => typeof summary === "string" && summary.trim() !== "").map((summary) => ({ kind: "thinking", data: { text: summary } }));
-  return row(text2(id) ? `reasoning-${text2(id)}` : "", blocks, ts, timestamp);
+  return row(text3(id) ? `reasoning-${text3(id)}` : "", blocks, ts, timestamp);
 }
 function reasoningItemRow(item, ts, timestamp) {
   return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp);
@@ -1287,12 +2362,12 @@ function reasoningResponseRow(payload, ts, timestamp) {
   return thoughtRow(payload.id, summaries, ts, timestamp);
 }
 function subAgentRow(item, id, turnId, ts, timestamp) {
-  const agentId = text2(item.agent_thread_id);
-  const agentPath = text2(item.agent_path);
+  const agentId = text3(item.agent_thread_id);
+  const agentPath = text3(item.agent_path);
   if (!agentId && !agentPath) return null;
-  const state = AGENT_STATES[text2(item.kind)] ?? "unknown";
+  const state = AGENT_STATES[text3(item.kind)] ?? "unknown";
   const block = agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId);
-  return row(text2(id) ? `agent-${text2(id)}` : "", [block], ts, timestamp);
+  return row(text3(id) ? `agent-${text3(id)}` : "", [block], ts, timestamp);
 }
 function collabCallRow(item, turnId, ts, timestamp) {
   const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
@@ -1301,119 +2376,26 @@ function collabCallRow(item, turnId, ts, timestamp) {
   const seen = [];
   const blocks = [];
   for (const receiver of receivers) {
-    const agentId = text2(receiver);
+    const agentId = text3(receiver);
     if (!agentId || seen.indexOf(agentId) !== -1) continue;
     seen.push(agentId);
-    const agentPath = text2(agents.find((entry) => entry !== null && text2(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text2(record2(states?.[agentId])?.status)] ?? "unknown";
+    const agentPath = text3(agents.find((entry) => entry !== null && text3(entry.thread_id) === agentId)?.agent_path);
+    const state = AGENT_STATES[text3(record2(states?.[agentId])?.status)] ?? "unknown";
     blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
-  return row(text2(item.id) ? `collab-${text2(item.id)}` : "", blocks, ts, timestamp);
+  return row(text3(item.id) ? `collab-${text3(item.id)}` : "", blocks, ts, timestamp);
 }
 function agentMessageRow(payload, ts, timestamp) {
-  const from = text2(payload.author);
-  const to = text2(payload.recipient);
+  const from = text3(payload.author);
+  const to = text3(payload.recipient);
   if (!from || !to || from === to) return null;
   const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
   const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
-  return row(text2(payload.id) ? `agent-message-${text2(payload.id)}` : "", [block], ts, timestamp);
-}
-
-// plugins/provider-codex/src/fileDiffs.ts
-var LINE_MARKERS = " +-\\";
-var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
-function splitLines(text5) {
-  const lines = text5.split("\n");
-  if (lines[lines.length - 1] === "") lines.pop();
-  return lines;
-}
-function contentHunks(content, marker) {
-  const lines = content ? splitLines(content) : [];
-  if (lines.length === 0) return [];
-  const added = marker === "+";
-  return [{
-    oldStart: added ? 0 : 1,
-    oldLines: added ? 0 : lines.length,
-    newStart: added ? 1 : 0,
-    newLines: added ? lines.length : 0,
-    lines: lines.map((line) => marker + line)
-  }];
-}
-function unifiedHunks(diff) {
-  const hunks = [];
-  let current = null;
-  for (const line of splitLines(diff)) {
-    const header = HUNK_HEADER.exec(line);
-    if (header) {
-      current = {
-        oldStart: Number(header[1]),
-        oldLines: header[2] === void 0 ? 1 : Number(header[2]),
-        newStart: Number(header[3]),
-        newLines: header[4] === void 0 ? 1 : Number(header[4]),
-        lines: []
-      };
-      hunks.push(current);
-    } else if (!current) {
-      if (line.indexOf("--- ") !== 0 && line.indexOf("+++ ") !== 0) return null;
-    } else if (!line || LINE_MARKERS.indexOf(line.charAt(0)) < 0) {
-      return null;
-    } else {
-      current.lines.push(line);
-    }
-  }
-  return hunks.length > 0 ? hunks : null;
-}
-function fileDiff(path, hunks, movePath) {
-  let additions = 0;
-  let deletions = 0;
-  for (const hunk of hunks) {
-    for (const line of hunk.lines) {
-      if (line.charAt(0) === "+") additions++;
-      else if (line.charAt(0) === "-") deletions++;
-    }
-  }
-  return movePath ? { path, movePath, additions, deletions, hunks } : { path, additions, deletions, hunks };
-}
-function changeDiff(path, value) {
-  if (!path.trim() || !value || typeof value !== "object" || Array.isArray(value)) return null;
-  const change = value;
-  if ((change.type === "add" || change.type === "delete") && typeof change.content === "string") {
-    return { ...fileDiff(path, contentHunks(change.content, change.type === "add" ? "+" : "-"), ""), kind: change.type };
-  }
-  if (change.type !== "update" || typeof change.unified_diff !== "string") return null;
-  const movePath = typeof change.move_path === "string" && change.move_path.trim() ? change.move_path : "";
-  const binary = /^(Binary files|GIT binary patch)/m.test(change.unified_diff);
-  const hunks = unifiedHunks(change.unified_diff) ?? (binary || movePath && !change.unified_diff ? [] : null);
-  if (!hunks) return null;
-  if (binary) return { ...fileDiff(path, [], movePath), binary: true, kind: movePath ? "rename" : "modify" };
-  return { ...fileDiff(path, hunks, movePath), kind: movePath ? "rename" : "modify" };
-}
-function changedPaths(changes) {
-  if (!changes || typeof changes !== "object" || Array.isArray(changes)) return [];
-  return Object.keys(changes).filter((path) => path.trim().length > 0);
-}
-function codexFileDiffs(changes) {
-  const diffs = [];
-  for (const path of changedPaths(changes)) {
-    const diff = changeDiff(path, changes[path]);
-    if (diff) diffs.push(diff);
-  }
-  return diffs;
-}
-function diffEdits(diffs) {
-  const edits = [];
-  for (const diff of diffs) {
-    for (const hunk of diff.hunks) {
-      const oldLines = hunk.lines.filter((line) => line.charAt(0) === "-").map((line) => line.substring(1));
-      const newLines = hunk.lines.filter((line) => line.charAt(0) === "+").map((line) => line.substring(1));
-      if (oldLines.length > 0 || newLines.length > 0) edits.push({ path: diff.path, old: oldLines.join("\n"), new: newLines.join("\n") });
-    }
-  }
-  return edits;
+  return row(text3(payload.id) ? `agent-message-${text3(payload.id)}` : "", [block], ts, timestamp);
 }
 
 // plugins/provider-codex/src/richResults.ts
-function text3(value) {
+function text4(value) {
   return typeof value === "string" ? value : "";
 }
 function record3(value) {
@@ -1422,12 +2404,12 @@ function record3(value) {
 function webFields(source) {
   const action = record3(source.action);
   const rich = { kind: "web" };
-  const query = text3(source.query) || text3(action?.query);
+  const query = text4(source.query) || text4(action?.query);
   if (query) rich.query = query;
-  const actionName = text3(source.action) || text3(action?.type);
+  const actionName = text4(source.action) || text4(action?.type);
   if (actionName) rich.action = actionName;
-  if (text3(action?.url)) rich.url = text3(action?.url);
-  if (text3(action?.pattern)) rich.pattern = text3(action?.pattern);
+  if (text4(action?.url)) rich.url = text4(action?.url);
+  if (text4(action?.pattern)) rich.pattern = text4(action?.pattern);
   if (Array.isArray(source.results)) rich.resultCount = source.results.length;
   return rich;
 }
@@ -1445,14 +2427,14 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
       tool_title: summary,
       ...detail ? { tool_detail: detail } : {},
       tool_rich_result: rich,
-      ...text3(turnId) ? { tool_flow_id: text3(turnId) } : {},
+      ...text4(turnId) ? { tool_flow_id: text4(turnId) } : {},
       tool_status: failed ? "error" : "success"
     } }]
   };
 }
 function webSearchEndResult(payload, ts, timestamp) {
   const source = record3(payload);
-  const id = text3(source?.call_id);
+  const id = text4(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
   const summary = rich.query || rich.url || "";
@@ -1461,12 +2443,12 @@ function webSearchEndResult(payload, ts, timestamp) {
 }
 function imageGenerationEndResult(payload, ts, timestamp) {
   const source = record3(payload);
-  const id = text3(source?.call_id);
+  const id = text4(source?.call_id);
   if (!source || !id) return null;
   const rich = { kind: "image", origin: "generated" };
-  const status = text3(source.status);
-  const path = text3(source.saved_path);
-  const prompt = text3(source.revised_prompt);
+  const status = text4(source.status);
+  const path = text4(source.saved_path);
+  const prompt = text4(source.revised_prompt);
   if (status) rich.status = status;
   if (path) rich.path = path;
   if (prompt) rich.prompt = prompt;
@@ -1474,15 +2456,15 @@ function imageGenerationEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "image_generation", rich, summary, path || prompt, status === "failed" || status === "error", source.turn_id, ts, timestamp);
 }
 function imageViewResult(item, ts, timestamp, turnId) {
-  const id = text3(item.id);
-  const path = text3(item.path);
+  const id = text4(item.id);
+  const path = text4(item.path);
   if (!id || !path) return null;
   const rich = { kind: "image", origin: "viewed", path };
   return resultMessage(`activity-${id}`, id, "image_view", rich, baseName(path) || path, path, false, turnId, ts, timestamp);
 }
 function extensionResult(item, ts, timestamp, turnId) {
-  const id = text3(item.id);
-  if (!id || !text3(item.kind).startsWith("web.")) return null;
+  const id = text4(item.id);
+  if (!id || !text4(item.kind).startsWith("web.")) return null;
   const rich = webFields(item);
   const summary = rich.query || rich.url || rich.action || "";
   if (!summary) return null;
@@ -1496,13 +2478,13 @@ function parsedReadTitle(value) {
   for (const entry of value) {
     if (!entry || typeof entry !== "object") return "";
     const parsed = entry;
-    const name = text4(parsed.name) || baseName(text4(parsed.path));
+    const name = text5(parsed.name) || baseName(text5(parsed.path));
     if (parsed.type !== "read" || !name) return "";
     if (names.indexOf(name) === -1) names.push(name);
   }
   return actionTitle({ tool_summary: `Read ${names[0]}` + (names.length > 1 ? ` +${names.length - 1}` : "") });
 }
-function text4(value) {
+function text5(value) {
   return typeof value === "string" ? value : "";
 }
 function exactOutcomeNumber(value, nonnegative) {
@@ -1531,16 +2513,16 @@ function commandOutcome(item) {
 function completedActivity(value, ts, timestamp, turnId) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value;
-  const id = text4(item.id);
+  const id = text5(item.id);
   if (!id) return null;
-  const flow = text4(turnId) ? { tool_flow_id: text4(turnId) } : {};
+  const flow = text5(turnId) ? { tool_flow_id: text5(turnId) } : {};
   const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
   if (item.type === "CommandExecution") {
     const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
     const exitCode = exactOutcomeNumber(item.exit_code, false);
     const failed = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
-    const output = text4(item.aggregated_output) || [text4(item.stdout), text4(item.stderr)].filter(Boolean).join("\n");
+    const output = text5(item.aggregated_output) || [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n");
     const fields2 = { tool_kind: "command", tool_summary: command, tool_detail: command };
     const outcome2 = commandOutcome(item);
     message.blocks = [
@@ -1581,7 +2563,7 @@ function completedActivity(value, ts, timestamp, turnId) {
         ...diffs.length > 0 ? { file_diffs: diffs } : {},
         tool_status: failed ? "error" : "success"
       } },
-      { kind: "tool_result", data: { tool_use_id: id, content: [text4(item.stdout), text4(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
+      { kind: "tool_result", data: { tool_use_id: id, content: [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
     ];
     return message;
   }
@@ -1654,23 +2636,23 @@ function withDataUrl(image, url) {
   if (!match) return image;
   return { ...image, mediaType: match[1], data: match[2] };
 }
-function extractInlineImages(text5, images) {
-  return text5.replace(INLINE_IMAGE, (_whole, name, path) => {
+function extractInlineImages(text6, images) {
+  return text6.replace(INLINE_IMAGE, (_whole, name, path) => {
     images.push(imageFromTag(name, path));
     return "";
   });
 }
-function stripPlaceholders(text5, images) {
-  if (images.length === 0) return text5;
+function stripPlaceholders(text6, images) {
+  if (images.length === 0) return text6;
   const names = new Set(images.map((image) => image.name).filter(Boolean));
-  return text5.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
+  return text6.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
 }
 function parseCodexUserContent(content) {
   const images = [];
   if (typeof content === "string") {
     return { text: stripPlaceholders(extractInlineImages(content, images), images), images };
   }
-  let text5 = "";
+  let text6 = "";
   let open = null;
   for (const item of content ?? []) {
     if (!item) continue;
@@ -1695,10 +2677,10 @@ function parseCodexUserContent(content) {
       open = null;
       continue;
     }
-    text5 += extractInlineImages(item.text, images);
+    text6 += extractInlineImages(item.text, images);
   }
   if (open) images.push(open);
-  return { text: stripPlaceholders(text5, images), images };
+  return { text: stripPlaceholders(text6, images), images };
 }
 function codexImageBlock(image) {
   const source = { media_type: image.mediaType };
@@ -2585,31 +3567,31 @@ function hasAdequateCodexHookTimeout(entry) {
     return typeof timeout === "number" && Number.isFinite(timeout) && timeout >= CODEX_HOOK_TIMEOUT_SECS;
   });
 }
-function codexHookContentHash(text5) {
+function codexHookContentHash(text6) {
   let hash = 2166136261;
-  for (let i = 0; i < text5.length; i++) {
-    hash ^= text5.charCodeAt(i);
+  for (let i = 0; i < text6.length; i++) {
+    hash ^= text6.charCodeAt(i);
     hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
   }
   return ("0000000" + hash.toString(16)).slice(-8);
 }
-function isOwnedCodexHookScriptContent(text5) {
-  return text5.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+function isOwnedCodexHookScriptContent(text6) {
+  return text6.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
 }
-function isCurrentCodexHookScriptContent(text5) {
-  if (!isOwnedCodexHookScriptContent(text5)) return false;
-  if (text5.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
-  if (text5.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
-  if (/:\d{2,5}/.test(text5)) return false;
-  if (text5.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text5)) return false;
+function isCurrentCodexHookScriptContent(text6) {
+  if (!isOwnedCodexHookScriptContent(text6)) return false;
+  if (text6.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
+  if (text6.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
+  if (/:\d{2,5}/.test(text6)) return false;
+  if (text6.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text6)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
-    if (text5.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+    if (text6.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
   }
   return true;
 }
 function isOwnedCodexWindowsHookScript(path) {
-  const text5 = host.fs.readFile(path);
-  return typeof text5 === "string" && isOwnedCodexHookScriptContent(text5);
+  const text6 = host.fs.readFile(path);
+  return typeof text6 === "string" && isOwnedCodexHookScriptContent(text6);
 }
 
 // plugins/provider-codex/src/appServer.ts
@@ -2929,12 +3911,12 @@ function checkIntegration() {
   if (!path || !host.fs.fileExists(path)) {
     return emptyIntegrationStatus(path, false);
   }
-  const json = host.fs.readJson(path);
-  if (!json) {
+  const json2 = host.fs.readJson(path);
+  if (!json2) {
     return emptyIntegrationStatus(path, true);
   }
-  const arr = json.hooks && json.hooks.SessionStart;
-  const stopArr = json.hooks && json.hooks.Stop;
+  const arr = json2.hooks && json2.hooks.SessionStart;
+  const stopArr = json2.hooks && json2.hooks.Stop;
   const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
   const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook) && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
   const winScript = codexWindowsHookScriptPath();
@@ -3037,14 +4019,14 @@ function installIntegration(apiPort, options) {
     return { ok: false, error: "existing hooks JSON must contain an object at " + path };
   }
   const originalHooksJson = JSON.stringify(parsedHooks);
-  const json = parsedHooks;
-  if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+  const json2 = parsedHooks;
+  if (json2.hooks !== void 0 && (typeof json2.hooks !== "object" || Array.isArray(json2.hooks))) {
     return { ok: false, error: "hooks is not an object" };
   }
-  if (json.hooks?.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) {
+  if (json2.hooks?.SessionStart !== void 0 && !Array.isArray(json2.hooks.SessionStart)) {
     return { ok: false, error: "hooks.SessionStart is not an array" };
   }
-  if (json.hooks?.Stop !== void 0 && !Array.isArray(json.hooks.Stop)) {
+  if (json2.hooks?.Stop !== void 0 && !Array.isArray(json2.hooks.Stop)) {
     return { ok: false, error: "hooks.Stop is not an array" };
   }
   const configPath = codexConfigPath2();
@@ -3086,27 +4068,27 @@ function installIntegration(apiPort, options) {
     ...ownershipSnapshot ? [ownershipSnapshot] : [],
     ...artifactSnapshots
   ];
-  const fail = (error) => {
+  const fail3 = (error) => {
     const restored = restoreIntegrationFiles(rollbackSnapshots);
     invalidateCodexHookTrust(path);
     return { ok: false, error: restored ? error : error + "; exact rollback failed" };
   };
   if (!writeFileIfChanged(path + ".codeterm-backup", originalHooks) || !writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
-    return fail("could not write recoverable backup for " + path);
+    return fail3("could not write recoverable backup for " + path);
   }
   if (configPath && configExisted && !writeFileIfChanged(configPath + ".codeterm-backup", originalConfig)) {
-    return fail("could not write recoverable backup for " + configPath);
+    return fail3("could not write recoverable backup for " + configPath);
   }
   if (scriptPath && (!writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript) || !writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
-    return fail("could not write recoverable backup for " + scriptPath);
+    return fail3("could not write recoverable backup for " + scriptPath);
   }
-  if (!json.hooks) json.hooks = {};
+  if (!json2.hooks) json2.hooks = {};
   for (const event of ["SessionStart", "Stop"]) {
-    const existing = json.hooks[event];
+    const existing = json2.hooks[event];
     if (existing !== void 0 && !Array.isArray(existing)) {
       return { ok: false, error: "hooks." + event + " is not an array" };
     }
-    json.hooks[event] = removeOwnedCodexHooks(existing || []);
+    json2.hooks[event] = removeOwnedCodexHooks(existing || []);
   }
   const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
   const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
@@ -3123,9 +4105,9 @@ function installIntegration(apiPort, options) {
   const scriptContents = codexWindowsHookScript();
   const scriptChanged = !!scriptPath && (!scriptExisted || originalScript !== scriptContents);
   if (scriptChanged && scriptPath && !host.fs.writeFile(scriptPath, scriptContents)) {
-    return fail("writeFile failed for " + scriptPath);
+    return fail3("writeFile failed for " + scriptPath);
   }
-  json.hooks.SessionStart.push({
+  json2.hooks.SessionStart.push({
     matcher: "startup|resume|clear|compact",
     hooks: [{
       type: "command",
@@ -3135,7 +4117,7 @@ function installIntegration(apiPort, options) {
       _source: CODETERM_CODEX_HOOK_MARKER
     }]
   });
-  json.hooks.Stop.push({
+  json2.hooks.Stop.push({
     hooks: [{
       type: "command",
       command: hookCmd("stop"),
@@ -3144,21 +4126,21 @@ function installIntegration(apiPort, options) {
       _source: CODETERM_CODEX_HOOK_MARKER
     }]
   });
-  const hooksChanged = !hooksExisted || JSON.stringify(json) !== originalHooksJson;
-  const ok = hooksChanged ? host.fs.writeJson(path, json) : true;
+  const hooksChanged = !hooksExisted || JSON.stringify(json2) !== originalHooksJson;
+  const ok = hooksChanged ? host.fs.writeJson(path, json2) : true;
   if (ok) {
     const trust = enableExistingCodexHookTrust(path);
-    if (trust.write_failed) return fail("could not enable existing Codex hook trust");
+    if (trust.write_failed) return fail3("could not enable existing Codex hook trust");
     if (trust.changed) {
       if (!ownershipPath || !writeFileIfChanged(ownershipPath, path)) {
-        return fail("could not record owned Codex hook trust expansion");
+        return fail3("could not record owned Codex hook trust expansion");
       }
     }
     if (scriptChanged || hooksChanged || trust.changed) invalidateCodexHookTrust(path);
     host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
     return { ok: true, hook_trust_state: trust.state };
   }
-  return fail("writeJson failed for " + path);
+  return fail3("writeJson failed for " + path);
 }
 function grantIntegrationTrust(managedKeys, then = (result) => result) {
   const hooksPath = codexHooksPath();
@@ -3182,18 +4164,18 @@ function uninstallIntegration() {
   if (!path) return { ok: true };
   let hooksOk = true;
   if (host.fs.fileExists(path)) {
-    const json = host.fs.readJson(path);
-    if (!json || !json.hooks || typeof json.hooks !== "object") {
+    const json2 = host.fs.readJson(path);
+    if (!json2 || !json2.hooks || typeof json2.hooks !== "object") {
       return { ok: false, error: "could not safely read hooks JSON at " + path };
     }
-    const before = JSON.stringify(json);
-    if (Array.isArray(json.hooks.SessionStart)) {
-      json.hooks.SessionStart = removeOwnedCodexHooks(json.hooks.SessionStart);
+    const before = JSON.stringify(json2);
+    if (Array.isArray(json2.hooks.SessionStart)) {
+      json2.hooks.SessionStart = removeOwnedCodexHooks(json2.hooks.SessionStart);
     }
-    if (Array.isArray(json.hooks.Stop)) {
-      json.hooks.Stop = removeOwnedCodexHooks(json.hooks.Stop);
+    if (Array.isArray(json2.hooks.Stop)) {
+      json2.hooks.Stop = removeOwnedCodexHooks(json2.hooks.Stop);
     }
-    hooksOk = before === JSON.stringify(json) || host.fs.writeJson(path, json);
+    hooksOk = before === JSON.stringify(json2) || host.fs.writeJson(path, json2);
   }
   const ownershipPath = codexHookTrustOwnershipPath();
   if (ownershipPath && host.fs.fileExists(ownershipPath)) {
@@ -3248,9 +4230,9 @@ function ensureIntegrationOnStartup(apiPort, install, then = (result) => result)
   void install;
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) return then({ ok: true, changed: false });
-  const json = host.fs.readJson(path);
-  if (!json || !json.hooks) return then({ ok: true, changed: false });
-  const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
+  const json2 = host.fs.readJson(path);
+  if (!json2 || !json2.hooks) return then({ ok: true, changed: false });
+  const owned = (json2.hooks.SessionStart || []).filter(isCodetermCodexHook);
   if (owned.length === 0) return then({ ok: true, changed: false });
   return refreshCodexHookTrustState(path, (trustState) => {
     if (trustState === "disabled") {
@@ -3275,7 +4257,7 @@ function ensureIntegrationOnStartup(apiPort, install, then = (result) => result)
         }
       );
     });
-    const stopEntries = json.hooks?.Stop || [];
+    const stopEntries = json2.hooks?.Stop || [];
     const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
     const stopOwned = ownedStopEntries.length > 0;
     const stopCommandStale = host.platform() === "windows" && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
@@ -3341,8 +4323,8 @@ function restoreIntegrationFiles(snapshots) {
 function codexHookTrustContext(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return null;
-  const text5 = String(host.fs.readFile(cfg) || "");
-  const block = findCodexHookTrustBlock(text5, hooksPath);
+  const text6 = String(host.fs.readFile(cfg) || "");
+  const block = findCodexHookTrustBlock(text6, hooksPath);
   if (block == null) return null;
   const hooks = host.fs.readJson(hooksPath)?.hooks;
   const labels = [];
@@ -3350,13 +4332,13 @@ function codexHookTrustContext(hooksPath) {
   if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
   const script = codexWindowsHookScriptPath();
   const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
-  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text5));
+  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text6));
   const hookFingerprint = codexHookContentHash([
     ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
     labels.join(",")
   ].join(String.fromCharCode(0)));
   const fingerprint = codexHookContentHash([trustFingerprint, hookFingerprint].join(String.fromCharCode(0)));
-  return { config: text5, block, labels, fingerprint, hookFingerprint, trustFingerprint };
+  return { config: text6, block, labels, fingerprint, hookFingerprint, trustFingerprint };
 }
 function hookTrustConfigSections(config) {
   const sections = [];
@@ -3446,39 +4428,39 @@ function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text5 = String(host.fs.readFile(cfg) || "");
-  if (!text5) return { state: "missing", changed: false, write_failed: false };
-  const span = findCodexHookTrustBlockSpan(text5, hooksPath);
+  const text6 = String(host.fs.readFile(cfg) || "");
+  if (!text6) return { state: "missing", changed: false, write_failed: false };
+  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
-  const block = text5.substring(span.start, span.end);
+  const block = text6.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
     const current = codexHookTrustState(hooksPath);
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
-  const next = text5.substring(0, span.start) + nextBlock + text5.substring(span.end);
+  const next = text6.substring(0, span.start) + nextBlock + text6.substring(span.end);
   return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
 function disableOwnedCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text5 = host.fs.readFile(cfg);
-  if (typeof text5 !== "string") return false;
-  const span = findCodexHookTrustBlockSpan(text5, hooksPath);
+  const text6 = host.fs.readFile(cfg);
+  if (typeof text6 !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
   if (!span) return true;
-  const block = text5.substring(span.start, span.end);
+  const block = text6.substring(span.start, span.end);
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
-  const next = text5.substring(0, span.start) + nextBlock + text5.substring(span.end);
+  const next = text6.substring(0, span.start) + nextBlock + text6.substring(span.end);
   return host.fs.writeFile(cfg, next);
 }
-function findCodexHookTrustBlock(text5, hooksPath) {
-  const span = findCodexHookTrustBlockSpan(text5, hooksPath);
-  return span ? text5.substring(span.start, span.end) : null;
+function findCodexHookTrustBlock(text6, hooksPath) {
+  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
+  return span ? text6.substring(span.start, span.end) : null;
 }
-function findCodexHookTrustBlockSpan(text5, hooksPath) {
-  const lines = text5.split("\n");
+function findCodexHookTrustBlockSpan(text6, hooksPath) {
+  const lines = text6.split("\n");
   const marker = normalizeCodexHookKey(hooksPath + ":session_start:");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -3487,7 +4469,7 @@ function findCodexHookTrustBlockSpan(text5, hooksPath) {
     const rawKey = hookTrustKeyFromHeader(trimmed);
     if (rawKey !== null && normalizeCodexHookKey(rawKey).startsWith(marker)) {
       const start = offset;
-      let end = text5.length;
+      let end = text6.length;
       let scanOffset = offset + line.length + 1;
       for (let j = i + 1; j < lines.length; j++) {
         const t = lines[j].trim();
@@ -3605,29 +4587,32 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  runtimePlan,
+  runtimeResponse,
+  runtimeReduce,
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
   },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
-  detectFromOutput(text5) {
-    const t = String(text5 || "");
+  detectFromOutput(text6) {
+    const t = String(text6 || "");
     for (let i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
       if (t.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) return true;
     }
     return false;
   },
   screenHasTui(screen) {
-    const text5 = String(screen || "");
-    const lower = text5.toLowerCase();
+    const text6 = String(screen || "");
+    const lower = text6.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return hasPromptAndStatusFooter(text5);
+    return hasPromptAndStatusFooter(text6);
   },
-  isOutputNoise(text5) {
-    const trimmed = String(text5 || "").trim();
+  isOutputNoise(text6) {
+    const trimmed = String(text6 || "").trim();
     if (!trimmed) return true;
     for (let i = 0; i < trimmed.length; i++) {
       const c = trimmed[i];
@@ -3642,8 +4627,8 @@ var plugin = {
     return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // screen off the auto-approve path; the universal numbered parser then extracts.
     c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("Select Model") !== -1 || c.indexOf("Select Reasoning") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
-  detectEvents(text5) {
-    const t = String(text5 || "");
+  detectEvents(text6) {
+    const t = String(text6 || "");
     const events = [];
     if (t.indexOf("Would you like to run the following command") !== -1 || t.indexOf("Would you like to make the following edits") !== -1 || t.indexOf("Do you want to approve network access") !== -1 || t.indexOf("Would you like to grant these permissions") !== -1) {
       events.push("permission_request");
@@ -3651,11 +4636,11 @@ var plugin = {
     return events;
   },
   updatePromptSafeChoice,
-  parsePrompt(text5) {
-    return parseCodexPrompt(String(text5 || ""));
+  parsePrompt(text6) {
+    return parseCodexPrompt(String(text6 || ""));
   },
-  parseDirectoryTrustPrompt(text5) {
-    return parseCodexFolderTrustPrompt(String(text5 || ""));
+  parseDirectoryTrustPrompt(text6) {
+    return parseCodexFolderTrustPrompt(String(text6 || ""));
   },
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
@@ -3689,14 +4674,14 @@ var plugin = {
   directoryTrustState(path, skipPermissions) {
     return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
   },
-  sweepLaunchArtifacts(request) {
+  sweepLaunchArtifacts(request2) {
     return manageCodexProfiles(
       profileSweepHost(),
-      request.liveTabIds,
-      request.instanceId,
-      request.confirm,
-      request.includeLegacy,
-      request.goneInstanceIds
+      request2.liveTabIds,
+      request2.instanceId,
+      request2.confirm,
+      request2.includeLegacy,
+      request2.goneInstanceIds
     );
   },
   buildLaunchCommand(params) {
@@ -3897,29 +4882,29 @@ var plugin = {
       if (p.type === "message") {
         const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
         if (!role) continue;
-        let text5 = "";
+        let text6 = "";
         let images = [];
         if (role === "user") {
-          ({ text: text5, images } = parseCodexUserContent(p.content));
+          ({ text: text6, images } = parseCodexUserContent(p.content));
         } else if (Array.isArray(p.content)) {
           for (let j = 0; j < p.content.length; j++) {
             const c = p.content[j];
-            if (c && typeof c.text === "string") text5 += c.text;
+            if (c && typeof c.text === "string") text6 += c.text;
           }
         } else if (typeof p.content === "string") {
-          text5 = p.content;
+          text6 = p.content;
         }
         if (images.length > 0) {
-          const textBlocks = text5 ? [{ kind: "text", data: { text: text5 } }] : [];
+          const textBlocks = text6 ? [{ kind: "text", data: { text: text6 } }] : [];
           out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
           continue;
         }
-        if (!text5) continue;
-        const systemSubtype = classifyCodexSystemText(text5);
+        if (!text6) continue;
+        const systemSubtype = classifyCodexSystemText(text6);
         if (systemSubtype) {
           out.push({
             role: "system",
-            blocks: [{ kind: "text", data: { text: text5, subtype: systemSubtype } }],
+            blocks: [{ kind: "text", data: { text: text6, subtype: systemSubtype } }],
             sourceType: v.type,
             sourceSubtype: systemSubtype,
             ts,
@@ -3927,7 +4912,7 @@ var plugin = {
           });
           continue;
         }
-        out.push({ role, blocks: [{ kind: "text", data: { text: text5 } }], ts, timestamp: tsIso });
+        out.push({ role, blocks: [{ kind: "text", data: { text: text6 } }], ts, timestamp: tsIso });
       } else if (p.type === "function_call") {
         let input = {};
         try {
@@ -4069,9 +5054,9 @@ var plugin = {
     return detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
-  parseSessionMessages(text5) {
+  parseSessionMessages(text6) {
     const out = [];
-    const lines = String(text5 || "").split("\n");
+    const lines = String(text6 || "").split("\n");
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -4301,8 +5286,8 @@ function hasUsefulFunctionCall(name, input, args) {
 function isInternalOrchestrationCall(name) {
   return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents";
 }
-function classifyCodexSystemText(text5) {
-  const trimmed = String(text5 || "").trim();
+function classifyCodexSystemText(text6) {
+  const trimmed = String(text6 || "").trim();
   if (!trimmed) return null;
   if (trimmed.indexOf("<turn_aborted>") === 0 && trimmed.indexOf("</turn_aborted>") !== -1) {
     return "turn_aborted";

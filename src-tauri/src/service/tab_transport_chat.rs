@@ -286,6 +286,10 @@ pub struct ChatBackendTransport<'a> {
 
 impl TabTransport for ChatBackendTransport<'_> {
     fn send(&self, text: &str, _enter: bool) -> Result<(), String> {
+        if super::agent_runtime::engine::requested(self.svc, &self.plugin_id) {
+            return super::agent_runtime::transport::send(self.svc, &self.tab_id, text, None)
+                .map_err(|error| error.ledger_message());
+        }
         // A tab restored after a daemon restart has no live plugin session; reopen lazily before the first send.
         let session_id = self
             .svc
@@ -308,6 +312,9 @@ impl TabTransport for ChatBackendTransport<'_> {
     }
 
     fn kill(&self) -> Result<(), String> {
+        if super::agent_runtime::engine::requested(self.svc, &self.plugin_id) {
+            return super::agent_runtime::transport::interrupt(self.svc, &self.tab_id);
+        }
         self.svc
             .chatbackend_close(&self.plugin_id, &self.session_id)
     }
@@ -331,6 +338,17 @@ impl TabTransport for ChatBackendTransport<'_> {
 
 impl ChatBackendTransport<'_> {
     fn transcript_text(&self) -> Result<String, String> {
+        if super::agent_runtime::engine::requested(self.svc, &self.plugin_id) {
+            return super::agent_runtime::transport::snapshot(self.svc, &self.tab_id).map(
+                |(_, messages)| {
+                    messages
+                        .into_iter()
+                        .map(|message| message.content)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                },
+            );
+        }
         // No cursor ⇒ the plugin returns the full transcript.
         let msgs = self
             .svc
@@ -410,6 +428,13 @@ impl ServiceContext {
     }
 
     pub fn chatbackend_reopen_if_restored(&self, tab_id: &str) -> Result<Option<String>, String> {
+        if super::agent_runtime::requested_for_tab(self, tab_id) {
+            let session =
+                tauri::async_runtime::block_on(super::agent_runtime::engine::ensure(self, tab_id))
+                    .map_err(|error| error.to_string())?;
+            let thread = session.context.lock().thread_id.clone();
+            return Ok(thread);
+        }
         chatbackend_reopen_transition(
             &self.mux,
             &self.chatbackend_reopen_guards,
@@ -480,6 +505,10 @@ impl ServiceContext {
     /// Deliver one user turn to a chatBackend tab, re-opening a restored tab's
     /// dead session first so the raw send doesn't hit a session with no poll loop.
     pub(crate) fn chatbackend_tab_send(&self, tab_id: &str, text: &str) -> Result<(), String> {
+        if super::agent_runtime::requested_for_tab(self, tab_id) {
+            return super::agent_runtime::transport::send(self, tab_id, text, None)
+                .map_err(|error| error.ledger_message());
+        }
         self.chatbackend_reopen_if_restored(tab_id)?;
         let (plugin_id, session_id) = self
             .tab_chat_backing(tab_id)
@@ -564,6 +593,16 @@ impl ServiceContext {
 
     /// Tear down a plugin session (best-effort).
     pub fn chatbackend_close(&self, plugin_id: &str, session_id: &str) -> Result<(), String> {
+        if super::agent_runtime::engine::requested(self, plugin_id) {
+            let tabs = self.mux.read().snapshot().tabs;
+            for tab in tabs.values().filter(|tab| {
+                tab.agent_type.as_deref() == Some(plugin_id)
+                    && tab.agent_session_id.as_deref() == Some(session_id)
+            }) {
+                super::agent_runtime::engine::stop(&tab.id);
+            }
+            return Ok(());
+        }
         self.chatbackend_provider(plugin_id)?
             .close_session(session_id)
             .map_err(|e| e.to_string())

@@ -10,6 +10,7 @@ const APPROVAL_SCREEN: &str = "Bash command\n\n  git status --short\n  Show work
 
 fn prompt(question: &str, labels: &[&str]) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: question.into(),
         options: labels
             .iter()

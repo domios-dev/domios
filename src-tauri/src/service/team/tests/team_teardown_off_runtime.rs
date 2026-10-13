@@ -13,10 +13,6 @@ use tauri::Manager;
 const DEADLINE: Duration = Duration::from_secs(30);
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
     let (mux, team_id, orchestrator, _, _) = super::team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();

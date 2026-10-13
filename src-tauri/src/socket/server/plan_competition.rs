@@ -1,6 +1,6 @@
+use crate::app_runtime::AppHandle;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
 
 use crate::plan::TaskCompetitionMetadata;
 use crate::service::{ServiceState, SpawnIdentityProvenance};
