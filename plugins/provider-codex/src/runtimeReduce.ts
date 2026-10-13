@@ -164,10 +164,13 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
     switch (frame.method) {
-      case "turn/started":
+      case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
         state.activeTurnId = turnId;
+        const settings = codexReportedSettings({...params,...object(params.turn)});
+        if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         events.push({kind:"turnState",threadId,turnId,state:"working",...timing(params)}); break;
+      }
       case "turn/completed": {
         if (!turnId || state.completed.includes(turnId)) break;
         state.completed.push(turnId);

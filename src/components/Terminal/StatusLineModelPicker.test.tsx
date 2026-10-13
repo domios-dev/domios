@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { TransportError } from "../../lib/transportClient";
 import type { ProviderDescriptor } from "../../lib/types";
 import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRefresh";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
@@ -231,6 +232,27 @@ test("a failed live command closes the picker and offers restart through a toast
     assert.ok(restart);
     await act(async () => restart.run());
     assert.deepEqual(fallback, [["tab", "fast", undefined]]);
+  } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
+test("runtime refusal toast shows the provider reason without restart", async () => {
+  __setTabModelApiForTest({
+    switchModel: async () => { throw new TransportError(409, "/api/tabs/owned/agent/model", JSON.stringify({
+      reason: "runtime_control_refused", error: "Provider refused: settings unavailable",
+    })); },
+  });
+  const view = await mount({ ...descriptor("next_turn"), transport: "chat_backend" });
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.option("Fast").click());
+    await act(async () => button("Apply").click());
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0].body, "Provider refused: settings unavailable");
+    assert.equal(toasts[0].local_actions, undefined);
+    assert.equal(view.picker(), null);
   } finally {
     await view.unmount();
     __setTabModelApiForTest(null);
