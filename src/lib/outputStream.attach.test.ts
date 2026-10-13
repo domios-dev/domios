@@ -10,6 +10,82 @@ function pending<T>() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
+  it("adopts truncation before any output arrives and reconnects twice without another marker", async () => {
+    vi.resetModules();
+    localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void;
+    let ends!: (end: import("./transportClient").StreamEnd) => void;
+    const paths: string[] = [];
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (path, handler, options) => {
+      paths.push(path); receive = handler; ends = options!.onEnd!; return () => {};
+    } } as import("./transportClient").TransportClient);
+    const gaps: number[] = [];
+    const bytes: number[] = [];
+    const terminal = {};
+    const sink = () => ({ onOutput() {}, onBytes(chunk: Uint8Array) { bytes.push(...chunk); },
+      onTruncated(from: number) { gaps.push(from); }, onEnded() {} });
+    let detach = output.subscribeTabOutput("tab", sink(), terminal, "pty");
+    try {
+      receive("message", { tab_id: "tab", truncated: true, from: 42295516 });
+      for (let index = 0; index < 2; index++) {
+        ends({ reason: "eof" });
+        output.pokeOutputStream();
+        const since = new URL(paths[paths.length - 1], "http://daemon.test").searchParams.get("since")!;
+        expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { tab: 42295516 } });
+        receive("message", { tab_id: "tab", truncated: true, from: 42295516 });
+      }
+      expect(gaps).toEqual([42295516]);
+      expect(paths).toHaveLength(3);
+      detach();
+      detach = output.subscribeTabOutput("tab", sink(), terminal, "pty");
+      receive("message", { tab_id: "tab", truncated: true, from: 42295516 });
+      receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", output: "A", data: [65], offset: 42295517 });
+      expect(gaps).toEqual([42295516]);
+      expect(bytes).toEqual([65]);
+      receive("message", { tab_id: "tab", truncated: true, from: 42295600 });
+      expect(gaps).toEqual([42295516, 42295600]);
+    } finally { detach(); output.resetOutputStream(); }
+  });
+
+  it("adopts remote truncation before reporting it and suppresses repeat control frames on forced resync", async () => {
+    vi.resetModules();
+    localStorage.clear();
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void;
+    const paths: string[] = [];
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (path, handler, options) => {
+      paths.push(path); receive = handler;
+      options!.signal!.addEventListener("abort", () => options!.onEnd!({ reason: "eof" }), { once: true });
+      return () => {};
+    } } as import("./transportClient").TransportClient);
+    const gaps: number[] = [];
+    const detach = output.subscribeTabOutput("mesh:928b06dd-1234-4567-890a-123456789abc/tab", {
+      onOutput() {}, onEnded() {}, onTruncated(from) {
+        gaps.push(from);
+        output.resumeRemoteOutputStreams();
+      },
+    }, {}, "pty");
+    try {
+      receive("message", { boot: "boot" });
+      receive("message", { tab_id: "foreign", truncated: true, from: 999 });
+      receive("message", { tab_id: "tab", truncated: true, from: 100 });
+      expect(paths).toHaveLength(2);
+      const cursor = () => {
+        const since = new URL(paths[paths.length - 1], "http://daemon.test").searchParams.get("since")!;
+        return JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")));
+      };
+      expect(cursor()).toEqual({ boot: "boot", tabs: { tab: 100 } });
+      receive("message", { tab_id: "tab", truncated: true, from: 100 });
+      output.resumeRemoteOutputStreams();
+      expect(cursor()).toEqual({ boot: "boot", tabs: { tab: 100 } });
+      receive("message", { tab_id: "tab", truncated: true, from: 100 });
+      expect(gaps).toEqual([100]);
+      expect(paths).toHaveLength(3);
+    } finally { detach(); output.resetOutputStream(); }
+  });
+
   it("waits after idle output EOF and resumes only after the event stream proves recovery", async () => {
     vi.resetModules();
     const output = await import("./outputStream");
