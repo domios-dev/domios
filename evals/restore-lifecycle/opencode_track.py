@@ -153,7 +153,7 @@ class OpenCodeTrack:
         oracle.bindings(before, provider='opencode')
         host.write('opencode-spawn.json', before)
         self.spawn_verified = True
-        self.browser('open', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'])
+        self.browser('open', 'open', 'http://127.0.0.1:' + os.environ.get('RL_PORT', '7692') + '/#token=' + os.environ['CODETERM_API_TOKEN'])
         self.browser_open = True
         self.browser('ready', 'wait', '--selector', '[data-testid=sidebar]')
         for tab, row in before.items():
