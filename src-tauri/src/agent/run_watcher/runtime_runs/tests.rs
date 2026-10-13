@@ -53,18 +53,7 @@ impl Scene {
     fn new() -> Self {
         let (mux, _) = MultiplexerState::new();
         let fixture = ServiceFixture::new(mux);
-        let storage =
-            crate::storage::Storage::open(&fixture.temp.path().join("desk"), Default::default())
-                .unwrap();
-        let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
-        let snapshot = fixture.service.mux.read().to_session_snapshot();
-        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-        adapter.state().unwrap();
-        crate::service::session_persist::install_storage_desk_adapter(
-            fixture._app.handle(),
-            adapter,
-        )
-        .unwrap();
+        let storage = fixture.install_seeded_storage_desk();
         let cron = Arc::new(Mutex::new(CronStore::new_with_path(
             fixture.temp.path().join("cron.json"),
         )));
