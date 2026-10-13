@@ -193,5 +193,6 @@
   "src/lib/pluginUiHostModel.test.ts",
   "src/lib/pluginUiMonitor.test.ts",
   "src/components/Extensions/PluginUiHost.test.tsx",
-  "src/lib/updateAvailability.test.ts"
+  "src/lib/updateAvailability.test.ts",
+  "src/components/Titlebar/UpdateTray.test.tsx"
 ]

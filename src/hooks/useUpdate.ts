@@ -421,6 +421,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const response = normalizeInstallResponse(await installAppUpdate());
       if (response.status === "already_in_flight") userInstallRef.current = false;
       if (response.status !== "already_in_flight") installCallReturnedRef.current = true;
+      if (response.status !== "already_in_flight") await fetchRuntimeStatus();
       return response;
     } catch (e) {
       installingRef.current = false;
@@ -434,7 +435,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       setInstalling(false);
       return null;
     }
-  }, []);
+  }, [fetchRuntimeStatus]);
 
   const dismissUpdateToast = useCallback(() => {
     if (status === "applying" || status === "restarting") return;
@@ -444,39 +445,22 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh(false, { silent: true });
     void fetchChannel();
-    void fetchRuntimeStatus({ adopt: true }).catch(() => {});
-
-    const interval = setInterval(() => void refresh(false, { silent: true }), 30 * 60 * 1000);
-    return () => clearInterval(interval);
   }, [fetchChannel, fetchRuntimeStatus, refresh]);
 
   useEffect(() => {
-    if (!installing) return;
     let cancelled = false;
-    const poll = async () => {
-      try {
-        const next = await fetchRuntimeStatus();
-        if (!cancelled && next?.phase === "idle") {
-          await refresh(true, { silent: true });
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-        setStatus("error");
-        setPhase("error");
-        setInstalling(false);
-        setToastOpen(userInstallRef.current);
-        userInstallRef.current = false;
+    let stop: (() => void) | null = null;
+    void listen<unknown>("update-status-changed", event => {
+      if (!cancelled && isRuntimeStatus(event.payload)) applyRuntimeStatus(event.payload, { adopt: true });
+    }).then(unlisten => {
+      if (cancelled) unlisten();
+      else {
+        stop = unlisten;
+        void fetchRuntimeStatus({ adopt: true }).catch(() => {});
       }
-    };
-
-    void poll();
-    const interval = setInterval(() => void poll(), 750);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [fetchRuntimeStatus, installing, refresh]);
+    }).catch(() => {});
+    return () => { cancelled = true; stop?.(); };
+  }, [applyRuntimeStatus, fetchRuntimeStatus]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;

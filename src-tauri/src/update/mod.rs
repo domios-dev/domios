@@ -86,7 +86,26 @@ pub struct UpdateState {
     pub download_total_bytes: Option<u64>,
 }
 
+type StatusEmitter = Box<dyn Fn(serde_json::Value) + Send + Sync>;
+
+static STATUS_EMITTER: std::sync::OnceLock<StatusEmitter> = std::sync::OnceLock::new();
+
+pub fn bind_status_emitter(app: tauri::AppHandle) {
+    let _ = STATUS_EMITTER.set(Box::new(move |status| {
+        crate::api::events::emit_everywhere(&app, "update-status-changed", status);
+    }));
+}
+
 impl UpdateState {
+    fn publish_status(&self) {
+        let status = self.runtime_status();
+        #[cfg(test)]
+        state_tests::capture_status(&status);
+        if let Some(emit) = STATUS_EMITTER.get() {
+            emit(status);
+        }
+    }
+
     pub fn runtime_status(&self) -> serde_json::Value {
         let download_progress = self.download_total_bytes.and_then(|total| {
             if total == 0 {
@@ -122,16 +141,19 @@ impl UpdateState {
         }
         self.phase = phase;
         self.phase_changed_at = Some(std::time::Instant::now());
+        self.publish_status();
     }
 
     pub fn set_error(&mut self, msg: impl Into<String>) {
         self.last_error = Some(msg.into());
         self.phase = UpdatePhase::Error;
         self.phase_changed_at = Some(std::time::Instant::now());
+        self.publish_status();
     }
 
     pub fn clear_error(&mut self) {
         self.last_error = None;
+        self.publish_status();
     }
 
     pub fn record_download_chunk(&mut self, chunk_len: u64, total: Option<u64>) {
@@ -146,6 +168,7 @@ impl UpdateState {
         if let Some(total) = self.download_total_bytes {
             self.downloaded_bytes = self.downloaded_bytes.min(total);
         }
+        self.publish_status();
     }
 
     fn reset_download_progress(&mut self) {
@@ -157,6 +180,34 @@ impl UpdateState {
 #[cfg(test)]
 mod state_tests {
     use super::*;
+
+    thread_local! {
+        static CAPTURED: std::cell::RefCell<Option<Vec<serde_json::Value>>> = const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn capture_status(status: &serde_json::Value) {
+        CAPTURED.with_borrow_mut(|events| {
+            if let Some(events) = events {
+                events.push(status.clone());
+            }
+        });
+    }
+
+    #[test]
+    fn update_status_events_follow_state_transitions() {
+        CAPTURED.set(Some(Vec::new()));
+        let mut state = empty_state();
+        state.set_phase(UpdatePhase::Downloading);
+        state.record_download_chunk(25, Some(100));
+        state.set_error("fixture-failure");
+        let events = CAPTURED.take().unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["phase"], "downloading");
+        assert_eq!(events[1]["downloaded_bytes"], 25);
+        assert_eq!(events[1]["download_progress"], 0.25);
+        assert_eq!(events[2]["phase"], "error");
+        assert_eq!(events[2]["last_error"], "fixture-failure");
+    }
 
     fn empty_state() -> UpdateState {
         UpdateState {
