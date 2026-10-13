@@ -13,12 +13,12 @@ use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for
 #[cfg(test)]
 use super::plan_task_dispatch::dispatch_with_spawn;
 use super::{get_string_param, JsonRpcError};
+use crate::app_runtime::AppHandle;
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
 use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
 use serde_json::{json, Value};
-use tauri::AppHandle;
 
 mod split;
 

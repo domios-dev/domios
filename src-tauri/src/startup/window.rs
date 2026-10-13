@@ -3,7 +3,7 @@
 use tauri::Manager;
 
 /// Set window icon and apply platform-specific styling.
-pub(crate) fn setup_window_styling(window: &tauri::WebviewWindow) {
+pub(crate) fn setup_window_styling(window: &crate::app_runtime::WebviewWindow) {
     let icon_bytes = include_bytes!("../../icons/icon.png");
     if let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(icon_bytes)).read_info() {
         let info = reader.info().clone();
@@ -47,7 +47,9 @@ pub(crate) fn setup_window_styling(window: &tauri::WebviewWindow) {
 }
 
 /// Build and configure the system tray icon and menu.
-pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn build_system_tray(
+    app: &crate::app_runtime::App,
+) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 

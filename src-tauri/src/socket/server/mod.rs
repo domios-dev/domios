@@ -61,8 +61,8 @@ pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
+use crate::app_runtime::AppHandle;
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 
@@ -773,7 +773,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn cron_settle_cron_complete_closes_after_response_flush() {
         use crate::cron::store::{CronCreateParams, CronRunInfo, CronRunStatus, CronStore};
         use crate::service::test_fixture::ServiceFixture;

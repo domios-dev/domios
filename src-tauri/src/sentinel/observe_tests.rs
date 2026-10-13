@@ -162,7 +162,6 @@ fn sentinel_direct_observation_survives_creator_joining_a_team() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn sentinel_removed_observation_tab_stops_with_one_creator_notice() {
     let (mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();

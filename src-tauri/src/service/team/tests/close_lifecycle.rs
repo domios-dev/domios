@@ -288,7 +288,6 @@ fn close_team_detaches_cartographer_manager_with_every_member_tab() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_close_collects_members_even_after_role_change() {
     let (mux, team_id, orchestrator, planner, worker) = team_members();
     let fixture = ServiceFixture::new(mux);
@@ -874,10 +873,6 @@ fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lane
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
@@ -959,7 +954,6 @@ async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn team_close_deletes_team_bound_recurring_series() {
     let (mut mux, team_id, orchestrator, _, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();

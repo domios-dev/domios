@@ -136,10 +136,6 @@ fn only_a_visible_user_audience_tab_is_owned_by_the_user() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn non_user_facing_tab_routes_prompt_to_parent() {
     let (mut mux, owner, child) = two_tabs();
     {
@@ -180,10 +176,6 @@ fn non_user_facing_tab_routes_prompt_to_parent() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn user_audience_prompt_stays_out_of_bell_and_routes_parsed_options_once() {
     let (mut mux, owner, child) = two_tabs();
     {
@@ -221,10 +213,6 @@ fn user_audience_prompt_stays_out_of_bell_and_routes_parsed_options_once() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn owner_launched_prompt_stays_out_of_bell_without_parent_route() {
     let (mux, _, tab_id) = two_tabs();
     let fixture = ServiceFixture::new(mux);
@@ -244,10 +232,6 @@ fn owner_launched_prompt_stays_out_of_bell_without_parent_route() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
     let (mut mux, _owner, child) = two_tabs();
     mux.get_tab_mut(&child).unwrap().hidden = true;
@@ -267,10 +251,6 @@ fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn user_owned_cron_prompt_stays_out_of_bell_and_tracks_waiting_state() {
     let (mut mux, _, child) = two_tabs();
     {
@@ -364,10 +344,6 @@ fn user_owned_cron_prompt_stays_out_of_bell_and_tracks_waiting_state() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn restart_and_later_exit_keep_the_bell_empty() {
     let (mux, _owner, child) = two_tabs();
     let fixture = ServiceFixture::new(mux);
@@ -404,10 +380,6 @@ fn restart_and_later_exit_keep_the_bell_empty() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn readiness_keeps_a_prompt_that_is_still_showing() {
     let (mux, _owner, child) = two_tabs();
     let fixture = ServiceFixture::new(mux);
@@ -428,10 +400,6 @@ fn readiness_keeps_a_prompt_that_is_still_showing() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn tab_close_resolves_exit_and_preexisting_prompt_condition() {
     let (mux, _owner, child) = two_tabs();
     let fixture = ServiceFixture::new(mux);

@@ -130,7 +130,12 @@ pub(crate) fn activity_payload(tab_id: &str, activity: &Activity) -> serde_json:
     payload
 }
 
-fn emit(events: &EventBroadcaster, app: &tauri::AppHandle, tab_id: &str, activity: &Activity) {
+fn emit(
+    events: &EventBroadcaster,
+    app: &crate::app_runtime::AppHandle,
+    tab_id: &str,
+    activity: &Activity,
+) {
     events.publish(SystemEvent::SurfaceActivity {
         tab_id: tab_id.to_string(),
         verb: activity.verb.clone(),

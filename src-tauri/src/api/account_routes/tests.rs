@@ -7,7 +7,6 @@ fn account_routes_admission_refuses_nonlocal_callers() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 async fn account_routes_local_journey_persists_and_deletes_credential() {
     use axum::{
         body::{to_bytes, Body},
@@ -81,7 +80,6 @@ fn account_plan_routes_payload_and_local_admission() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 async fn account_plan_routes_local_journey() {
     use axum::{
         body::{to_bytes, Body},

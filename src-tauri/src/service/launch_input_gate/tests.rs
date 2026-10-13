@@ -847,10 +847,6 @@ fn codex_update_and_folder_trust_frames_block_lazy_readiness() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn lazy_session_spawn_with_modal_or_dead_provider_still_fails_at_deadline() {
     fn await_blocked_launch(
         classification: Option<TabState>,

@@ -141,7 +141,6 @@ fn refusal_type(error: &JsonRpcError) -> String {
 /// not own. Both statuses, because the pending case is what proves the refusal
 /// was never about protecting in-flight work.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_updates_task_structure_on_a_dispatched_task() {
     for status in [TaskStatus::Pending, TaskStatus::InProgress] {
         let harness = planner_fixture();
@@ -167,7 +166,6 @@ fn planner_updates_task_structure_on_a_dispatched_task() {
 /// Every field here is one a Planner must still be refused for, asserted by the
 /// refusal's `data.type` constant rather than by its prose.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_is_still_refused_for_status_assignment_and_execution_fields() {
     let refused: &[Value] = &[
         json!({ "status": "in_progress" }),
@@ -198,7 +196,6 @@ fn planner_is_still_refused_for_status_assignment_and_execution_fields() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_can_explicitly_block_with_a_reason_and_trigger() {
     let harness = planner_fixture();
     let task_id = dispatched_task(&harness, TaskStatus::InProgress);
@@ -219,7 +216,6 @@ fn planner_can_explicitly_block_with_a_reason_and_trigger() {
 /// Planner's structure grant must not leak onto any of them even with a body
 /// that carries no forbidden field.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_structure_grant_does_not_extend_to_execution_verbs() {
     for method in [
         "plan.task.assign",
@@ -245,7 +241,6 @@ fn planner_structure_grant_does_not_extend_to_execution_verbs() {
 /// so "the Planner may edit structure" can never be read as "the Planner may
 /// approve". Asserted on the authority verdict, not on a message.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_may_not_approve_the_plan() {
     let harness = planner_fixture();
     let caller = crate::service::AuthenticatedPlanCaller {

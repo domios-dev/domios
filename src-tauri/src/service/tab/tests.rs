@@ -7,7 +7,6 @@ use codeterm_types::pty::{RemoteOwnership, RemoteOwnershipTeam};
 use std::collections::HashSet;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn failed_restore_keeps_identity_session_and_exact_restore_data() {
     use codeterm_types::pty::BootStage;
     for stage in [
@@ -137,10 +136,6 @@ fn assert_opencode_identity(fixture: &ServiceFixture, tab_id: &str) {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
     let (mut mux, orchestrator) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
@@ -259,10 +254,6 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restored_opencode_with_live_child_is_never_reported_exited() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     let cause = "restored without a live agent";
@@ -343,10 +334,6 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_relaunch_in_flight_with_unseen_provider_keeps_identity() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     assert!(fixture
@@ -394,10 +381,6 @@ fn restore_relaunch_in_flight_with_unseen_provider_keeps_identity() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restored_without_relaunch_absent_provider_keeps_identity_without_exit_marker() {
     let (fixture, tab_id, pty_id, _, key) = restored_opencode_fixture_with_launch(false);
     fixture
@@ -423,10 +406,6 @@ fn restored_without_relaunch_absent_provider_keeps_identity_without_exit_marker(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn expired_provisional_launch_stages_keep_identity_without_exit_marker() {
     for stage in [
         codeterm_types::pty::BootStage::LaunchDeadlineElapsed,
@@ -466,10 +445,6 @@ fn expired_provisional_launch_stages_keep_identity_without_exit_marker() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn lifecycle_identity_clear_refuses_process_tree_absence_without_exit_marker() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     let cause = "restored without a live agent";
@@ -512,10 +487,6 @@ fn lifecycle_identity_clear_refuses_process_tree_absence_without_exit_marker() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn finished_marker_cannot_clear_identity_after_the_pty_child_dies() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
@@ -560,10 +531,6 @@ fn finished_marker_cannot_clear_identity_after_the_pty_child_dies() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
@@ -600,10 +567,6 @@ fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn bash_finished_marker_exit_code_finalises_launch_before_provider_seen() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
@@ -633,10 +596,6 @@ fn bash_finished_marker_exit_code_finalises_launch_before_provider_seen() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn confirmed_pty_exit_finalises_launch_before_provider_is_seen() {
     let (fixture, tab_id, pty_id, attempt, _) = restored_opencode_fixture();
     fixture
@@ -660,10 +619,6 @@ fn confirmed_pty_exit_finalises_launch_before_provider_is_seen() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn explicit_ui_clear_does_not_depend_on_process_tree_absence() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
@@ -689,10 +644,6 @@ fn explicit_ui_clear_does_not_depend_on_process_tree_absence() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "exited-provider-shell-pty";

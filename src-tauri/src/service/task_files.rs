@@ -114,10 +114,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn task_files_deleted_on_tab_close_any_reason() {
         for reason in [
             TabCloseReason::User,
@@ -144,10 +140,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn task_files_deleted_on_launch_failure() {
         let (fixture, tab_id, path) = fixture_with_task_file();
         fixture
@@ -158,10 +150,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-    )]
     fn active_launch_cleanup_preserves_task_files_until_tab_close() {
         let (fixture, tab_id, first) = fixture_with_task_file();
         let root = fixture

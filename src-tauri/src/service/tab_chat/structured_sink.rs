@@ -3,9 +3,10 @@
 //! the frontend merges them by id. Mirrored to the SSE bus so the web
 //! mirror's chat view streams too.
 
+use crate::app_runtime::AppHandle;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use tauri::Manager;
 
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::commands::MuxState;
@@ -763,10 +764,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "requires the shared interactive desktop ServiceContext fixture"
-    )]
     fn sourced_jsonl_confirmation_traverses_tailer_flattening_and_ledger_gates() {
         assert_eq!(
             sourced_jsonl_send_state(SourcedEvidenceFault::None),

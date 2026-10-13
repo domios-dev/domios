@@ -100,7 +100,6 @@ fn transport_tabs_contract_resize_ownership() {
 use crate::api::transport_tabs::fixture;
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn transport_tabs_contract_cwd_persistence_envelopes_and_status() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;

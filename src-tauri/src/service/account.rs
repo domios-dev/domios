@@ -166,7 +166,7 @@ impl super::ServiceContext {
     }
 }
 pub fn register_deep_links(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     service: super::ServiceState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_plugin_deep_link::DeepLinkExt;

@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "binary": "codeterm",
+      "test": "api::local_preview_routes::tests::rate_and_batch_limits_are_enforced_by_the_routes",
+      "measuredSeconds": 1.494
+    },
+    {
+      "binary": "codeterm",
+      "test": "sentinel::probe::native_tests::sentinel_probe_native_inherited_stream_deadline",
+      "measuredSeconds": 1.099
+    },
+    {
+      "binary": "codeterm",
+      "test": "sentinel::scheduler_tests::blueprint_session_exchanges_bypass_budgets_but_stop_at_safety_and_rate_limits",
+      "measuredSeconds": 4.154
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::plan_reminder_nudge::approval_tests::plan_reminder_choice_invalid_or_unavailable_zero_emit",
+      "measuredSeconds": 1.349
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_attribution::a_current_task_hint_delivers_and_attributes_exactly_as_today",
+      "measuredSeconds": 20.148
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_attribution::a_stale_task_hint_delivers_to_the_live_recipient_not_the_stale_plan_owner",
+      "measuredSeconds": 20.147
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::a_verification_worker_holds_no_task_and_can_transition_none",
+      "measuredSeconds": 40.115
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress",
+      "measuredSeconds": 20.125
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::desktop_reports::authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without_task_mutation",
+      "measuredSeconds": 20.087
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::plan_evidence_role_test::planned_team_taskless_worker_reports_to_parent_without_plan_write",
+      "measuredSeconds": 20.095
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::plan_evidence_session_test::plan_evidence_resolves_absent_session_from_attested_nonce",
+      "measuredSeconds": 20.094
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::planner_report_with_live_matching_session_reaches_the_plan_owner",
+      "measuredSeconds": 20.091
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::stale_task_report_absent_hint_still_transitions_the_held_task",
+      "measuredSeconds": 20.142
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::stale_task_report_correct_binding_matches_the_absent_hint_shape",
+      "measuredSeconds": 40.17
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::stale_task_report_plan_owner_in_recovery_cannot_land_a_stale_binding",
+      "measuredSeconds": 20.12
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::report_plan_ctx::tests::stale_task_report_transitions_nothing_and_names_the_mismatch",
+      "measuredSeconds": 20.106
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::hierarchy::team_plan_creation::tests::planner_plan_creation_waits_until_the_binding_deadline",
+      "measuredSeconds": 1.05
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::message_gateway::ordering_tests::accepted_report_then_ack_then_provider_stop_fabricates_nothing",
+      "measuredSeconds": 30.356
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::message_gateway::ordering_tests::dispatched_brief_still_arms_and_provider_stop_still_fabricates_handoff",
+      "measuredSeconds": 20.334
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::message_gateway::ordering_tests::partial_report_then_followup_rearms_the_same_in_progress_attempt",
+      "measuredSeconds": 30.333
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::message_gateway::ordering_tests::task_gate_rejection_still_delivers_report_once",
+      "measuredSeconds": 20.334
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::message_gateway::ordering_tests::worker_done_policy_cannot_suppress_report_delivery",
+      "measuredSeconds": 20.325
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::parked_user_delivery::tests::readiness::restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding",
+      "measuredSeconds": 5.144
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::pending_delivery_payloads::user_sends::tests::body_owner_count_remains_bounded_after_confirmed_pointer_submissions",
+      "measuredSeconds": 1.571
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::provider_update::command::tests::provider_update_command_parent_zero_with_inherited_stream_live_child_is_unconfirmed",
+      "measuredSeconds": 1.089
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::provider_update::command::tests::provider_update_command_termination_error_blocks_further_runs",
+      "measuredSeconds": 1.063
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::pty_lifecycle::tests::in_session_agent_death_without_shutdown_still_prunes_role_tabs",
+      "measuredSeconds": 40.591
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::session_model::tests::model_refresh_tests::stop_refreshes_known_session_model_after_in_tui_switch_without_fallback",
+      "measuredSeconds": 2.078
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::store::tests::health_history_is_capped_and_list_reads_latest_snapshot",
+      "measuredSeconds": 12.491
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::supporter::activity::tests::supporter_default_no_cap_never_refuses_and_counts_every_request",
+      "measuredSeconds": 6.531
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::tab_chat::identity_tests::tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_backfill",
+      "measuredSeconds": 1.888
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::tab_chat::tailer_tests::pending_store_watch_promotes_to_tailer_and_streams_initial_batch",
+      "measuredSeconds": 3.191
+    },
+    {
+      "binary": "codeterm",
+      "test": "service::tab_chat::tailer_tests::tailer_repopulates_when_session_file_appears_late",
+      "measuredSeconds": 1.025
+    },
+    {
+      "binary": "codeterm",
+      "test": "socket::server::agent::tests::agent_report_refused_kind_routes_to_diagnostic_without_recording_report",
+      "measuredSeconds": 20.105
+    },
+    {
+      "binary": "codeterm",
+      "test": "startup::rest_api::tests::health_proof_deadline_fails_the_bound_generation_with_address_diagnostic",
+      "measuredSeconds": 5.047
+    },
+    {
+      "binary": "codeterm",
+      "test": "storage::migration_tests::desk::storage_migration_root_at_full_legacy_backup_retention_imports_whole",
+      "measuredSeconds": 1.742
+    },
+    {
+      "binary": "codeterm",
+      "test": "user_last_activity::tests::coalesces_writes_within_one_second",
+      "measuredSeconds": 1.191
+    }
+  ]
+}

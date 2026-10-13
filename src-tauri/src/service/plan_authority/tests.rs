@@ -9,7 +9,6 @@ use codeterm_types::pty::BootStage;
 /// The closed loop: with no session ever registered there is no lineage to
 /// prove, so the repair could never run. Presenting the tab's own launch
 /// nonce establishes the binding (#316).
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn rebind_establishes_a_first_binding_from_the_tabs_own_nonce() {
     let (fixture, _plan_id, owner, _planner) = fixture();
@@ -45,7 +44,6 @@ fn rebind_establishes_a_first_binding_from_the_tabs_own_nonce() {
 }
 
 /// The bootstrap must never mask a live provider session.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn rebind_does_not_bootstrap_over_a_registered_session() {
     let (fixture, _plan_id, owner, _planner) = fixture();
@@ -70,7 +68,6 @@ fn rebind_does_not_bootstrap_over_a_registered_session() {
 }
 
 /// A caller without this tab's launch nonce is still refused.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn rebind_refuses_a_bootstrap_from_a_foreign_nonce() {
     let (fixture, _plan_id, owner, _planner) = fixture();
@@ -96,7 +93,6 @@ fn rebind_refuses_a_bootstrap_from_a_foreign_nonce() {
 }
 
 /// After the bootstrap the write gate accepts the tab, which is the point.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn a_tab_attested_binding_authorizes_plan_writes() {
     let (fixture, plan_id, owner, _planner) = fixture();
@@ -291,7 +287,6 @@ fn fixture() -> (
     )
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[tokio::test(flavor = "current_thread")]
 async fn http_plan_authority_wait_does_not_block_another_request() {
     let (fixture, plan_id, _, owner) = fixture();
@@ -341,7 +336,6 @@ async fn http_plan_authority_wait_does_not_block_another_request() {
         .expect("binding event must release the pending authorization");
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn only_live_plan_owner_can_grant_taskless_evidence_capability() {
     let (fixture, plan_id, planner, owner) = fixture();
@@ -418,7 +412,6 @@ fn only_live_plan_owner_can_grant_taskless_evidence_capability() {
         .is_err());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn draft_before_approval_is_planner_writable_but_not_dispatchable() {
     let (fixture, plan_id, planner, _) = fixture();
@@ -452,7 +445,6 @@ fn draft_before_approval_is_planner_writable_but_not_dispatchable() {
     ));
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn bound_nonce_resolves_live_planner_session_when_shell_env_lacks_session_id() {
     let (fixture, plan_id, mut planner, _) = fixture();
@@ -465,7 +457,6 @@ fn bound_nonce_resolves_live_planner_session_when_shell_env_lacks_session_id() {
     ));
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn orchestrator_approval_atomically_activates_draft_graph() {
     let (fixture, plan_id, planner, owner) = fixture();
@@ -505,7 +496,6 @@ fn orchestrator_approval_atomically_activates_draft_graph() {
     assert!(fixture.service.ensure_task_dispatchable(&plan_id).is_ok());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn planner_cannot_approve_draft() {
     let (fixture, plan_id, planner, _) = fixture();
@@ -521,7 +511,6 @@ fn planner_cannot_approve_draft() {
     assert!(plan.planning_log.is_empty());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn planner_cannot_add_orchestrator_heartbeat_learning() {
     let (fixture, plan_id, planner, _) = fixture();
@@ -548,7 +537,6 @@ fn planner_cannot_add_orchestrator_heartbeat_learning() {
         .is_empty());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn draft_execution_actions_and_mode_activation_fail_before_approval() {
     let (fixture, plan_id, _, owner) = fixture();
@@ -693,7 +681,6 @@ fn orchestrator_authority_over_task_fields_is_unrestricted() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn task_take_and_drop_require_approved_graph_and_live_orchestrator_identity() {
     let (fixture, plan_id, _, owner) = fixture();
@@ -829,7 +816,6 @@ fn lineage_is_session_scoped_bounded_and_deduped() {
     assert!(tab.binding_nonce_in_current_session_lineage("m19"));
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn sessionless_relaunch_caller_recovers_mutation_approve_dispatch_through_rebind() {
     let (fixture, plan_id, _, owner) = fixture();
@@ -869,7 +855,6 @@ fn sessionless_relaunch_caller_recovers_mutation_approve_dispatch_through_rebind
     assert!(!repeat.resynced);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn sessionless_stale_nonce_is_refused_after_a_genuine_session_transition() {
     let (fixture, plan_id, _, owner) = fixture();
@@ -891,7 +876,6 @@ fn sessionless_stale_nonce_is_refused_after_a_genuine_session_transition() {
     assert_eq!(current_binding(&fixture, &tab_id), before);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn mismatched_provided_session_is_refused_even_with_a_lineage_nonce() {
     let (fixture, plan_id, _, owner) = fixture();
@@ -917,7 +901,6 @@ fn mismatched_provided_session_is_refused_even_with_a_lineage_nonce() {
     assert_eq!(current_binding(&fixture, &tab_id), before);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn foreign_and_cross_tab_callers_are_refused_and_rebind_rejects_them() {
     let (fixture, plan_id, planner, owner) = fixture();
@@ -954,7 +937,6 @@ fn foreign_and_cross_tab_callers_are_refused_and_rebind_rejects_them() {
         .is_err());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn planner_structure_authority_survives_approval() {
     // Andrey's ruling (rel#54): a bound Planner MAY mutate structure after
@@ -1006,7 +988,6 @@ fn planner_structure_authority_survives_approval() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn binding_rule_and_role_rule_are_mechanically_distinct() {
     let (fixture, plan_id, planner, owner) = fixture();
@@ -1038,7 +1019,6 @@ fn binding_rule_and_role_rule_are_mechanically_distinct() {
     assert_ne!(role_err.diagnostic_type(), binding_err.diagnostic_type());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn one_rebind_heals_both_the_plan_gate_and_the_w3c_task_gate() {
     let (fixture, plan_id, _, owner) = fixture();
@@ -1069,7 +1049,6 @@ fn one_rebind_heals_both_the_plan_gate_and_the_w3c_task_gate() {
 /// the UI or the CLI — not an agent whose binding went missing. Without this
 /// the owner could not approve their own draft from the app at all (#517).
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn an_unbound_authenticated_caller_is_the_owner() {
     let (fixture, plan_id, _owner, planner) = fixture();
     let unbound = AuthenticatedPlanCaller {

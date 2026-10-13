@@ -42,7 +42,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn task_bound_tab_rename_is_refused() {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         if let Some(tab) = mux.get_tab_mut(&tab_id) {

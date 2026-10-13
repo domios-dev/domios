@@ -50,7 +50,6 @@ fn storage_cutover_cron_unavailable_read_maps_to_service_unavailable() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 async fn storage_cutover_unavailable_desk_rest_reads_return_503_with_the_preservation_message() {
     use crate::startup::{StorageAuthority, STORAGE_UNAVAILABLE_MESSAGE};
     use tauri::Manager;
@@ -98,7 +97,6 @@ async fn storage_cutover_unavailable_desk_rest_reads_return_503_with_the_preserv
 
 /// One runtime thread: the parked disable may hold it only if the route blocks inline.
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 async fn cron_entry_off_runtime_route_disable_parks_commit_while_unrelated_routes_complete() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

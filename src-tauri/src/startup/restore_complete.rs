@@ -30,10 +30,6 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn startup_profile_sweep_respects_machine_owner_and_runtime_dry_run_keeps_failed_tabs() {
         let (mut mux, existing_tab_id) = MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();
