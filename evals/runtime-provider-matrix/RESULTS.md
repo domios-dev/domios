@@ -58,3 +58,19 @@ These offline results do not establish live identity, compaction or restart PASS
 - Diagnose the CLI Chat stop 404 and cron completion watcher refusal.
 - Supply a provider-supported native question/approval mode and execute its
   complete round-trip. The current full-access question probe is insufficient.
+
+## Prepared next run (not executed)
+
+The operator authorized N/A subrows for unsupported shared-DEV isolation and
+a tab-local approval-required probe. The next driver separates native and legacy
+restore, Orchestrator and General identity, and cron/hidden-worker/dreamer reports.
+Legacy, General, hidden-worker and dreamer isolation print N/A with source evidence.
+Hidden-worker isolation was additionally found to depend on active/first workspace,
+so it cannot safely run under the owned-workspace restriction.
+
+Row 12 now stages approval-required through the documented per-thread model API
+before its first work turn, matches a current-epoch/current-nonce native approval
+for the exact owned write, selects a turn-only option, and checks persisted file
+content. An explicitly unsupported prompt-answer capability prints N/A; missing
+or unknown capability still fails. No global access setting or spawn flag is added.
+Historical results above are unchanged; next live run awaits operator READY.
