@@ -312,6 +312,28 @@ fn essence_map_contract_generation_is_deterministic() {
 #[test]
 fn essence_truth_model_preserves_capability_statuses_and_shipped_core_nodes() {
     let fixture = fixture_root();
+    let capabilities = fixture.path().join("essences/capabilities.md");
+    let source = fs::read_to_string(&capabilities).unwrap();
+    let mut supplied = 0;
+    let source = source
+        .lines()
+        .map(|line| {
+            let status = if line.starts_with("| capability:essence-anchored-code-map |") {
+                " opaque-map-status "
+            } else if line.starts_with("| capability:agent-providers |") {
+                " opaque-provider-status "
+            } else {
+                return line.to_string();
+            };
+            let mut cells: Vec<_> = line.split('|').collect();
+            cells[6] = status;
+            supplied += 1;
+            cells.join("|")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(supplied, 2);
+    fs::write(&capabilities, source).unwrap();
     let (map, _, _) = valid_map(fixture.path());
     let records = super::read_map(&map).expect("read generated map");
     let nodes: std::collections::BTreeMap<_, _> = records
@@ -325,11 +347,11 @@ fn essence_truth_model_preserves_capability_statuses_and_shipped_core_nodes() {
         nodes["capability:essence-anchored-code-map"]
             .status
             .as_deref(),
-        Some("in rollout: source-map generation, validation, Cartographer and workspace map canvas; code-to-essence mapping planned")
+        Some("opaque-map-status")
     );
     assert_eq!(
         nodes["capability:agent-providers"].status.as_deref(),
-        Some("stable; Cursor in rollout; Aider and Goose planned")
+        Some("opaque-provider-status")
     );
     assert!(nodes.contains_key("core:general-agent"));
     assert!(nodes.contains_key("core:crash-recovery-supervisor"));
