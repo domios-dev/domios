@@ -86,11 +86,11 @@ fn inspect_cwd(cwd: &str) -> Result<(), (bool, String)> {
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => std::fs::read_dir(path.join("."))
             .map(|_| ())
-            .map_err(|error| (false, format!("cannot read folder: {error}"))),
+            .map_err(|error| (false, format!("'{cwd}' cannot be read: {error}"))),
         Ok(_) => Err((false, format!("'{cwd}' is not a directory"))),
         Err(error) => Err((
             error.kind() == std::io::ErrorKind::NotFound,
-            format!("cannot inspect folder: {error}"),
+            format!("'{cwd}' cannot be inspected: {error}"),
         )),
     }
 }
