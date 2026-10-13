@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 mod deferred_first_turn;
 mod pending_receipt;
+pub(crate) mod session_append;
 mod turn_window;
 
 use turn_window::window_evidence_records;
