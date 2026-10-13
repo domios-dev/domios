@@ -41,6 +41,8 @@ pub(super) struct PendingCompletion {
     _watcher: Option<RecommendedWatcher>,
     #[cfg(test)]
     events: std::sync::Arc<parking_lot::Mutex<Vec<String>>>,
+    #[cfg(test)]
+    source_path: Option<std::path::PathBuf>,
 }
 
 impl RunWatcherRegistry {
@@ -78,6 +80,8 @@ impl RunWatcherRegistry {
             .agent_registry
             .with_provider(&provider, |p| p.session_file_path(&cwd, &session))
             .flatten();
+        #[cfg(test)]
+        let source_path = path.clone();
         let mut watcher = None;
         #[cfg(test)]
         let events = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
@@ -130,6 +134,8 @@ impl RunWatcherRegistry {
             _watcher: watcher,
             #[cfg(test)]
             events,
+            #[cfg(test)]
+            source_path,
         });
         log::info!("[cron] completion requested; awaiting completed turn and durable answer: tab={tab_id} run={run_id}");
         Ok(())
