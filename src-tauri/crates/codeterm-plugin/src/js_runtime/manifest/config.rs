@@ -90,6 +90,8 @@ pub struct SpawnConfig {
     /// of scraping the PTY picker.
     #[serde(default)]
     pub supports_structured_prompts: bool,
+    #[serde(default)]
+    pub supports_prompt_answers: Option<bool>,
     /// Plugin `parseDirectoryTrustPrompt` can recognize an active trust dialog
     /// after a native cheap precheck.
     #[serde(default)]

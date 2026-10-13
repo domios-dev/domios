@@ -11,7 +11,7 @@ function settingsPath(command: string): string {
   const flag = "--settings ";
   const offset = command.indexOf(flag);
   assert.ok(offset >= 0);
-  const token = command.slice(offset + flag.length);
+  const token = command.slice(offset + flag.length).split(" --append-system-prompt-file ")[0];
   return token.startsWith("'") && token.endsWith("'")
     ? token.slice(1, -1).replaceAll("'\\''", "'")
     : token;
