@@ -603,6 +603,7 @@ impl ServiceContext {
             self.prepare_runtime_cron_owner(tab_id, job_id, run_id)?;
         }
         self.prepare_runtime_worker_binding(&params, tab_id)?;
+        self.prepare_agent_runtime_launch_options(tab_id, &params)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
         let payload = {
             let mux = self.mux.read();
@@ -657,6 +658,16 @@ impl ServiceContext {
                 .and_then(|tab| tab.restorable_launch.args.clone())
                 .unwrap_or_default();
             super::spawn_capability::validate_runtime_launch_arguments(&plugin_id, &args)?;
+            let config = {
+                let mux = self.mux.read();
+                let tab = mux.get_tab(&tab_id).ok_or("Runtime launch tab absent")?;
+                launch_options::apply_prepared(
+                    config,
+                    &plugin_id,
+                    tab.session_binding_nonce.as_deref(),
+                    tab.restorable_launch.runtime_launch_options.as_ref(),
+                )?
+            };
             return super::agent_runtime::transport::launch(self, &plugin_id, &tab_id, config);
         }
         let session_id = self
