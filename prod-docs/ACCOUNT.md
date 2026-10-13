@@ -82,4 +82,3 @@ Local callers only.
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
 <!-- revision: 7 -->
-
