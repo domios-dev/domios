@@ -45,11 +45,8 @@ impl UserSendStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn a_restored_captured_input_keeps_its_frozen_capture_requirement_and_claim() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = UserSendStore::open(dir.path()).unwrap();
-        let authority = UserSendAuthority {
+    fn authority() -> UserSendAuthority {
+        UserSendAuthority {
             tab_id: "tab".into(),
             pty_id: None,
             binding_nonce: "nonce".into(),
@@ -58,7 +55,36 @@ mod tests {
             session_id: Some("thread".into()),
             observed_session_id: Some("thread".into()),
             prelaunch: false,
-        };
+        }
+    }
+    #[test]
+    fn runtime_envelope_cannot_overtake_an_earlier_preparation_when_its_own_slot_is_released() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = UserSendStore::open(dir.path()).unwrap();
+        let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
+        let earlier = store
+            .reserve(authority(), None, || ledger.reserve_identity())
+            .unwrap();
+        let later = store
+            .reserve(authority(), None, || ledger.reserve_identity())
+            .unwrap();
+        let record = store
+            .admit_runtime_envelope(&later, "opaque envelope", None)
+            .unwrap();
+        ledger.admit_user(&record);
+        assert!(!store.eligible(&record));
+        drop(later);
+        assert!(!store.eligible(&record));
+        assert!(!store.claim(&record, Some("thread")).unwrap());
+        drop(earlier);
+        assert!(store.eligible(&record));
+        assert!(store.claim(&record, Some("thread")).unwrap());
+    }
+    #[test]
+    fn a_restored_captured_input_keeps_its_frozen_capture_requirement_and_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = UserSendStore::open(dir.path()).unwrap();
+        let authority = authority();
         let reservation = store
             .reserve(authority, None, || (uuid::Uuid::new_v4().to_string(), 1))
             .unwrap();
