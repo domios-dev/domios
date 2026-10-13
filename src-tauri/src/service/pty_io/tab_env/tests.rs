@@ -57,6 +57,7 @@ fn instance_env() -> InstanceEnv {
         api_url: "http://127.0.0.1:7686".into(),
         api_port: "7686".into(),
         api_token: Some("test-token".into()),
+        cli_path: None,
     }
 }
 
@@ -398,6 +399,51 @@ fn launch_env_composes_task_identity_in_gui_and_normal_path_modes() {
                 }
                 assert_eq!(env["PATH"], path);
             }
+        }
+    }
+}
+
+#[test]
+fn agents_and_shells_receive_the_owning_instance_cli_with_restricted_path() {
+    let mut instance = instance_env();
+    let cli = if cfg!(windows) {
+        r"C:\dev\bin\codeterm.exe"
+    } else {
+        "/dev-instance/bin/codeterm"
+    };
+    instance.cli_path = Some(cli.into());
+    let cli_dir = std::path::Path::new(cli).parent().unwrap();
+    let inherited = std::env::join_paths([std::path::PathBuf::from(if cfg!(windows) {
+        r"C:\prod\bin"
+    } else {
+        "/prod-instance/bin"
+    })])
+    .unwrap();
+    for surface in [LaunchSurface::Service, LaunchSurface::Frontend] {
+        for identity in [agent_identity(), plain_shell_identity()] {
+            let tab = TabLaunchEnv {
+                tab_id: AGENT_TAB_ID.into(),
+                pad_dir: None,
+                session_binding_nonce: "binding".into(),
+                shell_nonce: "shell".into(),
+                identity,
+                task: HashMap::new(),
+            };
+            let env = compose_launch_env(&instance, Some(&tab), surface);
+            assert_eq!(env["CODETERM_CLI_PATH"], cli);
+            let path = crate::pty::manager::path_with_cli_dir_first(
+                &inherited,
+                std::path::Path::new(&env["CODETERM_CLI_PATH"])
+                    .parent()
+                    .unwrap(),
+            )
+            .unwrap();
+            let entries: Vec<_> = std::env::split_paths(&path).collect();
+            assert_eq!(entries[0], cli_dir);
+            assert_eq!(
+                entries[1..],
+                std::env::split_paths(&inherited).collect::<Vec<_>>()
+            );
         }
     }
 }

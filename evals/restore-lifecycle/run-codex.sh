@@ -2,9 +2,8 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-[ "${CODETERM_INSTANCE:-}" = restartqa ] && [ "${CODETERM_API_PORT:-}" = 7692 ] || {
-  echo 'FAIL preflight: requires CODETERM_INSTANCE=restartqa CODETERM_API_PORT=7692'; exit 7;
-}
+export RL_INSTANCE="${RL_INSTANCE-restartqa}" RL_PORT="${RL_PORT-7692}"
+export CODETERM_INSTANCE="$RL_INSTANCE" CODETERM_API_PORT="$RL_PORT"
 : "${RL_EXPECTED_SHA:?Orchestrator must supply the merged release SHA}"
 : "${RL_PREBUILT_CWD:?Orchestrator must supply the canonical prebuilt checkout}"
 : "${RL_PAD_DIR:?Set to the calling agent pad directory before selecting DEV}"
