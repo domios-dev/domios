@@ -21,6 +21,7 @@ pub struct Session {
     pub provider: String,
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
+    pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
     pub auth: Mutex<RuntimeAuthState>,
@@ -45,6 +46,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 pub fn stop(tab: &str) {
     super::authority::revoke(tab);
     super::environment::revoke(tab);
+    super::capture::revoke(tab);
     if let Some(session) = SESSIONS.lock().remove(tab) {
         if let Some(process) = session.process.lock().take() {
             process.stop();
@@ -93,6 +95,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                 Arc::new(Session {
                     provider: provider.clone(),
                     adapter: Mutex::new(None),
+                    completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
                         epoch: 0,
                         tab_id: tab.into(),
@@ -186,6 +189,7 @@ async fn ensure_locked(
         session
             .thread_loaded
             .store(false, std::sync::atomic::Ordering::Release);
+        *session.completions.lock() = Default::default();
         session.initialization.reset();
         *session.auth.lock() = RuntimeAuthState::Unknown;
         publish(svc, tab, session);
@@ -517,7 +521,25 @@ async fn run_inner(
                         "RPC method outside declared contract".into(),
                     ));
                 }
-                process.client.request(call).await?
+                let owner = svc.clone();
+                let runtime = session.clone();
+                let epoch = context.epoch;
+                let captured_send = match &operation {
+                    RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
+                    _ => None,
+                };
+                let guard: super::rpc::PrewriteGuard = Arc::new(move || {
+                    if runtime.context.lock().epoch != epoch {
+                        return Err(RuntimeFailure::Superseded);
+                    }
+                    validate_binding(&owner, &runtime)?;
+                    if let Some(send) = &captured_send {
+                        let tab = runtime.context.lock().tab_id.clone();
+                        super::capture::validate_if_present(&owner, &tab, send)?;
+                    }
+                    Ok(())
+                });
+                process.client.request_guarded(call, Some(guard)).await?
             }
             RuntimeAction::Notification { notification } => {
                 if !super::model::permits(&capability, &operation, &notification.method) {
@@ -603,6 +625,12 @@ async fn run_inner(
         }
     }
     Err(RuntimeFailure::HookFailed("Operation step limit".into()))
+}
+
+pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Option<&str>) {
+    if let Some(turn) = turn {
+        session.completions.lock().record(thread, turn);
+    }
 }
 
 pub fn validate_binding(svc: &ServiceContext, session: &Session) -> Result<(), RuntimeFailure> {

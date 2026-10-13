@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 mod admission_evidence;
 mod admission_tokens;
+mod runtime_capture;
 pub(crate) use admission_evidence::UserAdmissionEvidence;
 pub(crate) mod continuity;
 mod ready_launch;
@@ -60,6 +61,8 @@ pub(crate) struct UserSendRecord {
     pub(crate) state: UserSendState,
     pub(crate) handoff_session: Option<String>,
     pub(crate) typed_follow_up: Option<String>,
+    #[serde(default)]
+    pub(crate) capture_required: bool,
     original_digest: String,
     original_bytes: usize,
     prepared_digest: String,
@@ -284,6 +287,7 @@ impl UserSendStore {
             typed_follow_up,
             held_before_readiness,
             None,
+            false,
         )
     }
 
@@ -296,6 +300,7 @@ impl UserSendStore {
         typed_follow_up: Option<String>,
         held_before_readiness: bool,
         question: Option<runtime_questions::QuestionResolution>,
+        capture_required: bool,
     ) -> Result<UserSendRecord, String> {
         if reservation.reused {
             return Err("duplicate reservation must resolve the existing ledger status".into());
@@ -340,6 +345,7 @@ impl UserSendStore {
             state: UserSendState::Queued,
             handoff_session: None,
             typed_follow_up,
+            capture_required,
             original_digest: digest(original.as_bytes()),
             original_bytes: original.len(),
             prepared_digest: digest(prepared.as_bytes()),

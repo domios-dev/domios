@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { execFileSync } from "node:child_process";
+import { closeSync } from "node:fs";
 const input = createInterface({input:process.stdin});
 input.on("line",line=>{
   const frame=JSON.parse(line);
@@ -8,7 +9,7 @@ input.on("line",line=>{
     return;
   }
   if(frame.method==="fixture/drop"){
-    process.stdout.end();
+    closeSync(process.stdout.fd);
     return;
   }
   let result={method:frame.method,params:frame.params};
