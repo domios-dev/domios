@@ -6,8 +6,6 @@ import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
-import { requestOpenJob } from "../Jobs/openJobEvent";
-import { RunPath } from "../Automation/RunPath";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 
 interface NotificationPanelProps {
@@ -184,14 +182,6 @@ export function NotificationPanel({
                     Show Tab
                   </button>
                 )}
-                {notif.blueprint_run && <>
-                  <RunPath run={notif.blueprint_run.run} />
-                  <button type="button" className="mt-1.5 text-xs text-[var(--ct-accent)]" onClick={(event) => {
-                    event.stopPropagation();
-                    const data = notif.blueprint_run!;
-                    requestOpenJob({ workspaceId: data.workspaceId, target: { teamId: data.teamId, scenarioId: data.scenarioId, runId: data.run.key } });
-                  }}>Open run</button>
-                </>}
                 {notif.local_actions?.map((action) => <button key={action.label} type="button" className="mt-1.5 mr-2 text-xs text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); void action.run(); }}>{action.label}</button>)}
                 {notif.resolved ? (
                   <div

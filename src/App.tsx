@@ -35,17 +35,14 @@ import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
-import { RecoveryStatusBanner } from "./components/CrashReportToast";
 import { FrontendUpdateNotice } from "./components/FrontendUpdateNotice";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
-import { usePlanPeerContext } from "./components/Canvas/usePlanPeerContext";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
-import { useBlueprintRunPopups } from "./components/Automation/useBlueprintRunPopups";
 import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
 import { useReturnToChat } from "./hooks/useReturnToChat";
 import type { ReturnTo } from "./lib/returnTo";
@@ -231,7 +228,6 @@ function AppInner() {
     clearNotifications,
     answerNotification,
     dismissToast,
-    upsertToast,
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
@@ -267,8 +263,6 @@ function AppInner() {
     selectTab: setActiveTab,
   });
 
-  const peerContext = usePlanPeerContext();
-  useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
       if (workspaceId) {
@@ -920,8 +914,6 @@ function AppInner() {
       </PlansProvider>
 
       <CommandPalette commands={paletteCommands} />
-
-      <RecoveryStatusBanner />
 
       <FrontendUpdateNotice />
 

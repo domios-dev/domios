@@ -33,11 +33,3 @@ export interface ConversationCounts {
   safety_limit: number;
   rate_limit_per_minute: number;
 }
-
-export interface BlueprintRunPopup {
-  workspaceId: string;
-  teamId: string | null;
-  scenarioId: string;
-  run: GraphRun;
-  count: number;
-}

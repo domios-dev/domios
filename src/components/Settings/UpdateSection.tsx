@@ -75,7 +75,7 @@ export function UpdateSection({ config, onUpdate }: {
             {updateAvailable && (
               <button
                 type="button"
-                onClick={() => void applyUpdate()}
+                onClick={() => void applyUpdate({ failureSurface: "inline" })}
                 disabled={installing}
                 className={`${UI_BUTTON.primary} ${UI_BUTTON.sm} gap-1.5 disabled:opacity-50`}
               >
