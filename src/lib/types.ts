@@ -631,6 +631,7 @@ export interface ApiConfig {
 }
 
 export interface GeneralAgentConfig {
+  capability_hints?: boolean;
   enabled: boolean;
   agent_provider: string;
   auto_restart: boolean;

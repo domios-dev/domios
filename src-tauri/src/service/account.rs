@@ -149,11 +149,14 @@ impl super::ServiceContext {
             .await?;
         Ok(account.clone())
     }
-    pub async fn account_login(&self) -> Result<codeterm_account::Status, String> {
+    pub async fn account_login(
+        &self,
+        hint: codeterm_account::LoginHint,
+    ) -> Result<codeterm_account::Status, String> {
         let status = self
             .account()
             .await?
-            .login(&SystemBrowser(self.app_handle.clone()))
+            .login_with_hint(&SystemBrowser(self.app_handle.clone()), hint)
             .await
             .map_err(|e| e.to_string())?;
         let _ = self

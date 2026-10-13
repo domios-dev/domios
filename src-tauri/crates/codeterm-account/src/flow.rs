@@ -4,7 +4,50 @@ use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use url::Url;
 
+#[derive(Clone, Copy, Default, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LoginHint {
+    pub provider: Option<LoginProvider>,
+    pub mode: Option<LoginMode>,
+}
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LoginProvider {
+    Google,
+    Facebook,
+    Email,
+}
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LoginMode {
+    Signin,
+    Signup,
+}
+impl LoginHint {
+    fn append(self, url: &mut Url) {
+        if let Some(provider) = self.provider {
+            url.query_pairs_mut().append_pair(
+                "provider",
+                match provider {
+                    LoginProvider::Google => "google",
+                    LoginProvider::Facebook => "facebook",
+                    LoginProvider::Email => "email",
+                },
+            );
+        }
+        if let Some(mode) = self.mode {
+            url.query_pairs_mut().append_pair(
+                "mode",
+                match mode {
+                    LoginMode::Signin => "signin",
+                    LoginMode::Signup => "signup",
+                },
+            );
+        }
+    }
+}
 pub struct LoginFlow {
+    hint: LoginHint,
     state: String,
     verifier: Secret,
     redirect: String,
@@ -71,11 +114,16 @@ impl LoginFlow {
     }
     pub fn from_parts(state: String, verifier: Secret, redirect: String) -> Self {
         Self {
+            hint: LoginHint::default(),
             state,
             verifier,
             redirect,
             consumed: false,
         }
+    }
+    pub fn with_hint(mut self, hint: LoginHint) -> Self {
+        self.hint = hint;
+        self
     }
     pub fn challenge(verifier: &str) -> String {
         URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
@@ -94,6 +142,7 @@ impl LoginFlow {
             .append_pair("state", &self.state)
             .append_pair("code_challenge", &Self::challenge(self.verifier.expose()))
             .append_pair("redirect_uri", &self.redirect);
+        self.hint.append(&mut url);
         Ok(url)
     }
     pub fn complete(&mut self, callback: Callback) -> Result<Redemption> {
@@ -120,3 +169,6 @@ impl LoginFlow {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

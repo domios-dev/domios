@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -259,10 +259,70 @@ fn session_file_has_ga_marker(mut file: impl Read) -> bool {
     markers.iter().any(|marker| text.contains(marker))
 }
 
+pub(super) fn first_seen_at(dir: &Path, now: u64) -> Result<u64, String> {
+    static WRITE_LOCK: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+    let _guard = WRITE_LOCK.lock();
+    let state = dir.join("state");
+    std::fs::create_dir_all(&state).map_err(|error| error.to_string())?;
+    let path = state.join("first-seen");
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut file) => {
+            write!(file, "{now}").map_err(|error| error.to_string())?;
+            file.sync_all().map_err(|error| error.to_string())?;
+            Ok(now)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            std::fs::read_to_string(path)
+                .map_err(|error| error.to_string())?
+                .parse::<u64>()
+                .map_err(|error| error.to_string())
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn first_seen_is_durable_and_never_moves() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(first_seen_at(dir.path(), 100).unwrap(), 100);
+        assert_eq!(first_seen_at(dir.path(), 200).unwrap(), 100);
+        assert_eq!(first_seen_at(dir.path(), 50).unwrap(), 100);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("state/first-seen")).unwrap(),
+            "100"
+        );
+    }
+
+    #[test]
+    fn existing_first_seen_marker_is_reused_without_rewriting() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("state")).unwrap();
+        let path = dir.path().join("state/first-seen");
+        std::fs::write(&path, "000100").unwrap();
+        assert_eq!(first_seen_at(dir.path(), 200).unwrap(), 100);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "000100");
+    }
+
+    #[test]
+    fn invalid_existing_marker_is_not_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("state")).unwrap();
+        std::fs::write(dir.path().join("state/first-seen"), "invalid").unwrap();
+        assert!(first_seen_at(dir.path(), 200).is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("state/first-seen")).unwrap(),
+            "invalid"
+        );
+    }
 
     #[test]
     fn shared_general_prompt_cannot_discover_main_after_independent_sessions() {

@@ -1,4 +1,5 @@
 mod activity;
+mod build_config;
 mod catalog;
 mod config;
 mod engine;

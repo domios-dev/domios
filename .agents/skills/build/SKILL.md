@@ -552,3 +552,32 @@ rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
 <!-- revision: 17 -->
+
+
+## Build-time vendor configuration
+
+Inject these environment variables before the app build; CI reads GitHub secrets
+with the same names. Empty or missing secrets do not fail compilation.
+
+- DOMIOS_FIREBASE_API_KEY
+- DOMIOS_FIREBASE_PROJECT_ID
+- DOMIOS_FIREBASE_APP_ID
+- DOMIOS_ACCOUNT_REDEEM_URL
+- DOMIOS_BILLING_FUNCTIONS_URL
+- DOMIOS_AMPLITUDE_API_KEY_TEST
+- DOMIOS_AMPLITUDE_API_KEY_PROD
+
+Account, billing and analytics own one build_config module each, using option_env!.
+Only vendor adapters consume it. Runtime account and billing config overrides
+the compiled defaults; Amplitude prefers the compiled key over the secret store.
+Without Firebase values account uses local; without a billing endpoint billing
+returns free locally and reports subscription actions unavailable. Missing
+Amplitude credentials leave queued events undelivered with unavailable status.
+Changing build-time values requires rebuilding; never commit vendor credentials.
+Before Hosting deployment, run node cloud/write-signin-config.mjs with the
+Firebase variables exported; the generated config.json remains ignored.
+
+Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
+found", and the unit runner reports ERR_MODULE_NOT_FOUND for tsx. Run
+pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
+non-Rust checks. A failed dependency lookup selected no executable tests.

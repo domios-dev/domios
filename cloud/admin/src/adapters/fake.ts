@@ -1,6 +1,6 @@
-import { AdminError, type Audit, type AuthProvider, type Backend, type Claims, type DataProvider, type Entitlement, type Identity, type User } from "../domain/model";
+import { AdminError, type AccountAudit, type AuditEntry, type Audit, type AuthProvider, type Backend, type Claims, type DataProvider, type Entitlement, type Identity, type User, type UserPage } from "../domain/model";
 
-export interface State { users: User[]; entitlements: Record<string, Entitlement>; audit: Audit[] }
+export interface State { users: User[]; entitlements: Record<string, Entitlement>; audit: AuditEntry[]; profiles?: string[]; revokedBefore?: Record<string, number> }
 export function seedState(): State {
   return {
     users: [
@@ -41,6 +41,28 @@ export class FakeBackend implements Backend, AuthProvider, DataProvider {
     const user = this.state.users.find(user => user.uid === uid);
     if (!user) throw new AdminError(404, "User not found");
     user.claims = structuredClone(claims);
+  }
+  async listUsers(pageSize: number, pageToken?: string): Promise<UserPage> {
+    const offset = pageToken ? Number(pageToken) : 0;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new AdminError(400, "Invalid page token");
+    const users = [...this.state.users].sort((a, b) => a.uid.localeCompare(b.uid));
+    return { users: structuredClone(users.slice(offset, offset + pageSize)),
+      nextPageToken: offset + pageSize < users.length ? String(offset + pageSize) : undefined };
+  }
+  async setDisabled(uid: string, disabled: boolean) {
+    await this.getUser(uid);
+    this.state.users.find(user => user.uid === uid)!.disabled = disabled;
+  }
+  async revokeTokens(uid: string) {
+    await this.getUser(uid);
+    this.state.revokedBefore = { ...this.state.revokedBefore, [uid]: Date.now() / 1000 };
+    for (const [key, identity] of this.sessions) if (identity.uid === uid) this.sessions.delete(key);
+    for (const [key, identity] of this.tokens) if (identity.uid === uid) this.tokens.delete(key);
+  }
+  async profiles(uids: string[]) { return uids.filter(uid => this.state.profiles?.includes(uid)); }
+  async appendAccountAudit(entry: AccountAudit) {
+    if (this.state.audit.some(existing => existing.id === entry.id)) throw new Error("Audit already exists");
+    this.state.audit.push(structuredClone(entry));
   }
   async findUser(query: string) {
     return structuredClone(this.state.users.find(user => user.uid === query || user.email === query) ?? null);

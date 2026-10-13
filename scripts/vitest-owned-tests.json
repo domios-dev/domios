@@ -103,12 +103,6 @@
   "src/components/Terminal/jumpToMessage.test.ts",
   "packages/chat-ui/src/ReplyQuote.test.tsx",
   "packages/chat-ui/src/localText.test.ts",
-  "src/lib/helperMoments/momentRegistry.test.ts",
-  "src/lib/helperMoments/helperRules.test.ts",
-  "src/lib/helperMoments/adjacency.test.ts",
-  "src/lib/helperMoments/helperMomentsStore.test.ts",
-  "src/lib/helperMoments/helperMomentsWiring.test.ts",
-  "src/components/Terminal/HelperMomentCard.test.tsx",
   "src/components/Sidebar/tetherGeometry.test.ts",
   "src/components/Sidebar/surfaceAttachmentModel.test.ts",
   "src/components/Sidebar/SurfaceAttachments.test.tsx",
@@ -187,5 +181,10 @@
   "packages/chat-ui/src/MessageBubble.api-error.test.tsx",
   "src/lib/aggregateOutputRegistry.test.ts",
   "src/components/Notifications/NotificationBody.test.tsx",
+  "src/components/Settings/generalAgentSettingsModel.test.ts",
+  "src/components/Settings/GeneralAgentCard.test.tsx",
+  "src/components/Titlebar/AccountTray.test.tsx",
+  "src/components/Settings/useAccount.test.tsx",
+  "src/components/shared/CommunityLinks.test.tsx",
   "src/components/Settings/PrivacyTab.test.tsx"
 ]
