@@ -27,6 +27,12 @@ export function steerRefused(error: {code: number; message: string; data?: unkno
     || (error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`")));
 }
 
+export function archivedResume(message: string): boolean {
+  const words = message.toLowerCase().split(/\s+/).map(word => word.replace(/^[`"']+|[`"'.:;,]+$/g,""));
+  return words.some((word,index) => (word === "codex" && words[index+1] === "unarchive")
+    || (word === "session" && !!words[index+1] && words[index+2] === "is" && words[index+3] === "archived"));
+}
+
 export const notificationMethods = [
   "account/updated", "thread/started", "thread/status/changed", "thread/settings/updated", "thread/tokenUsage/updated",
   "thread/compacted", "thread/goal/updated", "thread/goal/cleared", "model/rerouted", "turn/diff/updated", "account/rateLimits/updated", "turn/started", "turn/completed", "turn/plan/updated",
