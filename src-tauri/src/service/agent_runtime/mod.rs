@@ -8,6 +8,8 @@ pub mod model;
 #[cfg(any(unix, test))]
 mod ownership;
 mod process;
+pub(crate) mod projections;
+pub(crate) mod prompt_answers;
 mod question_delivery;
 pub mod questions;
 mod rpc;
