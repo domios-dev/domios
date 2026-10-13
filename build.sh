@@ -482,14 +482,20 @@ esac
 CT_BUILD_GATEWAY_LOGGING_FAILURE=74
 
 finish_build_gateway_logging() {
-  local reader_status=0
+  local reader_status=0 watchdog_pid reader_start deadline=10000
   exec 1>&3 2>&4
   if [ -n "${CT_BUILD_GATEWAY_LOG_READER_STATUS:-}" ]; then
     reader_status="$CT_BUILD_GATEWAY_LOG_READER_STATUS"
-  elif wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
-    reader_status=0
   else
-    reader_status=$?
+    if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
+      deadline="${CT_BUILD_GATEWAY_READER_TIMEOUT_MS:-10000}"
+    fi
+    reader_start="$(ct_gateway_process_start_token "$CT_BUILD_GATEWAY_LOG_READER_PID" 2>/dev/null || true)"
+    node scripts/build-gateway-reader-deadline.mjs "$CT_BUILD_GATEWAY_LOG_READER_PID" "$reader_start" "$deadline" &
+    watchdog_pid=$!
+    if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then reader_status=0; else reader_status=$?; fi
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
   fi
   rm -f -- "${CT_BUILD_GATEWAY_LOG_FIFO:-}"
   exec 3>&- 4>&-
@@ -555,6 +561,9 @@ run_build_gateway_log_reader() {
   if [ "${CT_BUILD_GATEWAY_FAIL_LOG_OPEN:-0}" = "1" ]; then
     printf 'ERROR: injected build gateway log open failure: %s\n' "$1" >&2
     return "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
+  if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ] && [ "${CT_BUILD_GATEWAY_STUCK_READER:-0}" = 1 ]; then
+    exec 5<> "$CT_BUILD_GATEWAY_LOG_FIFO"
   fi
   exec tee -a "$1"
 }
@@ -704,6 +713,15 @@ check_build_gateway_logging() {
     echo "build gateway logging regression: killed command invented a command status" >&2
     return 1
   }
+  local stuck_mode stuck_status
+  for stuck_mode in success command-fail; do
+    if CT_BUILD_JOB_ID="stuck-$stuck_mode" CT_BUILD_GATEWAY_READER_TIMEOUT_MS=250 \
+        CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-log-probe "stuck-reader-$stuck_mode" \
+        > "$root/stuck-$stuck_mode.console" 2>&1; then stuck_status=0; else stuck_status=$?; fi
+    [ "$stuck_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || return 1
+    grep -q 'log reader did not reach EOF' "$root/stuck-$stuck_mode.console" || return 1
+  done
+  echo "stuck readers: EOF deadline released finished jobs with logging failure"
   CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-status > "$root/status.json"
   node - "$root/status.json" <<'JS'
 const status = require(process.argv[2]);
@@ -716,6 +734,8 @@ const expected = {
   "reader-failure": ["logging_failed", 74, 101],
   "open-failure": ["logging_failed", 74, null],
   "command-killed": ["cancelled", 130, null],
+  "stuck-success": ["logging_failed", 74, 0],
+  "stuck-command-fail": ["logging_failed", 74, 101],
 };
 for (const [id, values] of Object.entries(expected)) {
   const job = jobs[id];
@@ -1684,6 +1704,7 @@ EOF
   gateway-log-probe)
     log_probe_mode="${2:-success}"
     [ "$log_probe_mode" != "open-failure" ] || CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1
+    case "$log_probe_mode" in stuck-reader-*) CT_BUILD_GATEWAY_STUCK_READER=1 ;; esac
     enter_build_gateway "$CMD $log_probe_mode"
     printf 'MARKER_FIRST\n'
     case "$log_probe_mode" in
@@ -1693,6 +1714,9 @@ EOF
         ;;
       reader-failure-command-fail)
         break_build_gateway_log_reader
+        exit 101
+        ;;
+      stuck-reader-command-fail)
         exit 101
         ;;
       command-killed)
