@@ -484,7 +484,7 @@ check("settings controls confirm provider values and retain omitted requested fi
   const event=partial.events?.[0];if(event?.kind !== "controlsConfirmed")throw new Error("Expected reported settings");
   assert.equal(event.settings.model,"requested-alias");assert.equal(event.settings.effort,"medium");
   const empty=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}}));
-  assert.deepEqual(empty,{kind:"complete",result:{kind:"done"}});
+  assert.deepEqual(empty,{kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",additionalDirectories:["/work/shared"],networkAccess:false}}]});
 });
 check("resume refreshes instructions on direct and unarchive retry paths",()=> {
   const instructions='opaque-resume-contract\n${opaque} "value"';
@@ -519,6 +519,23 @@ check("restoreContext validates and injects developer and user context without e
   assert.deepEqual((contextOnly.action.call.params as Record<string,JsonValue>).items,[{type:"message",role:"user",content:[{type:"input_text",text:"payload"}]}]);
 });
 function objectError(value:unknown):{code?:string} {return value as {code?:string};}
+check("settings success acknowledges requests and errors cannot confirm them",()=> {
+  const current={model:"old",effort:"high",mode:"auto-accept-edits",additionalDirectories:["/work/shared"],networkAccess:false};
+  for(const [action,value,fields] of [["model","new-model",{model:"new-model"}],["effort","low",{effort:"low"}],["mode","full-access",{mode:"full-access"}],["settings",{model:"new-model",effort:"low"},{model:"new-model",effort:"low"}]] as const) {
+    const context={...ctx,settings:current};
+    const op:Operation={kind:"control",threadId:ctx.threadId!,action,value};
+    const plan=hooks.runtimePlan(context,op);
+    const success=plain(hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{}}));
+    assert.deepEqual(success,{kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:ctx.threadId!,settings:{...current,...fields}}]});
+    const error=plain(hooks.runtimeResponse(context,op,plan.state,{kind:"error",error:{code:-32600,message:"refused"}}));
+    assert.equal(error.kind,"refused");assert.equal("events" in error,false);
+  }
+});
+check("turn start reconciles effective model and effort after control acknowledgement",()=> {
+  const frame:RuntimeFrame={kind:"notification",method:"turn/started",params:{threadId:ctx.threadId!,turn:{id:"new-turn",model:"effective-model",reasoningEffort:"low",status:"inProgress"}}};
+  const events=plain(hooks.runtimeReduce(ctx,null,[frame]).events);
+  assert.deepEqual(events,[{kind:"controlsConfirmed",threadId:ctx.threadId!,settings:{model:"effective-model",effort:"low"}},{kind:"turnState",threadId:ctx.threadId!,turnId:"new-turn",state:"working"}]);
+});
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
 
 check("unsupported turn pagination falls back only on method absence",()=> {
