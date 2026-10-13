@@ -1,6 +1,6 @@
 use super::*;
-use crate::service::browser::cdp::{CdpConnection, CdpError, EventStream};
-use crate::service::browser::cdp_wire::CdpEvent;
+use crate::cdp::{CdpConnection, CdpError, EventStream};
+use crate::cdp_wire::CdpEvent;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::{mpsc, watch};

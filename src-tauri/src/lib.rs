@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod agent_commands;
 mod api;
-pub mod attachments;
+pub use codeterm_util::attachments;
 mod autostart;
 pub mod bridge;
 pub mod bridge_host;
