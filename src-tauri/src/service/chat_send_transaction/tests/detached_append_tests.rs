@@ -305,3 +305,46 @@ impl AgentProvider for ArtifactProvider {
         }
     }
 }
+
+#[test]
+fn session_append_assistant_echo_cannot_confirm_delivery() {
+    let ledger = ChatSendLedger::default();
+    let send = ledger
+        .try_start_scoped(
+            TAB,
+            PAYLOAD,
+            None,
+            Some(SendLiveBinding {
+                session_id: Some(SESSION.into()),
+                binding_nonce: Some(NONCE.into()),
+            }),
+        )
+        .unwrap();
+    ledger.finish(&send.send_id, Ok(())).unwrap();
+    let mut message = crate::agent::chat_types::ChatMsg {
+        id: "assistant-echo".into(),
+        kind: "assistant".into(),
+        content: PAYLOAD.into(),
+        ..Default::default()
+    };
+    assert!(delivered_turn_confirmations(
+        &ledger,
+        TAB,
+        SESSION,
+        Some(NONCE),
+        &[message.clone()],
+        None
+    )
+    .is_empty());
+    assert_eq!(
+        ledger.status(&send.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
+    message.kind = "user".into();
+    message.id = "own-user".into();
+    let confirmed =
+        delivered_turn_confirmations(&ledger, TAB, SESSION, Some(NONCE), &[message], None);
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, send.send_id);
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+}
