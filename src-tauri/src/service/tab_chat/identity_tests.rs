@@ -371,3 +371,20 @@ fn tab_chat_identity_unanchored_rows_keep_their_batch_ids() {
     assert_eq!(ids(&rich_to_chat_msgs_live(&unanchored, 42)), vec!["42-0"]);
     assert_eq!(rich_to_chat_msgs_live(&unanchored, 42)[0].seq, 42);
 }
+
+#[test]
+fn reasoning_uuid_survives_distinct_chunk_origins() {
+    let row = RichMessage {
+        role: "assistant".into(),
+        uuid: Some("reasoning-rs-split".into()),
+        blocks: vec![MessageBlock {
+            kind: "thinking".into(),
+            data: serde_json::json!({"text":"Split thought"}),
+        }],
+        ..Default::default()
+    };
+    let snapshot = rich_rows_to_chat_msgs(&[row.clone()], 0);
+    let live = rich_rows_to_chat_msgs(&[row], 100);
+    assert_eq!(snapshot[0].id, "reasoning-rs-split-0");
+    assert_eq!(snapshot[0].id, live[0].id);
+}

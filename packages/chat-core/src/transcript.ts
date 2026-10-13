@@ -4,9 +4,9 @@ import { mergeById } from "./merge";
 import { reconcileSends, type ChatSend, type SendEcho } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
 
-/** Half-open byte range `[start, end)` of a session source, both ends on a
- *  complete-record boundary. */
+/** Half-open source window; byte boundaries align to complete records. */
 export interface TranscriptRange {
+  unit?: "bytes" | "items";
   start: number;
   end: number;
 }
@@ -20,7 +20,7 @@ export type TranscriptBatchKind = "snapshot" | "delta" | "backfill";
 
 export interface TranscriptSegment {
   kind: TranscriptBatchKind;
-  /** `null` for sources with no byte model (structured/store-backed providers). */
+  /** `null` for events with no paging window. */
   range: TranscriptRange | null;
   rows: NormalizedChatMessage[];
 }
@@ -82,20 +82,8 @@ function sameAuthority(left: TranscriptAuthority, right: TranscriptAuthority): b
     && left.sessionBindingNonce === right.sessionBindingNonce;
 }
 
-/** Transport ids and `seq` are per-batch counters that other batches reuse, so
- *  a ranged row is identified by its own batch range plus its position. */
-function rangedRows(
-  range: TranscriptRange,
-  rows: readonly NormalizedChatMessage[],
-): NormalizedChatMessage[] {
-  return rows.map((row, ordinal) => {
-    const id = `${range.start}:${ordinal}`;
-    return row.id === id ? row : { ...row, id, sourceMessageId: row.sourceMessageId ?? row.id };
-  });
-}
-
 function rangedSegments(state: TranscriptState): TranscriptSegment[] {
-  return state.segments.filter((segment) => segment.range != null);
+  return state.segments.filter((segment) => segment.range != null && segment.range.unit !== "items");
 }
 
 /** End of the committed byte span — the live cursor. */
@@ -108,11 +96,12 @@ export function transcriptCommittedEnd(state: TranscriptState): number | null {
   return end;
 }
 
-/** Start of the committed byte span — the `chat_backfill` paging cursor. */
+/** Earliest loaded source position for `chat_backfill`. */
 export function transcriptBackfillCursor(state: TranscriptState): number | null {
   let start: number | null = null;
-  for (const segment of rangedSegments(state)) {
-    const candidate = segment.range as TranscriptRange;
+  for (const segment of state.segments) {
+    if (segment.range == null) continue;
+    const candidate = segment.range;
     if (start == null || candidate.start < start) start = candidate.start;
   }
   return start;
@@ -126,8 +115,7 @@ function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   });
 }
 
-/** Segments never overlap, so a repeated id can only come from an unranged
- *  source, where the newest occurrence wins. */
+/** Provider IDs survive every source window; the newest occurrence wins. */
 export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
   const rows: NormalizedChatMessage[] = [];
   for (const segment of orderedSegments(state.segments)) rows.push(...segment.rows);
@@ -198,6 +186,20 @@ function withUnrangedRows(
   ];
 }
 
+function reduceItems(state: TranscriptState, batch: TranscriptBatch): TranscriptResult {
+  const ranges = state.segments.flatMap((segment) => segment.range?.unit === "items" ? [segment.range] : []);
+  if (batch.range != null) ranges.push(batch.range);
+  const range: TranscriptRange = {
+    unit: "items",
+    start: Math.min(...ranges.map((entry) => entry.start)),
+    end: Math.max(...ranges.map((entry) => entry.end)),
+  };
+  const previous = transcriptRows(state);
+  const incoming = ownedRows(batch.authority, batch.rows);
+  const rows = batch.kind === "backfill" ? mergeById(incoming, previous) : mergeById(previous, incoming);
+  return { state: { ...state, segments: [{ kind: batch.kind, range, rows }] }, outcome: "adopted" };
+}
+
 function reduceSnapshot(
   state: TranscriptState,
   batch: TranscriptBatch,
@@ -227,7 +229,7 @@ function reduceSnapshot(
     state,
     [
       ...preserved,
-      { kind: "snapshot", range, rows: rangedRows(range, ownedRows(batch.authority, batch.rows)) },
+      { kind: "snapshot", range, rows: ownedRows(batch.authority, batch.rows) },
     ],
     "adopted",
     Number.POSITIVE_INFINITY,
@@ -254,7 +256,7 @@ function reduceDelta(
   }
   return committed(
     state,
-    [...state.segments, { kind: "delta", range, rows: rangedRows(range, ownedRows(batch.authority, batch.rows)) }],
+    [...state.segments, { kind: "delta", range, rows: ownedRows(batch.authority, batch.rows) }],
     "adopted",
     limit,
   );
@@ -271,7 +273,7 @@ function reduceBackfill(state: TranscriptState, batch: TranscriptBatch): Transcr
       ...state,
       segments: orderedSegments([
         ...state.segments,
-        { kind: "backfill", range, rows: rangedRows(range, ownedRows(batch.authority, batch.rows)) },
+        { kind: "backfill", range, rows: ownedRows(batch.authority, batch.rows) },
       ]),
       evictedOlder: Math.max(0, state.evictedOlder - batch.rows.length),
     },
@@ -279,8 +281,7 @@ function reduceBackfill(state: TranscriptState, batch: TranscriptBatch): Transcr
   };
 }
 
-/** The single owner of transcript reconciliation: byte ranges decide overlap,
- *  adoption and eviction — never content, timestamps, provider ids or seq. */
+/** Byte ranges decide window adoption; source IDs decide row identity. */
 export function reduceTranscript(
   state: TranscriptState,
   batch: TranscriptBatch,
@@ -305,6 +306,9 @@ export function reduceTranscript(
     return { state: rotated.state, outcome: "rotated" };
   }
   const based: TranscriptState = { ...state, authority: batch.authority };
+  if (batch.range?.unit === "items" || (batch.range == null && based.segments.some((segment) => segment.range?.unit === "items"))) {
+    return reduceItems(based, batch);
+  }
   if (batch.kind === "snapshot") return reduceSnapshot(based, batch, limit);
   if (batch.kind === "delta") return reduceDelta(based, batch, limit);
   return reduceBackfill(based, batch);
