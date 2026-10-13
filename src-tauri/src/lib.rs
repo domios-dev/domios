@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod agent_commands;
+pub mod app_runtime;
 mod api;
 pub use codeterm_util::attachments;
 mod autostart;
