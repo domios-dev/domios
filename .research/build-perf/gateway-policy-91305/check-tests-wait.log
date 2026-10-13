@@ -1,0 +1,1 @@
+ERROR: check-tests does not use the build gateway, so --wait-build has no effect; run ./build.sh check-tests without it

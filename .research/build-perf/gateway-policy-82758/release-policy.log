@@ -1,0 +1,6 @@
+Build gateway job release-policy log: /Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292/.research/build-perf/gateway-policy-82758/state/jobs/release-policy.log
+[cache-policy] fresh release target=/Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292/.research/build-perf/gateway-policy-82758/state/targets/release/release-policy
+[cache-policy] CARGO_INCREMENTAL=0
+target=/Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292/.research/build-perf/gateway-policy-82758/state/targets/release/release-policy
+incremental=0
+Build gateway job release-policy exit: 0

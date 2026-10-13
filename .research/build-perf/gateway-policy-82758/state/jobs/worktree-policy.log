@@ -1,0 +1,12 @@
+[cache-policy] CARGO_TARGET_DIR isolated: /Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292/.research/build-perf/gateway-policy-82758/state/targets/exceptional/711053bbba8d60a18aa6b42f5594b9fad02bcd0b
+[cache-policy] prestarted shared sccache verified
+[cache-policy] RUSTC_WRAPPER=sccache
+[cache-policy] SCCACHE_DIR=<default>
+[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>
+[cache-policy] sccache-fixture
+[cache-policy] exceptional worktree target=/Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292/.research/build-perf/gateway-policy-82758/state/targets/exceptional/711053bbba8d60a18aa6b42f5594b9fad02bcd0b
+[cache-policy] CARGO_INCREMENTAL=0
+target=/Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292/.research/build-perf/gateway-policy-82758/state/targets/exceptional/711053bbba8d60a18aa6b42f5594b9fad02bcd0b
+incremental=0
+wrapper=sccache
+Build gateway job worktree-policy exit: 0

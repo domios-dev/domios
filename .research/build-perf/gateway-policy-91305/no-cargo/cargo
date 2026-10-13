@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "cargo invoked" >&2
+exit 97

@@ -812,12 +812,14 @@ prepare_exceptional_worktree_target() {
   local dir identity
   dir="$(ct_gateway_dir)"
   identity="$(printf '%s' "$(pwd -P)" | git hash-object --stdin)"
-  export CARGO_TARGET_DIR="$dir/targets/exceptional/$identity"
+  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "$(pwd -P)" "$dir" "$identity")"
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
   # The marker is retention bookkeeping; a busy gateway mutex must not kill the build.
-  ct_mark_exceptional_target || echo "[cache-policy] mark skipped; target stays protected while running"
+  if [ "$CARGO_TARGET_DIR" != "$(pwd -P)/target-check" ]; then
+    ct_mark_exceptional_target || echo "[cache-policy] mark skipped; target stays protected while running"
+  fi
   ct_verify_target_dir
   ct_require_prestarted_sccache
   echo "[cache-policy] exceptional worktree target=$CARGO_TARGET_DIR"
@@ -1824,6 +1826,7 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml
     ;;
   check-tests)
+    ct_configure_sccache
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs

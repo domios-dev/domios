@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "job_id": "worktree-policy",
+  "job": "gateway-policy-probe",
+  "command": "gateway-policy-probe worktree-target",
+  "owner": "be3c63bd",
+  "owner_pid": 97507,
+  "owner_start_token": "Tue Oct 13 20:10:42 2026",
+  "owner_process_command": "bash ./build.sh gateway-policy-probe worktree-target",
+  "worktree": "/Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292",
+  "source_sha": "bf5adf9b1d3377343a13e9aa8c2fd405e15c98ce",
+  "state": "completed",
+  "queue_key": "1791911442372-0000097507-worktree-policy",
+  "queue_position": null,
+  "queued_at": "2026-10-13T17:10:42Z",
+  "started_at": "2026-10-13T17:10:43Z",
+  "ended_at": "2026-10-13T17:10:44Z",
+  "exit_code": 0,
+  "command_exit_code": 0,
+  "outcome": "success",
+  "log_path": "/Users/kandrey/Developer/codeterm-worktrees/pl-xq9cj4-task-rmds1c-53e89292/.research/build-perf/gateway-policy-91305/state/jobs/worktree-policy.log"
+}
