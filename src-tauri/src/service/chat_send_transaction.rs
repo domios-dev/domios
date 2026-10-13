@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 const MAX_RESULTS: usize = 256;
 const MAX_IN_FLIGHT: usize = 32;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSendState {
     #[serde(rename = "held")]
@@ -40,7 +40,7 @@ pub enum ChatSendState {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatSendStatus {
     pub send_id: String,
     pub tab_id: String,

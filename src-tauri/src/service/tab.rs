@@ -128,6 +128,7 @@ impl ServiceContext {
         super::background_work_watch::cancel(tab_id);
         crate::flow_trace::cancel_tab(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
+        super::agent_runtime::engine::stop(tab_id);
         self.deferred_session_bindings.clear(tab_id);
 
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {

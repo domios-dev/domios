@@ -593,6 +593,14 @@ pub fn create_router_with_frontend(
             "/api/mesh/peers/{id}/crons/{cron_id}/history",
             get(web_routes::peer_cron_history),
         )
+        .route(
+            "/api/tabs/{id}/agent/runtime/retry",
+            post(web_routes::agent_runtime_retry),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/questions/{item}/answer",
+            post(web_routes::agent_runtime_answer_question),
+        )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/output/stream", get(output_stream::output_stream))
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
