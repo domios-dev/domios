@@ -30,6 +30,8 @@ pub enum PlanAction {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Repair a plan's project folder after it moves, preserving plan and task identity
+    SetProject { plan_id: String, path: String },
     /// List plans
     List {
         #[arg(long)]
