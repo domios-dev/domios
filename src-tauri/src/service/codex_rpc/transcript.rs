@@ -6,15 +6,27 @@ use super::{
 };
 use crate::{agent::chat_types::ChatMsg, service::ServiceContext};
 use serde_json::{json, Value};
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 const OPTIONAL_GOAL_DEADLINE: Duration = Duration::from_secs(1);
 
 pub struct History {
     pub messages: Vec<ChatMsg>,
     pub active_turn: Option<String>,
+    pub open_items: HashMap<String, String>,
     pub completed_turns: Vec<String>,
     pub final_assistant_ids: HashSet<String>,
+}
+
+impl History {
+    pub fn normalizer(&self, thread: &str) -> Normalizer {
+        let mut normalizer = Normalizer::from_history(thread, self.messages.clone());
+        normalizer.restore_open_items(thread, &self.open_items);
+        normalizer
+    }
 }
 
 pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
@@ -42,6 +54,7 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
     let mut normalizer = Normalizer::default();
     let mut messages = Vec::new();
     let mut final_assistant_ids = HashSet::new();
+    let mut open_items = HashMap::new();
     for turn in turns {
         let turn_id = turn
             .get("id")
@@ -65,7 +78,21 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
                     final_assistant_ids.insert(id.to_string());
                 }
             }
-            messages.extend(normalize_entries(&mut normalizer, thread, &entry));
+            let normalized = normalize_entries(&mut normalizer, thread, &entry);
+            let item = entry.get("item").unwrap_or(&entry);
+            let terminal = matches!(
+                item["status"].as_str(),
+                Some("completed" | "failed" | "interrupted" | "declined")
+            );
+            if active_turn.as_deref() == Some(turn_id)
+                && entry["completedAtMs"].is_null()
+                && !terminal
+            {
+                for message in &normalized {
+                    open_items.insert(message.id.clone(), turn_id.into());
+                }
+            }
+            messages.extend(normalized);
         }
         if turn["status"] != "inProgress" {
             messages.extend(normalizer.apply_all(&Frame::Notification {
@@ -91,6 +118,7 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
     Ok(History {
         messages,
         active_turn,
+        open_items,
         completed_turns,
         final_assistant_ids,
     })
