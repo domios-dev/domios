@@ -2505,7 +2505,8 @@ var plugin = {
       const prompt = p.task ? starterPrompt(p.starterPrompt, p.starterPromptText) : void 0;
       if (prompt) {
         parts.push("--");
-        parts.push(host.shell.quoteFor(prompt, host.platform()));
+        const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
+        parts.push(host.shell.quoteFor(framed, host.platform()));
       }
     }
     return parts.join(" ");

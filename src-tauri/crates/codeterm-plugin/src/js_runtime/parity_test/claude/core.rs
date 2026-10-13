@@ -294,6 +294,9 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
             .trim()
             .trim_matches(['\'', '"']);
         let delivered = std::fs::read_to_string(path).expect("prompt file");
+        assert!(delivered.trim_start_matches('\u{feff}').starts_with(prompt));
+        let rule = crate::agent_claude::launch_prompt_rule().unwrap();
+        assert_eq!(delivered.matches(rule.as_str()).count(), 1, "{label}");
         assert_eq!(delivered.matches(prompt).count(), 1, "{label}");
     }
 }

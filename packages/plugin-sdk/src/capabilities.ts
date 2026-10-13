@@ -115,6 +115,8 @@ export interface LaunchParams {
   starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake";
   /** Host-owned text for starter prompts shared across providers. */
   starterPromptText?: string;
+  /** Host-owned opening frame for the selected starter turn. */
+  starterPromptPrefix?: string;
   /// Fixed local server the host wants this agent's structured-prompt handle to
   /// listen on. Set only for providers that declare `supportsStructuredPrompts`;
   /// the plugin maps it to the provider's own server flags (opencode:

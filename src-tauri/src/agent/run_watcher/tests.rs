@@ -304,7 +304,11 @@ fn hidden_agent_crash_recovery_reapplies_the_registered_launch_context() {
         .trim_matches('\'');
     let written = std::fs::read_to_string(path).expect("written relaunch context");
 
-    assert_eq!(written.trim_start_matches('\u{feff}'), context);
+    let written = written.trim_start_matches('\u{feff}');
+    assert!(written.starts_with(context));
+    assert_eq!(written.matches(context).count(), 1);
+    let rule = crate::plugin::agent_claude::launch_prompt_rule().unwrap();
+    assert_eq!(written.matches(rule.as_str()).count(), 1);
 }
 
 #[test]

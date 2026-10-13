@@ -946,6 +946,11 @@ fn reapply_class_resume_carries_the_composed_prompt_exactly_once() {
         .trim()
         .trim_matches(['\'', '"']);
     let delivered = std::fs::read_to_string(path).expect("prompt file the resume command names");
+    assert!(delivered
+        .trim_start_matches('\u{feff}')
+        .starts_with(RESUME_COMPOSED_PROMPT));
+    let rule = crate::plugin::agent_claude::launch_prompt_rule().unwrap();
+    assert_eq!(delivered.matches(rule.as_str()).count(), 1);
     assert_eq!(delivered.matches(RESUME_COMPOSED_PROMPT).count(), 1);
 }
 

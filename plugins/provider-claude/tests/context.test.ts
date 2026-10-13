@@ -137,6 +137,15 @@ for (const platform of ["linux", "windows"]) {
   check(() => assert.equal(command.includes("value with spaces"), false));
   check(() => assert.equal(JSON.parse(launchFiles.get(path)!).opaque, "value with spaces"));
 }
+
+for (const starterPrompt of ["assigned_task", "idle_wakeup", "team_bootstrap", "startup_handshake"]) {
+  const prefix = '<domios from="system" context="opaque-' + starterPrompt + '">';
+  const text = "opaque-starter-body";
+  const command = plugin.buildLaunchCommand({ task: "opaque-task", starterPrompt, starterPromptText: text, starterPromptPrefix: prefix });
+  check(() => assert.ok(command.endsWith(" -- " + sandbox.host.shell.quoteFor(prefix + text + "</domios>"))));
+  check(() => assert.equal(command.split(prefix).length - 1, 1));
+}
+
 sandbox.host.fs.writeTempFile = () => null as any;
 check(() => assert.equal(plugin.buildLaunchCommand({}), ""));
 check(() => assert.equal(plugin.buildResumeCommand("own", false), null));
