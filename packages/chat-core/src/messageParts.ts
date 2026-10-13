@@ -1,8 +1,9 @@
+import { attachmentMarkerSegments, formatAttachmentMarker, type AttachmentMarker } from "./attachmentMarker";
 import { DOMIOS_CLOSE_TAG, parseDomiosMessage } from "./domios";
 import type { ChatSend } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
 
-export type MessagePart = { kind: "frame" | "text"; content: string; correlationId?: string };
+export type MessagePart = ({ kind: "frame" | "text" } | { kind: "attachment"; attachments: AttachmentMarker[] }) & { content: string; correlationId?: string };
 export interface ExactSendText {
   content: string;
   correlationId?: string;
@@ -24,9 +25,49 @@ export function parseMessageParts(content: string): MessagePart[] {
     offset = end;
   }
   if (offset < content.length || parts.length === 0) {
-    parts.push({ kind: "text", content: content.slice(offset) });
+    parts.push(...parseAttachmentParts(content.slice(offset)));
   }
   return parts;
+}
+
+function parseAttachmentParts(content: string): MessagePart[] {
+  if (!content.includes("<domios")) return [{ kind: "text", content }];
+  const parts: MessagePart[] = [];
+  for (const segment of attachmentMarkerSegments(content)) {
+    const previous = parts[parts.length - 1];
+    if ("text" in segment) {
+      if (previous?.kind === "attachment" && !segment.text.trim()) previous.content += segment.text;
+      else parts.push({ kind: "text", content: segment.text });
+    } else if (segment.attachment.reply === undefined) {
+      const marker = formatAttachmentMarker(segment.attachment.path, segment.attachment.kind, segment.attachment.label);
+      if (previous?.kind === "attachment") {
+        previous.attachments.push(segment.attachment);
+        previous.content += marker;
+      } else parts.push({ kind: "attachment", attachments: [segment.attachment], content: marker });
+    } else {
+      const marker = formatAttachmentMarker(segment.attachment.path, segment.attachment.kind, segment.attachment.label,
+        { ref: segment.attachment.reply, excerpt: segment.attachment.excerpt ?? "" });
+      if (previous?.kind === "text") previous.content += marker;
+      else parts.push({ kind: "text", content: marker });
+    }
+  }
+  return parts.length ? parts : [{ kind: "text", content }];
+}
+
+export function messageRowParts(parts: readonly MessagePart[]): MessagePart[] {
+  const rows: MessagePart[] = [];
+  let attachmentRow = false;
+  for (const part of parts) {
+    const previous = rows[rows.length - 1];
+    if (part.kind !== "frame" && previous?.kind === "text" && previous.correlationId === part.correlationId && (attachmentRow || part.kind === "attachment")) {
+      previous.content += part.content;
+      attachmentRow = true;
+    } else {
+      rows.push(part.kind === "attachment" ? { kind: "text", content: part.content, correlationId: part.correlationId } : { ...part });
+      attachmentRow = part.kind === "attachment";
+    }
+  }
+  return rows;
 }
 
 export function splitExactSendTexts(content: string, payloads: readonly ExactSendText[]): MessagePart[] {
@@ -41,7 +82,7 @@ export function splitExactSendTexts(content: string, payloads: readonly ExactSen
     offset = start + payload.content.length;
   }
   if (offset === 0) return parseMessageParts(content);
-  if (offset < content.length) segments.push({ kind: "text", content: content.slice(offset) });
+  if (offset < content.length) segments.push(...parseAttachmentParts(content.slice(offset)));
   return segments;
 }
 

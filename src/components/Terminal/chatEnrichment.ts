@@ -1,3 +1,4 @@
+import { messageRowParts } from "@codeterm/chat-core";
 import type { NormalizedChatMessage as ChatMessage, TimelineItem } from "@codeterm/chat-core";
 import {
   detectChatPrefix,
@@ -17,7 +18,7 @@ export interface EnrichedChatEntry {
 export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 
 function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
-  const splitPrefixes: Array<{ body: string; origin?: ChatOrigin; correlationId?: string }> | null | undefined = raw.messageParts?.map((part): { body: string; origin?: ChatOrigin; correlationId?: string } => ({
+  const splitPrefixes: Array<{ body: string; origin?: ChatOrigin; correlationId?: string }> | null | undefined = (raw.messageParts ? messageRowParts(raw.messageParts) : undefined)?.map((part): { body: string; origin?: ChatOrigin; correlationId?: string } => ({
     ...(part.kind === "frame" ? detectChatPrefix(part.content) ?? { body: part.content } : { body: stripPastedContentTags(part.content) }),
     correlationId: part.correlationId,
   })) ?? splitChatPrefixedMessages(raw.content);

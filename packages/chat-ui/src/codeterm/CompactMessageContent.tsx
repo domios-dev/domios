@@ -6,6 +6,7 @@ import { RichMarkdown } from "../MarkdownBody";
 import { normalizeMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { AttachmentStrip } from "../AttachmentStrip";
+import { OrderedAttachmentContent } from "../OrderedAttachmentContent";
 import { InlineAttachmentText } from "../AttachmentCapsule";
 import { ReplyQuote } from "../ReplyQuote";
 
@@ -25,21 +26,21 @@ export function CompactMessageContent({ text, fontScale, onOpenPlan, resolvePlan
   const lines = normalized.split("\n");
   const collapsible = lines.length > collapseAfter;
   const [expanded, setExpanded] = React.useState(false);
-  const shown = expanded || !collapsible ? normalized : lines.slice(0, collapseAfter).join("\n");
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const hasStrip = parts.images.length > 0 || parts.files.length > 0;
+  const renderText = (content: string) => {
+    const part = userMessageAttachments(content);
+    const normalized = normalizeMessageText(part.text);
+    const shown = expanded || !collapsible ? normalized : normalized.split("\n").slice(0, collapseAfter).join("\n");
+    const body = part.inline ? <InlineAttachmentText segments={part.inline} />
+      : hasPlanRefs(shown) ? <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+      : <RichMarkdown text={shown} fontScale={fontScale} />;
+    return <>{part.files.length > 0 && <AttachmentStrip images={[]} files={part.files} captioned={Boolean(shown.trim())} />}{body}</>;
+  };
 
   return (
     <div data-testid="codeterm-message-content" className={`min-w-0 ${textSize}`}>
       {parts.reply && <ReplyQuote label={parts.reply.label ?? "Quote"} excerpt={parts.reply.excerpt ?? ""} />}
-      {hasStrip && <AttachmentStrip images={parts.images} files={parts.files} captioned={normalized.trim().length > 0} />}
-      {parts.inline ? (
-        <InlineAttachmentText segments={parts.inline} />
-      ) : hasPlanRefs(shown) ? (
-        <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-      ) : (
-        <RichMarkdown text={shown} fontScale={fontScale} />
-      )}
+      <OrderedAttachmentContent content={text} renderText={renderText} />
       {collapsible && !parts.inline && (
         <button
           type="button"
