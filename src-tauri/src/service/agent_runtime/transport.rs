@@ -204,37 +204,9 @@ pub(crate) fn send_envelope(
     svc: &ServiceContext,
     tab: &str,
     input: &str,
+    token: &str,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    let pending = svc.chat_send_ledger.try_start_scoped_with_normalization(
-        tab,
-        input,
-        None,
-        None,
-        Default::default(),
-    )?;
-    let pending = svc
-        .chat_send_ledger
-        .attach_system_send(
-            &pending.send_id,
-            input,
-            chrono::Utc::now().timestamp_millis().max(0) as u64,
-        )
-        .ok_or("Runtime envelope admission disappeared")?;
-    crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &pending);
-    let result = send(svc, tab, input, Some(&pending.send_id));
-    if let Some(status) = svc.chat_send_ledger.finish(
-        &pending.send_id,
-        result
-            .as_ref()
-            .map(|_| ())
-            .map_err(|reason| reason.ledger_message()),
-    ) {
-        crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
-    }
-    result.map_err(|reason| reason.ledger_message())?;
-    Ok(crate::service::messenger::Delivery::ChatBackend {
-        message_id: pending.send_id,
-    })
+    super::envelope_delivery::send(svc, tab, input, token)
 }
 
 pub fn control(
