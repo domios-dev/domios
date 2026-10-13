@@ -308,6 +308,7 @@ pub async fn hook_permission(
                 return None;
             }
             Some(crate::multiplexer::types::PendingPrompt {
+                request_id: None,
                 question,
                 options,
                 sections: None,

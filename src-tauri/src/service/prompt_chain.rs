@@ -693,6 +693,7 @@ mod tests {
     #[test]
     fn unsupported_prompt_shapes_have_owner_blocker_kinds() {
         let mut prompt = PendingPrompt {
+            request_id: None,
             question: "opaque-question".into(),
             options: Vec::new(),
             sections: None,
@@ -717,6 +718,7 @@ mod tests {
         let mut book = PromptChainBook::default();
         let launch = key("notice-launch");
         let repeated = PendingPrompt {
+            request_id: None,
             question: "opaque-question".into(),
             options: Vec::new(),
             sections: None,

@@ -38,6 +38,7 @@ fn resolving_a_stored_prompt_record_disables_its_choices_and_spends_channel_post
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
 
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque prompt".into(),
         options: vec![
             PromptOption {
@@ -103,6 +104,7 @@ fn channel_placement_arriving_after_resolution_is_spent_immediately() {
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
 
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque prompt".into(),
         options: vec![PromptOption {
             label: "Choice one".into(),
