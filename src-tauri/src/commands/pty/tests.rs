@@ -282,6 +282,7 @@ mod spawn_pty_restore_tests {
             agent_name: Some("restored-agent-name".into()),
             identity_instructions: Some(INSTRUCTIONS.into()),
             permission_bypass_requested: false,
+            runtime_launch_options: None,
         };
 
         let fixture = ServiceFixture::new(mux);

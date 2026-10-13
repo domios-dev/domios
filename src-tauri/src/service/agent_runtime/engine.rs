@@ -181,6 +181,14 @@ async fn ensure_locked(
     if live && matches!(session.state.lock().phase, RuntimePhase::Ready) {
         return validate_binding(svc, session);
     }
+    let owner = svc.clone();
+    let target = tab.to_string();
+    let settings =
+        tokio::task::spawn_blocking(move || super::launch_options::restore(&owner, &target))
+            .await
+            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
+            .map_err(RuntimeFailure::Refused)?;
+    session.context.lock().settings = settings;
     let process = if live {
         old.ok_or(RuntimeFailure::Superseded)?
     } else {
@@ -324,11 +332,11 @@ async fn ensure_locked(
     let operation = match context.thread_id.clone() {
         Some(thread_id) => RuntimeOperation::ResumeThread {
             thread_id,
-            settings: super::model::settings_from_config(config),
+            settings: context.settings.clone(),
         },
         None => RuntimeOperation::OpenThread {
             instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
-            settings: super::model::settings_from_config(config),
+            settings: context.settings.clone(),
         },
     };
     let RuntimeResult::ThreadLoaded {
@@ -695,15 +703,25 @@ fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), Run
     Ok(())
 }
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
+    let context = session.context.lock().clone();
     let state = session.state.lock().clone();
     let value = serde_json::to_value(state.snapshot()).unwrap_or(Value::Null);
-    if let Some(target) = svc.mux.write().get_tab_mut(tab) {
+    {
+        let mut mux = svc.mux.write();
+        let Some(target) = mux.get_tab_mut(tab) else {
+            return;
+        };
+        if target.agent_type.as_deref() != Some(session.provider.as_str())
+            || target.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())
+        {
+            return;
+        }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = matches!(state.phase, RuntimePhase::Loading);
     }
     svc.notify_event(
         "agent-runtime-state",
-        serde_json::json!({"tab_id":tab,"session_binding_nonce":session.context.lock().binding_nonce,"state":value}),
+        serde_json::json!({"tab_id":tab,"session_binding_nonce":context.binding_nonce,"state":value}),
     );
 }
 
