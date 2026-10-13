@@ -440,7 +440,7 @@ where
     preflight_dispatch_task_status(&plan_id, &detail.task)?;
 
     // Group records stay visible without taking the dispatch path away.
-    let plan = store
+    store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     let caller = crate::service::AuthenticatedPlanCaller {

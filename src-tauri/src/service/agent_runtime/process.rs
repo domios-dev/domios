@@ -6,7 +6,6 @@ use tokio::{io::AsyncReadExt, sync::watch};
 
 pub struct Process {
     pub client: Client,
-    pub pid: u32,
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
     stop: watch::Sender<bool>,
 }
@@ -192,7 +191,6 @@ pub fn spawn(
     });
     Ok(Process {
         client,
-        pid,
         ended: exit,
         stop,
     })
