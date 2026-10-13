@@ -15,6 +15,10 @@ use std::process::Command;
 
 mod audit;
 mod availability;
+mod inventory;
+pub mod update_source;
+pub use availability::{AvailabilityItem, AvailabilityState, UpdateKind};
+pub use inventory::{sync_core_cached, update_inventory};
 mod update_status;
 pub use availability::{update_availability, UpdateAvailability, UpdateOffer, UpdateSource};
 use update_status::*;

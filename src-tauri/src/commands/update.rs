@@ -82,3 +82,17 @@ pub fn get_update_status(update_state: tauri::State<'_, UpdateStateHandle>) -> s
     let status = update_state.lock().runtime_status();
     status
 }
+
+#[tauri::command]
+pub async fn check_update_availability(
+    app: AppHandle,
+    update_state: tauri::State<'_, UpdateStateHandle>,
+    force: Option<bool>,
+) -> Result<crate::update::discovery::AvailabilitySnapshot, String> {
+    use tauri::Manager;
+    let bundles = app
+        .try_state::<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>()
+        .map(|bundles| bundles.inner().clone());
+    crate::update::discovery::check(&app, update_state.inner(), bundles, force.unwrap_or(false))
+        .await
+}
