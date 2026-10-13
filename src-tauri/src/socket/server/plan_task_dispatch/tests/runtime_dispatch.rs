@@ -57,11 +57,15 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
         crate::storage::StorageConfig::default(),
     )
     .unwrap();
-    crate::service::session_persist::install_storage_desk_adapter(
-        fixture._app.handle(),
-        crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
-    )
-    .unwrap();
+    let snapshot = fixture.service.mux.read().to_session_snapshot();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
+    assert_eq!(
+        adapter.state().unwrap().snapshot.workspaces.len(),
+        snapshot.workspaces.len()
+    );
+    crate::service::session_persist::install_storage_desk_adapter(fixture._app.handle(), adapter)
+        .unwrap();
     let methods = [
         "initialize",
         "openThread",
