@@ -59,7 +59,7 @@ impl SpawnTabSpec {
             let role = params.role.clone();
             let role_profile = params.role_profile.clone();
             let can_spawn = params.can_spawn;
-            let config = chatbackend_spawn_config(
+            let mut config = chatbackend_spawn_config(
                 params.system_prompt.as_deref(),
                 params.preset.as_deref(),
                 params.model.as_deref(),
@@ -67,6 +67,9 @@ impl SpawnTabSpec {
                 params.charter.as_deref(),
                 params.tick_interval_secs,
             );
+            if let Some(effort) = params.reasoning_effort.as_deref() {
+                config["effort"] = serde_json::json!(effort);
+            }
             return Self::from_agent_params_command(
                 params,
                 Some(TabCommand::ChatBackend {
@@ -84,38 +87,42 @@ impl SpawnTabSpec {
 
     fn from_agent_params_command(params: SpawnAgentParams, command: Option<TabCommand>) -> Self {
         let task_launch_env = params.task_launch_env();
-        let agent_command = command.unwrap_or_else(|| {
-            TabCommand::Agent(AgentSpawnSpec {
-                provider: params.agent.clone().unwrap_or_default(),
-                remote_task_bound:
-                    crate::service::orchestrator::remote_task_binding_matches_authority(
-                        params.remote_task_binding.as_ref(),
-                        params.task_launch_authority.as_ref(),
-                    ),
-                planned_model: params.planned_model.clone(),
-                model: params.model.clone(),
-                planned_reasoning_effort: params.planned_reasoning_effort.clone(),
-                reasoning_effort: params.reasoning_effort.clone(),
-                task: params.task.clone(),
-                agent_name: params.agent_name.clone(),
-                extra_args: params.args.clone().unwrap_or_default(),
-                provisioned_cwd: params.provisioned_cwd.clone(),
-                existing_tab_id: params.existing_tab_id.clone(),
-                role: params.role.clone(),
-                role_profile: params.role_profile.clone(),
-                can_spawn: params.can_spawn,
-                report_target_tab_id: params.report_target_tab_id.clone(),
-                worker_id: None,
-                extra_env: task_launch_env,
-                task_preamble: None,
-                spawned_by: None,
-                spawned_by_tab_id: params.spawned_by_tab_id.clone(),
-                resume_session_id: params.resume_session_id.clone(),
-                fork_session: params.fork_session,
-                activate: params.activate,
-                launch_purpose: Default::default(),
+        let agent = AgentSpawnSpec {
+            provider: params.agent.clone().unwrap_or_default(),
+            remote_task_bound: crate::service::orchestrator::remote_task_binding_matches_authority(
+                params.remote_task_binding.as_ref(),
+                params.task_launch_authority.as_ref(),
+            ),
+            planned_model: params.planned_model.clone(),
+            model: params.model.clone(),
+            planned_reasoning_effort: params.planned_reasoning_effort.clone(),
+            reasoning_effort: params.reasoning_effort.clone(),
+            task: params.task.clone(),
+            agent_name: params.agent_name.clone(),
+            extra_args: params.args.clone().unwrap_or_default(),
+            provisioned_cwd: params.provisioned_cwd.clone(),
+            existing_tab_id: params.existing_tab_id.clone(),
+            role: params.role.clone(),
+            role_profile: params.role_profile.clone(),
+            can_spawn: params.can_spawn,
+            report_target_tab_id: params.report_target_tab_id.clone(),
+            worker_id: None,
+            extra_env: task_launch_env,
+            task_preamble: None,
+            spawned_by: None,
+            spawned_by_tab_id: params.spawned_by_tab_id.clone(),
+            resume_session_id: params.resume_session_id.clone(),
+            fork_session: params.fork_session,
+            activate: params.activate,
+            launch_purpose: Default::default(),
+        };
+        let chatbackend_launch = command.as_ref().map(|_| {
+            Box::new(super::spawn::ChatBackendLaunchMetadata {
+                agent: agent.clone(),
+                params: params.clone(),
             })
         });
+        let agent_command = command.unwrap_or(TabCommand::Agent(agent));
         Self {
             shell: None,
             workspace_id: params.workspace_id.clone(),
@@ -134,7 +141,40 @@ impl SpawnTabSpec {
             timeout: None,
             eager: false,
             command: agent_command,
+            chatbackend_launch,
         }
+    }
+
+    pub(crate) fn route_agent_to_chatbackend(&mut self) -> Result<(), String> {
+        let params = self.to_agent_params()?;
+        let TabCommand::Agent(agent) = &self.command else {
+            return Err("Runtime routing requires agent launch metadata".into());
+        };
+        let agent = agent.clone();
+        let mut config = chatbackend_spawn_config(
+            None,
+            None,
+            agent.model.as_deref(),
+            agent.role_profile.as_deref(),
+            None,
+            None,
+        );
+        if let Some(effort) = agent.reasoning_effort.as_deref() {
+            config["effort"] = serde_json::json!(effort);
+        }
+        self.command = TabCommand::ChatBackend {
+            plugin_id: agent.provider.clone(),
+            config,
+            role: agent.role.clone(),
+            role_profile: agent.role_profile.clone(),
+            can_spawn: agent.can_spawn,
+            watcher: None,
+        };
+        self.chatbackend_launch = Some(Box::new(super::spawn::ChatBackendLaunchMetadata {
+            agent,
+            params,
+        }));
+        Ok(())
     }
 
     pub(crate) fn to_agent_launch_params(
