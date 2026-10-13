@@ -172,12 +172,14 @@ pub(crate) fn start_servers(
         .map(|clock| clock as cron::clock::SharedClock)
         .unwrap_or_else(cron::clock::system_clock);
     let logs_root = crate::paths::data_dir().join("crons");
+    let default_agent_provider = states.config.lock().general_agent.agent_provider.clone();
     let cron_store = match states.storage.storage() {
         Some(storage) => cron::store::CronStore::open_storage(
             storage,
             logs_root.clone(),
             cron_clock.clone(),
             cron::store::CronStorageOptions::default(),
+            default_agent_provider,
         )
         .unwrap_or_else(|error| cron::store::CronStore::unavailable(error, logs_root, cron_clock)),
         None => cron::store::CronStore::unavailable(

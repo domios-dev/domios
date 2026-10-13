@@ -205,6 +205,7 @@ impl CronStore {
             logs_root,
             tab_owners: HashMap::new(),
             clock,
+            default_agent_provider: String::new(),
         }
     }
 
@@ -224,6 +225,7 @@ impl CronStore {
         logs_root: PathBuf,
         clock: SharedClock,
         options: CronStorageOptions,
+        default_agent_provider: String,
     ) -> Result<CronStore, String> {
         let repo = storage.crons();
         let read = repo
@@ -246,6 +248,7 @@ impl CronStore {
             logs_root,
             tab_owners: HashMap::new(),
             clock,
+            default_agent_provider,
         };
         store.merge(read.value.states, read.revision)?;
         Ok(store)

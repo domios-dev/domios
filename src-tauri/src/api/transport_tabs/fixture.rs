@@ -1,11 +1,15 @@
 use crate::api::routes::AppState;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
+use tauri::Manager;
 
 pub(crate) fn app_state(fixture: &ServiceFixture) -> AppState {
-    let mut config = crate::config::schema::AppConfig::default();
-    config.api.token = Some("preview-test-token".into());
-    let config = Arc::new(parking_lot::Mutex::new(config));
+    let config = fixture
+        ._app
+        .state::<crate::config::ConfigState>()
+        .inner()
+        .clone();
+    config.lock().api.token = Some("preview-test-token".into());
     let mut mesh = crate::mesh::MeshManager::new("local-preview-test".into(), 0);
     mesh.disk_persist = false;
     AppState {

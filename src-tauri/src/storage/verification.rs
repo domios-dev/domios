@@ -458,6 +458,9 @@ fn read_adapters(
         logs_root.to_path_buf(),
         system_clock(),
         CronStorageOptions { deadline: DEADLINE },
+        crate::config::schema::AppConfig::default()
+            .general_agent
+            .agent_provider,
     )?;
     let expected_cron = expected_cron(expected)?;
     let cron_comparison = domain_comparison(comparison, ImportDomain::Cron)?;

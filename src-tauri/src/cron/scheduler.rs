@@ -467,6 +467,9 @@ mod tests {
             temp.path().join("crons"),
             clock.clone(),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("hydrate cron store");
         StorageFixture {
