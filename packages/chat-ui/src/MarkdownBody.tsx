@@ -4,6 +4,8 @@ import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
+import { CompactCode } from "./CompactCode";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, rehypeScrubInlineStyles } from "./htmlSanitize";
@@ -84,10 +86,12 @@ function MarkdownCode({
   ...props
 }: React.ComponentProps<"code"> & { node?: unknown }) {
   const language = resolveCodeLanguage(className, children);
-  const plainCode = extractCodeText(children);
-  const blockCode = isBlockCodeNode(node);
+  const { "data-code-text": rawText, "data-code-block": rawBlock, ...codeProps } = props as typeof props & { "data-code-text"?: string; "data-code-block"?: boolean | string };
+  const plainCode = rawText ?? extractCodeText(children);
+  const blockCode = rawBlock === undefined ? isBlockCodeNode(node) : rawBlock === true || rawBlock === "true";
   if (!language && !blockCode) {
     return (
+      <CompactCode text={plainCode} block={false}>
       <code
         className="rounded-[5px] px-[0.35em] py-[0.1em] font-mono text-[0.88em]"
         style={{
@@ -96,14 +100,16 @@ function MarkdownCode({
           overflowWrap: "anywhere",
           wordBreak: "break-word",
         }}
-        {...props}
+        {...codeProps}
       >
         {plainCode}
       </code>
+      </CompactCode>
     );
   }
   if (!language) {
     return (
+      <CompactCode text={plainCode} block>
       <code
         data-testid="chat-plain-code-block"
         className="my-2 block max-w-full overflow-x-auto whitespace-pre rounded-md border p-3 font-mono text-xs leading-[1.4]"
@@ -112,10 +118,11 @@ function MarkdownCode({
           borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
           color: "var(--ct-fg, #c9d1d9)",
         }}
-        {...props}
+        {...codeProps}
       >
         {plainCode}
       </code>
+      </CompactCode>
     );
   }
   if (language === "html") {
@@ -351,7 +358,7 @@ export function RichMarkdown({
   return rendered;
 }
 
-const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS = [remarkGfm, remarkBareDomains, remarkCodeMetadata];
 const MARKDOWN_RENDER_CACHE_ENTRIES = 3000;
 const MARKDOWN_RENDER_CACHE_CHARS = 500_000;
 const markdownRenderCache = new Map<string, { element: React.ReactElement; chars: number }>();
