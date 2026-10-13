@@ -67,7 +67,7 @@ test("renders guide sections from content module", async () => {
     const heading = overview?.querySelector("h3")?.textContent?.trim();
     assert(!!heading, "overview heading missing");
     const overviewNav = navItems.find((item) => item.getAttribute("data-help-nav") === "overview");
-    assert(overviewNav?.className.includes("accent"), "overview nav should be selected initially");
+    assert(overviewNav?.getAttribute("aria-current") === "location", "overview nav should be selected initially");
   } finally {
     try {
       await act(async () => {
@@ -91,7 +91,7 @@ test("initialSection renders, selects and scrolls to the supporter agent section
     const section = host.querySelector('[data-help-section-id="supporter-agent"]');
     const nav = host.querySelector('[data-help-nav="supporter-agent"]');
     assert(!!section, "supporter agent section did not render");
-    assert(nav?.className.includes("accent"), "supporter agent section was not selected");
+    assert(nav?.getAttribute("aria-current") === "location", "supporter agent section was not selected");
     assert(JSON.stringify(scrolled) === JSON.stringify(["supporter-agent"]), `expected one scroll to the section, got ${JSON.stringify(scrolled)}`);
   } finally {
     proto.scrollIntoView = original;
@@ -120,7 +120,42 @@ test("nav selects plans section", async () => {
     plansNav!.click();
   });
   const active = host.querySelector('[data-help-nav="plans"]');
-  assert(active?.className.includes("accent"), "plans nav should highlight after click");
+  assert(active?.getAttribute("aria-current") === "location", "plans nav should highlight after click");
+});
+
+test("content scroll updates the current navigation entry and section selector", async () => {
+  const { host, root } = await render(<HelpPanel config={config} />);
+  try {
+    const scrollport = host.querySelector('[data-testid="help-content-tab"]') as HTMLDivElement;
+    Object.defineProperty(scrollport, "clientHeight", { value: 600 });
+    Object.defineProperty(scrollport, "scrollHeight", { value: 20000 });
+    scrollport.getBoundingClientRect = () => ({ top: 100, bottom: 700 } as DOMRect);
+    const sections = Array.from(host.querySelectorAll<HTMLElement>("[data-help-section]"));
+    let offset = 0;
+    sections.forEach((section, index) => {
+      section.getBoundingClientRect = () => ({
+        top: 100 + index * 1000 - offset,
+        bottom: 1060 + index * 1000 - offset,
+      } as DOMRect);
+    });
+    for (const index of [0, 1, 2, 1, 0]) {
+      offset = index * 1000;
+      await act(async () => {
+        scrollport.scrollTop = offset;
+        scrollport.dispatchEvent(new window.Event("scroll"));
+      });
+      const id = sections[index].getAttribute("data-help-section");
+      const current = host.querySelectorAll('[data-help-nav][aria-current="location"]');
+      assert(current.length === 1 && current[0].getAttribute("data-help-nav") === id,
+        `scroll should select ${id}`);
+      const select = host.querySelector("select") as HTMLSelectElement;
+      assert(select.value === id, "narrow section selector should follow the same scroll state");
+    }
+    await act(async () => { root.unmount(); });
+    await act(async () => { scrollport.dispatchEvent(new window.Event("scroll")); });
+  } finally {
+    host.remove();
+  }
 });
 
 setupDom();
