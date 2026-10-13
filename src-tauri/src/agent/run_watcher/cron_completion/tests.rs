@@ -248,13 +248,16 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
                     pending.barrier.stopped,
                     pending.barrier.assistant_ids.clone(),
                     pending.events.lock().clone(),
+                    pending._watcher.is_some(),
+                    pending.source_path.clone(),
+                    pending.source_path.as_deref().and_then(std::path::Path::parent).map(std::path::Path::to_path_buf),
                 ))
             });
             let completed = state.as_ref().map(|state| state.completed.load(Ordering::Acquire));
             let tab_open = fixture.service.mux.try_read().map(|mux| mux.get_tab(&tab_id).is_some());
             let run_status = cron.try_lock().map(|store| store.get_history(&job.id)[0].status.clone());
             let snapshot = crate::service::tab_chat::session_chat_snapshot(&fixture.service, "pending-fixture", "", "own-session", 0);
-            panic!("transcript append must release pending completion: {error}; completion={completion:?}; completed={completed:?}; tab_open={tab_open:?}; run_status={run_status:?}; snapshot={snapshot:?}");
+            panic!("transcript append must release pending completion: {error}; completion(stopped,prior_ids,events,watcher_present,session_path,watch_dir)={completion:?}; completed={completed:?}; tab_open={tab_open:?}; run_status={run_status:?}; snapshot={snapshot:?}");
         });
     fixture._app.unlisten(listener);
     assert_eq!(
