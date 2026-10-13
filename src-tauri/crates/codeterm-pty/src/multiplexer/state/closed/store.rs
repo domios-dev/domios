@@ -67,6 +67,8 @@ pub struct ClosedRow {
 /// sqlite-backed closed-history store. Leaf lock, only taken under the mux lock, never across an await.
 pub struct ClosedTabsStore {
     pub(super) conn: Mutex<Connection>,
+    per_workspace_cap: usize,
+    group_cap: usize,
 }
 
 impl ClosedTabsStore {
@@ -88,15 +90,23 @@ impl ClosedTabsStore {
         Self::init_schema(&conn).map_err(|e| format!("init closed schema: {}", e))?;
         Ok(Self {
             conn: Mutex::new(conn),
+            per_workspace_cap: RECENTLY_CLOSED_CAP,
+            group_cap: CLOSED_GROUP_CAP,
         })
     }
 
     /// In-memory store — the default for constructors and tests; prod swaps in a file-backed store at startup.
     pub fn in_memory() -> Self {
+        Self::in_memory_with_caps(RECENTLY_CLOSED_CAP, CLOSED_GROUP_CAP)
+    }
+
+    pub(super) fn in_memory_with_caps(per_workspace_cap: usize, group_cap: usize) -> Self {
         let conn = Connection::open_in_memory().expect("open in-memory closed_history db");
         Self::init_schema(&conn).expect("init in-memory closed schema");
         Self {
             conn: Mutex::new(conn),
+            per_workspace_cap,
+            group_cap,
         }
     }
 
@@ -318,8 +328,8 @@ impl ClosedTabsStore {
             .map_err(|e| format!("insert tab: {}", e))?;
         }
 
-        Self::trim_workspace(&tx, &group.workspace_id, RECENTLY_CLOSED_CAP)?;
-        Self::trim_global_groups(&tx, CLOSED_GROUP_CAP)?;
+        Self::trim_workspace(&tx, &group.workspace_id, self.per_workspace_cap)?;
+        Self::trim_global_groups(&tx, self.group_cap)?;
         Self::prune_empty_groups(&tx)?;
 
         tx.commit().map_err(|e| format!("closed commit: {}", e))?;
@@ -408,7 +418,7 @@ impl ClosedTabsStore {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };
-        stmt.query_map(params![workspace_id, RECENTLY_CLOSED_CAP as i64], |r| {
+        stmt.query_map(params![workspace_id, self.per_workspace_cap as i64], |r| {
             Ok(Self::tab_from_row(r))
         })
         .map(|rows| rows.filter_map(Result::ok).collect())
