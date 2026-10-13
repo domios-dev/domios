@@ -403,6 +403,7 @@ fn runtime_worker_identity_is_stamped_before_launch() {
             ..Default::default()
         },
         params: Default::default(),
+        owner_linkage: None,
     };
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     super::stamp_chatbackend_launch_identity(tab, &metadata);
@@ -413,5 +414,70 @@ fn runtime_worker_identity_is_stamped_before_launch() {
     assert_eq!(
         tab.reasoning_effort_identity.requested.as_deref(),
         Some("effort-exact")
+    );
+}
+
+#[test]
+fn runtime_resume_preserves_exact_thread_and_refuses_replacement() {
+    assert_eq!(
+        super::runtime_resume_thread(Some("thread-a"), Some("thread-a"))
+            .unwrap()
+            .as_deref(),
+        Some("thread-a")
+    );
+    assert_eq!(
+        super::runtime_resume_thread(Some("thread-a"), None)
+            .unwrap()
+            .as_deref(),
+        Some("thread-a")
+    );
+    assert_eq!(
+        super::runtime_resume_thread(None, Some("thread-a"))
+            .unwrap()
+            .as_deref(),
+        Some("thread-a")
+    );
+    assert!(super::runtime_resume_thread(Some("thread-a"), Some("thread-b")).is_err());
+    assert!(super::runtime_resume_thread(None, None).unwrap().is_none());
+}
+
+#[test]
+fn runtime_launch_mode_uses_authorized_host_choice() {
+    assert_eq!(super::runtime_launch_mode(true), "full-access");
+    assert_eq!(super::runtime_launch_mode(false), "auto-accept-edits");
+}
+
+#[test]
+fn chatbackend_manager_placement_preserves_named_profile() {
+    let (mut mux, root) = crate::multiplexer::state::MultiplexerState::new();
+    mux.set_orchestrator_role(&root).unwrap();
+    let workspace = mux.find_workspace_for_tab(&root).unwrap();
+    let planner = mux.create_tab(&workspace).unwrap();
+    super::place_chatbackend_role_kind(
+        &mut mux,
+        &planner,
+        "Manager",
+        Some("planner"),
+        Some(&root),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        mux.get_tab(&planner).unwrap().role_profile.as_deref(),
+        Some("planner")
+    );
+    let anchor = mux.create_tab(&workspace).unwrap();
+    super::place_chatbackend_role_kind(
+        &mut mux,
+        &anchor,
+        "Manager",
+        Some("orchestrator"),
+        None,
+        Some(true),
+    )
+    .unwrap();
+    assert_eq!(
+        mux.get_tab(&anchor).unwrap().role_profile.as_deref(),
+        Some("orchestrator")
     );
 }

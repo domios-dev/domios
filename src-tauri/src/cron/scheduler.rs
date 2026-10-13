@@ -291,6 +291,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
         service.chatbackend_registry.as_ref(),
         crate::cron::spawn_spec::CronSpawnInputs {
             job_id: job_id.to_string(),
+            run_id: run_id.clone(),
             job_name,
             agent: agent.to_string(),
             model,
@@ -647,6 +648,7 @@ mod tests {
             &crate::chatbackend::ChatBackendRegistry::new(),
             crate::cron::spawn_spec::CronSpawnInputs {
                 job_id: fire.job_id,
+                run_id: "fixture-run".into(),
                 job_name: "legacy".into(),
                 agent: fire.agent,
                 model: fire.model,
