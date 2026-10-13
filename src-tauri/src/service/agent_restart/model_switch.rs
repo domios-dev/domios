@@ -106,6 +106,7 @@ pub(crate) enum ModelSwitchError {
         observed_model: String,
     },
     LiveSwitchFailed(String),
+    RuntimeControlRefused(String),
     LiveCommandFailed(String),
     InputNotReady(String),
 }
@@ -135,7 +136,7 @@ impl std::fmt::Display for ModelSwitchError {
                 formatter,
                 "relaunched with {launched_model}, but the current session reported {observed}"
             ),
-            Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) | Self::InputNotReady(reason) => {
+            Self::RuntimeControlRefused(reason) | Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) | Self::InputNotReady(reason) => {
                 write!(formatter, "live model switch failed: {reason}")
             }
         }
@@ -459,6 +460,15 @@ impl ServiceContext {
         restart_fallback: bool,
         staged: Option<&staging::SwitchRequest>,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab_id) {
+            return crate::service::agent_runtime::controls::switch(
+                self,
+                &tab,
+                requested,
+                requested_effort,
+                None,
+            );
+        }
         let requested = requested.trim();
         let (resolved_tab, provider) = {
             let mux = self.mux.read();

@@ -276,17 +276,5 @@ pub fn snapshot(
 mod tests;
 
 pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
-    let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
-        .map_err(|reason| reason.to_string())?;
-    let context = session.context.lock().clone();
-    let thread_id = context.thread_id.ok_or("Runtime thread unavailable")?;
-    control(
-        svc,
-        tab,
-        RuntimeOperation::Interrupt {
-            thread_id,
-            active_turn_id: context.active_turn_id,
-        },
-    )
-    .map(|_| ())
+    super::controls::interrupt(svc, tab)
 }

@@ -21,6 +21,8 @@ pub struct Session {
     pub provider: String,
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
+    pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
+    pub(super) control_changes: tokio::sync::watch::Sender<()>,
     pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
@@ -48,6 +50,10 @@ pub fn stop(tab: &str) {
     super::environment::revoke(tab);
     super::capture::revoke(tab);
     if let Some(session) = SESSIONS.lock().remove(tab) {
+        session.state.lock().phase = RuntimePhase::Unloaded {
+            reason: Some("Runtime stopped".into()),
+        };
+        session.control_changes.send_replace(());
         if let Some(process) = session.process.lock().take() {
             process.stop();
         }
@@ -95,6 +101,8 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                 Arc::new(Session {
                     provider: provider.clone(),
                     adapter: Mutex::new(None),
+                    controls_confirmation: Mutex::new(None),
+                    control_changes: tokio::sync::watch::channel(()).0,
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
                         epoch: 0,
@@ -649,6 +657,7 @@ async fn run_inner(
 pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Option<&str>) {
     if let Some(turn) = turn {
         session.completions.lock().record(thread, turn);
+        session.control_changes.send_replace(());
     }
 }
 
@@ -703,6 +712,7 @@ fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), Run
     Ok(())
 }
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
+    session.control_changes.send_replace(());
     let context = session.context.lock().clone();
     let state = session.state.lock().clone();
     let value = serde_json::to_value(state.snapshot()).unwrap_or(Value::Null);
