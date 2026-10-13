@@ -47,6 +47,36 @@ function recordedTextDiff(path, oldText, newText) {
   }];
 }
 
+// plugins/provider-cursor/src/launchSession.ts
+var MARKER = /^ct-launch-[a-f0-9]{32}$/;
+var SESSION = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+function launchRecordPath(marker) {
+  const home = host.homeDir();
+  if (!home || !MARKER.test(marker)) return null;
+  return home + "/.cursor/projects/.codeterm-launches/" + marker + ".json";
+}
+function cursorLaunchCommand(command, marker) {
+  if (typeof marker !== "string" || !MARKER.test(marker)) return command;
+  const record = launchRecordPath(marker);
+  if (!record) return "";
+  const platform = host.platform();
+  const quote = (value) => host.shell.quoteFor(value, platform);
+  const resumed = command.replace("cursor-agent", platform === "windows" ? 'cursor-agent --resume "$ctCursorSession"' : 'cursor-agent --resume "$ct_cursor_session"');
+  if (platform === "windows") {
+    return "$ctCursorSession = (& cursor-agent create-chat | Out-String).Trim(); if ($LASTEXITCODE -ne 0 -or $ctCursorSession -cnotmatch " + quote(SESSION.source) + ") { throw 'Cursor session creation failed' }; [System.IO.Directory]::CreateDirectory(" + quote(record.substring(0, record.lastIndexOf("/"))) + ") | Out-Null; [System.IO.File]::WriteAllText(" + quote(record) + ", (@{ launchMarker = " + quote(marker) + "; sessionId = $ctCursorSession } | ConvertTo-Json -Compress)); " + resumed;
+  }
+  return '(ct_cursor_session=$(cursor-agent create-chat) && case "$ct_cursor_session" in *[!0-9a-fA-F-]*|"") exit 1;; esac && case "$ct_cursor_session" in ????????-????-????-????-????????????) ;; *) exit 1;; esac && mkdir -p ' + quote(record.substring(0, record.lastIndexOf("/"))) + ` && printf '%s\\n' "{\\"launchMarker\\":\\"` + marker + '\\",\\"sessionId\\":\\"$ct_cursor_session\\"}" > ' + quote(record) + " && " + resumed + ")";
+}
+function detectCursorLaunchSession(evidence, sessionExists) {
+  const marker = evidence?.launchMarker;
+  if (typeof marker !== "string") return null;
+  const path = launchRecordPath(marker);
+  if (!path) return null;
+  const record = host.fs.readJson(path);
+  if (!record || record.launchMarker !== marker || typeof record.sessionId !== "string" || !SESSION.test(record.sessionId) || !sessionExists(evidence.cwd, record.sessionId)) return null;
+  return { sessionId: record.sessionId, source: "launch_marker" };
+}
+
 // plugins/provider-cursor/src/plugin.ts
 var TITLE_RE = /cursor/i;
 var OUTPUT_FINGERPRINTS = [
@@ -140,7 +170,10 @@ var plugin = {
     if (launchTask) {
       parts.push(host.shell.quoteFor(launchTask, host.platform()));
     }
-    return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return cursorLaunchCommand(
+      disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" "),
+      p.launchMarker
+    );
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const parts = [
@@ -165,30 +198,14 @@ var plugin = {
     const ms = meta.createdAtMs;
     return typeof ms === "number" ? ms : null;
   },
-  // "newest-for-cwd" (capability rule #3): with 2+ viable candidates, refuse rather than hand over a sibling's session.
-  detectSessionId(cwd, exclude, maxAgeMs) {
-    const dir = cursorChatsDir(cwd);
-    if (!dir || !host.fs.fileExists(dir)) return null;
-    const entries = host.fs.readDir(dir) || [];
-    const ex = toExcludeList(exclude);
-    const now = host.unixNowMs ? host.unixNowMs() : 0;
-    const maxAge = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 0;
-    const sep = pathSep();
-    const candidates = [];
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      if (!e || !e.isDir) continue;
-      const sid = e.name;
-      if (!looksLikeUuid(sid)) continue;
-      if (ex.indexOf(sid) !== -1) continue;
-      const meta = readMetaJson(e.path + sep + "meta.json");
-      if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
-      const ts = meta ? meta.updatedAtMs || meta.createdAtMs || 0 : e.modifiedMs || 0;
-      if (maxAge && now && (!ts || now - ts > maxAge)) continue;
-      candidates.push({ id: sid, ts });
-    }
-    if (candidates.length !== 1) return null;
-    return candidates[0].id;
+  detectSessionId() {
+    return null;
+  },
+  detectLaunchSession(evidence) {
+    return detectCursorLaunchSession(evidence, (cwd, sid) => {
+      const dir = cursorSessionDir(cwd, sid);
+      return !!dir && host.fs.fileExists(dir + pathSep() + "store.db");
+    });
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;
@@ -815,11 +832,6 @@ function numFrom(v) {
     if (isFinite(n)) return n;
   }
   return null;
-}
-function toExcludeList(exclude) {
-  if (Array.isArray(exclude)) return exclude;
-  if (typeof exclude === "string" && exclude) return [exclude];
-  return [];
 }
 function looksLikeUuid(s) {
   return typeof s === "string" && s.length >= 32 && s.indexOf("-") !== -1;
