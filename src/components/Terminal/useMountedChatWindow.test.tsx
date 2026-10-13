@@ -21,6 +21,7 @@ let prefixHeight = 0;
 let bottomInset = 0;
 let viewportHeight = VIEWPORT;
 let loading = false;
+let renders = 0;
 let frames: Map<number, FrameRequestCallback>;
 
 function extent(element: HTMLElement): number {
@@ -41,6 +42,7 @@ function offset(element: HTMLElement): number {
 }
 
 function Harness({ active }: { active: boolean }) {
+  renders += 1;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   mountApi = useMountedChatWindow({ rows, scrollRef, active, followTailRef: followTail, sessionKey: SESSION });
   const contentVersion = useMemo(() => ({ rows, range: mountApi.range, revision: mountApi.revision }),
@@ -81,7 +83,13 @@ function scroller(): HTMLDivElement { return host.querySelector('[data-testid="s
 function mounted(): HTMLElement[] { return Array.from(host.querySelectorAll("[data-message-id]")); }
 async function render(active = true) { await act(async () => root.render(<Harness active={active} />)); }
 async function move(top: number) {
-  await act(async () => { scroller().scrollTop = top; scroller().dispatchEvent(new Event("scroll", { bubbles: true })); });
+  await act(async () => {
+    scroller().scrollTop = top;
+    scroller().dispatchEvent(new Event("scroll", { bubbles: true }));
+    const callbacks = Array.from(frames.values());
+    frames.clear();
+    callbacks.forEach((callback) => callback(0));
+  });
 }
 
 beforeEach(() => {
@@ -108,6 +116,26 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); clearPersistedChatScrollState(SESSION); });
 
 describe("mounted chat wiring", () => {
+  it("coalesces native scroll events and skips renders within the same row window", async () => {
+    await render();
+    await move(scroller().scrollTop - 2990);
+    frames.clear();
+    const before = renders;
+    await act(async () => {
+      for (let index = 0; index < 8; index++) {
+        scroller().scrollTop += 1;
+        scroller().dispatchEvent(new Event("scroll", { bubbles: true }));
+      }
+    });
+    expect(renders).toBe(before);
+    expect(frames.size).toBe(1);
+    await act(async () => {
+      const callbacks = Array.from(frames.values());
+      frames.clear();
+      callbacks.forEach((callback) => callback(0));
+    });
+    expect(renders).toBe(before);
+  });
   it("keeps initial mount and hydrated content pinned without reader events", async () => {
     rows = [];
     loading = true;
