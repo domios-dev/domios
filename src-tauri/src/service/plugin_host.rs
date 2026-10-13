@@ -798,13 +798,17 @@ mod worker_spawn_tests {
             audience: crate::multiplexer::types::TabAudience::Automation,
             ..Default::default()
         };
-        let expected = format!("{params:?}");
+        let expected = params.clone();
         let mut spec =
             plugin_worker_spawn_spec(params, "worker-exact".into(), "plugin-exact".into());
         spec.route_agent_to_chatbackend().unwrap();
         assert_eq!(spec.visibility, TabVisibility::Hidden);
         let metadata = spec.chatbackend_launch.unwrap();
-        assert_eq!(format!("{:?}", metadata.params), expected);
+        let mut actual = metadata.params.clone();
+        let prompt = actual.system_prompt.take().unwrap();
+        assert_eq!(prompt.matches("opaque-task").count(), 1);
+        assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
         assert_eq!(metadata.agent.worker_id.as_deref(), Some("worker-exact"));
         assert_eq!(metadata.agent.spawned_by.as_deref(), Some("plugin-exact"));
     }

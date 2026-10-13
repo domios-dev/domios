@@ -55,16 +55,11 @@ pub(crate) fn build_cron_spawn_spec(
         spawned_by_tab_id: inputs.creator_tab_id.clone(),
         ..Default::default()
     };
-    if !chatbackends
-        .descriptor(&inputs.agent)
-        .is_some_and(|descriptor| descriptor.agent_runtime.is_some())
-    {
-        crate::service::move_chatbackend_task_to_system_prompt(
-            chatbackends,
-            &inputs.agent,
-            &mut params,
-        );
-    }
+    crate::service::move_chatbackend_task_to_system_prompt(
+        chatbackends,
+        &inputs.agent,
+        &mut params,
+    );
 
     let mut spec = SpawnTabSpec::from_agent_params_with_chatbackends(chatbackends, params);
     // Cron runs are observed through the run history viewer, never as a live tab.
