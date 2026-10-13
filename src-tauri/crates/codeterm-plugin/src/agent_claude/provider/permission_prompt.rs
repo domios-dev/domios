@@ -64,6 +64,7 @@ mod tests {
 
     fn prompt(question: &str, labels: &[&str]) -> PendingPrompt {
         PendingPrompt {
+            request_id: None,
             question: question.into(),
             options: labels
                 .iter()

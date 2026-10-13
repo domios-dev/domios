@@ -69,6 +69,7 @@ fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
     let screen = update_frame();
     let visible = menu_options(&screen);
     let parsed = PendingPrompt {
+        request_id: None,
         question: "manual update choice".into(),
         options: visible.clone(),
         sections: None,
@@ -205,6 +206,7 @@ fn owner_launched_update_prompt_remains_owner_facing() {
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("fixture".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque question".into(),
         options: vec![
             PromptOption {
@@ -258,6 +260,7 @@ fn owner_launched_update_prompt_remains_owner_facing() {
 fn codex_update_dialog_is_a_respondable_structured_prompt() {
     let screen = update_frame();
     let prompt = PendingPrompt {
+        request_id: None,
         question: "manual update choice".into(),
         options: menu_options(&screen),
         sections: None,
@@ -310,6 +313,7 @@ fn non_update_dialog_does_not_use_the_manual_update_prompt_path() {
         screen_text: screen.clone(),
     };
     let prompt = PendingPrompt {
+        request_id: None,
         question: String::new(),
         options: menu_options(&screen),
         sections: None,
@@ -331,6 +335,7 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
     )
     .expect("Claude trust fixture");
     let pending = PendingPrompt {
+        request_id: None,
         question: "folder trust".into(),
         options: vec![
             PromptOption {
@@ -439,6 +444,7 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
     .expect("Codex user directory trust fixture");
     let visible = menu_options(&screen);
     let parsed = PendingPrompt {
+        request_id: None,
         question: "folder access choice".into(),
         options: visible.clone(),
         sections: None,
@@ -502,6 +508,7 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
     )
     .expect("Codex user directory trust fixture");
     let prompt = PendingPrompt {
+        request_id: None,
         question: "folder access choice".into(),
         options: menu_options(&screen),
         sections: None,
@@ -611,6 +618,7 @@ fn ga_connected_update_prompt_does_not_bypass_model_gate() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "opaque question".into(),
         options: vec![
             PromptOption {
