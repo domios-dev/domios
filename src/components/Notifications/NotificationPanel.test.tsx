@@ -199,6 +199,15 @@ async function run() {
     "reopening should still reveal the complete message",
   );
 
+  const pendingPanel = await render({ ...asked, answer_pending: true });
+  const pendingChoices = Array.from(pendingPanel.querySelectorAll<HTMLButtonElement>("button"))
+    .filter((button) => ["Rebase", "Merge"].includes(button.textContent ?? ""));
+  assert(pendingChoices.length === 2 && pendingChoices.every((button) => button.disabled), "every choice is disabled while delivery is pending");
+  assert(pendingPanel.querySelector('[role="status"]'), "pending delivery has an accessible status");
+  const failedPanel = await render({ ...asked, answer_error: "Tab unavailable" });
+  assert(failedPanel.querySelector('[role="alert"]')?.textContent === "Tab unavailable", "delivery errors are readable");
+  assert(Array.from(failedPanel.querySelectorAll<HTMLButtonElement>("button")).filter((button) => ["Rebase", "Merge"].includes(button.textContent ?? "")).every((button) => !button.disabled), "failed delivery re-enables choices");
+
   await act(async () => root.unmount());
   __setInvokeForTest(null);
   console.log(`NotificationPanel tests: ${checked} assertions passed`);
