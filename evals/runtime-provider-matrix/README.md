@@ -60,7 +60,7 @@ Without the checkpoint row 2 fails explicitly and row 3 records missing restart.
 An interrupted hand probe can instead resume with `MATRIX_RESUME_FIXTURE=<json>`.
 The fixture records owned workspace, tab, session, binding nonce, build SHA,
 codeword, exact assistant ID and provenance. The runner requires that exact
-assistant item to survive, then requires changed build and binding nonce with
+assistant item to survive, then requires a changed build and loaded runtime with
 the same session before asking the neutral question. This mode only covers
 restarts onto a different build. Treat these files as run artifacts, not canned
 fixtures or synthetic PASS data.
@@ -91,4 +91,5 @@ For source-only verification:
 ```bash
 bash -n evals/runtime-provider-matrix/run.sh evals/runtime-provider-matrix/bridge.sh
 node --check evals/runtime-provider-matrix/matrix.mjs
+node --test evals/runtime-provider-matrix/observations.test.mjs
 ```

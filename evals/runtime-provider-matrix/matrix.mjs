@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { unwrap, taskStatus, restoredOnNewBuild, isCompactionItem, completedAssistantReply } from './observations.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '../..');
@@ -41,7 +42,8 @@ const cli = (...args) => bridge('cli', ...args, '--json');
 const get = path => bridge('get', path);
 const post = (path, body) => bridge('post', path, JSON.stringify(body));
 const first = value => Array.isArray(value) ? value[0] : value;
-const data = value => value.data || value;
+const data = unwrap;
+const shellQuote = value => "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
 const assert = (condition, evidence) => { if (!condition) throw new Error(JSON.stringify(evidence)); };
 const inspect = async id => first(await cli('tab', 'inspect', id));
 const history = async id => (await cli('tab', 'chat', '--tab', id)).messages;
@@ -84,13 +86,12 @@ function padFile(text) {
 }
 async function ask(id, text) {
   assert(owned.tabs.includes(id), { unowned: id });
-  const before = new Set((await history(id)).map(message => message.id));
-  await cli('send', '--tab', id, '--from-file', padFile(text), '--require-agent');
-  const messages = await poll(() => history(id), messages => messages.some(message =>
-    message.type === 'assistant' && !before.has(message.id)), 'new assistant reply');
-  await poll(() => inspect(id), tab => tab.agent_state?.state === 'idle', 'turn idle');
-  return messages.filter(message => message.type === 'assistant' && !before.has(message.id))
-    .map(message => message.content).join('\n');
+  return completedAssistantReply({
+    history: () => history(id),
+    send: () => cli('send', '--tab', id, '--from-file', padFile(text), '--require-agent'),
+    waitForReply: matches => poll(() => history(id), matches, 'new assistant reply'),
+    waitIdle: () => poll(() => inspect(id), tab => tab.agent_state?.state === 'idle', 'turn idle'),
+  });
 }
 async function identity(id, expected) {
   const answer = await ask(id, prompts.identity);
@@ -133,8 +134,7 @@ try {
     assert(nativeBefore, { reason: 'scenario 1 failed' });
     if (resumeFixture) {
       const restored = await inspect(bare);
-      assert(health.build_sha !== resumeFixture.build && restored.session_binding_nonce !== resumeFixture.nonce
-        && restored.agent_session_id === session, { build: health.build_sha, session: restored.agent_session_id, nonce: restored.session_binding_nonce });
+      assert(restoredOnNewBuild(resumeFixture, health, restored), { build: health.build_sha, session: restored.agent_session_id, nonce: restored.session_binding_nonce });
       restartObserved = true;
       const answer = await ask(bare, prompts.fact);
       assert(answer.includes(codeword), { answer, codeword });
@@ -183,12 +183,13 @@ try {
     }
     await cli('agent', 'model', alternate, '--tab', bare);
     await confirm(bare, alternate);
-    const command = `source ${JSON.stringify(join(root, 'evals/_lib/lib.sh'))}; dc --as-tab "$CODETERM_TAB_ID" agent model ${JSON.stringify(original)} --json`;
-    const answer = await ask(bare, `Run this exact shell command in your own turn: ${command}. Then reply with its result. Do not send messages.`);
+    const command = `source ${shellQuote(join(root, 'evals/_lib/lib.sh'))}; dc --as-tab "$CODETERM_TAB_ID" agent model ${shellQuote(original)} --json`;
+    const answer = await ask(bare, `Run this exact shell command in your own turn: bash -c ${shellQuote(command)}. Then reply with its result. Do not send messages.`);
     assert(answer.length > 0, { answer });
     await confirm(bare, original);
     const peer = await spawnTab('Peer');
-    await ask(peer, `Run this shell command: source ${JSON.stringify(join(root, 'evals/_lib/lib.sh'))}; dc --as-tab "$CODETERM_TAB_ID" agent model ${JSON.stringify(alternate)} --tab ${bare} --json. Reply with its result; do not send messages.`);
+    const peerCommand = `source ${shellQuote(join(root, 'evals/_lib/lib.sh'))}; dc --as-tab "$CODETERM_TAB_ID" agent model ${shellQuote(alternate)} --tab ${shellQuote(bare)} --json`;
+    await ask(peer, `Run this shell command: bash -c ${shellQuote(peerCommand)}. Reply with its result; do not send messages.`);
     await confirm(bare, alternate);
     return confirmations;
   });
@@ -214,7 +215,7 @@ try {
     assert(worker, dispatched);
     owned.tabs.push(worker);
     const task = await poll(() => cli('plan', 'task', 'show', owned.plan, taskId), result =>
-      (result.task || result).status === 'in_progress', 'durable Worker ACK');
+      taskStatus(result) === 'in_progress', 'durable Worker ACK');
     return { task, identity: await identity(worker, ['Prism', 'Calibration executor', codeword]) };
   });
   await row('6', 'planner_identity', async () => {
@@ -238,7 +239,7 @@ try {
       const before = new Set((await history(id)).map(item => item.id));
       await cli('agent', 'compact', '--tab', id);
       const compacted = await poll(() => history(id), messages => messages.some(item =>
-        !before.has(item.id) && /compact/i.test(item.type)), 'completed compaction item');
+        !before.has(item.id) && isCompactionItem(item)), 'completed compaction item');
       evidence.push({ compacted: compacted.filter(item => !before.has(item.id)), identity: await identity(id, expected) });
     }
     return evidence;
