@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, CornerDownLeft, Pencil } from "lucide-react";
-import type { PendingPrompt, PromptOption, PromptSection } from "../../lib/types";
+import type { PendingPrompt, PromptSection } from "../../lib/types";
+import { isFreeTextPromptOption } from "../../lib/promptAnswers";
 import { encodePromptSelection } from "../../lib/promptSelection";
 
 const WIZARD_SUBMIT_VALUE = "9000";
 
-const FREE_TEXT_LABEL =
-  /^(?:\(?\s*)?(?:other|custom|none of (?:the above|these)|type (?:your own|something(?: else)?)|write your own|enter (?:your own|custom|text)|free[\s-]?text|something else)/i;
-
-function isFreeTextOption(opt: PromptOption): boolean {
-  return FREE_TEXT_LABEL.test(opt.label.trim());
-}
-
-// multi-step wizard) as a first-class, inline message in the chat transcript.
 export function PendingPromptCard({
   pendingPrompt,
   onRespond,
@@ -63,31 +56,9 @@ function PromptCard({
     onRespond(encodePromptSelection(pendingPrompt.options, selected));
   };
 
-  const activeStep = Math.max(0, sections.findIndex((s) => s.active));
-  const eyebrow = isWizard
-    ? `Step ${activeStep + 1} of ${sections.length}`
-    : "Your turn";
-
   return (
-    <div className="mb-2" data-testid="tab-pending-prompt">
-      <div
-        className="rounded-lg px-3 py-2"
-        style={{
-          background: "color-mix(in srgb, var(--ct-accent) 7%, var(--ct-surface))",
-          border: "1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent)",
-          borderLeft: "3px solid var(--ct-accent)",
-        }}
-      >
-        <div className="mb-2 flex items-center gap-2">
-          <LiveDot />
-          <span
-            className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-            style={{ color: "var(--ct-accent)" }}
-          >
-            {eyebrow}
-          </span>
-        </div>
-
+    <div className="mb-2" role="group" aria-label={pendingPrompt.question} data-testid="tab-pending-prompt">
+      <div className="py-2">
         {isWizard && <Stepper sections={sections} />}
 
         <p
@@ -104,11 +75,11 @@ function PromptCard({
           </p>
         )}
 
-        <div className="mt-3 flex flex-col gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {pendingPrompt.options.map((opt, idx) => {
             const checked = selected.has(opt.value);
             const keyLabel = /^\d+$/.test(opt.value) ? opt.value : String(idx + 1);
-            const freeText = !multiSelect && isFreeTextOption(opt);
+            const freeText = !multiSelect && isFreeTextPromptOption(opt);
 
             if (freeText && editingValue === opt.value) {
               return (
@@ -131,7 +102,7 @@ function PromptCard({
                 aria-expanded={freeText ? false : undefined}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => (freeText ? setEditingValue(opt.value) : handleOption(opt.value))}
-                className="flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-[filter,background-color] hover:brightness-125"
+                className="ct-bar-pill inline-flex items-center gap-2 text-left"
                 style={{
                   background: checked
                     ? "color-mix(in srgb, var(--ct-accent) 16%, var(--ct-surface))"
@@ -200,17 +171,6 @@ function PromptCard({
         )}
       </div>
     </div>
-  );
-}
-
-function LiveDot() {
-  return (
-    <span className="relative inline-flex h-2 w-2 shrink-0" aria-hidden>
-      <span
-        className="relative inline-flex h-2 w-2 rounded-full"
-        style={{ background: "var(--ct-accent)" }}
-      />
-    </span>
   );
 }
 

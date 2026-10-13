@@ -949,3 +949,15 @@ fn retired_precompact_export_cleanup_native_js_parity() {
     assert!(command.contains("--data-binary \"@-\""));
     assert!(command.contains("CODETERM_SESSION_BINDING_NONCE"));
 }
+
+#[test]
+fn prompt_answer_capability_native_js_parity() {
+    let (native, js) = pair();
+    assert!(!native.supports_prompt_answers());
+    assert!(!js.supports_prompt_answers());
+    assert!(!native.describe().supports_prompt_answers);
+    assert!(!js.describe().supports_prompt_answers);
+    assert!(!native.supports_structured_prompts());
+    assert!(!js.supports_structured_prompts());
+    assert!(load_js("codex").supports_prompt_answers());
+}

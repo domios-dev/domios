@@ -330,6 +330,8 @@ pub struct ProviderDescriptor {
     /// structured handle first and only falls back to PTY scraping otherwise.
     #[serde(default)]
     pub supports_structured_prompts: bool,
+    #[serde(default)]
+    pub supports_prompt_answers: bool,
     /// `true` when the provider can recognize its own permission prompts.
     #[serde(default)]
     pub supports_permission_auto_confirm: bool,

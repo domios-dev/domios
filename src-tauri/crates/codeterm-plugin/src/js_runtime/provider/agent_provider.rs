@@ -840,6 +840,13 @@ impl AgentProvider for JsProvider {
         self.manifest.capabilities.structured_control.clone()
     }
 
+    fn supports_prompt_answers(&self) -> bool {
+        self.manifest
+            .spawn
+            .supports_prompt_answers
+            .unwrap_or_else(|| self.native().is_none_or(|n| n.supports_prompt_answers()))
+    }
+
     fn supports_structured_prompts(&self) -> bool {
         self.manifest.spawn.supports_structured_prompts
             || self

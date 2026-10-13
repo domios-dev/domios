@@ -82,7 +82,11 @@ pub fn enrich_interactive(
             }
         }
     }
-    msg.interactive = provider.parse_interactive_events(msg);
+    msg.interactive = if provider.supports_prompt_answers() {
+        provider.parse_interactive_events(msg)
+    } else {
+        Vec::new()
+    };
 }
 
 fn get_optional_string(data: &serde_json::Value, key: &str) -> Option<String> {
