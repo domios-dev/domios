@@ -79,7 +79,6 @@ export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
   return !expanded;
 }
 
-/** Stable target for the collapse handle's aria-controls — the sidebar is a singleton region. */
 export const SIDEBAR_REGION_ID = "codeterm-sidebar";
 const SIDEBAR_COLLAPSED_WIDTH = 0;
 const SIDEBAR_COMPACT_WIDTH = 64;
@@ -422,7 +421,8 @@ export function Sidebar({
     setIsSidebarCollapsed(false);
   }, [expandRequest]);
 
-  const handleSidebarDragStart = useCallback((e: React.MouseEvent) => {
+  const handleSidebarDragStart = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     setPeeking(false);
     sidebarDragging.current = true;
@@ -430,7 +430,8 @@ export function Sidebar({
     const startX = e.clientX;
     const startWidth = isSidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth;
     let width = startWidth;
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
       if (!sidebarDragging.current) return;
       const delta = ev.clientX - startX;
       if (Math.abs(delta) > 3) sidebarMoved.current = true;
@@ -439,10 +440,12 @@ export function Sidebar({
       setIsSidebarCollapsed(false);
       setSidebarWidth(width);
     };
-    const onUp = () => {
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
       sidebarDragging.current = false;
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       if (!sidebarMoved.current) return;
@@ -455,28 +458,11 @@ export function Sidebar({
       lastExpandedWidth.current = settled;
       setSidebarWidth(settled);
     };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, [isSidebarCollapsed, onCollapse, sidebarWidth]);
-
-  const handleSidebarGrabClick = useCallback(() => {
-    if (sidebarMoved.current) {
-      sidebarMoved.current = false;
-      return;
-    }
-    if (onCollapse && isPhoneViewport()) {
-      onCollapse();
-      return;
-    }
-    if (isSidebarCollapsed) {
-      setSidebarWidth(lastExpandedWidth.current);
-      setIsSidebarCollapsed(false);
-    } else {
-      lastExpandedWidth.current = sidebarWidth;
-      setIsSidebarCollapsed(true);
-    }
   }, [isSidebarCollapsed, onCollapse, sidebarWidth]);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -1032,14 +1018,19 @@ export function Sidebar({
       <button
         type="button"
         aria-controls={SIDEBAR_REGION_ID}
-        aria-expanded={!isSidebarCollapsed}
-        onMouseDown={handleSidebarDragStart}
-        onClick={handleSidebarGrabClick}
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={SIDEBAR_COLLAPSED_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        aria-valuenow={isSidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth}
+        onPointerDown={handleSidebarDragStart}
         onMouseEnter={isSidebarCollapsed ? edgeEnter : undefined}
         onMouseMove={isSidebarCollapsed ? (event) => setDropY(event.clientY - event.currentTarget.getBoundingClientRect().top) : undefined}
         onMouseLeave={isSidebarCollapsed ? edgeLeave : undefined}
         className={`ct-sidebar-grip shell-narrow:hidden ${isSidebarCollapsed ? "ct-sidebar-grip--collapsed" : ""}`}
-        title={isSidebarCollapsed ? "Expand sidebar" : "Resize sidebar; click to collapse"}
+        title="Resize sidebar"
+        style={{ touchAction: "none" }}
       >
         {isSidebarCollapsed && dropY !== null && <span className="ct-sidebar-drop" style={{ top: dropY }} aria-hidden="true" />}
       </button>
