@@ -102,6 +102,8 @@ pub(crate) async fn submit_loaded(
     if pending.tab_id != tab {
         return Err(before_write(tab, RuntimeFailure::Superseded));
     }
+    super::capture::validate_if_present(svc, tab, send_id)
+        .map_err(|reason| before_write(tab, reason))?;
     engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
     if context.claimed_sends.len() >= MAX_RUNTIME_BATCH
         || serde_json::to_vec(&input).map_or(true, |value| value.len() > MAX_RUNTIME_VALUE_BYTES)
@@ -162,6 +164,29 @@ pub(crate) async fn submit_loaded(
                 crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
             }
             Ok(())
+        }
+        Err(RuntimeFailure::PrewriteRefused(reason)) => {
+            if svc.chat_send_ledger.clear_rpc_send_after_definite_refusal(
+                &pending.send_id,
+                &SendLiveBinding {
+                    session_id: Some(thread),
+                    binding_nonce: Some(context.binding_nonce),
+                },
+            ) {
+                session
+                    .context
+                    .lock()
+                    .claimed_sends
+                    .retain(|claim| claim.send_id != pending.send_id);
+                return Err(DeliveryError::TabBusyRefused {
+                    tab: tab.into(),
+                    detail: reason,
+                });
+            }
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: tab.into(),
+                detail: reason,
+            })
         }
         other => {
             if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {
