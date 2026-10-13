@@ -60,10 +60,14 @@ pub async fn exec_in_tab(
     let svc = state.svc.clone();
     let spawn_pty = pty_id.clone();
     let command = body.command.clone();
-    tokio::task::spawn_blocking(move || svc.send_shell_spawn(&spawn_pty, &command))
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
+    let command_tab = tab_id.clone();
+    tokio::task::spawn_blocking(move || {
+        svc.prepare_utility_command(&command_tab, &command);
+        svc.send_shell_spawn(&spawn_pty, &command)
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
 
     let timeout_ms = body.timeout_ms.unwrap_or(DEFAULT_EXEC_TIMEOUT_MS);
     let completion = waiter

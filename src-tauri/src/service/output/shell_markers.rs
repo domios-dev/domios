@@ -50,6 +50,13 @@ impl ServiceContext {
         if let Some(tab_id) = tab_id {
             self.publish_shell_command_state(tab_id, pty_id, command_state);
             for event in &events {
+                if let crate::agent::command_detection::CommandLifecycle::Started {
+                    command_line,
+                    ..
+                } = event
+                {
+                    self.utility_command_started(tab_id, command_line.as_deref());
+                }
                 if let crate::agent::command_detection::CommandLifecycle::CwdChanged { cwd } = event
                 {
                     self.update_tab_cwd(tab_id, cwd.clone());

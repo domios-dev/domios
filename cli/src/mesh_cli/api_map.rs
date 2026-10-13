@@ -288,8 +288,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 ),
                 None,
             ),
+            crate::TabAction::Timeout { .. } => unsupported("utility shell timeouts require a local owning agent"),
             crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
             crate::TabAction::New {
+                timeout,
                 shell,
                 list_shells,
                 purpose,
@@ -305,6 +307,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 chat_backend,
                 config,
             } => {
+                if timeout.is_some() { return unsupported("utility shell timeouts require a local owning agent"); }
                 if *list_shells { return ("GET".into(), "/api/shells".into(), None); }
                 let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
                 if let Some(w) = workspace {

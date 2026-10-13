@@ -4,8 +4,15 @@ use crate::{build_local_api, read_api_config};
 pub(super) fn handle_create_result(
     json: bool,
     team_id: Option<&str>,
-    result: Result<serde_json::Value, String>,
+    mut result: Result<serde_json::Value, String>,
 ) {
+    if !json {
+        if let Ok(serde_json::Value::Object(value)) = &mut result {
+            if let Some(serde_json::Value::String(hint)) = value.remove("timeout_hint") {
+                println!("{hint}");
+            }
+        }
+    }
     if json || team_id.is_none() || result.is_err() {
         handle_result(json, result);
         return;

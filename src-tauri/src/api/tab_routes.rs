@@ -9,6 +9,8 @@ use crate::api::routes::{check_auth, resolve_tab, AppState};
 use send::wait_for_pty_link as await_pty_link;
 
 mod exec;
+mod utility_timeout;
+pub use utility_timeout::set_timeout;
 mod send;
 mod stop;
 mod turn_controls;
@@ -236,6 +238,7 @@ pub async fn inspect_tabs(
 
 #[derive(Default, Deserialize)]
 pub struct CreateShellTabBody {
+    pub timeout: Option<String>,
     pub shell: Option<String>,
     #[serde(default)]
     pub purpose: crate::multiplexer::types::ShellPurpose,
@@ -283,7 +286,17 @@ pub async fn create_shell_tab(
     if body.creator_tab_id.is_none() {
         body.creator_tab_id = caller_tab_header(&headers);
     }
+    if let Some(timeout) = body.timeout.as_deref() {
+        crate::service::utility_deadline_model::parse_timeout(timeout)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    }
     use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
+    if body.timeout.is_some() && body.chat_backend.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "timeout requires shell backing".into(),
+        ));
+    }
     if body.shell.is_some() && body.chat_backend.is_some() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -303,6 +316,7 @@ pub async fn create_shell_tab(
             "Team utility terminals must use PTY shell backing".into(),
         ));
     }
+    let utility_shell = body.chat_backend.is_none();
     let command = match body.chat_backend {
         Some(plugin_id) => {
             validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
@@ -337,6 +351,7 @@ pub async fn create_shell_tab(
         None => TabCommand::Shell,
     };
     let spec = SpawnTabSpec {
+        timeout: body.timeout,
         shell: body.shell,
         purpose: body.purpose,
         icon: body.icon,
@@ -380,6 +395,10 @@ pub async fn create_shell_tab(
         "pty_id": handle.pty_id,
         "description": handle.description,
     });
+    if utility_shell {
+        resp["timeout_hint"] =
+            "hint: set --timeout 10m for tests, QA and builds; leave it unset for servers.".into();
+    }
     if let Some(ref notice) = handle.budget_notice {
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
     }

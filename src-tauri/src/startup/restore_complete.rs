@@ -15,6 +15,7 @@ pub(crate) fn notify(service: &crate::service::ServiceState) -> std::thread::Joi
 }
 
 fn sweep(service: &crate::service::ServiceContext) {
+    crate::service::utility_deadline::restore(service);
     crate::service::launch_artifacts::sweep_after_restore(service);
 }
 
