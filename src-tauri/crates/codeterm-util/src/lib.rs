@@ -1,4 +1,5 @@
 pub mod atomic_write;
+pub mod attachments;
 pub mod child_slot;
 pub mod headless_cli;
 pub mod lock_hold;
@@ -10,10 +11,13 @@ pub mod plugin_config;
 pub mod plugin_grants;
 pub mod process_util;
 pub mod project_roots;
+pub mod pty_frame_timing;
 pub mod secret_file;
 pub mod shell;
 pub mod task_files;
 pub mod terminal;
 pub mod test_env;
 pub mod windows_env;
+#[cfg(windows)]
+pub mod windows_job;
 pub mod windows_powershell;

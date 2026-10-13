@@ -1098,20 +1098,25 @@ dependencies = [
  "chrono-tz",
  "clipboard-win",
  "codeterm-account",
+ "codeterm-agent-detect",
  "codeterm-analytics",
  "codeterm-billing",
  "codeterm-bridge",
+ "codeterm-browser",
  "codeterm-frontend-bundle",
  "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-mesh",
+ "codeterm-notification-core",
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-pty",
+ "codeterm-repowatch",
  "codeterm-storage",
  "codeterm-types",
+ "codeterm-usage",
  "codeterm-util",
  "conpty",
  "crash-context",
@@ -1200,6 +1205,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-agent-detect"
+version = "0.1.0"
+dependencies = [
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "vt100",
+]
+
+[[package]]
 name = "codeterm-analytics"
 version = "0.1.0"
 dependencies = [
@@ -1245,6 +1266,28 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-browser"
+version = "1.6.2"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "futures-util",
+ "libc",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
  "uuid",
 ]
 
@@ -1336,6 +1379,19 @@ dependencies = [
  "tokio",
  "uuid",
  "x25519-dalek",
+]
+
+[[package]]
+name = "codeterm-notification-core"
+version = "0.1.0"
+dependencies = [
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
 ]
 
 [[package]]
@@ -1448,6 +1504,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-repowatch"
+version = "0.1.0"
+dependencies = [
+ "codeterm-util",
+ "git2",
+ "log",
+ "notify",
+ "notify-debouncer-mini",
+ "parking_lot",
+ "serde",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "codeterm-storage"
 version = "0.1.0"
 dependencies = [
@@ -1471,6 +1542,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-usage"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "codeterm-types",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeterm-util"
 version = "1.6.2"
 dependencies = [
@@ -1482,9 +1565,11 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+ "tokio",
  "uuid",
  "vt100",
  "winapi",
+ "windows-sys 0.61.2",
  "winreg 0.10.1",
 ]
 

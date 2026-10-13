@@ -20,6 +20,23 @@ pub fn no_window_std(cmd: &mut std::process::Command) {
 #[inline]
 pub fn no_window_std(_cmd: &mut std::process::Command) {}
 
+/// Same idea as `no_window_std` for `tokio::process::Command`. tokio exposes
+/// `creation_flags` as an inherent method on Windows, so no trait
+/// import is needed here.
+#[cfg(windows)]
+pub fn no_window_tokio(cmd: &mut tokio::process::Command) {
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(windows)]
+pub fn no_window_tokio_suspended(cmd: &mut tokio::process::Command) {
+    cmd.creation_flags(CREATE_NO_WINDOW | 0x0000_0004);
+}
+
+#[cfg(not(windows))]
+#[inline]
+pub fn no_window_tokio(_cmd: &mut tokio::process::Command) {}
+
 /// Spawn a subprocess that disclaims TCC responsibility, capturing its stdout.
 /// macOS "App Data" protection silently EPERMs a signed bundle (and its children)
 /// reading another app's Group Containers; disclaiming makes the child its own

@@ -157,3 +157,6 @@ pub async fn usage_refresh(
         serde_json::json!({ "queued": true, "probe_id": probe_id }),
     ))
 }
+
+#[cfg(test)]
+mod tests;

@@ -206,6 +206,7 @@ fn queue_cap_drops_oldest_and_counts() {
         engine.state.queue.push_back(crate::state::Queued {
             insert_id: uuid::Uuid::new_v4(),
             time: index as u64,
+            user_id: None,
             event: event(),
             failures: 0,
             retry_at: 0,
