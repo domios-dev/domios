@@ -8,8 +8,8 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence_with, ChatSendLedger, ChatSendStatus, DeferredFirstTurnEvidence,
-    EvidenceWindow, SendEvidenceAnchor, SendLiveBinding,
+    contains_written_payload, normalize_written_payload, ChatSendLedger, ChatSendStatus,
+    DeferredFirstTurnEvidence, EvidenceWindow, SendEvidenceAnchor, SendLiveBinding,
 };
 use crate::service::tab_chat::registry::{JsonlSource, SourceCapture};
 use crate::service::ServiceContext;
@@ -17,9 +17,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 mod deferred_first_turn;
+mod pending_receipt;
 mod turn_window;
 
-use turn_window::{structured_user_turns, StructuredUserTurn};
+use turn_window::window_evidence_records;
+use turn_window::{structured_evidence_records, StructuredUserTurn};
 pub(crate) use turn_window::{window_has_foreign_user_turn, window_user_turns};
 
 #[cfg(test)]
@@ -32,11 +34,11 @@ pub(crate) fn contains_exact_user_turn(
     anchor: &SendEvidenceAnchor,
     payload: &str,
 ) -> bool {
-    let expected = normalize_turn_evidence_with(payload, anchor.turn_normalization);
+    let expected = normalize_written_payload(payload);
     !expected.is_empty()
-        && window_user_turns(registry, anchor)
+        && window_evidence_records(registry, anchor)
             .iter()
-            .any(|turn| normalize_turn_evidence_with(turn, anchor.turn_normalization) == expected)
+            .any(|turn| contains_written_payload(turn, &expected))
 }
 
 #[derive(Default)]
@@ -69,7 +71,7 @@ pub(crate) fn contains_exact_user_turn_since(
     if cursor.confirmed {
         return true;
     }
-    let expected = normalize_turn_evidence_with(payload, anchor.turn_normalization);
+    let expected = normalize_written_payload(payload);
     if expected.is_empty() {
         return false;
     }
@@ -91,35 +93,24 @@ pub(crate) fn contains_exact_user_turn_since(
             };
             cursor.jsonl_offset = Some(delta.new_offset.max(from_offset));
             delta.messages.iter().enumerate().any(|(index, rich)| {
-                crate::service::tab_chat::rich_to_chat_msgs(rich, index)
+                let matched = turn_window::rich_evidence_segments(rich)
                     .iter()
-                    .any(|message| {
-                        let matched = message.kind == "user"
-                            && normalize_turn_evidence_with(
-                                &message.content,
-                                anchor.turn_normalization,
-                            ) == expected;
-                        if matched && crate::flow_trace::enabled() {
-                            cursor.matched_user_id =
-                                (rich.uuid.as_ref().is_some_and(|id| !id.is_empty())
-                                    || rich.record_start.is_some())
-                                .then(|| {
-                                    crate::service::tab_chat::rich_to_chat_msgs_live(rich, index)
-                                        .into_iter()
-                                        .find(|message| message.kind == "user")
-                                        .map(|message| message.id)
-                                })
-                                .flatten();
-                        }
-                        matched
-                    })
+                    .any(|segment| contains_written_payload(segment, &expected));
+                if matched && crate::flow_trace::enabled() {
+                    cursor.matched_user_id = (rich.uuid.as_ref().is_some_and(|id| !id.is_empty())
+                        || rich.record_start.is_some()).then(||
+                        crate::service::tab_chat::rich_to_chat_msgs_live(rich, index)
+                            .into_iter().next().map(|message| message.id)
+                    ).flatten();
+                }
+                matched
             })
         }
-        EvidenceWindow::Structured { .. } => window_user_turns(registry, anchor)
+        EvidenceWindow::Structured { .. } => window_evidence_records(registry, anchor)
             .iter()
             .any(|turn| {
-                let observed = normalize_turn_evidence_with(turn, anchor.turn_normalization);
-                let matched = observed == expected;
+                let observed = normalize_written_payload(turn);
+                let matched = contains_written_payload(&observed, &expected);
                 log::debug!(
                     "[session-turn-evidence] structured-candidate provider={} session={} expected_bytes={} observed_bytes={} matched={}",
                     anchor.provider_id, anchor.session_id, expected.len(), observed.len(), matched,
@@ -189,7 +180,7 @@ pub(crate) fn scan_transcript_evidence(
     let candidates = ledger.evidence_candidates(tab_id);
     let structured_windows = candidates
         .iter()
-        .map(|candidate| structured_user_turns(registry, &candidate.anchor))
+        .map(|candidate| structured_evidence_records(registry, &candidate.anchor))
         .collect::<Vec<_>>();
     for (candidate_index, candidate) in candidates.iter().enumerate() {
         let turns = structured_windows[candidate_index]
@@ -202,7 +193,7 @@ pub(crate) fn scan_transcript_evidence(
                     .collect::<Vec<_>>()
             })
             .unwrap_or_else(|| {
-                window_user_turns(registry, &candidate.anchor)
+                window_evidence_records(registry, &candidate.anchor)
                     .into_iter()
                     .map(|content| (StructuredUserTurn::without_identity(content), false))
                     .collect()
@@ -276,13 +267,13 @@ fn unconsumed_matching_turns(
     anchor: &SendEvidenceAnchor,
     payload: &str,
 ) -> usize {
-    let turn_contents = structured_user_turns(registry, anchor)
+    let turn_contents = structured_evidence_records(registry, anchor)
         .map(|turns| turns.into_iter().map(|turn| turn.content).collect())
-        .unwrap_or_else(|| window_user_turns(registry, anchor));
+        .unwrap_or_else(|| window_evidence_records(registry, anchor));
     let mut matching_turns = 0;
     let mut seen_turns = HashMap::<String, usize>::new();
     for content in &turn_contents {
-        if normalize_turn_evidence_with(content, anchor.turn_normalization) != payload {
+        if !contains_written_payload(content, payload) {
             continue;
         }
         let occurrence = seen_turns.entry(content.clone()).or_default();
@@ -450,6 +441,7 @@ impl ServiceContext {
             );
             crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
+        self.settle_pending_delivery_receipt(tab_id);
     }
 
     pub(crate) async fn reconcile_chat_send_hook(&self, tab_id: &str) {

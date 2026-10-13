@@ -12,7 +12,9 @@ mod turn_reconciliation;
 use live_evidence::{ConsumedTurnWatermark, LiveEvidenceProgress};
 pub(crate) use live_evidence::{LiveProvenance, TurnPosition};
 use turn_matching::matching_turn_send_ids;
-pub(crate) use turn_matching::normalize_turn_evidence_with;
+pub(crate) use turn_matching::{
+    contains_written_payload, normalize_turn_evidence_with, normalize_written_payload,
+};
 
 use super::pending_delivery_payloads::user_sends::{
     PreparedUserBody, UserReservation, UserSendAuthority, UserSendRecord, MAX_PREPARED_BYTES,
@@ -226,7 +228,7 @@ impl ChatSendLedger {
             pending_reason: None,
             system_send: None,
         };
-        let payload = normalize_turn_evidence_with(payload, anchor.turn_normalization);
+        let payload = normalize_written_payload(payload);
         let position = state.order.iter().position(|id| {
             state
                 .by_id
@@ -357,7 +359,7 @@ impl ChatSendLedger {
         }) {
             return false;
         }
-        let payload = normalize_turn_evidence_with(text, evidence.turn_normalization);
+        let payload = normalize_written_payload(text);
         let mut state = self.state.lock();
         let Some((authority, active)) = state.owned.get_mut(&record.send_id) else {
             return false;
@@ -530,8 +532,7 @@ impl ChatSendLedger {
         live_binding: Option<SendLiveBinding>,
         turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     ) -> Result<ChatSendStatus, String> {
-        let normalized_payload =
-            normalize_turn_evidence_with(turn_evidence_text, turn_normalization);
+        let normalized_payload = normalize_written_payload(turn_evidence_text);
         let mut state = self.state.lock();
         let in_flight = state
             .by_id
@@ -1082,11 +1083,7 @@ pub(crate) fn delivered_turn_confirmations(
         ledger.advance_live_evidence(tab_id, source_session_id, source_binding_nonce, provenance);
     }
     let mut confirmed = Vec::new();
-    for (index, msg) in messages
-        .iter()
-        .enumerate()
-        .filter(|(_, msg)| msg.kind == "user")
-    {
+    for (index, msg) in messages.iter().enumerate() {
         let positioned = provenance.and_then(|provenance| {
             provenance.positions.get(index).copied().map(|position| {
                 ledger.confirm_owned_live_turns(
