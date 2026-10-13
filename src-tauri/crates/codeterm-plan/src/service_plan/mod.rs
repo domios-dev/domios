@@ -31,6 +31,7 @@ pub mod peer_mandate;
 pub mod plan_skills;
 pub mod planner_requests;
 pub mod ports;
+pub mod project_paths;
 pub mod prompts_plan;
 pub mod qa;
 mod readback;
