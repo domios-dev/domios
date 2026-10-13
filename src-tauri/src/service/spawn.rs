@@ -99,6 +99,12 @@ pub struct SpawnTabSpec {
 pub(crate) struct ChatBackendLaunchMetadata {
     pub(crate) agent: AgentSpawnSpec,
     pub(crate) params: super::SpawnAgentParams,
+    pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RuntimeOwnerLinkage {
+    CronRun { job_id: String, run_id: String },
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
