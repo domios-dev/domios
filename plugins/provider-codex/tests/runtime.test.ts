@@ -447,4 +447,37 @@ check("unsupported item pagination uses bound snapshot history without delivery 
   assert.equal(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32600,message:"invalid request"}}).kind,"refused");
   assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"unsupported read"}}).kind,"refused");
 });
+check("default model and effective effort survive thread launch continuations",()=> {
+  const context={...ctx,settings:{},providerSettings:{model:null}};
+  const op:Operation={kind:"openThread",instructions:"task",settings:{additionalDirectories:["/work/shared"],networkAccess:false}};
+  const plan=hooks.runtimePlan(context,op);
+  const effective={thread:{id:ctx.threadId!},model:"provider-default",reasoningEffort:"medium",approvalPolicy:"on-request",approvalsReviewer:"user",sandbox:{type:"workspaceWrite"}};
+  const step=hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:effective});
+  if(step.kind !== "continue")throw new Error("Expected materialization");
+  const complete=plain(hooks.runtimeResponse(context,op,step.plan.state,{kind:"success",value:{}}));
+  assert.deepEqual(complete,{kind:"complete",result:{kind:"threadLoaded",threadId:ctx.threadId!,settings:{additionalDirectories:["/work/shared"],networkAccess:false,model:"provider-default",effort:"medium",mode:"auto-accept-edits"}}});
+  const resume:Operation={kind:"resumeThread",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}};
+  const resumed=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:effective});
+  if(resumed.kind !== "continue")throw new Error("Expected identity verification");
+  const verified=plain(hooks.runtimeResponse(context,resume,resumed.plan.state,{kind:"success",value:{thread:{id:ctx.threadId!,model:"stale-snapshot-model"}}}));
+  assert.deepEqual(verified,complete);
+  const omitted=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:{thread:{id:ctx.threadId!},model:null,reasoningEffort:null}});
+  if(omitted.kind !== "continue")throw new Error("Expected verification");
+  const fallback=plain(hooks.runtimeResponse(context,resume,omitted.plan.state,{kind:"success",value:{thread:{id:ctx.threadId!}}}));
+  if(fallback.kind !== "complete" || fallback.result.kind !== "threadLoaded")throw new Error("Expected loaded settings");
+  assert.deepEqual(fallback.result.settings,resume.settings);
+});
+check("settings controls confirm provider values and retain omitted requested fields",()=> {
+  const op:Operation={kind:"control",threadId:ctx.threadId!,action:"model",value:"requested-alias"};
+  const plan=hooks.runtimePlan({...ctx,settings:{effort:"high",additionalDirectories:["/work/shared"],networkAccess:false}},op);
+  const reply={threadSettings:{model:"effective-model",effort:"low",approvalPolicy:"never",sandboxPolicy:{type:"dangerFullAccess"}}};
+  const complete=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:reply}));
+  assert.deepEqual(complete,{kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:ctx.threadId!,settings:{model:"effective-model",effort:"low",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}}]});
+  const partial=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{reasoningEffort:"medium"}}));
+  if(partial.kind !== "complete")throw new Error("Expected control completion");
+  const event=partial.events?.[0];if(event?.kind !== "controlsConfirmed")throw new Error("Expected reported settings");
+  assert.equal(event.settings.model,"requested-alias");assert.equal(event.settings.effort,"medium");
+  const empty=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}}));
+  assert.deepEqual(empty,{kind:"complete",result:{kind:"done"}});
+});
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
