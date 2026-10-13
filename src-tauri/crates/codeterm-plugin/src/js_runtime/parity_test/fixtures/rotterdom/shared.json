@@ -1,0 +1,5 @@
+[
+  {"request":{"state":{"fixture":"noul"},"instructions":"Noul fixture","question":{"type":"noul","criteria":{"true":"Condition met","false":"Condition absent"}}},"answer":{"type":"noul","p":0.8}},
+  {"request":{"state":{"fixture":"choice"},"instructions":"Choice fixture","question":{"type":"choice","options":{"no":"No","yes":"Yes"}}},"answer":{"type":"choice","choice":"yes","probabilities":{"no":0.2,"yes":0.8},"confidence":0.8}},
+  {"request":{"state":{"fixture":"score"},"instructions":"Score fixture","question":{"type":"score","levels":["low","medium","high"]}},"answer":{"type":"score","score":2,"probabilities":{"0":0.1,"1":0.2,"2":0.7},"confidence":0.7}}
+]

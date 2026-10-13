@@ -23,6 +23,8 @@ use super::{load_one, JsProvider};
 mod agent_commands;
 #[path = "parity_test/control_keys.rs"]
 mod control_keys;
+#[path = "parity_test/rotterdom.rs"]
+mod rotterdom;
 #[path = "parity_test/decision_model.rs"]
 mod decision_model;
 #[path = "parity_test/delivery_modal.rs"]
