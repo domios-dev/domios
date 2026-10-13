@@ -138,15 +138,6 @@ export function NewSessionPicker({
         const res = await launchProviderInstaller(providerId);
         const wsId = state.active_workspace_id;
         if (wsId && res?.tab_id) await selectTabByTab(wsId, res.tab_id).catch(() => {});
-        addNotification({
-          tab_id: null,
-          workspace_id: workspaceId,
-          title: "Installer running",
-          body: "The install command is running in a terminal tab. Come back to Start a session when it finishes.",
-          severity: "Info",
-          level: "verbose",
-          sticky: false,
-        });
       } catch (e) {
         addNotification({
           tab_id: null,

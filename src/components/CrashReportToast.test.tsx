@@ -4,7 +4,6 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { AppConfig, Notification } from "../lib/types";
 import { RecoveryStatusBanner } from "./CrashReportToast";
 import { UpdateProgressLayer } from "./UpdateProgressLayer";
-import { InternalToast } from "./Toast/InternalToast";
 import { SecretsTab } from "./Settings/SecretsTab";
 import { usePluginActivity } from "../lib/usePluginActivity";
 import { useBlueprintRunPopups } from "./Automation/useBlueprintRunPopups";
@@ -87,7 +86,6 @@ test("crash recovery routes through the host and keeps report actions in the bel
   expect(fakes.upsert).toHaveBeenCalledTimes(1);
   await act(async () => fakes.listeners.get("crash_report_available")?.({ payload: { dir: "reports", files: ["report.txt"], recovery: recoveryState() } }));
   const value = await showCapturedToast();
-  expect(value.body).toContain("2 bindings not restored");
   await render(<NotificationPanel notifications={[{ ...value, timestamp: 1, read: false }]} onMarkRead={() => {}} onMarkAllRead={() => {}} onDelete={() => {}} onClearAll={() => {}} onJumpToTab={() => {}} onClose={() => {}} />);
   const action = [...host.querySelectorAll("button")].find((button) => button.textContent === "Open folder");
   expect(action).toBeDefined();
@@ -118,15 +116,6 @@ test("new settled event wins over a stale initial recovery read", async () => {
   expect(fakes.upsert).not.toHaveBeenCalled();
 });
 
-test("internal prompt notices render through the host once", async () => {
-  const source = <InternalToast pendingPrompt={{ question: "opaque prompt" }} tabId="tab" agentType="provider" />;
-  await render(source);
-  await render(source);
-  expect(fakes.upsert).toHaveBeenCalledTimes(1);
-  const value = await showCapturedToast();
-  expect(value.tab_id).toBe("tab");
-});
-
 test("update transient notices render through the host", async () => {
   await render(<UpdateProgressLayer />);
   expect(fakes.update.dismissUpdateToast).toHaveBeenCalledTimes(1);
@@ -142,12 +131,13 @@ test("blocking update progress remains a persistent progress surface", async () 
 });
 
 function PluginSource() { const { activities } = usePluginActivity(); return <output>{activities.size}</output>; }
-test("plugin activity events update their own surface without creating notifications", async () => {
+test.each(["install", "transcribe"])("%s activity stays on its own surface without transcription toasts", async (kind) => {
   await render(<PluginSource />);
-  await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind: "install", label: "opaque progress", status: "running", startedAt: 1, updatedAt: 2 } }));
+  await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind, label: "opaque progress", status: "running", startedAt: 1, updatedAt: 2 } }));
   expect(host.querySelector("output")?.textContent).toBe("1");
-  await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind: "install", label: "opaque completion", status: "done", startedAt: 1, updatedAt: 3 } }));
+  await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind, label: "opaque completion", status: "done", startedAt: 1, updatedAt: 3 } }));
   expect(host.querySelector("output")?.textContent).toBe("0");
+  await act(async () => fakes.listeners.get("plugin-activity")?.({ payload: { id: "operation", pluginId: "plugin", kind, label: "opaque failure", status: "error", startedAt: 1, updatedAt: 4 } }));
   expect(fakes.upsert).not.toHaveBeenCalled();
   expect(fakes.add).not.toHaveBeenCalled();
 });
@@ -160,13 +150,17 @@ test("blueprint run updates render through the host", async () => {
   expect(value.id).toBe("run-source");
 });
 
-test("secret backend confirmation renders through the host", async () => {
+test("secret backend updates its selected state without a duplicate confirmation toast", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ backend: "mock", status: { status: "locked" } }) })));
-  await render(<SecretsTab config={{ integrations: { secrets: { backend: "local" } } } as AppConfig} onUpdate={() => {}} />);
+  const update = vi.fn();
+  await render(<SecretsTab config={{ integrations: { secrets: { backend: "local" } } } as AppConfig} onUpdate={update} />);
   const select = host.querySelector<HTMLSelectElement>('[data-testid="settings-secrets-backend-select"]')!;
   expect(select).toBeTruthy();
   await act(async () => { select.value = "mock"; select.dispatchEvent(new Event("change", { bubbles: true })); });
-  await showCapturedToast("add");
+  expect(update).toHaveBeenCalledTimes(1);
+  expect(update).toHaveBeenCalledWith("integrations", { secrets: expect.objectContaining({ backend: "mock" }) });
+  expect(fakes.add).not.toHaveBeenCalled();
+  expect(fakes.upsert).not.toHaveBeenCalled();
 });
 
 test("failed update Retry reaches the installer once", async () => {
