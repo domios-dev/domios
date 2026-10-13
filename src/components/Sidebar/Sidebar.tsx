@@ -1,3 +1,4 @@
+import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { nativeFolderDialog as open } from "../../lib/nativeBridge";
@@ -142,6 +143,7 @@ export function Sidebar({
     createOrchestrationPair,
     selectTabByTab,
     addNotification,
+    upsertToast,
   } = useMultiplexer();
   const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
   const attention = useMemo(
@@ -182,6 +184,14 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
+    if (state.workspaces.find((workspace) => workspace.id === workspaceId)?.cwd_missing) return;
+    const reportFailure = (error: unknown) => {
+      if (isWorkspaceCwdRefusal(error)) return;
+      upsertToast({
+        id: `spawn:${workspaceId}`, tab_id: null, workspace_id: workspaceId,
+        title: "Session start failed", body: spawnErrorMessage(error), severity: "Error", level: "failure", sticky: true,
+      });
+    };
     if (config?.agent.full_access === undefined) {
       setSessionPicker({ workspaceId, workspaceCwd, initialProviderId: agentId });
       return;
@@ -194,7 +204,7 @@ export function Sidebar({
           title: `Project folder for ${provider?.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
-            spawnAgentTab(workspaceId, agentId, path);
+            void spawnAgentTab(workspaceId, agentId, path).catch(reportFailure);
           },
         });
         return;
@@ -212,8 +222,8 @@ export function Sidebar({
       }
       if (!folder) return;
     }
-    spawnAgentTab(workspaceId, agentId, folder);
-  }, [config?.agent.full_access, spawnAgentTab]);
+    void spawnAgentTab(workspaceId, agentId, folder).catch(reportFailure);
+  }, [config?.agent.full_access, spawnAgentTab, state.workspaces, upsertToast]);
 
   const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
     if (!orchestrationModal) return;

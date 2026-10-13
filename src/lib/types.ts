@@ -15,6 +15,7 @@ export interface Workspace {
   tabs: string[];
   active_tab_id: string | null;
   cwd: string | null;
+  cwd_missing?: boolean;
   protected?: boolean;
   /** Sibling ordinal among workspaces; the sidebar sorts by it. */
   sort_order?: number;
@@ -324,6 +325,7 @@ export interface WorkspaceInfo {
   tab_count: number;
   is_active: boolean;
   cwd: string | null;
+  cwd_missing?: boolean;
   protected?: boolean;
   tab_ids: string[];
   /** Set only when create_workspace deduped by cwd instead of creating one. */

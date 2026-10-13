@@ -585,11 +585,14 @@ impl ServiceContext {
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or_else(|| "No workspace found".to_string())?
         };
-        self.validate_request_cwd(
-            Some(&workspace_id),
-            params.spawned_by_tab_id.as_deref(),
-            None,
-        )?;
+        let svc = self.clone();
+        let cwd_workspace = workspace_id.clone();
+        let cwd_caller = params.spawned_by_tab_id.clone();
+        super::blocking::run(move || {
+            svc.validate_request_cwd(Some(&cwd_workspace), cwd_caller.as_deref(), None)
+                .map_err(String::from)
+        })
+        .await?;
         let project = self
             .mux
             .read()

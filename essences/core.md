@@ -61,6 +61,8 @@ What one Domios instance remembers across restarts: configuration, the workspace
 - Invariants: each instance keeps its own data directory, so development never reads or writes production's state; after storage cutover, `state.db` is the sole restore source and legacy JSON is import input only; restoring this state after a restart is unconditional and the journal is telemetry, not authority; writes to held configuration fail without changing live settings until the file is repaired or restored; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
 - Dependent capabilities: workspaces and tabs, session continuity, scheduling, service registry, secret store, configuration, usage and Analytics.
 
+A missing or unreadable workspace folder, including a retired drive or volume, is checked at startup, workspace open and spawn refusal without polling. The sidebar marks the workspace and its view offers Choose folder instead of session creation. Relocation validates the new folder and keeps workspace, tab, Team, Plan and session identities; paths beneath the old root are rebased for bound Plans, idle tabs and stored launches, while active or outside-root paths are reported unchanged. Launches refuse an unusable cwd with a human recovery message and never fall back to another folder.
+
 ### PTY {#core:pty}
 
 Real terminals, one per tab, and the input path into them.

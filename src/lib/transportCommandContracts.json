@@ -1210,6 +1210,12 @@
         "POST",
         "/api/setup/rules/install?provider=provider"
       ]
+    ],
+    "mux_set_workspace_cwd": [
+      [
+        "POST",
+        "/api/workspaces/workspace/cwd"
+      ]
     ]
   }
 }

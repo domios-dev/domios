@@ -85,3 +85,25 @@ impl From<crate::service::spawn_cwd::CwdRefusal> for SpawnRejection {
         }
     }
 }
+
+pub(crate) async fn validate_spawn_cwd(
+    svc: &crate::service::ServiceState,
+    workspace_id: Option<&str>,
+    caller_tab_id: Option<&str>,
+    cwd: Option<&str>,
+) -> Result<(), SpawnRejection> {
+    let svc = svc.clone();
+    let workspace_id = workspace_id.map(str::to_string);
+    let caller_tab_id = caller_tab_id.map(str::to_string);
+    let cwd = cwd.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        svc.validate_request_cwd(
+            workspace_id.as_deref(),
+            caller_tab_id.as_deref(),
+            cwd.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| SpawnRejection::from(error.to_string()))?
+    .map_err(SpawnRejection::from)
+}

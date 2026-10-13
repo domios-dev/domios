@@ -78,6 +78,42 @@ fn rebase_field(
     }
 }
 
+fn relocate_tab_paths(
+    tab: &mut crate::multiplexer::types::Tab,
+    idle: bool,
+    old: &str,
+    new: &str,
+    result: &mut WorkspaceRelocation,
+) {
+    let id = &tab.id;
+    if !idle {
+        result
+            .warnings
+            .push(format!("Tab {id} is active; its paths were left unchanged"));
+        return;
+    }
+    let before = tab.cwd.clone();
+    rebase_field(
+        &mut tab.cwd,
+        old,
+        new,
+        &format!("Tab {id}"),
+        &mut result.warnings,
+    );
+    if let Some(restore) = tab.close_restore.as_mut() {
+        rebase_field(
+            &mut restore.session_cwd,
+            old,
+            new,
+            &format!("Tab {id} stored session"),
+            &mut result.warnings,
+        );
+    }
+    if before != tab.cwd {
+        result.updated_tabs.push(id.clone());
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn refresh_workspace_cwd_state(&self, workspace_id: &str) -> Result<bool, String> {
         let cwd = self
@@ -111,6 +147,7 @@ impl ServiceContext {
         workspace_id: &str,
         cwd: &str,
     ) -> Result<WorkspaceRelocation, String> {
+        let _relocation = self.workspace_relocation_lock.lock();
         if cwd.trim().is_empty() {
             return Err("Choose an existing absolute folder".into());
         }
@@ -127,7 +164,13 @@ impl ServiceContext {
                 .iter()
                 .filter_map(|id| mux.get_tab(id).cloned())
                 .collect();
-            let teams: Vec<_> = tabs.iter().filter_map(|tab| tab.team_id.clone()).collect();
+            let teams: Vec<_> = mux
+                .snapshot()
+                .teams
+                .into_iter()
+                .filter(|team| team.workspace_id == workspace_id)
+                .map(|team| team.id)
+                .collect();
             (ws, tabs, teams)
         };
         let mut result = WorkspaceRelocation {
@@ -143,18 +186,6 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         result.updated_plans = updated;
         result.warnings.extend(warnings);
-        let eligible: Vec<_> = tabs
-            .iter()
-            .map(|tab| {
-                let idle = !tab.agent_booting
-                    && !crate::multiplexer::state::effective_tab_status(
-                        tab,
-                        self.resolved_tab_status(tab),
-                    )
-                    .has_active_turn();
-                (tab.id.clone(), idle)
-            })
-            .collect();
         {
             let mut mux = self.mux.write();
             if mux.get_workspace(workspace_id).map(|ws| &ws.cwd) != Some(&workspace.cwd) {
@@ -162,36 +193,17 @@ impl ServiceContext {
                     "Workspace folder changed during relocation; choose the folder again".into(),
                 );
             }
-            for (id, idle) in eligible {
+            for id in tab_ids {
                 let Some(tab) = mux.get_tab_mut(&id) else {
                     continue;
                 };
-                if !idle {
-                    result
-                        .warnings
-                        .push(format!("Tab {id} is active; its paths were left unchanged"));
-                    continue;
-                }
-                let before = tab.cwd.clone();
-                rebase_field(
-                    &mut tab.cwd,
-                    old,
-                    cwd,
-                    &format!("Tab {id}"),
-                    &mut result.warnings,
-                );
-                if let Some(restore) = tab.close_restore.as_mut() {
-                    rebase_field(
-                        &mut restore.session_cwd,
-                        old,
-                        cwd,
-                        &format!("Tab {id} stored session"),
-                        &mut result.warnings,
-                    );
-                }
-                if before != tab.cwd {
-                    result.updated_tabs.push(id);
-                }
+                let idle = !tab.agent_booting
+                    && !crate::multiplexer::state::effective_tab_status(
+                        tab,
+                        self.resolved_tab_status(tab),
+                    )
+                    .has_active_turn();
+                relocate_tab_paths(tab, idle, old, cwd, &mut result);
             }
             let ws = mux
                 .get_workspace_mut(workspace_id)
@@ -204,6 +216,9 @@ impl ServiceContext {
             self,
             session_persist::SessionPersistUrgency::Prompt,
         )?;
+        for plan_id in &result.updated_plans {
+            self.emit_plan_changed(plan_id);
+        }
         self.emit_state_changed();
         Ok(result)
     }
@@ -249,5 +264,35 @@ mod tests {
         ] {
             assert_eq!(rebase_path(path, old, new).as_deref(), expected);
         }
+    }
+    #[test]
+    fn idle_tab_relocation_preserves_session_team_and_launch_identity() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let ws = mux.list_workspaces()[0].id.clone();
+        let id = mux.create_tab(&ws).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.cwd = Some("D:/repo/sub".into());
+        tab.agent_session_id = Some("session".into());
+        tab.team_id = Some("team".into());
+        tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+            session_cwd: Some("D:/repo/sub".into()),
+            exact_session: true,
+            ..Default::default()
+        });
+        let mut result = WorkspaceRelocation::default();
+        relocate_tab_paths(tab, false, "D:/repo", "C:/repo", &mut result);
+        assert_eq!(tab.cwd.as_deref(), Some("D:/repo/sub"));
+        assert_eq!(result.warnings.len(), 1);
+        relocate_tab_paths(tab, true, "D:/repo", "C:/repo", &mut result);
+        assert_eq!(tab.cwd.as_deref(), Some("C:/repo/sub"));
+        assert_eq!(
+            tab.close_restore.as_ref().unwrap().session_cwd.as_deref(),
+            Some("C:/repo/sub")
+        );
+        assert!(tab.close_restore.as_ref().unwrap().exact_session);
+        assert_eq!(tab.id, id);
+        assert_eq!(tab.agent_session_id.as_deref(), Some("session"));
+        assert_eq!(tab.team_id.as_deref(), Some("team"));
+        assert_eq!(result.updated_tabs, vec![id]);
     }
 }

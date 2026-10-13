@@ -24,6 +24,7 @@ const simple = [
   ["mux_set_active_workspace", "POST", "/api/workspaces/ws/focus"],
   ["mux_create_workspace", "POST", "/api/workspaces"],
   ["mux_close_workspace", "POST", "/api/workspaces/ws/close"],
+  ["mux_set_workspace_cwd", "POST", "/api/workspaces/ws/cwd"],
   ["mux_rename_workspace", "POST", "/api/workspaces/ws/rename"],
   ["shell_profiles", "GET", "/api/shells?refresh=false"],
   ["mux_create_tab", "POST", "/api/workspaces/ws/tabs"],

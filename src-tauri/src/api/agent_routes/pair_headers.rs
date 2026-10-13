@@ -12,23 +12,27 @@ pub(crate) async fn create_orchestration_pair(
         super::SpawnRejection::new(status, "unauthorized", message.to_string())
     })?;
     let params = pair_params_from_headers(&headers, body);
-    let svc = state.svc.clone();
     let probe = params.clone();
-    tokio::task::spawn_blocking(move || {
-        svc.validate_request_cwd(
-            probe.workspace_id.as_deref(),
-            probe.spawned_by_tab_id.as_deref(),
-            None,
-        )
-    })
-    .await
-    .map_err(|error| super::SpawnRejection::from(error.to_string()))?
-    .map_err(super::SpawnRejection::from)?;
-    let result = state
-        .svc
-        .create_orchestration_pair(params)
-        .await
-        .map_err(super::SpawnRejection::from)?;
+    super::spawn_rejection::validate_spawn_cwd(
+        &state.svc,
+        probe.workspace_id.as_deref(),
+        probe.spawned_by_tab_id.as_deref(),
+        None,
+    )
+    .await?;
+    let result = match state.svc.create_orchestration_pair(params).await {
+        Ok(result) => result,
+        Err(error) => {
+            super::spawn_rejection::validate_spawn_cwd(
+                &state.svc,
+                probe.workspace_id.as_deref(),
+                probe.spawned_by_tab_id.as_deref(),
+                None,
+            )
+            .await?;
+            return Err(super::SpawnRejection::from(error));
+        }
+    };
     Ok(Json(serde_json::to_value(result).map_err(|error| {
         super::SpawnRejection::from(error.to_string())
     })?))

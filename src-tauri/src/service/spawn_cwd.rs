@@ -84,7 +84,7 @@ fn inspect_cwd(cwd: &str) -> Result<(), (bool, String)> {
         ));
     }
     match std::fs::metadata(path) {
-        Ok(metadata) if metadata.is_dir() => std::fs::read_dir(path)
+        Ok(metadata) if metadata.is_dir() => std::fs::read_dir(path.join("."))
             .map(|_| ())
             .map_err(|error| (false, format!("cannot read folder: {error}"))),
         Ok(_) => Err((false, format!("'{cwd}' is not a directory"))),
@@ -120,7 +120,8 @@ impl super::ServiceContext {
             let id = workspace_id
                 .map(str::to_string)
                 .or_else(|| caller_tab_id.and_then(|tab| mux.find_workspace_for_tab(tab)))
-                .or_else(|| mux.get_active_workspace().map(|ws| ws.id.clone()));
+                .or_else(|| mux.get_active_workspace().map(|ws| ws.id.clone()))
+                .or_else(|| mux.list_workspaces().first().map(|ws| ws.id.clone()));
             id.and_then(|id| mux.get_workspace(&id).cloned())
         };
         let path = cwd.or_else(|| workspace.as_ref().and_then(|ws| ws.cwd.as_deref()));
