@@ -1,6 +1,7 @@
 use super::{
     reconcile_agent_levels, shipped_sound, AgentLevelChoice, IntegrationsConfig, MemoryConfig,
-    NotificationConfig, OrchestrationConfig, PushChannelConfig, UiConfig, UsageConfig,
+    NotificationConfig, OrchestrationConfig, OrchestrationDigestsConfig, PushChannelConfig,
+    UiConfig, UsageConfig,
 };
 use crate::notification::{NotifyDestination, NotifyLevel};
 
@@ -98,7 +99,7 @@ fn orchestration_plan_reminder_defaults() {
     assert_eq!(cfg.nudge_interval_secs, 2700);
     assert_eq!(cfg.reflect.every_gates, 5);
     assert!(cfg.digests.enabled);
-    assert_eq!(cfg.digests.rules.len(), 2);
+    assert_eq!(cfg.digests.rules.len(), 6);
 
     let serialized = toml::to_string(&cfg).unwrap();
     assert!(!serialized.contains(concat!("nudge_after_", "turns")));
@@ -567,4 +568,25 @@ fn general_agent_capability_hints_defaults_on_and_round_trips_off() {
     let restored: super::GeneralAgentConfig =
         toml::from_str(&toml::to_string(&disabled).unwrap()).unwrap();
     assert!(!restored.capability_hints);
+}
+
+#[test]
+fn cleanup_digest_conditions_and_overrides_roundtrip() {
+    for condition in [
+        "in_review_gt",
+        "jobs_gt",
+        "agent_tabs_gt",
+        "idle_utility_shells_gt",
+        "finished_lanes_gt",
+    ] {
+        let config: OrchestrationDigestsConfig = toml::from_str(&format!(
+            "enabled = true\n[[rules]]\nid = 'opaque'\nenabled = true\ncondition = '{condition}'\nthreshold = 4\nrate_limit_secs = 60\ntemplate = '{{count}}'"
+        )).unwrap();
+        assert_eq!(config.rules[0].threshold, 4);
+        assert_eq!(config.rules[0].rate_limit_secs, 60);
+        let restored: OrchestrationDigestsConfig =
+            toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(restored.rules[0].condition, config.rules[0].condition);
+        assert_eq!(restored.rules[0].template, "{count}");
+    }
 }
