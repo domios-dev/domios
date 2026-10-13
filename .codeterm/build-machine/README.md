@@ -78,14 +78,15 @@ secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac
 ## Shared sccache path contract
 
 CI builders use the shared S3 compile cache on ainyiva-bot through `build.sh`.
-Provision these identical physical paths before checkout and export the listed
+Provision the identical macOS/Windows physical paths and user-owned Linux paths before checkout and export the listed
 `CARGO_HOME` only in the builder process:
 
 | OS / builders | Checkout | CARGO_HOME |
 |---|---|---|
 | macOS: eight, air | `/Users/Shared/domios-ci/work/codeterm` | `/Users/Shared/domios-ci/cargo` |
 | Windows: ROG, BLACKSTAR, green | `C:\domios-ci\work\codeterm` | `C:\domios-ci\cargo` |
-| Linux: ubunta | `/opt/domios-ci/work/codeterm` | `/opt/domios-ci/cargo` |
+| Linux: ubunta | `/home/rollacode/domios-ci/work/codeterm` | `/home/rollacode/domios-ci/cargo` |
+| Linux: BLACKSTAR-CI WSL | `/home/ci/domios-ci/work/codeterm` | `/home/ci/domios-ci/cargo` |
 
 Only these exact CI checkouts use their checkout-local `target-check` for
 exceptional test compilation; other worktrees keep their gateway targets.
@@ -97,7 +98,8 @@ unchanged; upstream Rust normalization is deferred. Also match
 toolchain executable paths: `CARGO` is hashed. Select the pinned toolchain under
 `/Users/Shared/domios-ci/rustup/toolchains/` on macOS,
 `C:\domios-ci\rustup\toolchains\` on Windows, or
-`/opt/domios-ci/rustup/toolchains/` on Linux in the builder process PATH;
+`/home/rollacode/domios-ci/rustup/toolchains/` on ubunta or
+`/home/ci/domios-ci/rustup/toolchains/` in BLACKSTAR WSL in the builder process PATH;
 do not change developer toolchain defaults.
 
 Run `codeterm mem secret sync` locally on each authorized builder. Build setup
@@ -112,6 +114,29 @@ reports or files. If either entry cannot resolve and no S3 server is running,
 build setup logs one local disk fallback line and preserves `SCCACHE_CACHE_SIZE` (default `10G`). Shared macOS
 paths must permit builder accounts to write source and disposable artifacts.
 The build skill owns troubleshooting and the statistics measurement procedure.
+
+CI uses `./build.sh cache-verify` (Windows: `.\build.ps1 cache-verify`). It prints
+configured and actual storage plus endpoint health, exits 0 only when both storage
+checks select the shared S3 bucket, and otherwise exits 2. It never starts or
+restarts a server or checks for an idle machine. Set
+`CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
+that same verification path. Provision local-to-S3 storage separately while idle.
+
+BLACKSTAR-CI WSL builds are owned by a Windows runner. That Windows parent runs
+`codeterm mem secret sync`, resolves both vault entries into `AWS_ACCESS_KEY_ID`
+and `AWS_SECRET_ACCESS_KEY`, and sets `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`.
+Forward these three names through `WSLENV` to the WSL process; append them to any
+existing `WSLENV` list. Values stay exclusively in process environment, never
+runner `.env`, command arguments, files or logs. This explicit source selects
+inherited runner credentials instead of querying an unavailable WSL vault CLI.
+Both values are required. No standalone WSL Worker builds are supported; keep
+Windows interop and mount settings unchanged. Select pinned Rust 1.95.0 only in
+the build process, preserving the machine's default toolchain.
+
+Post-release follow-up: establish a shared Linux user or an approved `/opt` path
+and compare cold/consumer hit and miss data at identical checkout, Cargo and
+compiler paths. The 1.14.7 Linux contract accepts different paths and does not
+claim cross-machine reuse.
 
 ## Run
 
@@ -212,4 +237,4 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

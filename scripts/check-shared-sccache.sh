@@ -85,7 +85,7 @@ printf 'PASS credential resolution suppresses tracing\n'
 ) > "$WORK/refusals.log" 2>&1
 printf 'PASS busy-machine and server-start refusals\n'
 
-for checkout in /Users/Shared/domios-ci/work/codeterm /opt/domios-ci/work/codeterm /c/domios-ci/work/codeterm; do
+for checkout in /Users/Shared/domios-ci/work/codeterm /home/rollacode/domios-ci/work/codeterm /home/ci/domios-ci/work/codeterm /c/domios-ci/work/codeterm; do
   [ "$(ct_exceptional_target_dir "$checkout" /gateway fixture-id)" = "$checkout/target-check" ]
 done
 [ "$(ct_exceptional_target_dir /developer/worktree /gateway fixture-id)" = /gateway/targets/exceptional/fixture-id ]
@@ -145,3 +145,46 @@ printf 'PASS busy matching servers are reused; wrong buckets refuse without stop
 [ "$(rg -c 'using running server credentials' "$WORK/no-downgrade.log")" = 2 ]
 ! rg -q '^sccache: local disk cache at' "$WORK/no-downgrade.log"
 printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle\n'
+
+(
+  export FIXTURE_BUSY=1 CODETERM_SCCACHE_VERIFY_ONLY=1
+  curl() { printf 200; }
+  rm -f "$WORK/events"
+  printf 's3, name: sccache, prefix: /' > "$WORK/location"
+  ct_sccache_verify
+  CODETERM_USE_SCCACHE=0 ct_configure_sccache
+  [ ! -e "$WORK/events" ]
+  for location in 'Local disk: "fixture-disk"' 's3, name: other-bucket, prefix: /' unavailable; do
+    printf '%s' "$location" > "$WORK/location"
+    if ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+    if ct_configure_sccache; then exit 1; else [ "$?" = 2 ]; fi
+    [ ! -e "$WORK/events" ]
+  done
+  printf 's3, name: sccache, prefix: /' > "$WORK/location"
+  if FIXTURE_SECRET=0 ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+  [ ! -e "$WORK/events" ]
+  sccache() { return 127; }
+  if ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+  command() { if [ "$1 $2" = '-v sccache' ]; then return 1; fi; builtin command "$@"; }
+  if ct_configure_sccache; then exit 1; else [ "$?" = 2 ]; fi
+) > "$WORK/verify.log" 2>&1
+! rg -q 'fixture-access|fixture-secret|idle machine; Cargo' "$WORK/verify.log"
+printf 'PASS CI verification never configures or refuses busy matching S3\n'
+
+(
+  codeterm() { printf 'vault-call\n' >> "$WORK/events"; return 1; }
+  rm -f "$WORK/events"
+  export CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
+  export AWS_ACCESS_KEY_ID=fixture-access AWS_SECRET_ACCESS_KEY=fixture-secret
+  set -x
+  ct_sccache_storage
+  set +x
+  [ "$CT_SCCACHE_STORAGE" = shared ]
+  [ ! -e "$WORK/events" ]
+  unset AWS_SECRET_ACCESS_KEY
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = local ]
+  [ ! -e "$WORK/events" ]
+) > "$WORK/runner.log" 2>&1
+! rg -q 'fixture-access|fixture-secret' "$WORK/runner.log"
+printf 'PASS runner process credentials require both keys and never query vault\n'

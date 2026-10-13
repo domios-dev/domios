@@ -75,7 +75,7 @@ ct_effective_cache_key_scope() {
 
 ct_exceptional_target_dir() {
   case "$1" in
-    /Users/Shared/domios-ci/work/codeterm|/opt/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
+    /Users/Shared/domios-ci/work/codeterm|/home/rollacode/domios-ci/work/codeterm|/home/ci/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
       printf '%s/target-check\n' "$1"
       ;;
     *) printf '%s/targets/exceptional/%s\n' "$2" "$3" ;;
@@ -96,8 +96,13 @@ ct_sccache_secret() (
 ct_sccache_storage() {
   local trace_enabled=0 access_key secret_key
   case "$-" in *x*) trace_enabled=1; set +x ;; esac
-  access_key="$(ct_sccache_secret domios-sccache-s3-access-key)" || access_key=""
-  secret_key="$(ct_sccache_secret domios-sccache-s3-secret-key)" || secret_key=""
+  if [ "${CODETERM_SCCACHE_CREDENTIAL_SOURCE:-vault}" = runner ]; then
+    access_key="${AWS_ACCESS_KEY_ID:-}"
+    secret_key="${AWS_SECRET_ACCESS_KEY:-}"
+  else
+    access_key="$(ct_sccache_secret domios-sccache-s3-access-key)" || access_key=""
+    secret_key="$(ct_sccache_secret domios-sccache-s3-secret-key)" || secret_key=""
+  fi
   if [ -n "$access_key" ] && [ -n "$secret_key" ]; then
     export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"
     unset AWS_SESSION_TOKEN
@@ -148,6 +153,17 @@ ct_sccache_status() {
   http_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
     http://100.88.47.88:9000/minio/health/live 2>/dev/null)" || http_status="unreachable"
   printf 'shared endpoint health: %s\n' "$http_status"
+  if [ "${1:-}" = verify ]; then
+    if [ "$CT_SCCACHE_STORAGE" != shared ] ||
+        ! ct_sccache_storage_matches "$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"; then
+      echo "[cache-policy] ERROR: shared S3 cache is not configured and running; provision it while idle" >&2
+      return 2
+    fi
+  fi
+}
+
+ct_sccache_verify() {
+  ct_sccache_status verify
 }
 
 ct_sccache_storage_matches() {
@@ -183,8 +199,12 @@ ct_sccache_restart() {
 
 ct_configure_sccache() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
-  [ "${CODETERM_USE_SCCACHE:-1}" = "0" ] && return 0
+  if [ "${CODETERM_USE_SCCACHE:-1}" = 0 ] && [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" != 1 ]; then return 0; fi
   command -v sccache >/dev/null 2>&1 || {
+    if [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" = 1 ]; then
+      echo "[cache-policy] ERROR: shared cache verification requires sccache" >&2
+      return 2
+    fi
     echo "[cache-policy] sccache unavailable; building without RUSTC_WRAPPER"
     return 0
   }
@@ -197,6 +217,10 @@ ct_configure_sccache() {
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
   echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
   echo "[cache-policy] $(sccache --version)"
+  if [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" = 1 ]; then
+    ct_sccache_verify
+    return $?
+  fi
   local stats location
   stats="$(sccache --show-stats 2>/dev/null)" || stats=""
   location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
