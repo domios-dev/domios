@@ -48,7 +48,7 @@ function useUpdatePanelController() {
     }).then(unlisten => {
       if (disposed) { unlisten(); return; }
       stop = unlisten;
-      void checkUpdateAvailability(true).then(next => {
+      void checkUpdateAvailability().then(next => {
         if (!disposed) { setSnapshot(next); setReady(true); }
       }).catch(failure => { if (!disposed) setError(String(failure)); });
     }).catch(failure => { if (!disposed) setError(String(failure)); });
@@ -104,6 +104,20 @@ function useUpdatePanelController() {
     finally { running.current = false; setStarting(false); }
   };
 
+  const applyItem = async (id: string) => {
+    if (intent || running.current || app.installing) return;
+    const item = snapshot.items.find(item => item.id === id);
+    if (!item || !hasUpdateBadge(item)) return;
+    running.current = true;
+    setStarting(true);
+    setError(null);
+    try {
+      save(availabilityIntent([item]));
+      if (item.kind === "app" && !await app.applyUpdate()) throw new Error("App update failed");
+    } catch (failure) { setError(String(failure)); }
+    finally { running.current = false; setStarting(false); }
+  };
+
   const retry = async () => {
     setError(null);
     try {
@@ -115,7 +129,7 @@ function useUpdatePanelController() {
   };
 
   return { snapshot, items, busy: starting || intent !== null || app.installing, error: error ?? app.error ?? Object.values(snapshot.errors)[0] ?? null,
-    updateAll, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
+    updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
 }
 
 const Context = createContext<ReturnType<typeof useUpdatePanelController> | null>(null);

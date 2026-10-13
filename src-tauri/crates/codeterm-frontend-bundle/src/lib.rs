@@ -30,6 +30,7 @@ pub struct FrontendBundles {
     allow_loopback: bool,
     emit: StatusEmitter,
     installation_observer: RwLock<Option<InstallationObserver>>,
+    availability_observer: RwLock<Option<InstallationObserver>>,
 }
 
 impl FrontendBundles {
@@ -85,12 +86,40 @@ impl FrontendBundles {
             allow_loopback,
             emit,
             installation_observer: RwLock::new(None),
+            availability_observer: RwLock::new(None),
         })
     }
 
     pub fn bind_installation_observer(&self, observer: InstallationObserver) {
         *self.installation_observer.write() = Some(observer);
     }
+    pub fn bind_availability_observer(&self, observer: InstallationObserver) {
+        *self.availability_observer.write() = Some(observer);
+    }
+
+    pub fn local_availability(&self) -> codeterm_plugins::AvailabilityItem {
+        let inner = self.inner.lock();
+        let installed = inner.1.active.as_ref().map(|m| m.version.as_str());
+        let bundled = self.bundled_version.to_string();
+        let installed = installed.unwrap_or(&bundled);
+        let pending =
+            inner.1.pending.as_ref().filter(|m| {
+                inner.1.loading.is_none() && !inner.1.quarantined.contains(&m.release_id)
+            });
+        let mut item = codeterm_plugins::AvailabilityItem::release(
+            "frontend",
+            codeterm_plugins::UpdateKind::Frontend,
+            installed,
+            pending.map(|m| m.version.as_str()).unwrap_or(installed),
+            pending.is_none_or(|m| m.compatible(self.api_version)),
+        );
+        if pending.is_some() && item.compatible {
+            item.state = codeterm_plugins::AvailabilityState::ReadyToApply;
+            item.reason = "staged_bundle".into();
+        }
+        item
+    }
+
     pub fn status(&self) -> Value {
         let inner = self.inner.lock();
         let mut status = inner.1.public_status();
@@ -100,6 +129,10 @@ impl FrontendBundles {
     }
 
     pub fn availability(&self) -> Result<codeterm_plugins::AvailabilityItem, String> {
+        let local = self.local_availability();
+        if local.state == codeterm_plugins::AvailabilityState::ReadyToApply {
+            return Ok(local);
+        }
         let key = self
             .public_key
             .as_deref()
@@ -290,8 +323,16 @@ impl FrontendBundles {
         let mut inner = self.inner.lock();
         let mut candidate = inner.1.clone();
         action(&mut candidate)?;
+        let changed = inner.1 != candidate;
         inner.0.save(&candidate)?;
         inner.1 = candidate;
+        drop(inner);
+        let observer = self.availability_observer.read().clone();
+        if changed {
+            if let Some(observer) = observer {
+                observer();
+            }
+        }
         Ok(())
     }
 }
