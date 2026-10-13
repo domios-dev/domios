@@ -12,7 +12,7 @@ use app_ports::AppMeshEventSink;
 pub fn set_mesh_enabled(
     mesh: &MeshState,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     enabled: bool,
 ) -> bool {
     let changed = {

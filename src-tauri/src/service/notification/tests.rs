@@ -154,7 +154,6 @@ fn explicit_prompt_notification_answer_routes_the_value_without_message_delivery
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn explicit_prompt_notification_answer_refuses_a_stale_prompt_structurally() {
     use codeterm_types::notification::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};

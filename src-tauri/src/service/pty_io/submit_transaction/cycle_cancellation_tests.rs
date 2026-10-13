@@ -36,10 +36,6 @@ fn submit_cycle_registry_reclaims_pty_key_after_last_claim() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the ServiceContext harness requires an interactive desktop runtime"
-)]
 fn superseded_claim_is_refused_before_any_write_or_parser_side_effect() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::delivery_error::DeliveryError;

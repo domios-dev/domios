@@ -121,7 +121,6 @@ fn assert_carries(command: &str, args: &[String]) {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restart_preserves_launch_args() {
     for role in [None, Some("Worker")] {
         let (fixture, snap, spawn) = restart_fixture(role);
@@ -149,7 +148,6 @@ fn restart_preserves_launch_args() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restart_without_a_recorded_spawn_still_resumes_the_session() {
     let (fixture, snap, _) = restart_fixture(None);
     fixture
@@ -167,7 +165,6 @@ fn restart_without_a_recorded_spawn_still_resumes_the_session() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provider_handoff_relaunches_fresh_with_selected_history_in_launch_task() {
     let (fixture, mut snap, _) = restart_fixture(None);
     fixture.service.agent_registry.register_provider(Box::new(

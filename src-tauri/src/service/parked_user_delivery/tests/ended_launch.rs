@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn fresh_prelaunch_send_waits_for_pty_and_rebinds_to_written_launch_once() {
     let (fixture, tab) = queue_fixture(true, None);
     {
@@ -131,10 +127,6 @@ fn fresh_prelaunch_send_waits_for_pty_and_rebinds_to_written_launch_once() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn queued_prelaunch_send_expires_after_a_later_launch_changes_its_session() {
     let (fixture, tab) = queue_fixture(true, None);
     {
@@ -189,10 +181,6 @@ fn queued_prelaunch_send_expires_after_a_later_launch_changes_its_session() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn previous_launch_never_written_head_is_settled_before_restored_send_flushes() {
     let (fixture, tab) = queue_fixture(true, None);
     fixture

@@ -97,10 +97,6 @@ fn state_of(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn detached_jsonl_turn_reconciles_only_past_the_captured_service_anchor() {
     let (fixture, tab_id) = service_fixture("windowed");
     let root = fixture.temp.path().join("jsonl-evidence");
@@ -120,10 +116,6 @@ fn detached_jsonl_turn_reconciles_only_past_the_captured_service_anchor() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn missing_jsonl_store_mints_only_a_live_absence_witness() {
     let (fixture, tab_id) = service_fixture("windowed");
     let root = fixture.temp.path().join("missing-jsonl-evidence");
@@ -138,10 +130,6 @@ fn missing_jsonl_store_mints_only_a_live_absence_witness() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn fresh_trace_without_delivery_anchor_registers_before_materialization() {
     let (fixture, tab_id) = service_fixture("windowed");
     let root = fixture.temp.path().join("fresh-trace-source");
@@ -168,10 +156,6 @@ fn fresh_trace_without_delivery_anchor_registers_before_materialization() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unbound_tab_never_adopts_a_foreign_structured_session_as_its_anchor() {
     let (fixture, tab_id) = service_fixture("structured-store");
     let provider = StructuredStoreProvider::new();
@@ -185,10 +169,6 @@ fn unbound_tab_never_adopts_a_foreign_structured_session_as_its_anchor() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn detached_structured_turn_reconciles_only_past_the_captured_service_anchor() {
     let (fixture, tab_id) = service_fixture("structured-store");
     let provider = StructuredStoreProvider::new();

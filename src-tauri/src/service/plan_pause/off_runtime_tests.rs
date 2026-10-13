@@ -9,7 +9,6 @@ use crate::service::test_fixture::ServiceFixture;
 
 /// One worker: the unrelated task runs only if the parked schedule write left the worker.
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
 async fn cron_entry_off_runtime_plan_pause_schedule_write_frees_the_runtime_worker() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

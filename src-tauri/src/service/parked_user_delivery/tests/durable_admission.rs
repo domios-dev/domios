@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn held_persistence_keeps_mux_ledger_and_unrelated_admission_available_without_false_acceptance() {
     let (fixture, tab) = queue_fixture(true, None);
     let (held_tx, held_rx) = mpsc::channel();
@@ -76,10 +72,6 @@ fn held_persistence_keeps_mux_ledger_and_unrelated_admission_available_without_f
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn close_during_durable_claim_revokes_before_any_writer_handoff_and_preserves_both() {
     let (fixture, tab) = queue_fixture(true, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
@@ -140,10 +132,6 @@ fn close_during_durable_claim_revokes_before_any_writer_handoff_and_preserves_bo
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn production_preparation_archives_exact_owned_body_and_preserves_it_after_pad_removal() {
     let (fixture, tab) = queue_fixture(true, Some(8));
     let ticket = fixture
@@ -183,10 +171,6 @@ fn production_preparation_archives_exact_owned_body_and_preserves_it_after_pad_r
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     let (fixture, tab) = queue_fixture(false, None);
     let first = fixture
@@ -283,10 +267,6 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn refused_durable_service_admission_never_publishes_acceptance_or_evicts_first() {
     let (fixture, tab) = queue_fixture(true, None);
     let accepted = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");

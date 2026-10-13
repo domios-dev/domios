@@ -201,7 +201,6 @@ fn mux_snapshot_without_generation(mux: &MultiplexerState) -> serde_json::Value 
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_source_manager_transfer_preserves_the_exact_plan_attempt_and_worker_provenance()
 {
     let fixture = TransferFixture::new();
@@ -282,7 +281,6 @@ fn worker_transfer_source_manager_transfer_preserves_the_exact_plan_attempt_and_
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_all_generic_service_entrypoints_refuse_task_bound_cross_parent_worker_transfer()
 {
     let fixture = TransferFixture::new();
@@ -320,7 +318,6 @@ fn worker_transfer_all_generic_service_entrypoints_refuse_task_bound_cross_paren
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_transfer_requires_source_manager_authority_and_the_existing_plan_owner_team() {
     let fixture = TransferFixture::new();
     for invalid in [
@@ -364,7 +361,6 @@ fn worker_transfer_transfer_requires_source_manager_authority_and_the_existing_p
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_transfer_refuses_stale_worker_nonce_without_mutating_placement_or_task() {
     let fixture = TransferFixture::new();
     fixture
@@ -412,7 +408,6 @@ fn worker_transfer_transfer_refuses_stale_worker_nonce_without_mutating_placemen
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_transfer_rechecks_source_authority_and_accepts_current_destination_rotation() {
     let fixture = TransferFixture::new();
     assert!(fixture
@@ -496,7 +491,6 @@ fn worker_transfer_transfer_rechecks_source_authority_and_accepts_current_destin
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_transfer_refuses_a_new_child_or_remote_report_target_before_commit() {
     let fixture = TransferFixture::new();
     {
@@ -528,7 +522,6 @@ fn worker_transfer_transfer_refuses_a_new_child_or_remote_report_target_before_c
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_same_parent_transfer_keeps_the_existing_task_binding_contract() {
     let fixture = TransferFixture::new();
     let source_team = fixture
@@ -594,7 +587,6 @@ fn worker_transfer_same_parent_transfer_keeps_the_existing_task_binding_contract
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_transfer_unbound_worker_cross_parent_transition_keeps_the_existing_service_contract() {
     let (mut mux, source) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&source).unwrap();

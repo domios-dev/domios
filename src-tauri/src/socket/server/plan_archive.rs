@@ -1,5 +1,5 @@
+use crate::app_runtime::AppHandle;
 use serde_json::{json, Value};
-use tauri::AppHandle;
 
 use crate::service::plan::{PlanError, PlanIncident, PlanStore};
 use crate::service::ServiceState;

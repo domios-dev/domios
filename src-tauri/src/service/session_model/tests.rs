@@ -205,7 +205,6 @@ mod model_refresh_tests {
 
     /// The commit half: an answer for the tab's own live session reaches
     /// `agent_session_model`, normalized exactly once by the spawn policy.
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn model_badge_commits_observed_model_for_current_session() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
@@ -243,7 +242,6 @@ mod model_refresh_tests {
         );
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn model_switch_uses_the_first_post_launch_turn_after_a_stale_transcript_tail() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
@@ -306,10 +304,6 @@ mod model_refresh_tests {
         assert!(fixture.service.notif.lock().list(false).is_empty());
     }
 
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     #[test]
     fn model_switch_observation_survives_same_session_exit_and_claim() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
@@ -422,7 +416,6 @@ mod model_refresh_tests {
         assert!(fixture.service.notif.lock().list(false).is_empty());
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn claude_worker_tab_detects_its_own_session_model() {
         let (mut mux, tab_id) = seeded_tab(Some("claude-worker-own"));
@@ -476,7 +469,6 @@ mod model_refresh_tests {
         );
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn stop_refreshes_known_session_model_after_in_tui_switch_without_fallback() {
         use crate::plan::{OrchestratorRef, Plan};
@@ -586,7 +578,6 @@ mod model_refresh_tests {
         assert!(tab.model_fallback.is_none());
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn attempt_records_session_model_from_its_own_bound_session() {
         use crate::plan::{OrchestratorRef, Plan};
@@ -783,7 +774,6 @@ mod model_refresh_tests {
         assert_eq!(unknown_attempt.attempt.session_model, None);
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn session_model_detected_before_binding_is_replayed_when_attempt_becomes_eligible() {
         use crate::plan::{OrchestratorRef, Plan};
@@ -872,7 +862,6 @@ mod model_refresh_tests {
         assert_eq!(attempt.session_model.as_deref(), Some("gpt-6-luna"));
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn unbound_attempt_model_refresh_does_not_rewrite_its_plan() {
         use crate::plan::{OrchestratorRef, Plan};
@@ -926,7 +915,6 @@ mod model_refresh_tests {
 
     /// The rejection half: the session rolls between the detector read and the
     /// guarded write, so the answer now describes a retired session.
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn model_badge_rejects_answer_from_superseded_session() {
         let (mux, tab_id) = seeded_tab(Some("session-live"));
@@ -968,7 +956,6 @@ mod model_refresh_tests {
 
     /// Same race on the provider axis: a prior PTY's agent answered after the
     /// tab was already relaunched onto a different provider.
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn model_badge_rejects_answer_for_foreign_agent() {
         let (mux, tab_id) = seeded_tab(Some("session-live"));
@@ -1001,7 +988,6 @@ mod model_refresh_tests {
     /// The reported disappearance: startup spends its single attempt while the
     /// tab is still unbound, and the binding commit clears runtime evidence.
     /// The binding event is what puts the model back.
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn model_badge_after_session_binding_recovers_unbound_startup_tab() {
         let (mux, tab_id) = seeded_tab(None);
@@ -1051,7 +1037,6 @@ mod model_refresh_tests {
 
     /// Fallback and mismatch survive the repair: a runtime model that differs
     /// from the launch request still records both, with the model committed.
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn session_model_mismatch_is_recorded_and_surfaced() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
@@ -1097,7 +1082,6 @@ mod model_refresh_tests {
         assert!(notifications.is_empty());
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn qualified_catalogue_model_matches_bare_runtime_model_without_notice() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
@@ -1143,7 +1127,6 @@ mod model_refresh_tests {
         crate::agent::model_catalog::unregister("live-session-fixture");
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn provider_resolved_model_reports_actual_not_requested() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));

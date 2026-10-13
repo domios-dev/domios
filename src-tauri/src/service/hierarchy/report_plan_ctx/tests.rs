@@ -371,10 +371,6 @@ fn seed_plan(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn stale_task_report_transitions_nothing_and_names_the_mismatch() {
     let h = worker_harness();
     let held_before = h.shape(&h.held);
@@ -418,10 +414,6 @@ fn stale_task_report_transitions_nothing_and_names_the_mismatch() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn stale_task_report_correct_binding_matches_the_absent_hint_shape() {
     let hinted = worker_harness();
     hinted
@@ -471,10 +463,6 @@ fn stale_task_report_correct_binding_matches_the_absent_hint_shape() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn stale_task_report_absent_hint_still_transitions_the_held_task() {
     let h = worker_harness();
     let stale_before = h.shape(&h.stale);
@@ -501,10 +489,6 @@ fn stale_task_report_absent_hint_still_transitions_the_held_task() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress() {
     let h = worker_harness();
     let attempt_id = h.task(&h.held).execution_attempts[0].id.clone();
@@ -569,10 +553,6 @@ fn blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress() 
 /// that holds no task can name one and still transition nothing. Pinned here so
 /// permitting the task-less read-only spawn cannot quietly grow it a hold.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn a_verification_worker_holds_no_task_and_can_transition_none() {
     let h = verification_worker_harness();
     let held_before = h.shape(&h.held);
@@ -622,10 +602,6 @@ fn a_verification_worker_holds_no_task_and_can_transition_none() {
 /// for `plan.task.*` verbs, which `agent.report` never enters. Plan ownership
 /// must therefore buy nothing here.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn stale_task_report_plan_owner_in_recovery_cannot_land_a_stale_binding() {
     let (mut mux, root) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&root).unwrap();
@@ -777,10 +753,6 @@ fn planner_report_harness() -> PlannerReportHarness {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_with_live_matching_session_reaches_the_plan_owner() {
     let h = planner_report_harness();
 
@@ -805,10 +777,6 @@ fn planner_report_with_live_matching_session_reaches_the_plan_owner() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_a_stale_session_binding() {
     let h = planner_report_harness();
     h.stale_planner_session();
@@ -830,10 +798,6 @@ fn planner_report_refuses_a_stale_session_binding() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_a_foreign_tab_that_is_not_the_registered_planner() {
     let h = planner_report_harness();
 
@@ -854,10 +818,6 @@ fn planner_report_refuses_a_foreign_tab_that_is_not_the_registered_planner() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_the_registered_planner_of_a_different_plan() {
     let h = planner_report_harness();
 
@@ -878,10 +838,6 @@ fn planner_report_refuses_the_registered_planner_of_a_different_plan() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_a_missing_registered_session_id() {
     let h = planner_report_harness();
     h.set_registered_planner_session(None);
@@ -903,10 +859,6 @@ fn planner_report_refuses_a_missing_registered_session_id() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_a_stale_registered_session_id() {
     let h = planner_report_harness();
     h.set_registered_planner_session(Some("planner-session-before-relaunch"));
@@ -928,10 +880,6 @@ fn planner_report_refuses_a_stale_registered_session_id() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_a_foreign_registered_session_id() {
     let h = planner_report_harness();
     h.set_registered_planner_session(Some("foreign-session"));
@@ -955,10 +903,6 @@ fn planner_report_refuses_a_foreign_registered_session_id() {
 /// A plan-only claim naming an unknown plan is refused before resolution,
 /// delivery, or persistence — never a graceful notice+fallback.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_an_unknown_plan_before_any_fallback() {
     let h = planner_report_harness();
 

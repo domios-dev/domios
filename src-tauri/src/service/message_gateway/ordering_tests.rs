@@ -147,10 +147,6 @@ fn deliver_followup(bw: &BoundWorker) {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn partial_report_then_followup_rearms_the_same_in_progress_attempt() {
     let bw = seed_bound_worker();
     bind_live_worker_session(&bw);
@@ -188,10 +184,6 @@ fn partial_report_then_followup_rearms_the_same_in_progress_attempt() {
 /// Report-accepted → ack-delivered → provider-stop, driven without timing.
 /// The acknowledgement must not re-arm the obligation or fabricate a Partial.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     let bw = seed_bound_worker();
     bind_live_worker_session(&bw);
@@ -249,10 +241,6 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn task_gate_rejection_still_delivers_report_once() {
     let bw = seed_bound_worker();
     let svc = &bw.fx.service;
@@ -292,10 +280,6 @@ fn task_gate_rejection_still_delivers_report_once() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn worker_done_policy_cannot_suppress_report_delivery() {
     let bw = seed_bound_worker();
     let svc = &bw.fx.service;
@@ -323,10 +307,6 @@ fn worker_done_policy_cannot_suppress_report_delivery() {
 /// A genuinely unreported turn still produces one provider-stop handoff.
 /// The resulting Partial must reach the orchestrator's report store.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn dispatched_brief_still_arms_and_provider_stop_still_fabricates_handoff() {
     let bw = seed_bound_worker();
     bind_live_worker_session(&bw);

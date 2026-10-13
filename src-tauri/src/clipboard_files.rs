@@ -13,7 +13,9 @@
 //! Linux: text/uri-list (TODO)
 
 #[tauri::command]
-pub async fn read_clipboard_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+pub async fn read_clipboard_files(
+    app: crate::app_runtime::AppHandle,
+) -> Result<Vec<String>, String> {
     // parameter itself — Tauri's generate_handler! expands to a fixed arity and rejects a parameter that disappears under #[cfg].
     let _ = &app;
 
@@ -32,7 +34,9 @@ pub async fn read_clipboard_files(app: tauri::AppHandle) -> Result<Vec<String>, 
 /// paths). Used as the primary text source on macOS where WebKit blocks
 /// `navigator.clipboard.readText()` outside paste-event handlers.
 #[tauri::command]
-pub async fn read_clipboard_text(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub async fn read_clipboard_text(
+    app: crate::app_runtime::AppHandle,
+) -> Result<Option<String>, String> {
     let _ = &app;
 
     #[cfg(target_os = "windows")]
@@ -46,7 +50,7 @@ pub async fn read_clipboard_text(app: tauri::AppHandle) -> Result<Option<String>
 }
 
 #[cfg(target_os = "macos")]
-fn read_macos_text_on_main(app: &tauri::AppHandle) -> Result<Option<String>, String> {
+fn read_macos_text_on_main(app: &crate::app_runtime::AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {
         let _ = tx.send(read_macos_text());
@@ -86,7 +90,7 @@ fn read_windows_text() -> Option<String> {
 /// are not thread-safe and racing against WebKit's paste path corrupts the
 /// type cache (`__NSArrayM insertObject:atIndex:` → SIGABRT). See issue #34.
 #[cfg(target_os = "macos")]
-fn read_macos_on_main(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+fn read_macos_on_main(app: &crate::app_runtime::AppHandle) -> Result<Vec<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {
         let _ = tx.send(read_macos());

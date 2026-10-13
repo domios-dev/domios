@@ -94,7 +94,6 @@ fn prompt_fixture() -> (crate::service::test_fixture::ServiceFixture, String, St
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_ack_with_nothing_armed_reports_not_required() {
     let (fixture, _, tab_id) = prompt_fixture();
 
@@ -107,7 +106,6 @@ fn startup_ack_with_nothing_armed_reports_not_required() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_ack_with_an_armed_attempt_still_acknowledges() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =
@@ -131,7 +129,6 @@ fn startup_ack_with_an_armed_attempt_still_acknowledges() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn task_file_team_spawn_handshake_is_injected_only_for_an_armed_attempt() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     fixture
@@ -179,7 +176,6 @@ fn task_file_team_spawn_handshake_is_injected_only_for_an_armed_attempt() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_ack_after_binding_auto_ack_reports_already_acknowledged() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =
@@ -204,7 +200,6 @@ fn startup_ack_after_binding_auto_ack_reports_already_acknowledged() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_ack_from_a_superseded_attempt_keeps_its_explicit_refusal() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =
@@ -220,7 +215,6 @@ fn startup_ack_from_a_superseded_attempt_keeps_its_explicit_refusal() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn finalized_startup_attempt_still_refuses_its_acknowledgement() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =
@@ -245,7 +239,6 @@ fn finalized_startup_attempt_still_refuses_its_acknowledgement() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn closing_a_tab_removes_its_finalized_startup_authority() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =
@@ -280,7 +273,6 @@ fn closing_a_tab_removes_its_finalized_startup_authority() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn closing_a_tab_cancels_its_live_startup_waiter() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =
@@ -308,7 +300,6 @@ fn closing_a_tab_cancels_its_live_startup_waiter() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_deadline_on_a_trust_prompt_records_the_classified_reason() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     {
@@ -358,7 +349,6 @@ fn startup_deadline_on_a_trust_prompt_records_the_classified_reason() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_prompt_classification_requires_missing_session_binding() {
     let (fixture, _, tab_id) = prompt_fixture();
     fixture

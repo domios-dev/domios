@@ -233,10 +233,6 @@ impl Fixture {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn lazy_codex_first_user_turn_confirms_after_binding() {
     let fixture = Fixture::new(StoreKind::Jsonl);
     let payload = "Codex first turn 🧪 exact marker";
@@ -281,10 +277,6 @@ fn lazy_codex_first_user_turn_confirms_after_binding() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn lazy_structured_first_user_turn_confirms_after_binding() {
     let fixture = Fixture::new(StoreKind::Structured);
     let payload = "Structured first turn 🧪 exact marker";
@@ -314,10 +306,6 @@ fn lazy_structured_first_user_turn_confirms_after_binding() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn lazy_structured_first_turn_ignores_foreign_and_later_matching_turns() {
     let fixture = Fixture::new(StoreKind::Structured);
     let payload = "structured first turn exact marker";
@@ -365,10 +353,6 @@ fn lazy_structured_first_turn_ignores_foreign_and_later_matching_turns() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn lazy_first_turn_requires_the_current_reported_launch_binding() {
     let fixture = Fixture::new(StoreKind::Jsonl);
     let payload = "binding-scoped first turn";
@@ -410,10 +394,6 @@ fn lazy_first_turn_requires_the_current_reported_launch_binding() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn lazy_jsonl_only_accepts_the_sessions_first_user_turn() {
     let fixture = Fixture::new(StoreKind::Jsonl);
     let send_id = fixture.start_lazy_send("later matching turn");
