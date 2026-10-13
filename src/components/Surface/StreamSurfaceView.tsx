@@ -46,6 +46,7 @@ import { SurfaceToolbar } from "./SurfaceToolbar";
 import { useSurfaceStream } from "./useSurfaceStream";
 
 export interface StreamSurfaceViewProps {
+  visible?: boolean;
   transport: SurfaceStreamTransport;
   chrome: SurfaceChromeSpec;
   surfaceTitle: string;
@@ -80,8 +81,8 @@ interface ProfilesResult {
   current?: string | null;
 }
 
-export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, openExternal = openInNewTab }: StreamSurfaceViewProps) {
-  const stream = useSurfaceStream(transport, initialState);
+export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, openExternal = openInNewTab }: StreamSurfaceViewProps) {
+  const stream = useSurfaceStream(transport, initialState, visible);
   const { notice, setNotice } = stream;
   const state = withOwner(stream.state, ownerName);
   const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
@@ -291,6 +292,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
       />
       {surfaceTabId && <SurfaceFlowLine surfaceTabId={surfaceTabId} />}
       <StreamCanvas
+        visible={visible}
         label={label}
         pageTitle={state.title}
         interactive={interactive}

@@ -36,6 +36,7 @@ fn runtime(data_dir: &Path) -> BrowserRuntime {
     BrowserRuntime::new(
         BrowserHostConfig::under_data_dir(data_dir),
         "Jev",
+        "owner",
         Arc::new(tokio::sync::OnceCell::new()),
         SurfaceResume::default(),
     )

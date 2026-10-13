@@ -5,43 +5,11 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, watch};
 
-/// ~12 fps: Chrome sends the next frame only after an ack, so pacing acks caps the rate.
-pub const ACK_INTERVAL: Duration = Duration::from_millis(80);
 pub const DEFAULT_QUALITY: u8 = 90;
 pub const STILL_DEADLINE: Duration = Duration::from_secs(3);
-
-#[derive(Clone, Debug)]
-pub struct AckPacer {
-    interval: Duration,
-    last_ack: Option<Instant>,
-}
-
-impl AckPacer {
-    pub fn new(interval: Duration) -> Self {
-        Self {
-            interval,
-            last_ack: None,
-        }
-    }
-
-    pub fn ack_due(&self, frame_at: Instant) -> Instant {
-        match self.last_ack {
-            Some(last) => frame_at.max(last + self.interval),
-            None => frame_at,
-        }
-    }
-
-    pub fn acked(&mut self, at: Instant) {
-        self.last_ack = Some(at);
-    }
-
-    pub fn reset(&mut self) {
-        self.last_ack = None;
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CastTransition {
@@ -470,16 +438,12 @@ async fn run_driver(
     mut commands: mpsc::UnboundedReceiver<DriverCommand>,
 ) {
     let mut frames = page.subscribe_session(&["Page.screencastFrame"]);
-    let mut pacer = AckPacer::new(ACK_INTERVAL);
     let mut casting = false;
-    let mut pending_ack: Option<(i64, tokio::time::Instant)> = None;
     loop {
-        let ack_at = pending_ack
-            .map(|(_, at)| at)
-            .unwrap_or_else(tokio::time::Instant::now);
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else { break };
+                log::debug!("[browser-screencast] generation {generation}, command {command:?}");
                 match command {
                     DriverCommand::Start(params) if !casting => {
                         casting = start_cast(&page, &hub, generation, params).await;
@@ -489,8 +453,6 @@ async fn run_driver(
                         if casting {
                             stop_cast(&page).await;
                         }
-                        pending_ack = None;
-                        pacer.reset();
                         casting = start_cast(&page, &hub, generation, params).await;
                     }
                     DriverCommand::Stop => {
@@ -498,8 +460,6 @@ async fn run_driver(
                             stop_cast(&page).await;
                         }
                         casting = false;
-                        pending_ack = None;
-                        pacer.reset();
                     }
                 }
             }
@@ -521,16 +481,8 @@ async fn run_driver(
                     }
                     Err(error) => log::warn!("[browser-screencast] frame is not base64: {error}"),
                 }
-                let due = pacer.ack_due(Instant::now());
-                pending_ack = Some((raw.ack_id, tokio::time::Instant::from_std(due)));
-            }
-            // A rate cap, not a readiness wait: the ack is owed either way and time only delays it.
-            _ = tokio::time::sleep_until(ack_at), if pending_ack.is_some() => {
-                if let Some((ack_id, _)) = pending_ack.take() {
-                    if let Err(error) = page.send("Page.screencastFrameAck", json!({ "sessionId": ack_id })).await {
-                        log::warn!("[browser-screencast] ack failed: {error}");
-                    }
-                    pacer.acked(Instant::now());
+                if let Err(error) = page.send("Page.screencastFrameAck", json!({ "sessionId": raw.ack_id })).await {
+                    log::warn!("[browser-screencast] ack failed: {error}");
                 }
             }
         }

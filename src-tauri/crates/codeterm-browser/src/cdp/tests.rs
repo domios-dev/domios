@@ -210,3 +210,35 @@ fn browser_cdp_websocket_reports_capacity_error_over_cap() {
         WebSocket::from_raw_socket(Cursor::new(frame), Role::Client, Some(websocket_config()));
     assert!(matches!(socket.read(), Err(WsError::Capacity(_))));
 }
+
+#[tokio::test]
+async fn browser_cdp_input_batch_sends_every_phase_before_any_reply() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    let page = PageChannel {
+        client,
+        session_id: "input".into(),
+        target_id: "target".into(),
+    };
+    let sent = tokio::spawn(async move {
+        page.send_batch(vec![
+            ("Input.dispatchMouseEvent", json!({"type": "mousePressed"})),
+            ("Input.dispatchMouseEvent", json!({"type": "mouseReleased"})),
+        ])
+        .await
+    });
+    let first = tokio::time::timeout(Duration::from_secs(2), chrome.inbound.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let second = tokio::time::timeout(Duration::from_secs(2), chrome.inbound.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first["params"]["type"], "mousePressed");
+    assert_eq!(second["params"]["type"], "mouseReleased");
+    assert_eq!(second["sessionId"], "input");
+    chrome.reply(&second, json!({"result": {}}));
+    chrome.reply(&first, json!({"result": {}}));
+    assert_eq!(sent.await.unwrap().unwrap().len(), 2);
+}

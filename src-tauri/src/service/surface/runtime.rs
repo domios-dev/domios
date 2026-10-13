@@ -244,7 +244,12 @@ pub(crate) fn sse_payload(event: &SurfaceEvent) -> (&'static str, String) {
 
 pub(crate) trait SurfaceRuntimeFactory: Send + Sync {
     /// Must stay cheap: nothing launches until the runtime is first used, which applies `resume`.
-    fn create(&self, owner_name: &str, resume: Option<SurfaceResume>) -> Arc<dyn SurfaceRuntime>;
+    fn create(
+        &self,
+        owner_name: &str,
+        owner_scope: &str,
+        resume: Option<SurfaceResume>,
+    ) -> Arc<dyn SurfaceRuntime>;
 }
 
 struct Instance {
@@ -287,6 +292,7 @@ impl SurfaceRuntimeRegistry {
         tab_id: &str,
         runtime_name: &str,
         owner_name: &str,
+        owner_scope: &str,
         resume: Option<SurfaceResume>,
     ) -> Result<(Arc<dyn SurfaceRuntime>, bool), SurfaceError> {
         let factory = self
@@ -300,7 +306,7 @@ impl SurfaceRuntimeRegistry {
         {
             return Ok((instance.runtime.clone(), false));
         }
-        let runtime = factory.create(owner_name, resume);
+        let runtime = factory.create(owner_name, owner_scope, resume);
         instances.insert(
             tab_id.to_string(),
             Instance {

@@ -134,10 +134,12 @@ export function canvasToPage(
   canvasRect: ClientRect,
   drawRect: Rect,
   frameMeta: FrameMetadata | null,
+  layoutSize: Size = canvasRect,
 ): PagePoint | null {
   if (drawRect.width <= 0 || drawRect.height <= 0 || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
-  const localX = clientX - canvasRect.left - drawRect.x;
-  const localY = clientY - canvasRect.top - drawRect.y;
+  if (canvasRect.width <= 0 || canvasRect.height <= 0) return null;
+  const localX = (clientX - canvasRect.left) * layoutSize.width / canvasRect.width - drawRect.x;
+  const localY = (clientY - canvasRect.top) * layoutSize.height / canvasRect.height - drawRect.y;
   if (localX < 0 || localY < 0 || localX > drawRect.width || localY > drawRect.height) return null;
   const deviceWidth = frameMeta?.deviceWidth || drawRect.width;
   const deviceHeight = frameMeta?.deviceHeight || drawRect.height;
