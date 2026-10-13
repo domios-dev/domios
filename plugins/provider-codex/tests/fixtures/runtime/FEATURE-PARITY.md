@@ -40,7 +40,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | item/tool/requestUserInput | Blocking questions | Yes | Exact native option values and answers keyed by question ID | Multi-question free text UI requires richer answer shape; one free-text question works |
 | mcpServer/elicitation/request | MCP form/URL elicitation | Limited empty form | Existing empty-form prompt/reply retained | Rich forms and URL launch require UI/contract decision |
 | serverRequest/resolved | Remove live request | Yes | promptResolved with exact ID | String and numeric IDs remain distinct |
-| async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action | A9; durable itemId resolution and ordinary send ledger belong core |
+| async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action; typed historyPage.questions | A9; durable itemId resolution and ordinary send ledger belong core |
 | thread/goal/updated | Provider goal text | Yes | Stable sessionIntent item | Durable goal lifecycle/commands deliberately deferred |
 | thread/goal/cleared | Clear provider goal | Not mapped | Clear stable sessionIntent item | Same thread accepts subsequent goal-native turns |
 | thread/goal/get | Read current goal during history | Yes, optional | Optional final-page history enrichment to sessionIntent | Unsupported optional probe does not fail history |

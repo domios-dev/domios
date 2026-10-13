@@ -285,3 +285,26 @@ check("idle root with no roster turn is not a synthetic interrupt target",()=> {
   assert.throws(()=>hooks.runtimePlan({...ctx,activeTurnId:"stale",activeTurns:[]},{kind:"interrupt",threadId:ctx.threadId!}));
 });
 console.log(`runtime ancestry hooks: ${count} checks passed`);
+check("history questions survive item pagination and require exact later native answers",()=> {
+  const operation:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const question={id:"history-question",type:"agentMessage",delivery:"async",text:"Choose",questions:[{id:"q1",title:"Pick",options:[{value:"native",label:"Display"}]}]};
+  function read(answerItem:JsonValue) {
+    const first=hooks.runtimePlan(ctx,operation);
+    let step=hooks.runtimeResponse(ctx,operation,first.state,{kind:"success",value:{data:[{id:"history-turn",status:"completed"}],nextCursor:"next-turn-page"}});
+    assert.equal(step.kind,"continue");if(step.kind !== "continue")throw new Error("Missing items plan");
+    step=hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value:{data:[{item:question}],nextCursor:"next-item-page"}});
+    assert.equal(step.kind,"continue");if(step.kind !== "continue")throw new Error("Missing item continuation");
+    step=hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value:{data:[{item:answerItem}]}});
+    assert.ok(step.kind === "complete" && step.result.kind === "historyPage");
+    return step.result;
+  }
+  const envelope={itemId:"history-question",answers:[{questionId:"q1",values:["native"]}]};
+  const item={id:"answer",type:"userMessage",content:[{type:"text",text:JSON.stringify(envelope)}]};
+  assert.deepEqual(plain(read(item).questions),[{threadId:ctx.threadId!,itemId:"history-question",questions:[{id:"q1",text:"Pick",options:[{value:"native",label:"Display"}]}],response:"message",resolved:true}]);
+  for (const body of [ {...envelope,itemId:"wrong"},{...envelope,answers:[{questionId:"q1",values:["Display"]}]},{...envelope,answers:[{questionId:"wrong",values:["native"]}]}]) {
+    const result=read({...item,content:[{type:"text",text:JSON.stringify(body)}]});
+    assert.equal(result.questions?.[0].resolved,undefined);
+  }
+  assert.equal(read({id:"assistant-answer",type:"agentMessage",text:JSON.stringify(envelope)}).questions?.[0].resolved,undefined);
+});
+console.log(`runtime history hooks: ${count} checks passed`);

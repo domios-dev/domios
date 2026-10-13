@@ -297,7 +297,18 @@
               "item": {
                 "id": "open-assistant",
                 "type": "agentMessage",
-                "text": "Partial"
+                "text": "Partial",
+                "delivery": "async",
+                "questions": [
+                  {
+                    "id": "color",
+                    "title": "Choose color",
+                    "options": [
+                      "red",
+                      "blue"
+                    ]
+                  }
+                ]
               },
               "completedAtMs": null
             }
@@ -352,7 +363,42 @@
                 "seq": 3,
                 "type": "assistant",
                 "content": "Partial",
-                "toolFlowId": "active"
+                "toolFlowId": "active",
+                "toolInput": {
+                  "id": "open-assistant",
+                  "type": "agentMessage",
+                  "text": "Partial",
+                  "delivery": "async",
+                  "questions": [
+                    {
+                      "id": "color",
+                      "title": "Choose color",
+                      "options": [
+                        "red",
+                        "blue"
+                      ]
+                    }
+                  ]
+                },
+                "interactive": [
+                  {
+                    "type": "question",
+                    "id": "color",
+                    "toolUseId": "open-assistant",
+                    "prompt": "Choose color",
+                    "options": [
+                      {
+                        "value": "red",
+                        "label": "red"
+                      },
+                      {
+                        "value": "blue",
+                        "label": "blue"
+                      }
+                    ],
+                    "multiSelect": false
+                  }
+                ]
               }
             ],
             "openItems": [
@@ -363,11 +409,69 @@
                   "seq": 3,
                   "type": "assistant",
                   "content": "Partial",
-                  "toolFlowId": "active"
+                  "toolFlowId": "active",
+                  "toolInput": {
+                    "id": "open-assistant",
+                    "type": "agentMessage",
+                    "text": "Partial",
+                    "delivery": "async",
+                    "questions": [
+                      {
+                        "id": "color",
+                        "title": "Choose color",
+                        "options": [
+                          "red",
+                          "blue"
+                        ]
+                      }
+                    ]
+                  },
+                  "interactive": [
+                    {
+                      "type": "question",
+                      "id": "color",
+                      "toolUseId": "open-assistant",
+                      "prompt": "Choose color",
+                      "options": [
+                        {
+                          "value": "red",
+                          "label": "red"
+                        },
+                        {
+                          "value": "blue",
+                          "label": "blue"
+                        }
+                      ],
+                      "multiSelect": false
+                    }
+                  ]
                 }
               }
             ],
-            "nextCursor": "turn-page-2"
+            "nextCursor": "turn-page-2",
+            "questions": [
+              {
+                "threadId": "thread-fixture",
+                "itemId": "open-assistant",
+                "questions": [
+                  {
+                    "id": "color",
+                    "text": "Choose color",
+                    "options": [
+                      {
+                        "value": "red",
+                        "label": "red"
+                      },
+                      {
+                        "value": "blue",
+                        "label": "blue"
+                      }
+                    ]
+                  }
+                ],
+                "response": "message"
+              }
+            ]
           }
         }
       }
