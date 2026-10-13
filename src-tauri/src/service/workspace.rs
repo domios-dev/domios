@@ -157,11 +157,12 @@ impl ServiceContext {
             }
         }
 
-        let (ws, workspaces) =
+        let (mut ws, workspaces) =
             create_workspace_with_count(&mut self.mux.write(), name, cwd.clone());
         if activate {
             let _ = self.mux.write().set_active_workspace(&ws.id);
         }
+        ws.cwd_missing = self.refresh_workspace_cwd_state(&ws.id)?;
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
         let _ =
@@ -190,6 +191,7 @@ impl ServiceContext {
             .into_iter()
             .find(|w| w.id == id)
             .and_then(|w| w.cwd);
+        self.refresh_workspace_cwd_state(id)?;
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
         let _ =

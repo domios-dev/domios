@@ -127,6 +127,9 @@ impl super::ServiceContext {
         if let Err(mut error) = validate_spawn_cwd(path) {
             error.workspace_id = workspace.as_ref().map(|ws| ws.id.clone());
             error.workspace_name = workspace.as_ref().map(|ws| ws.name.clone());
+            if let Some(ws) = workspace.as_ref() {
+                let _ = self.refresh_workspace_cwd_state(&ws.id);
+            }
             log::warn!(
                 "[spawn] cwd refused: tab={:?} workspace={:?} path={} reason={}",
                 caller_tab_id,

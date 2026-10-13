@@ -12,6 +12,7 @@ impl MultiplexerState {
             tabs: vec![],
             active_tab_id: None,
             cwd: cwd.clone(),
+            cwd_missing: false,
             provisioned_cwd: None,
             protected: false,
             sort_order: self.next_workspace_sort_order(),
@@ -25,6 +26,7 @@ impl MultiplexerState {
             tab_count: 0,
             is_active: false,
             cwd,
+            cwd_missing: false,
             protected: false,
             tab_ids: vec![],
             existing: None,
@@ -42,6 +44,10 @@ impl MultiplexerState {
             provisioned: true,
             ..info
         }
+    }
+
+    pub fn get_workspace_mut(&mut self, id: &str) -> Option<&mut Workspace> {
+        self.workspaces.iter_mut().find(|w| w.id == id)
     }
 
     pub fn get_workspace(&self, id: &str) -> Option<&Workspace> {
@@ -80,6 +86,7 @@ impl MultiplexerState {
             tab_count: ws.tabs.len(),
             is_active: self.active_workspace_id.as_deref() == Some(&ws.id),
             cwd: ws.cwd.clone(),
+            cwd_missing: ws.cwd_missing,
             protected: ws.protected,
             tab_ids,
             existing: None,
@@ -282,6 +289,7 @@ impl MultiplexerState {
                     tab_count: w.tabs.len(),
                     is_active: self.active_workspace_id.as_deref() == Some(&w.id),
                     cwd: w.cwd.clone(),
+                    cwd_missing: w.cwd_missing,
                     protected: w.protected,
                     tab_ids,
                     existing: None,
