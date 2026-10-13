@@ -223,7 +223,12 @@ jobs:
       - name: Compile and archive once for platform
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
-        run: node scripts/ci-rust-archives.mjs
+        shell: bash
+        run: |
+          source build.sh env
+          ct_configure_sccache
+          ./build.sh cache-status
+          node scripts/ci-rust-archives.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: rust-archive-${{ matrix.os }}-${{ matrix.arch }}
