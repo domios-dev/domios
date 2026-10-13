@@ -91,3 +91,5 @@ Blueprints use deterministic patterns by default; unmatched output remains `othe
 Opt-in product analytics is local: `codeterm analytics status`, `codeterm analytics enable`, and `codeterm analytics disable`. Disabling clears queued events and identifiers.
 
 Account and subscriptions: `codeterm account plan` shows cached entitlements and a stale marker; `codeterm account upgrade pro` opens checkout; `codeterm account portal` opens subscription management. See `codeterm docs ACCOUNT`.
+
+Utility shell lifetimes: `tab new --timeout 10m` for tests, QA and builds; leave unset for servers. Reset or extend from now with `tab timeout --tab <ID> --timeout 20m`; disable with `--timeout none`. Only the creating agent can change the lifetime. See `codeterm docs TAB-LIFECYCLE`.

@@ -162,6 +162,8 @@ pub(crate) mod stop_execution;
 mod tab_status_events;
 pub(crate) mod tab_stop;
 pub(crate) mod turn_resume;
+pub(crate) mod utility_deadline;
+pub(crate) mod utility_deadline_model;
 mod utility_tabs;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub(crate) mod blocking;

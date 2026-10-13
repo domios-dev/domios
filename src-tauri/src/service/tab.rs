@@ -314,6 +314,9 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
+        if let Err(error) = self.cancel_utility_timeout(&canonical_tab_id) {
+            log::error!("[utility-timeout] closed shell deadline cleanup failed: {error}");
+        }
         crate::service::prompt_resolution::clear_tab_prompt(None);
         crate::service::launch_readiness::owner_prompt_cleared(&canonical_tab_id);
         if let (Some(provider_id), Some(session_id)) =
@@ -326,6 +329,7 @@ impl ServiceContext {
         }
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.forget_utility_command(&canonical_tab_id);
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }

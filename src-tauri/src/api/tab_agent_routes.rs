@@ -39,6 +39,7 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             "/api/tabs/{id}/agent/fork",
             post(super::agent_fork_routes::fork),
         )
+        .route("/api/tabs/{id}/timeout", post(tab_routes::set_timeout))
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
         .route("/api/tabs/{id}/close", post(tab_routes::close_tab))
         .route(
