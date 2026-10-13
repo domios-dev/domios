@@ -3458,6 +3458,7 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--purpose` — Utility shell purpose shown in the sidebar
 - `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
+- `--timeout` — Shell lifetime: positive duration (30s, 10m, 2h), or none
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
@@ -3523,6 +3524,13 @@ Show agent status for a tab (type, provider session, prompt)
 Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop-key sequence. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm tab timeout`
+
+Reset an owned utility shell's lifetime from now, or disable it with none
+
+- `--tab`
+- `--timeout`
 
 #### `codeterm task`
 
