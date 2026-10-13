@@ -150,7 +150,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             "target",
             Some("high"),
             Some(RuntimeMode::Auto),
-            crate::service::codex_rpc::model::ModelSwitchOptions {
+            crate::service::agent_runtime::model::ModelSwitchOptions {
                 force: false,
                 restart_resume: false,
             },

@@ -2,6 +2,21 @@ use codeterm_types::agent::chat_types::ChatMsg;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeMode {
+    ApprovalRequired,
+    #[default]
+    AutoAcceptEdits,
+    Auto,
+    FullAccess,
+}
+
+pub(crate) struct ModelSwitchOptions {
+    pub force: bool,
+    pub restart_resume: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", content = "detail", rename_all = "camelCase")]
 pub enum RuntimeFailure {

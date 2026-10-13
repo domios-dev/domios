@@ -3,7 +3,7 @@ use crate::multiplexer::types::TabBacking;
 use crate::service::agent_restart::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
-use crate::service::{codex_rpc::model::RuntimeMode, ServiceContext};
+use crate::service::{agent_runtime::model::RuntimeMode, ServiceContext};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeSettings};
 
 #[derive(Debug, PartialEq, Eq)]

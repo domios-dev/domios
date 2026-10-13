@@ -80,7 +80,7 @@ fn codex_rpc_control_model_request_validates_runtime_mode_and_effort() {
     assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
     assert_eq!(
         request.runtime_mode,
-        Some(crate::service::codex_rpc::model::RuntimeMode::Auto)
+        Some(crate::service::agent_runtime::model::RuntimeMode::Auto)
     );
     assert!(serde_json::from_value::<AgentModelBody>(
         serde_json::json!({"model":"selected","runtime_mode":"unknown"})
