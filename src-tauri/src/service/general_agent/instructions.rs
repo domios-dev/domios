@@ -55,13 +55,6 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
     }
 }
 
-/// Pure render of `AGENT.md` content given the rendered wake-up snippet.
-/// Split out from [`generate_instructions`] so unit tests can verify the
-/// {wake_up} substitution without hitting real disk paths.
-pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> String {
-    render_agent_md_at(&general_dir(), provider_name, wake_up_section)
-}
-
 fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_section: &str) -> String {
     compose_system_prompt(&render_role_contract_at(
         dir,
@@ -515,7 +508,8 @@ mod tests {
     fn test_wake_up_section_empty_when_mem_none() {
         let section = render_wake_up_section(None);
         assert!(section.is_empty());
-        let rendered = render_agent_md("claude", &section);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "claude", &section);
         assert!(!rendered.contains("{wake_up}"));
         assert!(!rendered.contains("L0 — Identity"));
         assert!(!rendered.contains("L1 — Critical context"));
@@ -523,7 +517,8 @@ mod tests {
 
     #[test]
     fn general_agent_shared_cli_fragment_is_injected_once_without_unresolved_slot() {
-        let rendered = render_agent_md("supplied-provider", "");
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "supplied-provider", "");
         let shared = cli_without_memory_section();
         assert_eq!(rendered.matches(shared.trim()).count(), 1);
         assert!(!rendered.contains("{codeterm_cli}"));
@@ -531,7 +526,8 @@ mod tests {
 
     #[test]
     fn general_agent_receives_shared_child_pty_operation() {
-        let rendered = render_agent_md("claude", "");
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "claude", "");
         let operation = crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim();
 
         assert_eq!(rendered.matches(operation).count(), 1);
@@ -860,7 +856,8 @@ mod tests {
             section
         );
 
-        let rendered = render_agent_md("claude", &section);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "claude", &section);
         assert!(rendered.contains("## Live mem snapshot"));
         assert!(rendered.contains("Alice"));
         assert!(rendered.contains("never edit autogen"));
