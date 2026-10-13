@@ -323,7 +323,7 @@ pub async fn spawn_agent(
         cwd_params.cwd.as_deref(),
     )
     .await?;
-    let default_provider = crate::config::default_agent_provider();
+    let default_provider = state.svc.configuration().general_agent.agent_provider;
     let provider_id = params.agent.as_deref().unwrap_or(&default_provider);
     model_error::validate_agent_model(
         &state.svc.agent_registry,

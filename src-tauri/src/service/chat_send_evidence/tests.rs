@@ -827,3 +827,50 @@ fn restored_structured_frame_confirms_only_exact_own_session_append() {
 }
 
 mod receipt_tests;
+
+#[test]
+fn incremental_exact_turn_uses_declared_normalization_in_own_append_window() {
+    let fx = Fixture::new();
+    let payload = "<domios>opaque guidance\r\nopaque executor\nopaque task</domios>";
+    let stored = payload.replace(['\r', '\n'], "");
+    fx.append_user_turn("sess-a", &stored);
+    let mut anchor = fx.anchor_now("sess-a");
+    anchor.turn_normalization.drop_line_breaks = true;
+    let mut cursor = ExactTurnCursor::for_anchor(Some(&anchor));
+    assert!(!contains_exact_user_turn_since(
+        &fx.registry,
+        &anchor,
+        payload,
+        &mut cursor
+    ));
+    fx.append_user_turn("sess-other", &stored);
+    assert!(!contains_exact_user_turn_since(
+        &fx.registry,
+        &anchor,
+        payload,
+        &mut cursor
+    ));
+    fx.append_user_turn("sess-a", "<domios>opaque guidanceopaque executor</domios>");
+    assert!(!contains_exact_user_turn_since(
+        &fx.registry,
+        &anchor,
+        payload,
+        &mut cursor
+    ));
+    fx.append_user_turn("sess-a", &stored);
+    let mut undeclared = anchor.clone();
+    undeclared.turn_normalization = Default::default();
+    let mut undeclared_cursor = ExactTurnCursor::for_anchor(Some(&undeclared));
+    assert!(!contains_exact_user_turn_since(
+        &fx.registry,
+        &undeclared,
+        payload,
+        &mut undeclared_cursor
+    ));
+    assert!(contains_exact_user_turn_since(
+        &fx.registry,
+        &anchor,
+        payload,
+        &mut cursor
+    ));
+}

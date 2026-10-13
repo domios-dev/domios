@@ -200,7 +200,7 @@ pub async fn mem_save(
     let outcome = result.outcome;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
-    let auto_extract_enabled = crate::config::memory_config().auto_extract;
+    let auto_extract_enabled = state.svc.configuration().memory.auto_extract;
     let should_extract = save_schedules_extraction(
         &outcome,
         body.skip_extract,
@@ -210,8 +210,8 @@ pub async fn mem_save(
     if should_extract {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
-        let mem_cfg = crate::config::memory_config();
-        let default_agent = crate::config::default_agent_provider();
+        let mem_cfg = state.svc.configuration().memory;
+        let default_agent = state.svc.configuration().general_agent.agent_provider;
         tokio::task::spawn_blocking(move || {
             crate::mem::auto_extract::spawn_extraction_worker(
                 &svc,
@@ -358,7 +358,11 @@ pub async fn mem_wake_up(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let caller_workspace = crate::api::tab_routes::caller_tab_header(&headers)
         .and_then(|tab_id| state.svc.mux.read().find_workspace_for_tab(&tab_id));
-    let opts = wake_up_options_from_params(&p, caller_workspace);
+    let opts = wake_up_options_from_params(
+        state.svc.configuration().memory.l1_budget_tokens,
+        &p,
+        caller_workspace,
+    );
     let text = state
         .svc
         .mem
@@ -368,6 +372,7 @@ pub async fn mem_wake_up(
 }
 
 pub(crate) fn wake_up_options_from_params(
+    default_l1_budget_tokens: usize,
     p: &WakeUpParams,
     caller_workspace: Option<String>,
 ) -> WakeUpOptions {
@@ -399,7 +404,7 @@ pub(crate) fn wake_up_options_from_params(
             }
         }
     } else {
-        opts.l1_budget_tokens = crate::config::memory_config().l1_budget_tokens;
+        opts.l1_budget_tokens = default_l1_budget_tokens;
     }
 
     opts

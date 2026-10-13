@@ -80,8 +80,7 @@ fn secret_bucket(plugin_id: &str) -> SecretFile {
     crate::secrets::plugin_secret_bucket(plugin_id)
 }
 
-fn api_cfg_base_url() -> String {
-    let cfg = crate::config::load_config().api;
+fn api_cfg_base_url(cfg: crate::config::schema::ApiConfig) -> String {
     let host = if cfg.host == "0.0.0.0" {
         "127.0.0.1".to_string()
     } else {
@@ -483,11 +482,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     }
 
     fn api_base_url(&self) -> String {
-        api_cfg_base_url()
+        api_cfg_base_url(self.configuration().api)
     }
 
     fn api_token(&self) -> Option<String> {
-        crate::config::load_config().api.token
+        self.configuration().api.token
     }
 
     fn model_provider_process_env(

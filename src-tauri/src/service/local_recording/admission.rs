@@ -65,10 +65,7 @@ impl ServiceContext {
                 return LocalRecordingCommitOutcome::PreHandoffFailure { message: error };
             }
         };
-        let active_id = crate::config::load_config()
-            .integrations
-            .voice_transcribe
-            .active;
+        let active_id = self.configuration().integrations.voice_transcribe.active;
         let text = super::completion::complete_capture(
             &capture,
             async {

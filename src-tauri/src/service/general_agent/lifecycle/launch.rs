@@ -23,10 +23,16 @@ pub(super) fn start(
     } = target;
     let session_id = ownership.select_session(session_id);
     let general_cwd = general_dir().to_string_lossy().to_string();
-    let mut fresh_prompt = (ownership == LaunchOwnership::FreshSession)
-        .then(|| instructions::render_system_prompt(provider_name, Some(&svc.mem)));
+    let mut fresh_prompt = (ownership == LaunchOwnership::FreshSession).then(|| {
+        instructions::render_system_prompt(
+            svc.configuration().general_agent.capability_hints,
+            provider_name,
+            Some(&svc.mem),
+        )
+    });
     let model_resolution = (ownership == LaunchOwnership::FreshSession).then(|| {
         crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &svc.configuration(),
             &svc.agent_registry,
             provider_name,
             selection.model.clone(),
@@ -213,6 +219,7 @@ pub(super) fn start(
             &general_cwd,
             &mut crate::agent::provider::AgentLaunchParams {
                 task: Some(instructions::render_system_prompt(
+                    svc.configuration().general_agent.capability_hints,
                     provider_name,
                     Some(&svc.mem),
                 )),
@@ -258,9 +265,13 @@ pub(super) fn start(
             .get_tab(&tab_id)
             .and_then(|p| p.cwd.clone())
             .unwrap_or_default();
-        let system_prompt = fresh_prompt
-            .take()
-            .unwrap_or_else(|| instructions::render_system_prompt(provider_name, Some(&svc.mem)));
+        let system_prompt = fresh_prompt.take().unwrap_or_else(|| {
+            instructions::render_system_prompt(
+                svc.configuration().general_agent.capability_hints,
+                provider_name,
+                Some(&svc.mem),
+            )
+        });
         let system_prompt_delivery = svc
             .agent_registry
             .with_provider(provider_name, |provider| provider.system_prompt_delivery())

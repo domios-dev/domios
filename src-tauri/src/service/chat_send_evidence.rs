@@ -8,8 +8,8 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    contains_written_payload, normalize_written_payload, ChatSendLedger, ChatSendStatus,
-    DeferredFirstTurnEvidence, EvidenceWindow, SendEvidenceAnchor, SendLiveBinding,
+    contains_written_payload, normalize_written_payload, written_payload_match_end, ChatSendLedger,
+    ChatSendStatus, DeferredFirstTurnEvidence, EvidenceWindow, SendEvidenceAnchor, SendLiveBinding,
 };
 use crate::service::tab_chat::registry::{JsonlSource, SourceCapture};
 use crate::service::ServiceContext;
@@ -96,7 +96,7 @@ pub(crate) fn contains_exact_user_turn_since(
             delta.messages.iter().enumerate().any(|(index, rich)| {
                 let matched = turn_window::rich_evidence_segments(rich)
                     .iter()
-                    .any(|segment| contains_written_payload(segment, &expected));
+                    .any(|segment| written_payload_match_end(segment, &expected, anchor.turn_normalization, 0).is_some());
                 if matched && crate::flow_trace::enabled() {
                     cursor.matched_user_id = (rich.uuid.as_ref().is_some_and(|id| !id.is_empty())
                         || rich.record_start.is_some()).then(||
@@ -111,7 +111,7 @@ pub(crate) fn contains_exact_user_turn_since(
             .iter()
             .any(|turn| {
                 let observed = normalize_written_payload(turn);
-                let matched = contains_written_payload(&observed, &expected);
+                let matched = written_payload_match_end(&observed, &expected, anchor.turn_normalization, 0).is_some();
                 log::debug!(
                     "[session-turn-evidence] structured-candidate provider={} session={} expected_bytes={} observed_bytes={} matched={}",
                     anchor.provider_id, anchor.session_id, expected.len(), observed.len(), matched,

@@ -19,7 +19,7 @@ impl<'a> Supporter<'a> {
     pub(crate) fn live(svc: &'a ServiceContext) -> Self {
         let runtime = supporter::runtime_with_notifications(svc);
         let epoch = runtime.connection_epoch();
-        let cfg = crate::config::load_config().supporter;
+        let cfg = svc.configuration().supporter;
         let token = supporter::read_token_snapshot(
             &runtime,
             &crate::api::mem_routes::decision::token_store(),

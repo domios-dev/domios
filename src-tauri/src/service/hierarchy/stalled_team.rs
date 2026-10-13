@@ -184,7 +184,7 @@ impl ServiceContext {
         let Some(orchestrator_tab_id) = plan.owner.tab_id.as_deref() else {
             return;
         };
-        if !crate::config::load_config().orchestration.plan_reminders {
+        if !self.configuration().orchestration.plan_reminders {
             self.stalled_team_nudges.reset(&plan.id);
             return;
         }

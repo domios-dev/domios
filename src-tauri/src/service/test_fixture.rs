@@ -119,10 +119,11 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 
 impl ServiceFixture {
     pub(crate) fn set_agent_full_access(&self, full_access: bool) {
-        let mut config = crate::config::schema::AppConfig::default();
-        config.agent.full_access = Some(full_access);
-        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
-        assert!(self._app.manage(config));
+        self._app
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .agent
+            .full_access = Some(full_access);
     }
 
     pub(crate) fn new(mux: MultiplexerState) -> Self {
@@ -185,6 +186,10 @@ impl ServiceFixture {
         let app = builder
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
+        let mut config = crate::config::schema::AppConfig::default();
+        config.agent.full_access = Some(false);
+        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
+        assert!(app.manage(config));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         let chatbackend_registry = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(

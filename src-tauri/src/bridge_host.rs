@@ -69,14 +69,11 @@ impl BridgeTabPort for ServiceBridgeTabPort {
     }
 
     fn voice_transcribe_config(&self) -> VoiceTranscribeConfig {
-        crate::config::load_config()
-            .integrations
-            .voice_transcribe
-            .clone()
+        self.0.configuration().integrations.voice_transcribe.clone()
     }
 
     fn text_hooks_config(&self) -> TextHooksConfig {
-        crate::config::load_config().integrations.text_hooks.clone()
+        self.0.configuration().integrations.text_hooks.clone()
     }
 
     fn deliver_inbound(

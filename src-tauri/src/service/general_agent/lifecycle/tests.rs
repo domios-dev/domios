@@ -611,6 +611,7 @@ fn general_agent_existing_live_authenticated_binding_seals_agent_ready() {
         .process(pty_id, format!("{provider_id} is running").as_bytes());
     let mut app_config = crate::config::schema::AppConfig::default();
     app_config.general_agent.agent_provider = provider_id.into();
+    app_config.agent.full_access = Some(false);
     let config: crate::config::ConfigState = Arc::new(Mutex::new(app_config));
 
     super::start_general_agent(

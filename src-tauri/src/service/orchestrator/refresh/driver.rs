@@ -48,8 +48,13 @@ pub struct RefreshRequest {
 
 impl RefreshRequest {
     /// Build a request with tuning sourced from `[orchestration.refresh]`.
-    pub fn from_config(tab_id: String, plan_id: String, trigger: RefreshTrigger) -> Self {
-        let r = crate::config::load_config().orchestration.refresh;
+    pub fn from_config(
+        config: &crate::config::schema::AppConfig,
+        tab_id: String,
+        plan_id: String,
+        trigger: RefreshTrigger,
+    ) -> Self {
+        let r = &config.orchestration.refresh;
         Self {
             tab_id,
             plan_id,
@@ -115,14 +120,11 @@ impl ServiceContext {
         if tag != Some("reflection") {
             return;
         }
-        if !crate::config::load_config()
-            .orchestration
-            .refresh
-            .after_reflection
-        {
+        if !self.configuration().orchestration.refresh.after_reflection {
             return;
         }
         let req = RefreshRequest::from_config(
+            &self.configuration(),
             tab_id.to_string(),
             plan_id.to_string(),
             RefreshTrigger::AfterReflection,
@@ -343,20 +345,22 @@ fn send_compact(svc: &ServiceContext, _req: &RefreshRequest, ctx: &TabCtx) {
         );
         return;
     }
-    let permission_bypass = match crate::service::permission_policy::configured_permission_bypass(
-        &svc.agent_registry,
-        &ctx.agent_type,
-    ) {
-        Ok(authorization) => authorization.is_some(),
-        Err(error) => {
-            log::warn!(
-                "[refresh] tab={} cannot resolve agent access: {}",
-                short(&ctx.tab_id),
-                error
-            );
-            return;
-        }
-    };
+    let permission_bypass =
+        match crate::service::permission_policy::configured_permission_bypass_for(
+            &svc.app_handle,
+            &svc.agent_registry,
+            &ctx.agent_type,
+        ) {
+            Ok(authorization) => authorization.is_some(),
+            Err(error) => {
+                log::warn!(
+                    "[refresh] tab={} cannot resolve agent access: {}",
+                    short(&ctx.tab_id),
+                    error
+                );
+                return;
+            }
+        };
     let can_resume = provider
         .as_ref()
         .and_then(|p| {

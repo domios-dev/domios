@@ -51,8 +51,8 @@ pub(crate) fn ai_helper_placement(mux: &MultiplexerState) -> Result<AiHelperPlac
     })
 }
 
-pub(crate) fn ai_helper_provider() -> String {
-    crate::config::default_agent_provider()
+pub(crate) fn ai_helper_provider(config: &crate::config::schema::AppConfig) -> String {
+    config.general_agent.agent_provider.clone()
 }
 
 pub(crate) fn ai_helper_params(
@@ -80,7 +80,7 @@ impl ServiceContext {
         request: AiHelperRequest,
     ) -> Result<AiHelperLaunch, String> {
         let placement = ai_helper_placement(&self.mux.read())?;
-        let provider = ai_helper_provider();
+        let provider = ai_helper_provider(&self.configuration());
         let params = ai_helper_params(&request, &placement, &provider);
         if self.classify_spawn_target_for_params(&provider, &params)? {
             let result = self.spawn_agent(params, None).await?;

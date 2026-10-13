@@ -206,6 +206,7 @@ impl ModelSwitchLaunch {
             .unwrap_or_default();
         let registry = &svc.agent_registry;
         let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &svc.configuration(),
             registry,
             &snap.provider,
             Some(requested.to_string()),

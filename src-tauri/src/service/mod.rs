@@ -299,6 +299,8 @@ pub(crate) use worker_identity::{
 };
 pub(crate) use worker_persona::WorkerPersonaReservations;
 
+mod configuration;
+
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]

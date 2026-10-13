@@ -107,7 +107,9 @@ pub(crate) fn provider_allowances(svc: &ServiceContext) -> BTreeMap<String, Prov
             .agent_registry
             .with_provider(&provider, |p| p.usage_parser().is_some())
             .unwrap_or(false);
-        if !reports_usage || !crate::config::usage_tracking_enabled(&provider) {
+        if !reports_usage
+            || !crate::config::usage_tracking_enabled_from(&svc.configuration(), &provider)
+        {
             continue;
         }
         let Ok(Some(row)) = svc
