@@ -76,3 +76,31 @@ test('explicit ignored reasons remain visible and cannot count as executed cover
   receipts[0].all.at(-1).reason = '';
   assert.throws(() => verifyCoverage(receipts, 2), /Unexplained/);
 });
+
+test('listener isolation preserves every selected test and omits only empty groups', async () => {
+  const { executionGroups } = await import('../ci-rust-shards.mjs');
+  const normal = { name: 'tests::normal' };
+  const listener = { name: 'startup::rest_api::tests::rebind' };
+  assert.deepEqual(executionGroups([]), []);
+  assert.deepEqual(executionGroups([normal]), [{ listener: false, selected: [normal] }]);
+  assert.deepEqual(executionGroups([listener]), [{ listener: true, selected: [listener] }]);
+  assert.deepEqual(executionGroups([normal, listener]).flatMap((g) => g.selected), [normal, listener]);
+});
+
+test('captured nextest logs settle both streams and retain failing process status', async () => {
+  const { captureCommand } = await import('../ci-rust-shards.mjs');
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const directory = mkdtempSync(join(tmpdir(), 'ci-shard-capture-'));
+  try {
+    const log = join(directory, 'nextest.log');
+    const result = await captureCommand(process.execPath, ['-e', 'process.stdout.write("TOKEN_PASS\\n"); process.stderr.write("TOKEN_FAILURE\\n"); process.exitCode = 7;'], log, process.env, false);
+    assert.equal(result.status, 7);
+    const output = readFileSync(log, 'utf8');
+    assert.match(output, /TOKEN_PASS/);
+    assert.match(output, /TOKEN_FAILURE/);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});

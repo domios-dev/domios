@@ -39,6 +39,10 @@ is named with its reason in logs, receipts and the final summary, including
 counts of distinct tests and OS/test entries per reason.
 The coverage job requires all fifteen successful receipts, identical shared
 inventories across every OS, and exactly one shard execution per shared test.
+Each nonempty nextest subgroup emits every per-test duration with `--status-level
+pass`; its captured log must pass Anvil's `check-slow-unit-tests.mjs` ratchet
+against the fetched `origin/develop` baseline. Logs accompany the receipts.
+
 It publishes runner names, test counts and durations in the workflow summary;
 failures identify the shard and runner in their logs. Fixture tests enter shared
 shards automatically after their fixture-only platform gates are removed.
