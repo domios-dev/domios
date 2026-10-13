@@ -12,6 +12,7 @@ fn runtime_confirmation_projects_all_controls_without_changing_requested_identit
         model: Some("actual".into()),
         effort: Some("high".into()),
         mode: Some("approval-mode".into()),
+        ..Default::default()
     };
     apply_runtime_controls(tab, "thread", &settings);
     assert_eq!(tab.agent_session_model.as_deref(), Some("actual"));
