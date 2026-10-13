@@ -225,6 +225,7 @@ pub fn settings_from_config(
         model: config["model"].as_str().map(str::to_string),
         effort: config["effort"].as_str().map(str::to_string),
         mode: config["mode"].as_str().map(str::to_string),
+        ..Default::default()
     }
 }
 
