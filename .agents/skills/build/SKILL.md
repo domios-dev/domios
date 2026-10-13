@@ -128,9 +128,12 @@ Build setup resolves both directly into process environment variables
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; never write them to a file,
 argv, logs or memory. It exports `SCCACHE_ENDPOINT=http://100.64.10.5:9000`,
 `SCCACHE_BUCKET=sccache`, `SCCACHE_REGION=us-east-1` and
-`SCCACHE_S3_USE_SSL=false`, then restarts the local server before compiling.
-An active Cargo process refuses configuration with exit 75; serialize machine
-build ownership before changing the server. Nested build steps reuse that setup.
+`SCCACHE_S3_USE_SSL=false`. Setup reads the running server's actual location
+first. Matching S3 bucket/prefix or local disk storage is reused, even while
+Cargo is active. Only a storage mismatch restarts the server; an active
+Cargo/rustc process then refuses the change with exit 75. Serialize machine
+build ownership before changing storage. Each setup checks the actual server;
+no inherited process marker can bypass a required storage transition.
 Every setup prints `sccache: shared S3 cache at <endpoint>/<bucket>` or
 `sccache: local disk cache at <dir> (reason)`, without credentials.
 When either secret is unavailable, one log line announces local disk fallback;
@@ -688,4 +691,4 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 24 -->
+<!-- revision: 25 -->
