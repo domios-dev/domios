@@ -102,6 +102,14 @@ fn delivered_prompt(command: &str) -> String {
     body.strip_prefix('\u{feff}').unwrap_or(&body).to_string()
 }
 
+fn assert_prompt_context(command: &str, context: &str) {
+    let delivered = delivered_prompt(command);
+    assert!(delivered.starts_with(context));
+    assert_eq!(delivered.matches(context).count(), 1);
+    let rule = crate::plugin::agent_claude::launch_prompt_rule().unwrap();
+    assert_eq!(delivered.matches(rule.as_str()).count(), 1);
+}
+
 fn assert_carries(command: &str, args: &[String]) {
     assert!(!args.is_empty());
     for arg in args {
@@ -129,14 +137,14 @@ fn restart_preserves_launch_args() {
                 .count(),
             1
         );
-        assert_eq!(delivered_prompt(&resumed.command), IDENTITY);
+        assert_prompt_context(&resumed.command, IDENTITY);
         assert_eq!(resumed.task.as_deref(), Some(IDENTITY));
 
         let fresh = build_relaunch(&fixture.service, &snap, false).expect("fresh relaunch");
         assert!(!fresh.command.contains("session-restart"));
         assert!(fresh.command.contains(&spawn.model_flag));
         assert_carries(&fresh.command, &spawn.effort_args);
-        assert_eq!(delivered_prompt(&fresh.command), IDENTITY);
+        assert_prompt_context(&fresh.command, IDENTITY);
     }
 }
 

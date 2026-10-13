@@ -166,7 +166,10 @@ mod restored_fresh_launch_tests {
                 .trim_matches(['\'', '"']);
             let delivered = std::fs::read_to_string(path).expect("prompt file the command names");
             let delivered = delivered.strip_prefix('\u{feff}').unwrap_or(&delivered);
-            assert_eq!(delivered, RESTORED_INSTRUCTIONS);
+            assert!(delivered.starts_with(RESTORED_INSTRUCTIONS));
+            assert_eq!(delivered.matches(RESTORED_INSTRUCTIONS).count(), 1);
+            let rule = crate::plugin::agent_claude::launch_prompt_rule().unwrap();
+            assert_eq!(delivered.matches(rule.as_str()).count(), 1);
             assert!(!delivered.contains(HISTORICAL_TASK));
             assert!(command.contains("--model "));
         }
