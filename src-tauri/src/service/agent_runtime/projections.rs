@@ -96,7 +96,7 @@ pub async fn rate_limits(
     let context = session.context.lock().clone();
     let sample = rate_sample(&session.provider, &limits, at);
     let store = svc.usage_store.clone();
-    let snapshot_id = tokio::task::spawn_blocking(move || store.insert_snapshot(&sample))
+    let snapshot_id = tokio::task::spawn_blocking(move || store.insert_runtime_snapshot(&sample))
         .await
         .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
         .map_err(RuntimeFailure::HookFailed)?;
@@ -220,7 +220,7 @@ mod tests {
         ];
         let sample = rate_sample("fixture", &windows, 1234);
         let store = crate::usage::UsageStore::open_in_memory().unwrap();
-        store.insert_snapshot(&sample).unwrap();
+        store.insert_runtime_snapshot(&sample).unwrap();
         let row = store.get_latest("fixture", None).unwrap().unwrap();
         assert_eq!(row.captured_at, 1234);
         assert_eq!(crate::usage::allowance_remaining_pct(&row), 3.0);

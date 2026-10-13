@@ -238,6 +238,16 @@ fn direct_runtime_routing_preserves_hidden_worker_env_and_task() {
         }),
         ..Default::default()
     };
+    spec.chatbackend_launch = Some(Box::new(crate::service::spawn::ChatBackendLaunchMetadata {
+        agent: spec.agent_launch_mut().unwrap().clone(),
+        params: SpawnAgentParams {
+            system_prompt: Some("opaque-system".into()),
+            preset: Some("opaque-preset".into()),
+            task: Some("opaque-task".into()),
+            ..Default::default()
+        },
+        owner_linkage: None,
+    }));
     spec.route_agent_to_chatbackend().unwrap();
     assert_eq!(
         spec.visibility,
@@ -249,6 +259,7 @@ fn direct_runtime_routing_preserves_hidden_worker_env_and_task() {
     let crate::service::spawn::TabCommand::ChatBackend { config, .. } = &spec.command else {
         panic!("chat backend")
     };
-    assert!(config.get("systemPrompt").is_none());
+    assert_eq!(config["systemPrompt"], "opaque-system");
+    assert_eq!(config["preset"], "opaque-preset");
     assert_eq!(metadata.agent.task.as_deref(), Some("opaque-task"));
 }

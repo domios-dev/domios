@@ -845,3 +845,67 @@ fn cron_settle_refused_trigger_record_never_dispatches() {
         .wait(Duration::from_secs(30))
         .expect("shutdown storage");
 }
+
+#[test]
+fn runtime_cron_owner_binding_is_exact_and_idempotent_before_launch() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = CronStore::new_with_path(temp.path().join("runtime-cron.json"));
+    let job = store.create(create_params("runtime-owner", None)).unwrap();
+    store
+        .record_run(
+            &job.id,
+            CronRunInfo {
+                run_id: "run-exact".into(),
+                started_at: 1,
+                finished_at: None,
+                status: CronRunStatus::Running,
+                tab_id: None,
+                session_id: None,
+                cwd: None,
+                summary: None,
+                report_delivery: None,
+            },
+        )
+        .unwrap();
+    assert!(super::runtime_cron_owner_needs_registration(
+        &store,
+        "tab-exact",
+        &job.id,
+        "run-exact"
+    )
+    .unwrap());
+    assert!(super::runtime_cron_owner_needs_registration(
+        &store,
+        "tab-exact",
+        "foreign-job",
+        "run-exact"
+    )
+    .is_err());
+    store.register_tab("tab-exact", &job.id, "run-exact");
+    assert!(!super::runtime_cron_owner_needs_registration(
+        &store,
+        "tab-exact",
+        &job.id,
+        "run-exact"
+    )
+    .unwrap());
+    store.register_tab("tab-exact", &job.id, "foreign-run");
+    assert!(super::runtime_cron_owner_needs_registration(
+        &store,
+        "tab-exact",
+        &job.id,
+        "run-exact"
+    )
+    .is_err());
+    store.unregister_tab("tab-exact");
+    store
+        .update_run_status(&job.id, "run-exact", CronRunStatus::Cancelled)
+        .unwrap();
+    assert!(super::runtime_cron_owner_needs_registration(
+        &store,
+        "tab-exact",
+        &job.id,
+        "run-exact"
+    )
+    .is_err());
+}
