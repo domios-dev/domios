@@ -55,7 +55,6 @@ env:
 jobs:
   build:
     name: build (${{ matrix.target }})
-    if: ${{ vars.RELEASE_WINDOWS_ENABLED != 'false' }}
     # x64 builds on BLACKSTAR and arm64 on ROG in parallel. If BLACKSTAR is unavailable, set the
     # repository variable RELEASE_WINDOWS_X64_LABEL=windows-build and both build on ROG again.
     runs-on: [self-hosted, "${{ matrix.runner_label }}"]
@@ -74,8 +73,10 @@ jobs:
             vsarch: x64_arm64
             sdkarch: arm64
             label: arm64
-            runner_label: windows-build
+            runner_label: ${{ vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build' }}
+    timeout-minutes: 120
     env:
+      CODETERM_SCCACHE_VERIFY_ONLY: '1'
       TARGET: ${{ matrix.target }}
       # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
       # target so the bundled CLI/embed sidecars match the installer arch (this is
@@ -94,7 +95,7 @@ jobs:
       GIT_CONFIG_VALUE_0: 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
@@ -149,13 +150,13 @@ jobs:
           rustup target list --installed | Select-String 'pc-windows-msvc'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -174,10 +175,10 @@ jobs:
           SOURCE_REPO: ${{ github.repository }}
         shell: pwsh
         run: |
-          node scripts/release-clear-wedged-assets.mjs "$env:SOURCE_REPO" "$env:TAG"
+          node scripts/release-clear-wedged-assets.mjs "$env:SOURCE_REPO" "$env:TAG" "${{ matrix.platform_key }}"
           if ($env:PUBLISH_MIRROR -eq 'true') {
             $env:GH_TOKEN = $env:MIRROR_TOKEN
-            node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$env:TAG"
+            node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$env:TAG" "${{ matrix.platform_key }}"
           }
 
       # Load the MSVC + Windows SDK dev environment for the matrix arch. INCLUDE/
@@ -297,8 +298,8 @@ jobs:
 
       # A dropped upload leaves a starter asset that holds the name and makes every
       # later upload of it fail opaquely, including tauri-action's own.
-      - name: Build, sign, and upload release assets
-        uses: tauri-apps/tauri-action@v0
+      - name: Build and sign release assets
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
@@ -306,18 +307,24 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Without a tag name tauri-action only builds and signs, which is the dry run.
-          tagName: ${{ !inputs.dry_run && steps.tag.outputs.name || '' }}
-          releaseName: 'CodeTerm ${{ steps.tag.outputs.name }}'
-          releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
-          releaseDraft: true
-          prerelease: ${{ steps.channel.outputs.prerelease }}
-          # tauri-action's own updater-JSON path silently skips when its
-          # internal sig matcher cannot pair an artifact with a signature.
-          # We build the fragment ourselves below.
           includeUpdaterJson: false
           updaterJsonPreferNsis: true
           args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }}
+
+      - name: Smoke built release bundle
+        shell: pwsh
+        run: |
+          node scripts/release-bundle-smoke.mjs windows "src-tauri/target/$env:TARGET/release/bundle/nsis" "${{ inputs.source_ref }}" "${{ matrix.label }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify local updater signature (including dry run)
+        env:
+          TAG: ${{ inputs.tag }}
+          PLATFORM_KEY: ${{ matrix.platform_key }}
+        shell: pwsh
+        run: |
+          node scripts/release-verify-windows.mjs "src-tauri/target/$env:TARGET/release/bundle/nsis" "$env:TAG" "$env:PLATFORM_KEY"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish per-platform updater fragment
         if: ${{ !inputs.dry_run }}
@@ -343,7 +350,6 @@ jobs:
           # With createUpdaterArtifacts=true, Tauri v2 reuses the NSIS .exe
           # as the updater bundle; v1Compatible builds emit .nsis.zip. The .sig
           # is NOT uploaded — the updater reads its signature from latest.json.
-          gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:SOURCE_REPO"
 
           # Fragment URL points at the public MIRROR repo (where the asset is mirrored
           # to and the updater fetches from), not the private source release.
@@ -363,7 +369,10 @@ jobs:
           $out = "updater-$env:TARGET.json"
           $fragment | ConvertTo-Json -Depth 6 | Set-Content -Path $out -Encoding utf8
           Write-Host "Wrote $out for $env:PLATFORM_KEY -> $bname"
-          gh release upload "$env:TAG" "$out" --clobber --repo "$env:SOURCE_REPO"
+          node scripts/verify-updater-manifest.mjs --manifest "$out" --local (Split-Path $bundle -Parent) --require-version "$ver" --require-platform "$env:PLATFORM_KEY"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release upload "$env:TAG" "$bundle" "$out" --clobber --repo "$env:SOURCE_REPO"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Mirror the updater bundle so the caller can publish the manifest after all builds pass.
       - name: Mirror to public release repo

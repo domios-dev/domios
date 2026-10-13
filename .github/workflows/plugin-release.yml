@@ -36,6 +36,8 @@ jobs:
           PLUGIN_TAG: ${{ github.ref_name }}
         run: |
           node scripts/release-plugin.mjs check "$PLUGIN_TAG" > plugin-release.json
+          # JavaScript template substitutions must reach Node unchanged.
+          # shellcheck disable=SC2016
           node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("plugin-release.json")); fs.appendFileSync(process.env.GITHUB_OUTPUT, `id=${p.id}\npath=${p.path}\n`);'
       - run: pnpm install --frozen-lockfile
       - name: Plugin checks
