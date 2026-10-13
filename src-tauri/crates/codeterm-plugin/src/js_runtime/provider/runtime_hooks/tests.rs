@@ -148,6 +148,13 @@ async fn runtime_hooks_refuse_host_io_at_bundle_init_and_during_hook() {
         .unwrap_err();
     assert_eq!(error.code, RuntimeFailureCode::HookFailed);
     assert!(error.message.contains("envGet"));
+    let swallowed=provider("try{host.envGet('PATH')}catch(_){};module.exports={runtimePlan(){return {action:{kind:'request',call:{method:'handshake',params:null}},state:null}}}");
+    let error = swallowed
+        .runtime_plan(&context(), &RuntimeOperation::Initialize)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, RuntimeFailureCode::HookFailed);
+    assert!(error.message.contains("envGet"));
     let js = provider("module.exports={runtimePlan(){host.exec({bin:'anything'});return {}}}");
     let error = js
         .runtime_plan(&context(), &RuntimeOperation::Initialize)
