@@ -287,6 +287,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
 
     // Routes through SpawnTabSpec::from_agent_params_with_chatbackends so a scheduled
     // agent and a CLI-spawned one agree on which runtime serves the provider.
+    let runtime_owner_prebound = crate::service::agent_runtime::engine::requested(service, agent);
     let spawn_spec = crate::cron::spawn_spec::build_cron_spawn_spec(
         service.chatbackend_registry.as_ref(),
         crate::cron::spawn_spec::CronSpawnInputs {
@@ -319,13 +320,17 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
                 handle.tab_id
             );
 
-            cron_state
-                .lock()
-                .register_tab(&handle.tab_id, job_id, &run_id);
-            if let Err(error) = commit(cron_state, |store| {
-                Ok(store.prepare_set_run_tab(job_id, &run_id, &handle.tab_id))
-            }) {
-                log::error!("Failed to record cron run tab: job={job_id} run={run_id}: {error}");
+            if !runtime_owner_prebound {
+                cron_state
+                    .lock()
+                    .register_tab(&handle.tab_id, job_id, &run_id);
+                if let Err(error) = commit(cron_state, |store| {
+                    Ok(store.prepare_set_run_tab(job_id, &run_id, &handle.tab_id))
+                }) {
+                    log::error!(
+                        "Failed to record cron run tab: job={job_id} run={run_id}: {error}"
+                    );
+                }
             }
             service.sync_cron_owner_prompt_state(&handle.tab_id);
 

@@ -481,3 +481,23 @@ fn chatbackend_manager_placement_preserves_named_profile() {
         Some("orchestrator")
     );
 }
+
+#[test]
+fn runtime_pending_initial_claim_is_retained_without_replacement() {
+    let agent = crate::service::spawn::AgentSpawnSpec {
+        task: Some("new-task".into()),
+        ..Default::default()
+    };
+    let record = crate::multiplexer::types::PendingDeliveryRecord::new(
+        "original-digest".into(),
+        crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+    )
+    .with_send_id("original-send".into());
+    assert!(super::runtime_pending_payload(Some(&record), &agent).is_none());
+    assert_eq!(record.send_id(), Some("original-send"));
+    assert_eq!(record.content_digest, "original-digest");
+    assert_eq!(
+        super::runtime_pending_payload(None, &agent).as_deref(),
+        Some("new-task")
+    );
+}
