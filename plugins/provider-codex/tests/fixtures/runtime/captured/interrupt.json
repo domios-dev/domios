@@ -257,6 +257,8 @@
             "model": "gpt-6-luna",
             "threadSource": "user",
             "config": {
+              "check_for_update_on_startup": false,
+              "project_doc_max_bytes": 65536,
               "model_reasoning_effort": "low"
             },
             "approvalPolicy": "untrusted",

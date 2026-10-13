@@ -38,3 +38,7 @@ Additional captured scenarios and real receipt-rate measurement live in [capture
 A9b historyPage.questions contains RuntimeHistoryQuestion records without a kind discriminator. Native async question snapshots are collected across item pages. Only an exact later user answer envelope with matching itemId, question IDs and native option values marks resolved; assistant text and labels do not. History never supplies delivery evidence, and core receipts remain authoritative across separate turns-page operations.
 
 Plugin-generated JSON display strings use recursively lexically sorted object keys, preserve array order, and use fixed indentation. Expected display strings therefore do not depend on Node insertion order or serde_json object ordering. Native source strings are retained verbatim.
+
+A12 launch settings: `settings.additionalDirectories` contains only host-validated absolute paths (max 32, unique, at most 4096 bytes each, no NUL). The plugin maps them to thread config and workspace-write turn policy, preserving the host-authorized permission mode. See [LAUNCH-OPTIONS.md](LAUNCH-OPTIONS.md) for the source inventory, mappings and explicitly refused raw CLI/profile options. Start/resume fixture expectations include the provider's existing update-check and 65536-byte project-instruction defaults.
+
+A12b: optional `settings.networkAccess` is a host-decided boolean, not a CLI flag. It maps to workspace-write thread config and turn policy only. Explicit false is retained; absence leaves Codex defaults untouched.
