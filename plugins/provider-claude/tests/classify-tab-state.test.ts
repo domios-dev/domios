@@ -222,5 +222,23 @@ for (const f of ["rate-limit-menu.txt", "rate-limit-wait-not-default.txt", "clar
   eq(rCrlf, rLf, `${f}: CRLF classification equals LF classification`);
 }
 
+const modelPicker = fs.readFileSync(path.join(here, "../../../testbench/snapshots/claude/model-picker-r3/screen.txt"), "utf8");
+const modelOptions = plugin.parsePrompt(modelPicker)?.options;
+assert(modelOptions?.length >= 2, "retained model picker has parsed options");
+for (const screen of [modelPicker, modelPicker.replace(/^\s*Enter .+$/m, "Enter opaque-action · Esc opaque-dismiss")]) {
+  const result = classify(plugin, screen);
+  eq(result?.state, "clarifying_question", "retained focused menu classifies independently of footer action wording");
+  assert((result?.confidence ?? 0) >= GLOBAL_THRESHOLD, "focused menu meets live extraction threshold");
+  assert(!result?.action?.keys, "model choice stays owner controlled");
+  eq(plugin.parsePrompt(screen)?.options, modelOptions, "footer rewrite preserves all parsed options");
+}
+for (const screen of [
+  `${modelPicker}\n❯ `,
+  modelPicker.replace(/❯ (?=\d)/g, "  "),
+  `${modelPicker}\nCurrent output continues`,
+]) {
+  assert(classify(plugin, screen)?.state !== "clarifying_question", "inactive menu is not extracted as a live choice");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
