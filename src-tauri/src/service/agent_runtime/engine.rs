@@ -30,7 +30,8 @@ pub struct Session {
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
     pub process: Mutex<Option<Arc<Process>>>,
     pub gate: tokio::sync::Semaphore,
-    initialization: super::initialize::Initialization,
+    pub(super) initialization: super::initialize::Initialization,
+    pub(super) compaction: Mutex<super::subscriber::CompactionState>,
 }
 static SESSIONS: LazyLock<Mutex<HashMap<String, Arc<Session>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -120,6 +121,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     process: Mutex::new(None),
                     gate: tokio::sync::Semaphore::new(1),
                     initialization: super::initialize::Initialization::default(),
+                    compaction: Mutex::new(Default::default()),
                 })
             })
             .clone()
@@ -165,6 +167,12 @@ async fn ensure_locked(
             return Err(RuntimeFailure::Superseded);
         }
         validate_restored_arguments(provider, Some(&target.restorable_launch))?;
+    }
+    let epoch = session.context.lock().epoch;
+    if session.compaction.lock().held(epoch) {
+        return Err(RuntimeFailure::Refused(
+            "Context restoration pending or failed; sends held".into(),
+        ));
     }
     let old = session.process.lock().clone();
     let registered = svc.agent_registry.provider_arc(provider);
@@ -332,6 +340,7 @@ async fn ensure_locked(
     let operation = match context.thread_id.clone() {
         Some(thread_id) => RuntimeOperation::ResumeThread {
             thread_id,
+            instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
             settings: context.settings.clone(),
         },
         None => RuntimeOperation::OpenThread {
@@ -498,6 +507,13 @@ async fn run_inner(
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
     super::model::validate_operation_thread(&context, &operation)?;
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. })
+        && session.compaction.lock().held(context.epoch)
+    {
+        return Err(RuntimeFailure::Refused(
+            "Context restoration pending or failed; sends held".into(),
+        ));
+    }
     if let RuntimeOperation::Answer { request_id, answer } = &operation {
         let requests = session.prompts.lock();
         let pending = requests.get(request_id).ok_or(RuntimeFailure::Superseded)?;
@@ -553,6 +569,11 @@ async fn run_inner(
                     }
                     validate_binding(&owner, &runtime)?;
                     if let Some(send) = &captured_send {
+                        if runtime.compaction.lock().held(epoch) {
+                            return Err(RuntimeFailure::Refused(
+                                "Context restoration pending or failed; sends held".into(),
+                            ));
+                        }
                         let tab = runtime.context.lock().tab_id.clone();
                         super::capture::validate_if_present(&owner, &tab, send)?;
                     }
