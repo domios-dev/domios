@@ -114,7 +114,18 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
         engine::record_completed_turn(&session, "child", Some("child-turn"));
         waiting.await.unwrap();
     });
-    session.context.lock().active_turn_id = Some("reply-turn".into());
+    {
+        let mut context = session.context.lock();
+        context.active_turn_id = Some("reply-turn".into());
+        context
+            .active_turns
+            .retain(|turn| turn.thread_id != "own-thread");
+        context.active_turns.push(RuntimeActiveTurn {
+            thread_id: "own-thread".into(),
+            turn_id: "reply-turn".into(),
+            parent_thread_id: None,
+        });
+    }
     super::interrupt(&fixture.service, &id).unwrap();
     assert!(session
         .completions
