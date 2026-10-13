@@ -81,7 +81,7 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
-import { deliveryState, sendForRow } from "./chatDeliveryModel";
+import { deliveryPresentation, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSends } from "./chatSendStore";
 import { sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -845,6 +845,7 @@ export function TabSessionChat({
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const deliverySend = sendForRow(deliverySends, msg);
+          const deliveryView = deliverySend ? deliveryPresentation(deliverySend, allMessages) : undefined;
           return (
             <Fragment key={msg.id}>
             <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
@@ -863,8 +864,8 @@ export function TabSessionChat({
                 message={msg}
                 onContentLayout={handleContentLayout}
                 streaming={msg.id === streamingId}
-                userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
-                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
+                userFooter={deliverySend && deliveryView && deliveryView !== "delivered" && deliveryView !== "settled"
+                  ? <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
