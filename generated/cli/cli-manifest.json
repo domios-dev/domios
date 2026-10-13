@@ -17420,6 +17420,34 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "set-cwd",
+          "about": "Relocate a workspace to an existing absolute folder, preserving its identity",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "path",
+              "positional": true,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
       ]
     }
