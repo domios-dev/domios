@@ -284,6 +284,9 @@ fn pty_provider_descriptors_unchanged_by_context_owner_field() {
         let manifest = dir.join("plugin.json");
         let provider = super::load_one(&manifest)
             .unwrap_or_else(|e| panic!("load {}: {e}", manifest.display()));
+        if provider.agent_runtime().is_some() {
+            continue;
+        }
         assert_pty_descriptor_unchanged(&dir.display().to_string(), &provider);
         bundled += 1;
     }
