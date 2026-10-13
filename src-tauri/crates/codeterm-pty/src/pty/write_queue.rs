@@ -323,6 +323,61 @@ mod tests {
         assert_eq!(*writes.lock().unwrap(), b"firstsecond");
     }
 
+    #[derive(Debug, PartialEq, Eq)]
+    enum RawWriteEvent {
+        Write(Vec<u8>),
+        Flush,
+    }
+
+    struct RawBoundaryWriter {
+        events: Arc<Mutex<Vec<RawWriteEvent>>>,
+        flushed: mpsc::SyncSender<usize>,
+        flushes: usize,
+    }
+
+    impl Write for RawBoundaryWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.events
+                .lock()
+                .unwrap()
+                .push(RawWriteEvent::Write(bytes.to_vec()));
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.events.lock().unwrap().push(RawWriteEvent::Flush);
+            self.flushes += 1;
+            self.flushed.send(self.flushes).unwrap();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn sequential_raw_sends_preserve_write_and_flush_boundaries_in_order() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (flushed, observed) = mpsc::sync_channel(2);
+        let queue = WriteQueue::new(Box::new(RawBoundaryWriter {
+            events: events.clone(),
+            flushed,
+            flushes: 0,
+        }));
+
+        queue.send(b"/model".to_vec()).unwrap();
+        queue.send(b"\r".to_vec()).unwrap();
+
+        assert_eq!(observed.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        assert_eq!(observed.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+        assert_eq!(
+            *events.lock().unwrap(),
+            [
+                RawWriteEvent::Write(b"/model".to_vec()),
+                RawWriteEvent::Flush,
+                RawWriteEvent::Write(b"\r".to_vec()),
+                RawWriteEvent::Flush,
+            ]
+        );
+    }
+
     #[test]
     fn send_and_receive() {
         let collected = Arc::new(Mutex::new(Vec::new()));
