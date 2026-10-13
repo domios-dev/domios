@@ -69,6 +69,8 @@ The rendered output is written to three files in `general/`:
 
 `bootstrap.md` is created **only on first run**; if it already exists, regen leaves it alone.
 
+The system-prompt channel and generated General instruction files share a runtime capability-hints fragment. Its pure builder receives the granted plugin catalog snapshot used by `codeterm capabilities`, plus the clock, durable `general/state/first-seen` marker and `general_agent.capability_hints` setting. It emits at most 16 capability lines of 240 bytes within a 4096-byte fragment, only before seven days have elapsed and while the setting is on. Prompt tests pass this fragment as an opaque value.
+
 ### Skill rendering
 
 `skills/codeterm/SKILL.md` is also a template. On daemon startup, `commands::skills::seed_bundled_skills` copies the bundled `skills/codeterm/` directory to `~/.codeterm/skills/codeterm/` (or `~/.codeterm-dev/skills/codeterm/` for dev), substituting each placeholder in `codeterm_skill_render_map()` as it writes:

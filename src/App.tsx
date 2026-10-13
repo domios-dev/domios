@@ -54,7 +54,6 @@ import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
-import { useHelperMomentsHost } from "./lib/helperMoments/helperMomentsWiring";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
@@ -268,7 +267,6 @@ function AppInner() {
     selectTab: setActiveTab,
   });
 
-  useHelperMomentsHost(state.tabs, configLoading ? null : config.integrations?.telegram_enabled ?? false);
   const peerContext = usePlanPeerContext();
   useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);
   const navigateToNotificationTab = useCallback(

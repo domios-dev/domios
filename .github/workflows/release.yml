@@ -159,6 +159,7 @@ jobs:
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
+    secrets: inherit
 
   macos-linux-arm64:
     name: macOS + Linux arm64

@@ -10,12 +10,38 @@ use crate::agent_commands::AgentCommandRegistry;
 static BUILT_IN_PLUGINS_SECTION: parking_lot::RwLock<Option<String>> =
     parking_lot::const_rwlock(None);
 
+static CAPABILITY_HINTS: parking_lot::RwLock<
+    Vec<super::general_agent::capability_hints::Capability>,
+> = parking_lot::const_rwlock(Vec::new());
+
+pub(crate) fn capability_hints() -> Vec<super::general_agent::capability_hints::Capability> {
+    CAPABILITY_HINTS.read().clone()
+}
+
 pub fn refresh(registry: &AgentCommandRegistry) {
+    *CAPABILITY_HINTS.write() = hint_capabilities(registry);
     *BUILT_IN_PLUGINS_SECTION.write() = compose_built_in_plugins_section(&prompt_lines(registry));
 }
 
 pub fn built_in_plugins_section() -> Option<String> {
     BUILT_IN_PLUGINS_SECTION.read().clone()
+}
+
+fn hint_capabilities(
+    registry: &AgentCommandRegistry,
+) -> Vec<super::general_agent::capability_hints::Capability> {
+    crate::service::plugin_skills::granted_catalogs(registry)
+        .into_iter()
+        .map(
+            |catalog| super::general_agent::capability_hints::Capability {
+                purpose: catalog
+                    .description
+                    .or(catalog.prompt_line)
+                    .unwrap_or(catalog.display_name),
+                id: catalog.id,
+            },
+        )
+        .collect()
 }
 
 fn prompt_lines(registry: &AgentCommandRegistry) -> Vec<PluginPromptLine> {
@@ -101,6 +127,30 @@ mod tests {
             );
         }
         registry
+    }
+
+    #[test]
+    fn hint_catalog_uses_the_same_granted_inventory_as_capabilities() {
+        let registry = registry(&[
+            ("core-q7", true, true),
+            ("cap-q7", false, true),
+            ("off-q7", true, false),
+        ]);
+        let expected = crate::service::plugin_skills::granted_catalogs(&registry);
+        let hints = hint_capabilities(&registry);
+        assert_eq!(
+            hints
+                .iter()
+                .map(|hint| hint.id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|catalog| catalog.id.as_str())
+                .collect::<Vec<_>>()
+        );
+        for (hint, catalog) in hints.iter().zip(expected) {
+            assert_eq!(hint.purpose, catalog.prompt_line.unwrap());
+        }
     }
 
     #[test]
