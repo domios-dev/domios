@@ -159,7 +159,7 @@ impl CapabilityRegistries {
                 )),
             );
         }
-        if caps.chat_backend.enabled() {
+        if caps.chat_backend.enabled() && caps.agent_runtime.is_none() {
             self.chatbackend.register(
                 id.clone(),
                 Arc::new(super::JsChatBackend::from_manifest(vm.clone(), manifest)),

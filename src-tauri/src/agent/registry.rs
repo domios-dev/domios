@@ -349,7 +349,15 @@ impl AgentRegistry {
         let guard = self.providers.read();
         let described: Vec<_> = guard
             .values()
-            .map(|p| (p.describe(), p.binary_name().to_string()))
+            .map(|p| {
+                let descriptor = p.describe();
+                let launch_binary = descriptor
+                    .agent_runtime
+                    .as_ref()
+                    .map(|runtime| runtime.command.binary.clone())
+                    .unwrap_or_else(|| p.binary_name().to_string());
+                (descriptor, launch_binary)
+            })
             .collect();
         drop(guard);
         described

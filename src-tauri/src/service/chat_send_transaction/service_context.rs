@@ -35,7 +35,9 @@ impl crate::service::ServiceContext {
                 .validate(self.captured_chat_identity(tab_id))
                 .map_err(|error| error.ledger_message())?;
         }
-        if self.tab_chat_backing(tab_id).is_none() {
+        if self.tab_chat_backing(tab_id).is_none()
+            || super::super::agent_runtime::requested_for_tab(self, tab_id)
+        {
             if capture.is_some() {
                 return Err("recording_recipient_changed".into());
             }
@@ -308,6 +310,9 @@ impl crate::service::ServiceContext {
         let follow_up = self
             .agent_registry
             .with_provider(&reservation.authority.provider_id, |provider| {
+                if provider.agent_runtime().is_some() {
+                    return None;
+                }
                 provider.paste_capability().and_then(|capability| {
                     capability
                         .typed_follow_up_for(&final_transport)
@@ -370,6 +375,38 @@ impl crate::service::ServiceContext {
             );
         }
         Ok((status, path))
+    }
+
+    pub(crate) fn admit_runtime_question_answer(
+        &self,
+        reservation: UserReservation,
+        input: codeterm_plugin::agent_runtime::TurnInput,
+        resolution: super::super::pending_delivery_payloads::user_sends::runtime_questions::QuestionResolution,
+    ) -> Result<ChatSendStatus, String> {
+        if !input.attachments.is_empty() {
+            return Err("Question answer formatting cannot create attachments".into());
+        }
+        if reservation.wait_existing()? {
+            return self
+                .chat_send_ledger
+                .status(&reservation.send_id)
+                .ok_or_else(|| "Original question answer receipt unavailable".into());
+        }
+        let held = !self.user_authority_is_ready(&reservation.authority);
+        let record = self
+            .pending_delivery_payloads
+            .user_sends
+            .admit_question_answer(&reservation, &input.text, resolution, held)?;
+        let status = self.chat_send_ledger.admit_user(&record);
+        let tab = record.authority.tab_id.clone();
+        crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        drop(reservation);
+        self.record_product_activity();
+        self.wake_user_owner(
+            &tab,
+            super::super::parked_user_delivery::UserWake::Admission,
+        );
+        Ok(status)
     }
 
     pub(crate) fn chat_send_turn_evidence(&self, tab_id: &str, text: &str) -> String {
