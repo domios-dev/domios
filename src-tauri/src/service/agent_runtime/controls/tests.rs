@@ -97,17 +97,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
     tab.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
     let fixture = ServiceFixture::new(mux);
     fixture.set_agent_full_access(false);
-    let storage = crate::storage::Storage::open(
-        &fixture.temp.path().join("runtime-desk"),
-        crate::storage::StorageConfig::default(),
-    )
-    .unwrap();
-    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
-    let initial = fixture.service.mux.read().to_session_snapshot();
-    adapter.import_snapshot(&initial, Vec::new()).unwrap();
-    assert!(!adapter.state().unwrap().snapshot.workspaces.is_empty());
-    crate::service::session_persist::install_storage_desk_adapter(fixture._app.handle(), adapter)
-        .unwrap();
+    let storage = fixture.install_seeded_storage_desk();
     let methods = [
         "initialize",
         "resumeThread",
