@@ -168,6 +168,13 @@ describe("concise thoughts", () => {
     expect(body?.style.overflowY).toBe("auto");
   });
 
+  it("shows the entire available single-line summary without an expand control", async () => {
+    const summary = `Available summary… ${"complete text ".repeat(60)}`;
+    const view = await render([thought("summary", summary)]);
+    expect(view.querySelector("button")).toBeNull();
+    expect(view.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(summary);
+  });
+
   it("renders equivalent normalized Claude and Codex thoughts identically", async () => {
     const shared = thought("shared-think", "**Check the plan**\n\nDetails");
     const claude = await render([{ ...shared, provider: "claude", sourceSessionId: CLAUDE }]);
@@ -281,7 +288,7 @@ describe("sub-agent activity card", () => {
 describe("activity presentation", () => {
   it("gates expansion motion behind reduced-motion variants and uses tokens without blinking dots or side borders", async () => {
     const view = await render([
-      thought("p-think", "Short thought"),
+      thought("p-think", "Headline\nThought body"),
       agent("p-agent", { agentId: "thread-p", agentPath: "/root/p", state: "running" }),
     ]);
     const [card] = all(view, "chat-agent-activity");

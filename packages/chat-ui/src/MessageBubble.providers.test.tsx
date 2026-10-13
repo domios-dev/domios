@@ -65,8 +65,8 @@ for (const fixture of providerTranscriptFixtures) {
         assertIncludes(host, fixture.expected.diffRemovedNeedle, `${fixture.provider} structured edit removed line`);
       }
 
-      await clickButtonContaining(host, "Thinking");
-      assertIncludes(host, fixture.expected.thinkingNeedle, `${fixture.provider} expanded thinking`);
+      assertIncludes(host, fixture.expected.thinkingNeedle, `${fixture.provider} complete thinking summary`);
+      assert(!host.querySelector('[data-testid="chat-thought"] button'), `${fixture.provider} complete summary has no disclosure`);
 
       await clickButtonContaining(host, "Copy");
       assert(

@@ -45,7 +45,6 @@ use crate::agent::chat_types::{
 };
 use content::{attachment_from_image, extract_tool_result_text};
 
-const THINKING_PREVIEW: usize = 200;
 pub const LIVE_CHAT_POLL_INTERVAL_MS: u64 = 100;
 
 pub fn live_chat_poll_interval() -> std::time::Duration {
@@ -508,16 +507,10 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 if raw.trim().is_empty() {
                     continue;
                 }
-                let truncated: String = raw.chars().take(THINKING_PREVIEW).collect();
-                let content = if raw.chars().count() > THINKING_PREVIEW {
-                    format!("{truncated}...")
-                } else {
-                    truncated
-                };
                 ChatMsg {
                     id,
                     kind: "thinking".into(),
-                    content,
+                    content: raw.to_string(),
                     collapsed: true,
                     ..Default::default()
                 }
