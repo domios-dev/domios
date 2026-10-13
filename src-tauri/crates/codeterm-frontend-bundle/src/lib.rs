@@ -6,7 +6,7 @@ pub mod update;
 pub const OBSERVER_SCRIPT: &str = include_str!("observer.js");
 
 use activation::Activation;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -16,6 +16,8 @@ use std::{
 use store::Store;
 
 pub type StatusEmitter = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
+pub type InstallationObserver = Arc<dyn Fn() + Send + Sync>;
 
 pub struct FrontendBundles {
     root: PathBuf,
@@ -27,6 +29,7 @@ pub struct FrontendBundles {
     discovery_url: String,
     allow_loopback: bool,
     emit: StatusEmitter,
+    installation_observer: RwLock<Option<InstallationObserver>>,
 }
 
 impl FrontendBundles {
@@ -81,9 +84,13 @@ impl FrontendBundles {
             discovery_url,
             allow_loopback,
             emit,
+            installation_observer: RwLock::new(None),
         })
     }
 
+    pub fn bind_installation_observer(&self, observer: InstallationObserver) {
+        *self.installation_observer.write() = Some(observer);
+    }
     pub fn status(&self) -> Value {
         let inner = self.inner.lock();
         let mut status = inner.1.public_status();
@@ -172,10 +179,19 @@ impl FrontendBundles {
             .map_err(|e| e.to_string())?
             .as_millis() as u64;
         self.failure_deadline(now_ms)?;
+        let mut installed = false;
         self.change(|state| {
+            let installing = state.loading.is_some();
             state.healthy(release, generation, client, token)?;
+            installed = installing && state.loading.is_none();
             Ok(())
         })?;
+        let observer = self.installation_observer.read().clone();
+        if installed {
+            if let Some(observer) = observer {
+                observer();
+            }
+        }
         Ok(self.status())
     }
 

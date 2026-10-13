@@ -1,3 +1,4 @@
+mod activity;
 mod build_config;
 mod catalog;
 mod config;
@@ -7,7 +8,7 @@ pub mod sinks;
 mod state;
 mod worker;
 
-pub use catalog::{Event, Feature, Outcome, Section, TabKind, Version};
+pub use catalog::*;
 pub use config::{Config, Mode, Project, Zone};
 pub use engine::Status;
 pub use sink::{AnalyticsSink, DeliveryEvent, DeliveryResult};

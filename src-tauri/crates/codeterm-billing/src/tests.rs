@@ -16,7 +16,7 @@ fn session(uid: &str) -> codeterm_account::Session {
 }
 fn paid() -> Entitlements {
     Entitlements {
-        plan: "pro".into(),
+        plan: Plan::Pro,
         current_period_end: 2000000000,
         ..Entitlements::default()
     }
@@ -62,13 +62,8 @@ fn capability_gate_table() {
             Capability::PaidFeatures
         ));
     }
-    assert!(!entitlement_allows(
-        &Entitlements {
-            plan: "unknown".into(),
-            ..paid()
-        },
-        Capability::PaidFeatures
-    ));
+    assert!(Plan::parse("unknown").is_err());
+    assert!(serde_json::from_value::<Entitlements>(serde_json::json!({"plan":"private","status":"active","current_period_end":0,"cancel_at_period_end":false})).is_err());
 }
 #[tokio::test]
 async fn stale_cache_transport_failure() {

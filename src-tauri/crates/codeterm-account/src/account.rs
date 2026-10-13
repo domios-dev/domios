@@ -21,6 +21,7 @@ pub struct Account {
     state: Mutex<State>,
     operation: Mutex<()>,
     deadline: Duration,
+    observer: Option<Arc<dyn IdentityObserver>>,
 }
 impl Account {
     pub fn new(
@@ -32,9 +33,14 @@ impl Account {
             provider,
             store,
             deadline,
+            observer: None,
             state: Mutex::new(State::default()),
             operation: Mutex::new(()),
         }
+    }
+    pub fn with_identity_observer(mut self, observer: Arc<dyn IdentityObserver>) -> Self {
+        self.observer = Some(observer);
+        self
     }
     pub async fn status(&self) -> Status {
         let state = self.state.lock().await;
@@ -113,6 +119,11 @@ impl Account {
             .save(self.provider.id(), &tokens.refresh_token)
             .await?;
         state.session = Some(tokens.session);
+        if let Some(observer) = &self.observer {
+            observer
+                .changed(state.session.as_ref().map(|session| &session.identity))
+                .await;
+        }
         Ok(())
     }
     pub async fn refresh(&self) -> Result<Status> {
@@ -138,6 +149,9 @@ impl Account {
             state.pending = None;
             state.busy = false;
             state.session = None;
+            if let Some(observer) = &self.observer {
+                observer.changed(None).await;
+            }
             tokio::time::timeout(self.deadline, async {
                 let token = self.store.load(self.provider.id()).await?;
                 self.store.delete(self.provider.id()).await?;

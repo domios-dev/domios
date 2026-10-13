@@ -245,6 +245,7 @@ impl ServiceContext {
         let job = commit(cron, |store| store.prepare_create(params.clone()))?.value;
         wake.notify_all();
         self.emit_cron_changed();
+        self.record_product_feature(codeterm_analytics::Feature::CronCreated);
         Ok(job)
     }
 

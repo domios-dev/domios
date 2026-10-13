@@ -39,7 +39,7 @@ impl PlanStore {
                 "spec {spec_id} already owned by plan {owner}"
             )));
         }
-        let mut plan = self.create_plan_for_team(
+        let mut plan = self.create_plan_for_team_unobserved(
             title,
             spec.project_path.clone(),
             owner,
@@ -92,6 +92,7 @@ impl PlanStore {
             let _ = self.delete(&plan.id);
             return Err(e);
         }
+        self.publish_product_created();
         Ok(plan)
     }
 
