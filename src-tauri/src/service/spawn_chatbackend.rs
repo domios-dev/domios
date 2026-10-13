@@ -362,6 +362,12 @@ impl ServiceContext {
         };
 
         if super::agent_runtime::engine::requested(self, &plugin_id) {
+            if let Some(metadata) = spec.chatbackend_launch.as_ref() {
+                super::spawn_capability::validate_runtime_launch_arguments(
+                    &plugin_id,
+                    &metadata.agent.extra_args,
+                )?;
+            }
             let full_access =
                 super::permission_policy::configured_full_access_for(&self.app_handle)?;
             if config.is_null() {
@@ -555,6 +561,10 @@ impl ServiceContext {
         tab_id: &str,
         metadata: &super::spawn::ChatBackendLaunchMetadata,
     ) -> Result<(), String> {
+        super::spawn_capability::validate_runtime_launch_arguments(
+            &metadata.agent.provider,
+            &metadata.agent.extra_args,
+        )?;
         self.ensure_agent_pad(tab_id)?;
         self.ensure_session_binding_nonce(tab_id);
         {
@@ -636,6 +646,13 @@ impl ServiceContext {
         history_meta: serde_json::Value,
     ) -> Result<(), String> {
         if super::agent_runtime::engine::requested(self, &plugin_id) {
+            let args = self
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.restorable_launch.args.clone())
+                .unwrap_or_default();
+            super::spawn_capability::validate_runtime_launch_arguments(&plugin_id, &args)?;
             return super::agent_runtime::transport::launch(self, &plugin_id, &tab_id, config);
         }
         let session_id = self
