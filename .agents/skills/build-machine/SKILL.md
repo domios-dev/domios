@@ -472,6 +472,14 @@ fails clearly if Bash is absent. This changes only the current job environment.
 Restore Git for Windows on the runner if preflight refuses; do not remove the
 runner from the shared pool or replace its service/global PATH to hide failure.
 
+## CI archive extraction
+
+If nextest archive creation succeeds but extraction fails canonicalizing the
+destination with OS error 2, the extract directory has not been created.
+The builder classification and consumer helpers create their job-local extract
+directories before invoking nextest. Reuse the existing archive for the focused
+extraction check; an extraction failure does not justify recompiling the suite.
+
 ## Verification Checklist
 
 Run this after bootstrap:

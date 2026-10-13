@@ -180,9 +180,71 @@ jobs:
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
           cargo fmt --manifest-path cli/Cargo.toml --check
 
+  rust-archives:
+    name: rust archive (${{ matrix.os }} ${{ matrix.arch }})
+    needs: [changed, fmt]
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', '${{ matrix.arch }}']
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macOS
+            arch: ARM64
+            label: codeterm-builder
+          - os: Linux
+            arch: X64
+            label: linux-build
+          - os: Windows
+            arch: X64
+            label: windows-ci
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          fetch-depth: 0
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+      - uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Prepare runner tool paths
+        run: node scripts/ci-runner-paths.mjs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.100
+      - name: Prepare compile fixtures
+        run: node scripts/ci-rust-prepare.mjs
+      - name: Compile and archive once for platform
+        env:
+          CI_RUNNER_ARCH: ${{ runner.arch }}
+        run: node scripts/ci-rust-archives.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-archive-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ci-rust-archives/*.tar.zst
+            ci-rust-archives/*.suite.json
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-build-receipt-${{ matrix.os }}-${{ matrix.arch }}
+          path: ci-rust-builds/*.json
+          if-no-files-found: error
+      - name: Clean compile fixtures
+        if: always()
+        run: node scripts/ci-rust-prepare.mjs cleanup
+
   rust-shards:
     name: rust shard (${{ matrix.shard }}/12)
-    needs: [changed, fmt]
+    needs: [changed, rust-archives]
     if: ${{ needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, rust-shard]
     timeout-minutes: 50
@@ -205,13 +267,18 @@ jobs:
           node-version: '22.22.0'
       - name: Prepare runner tool paths
         run: node scripts/ci-runner-paths.mjs
-      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.100
-      - name: Prepare compile fixtures
-        run: node scripts/ci-rust-prepare.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-archive-${{ runner.os }}-${{ runner.arch }}
+          path: ci-rust-archives
+      - name: Prepare runtime fixtures
+        run: node scripts/ci-rust-prepare.mjs runtime
       - name: Shared tests (shard ${{ matrix.shard }}/12 on ${{ runner.name }})
+        env:
+          CI_RUNNER_ARCH: ${{ runner.arch }}
         run: node scripts/ci-rust-shards.mjs shared ${{ matrix.shard }} 12
       - uses: actions/upload-artifact@v4
         if: always()
@@ -221,15 +288,12 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
-      - name: Clean compile fixtures
-        if: always()
-        run: node scripts/ci-rust-prepare.mjs cleanup
 
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    needs: [changed, fmt]
+    needs: [changed, rust-archives]
     if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, '${{ matrix.label }}']
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
     timeout-minutes: 50
     strategy:
       fail-fast: false
@@ -238,7 +302,7 @@ jobs:
           - os: Linux
             label: linux-ci
           - os: macOS
-            label: macOS
+            label: rust-shard
           - os: Windows
             label: windows-ci
     steps:
@@ -256,13 +320,18 @@ jobs:
           node-version: '22.22.0'
       - name: Prepare runner tool paths
         run: node scripts/ci-runner-paths.mjs
-      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.100
-      - name: Prepare compile fixtures
-        run: node scripts/ci-rust-prepare.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-archive-${{ runner.os }}-${{ runner.arch }}
+          path: ci-rust-archives
+      - name: Prepare runtime fixtures
+        run: node scripts/ci-rust-prepare.mjs runtime
       - name: Platform tests (${{ matrix.os }} on ${{ runner.name }})
+        env:
+          CI_RUNNER_ARCH: ${{ runner.arch }}
         run: node scripts/ci-rust-shards.mjs platform
       - uses: actions/upload-artifact@v4
         if: always()
@@ -272,13 +341,10 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
-      - name: Clean compile fixtures
-        if: always()
-        run: node scripts/ci-rust-prepare.mjs cleanup
 
   rust-coverage:
     name: rust complete coverage
-    needs: [changed, rust-shards, rust-platform]
+    needs: [changed, rust-archives, rust-shards, rust-platform]
     if: ${{ always() && needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, light]
     timeout-minutes: 5
@@ -295,13 +361,19 @@ jobs:
           pattern: rust-receipt-*
           path: ci-rust-receipts
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rust-build-receipt-*
+          path: ci-rust-builds
+          merge-multiple: true
       - name: Require every test job
         env:
+          ARCHIVES_RESULT: ${{ needs.rust-archives.result }}
           SHARDS_RESULT: ${{ needs.rust-shards.result }}
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
-        run: node -e "if (process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success') process.exit(1)"
+        run: node -e "if (process.env.ARCHIVES_RESULT !== 'success' || process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success') process.exit(1)"
       - name: Prove exhaustive coverage and report runners
-        run: node scripts/ci-rust-shards.mjs verify ci-rust-receipts
+        run: node scripts/ci-rust-shards.mjs verify ci-rust-receipts ci-rust-builds
 
   clippy-linux:
     name: clippy (linux)
@@ -539,7 +611,7 @@ jobs:
       - name: Release test and publication gate contracts
         run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs
       - name: Rust shard coverage contracts
-        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs
+        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs
       - name: Release metadata contract tests
         run: python3 -m unittest scripts.tests.test_release_issue_contract
       - name: Release workflow signature-gate contract tests

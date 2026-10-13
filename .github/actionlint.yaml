@@ -4,3 +4,5 @@ self-hosted-runner:
     - linux-ci
     - windows-ci
     - rust-shard
+    - codeterm-builder
+    - linux-build

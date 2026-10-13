@@ -60,7 +60,7 @@ test('workflow shards use a shared pool and all results feed the coverage job', 
   const workflow = readFileSync(new URL('../../.github/workflows/tests.yml', import.meta.url), 'utf8');
   assert.match(workflow, /runs-on: \[self-hosted, rust-shard\]/);
   assert.match(workflow, /shard: \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12\]/);
-  assert.match(workflow, /needs: \[changed, rust-shards, rust-platform\]/);
+  assert.match(workflow, /needs: \[changed, rust-archives, rust-shards, rust-platform\]/);
   assert.match(workflow, /fail-fast: false/);
 });
 
@@ -118,12 +118,12 @@ test('timing candidates are exact identities inside their original subgroup', as
 });
 
 test('primary and candidate runs share saved binaries while only candidates serialize', async () => {
-  const { reusedNextestArgs } = await import('../ci-rust-shards.mjs');
-  const primary = reusedNextestArgs('BINARY_TOKEN', 'CARGO_TOKEN', 'CONFIG_TOKEN', ['--partition', 'hash:2/12']);
-  const alone = reusedNextestArgs('BINARY_TOKEN', 'CARGO_TOKEN', 'CONFIG_TOKEN', [], true);
+  const { archiveRunArgs } = await import('../ci-rust-archives.mjs');
+  const primary = archiveRunArgs('ARCHIVE_TOKEN', 'WORKSPACE_TOKEN', 'EXTRACT_TOKEN', 'CONFIG_TOKEN', ['--partition', 'hash:2/12']);
+  const alone = archiveRunArgs('ARCHIVE_TOKEN', 'WORKSPACE_TOKEN', 'EXTRACT_TOKEN', 'CONFIG_TOKEN', [], true);
   for (const args of [primary, alone]) {
-    assert.equal(args[args.indexOf('--binaries-metadata') + 1], 'BINARY_TOKEN');
-    assert.equal(args[args.indexOf('--cargo-metadata') + 1], 'CARGO_TOKEN');
+    assert.equal(args[args.indexOf('--archive-file') + 1], 'ARCHIVE_TOKEN');
+    assert.equal(args[args.indexOf('--workspace-remap') + 1], 'WORKSPACE_TOKEN');
     assert.ok(!args.includes('--manifest-path'));
     assert.ok(!args.includes('--workspace'));
   }
