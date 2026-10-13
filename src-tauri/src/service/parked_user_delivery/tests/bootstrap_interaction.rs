@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn zero_write_owner_refusal_retains_head_and_disarms_turn_confirmation() {
     let (fixture, tab) = queue_fixture(false, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
@@ -58,10 +54,6 @@ fn zero_write_owner_refusal_retains_head_and_disarms_turn_confirmation() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn user_admissions_leave_existing_interactive_bootstrap_record_and_bytes_unchanged() {
     let (fixture, tab) = queue_fixture(true, None);
     let digest = fixture
@@ -110,10 +102,6 @@ fn user_admissions_leave_existing_interactive_bootstrap_record_and_bytes_unchang
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn ready_user_send_does_not_wait_for_bootstrap_submit_completion() {
     let (fixture, tab) = queue_fixture(true, None);
     let digest = fixture
@@ -128,24 +116,23 @@ fn ready_user_send_does_not_wait_for_bootstrap_submit_completion() {
     let (bootstrap_tx, bootstrap_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = Arc::new(Mutex::new(release_rx));
-    let _bootstrap = BootstrapSubmitBoundary::install(
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _bootstrap = queued_boundary::QueuedSubmitBoundary::install(
         &tab,
-        Arc::new(move |text| {
+        Arc::new(move |record, text, enqueued| {
+            if let Some(record) = record {
+                enqueued();
+                writes_tx.send(record.send_id.clone()).unwrap();
+                return Err(DeliveryError::SubmitUnconfirmed {
+                    tab: record.authority.tab_id.clone(),
+                    detail: "opaque-uncertainty".into(),
+                });
+            }
+            enqueued();
             assert_eq!(text, "opaque-bootstrap");
             bootstrap_tx.send(()).unwrap();
             release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
             Ok(())
-        }),
-    );
-    let (writes_tx, writes_rx) = mpsc::channel();
-    let _user = UserSubmitBoundary::install(
-        &tab,
-        Arc::new(move |record, _| {
-            writes_tx.send(record.send_id.clone()).unwrap();
-            Err(DeliveryError::SubmitUnconfirmed {
-                tab: record.authority.tab_id.clone(),
-                detail: "opaque-uncertainty".into(),
-            })
         }),
     );
     fixture.service.wake_parked_user_send(&tab);
@@ -195,10 +182,6 @@ fn ready_user_send_does_not_wait_for_bootstrap_submit_completion() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
     let (fixture, tab) = queue_fixture(true, None);
     let digest = fixture
@@ -256,10 +239,6 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn legacy_user_slot_is_held_without_replay_adoption_or_payload_cleanup() {
     let (fixture, tab) = queue_fixture(true, None);
     let digest = fixture

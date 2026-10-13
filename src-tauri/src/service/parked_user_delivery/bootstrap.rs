@@ -95,20 +95,63 @@ impl crate::service::ServiceContext {
             .tab(tab_id)
             .dispatch_generation
             .load(Ordering::Acquire);
-        let outcome = if self
+        if self
             .pending_delivery_payloads
             .user_sends
             .tab(tab_id)
             .revoked
             .load(Ordering::Acquire)
         {
-            Err(DeliveryError::TabBusyRefused {
-                tab: tab_id.into(),
-                detail: "bootstrap owner revoked before handoff".into(),
-            })
-        } else {
-            self.submit_parked_bootstrap(tab_id, &text)
-        };
+            return self.settle_parked_bootstrap(
+                tab_id,
+                record,
+                &delivery_id,
+                dispatch_generation,
+                Err(DeliveryError::TabBusyRefused {
+                    tab: tab_id.into(),
+                    detail: "bootstrap owner revoked before handoff".into(),
+                }),
+            );
+        }
+        let service = self.clone();
+        let completion_service = self.clone();
+        let submit_tab = tab_id.to_owned();
+        let completion_tab = tab_id.to_owned();
+        let completion_record = record.clone();
+        let completion_id = delivery_id.clone();
+        let outcome = self.run_write_handoff(
+            tab_id,
+            move |enqueued| service.submit_parked_bootstrap(&submit_tab, &text, enqueued),
+            move |outcome| {
+                let _ = completion_service.settle_parked_bootstrap(
+                    &completion_tab,
+                    completion_record,
+                    &completion_id,
+                    dispatch_generation,
+                    outcome,
+                );
+            },
+        );
+        if matches!(outcome, Ok(UserWrite::Enqueued)) {
+            return Ok(());
+        }
+        self.settle_parked_bootstrap(
+            tab_id,
+            record,
+            &delivery_id,
+            dispatch_generation,
+            outcome.map(|_| ()),
+        )
+    }
+
+    fn settle_parked_bootstrap(
+        &self,
+        tab_id: &str,
+        record: PendingDeliveryRecord,
+        delivery_id: &str,
+        dispatch_generation: u64,
+        outcome: Result<(), DeliveryError>,
+    ) -> Result<(), UserDrain> {
         if let Err(error) = outcome {
             log::warn!(
                 "[chat-send] parked send {} for Tab {tab_id} failed: {}",
@@ -173,11 +216,24 @@ impl crate::service::ServiceContext {
         &self,
         tab_id: &str,
         text: &str,
+        enqueued: PayloadEnqueued,
     ) -> Result<(), DeliveryError> {
         #[cfg(test)]
-        if let Some(boundary) = tests::bootstrap_boundary(tab_id) {
-            return boundary(text);
+        if let Some(boundary) = tests::queued_boundary::boundary(tab_id) {
+            return boundary(None, text, enqueued);
         }
-        self.send_chat_text_claimed(tab_id, text, None)
+        #[cfg(test)]
+        if let Some(boundary) = tests::bootstrap_boundary(tab_id) {
+            let outcome = boundary(text);
+            if outcome
+                .as_ref()
+                .err()
+                .is_none_or(DeliveryError::bytes_written)
+            {
+                enqueued();
+            }
+            return outcome;
+        }
+        self.send_chat_text_with_enqueued(tab_id, text, enqueued)
     }
 }

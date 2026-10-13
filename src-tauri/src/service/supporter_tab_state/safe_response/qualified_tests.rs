@@ -424,7 +424,10 @@ fn bounded_diagnostic(text: &str) -> BoundedText {
     BoundedText::tail(&safe_text, MAX_FIXTURE_DIAGNOSTIC_BYTES)
 }
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the Windows PowerShell Console.ReadKey PTY fixture"
+)]
 fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_completion() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty = format!("static-modal-{}", uuid::Uuid::new_v4().simple());

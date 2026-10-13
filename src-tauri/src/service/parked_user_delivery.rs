@@ -49,6 +49,8 @@ type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
 
 mod continuity;
 mod drain;
+mod handoff;
+use handoff::{PayloadEnqueued, UserWrite};
 mod owner_wake;
 use owner_wake::OwnerWakeBoundary;
 
@@ -679,6 +681,44 @@ impl super::ServiceContext {
         text: &str,
         readiness: Option<&UserReadiness>,
         capture_send: bool,
+    ) -> Result<UserWrite, DeliveryError> {
+        let service = self.clone();
+        let completion_service = self.clone();
+        let send_id = record.send_id.clone();
+        let owned_record = record.clone();
+        let text = text.to_owned();
+        let readiness = readiness.cloned();
+        self.run_write_handoff(
+            &record.authority.tab_id,
+            move |enqueued| {
+                service.submit_owned_user_transaction(
+                    &owned_record,
+                    &text,
+                    readiness.as_ref(),
+                    capture_send,
+                    enqueued,
+                )
+            },
+            move |outcome| completion_service.finish_user_write(&send_id, outcome),
+        )
+    }
+
+    fn finish_user_write(&self, send_id: &str, outcome: Result<(), DeliveryError>) {
+        if let Some(status) = self
+            .chat_send_ledger
+            .finish(send_id, outcome.map_err(|error| error.ledger_message()))
+        {
+            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        }
+    }
+
+    fn submit_owned_user_transaction(
+        &self,
+        record: &UserSendRecord,
+        text: &str,
+        readiness: Option<&UserReadiness>,
+        capture_send: bool,
+        enqueued: PayloadEnqueued,
     ) -> Result<(), DeliveryError> {
         let authority = &record.authority;
         let tab_id = authority.tab_id.as_str();
@@ -814,6 +854,22 @@ impl super::ServiceContext {
                 }
                 current
             });
+        let write_service = self.clone();
+        let write_record = record.clone();
+        let payload_queued: PayloadEnqueued = std::sync::Arc::new(move || {
+            write_service.mark_user_send_written(&write_record);
+            enqueued();
+        });
+        #[cfg(test)]
+        if let Some(boundary) = tests::queued_boundary::boundary(tab_id) {
+            if !pre_write_guard() {
+                return Err(DeliveryError::TabBusyRefused {
+                    tab: tab_id.into(),
+                    detail: "user owner authority changed before payload write".into(),
+                });
+            }
+            return boundary(Some(record), text, payload_queued);
+        }
         #[cfg(test)]
         if let Some(boundary) = tests::submit_boundary(tab_id) {
             tests::run_before_submit(tab_id);
@@ -829,16 +885,10 @@ impl super::ServiceContext {
                 .err()
                 .is_none_or(DeliveryError::bytes_written)
             {
-                self.mark_user_send_written(record);
+                payload_queued();
             }
             return outcome;
         }
-        let write_service = self.clone();
-        let write_record = record.clone();
-        let payload_queued: std::sync::Arc<dyn Fn() + Send + Sync> =
-            std::sync::Arc::new(move || {
-                write_service.mark_user_send_written(&write_record);
-            });
         super::pty_io::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
             self,
             pty_id,

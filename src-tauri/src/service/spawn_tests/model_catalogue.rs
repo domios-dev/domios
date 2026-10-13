@@ -258,7 +258,6 @@ fn ambiguous_bare_model_requires_an_explicit_provider() {
     assert!(error.to_string().contains("pass --agent"), "{error}");
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn spawn_refuses_model_absent_from_free_form_providers_live_list() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -371,7 +370,6 @@ fn restore_with_model_missing_from_authoritative_catalogue_records_notice() {
     crate::agent::model_catalog::unregister(provider_id);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn restore_with_undiscovered_live_catalogue_posts_no_notification() {
     let provider_id = "restore-undiscovered-live-catalogue-fixture";
@@ -403,7 +401,6 @@ fn restore_with_undiscovered_live_catalogue_posts_no_notification() {
     crate::agent::model_catalog::unregister(provider_id);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn restore_with_removed_authoritative_model_posts_notification() {
     let provider_id = "restore-removed-model-notification-fixture";

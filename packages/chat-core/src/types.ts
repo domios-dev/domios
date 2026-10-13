@@ -114,6 +114,7 @@ export interface ChatAttachment {
 }
 
 export interface InteractiveOption {
+  value?: string;
   label: string;
   description?: string;
 }
@@ -127,6 +128,7 @@ export interface InteractiveQuestion {
   header?: string;
   options: InteractiveOption[];
   multiSelect: boolean;
+  allowFreeText?: boolean;
 }
 
 export type ChatTimelineMarker =

@@ -108,7 +108,7 @@ pub(crate) fn restored_launch_task(
 }
 
 pub(crate) fn restore_permission_bypass_authorization(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     registry: &AgentRegistry,
     tab_id: &str,
     provider_id: &str,

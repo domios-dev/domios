@@ -14,7 +14,7 @@ use tauri::Manager;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
-fn manage_test_config(app: &tauri::App) {
+fn manage_test_config(app: &crate::app_runtime::App) {
     let config: crate::config::ConfigState = std::sync::Arc::new(parking_lot::Mutex::new(
         crate::config::schema::AppConfig::default(),
     ));

@@ -180,7 +180,6 @@ fn a_new_turn_invalidates_completed_evidence_before_a_staged_switch_claims_it() 
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn completion_signal_requires_the_current_claimed_session_and_verified_nonce() {
     let (mut request, source) = fixture();
     let (mut mux, tab_id) = MultiplexerState::new();

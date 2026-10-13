@@ -1,3 +1,4 @@
+use crate::app_runtime::AppHandle;
 use crate::plan::TaskLaneMetadata;
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, RegressionDispatchDecision,
@@ -10,7 +11,6 @@ use crate::service::{
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;

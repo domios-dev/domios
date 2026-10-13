@@ -123,6 +123,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             if let Err(reason) =
                 publish_events(&svc, &session, epoch, reduced.events, received_at).await
             {
+                session.state.lock().degrade(epoch, &reason);
                 process.client.close(reason);
                 break;
             }
@@ -136,7 +137,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             let expired = session.context.lock().clone();
             super::prompt_answers::clear(&svc, &expired);
             session.prompts.lock().clear();
-            if session.state.lock().unload(epoch, &reason) {
+            if unload_retaining_degradation(&mut session.state.lock(), epoch, &reason) {
                 session
                     .thread_loaded
                     .store(false, std::sync::atomic::Ordering::Release);
@@ -233,7 +234,8 @@ pub(super) async fn publish_events(
                 owner
                     .pending_delivery_payloads
                     .user_sends
-                    .persist_runtime_status(&status)
+                    .persist_runtime_status(&status)?;
+                super::envelope_delivery::record_write(&owner, &status)
             })
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
@@ -357,7 +359,10 @@ fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgen
                         .lock()
                         .working(context.active_turn_id == turn_id, at, started_at)
                 }
-                RuntimeTurnState::Idle => session.state.lock().completed(at, completed_at),
+                RuntimeTurnState::Idle => {
+                    engine::record_completed_turn(session, &thread_id, turn_id.as_deref());
+                    session.state.lock().completed(at, completed_at);
+                }
                 RuntimeTurnState::NeedsInput => {}
             }
             let verdict = match state {
@@ -427,3 +432,23 @@ fn apply(svc: &ServiceContext, session: &Session, epoch: u64, enriched: HostAgen
         svc.emit_state_changed();
     }
 }
+
+fn unload_retaining_degradation(
+    state: &mut super::model::RuntimeState,
+    epoch: u64,
+    reason: &RuntimeFailure,
+) -> bool {
+    let degraded =
+        matches!(state.phase, RuntimePhase::Degraded { .. }).then(|| state.phase.clone());
+    if !state.unload(epoch, reason) {
+        return false;
+    }
+    if let Some(phase) = degraded {
+        state.phase = phase;
+    }
+    true
+}
+
+#[cfg(test)]
+#[path = "subscriber/tests.rs"]
+mod tests;

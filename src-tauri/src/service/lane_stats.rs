@@ -1,3 +1,5 @@
+mod checkpoint;
+
 use crate::plan::{LaneCheckpointRefusal, LaneTurnChangeStats, Plan, TaskExecutionAttempt};
 use crate::service::{
     plan::{PlanError, PlanStore},
@@ -98,7 +100,7 @@ fn record_lane_turn(
     service: &ServiceContext,
     store: &PlanStore,
     repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     tab_id: &str,
 ) {
     let Some(target) = find_lane_attempt(store, tab_id) else {
@@ -335,55 +337,57 @@ fn create_checkpoint(
     turn: u32,
     deadline: Instant,
 ) -> Result<CheckpointResult, CaptureFailure> {
-    if !safe_ref_component(attempt_id) {
-        return Ok(CheckpointResult::Refused(LaneCheckpointRefusal::GitFailure));
+    checkpoint::create(
+        &mut GitCheckpoint {
+            cwd,
+            deadline,
+            index: None,
+        },
+        attempt_id,
+        turn,
+    )
+}
+
+struct GitCheckpoint<'a> {
+    cwd: &'a Path,
+    deadline: Instant,
+    index: Option<tempfile::TempDir>,
+}
+
+impl checkpoint::Repository for GitCheckpoint<'_> {
+    fn uses_lfs(&mut self) -> Result<bool, CaptureFailure> {
+        repository_uses_lfs(self.cwd, self.deadline)
     }
-    if repository_uses_lfs(cwd, deadline)? {
-        return Ok(CheckpointResult::Refused(
-            LaneCheckpointRefusal::LfsRepository,
-        ));
+
+    fn non_cone_sparse(&mut self) -> Result<bool, CaptureFailure> {
+        has_non_cone_sparse_checkout(self.cwd, self.deadline)
     }
-    if has_non_cone_sparse_checkout(cwd, deadline)? {
-        return Ok(CheckpointResult::Refused(
-            LaneCheckpointRefusal::NonConeSparseCheckout,
-        ));
+
+    fn run(&mut self, args: &[&str], isolated_index: bool) -> Result<String, CaptureFailure> {
+        let index = if isolated_index {
+            if self.index.is_none() {
+                self.index = Some(
+                    tempfile::Builder::new()
+                        .prefix("codeterm-lane-checkpoint-")
+                        .tempdir()
+                        .map_err(|error| CaptureFailure::Git(error.to_string()))?,
+                );
+            }
+            self.index
+                .as_ref()
+                .map(|directory| directory.path().join("index"))
+        } else {
+            None
+        };
+        run_git(
+            self.cwd,
+            args,
+            index
+                .as_ref()
+                .map(|path| ("GIT_INDEX_FILE", path.as_os_str())),
+            self.deadline,
+        )
     }
-    let directory = tempfile::Builder::new()
-        .prefix("codeterm-lane-checkpoint-")
-        .tempdir()
-        .map_err(|error| CaptureFailure::Git(error.to_string()))?;
-    let index = directory.path().join("index");
-    let index_env = Some(("GIT_INDEX_FILE", index.as_os_str()));
-    run_git(cwd, &["read-tree", "HEAD"], index_env, deadline)?;
-    run_git(cwd, &["add", "-A", "--", "."], index_env, deadline)?;
-    let tree = run_git(cwd, &["write-tree"], index_env, deadline)?;
-    let reference = format!("refs/domios/checkpoints/{attempt_id}/{turn}");
-    let commit = run_git(
-        cwd,
-        &[
-            "-c",
-            "user.name=CodeTerm",
-            "-c",
-            "user.email=codeterm@localhost",
-            "commit-tree",
-            tree.trim(),
-            "-p",
-            "HEAD",
-            "-m",
-            "codeterm lane checkpoint",
-        ],
-        None,
-        deadline,
-    )?;
-    let commit = commit.trim();
-    if commit.is_empty() {
-        return Err(CaptureFailure::Git(
-            "git commit-tree returned no object id".into(),
-        ));
-    }
-    run_git(cwd, &["update-ref", &reference, commit], None, deadline)?;
-    retain_checkpoints(cwd, attempt_id, deadline)?;
-    Ok(CheckpointResult::Created(reference))
 }
 
 fn repository_uses_lfs(cwd: &Path, deadline: Instant) -> Result<bool, CaptureFailure> {
@@ -456,32 +460,6 @@ fn has_non_cone_sparse_checkout(cwd: &Path, deadline: Instant) -> Result<bool, C
         || !String::from_utf8_lossy(&cone.stdout)
             .trim()
             .eq_ignore_ascii_case("true"))
-}
-
-fn retain_checkpoints(
-    cwd: &Path,
-    attempt_id: &str,
-    deadline: Instant,
-) -> Result<(), CaptureFailure> {
-    let prefix = format!("refs/domios/checkpoints/{attempt_id}");
-    let refs = run_git(
-        cwd,
-        &["for-each-ref", "--format=%(refname)", &prefix],
-        None,
-        deadline,
-    )?;
-    let mut refs: Vec<(u32, String)> = refs
-        .lines()
-        .filter_map(|reference| {
-            checkpoint_turn(&prefix, reference).map(|turn| (turn, reference.into()))
-        })
-        .collect();
-    refs.sort_by_key(|(turn, _)| *turn);
-    let remove_count = refs.len().saturating_sub(CHECKPOINTS_PER_ATTEMPT);
-    for (_, reference) in refs.into_iter().take(remove_count) {
-        run_git(cwd, &["update-ref", "-d", &reference], None, deadline)?;
-    }
-    Ok(())
 }
 
 pub(crate) fn delete_attempt_checkpoint_refs(cwd: &Path, attempt_id: &str) -> Result<(), String> {
@@ -660,7 +638,11 @@ fn unix_time_millis() -> u64 {
         .as_millis() as u64
 }
 
-fn offer_merged_lanes(store: &PlanStore, app: &tauri::AppHandle, repository_identity: &str) {
+fn offer_merged_lanes(
+    store: &PlanStore,
+    app: &crate::app_runtime::AppHandle,
+    repository_identity: &str,
+) {
     let deadline = Instant::now() + TURN_CAPTURE_DEADLINE;
     let mut checked = 0usize;
     for plan in store.list_full() {

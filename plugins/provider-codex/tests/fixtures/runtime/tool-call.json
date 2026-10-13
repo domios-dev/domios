@@ -14,7 +14,8 @@
     },
     "providerSettings": {},
     "claimedSends": [],
-    "activeTurns": []
+    "activeTurns": [],
+    "threadParents": []
   },
   "operations": [],
   "rpc": [
@@ -218,7 +219,7 @@
           "toolArgs": "{\n  \"key\": \"value\"\n}",
           "collapsed": true,
           "toolFlowId": "turn-a",
-          "toolResult": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"Found\"\n    }\n  ],\n  \"isError\": false\n}",
+          "toolResult": "{\n  \"content\": [\n    {\n      \"text\": \"Found\",\n      \"type\": \"text\"\n    }\n  ],\n  \"isError\": false\n}",
           "toolError": false
         }
       },

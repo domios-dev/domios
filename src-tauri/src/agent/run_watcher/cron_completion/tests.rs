@@ -74,7 +74,6 @@ fn cron_completion_cannot_close_for_tools_empty_answers_or_previous_turns() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     use super::super::{AtomicBool, AtomicU32, ResultEventScanner, RunState};
     use crate::cron::store::{CronCreateParams, CronRunInfo, CronRunStatus, CronStore};
@@ -95,7 +94,12 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         tab.session_binding_nonce = Some("own-nonce".into());
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let path = fixture.temp.path().join("own-session.jsonl");
+    let path = fixture
+        .temp
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("own-session.jsonl");
     std::fs::write(&path, "").unwrap();
     let source = format!(
         r#"module.exports.default = {{

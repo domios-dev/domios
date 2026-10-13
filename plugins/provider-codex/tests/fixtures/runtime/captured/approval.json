@@ -18,7 +18,8 @@
     },
     "providerSettings": {},
     "claimedSends": [],
-    "activeTurns": []
+    "activeTurns": [],
+    "threadParents": []
   },
   "operations": [
     {
@@ -38,7 +39,8 @@
         },
         "providerSettings": {},
         "claimedSends": [],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -64,7 +66,8 @@
         },
         "providerSettings": {},
         "claimedSends": [],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -105,7 +108,8 @@
           }
         ],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -171,7 +175,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     }
   ],
@@ -484,7 +489,8 @@
           }
         ],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -530,7 +536,8 @@
           }
         ],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -580,7 +587,8 @@
           }
         ],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -621,7 +629,8 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -654,7 +663,8 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -703,7 +713,8 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -762,7 +773,8 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "threadParents": []
       }
     },
     {
@@ -852,7 +864,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -939,7 +952,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1008,7 +1022,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1093,7 +1108,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1169,7 +1185,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1237,7 +1254,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1305,7 +1323,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1373,7 +1392,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1449,7 +1469,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1534,7 +1555,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1602,7 +1624,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     },
     {
@@ -1687,7 +1710,8 @@
               "cancel"
             ]
           }
-        }
+        },
+        "threadParents": []
       }
     }
   ],
@@ -1746,6 +1770,10 @@
       }
     ],
     "events": [
+      {
+        "kind": "auth",
+        "state": "signedIn"
+      },
       {
         "kind": "turnState",
         "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",

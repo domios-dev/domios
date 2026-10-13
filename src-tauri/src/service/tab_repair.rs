@@ -739,7 +739,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn foreign_tab_without_plan_ownership_is_refused_by_constant() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -776,7 +775,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn live_plan_owner_may_repair_its_assigned_worker() {
         let (mut mux, owner_id) = MultiplexerState::new();
         mux.set_orchestrator_role(&owner_id).unwrap();
@@ -869,7 +867,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn repair_from_live_evidence_corrects_locked_label_without_restart() {
         let (fixture, tab_id, caller) = repair_fixture("claude");
         let target = fixture
@@ -894,7 +891,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn asserted_provider_mismatch_is_refused_by_the_stable_constant() {
         let (fixture, tab_id, caller) = repair_fixture("claude");
         let target = fixture

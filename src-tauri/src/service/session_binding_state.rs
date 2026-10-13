@@ -328,7 +328,6 @@ mod tests {
 
     /// The second half of rollacode/codeterm#381: masking a resolved record in
     /// classification still leaves it for the next reader, so emission retires it.
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn resolved_binding_retires_its_deferral_record() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();

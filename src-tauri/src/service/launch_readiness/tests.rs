@@ -713,10 +713,6 @@ fn pre_ready_exit_in_resume_auto_resumes_once() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn second_pre_ready_exit_stops_without_a_bell_entry() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).expect("seeded tab");
@@ -775,10 +771,6 @@ fn second_pre_ready_exit_stops_without_a_bell_entry() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn failed_automatic_recovery_stays_out_of_the_bell() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -850,10 +842,6 @@ fn launch_readiness_exit_is_evidence_whether_or_not_agent_ready_was_claimed() {
 /// shell emits. This is the case the pure tests could not reach: nothing notes
 /// the exit by hand, the daemon has to observe it.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&tab_id, "pty-launch-readiness".into());
@@ -924,10 +912,6 @@ fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "resume-live-pty-deadline";
@@ -1021,10 +1005,6 @@ fn launch_readiness_published_failure_stops_the_launch_thread() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn post_readiness_shell_exit_retains_status_without_a_bell_entry() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&tab_id, "pty-ready-exit-notification".into());

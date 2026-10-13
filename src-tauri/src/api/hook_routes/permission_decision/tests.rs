@@ -141,7 +141,6 @@ fn claude_permission_hook_identity_is_request_specific_and_cleanup_is_scoped() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
 fn claude_permission_hook_concurrent_requests_answer_independently_without_bell_entries() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
@@ -212,7 +211,6 @@ fn claude_permission_hook_unknown_or_ambiguous_capability_is_unsupported() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
 fn claude_permission_hook_tab_answer_uses_structured_route_without_a_bell_entry() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
@@ -265,7 +263,6 @@ fn claude_permission_hook_tab_answer_uses_structured_route_without_a_bell_entry(
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
 async fn claude_permission_hook_timeout_and_provider_clear_retire_request_without_decision_or_bell_entry(
 ) {
     use crate::multiplexer::state::MultiplexerState;

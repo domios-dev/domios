@@ -18,7 +18,12 @@ pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> s
     serde_json::json!({"cron_id": cron_id, "run_id": run_id, "tab_id": tab_id})
 }
 
-pub(crate) fn emit_cron_fired(app: &tauri::AppHandle, cron_id: &str, run_id: &str, tab_id: &str) {
+pub(crate) fn emit_cron_fired(
+    app: &crate::app_runtime::AppHandle,
+    cron_id: &str,
+    run_id: &str,
+    tab_id: &str,
+) {
     use tauri::Emitter;
     let _ = app.emit("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
 }

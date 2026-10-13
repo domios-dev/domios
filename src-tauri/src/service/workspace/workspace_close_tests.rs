@@ -29,7 +29,6 @@ fn names_and_titles_validated() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn move_tab_missing_workspace_names_target() {
     let (mux, tab_id) = MultiplexerState::new();
     let from_workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
@@ -83,10 +82,6 @@ fn workspace_close_log_caller_distinguishes_confirmed_headerless_humans() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_skips_peer_anchored_team_ids() {
     let (mut mux, root_tab_id) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&root_tab_id).unwrap();
@@ -147,10 +142,6 @@ fn workspace_with_agent_tab() -> (ServiceFixture, String, String, String) {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
     let (fixture, workspace_id, tab_id, caller_tab) = workspace_with_agent_tab();
 
@@ -164,10 +155,6 @@ fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn optional_body_contract_workspace_agent_guard_is_reported_as_forbidden() {
     let (fixture, workspace_id, _, caller_tab) = workspace_with_agent_tab();
     let error = fixture
@@ -181,10 +168,6 @@ fn optional_body_contract_workspace_agent_guard_is_reported_as_forbidden() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_guard_confirmed_agent_tabs_close() {
     let (fixture, workspace_id, tab_id, caller_tab) = workspace_with_agent_tab();
 
@@ -198,10 +181,6 @@ fn workspace_close_guard_confirmed_agent_tabs_close() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn workspace_close_guard_human_can_close_empty_workspace() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Empty".into(), None).id;
@@ -221,10 +200,6 @@ async fn workspace_close_guard_human_can_close_empty_workspace() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn workspace_close_handles_crons() {
     use crate::cron::store::{CronCreateParams, CronStore};
     use parking_lot::Mutex;
@@ -295,10 +270,6 @@ async fn workspace_close_handles_crons() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unattributed_close_cannot_close_an_unprotected_workspace() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Unattributed".into(), None).id;
@@ -320,10 +291,6 @@ fn unattributed_close_cannot_close_an_unprotected_workspace() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unattributed_caller_closes_an_empty_workspace() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Empty".into(), None).id;
@@ -343,10 +310,6 @@ fn unattributed_caller_closes_an_empty_workspace() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_guard_mesh_requires_force() {
     let (fixture, workspace_id, tab_id, _) = workspace_with_agent_tab();
 
@@ -363,10 +326,6 @@ fn workspace_close_guard_mesh_requires_force() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unattributed_close_refuses_a_protected_workspace() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -385,10 +344,6 @@ fn unattributed_close_refuses_a_protected_workspace() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unknown_local_tab_header_cannot_bypass_workspace_close_protection() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -407,10 +362,6 @@ fn unknown_local_tab_header_cannot_bypass_workspace_close_protection() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn agent_coordinator_self_close_of_workspace_is_still_refused() {
     let (fixture, workspace_id, coordinator) = protected_workspace();
 
@@ -429,10 +380,6 @@ fn agent_coordinator_self_close_of_workspace_is_still_refused() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
     use crate::cron::store::{CronCreateParams, CronStore};
     use crate::multiplexer::types::AgentRole;
@@ -566,10 +513,6 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn authenticated_mesh_peer_may_close_a_protected_workspace() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -587,10 +530,6 @@ fn authenticated_mesh_peer_may_close_a_protected_workspace() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn empty_mesh_peer_provenance_is_rejected() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -609,10 +548,6 @@ fn empty_mesh_peer_provenance_is_rejected() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_tears_down_prompt_state_for_every_tab() {
     let (mut mux, first_tab) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&first_tab).unwrap();
@@ -642,10 +577,6 @@ fn workspace_close_tears_down_prompt_state_for_every_tab() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_keeps_one_workspace_restore_group() {
     let (mut mux, first_tab) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&first_tab).unwrap();
@@ -663,10 +594,6 @@ fn workspace_close_keeps_one_workspace_restore_group() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_retires_task_bindings_for_member_tabs() {
     let (mut mux, owner) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&owner).unwrap();
@@ -719,10 +646,6 @@ fn workspace_close_retires_task_bindings_for_member_tabs() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_reservation_blocks_membership_before_lifecycle_cleanup() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
@@ -757,10 +680,6 @@ fn workspace_close_reservation_blocks_membership_before_lifecycle_cleanup() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn workspace_close_finishes_after_a_pre_teardown_error() {
     let (mut mux, first_tab) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&first_tab).unwrap();
@@ -801,10 +720,6 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn close_team_via_service_persists_the_reduced_desk() {
     use crate::service::TeamMutationCaller;
     use crate::session::store::StorageDeskAdapter;
@@ -887,10 +802,6 @@ async fn close_team_via_service_persists_the_reduced_desk() {
 }
 
 #[tokio::test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 async fn workspace_close_after_team_close_finds_existing_workspace() {
     use crate::service::TeamMutationCaller;
 
@@ -915,10 +826,6 @@ async fn workspace_close_after_team_close_finds_existing_workspace() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
     use crate::service::spawn::{SpawnTabSpec, TabCommand};
     use crate::session::store::StorageDeskAdapter;

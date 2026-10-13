@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::app_runtime::AppHandle;
 use serde_json::{json, Value};
-use tauri::AppHandle;
 
 #[cfg(test)]
 use crate::plan::Plan;
@@ -864,7 +864,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_review_reopens_when_executor_tab_is_absent() {
         let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(false);
         dispatch_bounce(&fixture, &plan_id, &task_id).unwrap();
@@ -884,7 +883,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_review_reopens_after_tab_close_retires_executor_attempt() {
         let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(true);
         let task_before_close = fixture.service.plan_store.show_task(&task_id).unwrap().task;
@@ -939,7 +937,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_review_keeps_live_unbound_worker_in_review() {
         let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(true);
         let error = dispatch_bounce(&fixture, &plan_id, &task_id).unwrap_err();
@@ -985,7 +982,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_review_does_not_reopen_closed_attempt_while_executor_tab_is_present() {
         let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(true);
         let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
@@ -1013,7 +1009,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_review_keeps_missing_remote_worker_attempt_open() {
         let (fixture, plan_id, task_id, _) = socket_bounce_fixture(false);
         let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();

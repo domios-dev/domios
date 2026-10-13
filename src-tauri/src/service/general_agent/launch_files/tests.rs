@@ -33,7 +33,6 @@ fn fixture() -> (ServiceFixture, String, String) {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn general_agent_fresh_and_resumed_launch_plans_select_structured_control() {
     let (fixture, tab, provider) = fixture();
     let svc = &fixture.service;
@@ -79,7 +78,6 @@ fn general_agent_fresh_and_resumed_launch_plans_select_structured_control() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn fresh_general_model_policy_preserves_structured_launch_selection() {
     let (fixture, tab, provider) = fixture();
     let params = AgentLaunchParams {
@@ -107,7 +105,6 @@ fn fresh_general_model_policy_preserves_structured_launch_selection() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn general_agent_structured_credentials_precede_provider_identity_and_preserve_nonce() {
     let (fixture, tab, provider) = fixture();
     let svc = &fixture.service;
@@ -126,7 +123,6 @@ fn general_agent_structured_credentials_precede_provider_identity_and_preserve_n
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn general_agent_comparison_ordinary_restore_defers_fresh_and_resumed_structured_launch() {
     let (fixture, tab, provider) = fixture();
     let svc = &fixture.service;
@@ -152,7 +148,6 @@ fn general_agent_comparison_ordinary_restore_defers_fresh_and_resumed_structured
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restored_general_sibling_and_main_share_typed_model_rpc_admission() {
     let (fixture, main, provider) = fixture();
     let svc = &fixture.service;
@@ -205,7 +200,6 @@ fn restored_general_sibling_and_main_share_typed_model_rpc_admission() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restored_main_plain_launch_registers_exact_resume_authority_before_binding() {
     let (fixture, main, _) = fixture();
     let svc = &fixture.service;

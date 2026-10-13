@@ -42,6 +42,7 @@ export interface RuntimeContext {
   cwd:string;
   hostVersion:string;
   activeTurns:readonly RuntimeActiveTurn[];
+  threadParents:readonly RuntimeThreadParent[];
   claimedSends:readonly {sendId:string; threadId:string; input:TurnInput}[];
   tabId:string;
   bindingNonce:string;
@@ -73,7 +74,7 @@ export type OperationResult =
   | {kind:"initialized"}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];
-      nextCursor?:string; openItems:readonly OpenItem[]}
+      nextCursor?:string; openItems:readonly OpenItem[]; questions?:readonly RuntimeHistoryQuestion[]}
   | {kind:"turnAccepted"; threadId:string; sendId:string; turnId?:string}
   | {kind:"done"};
 export type RuntimeStep =
@@ -121,3 +122,7 @@ export interface RuntimeQuestion {id:string; text:string; options:readonly {valu
 export interface RuntimeQuestionAnswer {questionId:string; values:readonly string[]; text?:string}
 
 export interface RuntimeActiveTurn {threadId:string; turnId:string; parentThreadId?:string}
+
+export interface RuntimeThreadParent {threadId:string; parentThreadId:string}
+
+export interface RuntimeHistoryQuestion {threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"; resolved?:boolean}

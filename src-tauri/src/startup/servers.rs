@@ -118,7 +118,11 @@ fn report_general_agent_frontend_deadline(service: &crate::service::ServiceConte
 }
 
 /// Start socket server, REST API server, and cron scheduler.
-pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
+pub(crate) fn start_servers(
+    app: &crate::app_runtime::App,
+    states: &AppStates,
+    service_state: &ServiceState,
+) {
     crate::update::bind_status_emitter(app.handle().clone());
     let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
@@ -497,10 +501,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn general_agent_frontend_deadline_releases_mux_for_restored_backends() {
         let (mut mux, general_tab_id) = MultiplexerState::new();
         mux.register_alias(

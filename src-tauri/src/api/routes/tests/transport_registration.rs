@@ -16,7 +16,6 @@ fn transport_domain_registration_contract_routers_merge_without_collisions() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn transport_domain_registration_contract_auth_methods_and_persisted_cwd() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -126,7 +125,6 @@ fn transport_registry_contract_orphan_restore_body_is_explicit() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn transport_registry_contract_owner_mutations_restore_and_persist() {
     let (mut mux, tab) = MultiplexerState::new();
     let workspace = mux.list_workspaces()[0].id.clone();
@@ -204,7 +202,6 @@ async fn transport_registry_contract_owner_mutations_restore_and_persist() {
     }
 }
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn transport_domain_registration_contract_team_nonce_and_persisted_rename() {
     let (mut mux, caller) = MultiplexerState::new();
     let team = mux

@@ -318,10 +318,6 @@ fn authenticated_resume_refuses_a_rotated_pty_or_binding_nonce() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the ServiceFixture requires an interactive desktop runtime"
-)]
 fn pinned_resume_send_writes_no_payload_when_the_pty_changed() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -355,10 +351,6 @@ fn pinned_resume_send_writes_no_payload_when_the_pty_changed() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the ServiceFixture requires an interactive desktop runtime"
-)]
 fn shell_spawn_command_locks_the_detected_agent_type() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
