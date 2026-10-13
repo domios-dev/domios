@@ -1,5 +1,5 @@
-use codeterm_types::agent::chat_types::ChatMsg;
-use codeterm_types::pty::{ChatAttachment, PendingPrompt};
+use codeterm_types::agent::chat_types::{ChatAttachment, ChatMsg};
+use codeterm_types::pty::PendingPrompt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
