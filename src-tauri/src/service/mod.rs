@@ -415,6 +415,7 @@ pub struct ServiceContext {
     pub(crate) surface_activity: Arc<surface::SurfaceActivityGate>,
     /// Sole owner of the webhook-receiver → tab bindings.
     pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
+    pub(crate) local_recording_selections: Arc<local_recording::RecordingSelectionStore>,
     pub(crate) local_recording_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,

@@ -44,7 +44,18 @@ function localRecordingConformance(host: Host) {
   host.localRecording.statusReport({ request: [1], path: "foreign" });
   // @ts-expect-error START is host-owned.
   host.localRecording.start();
-  // @ts-expect-error A plugin cannot select arbitrary devices.
+  host.localRecording.selectDevices({ inputId: "input", collectionId: "collection", microphoneId: "microphone" });
+  const saved = host.localRecording.savedSelection();
+  if (saved && !("error" in saved)) {
+    const microphone: string = saved.microphoneId;
+    void microphone;
+  }
+  const inputs = host.localRecording.listInputDevices();
+  if (inputs && !("error" in inputs)) {
+    const kind: "hid" | "audio_input" = inputs[0].kind;
+    void kind;
+  }
+  // @ts-expect-error Selection requires the full offered identity.
   host.localRecording.selectDevices("arbitrary-device");
   // @ts-expect-error A plugin cannot commit a transcript or choose a recipient.
   host.localRecording.commit("tab-B", "injected-text");
