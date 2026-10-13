@@ -1,6 +1,7 @@
+use crate::app_runtime::AppHandle;
 use axum::{body::Body, http::Request};
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::Manager;
 use tower::ServiceExt;
 
 use super::JsonRpcError;

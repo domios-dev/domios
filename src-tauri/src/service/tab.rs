@@ -966,10 +966,6 @@ mod launch_artifact_close_tests {
     use std::sync::Arc;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn closing_a_codex_tab_releases_its_own_profile() {
         let (mut mux, tab_id) = MultiplexerState::new();
         mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("codex".into());

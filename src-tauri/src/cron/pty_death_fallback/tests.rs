@@ -215,7 +215,6 @@ fn cron_pty_death_fallback_create_log_never_overwrites() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_settle_pty_death_fallback_finishes_once_off_runtime() {
     let run = owned_run();
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();

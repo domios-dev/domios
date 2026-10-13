@@ -40,7 +40,7 @@ pub(crate) fn store_surface_resume(
 
 /// Blocking: stores `resume` and submits the desk snapshot when it changed.
 pub(crate) fn write_surface_resume(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     tab_id: &str,
     resume: &SurfaceResume,
@@ -75,7 +75,7 @@ async fn follow_resume(
     tab_id: String,
     mut updates: watch::Receiver<SurfaceResume>,
     mux: MuxState,
-    app: tauri::AppHandle,
+    app: crate::app_runtime::AppHandle,
 ) {
     while updates.changed().await.is_ok() {
         tokio::time::sleep(RESUME_COALESCE).await;

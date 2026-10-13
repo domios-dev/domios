@@ -7,11 +7,11 @@ use crate::service::plan::ports::{TaskKeyPort, TaskKeyScope};
 /// snapshot, so the advanced counter survives a restart.
 pub struct MuxTaskKeyPort {
     mux: MuxState,
-    app: tauri::AppHandle,
+    app: crate::app_runtime::AppHandle,
 }
 
 impl MuxTaskKeyPort {
-    pub fn new(mux: MuxState, app: tauri::AppHandle) -> Self {
+    pub fn new(mux: MuxState, app: crate::app_runtime::AppHandle) -> Self {
         Self { mux, app }
     }
 }

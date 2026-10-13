@@ -140,7 +140,6 @@ fn fixture() -> ServiceFixture {
     ServiceFixture::new(mux)
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn general_agent_creation_is_unobstructed() {
     let fixture = fixture();
@@ -162,7 +161,6 @@ fn general_agent_creation_is_unobstructed() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn plain_shell_tab_creation_is_unobstructed() {
     let fixture = fixture();

@@ -8,7 +8,6 @@ const PROVIDER: &str = "restore-cwd-fixture";
 const SESSION: &str = "restore-cwd-session";
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn restore_missing_cwd_marks_error() {
     let project = tempfile::tempdir().unwrap();
     let vanished = project.path().join("moved-away");

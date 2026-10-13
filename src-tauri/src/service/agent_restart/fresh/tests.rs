@@ -65,7 +65,6 @@ fn fresh_restart_clears_binding_and_preserves_tab_identity() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn fresh_restart_service_uses_fresh_launch_and_rechecks_provider_store() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();

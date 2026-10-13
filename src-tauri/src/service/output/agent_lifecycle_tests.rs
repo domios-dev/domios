@@ -17,10 +17,6 @@ use std::collections::HashSet;
 const SHELL_SUFFIXES: [char; 4] = ['>', '$', '%', '#'];
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn printed_provider_tui_never_assigns_agent_type_to_plain_shell() {
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.link_pty(&tab_id, "pty-plain-shell".into());
@@ -197,10 +193,6 @@ fn assert_planner_resolves(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_shell_like_live_tui_preserves_identity_across_snapshot_reload() {
     let (mux, tab_id, planner, owner) = seed_live_planner();
     let harness = ServiceFixture::new(mux);
@@ -306,10 +298,6 @@ fn explicit_lifecycle_exit_clears_planner_identity_once() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn command_finished_marker_makes_a_ready_agent_observably_absent() {
     let (mut mux, tab_id, _, _) = seed_live_planner();
     mux.get_tab_mut(&tab_id).unwrap().shell_integration_nonce = Some("nonce-current".into());
@@ -427,10 +415,6 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
     let (mux, tab_id, _, _) = seed_live_planner();
     let harness = ServiceFixture::new(mux);

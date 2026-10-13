@@ -1,11 +1,11 @@
 use codeterm_repowatch::{RepoEventSink, RepoWatchUnavailable};
 
 pub struct TauriRepoEventSink {
-    app: tauri::AppHandle,
+    app: crate::app_runtime::AppHandle,
 }
 
 impl TauriRepoEventSink {
-    pub fn new(app: tauri::AppHandle) -> Self {
+    pub fn new(app: crate::app_runtime::AppHandle) -> Self {
         Self { app }
     }
 }

@@ -349,10 +349,6 @@ fn assert_launch_pty_conserved(outcome: &Outcome, launch_pty: &str, frontend_pty
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires a desktop runtime"
-)]
 fn cron_pty_ownership_frontend_first_shell_does_not_displace_launch_pty() {
     let mut race = OwnershipRace::new();
     race.pause_linking(false);
@@ -382,10 +378,6 @@ fn cron_pty_ownership_frontend_first_shell_does_not_displace_launch_pty() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires a desktop runtime"
-)]
 fn cron_pty_ownership_hidden_first_launch_pty_survives_frontend_attach() {
     let mut race = OwnershipRace::new();
     race.pause_linking(true);
@@ -415,10 +407,6 @@ fn cron_pty_ownership_hidden_first_launch_pty_survives_frontend_attach() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires a desktop runtime"
-)]
 fn cron_pty_ownership_remount_reuses_live_launch_pty() {
     let mut race = OwnershipRace::new();
     race.start_hidden();
@@ -439,10 +427,6 @@ fn cron_pty_ownership_remount_reuses_live_launch_pty() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires a desktop runtime"
-)]
 fn cron_pty_ownership_closed_tab_reaps_launch_candidate() {
     let mut race = OwnershipRace::new();
     race.fixture.service.mux.write().remove_tab(&race.tab_id);
@@ -460,10 +444,6 @@ fn cron_pty_ownership_closed_tab_reaps_launch_candidate() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires a desktop runtime"
-)]
 fn cron_pty_ownership_spawn_failure_holds_no_ownership() {
     let mut race = OwnershipRace::new();
     race.fixture.service.pty.lock().spawn_gate().quiesce();
@@ -481,10 +461,6 @@ fn cron_pty_ownership_spawn_failure_holds_no_ownership() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires a desktop runtime"
-)]
 fn cron_pty_ownership_dead_launch_claim_yields_to_frontend_shell() {
     let mut race = OwnershipRace::new();
     race.start_hidden();

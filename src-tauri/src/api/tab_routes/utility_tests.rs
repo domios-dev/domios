@@ -43,7 +43,6 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
     let (mut mux, owner) = MultiplexerState::new();
     mux.set_orchestrator_role(&owner).unwrap();

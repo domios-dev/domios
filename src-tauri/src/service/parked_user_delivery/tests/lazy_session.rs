@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn lazy_session_provider_writes_every_send_after_agent_readiness() {
     let (fixture, tab) = queue_fixture_with_session_mode(false, None, true);
     {

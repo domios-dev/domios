@@ -3,7 +3,7 @@ use std::sync::Arc;
 use codeterm_mesh::{LastActivityProvider, MeshEventSink};
 
 pub struct AppMeshEventSink<'a> {
-    pub app: &'a tauri::AppHandle,
+    pub app: &'a crate::app_runtime::AppHandle,
 }
 
 impl MeshEventSink for AppMeshEventSink<'_> {

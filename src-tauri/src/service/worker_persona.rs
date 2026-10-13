@@ -427,7 +427,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn task_bound_planned_name_survives_persona_intent_and_allocation() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -468,7 +467,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn task_bound_dispatch_without_persona_reserves_a_unique_pool_name() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -502,7 +500,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn task_bound_explicit_personality_wins_over_pool() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -530,7 +527,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn in_flight_persona_is_not_reissued_in_another_workspace() {
         let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let ws_a = mux.list_workspaces()[0].id.clone();

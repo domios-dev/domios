@@ -3,7 +3,9 @@ use tauri::Manager;
 
 pub(super) static SPAWN_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
-pub(super) fn configured_limits(app: &tauri::AppHandle) -> crate::config::schema::UtilityTabLimits {
+pub(super) fn configured_limits(
+    app: &crate::app_runtime::AppHandle,
+) -> crate::config::schema::UtilityTabLimits {
     app.try_state::<crate::config::ConfigState>()
         .map(|config| config.lock().utility_tabs.max_per_team.clone())
         .unwrap_or_else(|| crate::config::load_config().utility_tabs.max_per_team)

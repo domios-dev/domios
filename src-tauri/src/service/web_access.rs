@@ -1,6 +1,6 @@
 use std::sync::{Mutex, OnceLock};
 
-use tauri::AppHandle;
+use crate::app_runtime::AppHandle;
 
 use crate::{mesh, MeshStateHandle};
 

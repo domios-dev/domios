@@ -139,7 +139,6 @@ fn without_clock(mut reply: Value) -> Value {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn analytics_host_native_and_js_paths_agree_on_shared_fixtures() {
     let mut scene = scene();
     let queries = [
@@ -194,7 +193,6 @@ fn analytics_host_native_and_js_paths_agree_on_shared_fixtures() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn analytics_host_reports_two_workspaces_teams_and_created_tabs_without_a_ledger_path() {
     let scene = scene();
     let service = &scene.fixture.service;
@@ -245,7 +243,6 @@ fn analytics_host_reports_two_workspaces_teams_and_created_tabs_without_a_ledger
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn analytics_host_records_workspace_on_new_events_and_counts_created_tabs() {
     let scene = scene();
     let service = &scene.fixture.service;
@@ -274,7 +271,6 @@ fn analytics_host_records_workspace_on_new_events_and_counts_created_tabs() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn analytics_host_repeat_queries_reuse_the_cached_read_until_a_row_commits() {
     let scene = scene();
     let service = &scene.fixture.service;

@@ -1,6 +1,3 @@
-//! Shared test-only ServiceContext harness backed by a mock Tauri app.
-//! Requires a desktop runtime; tests using it are `ignore`d off Windows.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -18,7 +15,7 @@ pub(crate) struct ServiceFixture {
     /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
     /// dropping the fixture is itself the teardown signal.
     _owner: Arc<ServiceContext>,
-    pub(crate) _app: tauri::App,
+    pub(crate) _app: crate::app_runtime::App,
     pub(crate) temp: tempfile::TempDir,
 }
 
@@ -141,9 +138,7 @@ impl ServiceFixture {
                 mux.attach_closed_store(store);
             }
         }
-        let builder = tauri::Builder::default();
-        #[cfg(windows)]
-        let builder = builder.any_thread();
+        let builder = crate::app_runtime::builder();
         let app = builder
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
@@ -395,5 +390,45 @@ impl ServiceFixture {
             sticky,
             intent.level,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::{Emitter, Listener};
+
+    #[test]
+    fn fixture_constructs_emits_and_drops_on_an_owned_thread_without_windows() {
+        std::thread::spawn(|| {
+            let (mux, _) = MultiplexerState::new();
+            let fixture = ServiceFixture::new(mux);
+            assert!(fixture._app.webview_windows().is_empty());
+            fixture.set_agent_full_access(true);
+            let config = fixture
+                .service
+                .app_handle
+                .state::<crate::config::ConfigState>();
+            assert_eq!(config.lock().agent.full_access, Some(true));
+            let (tx, rx) = std::sync::mpsc::channel();
+            let listener = fixture
+                .service
+                .app_handle
+                .listen("fixture-event", move |event| {
+                    tx.send(event.payload().to_owned()).unwrap();
+                });
+            fixture
+                .service
+                .app_handle
+                .emit("fixture-event", 42)
+                .unwrap();
+            assert_eq!(
+                rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap(),
+                "42"
+            );
+            fixture.service.app_handle.unlisten(listener);
+        })
+        .join()
+        .unwrap();
     }
 }

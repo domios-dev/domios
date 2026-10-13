@@ -11,15 +11,17 @@ const identity = entry => JSON.stringify([entry.binary, entry.test]);
 
 export function parseTimings(output) {
   const text = output.replace(/\x1b\[[0-9;]*m/g, '');
-  if (!/^\s*Summary\s+\[/m.test(text)) throw new Error('nextest completion summary is missing');
+  const summary = text.match(/^\s*Summary\s+\[[^\]]+\]\s+(\d+)\s+tests? run/m);
+  if (!summary) throw new Error('nextest completion summary is missing');
   const entries = new Map();
-  for (const match of text.matchAll(/^\s*(?:PASS|FAIL|LEAK|TIMEOUT)\s+\[\s*([\d.]+)s\]\s+(\S+)\s+(\S+)\s*$/gm)) {
+  for (const match of text.matchAll(/^\s*(?:PASS|FAIL|LEAK|TIMEOUT)\s+\[\s*>?\s*([\d.]+)s\]\s+(\S+)\s+(\S+)\s*$/gm)) {
     const entry = { binary: match[2], test: match[3], measuredSeconds: Number(match[1]) };
     if (!Number.isFinite(entry.measuredSeconds)) throw new Error('invalid nextest duration');
     const previous = entries.get(identity(entry));
     if (!previous || entry.measuredSeconds > previous.measuredSeconds) entries.set(identity(entry), entry);
   }
   if (!entries.size) throw new Error('nextest report contains no per-test timings');
+  if (entries.size !== Number(summary[1])) throw new Error(`incomplete nextest timings: ${entries.size} of ${summary[1]} executed tests`);
   return [...entries.values()];
 }
 
