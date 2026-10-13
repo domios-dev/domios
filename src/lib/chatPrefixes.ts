@@ -154,10 +154,24 @@ function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch 
 export function splitChatPrefixedMessages(content: string): Array<{ origin?: ChatOrigin; body: string }> | null {
   const parts = messageRowParts(parseMessageParts(content));
   if (!parts.some((part) => part.kind === "frame")) return null;
-  return parts.map((part) => {
+  return foldHeaderFrames(parts.map((part) => {
     const prefix = part.kind === "frame" ? detectTransportPrefix(part.content) : null;
     return prefix ?? { body: part.content };
-  });
+  }));
+}
+
+// A header-only frame (empty body) owns the plain text after it, the way sentinel notices are written.
+export function foldHeaderFrames<T extends { origin?: ChatOrigin; body: string }>(prefixes: readonly T[]): T[] {
+  const folded: T[] = [];
+  for (const prefix of prefixes) {
+    const previous = folded[folded.length - 1];
+    if (previous?.origin && !previous.body.trim() && !prefix.origin) {
+      folded[folded.length - 1] = { ...previous, body: prefix.body };
+      continue;
+    }
+    folded.push(prefix);
+  }
+  return folded;
 }
 
 function collectSlashCommands(content: string): PrefixMatch | null {
