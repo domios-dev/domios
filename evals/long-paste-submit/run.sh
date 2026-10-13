@@ -92,7 +92,7 @@ status_json() {
 }
 
 status_value() {
-  status_json "$1" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))'
+  status_json "$1" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("status", "")).lower())'
 }
 
 capture_screen() {
@@ -107,16 +107,16 @@ wait_for_tui() {
   local log_offset status
   log_offset="$(wc -c <"$LOG_FILE")"
   status="$(status_value "$tab")"
-  if [ "$status" != "Idle" ]; then
+  if [ "$status" != "idle" ]; then
     python3 "$BENCH/wait_log.py" "$LOG_FILE" "$log_offset" \
-      "\\[idle-poll\\].* Idle \\(tab=$tab\\)" "$EVENT_TIMEOUT" \
+      "(?i)\\[idle-poll\\].* Idle \\(tab=$tab\\)" "$EVENT_TIMEOUT" \
       >"$case_dir/status-idle-event.txt" 2>"$case_dir/status-idle-event.err"
     status="$(status_value "$tab")"
   fi
   status_json "$tab" >"$case_dir/status-ready.json"
-  if [ "$status" != "Idle" ]; then
+  if [ "$status" != "idle" ]; then
     capture_screen "$tab" >"$case_dir/screen-ready-mismatch.txt" || true
-    echo "FAIL: tab $tab reached bracketed-paste mode but settled status=$status, wanted Idle" >&2
+    echo "FAIL: tab $tab reached bracketed-paste mode but settled status=$status, wanted idle" >&2
     return 1
   fi
 }
@@ -184,7 +184,7 @@ start_gate() {
   GATE_CONNECTED=1
   GATE_PORT="$port"
   status_json "$tab" >"$case_dir/status-mid-turn.json"
-  if [ "$(status_value "$tab")" != "Working" ]; then
+  if [ "$(status_value "$tab")" != "working" ]; then
     capture_screen "$tab" >"$case_dir/screen-mid-turn-mismatch.txt" || true
     echo "FAIL: gate connected but tab $tab is not Working" >&2
     return 1
@@ -454,10 +454,11 @@ run_recovery_case() {
 health="$(dev_get /api/health)"
 build="$(printf '%s' "$health" | json_value build)"
 head="$(git rev-parse HEAD)"
-case "$head" in
-  "$build"*) ;;
-  *) echo "FAIL: dev build $build is not this checkout's HEAD $head" >&2; exit 1 ;;
-esac
+# Bench-only commits on top of the build are fine; any product source drift is not.
+if ! git merge-base --is-ancestor "$build" "$head" 2>/dev/null \
+  || ! git diff --quiet "$build" "$head" -- . ':(exclude)evals'; then
+  echo "FAIL: dev build $build differs from this checkout's product source at $head" >&2; exit 1
+fi
 [ -f "$LOG_FILE" ] || { echo "FAIL: dev log not found: $LOG_FILE" >&2; exit 1; }
 
 dc identify --json >"$OUT_DIR/dev-identify.json"
