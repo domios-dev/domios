@@ -786,6 +786,10 @@ pub fn create_router_with_frontend(
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
+            "/api/mesh/worker-observation",
+            post(mesh_routes::mesh_worker_observation),
+        )
+        .route(
             "/api/mesh/worker-dispatch",
             post(mesh_routes::mesh_worker_dispatch),
         )
