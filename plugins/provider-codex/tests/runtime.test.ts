@@ -130,7 +130,7 @@ check("fresh thread materializes before loaded",()=> {
   assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
 });
 check("resume never accepts another thread",()=> {
-  const operation:Operation = {kind:"resumeThread",threadId:ctx.threadId!,settings:ctx.settings};
+  const operation:Operation = {kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   for (const thread of [{id:"foreign"},{id:ctx.threadId,parentThreadId:"parent"},{id:ctx.threadId,source:{subAgent:{}}}])
     assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
@@ -363,7 +363,7 @@ check("structured A12 launch options preserve PTY settings",()=> {
   assert.equal(turn.action.kind,"request");
   if(turn.action.kind !== "request")throw new Error("Expected turn request");
   assert.deepEqual((turn.action.call.params as Record<string,JsonValue>).sandboxPolicy,{type:"workspaceWrite",writableRoots:["/work/shared"]});
-  const resume=hooks.runtimePlan(context,{kind:"resumeThread",threadId:ctx.threadId!,settings});
+  const resume=hooks.runtimePlan(context,{kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings});
   assert.equal(resume.action.kind,"request");
   if(resume.action.kind !== "request")throw new Error("Expected resume request");
   assert.equal((resume.action.call.params as Record<string,JsonValue>).sandbox,"danger-full-access");
@@ -380,7 +380,7 @@ check("A12b workspace-write network settings preserve false and provider default
   for(const networkAccess of [true,false,undefined]) {
     const settings={mode:"auto-accept-edits",additionalDirectories:["/work/shared"],...(networkAccess !== undefined ? {networkAccess} : {})};
     const context={...ctx,settings};
-    for(const op of [{kind:"openThread",instructions:"task",settings},{kind:"resumeThread",threadId:ctx.threadId!,settings}] as Operation[]) {
+    for(const op of [{kind:"openThread",instructions:"task",settings},{kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings}] as Operation[]) {
       const plan=plain(hooks.runtimePlan(context,op));
       if(plan.action.kind !== "request")throw new Error("Expected thread request");
       const params=plan.action.call.params as Record<string,JsonValue>;
@@ -456,7 +456,7 @@ check("default model and effective effort survive thread launch continuations",(
   if(step.kind !== "continue")throw new Error("Expected materialization");
   const complete=plain(hooks.runtimeResponse(context,op,step.plan.state,{kind:"success",value:{}}));
   assert.deepEqual(complete,{kind:"complete",result:{kind:"threadLoaded",threadId:ctx.threadId!,settings:{additionalDirectories:["/work/shared"],networkAccess:false,model:"provider-default",effort:"medium",mode:"auto-accept-edits"}}});
-  const resume:Operation={kind:"resumeThread",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}};
+  const resume:Operation={kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}};
   const resumed=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:effective});
   if(resumed.kind !== "continue")throw new Error("Expected identity verification");
   const verified=plain(hooks.runtimeResponse(context,resume,resumed.plan.state,{kind:"success",value:{thread:{id:ctx.threadId!,model:"stale-snapshot-model"}}}));
@@ -480,4 +480,37 @@ check("settings controls confirm provider values and retain omitted requested fi
   const empty=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}}));
   assert.deepEqual(empty,{kind:"complete",result:{kind:"done"}});
 });
+check("resume refreshes instructions on direct and unarchive retry paths",()=> {
+  const instructions='opaque-resume-contract\n${opaque} "value"';
+  for(const value of [instructions,""]) {
+    const op:Operation={kind:"resumeThread",threadId:ctx.threadId!,instructions:value,settings:ctx.settings};
+    const plan=plain(hooks.runtimePlan(ctx,op));
+    if(plan.action.kind !== "request")throw new Error("Expected resume request");
+    assert.equal((plan.action.call.params as Record<string,JsonValue>).developerInstructions,value);
+    const archived=hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32600,message:`session ${ctx.threadId!} is archived`}});
+    if(archived.kind !== "continue")throw new Error("Expected unarchive");
+    const retry=plain(hooks.runtimeResponse(ctx,op,archived.plan.state,{kind:"success",value:{}}));
+    if(retry.kind !== "continue" || retry.plan.action.kind !== "request")throw new Error("Expected resumed retry");
+    assert.equal((retry.plan.action.call.params as Record<string,JsonValue>).developerInstructions,value);
+  }
+});
+check("restoreContext validates and injects developer and user context without evidence",()=> {
+  const instructions='opaque-restored-contract\n${opaque} "value"';
+  const value={instructions,additionalContext:[{key:"app",kind:"application",value:"application-context"},{key:"user",kind:"user",value:"user-context"}]};
+  const op:Operation={kind:"control",threadId:ctx.threadId!,action:"restoreContext",value};
+  const plan=plain(hooks.runtimePlan(ctx,op));
+  assert.deepEqual(plan.action,{kind:"request",call:{method:"thread/inject_items",params:{threadId:ctx.threadId!,items:[
+    {type:"message",role:"developer",content:[{type:"input_text",text:instructions}]},
+    {type:"message",role:"developer",content:[{type:"input_text",text:"application-context"}]},
+    {type:"message",role:"user",content:[{type:"input_text",text:"user-context"}]},
+  ]}}});
+  assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"}});
+  for(const invalid of [null,{},[],{instructions:null,additionalContext:[]},{instructions:"",additionalContext:[]},{instructions:42,additionalContext:[]},{instructions:"x",additionalContext:{}},{instructions:"x",additionalContext:[{key:"k",kind:"system",value:"x"}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x",extra:true}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x"},{key:"k",kind:"user",value:"y"}]}]) {
+    assert.throws(()=>hooks.runtimePlan(ctx,{...op,value:invalid} as Operation),error=>objectError(error).code === "invalid_schema");
+  }
+  const contextOnly=plain(hooks.runtimePlan(ctx,{...op,value:{instructions:null,additionalContext:[{key:"one",kind:"user",value:"payload"}]}}));
+  if(contextOnly.action.kind !== "request")throw new Error("Expected context injection");
+  assert.deepEqual((contextOnly.action.call.params as Record<string,JsonValue>).items,[{type:"message",role:"user",content:[{type:"input_text",text:"payload"}]}]);
+});
+function objectError(value:unknown):{code?:string} {return value as {code?:string};}
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
