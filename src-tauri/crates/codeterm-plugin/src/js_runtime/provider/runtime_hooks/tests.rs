@@ -402,3 +402,28 @@ fn runtime_additional_directories_default_and_host_bounds() {
         assert!(validate_runtime_operation(&context(), &op).is_err());
     }
 }
+
+#[test]
+fn runtime_network_access_preserves_false_and_refuses_non_boolean_values() {
+    let empty: RuntimeSettings = serde_json::from_value(json!({})).unwrap();
+    assert_eq!(empty.network_access, None);
+    assert!(serde_json::to_value(empty)
+        .unwrap()
+        .get("networkAccess")
+        .is_none());
+    for allowed in [false, true] {
+        let settings: RuntimeSettings =
+            serde_json::from_value(json!({"networkAccess":allowed})).unwrap();
+        assert_eq!(settings.network_access, Some(allowed));
+        assert!(validate_runtime_settings(&settings).is_ok());
+        assert_eq!(
+            serde_json::to_value(settings).unwrap()["networkAccess"],
+            json!(allowed)
+        );
+    }
+    for invalid in [json!("true"), json!(1), json!([]), json!({})] {
+        assert!(
+            serde_json::from_value::<RuntimeSettings>(json!({"networkAccess":invalid})).is_err()
+        );
+    }
+}
