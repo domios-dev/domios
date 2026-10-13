@@ -6,6 +6,7 @@ import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { getModelCatalogueRefreshApi } from "../../lib/modelCatalogueRefresh";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
+import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
 import { Segmented } from "../shared/Segmented";
 import { UI_BUTTON } from "../shared/design";
@@ -106,17 +107,18 @@ export function StatusLineModelPicker({
       }
     } catch (error) {
       setApplied(previous);
+      const failure = modelSwitchFailure(error, descriptor?.transport === "chat_backend");
       actions?.upsertToast({
         id: `model-switch:${tabId}`, tab_id: tabId, workspace_id: null,
         title: "Model switch did not apply",
-        body: error instanceof Error ? error.message : String(error),
+        body: failure.message,
         severity: "Warning", level: "verbose", lifetime_ms: 15_000,
-        local_actions: restart ? undefined : [{ label: "Restart and resume", run: () => void commitRef.current(selection, true) }],
+        local_actions: restart || !failure.restartAvailable ? undefined : [{ label: "Restart and resume", run: () => void commitRef.current(selection, true) }],
       });
     } finally {
       setApplying(false);
     }
-  }, [actions, close, tabId]);
+  }, [actions, close, descriptor?.transport, tabId]);
   commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }

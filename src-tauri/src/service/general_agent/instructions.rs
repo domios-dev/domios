@@ -139,7 +139,7 @@ fn cli_without_memory_section() -> String {
     format!("{}{}", &cli[..memory_start], &cli[platform_start..])
 }
 
-pub(super) fn render_system_prompt(
+pub(crate) fn render_system_prompt(
     capability_hints: bool,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
@@ -196,10 +196,12 @@ fn compose_system_prompt(agent: &str) -> String {
 }
 
 fn compose_system_prompt_with_plugins(agent: &str, built_in_plugins: Option<&str>) -> String {
-    let primer = match built_in_plugins {
+    let mut primer = match built_in_plugins {
         Some(section) => format!("{}\n{section}\n", crate::prompts::AGENT_CODETERM_PRIMER),
         None => crate::prompts::AGENT_CODETERM_PRIMER.to_string(),
     };
+    primer.push_str("\n\n");
+    primer.push_str(crate::service::orchestrator::ROLE_AUTHORITY);
     format!(
         "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}\n\n{}",
         primer,
@@ -676,6 +678,21 @@ mod tests {
     }
 
     #[test]
+    fn general_role_fragment_is_opaque_and_follows_the_shared_primer() {
+        let role = "opaque-general-role";
+        let prompt = compose_system_prompt_with_plugins(role, Some("opaque-plugin-fragment"));
+        assert_eq!(prompt.matches(role).count(), 1);
+        assert!(prompt.find(crate::prompts::AGENT_CODETERM_PRIMER.trim()) < prompt.find(role));
+        assert!(prompt.find("opaque-plugin-fragment") < prompt.find(role));
+        assert_eq!(
+            prompt
+                .matches(crate::service::orchestrator::ROLE_AUTHORITY)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn built_in_plugins_section_follows_the_primer_and_strips_with_the_contract() {
         const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
         let dir = tempfile::tempdir().unwrap();
@@ -683,10 +700,13 @@ mod tests {
         let plain = compose_system_prompt_with_plugins(&role, None);
         assert!(!plain.contains("Built-in plugins:"));
         let with = compose_system_prompt_with_plugins(&role, Some(SECTION));
-        assert!(with.starts_with(&format!(
-            "{}\n{SECTION}\n\n\n---\n\n",
-            crate::prompts::AGENT_CODETERM_PRIMER
-        )));
+        assert!(with.starts_with(crate::prompts::AGENT_CODETERM_PRIMER));
+        assert!(with.find(SECTION) < with.find(&role));
+        assert_eq!(
+            with.matches(crate::service::orchestrator::ROLE_AUTHORITY)
+                .count(),
+            1
+        );
         assert_eq!(with.replacen(&format!("\n{SECTION}\n"), "", 1), plain);
 
         let prefix = "OPAQUE_USER_PREFIX\r\n";

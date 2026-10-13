@@ -30,3 +30,6 @@ fn saved_typed_settings_and_empty_arguments_remain_eligible_for_runtime_use() {
     };
     assert!(validate_restored_arguments("fixture-provider", Some(&launch)).is_ok());
 }
+
+#[path = "tests/sync_send.rs"]
+mod sync_send;

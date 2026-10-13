@@ -7,7 +7,7 @@ use crate::mem::{workers, SearchQuery};
 use crate::multiplexer::types::TabCloseReason;
 use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivityRegistry};
 use crate::secrets::secret_file::SecretFile;
-use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
+use crate::service::spawn::{SpawnTabSpec, TabVisibility};
 use crate::service::ServiceContext;
 
 // ── Progress activity id map (mirrors host_compute) ─────────────────────────
@@ -702,25 +702,20 @@ fn enqueue_agent_turn(
         let worker_id_blocking = worker_id_task.clone();
         let title = format!("plugin:{intent}");
         let spawn_result = tokio::task::spawn_blocking(move || {
-            let spec = SpawnTabSpec {
-                shell: None,
-                visibility: TabVisibility::Hidden,
-                audience: crate::multiplexer::types::TabAudience::Automation,
-                title: Some(title),
-                description: None,
-                workspace_id,
-                command: TabCommand::Agent(AgentSpawnSpec {
-                    provider,
-                    planned_model: None,
-                    model: if model.is_empty() { None } else { Some(model) },
+            let spec = plugin_worker_spawn_spec(
+                crate::service::SpawnAgentParams {
+                    agent: Some(provider),
+                    model: (!model.is_empty()).then_some(model),
                     task: Some(task),
-                    worker_id: Some(worker_id_blocking.clone()),
-                    spawned_by: Some(spawned_by),
+                    title: Some(title),
+                    workspace_id,
                     resume_session_id,
+                    audience: crate::multiplexer::types::TabAudience::Automation,
                     ..Default::default()
-                }),
-                ..Default::default()
-            };
+                },
+                worker_id_blocking,
+                spawned_by,
+            );
             svc_blocking.spawn_tab(spec)
         })
         .await;
@@ -772,4 +767,49 @@ fn enqueue_agent_turn(
     });
 
     worker_id
+}
+
+fn plugin_worker_spawn_spec(
+    params: crate::service::SpawnAgentParams,
+    worker_id: String,
+    spawned_by: String,
+) -> SpawnTabSpec {
+    let mut spec = SpawnTabSpec::from_agent_params(params);
+    spec.visibility = TabVisibility::Hidden;
+    if let Some(agent) = spec.agent_launch_mut() {
+        agent.worker_id = Some(worker_id);
+        agent.spawned_by = Some(spawned_by);
+    }
+    spec
+}
+
+#[cfg(test)]
+mod worker_spawn_tests {
+    use super::*;
+
+    #[test]
+    fn plugin_worker_runtime_keeps_original_params_and_worker_identity() {
+        let params = crate::service::SpawnAgentParams {
+            agent: Some("runtime-fixture".into()),
+            model: Some("opaque-model".into()),
+            task: Some("opaque-task".into()),
+            workspace_id: Some("opaque-workspace".into()),
+            resume_session_id: Some("opaque-session".into()),
+            audience: crate::multiplexer::types::TabAudience::Automation,
+            ..Default::default()
+        };
+        let expected = params.clone();
+        let mut spec =
+            plugin_worker_spawn_spec(params, "worker-exact".into(), "plugin-exact".into());
+        spec.route_agent_to_chatbackend().unwrap();
+        assert_eq!(spec.visibility, TabVisibility::Hidden);
+        let metadata = spec.chatbackend_launch.unwrap();
+        let mut actual = metadata.params.clone();
+        let prompt = actual.system_prompt.take().unwrap();
+        assert_eq!(prompt.matches("opaque-task").count(), 1);
+        assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+        assert_eq!(metadata.agent.worker_id.as_deref(), Some("worker-exact"));
+        assert_eq!(metadata.agent.spawned_by.as_deref(), Some("plugin-exact"));
+    }
 }

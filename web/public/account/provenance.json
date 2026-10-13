@@ -1,0 +1,14 @@
+[
+  {
+    "source": "https://github.com/firebase/firebaseui-web",
+    "name": "google.svg",
+    "sha256": "cbe9772630b9b72daf7c14eab28c6c86f88e07da9cb08487544e022e385ede1f",
+    "url": "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+  },
+  {
+    "source": "https://github.com/firebase/firebaseui-web",
+    "name": "facebook.svg",
+    "sha256": "8122e4bcc33aee94973d1bae85cc4465ffab9a091e3a16a8fedab576ec6e7706",
+    "url": "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/facebook.svg"
+  }
+]

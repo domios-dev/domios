@@ -423,7 +423,14 @@ impl ServiceContext {
 
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = mux.create_tab(&ws_id)?;
+            let result = match spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|launch| launch.params.existing_tab_id.as_deref())
+            {
+                Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
+                None => mux.create_tab(&ws_id)?,
+            };
             if let Some(attachment) = &team_attachment {
                 crate::service::team::apply_team_attachment(&mut mux, attachment, &result)?;
             }
@@ -569,6 +576,11 @@ impl ServiceContext {
         )?;
         let params =
             launch_options::authorize(self, &metadata.agent.provider, Some(&metadata.params))?;
+        log::debug!(
+            "[spawn.runtime] prepared tab={tab_id} plan={:?} task={:?} intent={:?} manifest_entries={}",
+            params.plan_id, params.task_id, params.execution_intent,
+            params.plan_skill_manifest.as_ref().map_or(0, Vec::len)
+        );
         self.ensure_agent_pad(tab_id)?;
         self.ensure_session_binding_nonce(tab_id);
         {

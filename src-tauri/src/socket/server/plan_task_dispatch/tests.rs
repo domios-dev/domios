@@ -47,6 +47,7 @@ mod late_attempt_failure;
 mod qa_pass;
 mod recovery_race;
 mod resolved_effort;
+mod runtime_dispatch;
 mod status_preflight;
 mod unplanned;
 mod worker_ack;

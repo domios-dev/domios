@@ -1,9 +1,11 @@
 #[path = "spawn/cwd.rs"]
 mod cwd;
 mod dispatch_rollback;
-mod runtime_prompt;
+pub(crate) mod runtime_prompt;
 use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
-use runtime_prompt::compose_runtime_system_prompt;
+pub(crate) use runtime_prompt::{
+    compose_runtime_system_prompt, ensure_tab_runtime_prompt, ROLE_AUTHORITY,
+};
 
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
@@ -1092,6 +1094,13 @@ pub(crate) fn move_chatbackend_task_to_system_prompt(
     agent: &str,
     params: &mut SpawnAgentParams,
 ) {
+    if chatbackends
+        .descriptor(agent)
+        .is_some_and(|descriptor| descriptor.agent_runtime.is_some())
+    {
+        params.system_prompt = compose_runtime_system_prompt(params);
+        return;
+    }
     let spawnable = chatbackends
         .get(agent)
         .map(|backend| backend.spawnable())
@@ -1109,6 +1118,7 @@ impl ServiceContext {
         params: &mut SpawnAgentParams,
     ) -> Result<(), String> {
         if crate::service::agent_runtime::engine::requested(self, agent) {
+            runtime_prompt::prepare_runtime_identity(self, params);
             params.system_prompt = compose_runtime_system_prompt(params);
             return Ok(());
         }

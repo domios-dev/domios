@@ -17,20 +17,27 @@ struct Shell {
 }
 
 #[test]
-fn codex_rpc_registry_preserves_structured_control() {
+fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
+    use crate::agent::provider::AgentProvider;
     let agents = Arc::new(AgentRegistry::new());
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../plugins/provider-codex/plugin.json");
-    agents.register_provider(Box::new(
-        codeterm_plugin::js_runtime::load_one(&manifest).unwrap(),
-    ));
+    let provider = codeterm_plugin::js_runtime::load_one(&manifest).unwrap();
+    let runtime = provider
+        .agent_runtime()
+        .expect("Bundled runtime capability");
+    let structured_control = provider.structured_control();
+    let provider_id = provider.id().to_owned();
+    agents.register_provider(Box::new(provider));
     let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
     let descriptors = registry.describe_all();
+    assert_eq!(descriptors[0].agent_runtime.as_ref(), Some(&runtime));
+    assert_eq!(descriptors[0].structured_control, structured_control);
+    assert_eq!(descriptors[0].transport, ProviderTransport::ChatBackend);
     assert_eq!(
-        descriptors[0].structured_control.as_ref().unwrap().protocol,
-        "codex-app-server"
+        registry.transport_of(&provider_id),
+        Some(ProviderTransport::ChatBackend)
     );
-    assert_eq!(descriptors[0].transport, ProviderTransport::Pty);
 }
 
 impl ChatBackendProvider for Shell {

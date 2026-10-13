@@ -133,7 +133,7 @@ fn cron_spawn_spec_forwards_reasoning_effort() {
 }
 
 #[test]
-fn runtime_cron_keeps_initial_task_out_of_system_prompt() {
+fn runtime_cron_carries_launch_identity_and_keeps_one_initial_task() {
     let registry =
         crate::service::spawn_capability::test_backend::registry_with_runtime("runtime-fixture");
     let mut args = inputs("runtime-fixture");
@@ -148,6 +148,16 @@ fn runtime_cron_keeps_initial_task_out_of_system_prompt() {
             run_id: "run-7".into(),
         })
     );
+    assert_eq!(metadata.params.team_id.as_deref(), Some("team-1"));
+    assert_eq!(
+        metadata.params.creator_tab_id.as_deref(),
+        Some("tab-creator")
+    );
+    assert_eq!(metadata.params.task.as_deref(), Some(TASK));
+    assert_eq!(
+        metadata.params.reasoning_effort.as_deref(),
+        Some("opaque-effort")
+    );
     assert_eq!(metadata.agent.task.as_deref(), Some(TASK));
     assert_eq!(
         metadata.agent.report_target_tab_id.as_deref(),
@@ -157,6 +167,8 @@ fn runtime_cron_keeps_initial_task_out_of_system_prompt() {
     let TabCommand::ChatBackend { config, .. } = &spec.command else {
         panic!("runtime")
     };
-    assert!(config.get("systemPrompt").is_none());
+    let prompt = config["systemPrompt"].as_str().unwrap();
+    assert_eq!(prompt.matches(TASK).count(), 1);
+    assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
     assert_eq!(config["effort"], "opaque-effort");
 }
