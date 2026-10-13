@@ -21,8 +21,8 @@ mod pending_receipt;
 mod turn_window;
 
 use turn_window::window_evidence_records;
+pub(crate) use turn_window::window_has_foreign_user_turn;
 use turn_window::{structured_evidence_records, StructuredUserTurn};
-pub(crate) use turn_window::{window_has_foreign_user_turn, window_user_turns};
 
 #[cfg(test)]
 #[path = "chat_send_evidence/deferred_first_turn_tests.rs"]

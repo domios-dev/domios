@@ -13,8 +13,32 @@ pub(crate) fn normalize_written_payload(text: &str) -> String {
 }
 
 pub(crate) fn contains_written_payload(record: &str, payload: &str) -> bool {
-    let payload = normalize_written_payload(payload);
-    !payload.is_empty() && normalize_written_payload(record).contains(&payload)
+    written_payload_match_end(record, payload, Default::default(), 0).is_some()
+}
+
+pub(crate) fn written_payload_match_end(
+    record: &str,
+    payload: &str,
+    normalization: crate::agent::provider::TurnEvidenceNormalization,
+    offset: usize,
+) -> Option<usize> {
+    let canonical_record = normalize_written_payload(record);
+    let canonical_payload = normalize_written_payload(payload);
+    let (record, payload) = if normalization == Default::default() {
+        (canonical_record, canonical_payload)
+    } else {
+        (
+            normalization.normalize(&canonical_record),
+            normalization.normalize(&canonical_payload),
+        )
+    };
+    if payload.is_empty() {
+        return None;
+    }
+    record
+        .get(offset..)?
+        .find(&payload)
+        .map(|start| offset + start + payload.len())
 }
 
 pub(super) fn matching_turn_send_ids(
@@ -25,16 +49,16 @@ pub(super) fn matching_turn_send_ids(
         crate::agent::provider::TurnEvidenceNormalization,
     )],
 ) -> Vec<String> {
-    let evidence = normalize_written_payload(turn_text);
     let mut offset = 0;
+    let mut scope = None;
     let mut matched = Vec::new();
-    for (send_id, expected, _) in candidates {
-        let expected = normalize_written_payload(expected);
-        if expected.is_empty() {
+    for (send_id, expected, normalization) in candidates {
+        if scope.is_some_and(|scope| scope != *normalization) {
             continue;
         }
-        if let Some(start) = evidence[offset..].find(&expected) {
-            offset += start + expected.len();
+        if let Some(end) = written_payload_match_end(turn_text, expected, *normalization, offset) {
+            offset = end;
+            scope = Some(*normalization);
             matched.push(send_id.clone());
         }
     }

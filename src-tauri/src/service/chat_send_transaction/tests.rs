@@ -462,7 +462,7 @@ fn typed_follow_up_is_part_of_exact_chat_turn_evidence() {
 }
 
 #[test]
-fn lossy_provider_text_does_not_confirm_chat_send() {
+fn declared_provider_normalization_confirms_only_the_complete_chat_payload() {
     let ledger = ChatSendLedger::default();
     let pending = ledger
         .try_start_scoped_with_normalization(
@@ -478,13 +478,13 @@ fn lossy_provider_text_does_not_confirm_chat_send() {
         .unwrap();
     ledger.finish(&pending.send_id, Ok(())).unwrap();
     assert!(ledger
-        .confirm_delivered_user_turn("tab-1", "session-1", "name value\n alpha beta")
+        .confirm_delivered_user_turn("tab-1", "session-1", "name value\n alpha")
         .is_none());
     let confirmed = ledger
         .confirm_delivered_user_turn(
             "tab-1",
             "session-1",
-            "prefix\nname\tvalue\r\n\talpha\tbeta\nsuffix",
+            "prefix\nname value\r\n alpha beta\nsuffix",
         )
         .unwrap();
     assert_eq!(confirmed.send_id, pending.send_id);
