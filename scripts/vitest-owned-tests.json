@@ -187,5 +187,6 @@
   "src/components/Titlebar/AccountTray.test.tsx",
   "src/components/Settings/useAccount.test.tsx",
   "src/components/shared/CommunityLinks.test.tsx",
-  "src/components/Settings/PrivacyTab.test.tsx"
+  "src/components/Settings/PrivacyTab.test.tsx",
+  "src/lib/promptAnswers.test.ts"
 ]

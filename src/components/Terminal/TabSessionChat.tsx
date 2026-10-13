@@ -1,3 +1,4 @@
+import { promptMessagePart } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
@@ -41,7 +42,6 @@ import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
-import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
@@ -224,7 +224,9 @@ export function TabSessionChat({
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
-  const structuredPrompts = getAgentDescriptor(tabProvider)?.supports_structured_prompts === true;
+  const descriptor = getAgentDescriptor(tabProvider);
+  const promptAnswers = descriptor?.supports_prompt_answers === true;
+  const structuredPrompts = descriptor?.supports_structured_prompts === true;
   const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
@@ -369,8 +371,7 @@ export function TabSessionChat({
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const activePrompt = pendingPrompt && (structuredPrompts || pendingPrompt.question !== answeredPromptQuestion) ? pendingPrompt : null;
-  const inlinePrompt = activePrompt;
+  const promptPart = promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion);
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
@@ -385,6 +386,7 @@ export function TabSessionChat({
       try {
         await invoke("mux_respond_prompt", { tabId, value });
       } catch (error) {
+        setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
         throw error;
       } finally {
@@ -743,7 +745,7 @@ export function TabSessionChat({
     && renderedEnrichedMessages.length === 0
     && outboundReports.length === 0
     && autoConfirmations.length === 0
-    && !inlinePrompt;
+    && !promptPart;
 
   return (
     <ChatHighlightBudgetProvider>
@@ -861,7 +863,7 @@ export function TabSessionChat({
               handlers={messageSelection.rowHandlers}
             >
               <MessageBubble
-                message={msg}
+                message={promptAnswers ? msg : { ...msg, interactive: [] }}
                 onContentLayout={handleContentLayout}
                 streaming={msg.id === streamingId}
                 userFooter={deliverySend && deliveryView && deliveryView !== "delivered" && deliveryView !== "settled"
@@ -875,7 +877,7 @@ export function TabSessionChat({
                 onOpenPlan={onOpenPlan}
                 resolvePlanRef={resolvePlanRef}
                 fontScale={uiFontScale}
-                onAnswerInteractive={handleAnswerInteractive}
+                onAnswerInteractive={promptAnswers ? handleAnswerInteractive : undefined}
                 answeredInteractiveIds={answeredInteractiveIds}
                 onRerunShellCommand={handleRerunShellCommand}
                 onStopReminder={handleStopReminder}
@@ -895,6 +897,19 @@ export function TabSessionChat({
           );
         })}
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
+        {promptPart && <ChatMessageRow
+          msg={{ id: promptPart.id, type: "assistant" }}
+          ariaLabel={chatMessageAccessibleName("assistant", promptPart.prompt.question)}
+          selected={false}
+          joinNext={false}
+          selecting={false}
+          cursor={false}
+          handlers={messageSelection.rowHandlers}
+        >
+          <div data-message-part={promptPart.id}>
+            <PendingPromptCard key={promptPart.id} pendingPrompt={promptPart.prompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />
+          </div>
+        </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         <ChatSetupState
@@ -989,9 +1004,6 @@ export function TabSessionChat({
         observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        promptDock={inlinePrompt && (agentActivity.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
-          ? <ComposerApprovalDock key={JSON.stringify(inlinePrompt)} prompt={inlinePrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} />
-          : <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />)}
       />}
       </>
       )}

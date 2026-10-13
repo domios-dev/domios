@@ -1056,6 +1056,7 @@ pub trait AgentProvider: Send + Sync {
             supports_stop: self.stop_keys().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),
+            supports_prompt_answers: self.supports_prompt_answers(),
             supports_permission_auto_confirm: self.supports_permission_auto_confirm(),
             supports_watcher: false,
             paste_limit_bytes: self.paste_limit_bytes(),
@@ -1089,17 +1090,11 @@ pub trait AgentProvider: Send + Sync {
         self.uses_structured_chat()
     }
 
-    /// Whether this provider, in its CURRENT interactive run mode, exposes a
-    /// STRUCTURED source for pending prompts (permission / question pickers)
-    /// instead of leaving them only as ephemeral PTY terminal UI. When true,
-    /// core builds `tab.pending_prompt` from that structured handle and only
-    /// falls back to the native attributed-grid PTY detector when the handle
-    /// yields nothing. Capability-gated — core never branches on provider id.
-    ///
-    /// Examples: claude exposes its AskUserQuestion in the parsed JSONL
-    /// transcript (`parse_interactive_events`); opencode exposes a local SSE
-    /// event bus + reply endpoints. codex app-server and cursor ACP are NOT
-    /// reachable in interactive-PTY mode, so they stay on the native detector.
+    fn supports_prompt_answers(&self) -> bool {
+        true
+    }
+
+    /// Whether this provider exposes a structured source for pending prompts.
     fn supports_structured_prompts(&self) -> bool {
         false
     }
