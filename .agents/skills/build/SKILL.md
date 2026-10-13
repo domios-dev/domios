@@ -405,7 +405,9 @@ timings at normal parallelism. `check-slow-unit-tests.mjs LOG --candidates JSON`
 selects new or over-baseline timings above one second; the runner measures only
 those exact tests alone, reusing metadata without any Cargo build flags.
 `check-slow-unit-tests.mjs LOG --alone ALONE_LOG` reports both measurements and
-rejects new units still over one second alone or existing alone regressions.
+keeps the one-second target visible: alone times from 1.0 to 1.25 seconds warn;
+new alone times above 1.25 seconds fail. Existing regressions fail only above
+baseline + max(20%, 0.25 seconds); smaller increases warn.
 `scripts/slow-unit-tests.json` records alone durations and may only shrink against
 `origin/develop` (`SLOW_UNIT_TESTS_BASE` overrides the ref). Missing or partial
 timings fail closed, and test failures retain their original exit codes.

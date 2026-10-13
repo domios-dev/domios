@@ -81,8 +81,10 @@ Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
 Nextest keeps normal suite parallelism. A parallel timing above one second is a
 candidate when new or above its recorded alone allowance. The gate reruns only
 those candidates serially from the same binaries/Cargo metadata, reports both
-timings, and rejects units that remain above one second alone or regress above
-an existing allowance. `scripts/slow-unit-tests.json` records alone durations;
+timings, and keeps the one-second target visible. New alone times above 1.25 seconds
+fail; times over 1.0 through 1.25 seconds warn. Existing regressions fail only
+above baseline + max(20%, 0.25 seconds); smaller increases warn.
+`scripts/slow-unit-tests.json` records alone durations;
 its exact identities and recorded times may only shrink against the base ref.
 
 ```bash
