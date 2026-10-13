@@ -625,30 +625,8 @@ impl ServiceContext {
             .app_handle
             .try_state::<CronState>()
             .ok_or("Runtime cron state unavailable")?;
-        {
-            let store = cron.lock();
-            let (actual_job, run) = store
-                .find_run_by_id(run_id)
-                .ok_or("Runtime cron run unavailable")?;
-            if actual_job != job_id {
-                return Err("Runtime cron run belongs to another job".into());
-            }
-            if run
-                .tab_id
-                .as_deref()
-                .is_some_and(|existing| existing != tab_id)
-            {
-                return Err("Runtime cron run belongs to another tab".into());
-            }
-            if run.status != CronRunStatus::Running {
-                return Err("Runtime cron run already ended".into());
-            }
-            if let Some((owner_job, owner_run)) = store.get_tab_owner(tab_id) {
-                if owner_job != job_id || owner_run != run_id {
-                    return Err("Runtime cron owner changed".into());
-                }
-                return Ok(());
-            }
+        if !runtime_cron_owner_needs_registration(&cron.lock(), tab_id, job_id, run_id)? {
+            return Ok(());
         }
         commit(&cron, |store| {
             Ok(store.prepare_set_run_tab(job_id, run_id, tab_id))
@@ -980,6 +958,37 @@ fn resolve_cron_id_or_name<'a>(
         return Err(format!("Cron job name is ambiguous: {id_or_name}"));
     }
     Ok(&job.id)
+}
+
+fn runtime_cron_owner_needs_registration(
+    store: &CronStore,
+    tab_id: &str,
+    job_id: &str,
+    run_id: &str,
+) -> Result<bool, String> {
+    let (actual_job, run) = store
+        .find_run_by_id(run_id)
+        .ok_or("Runtime cron run unavailable")?;
+    if actual_job != job_id {
+        return Err("Runtime cron run belongs to another job".into());
+    }
+    if run
+        .tab_id
+        .as_deref()
+        .is_some_and(|existing| existing != tab_id)
+    {
+        return Err("Runtime cron run belongs to another tab".into());
+    }
+    if run.status != CronRunStatus::Running {
+        return Err("Runtime cron run already ended".into());
+    }
+    if let Some((owner_job, owner_run)) = store.get_tab_owner(tab_id) {
+        if owner_job != job_id || owner_run != run_id {
+            return Err("Runtime cron owner changed".into());
+        }
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 fn dispatch_after_trigger_record<T>(
