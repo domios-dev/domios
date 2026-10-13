@@ -338,6 +338,8 @@ async fn ensure_locked(
         context.settings = settings;
     }
     bind(svc, session, &thread_id)?;
+    let settings = session.context.lock().settings.clone();
+    super::projections::controls(svc, session, settings);
     let owner = svc.clone();
     let target = tab.to_string();
     let thread = thread_id.clone();
@@ -419,6 +421,7 @@ async fn ensure_locked(
         }
         cursor = Some(next);
     }
+    super::bootstrap::submit(svc, session, &process).await?;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
