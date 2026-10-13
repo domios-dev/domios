@@ -75,16 +75,7 @@ impl RuntimeFixture {
         target.role = Some(crate::multiplexer::types::AgentRole::Worker);
         let fixture = ServiceFixture::new(mux);
         fixture.set_agent_full_access(false);
-        let storage = crate::storage::Storage::open(
-            &fixture.temp.path().join("runtime-desk"),
-            Default::default(),
-        )
-        .unwrap();
-        crate::service::session_persist::install_storage_desk_adapter(
-            fixture._app.handle(),
-            crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
-        )
-        .unwrap();
+        let storage = fixture.install_seeded_storage_desk();
         let script = fixture.temp.path().join("peer.mjs");
         let log = fixture.temp.path().join("requests.jsonl");
         std::fs::write(
