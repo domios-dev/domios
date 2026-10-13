@@ -223,6 +223,7 @@ pub(super) async fn publish_events(
             super::projections::rate_limits(svc, session, rate_limits.clone(), at).await?;
         }
         super::model::observe_turn(&mut session.context.lock(), &event.event);
+        super::controls::observe_event(session, &event.event);
         let send_id = match &event.event {
             AgentRuntimeEvent::SendEvidence { send_id, .. } => Some(send_id.clone()),
             _ => None,
