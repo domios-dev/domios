@@ -258,7 +258,10 @@ fn direct_runtime_routing_preserves_hidden_worker_env_and_task() {
     let crate::service::spawn::TabCommand::ChatBackend { config, .. } = &spec.command else {
         panic!("chat backend")
     };
-    assert_eq!(config["systemPrompt"], "opaque-system");
+    let prompt = config["systemPrompt"].as_str().unwrap();
+    assert_eq!(prompt.matches("opaque-system").count(), 1);
+    assert_eq!(prompt.matches("opaque-task").count(), 1);
+    assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
     assert_eq!(config["preset"], "opaque-preset");
     assert_eq!(metadata.agent.task.as_deref(), Some("opaque-task"));
 }
@@ -283,7 +286,7 @@ fn runtime_capability_conversion_refuses_unmapped_args_before_mutation() {
 }
 
 #[test]
-fn runtime_routing_preserves_original_plan_task_parameters_byte_for_byte() {
+fn runtime_routing_preserves_plan_task_authority_while_composing_identity() {
     let params = SpawnAgentParams {
         agent: Some("runtime-fixture".into()),
         role: Some("Worker".into()),
@@ -310,13 +313,16 @@ fn runtime_routing_preserves_original_plan_task_parameters_byte_for_byte() {
         system_prompt: Some("opaque-system".into()),
         ..Default::default()
     };
-    let expected = format!("{params:?}").into_bytes();
+    let mut expected = params.clone();
+    expected.system_prompt = None;
+    let expected = format!("{expected:?}").into_bytes();
     let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params(params);
     spec.route_agent_to_chatbackend().unwrap();
-    assert_eq!(
-        format!("{:?}", spec.chatbackend_launch.unwrap().params).into_bytes(),
-        expected
-    );
+    let mut actual = spec.chatbackend_launch.unwrap().params;
+    let prompt = actual.system_prompt.take().unwrap();
+    assert_eq!(prompt.matches("opaque-system").count(), 1);
+    assert_eq!(prompt.matches("opaque-task\nUnicode: λ").count(), 1);
+    assert_eq!(format!("{actual:?}").into_bytes(), expected);
 }
 
 #[test]
