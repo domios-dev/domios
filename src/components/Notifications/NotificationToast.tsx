@@ -6,8 +6,6 @@ import type { Notification, NotificationAction } from "../../lib/types";
 import { X } from "lucide-react";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
-import { RunPath } from "../Automation/RunPath";
-import { requestOpenJob } from "../Jobs/openJobEvent";
 import { levelIcon } from "./levelIcon";
 import { useReducedMotion } from "../Canvas/missionControl/useReducedMotion";
 import { countdownAnimation } from "./toastLifetime";
@@ -28,13 +26,11 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
   const lifetime = useToastLifetime(notification.id, notification.lifetime_ms, onDismiss);
   const [expanded, setExpanded] = useState(false);
   const expandedPanel = useRef<HTMLDivElement>(null);
-  const runOpener = useRef<HTMLButtonElement>(null);
   const detailsOpener = useRef<HTMLButtonElement>(null);
-  const isRun = !!notification.blueprint_run;
   useLayoutEffect(() => {
     if (expanded) expandedPanel.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, [expanded]);
-  const closeExpanded = () => { setExpanded(false); (isRun ? runOpener : detailsOpener).current?.focus(); };
+  const closeExpanded = () => { setExpanded(false); detailsOpener.current?.focus(); };
   // A choice is answered from the bell and the chat card, which keep it as a
   // log of decisions; a toast that vanishes must not offer one.
   const runnable = notification.actions?.filter((action) =>
@@ -47,9 +43,9 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
   };
 
   const handleClick = useCallback(() => {
-    if (!notification.read && !notification.blueprint_run) onMarkRead?.(notification.id);
+    if (!notification.read) onMarkRead?.(notification.id);
     setExpanded(true);
-  }, [notification.id, notification.read, notification.blueprint_run, onMarkRead]);
+  }, [notification.id, notification.read, onMarkRead]);
 
   const runAction = async (action: NotificationAction) => {
     await runNotificationAction(action);
@@ -84,7 +80,6 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
           </div>
         )}
       </div>
-      {notification.blueprint_run && <button ref={runOpener} type="button" className="shrink-0 text-[10px] text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); setExpanded(true); }}>View run</button>}
       {notification.local_actions?.map((action) => <button key={action.label} type="button" className="shrink-0 text-[10px] text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); void action.run(); lifetime.dismiss(); }}>{action.label}</button>)}
       {hasActions && (
         <div className="flex min-w-0 max-w-[60%] gap-1 overflow-x-auto">
@@ -155,14 +150,6 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
             <LevelIcon className="mt-0.5 shrink-0" style={{ color: tone }} />
             <div className="min-w-0 flex-1">
               <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
-              {notification.blueprint_run && <>
-                <RunPath run={notification.blueprint_run.run} />
-                <button type="button" className="mt-2 rounded border border-[var(--ct-border)] px-2 py-1 text-xs text-[var(--ct-fg)]" onClick={() => {
-                  const data = notification.blueprint_run!;
-                  requestOpenJob({ workspaceId: data.workspaceId, target: { teamId: data.teamId, scenarioId: data.scenarioId, runId: data.run.key } });
-                  setExpanded(false);
-                }}>Open full graph</button>
-              </>}
               {notification.body && (
                 <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
                   <NotificationBody text={notification.body} tabId={notification.tab_id} />

@@ -519,17 +519,9 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "ADD_NOTIFICATION": {
       const notifications = admitBellNotification(state.notifications, action.notification, "agent_notification");
       if (notifications === state.notifications) return state;
-      const replaceById = <T extends { id: string }>(list: T[], next: T): T[] => {
-        const index = list.findIndex((entry) => entry.id === next.id);
-        if (index === -1) return [...list, next];
-        const updated = [...list];
-        updated[index] = next;
-        return updated;
-      };
       return {
         ...state,
         notifications,
-        toasts: capToasts(replaceById(state.toasts, action.notification)),
       };
     }
 
