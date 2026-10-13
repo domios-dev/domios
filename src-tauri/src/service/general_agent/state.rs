@@ -31,10 +31,16 @@ pub(super) fn load_session_id(
     }
     let valid = registry
         .with_provider(provider_name, |p| {
-            p.session_exists(cwd, &state.session_id) == Some(true)
+            can_resume_saved_session(p.agent_runtime().is_some(), || {
+                p.session_exists(cwd, &state.session_id)
+            })
         })
         .unwrap_or(false);
     valid.then_some(state.session_id)
+}
+
+fn can_resume_saved_session(runtime: bool, session_exists: impl FnOnce() -> Option<bool>) -> bool {
+    runtime || session_exists() == Some(true)
 }
 
 pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
@@ -289,6 +295,16 @@ pub(super) fn first_seen_at(dir: &Path, now: u64) -> Result<u64, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn saved_runtime_thread_is_validated_by_resume_without_filesystem_discovery() {
+        assert!(can_resume_saved_session(true, || panic!(
+            "runtime thread must use exact resume"
+        )));
+        assert!(can_resume_saved_session(false, || Some(true)));
+        assert!(!can_resume_saved_session(false, || Some(false)));
+        assert!(!can_resume_saved_session(false, || None));
+    }
 
     #[test]
     fn first_seen_is_durable_and_never_moves() {

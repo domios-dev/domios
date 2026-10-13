@@ -114,9 +114,26 @@ impl UsageStore {
     }
 
     pub fn insert_snapshot(&self, snapshot: &UsageSample) -> Result<i64, String> {
+        self.insert_sample(snapshot, false)
+    }
+
+    pub fn insert_runtime_snapshot(&self, snapshot: &UsageSample) -> Result<i64, String> {
+        self.insert_sample(snapshot, true)
+    }
+
+    fn insert_sample(
+        &self,
+        snapshot: &UsageSample,
+        validated_runtime: bool,
+    ) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
-        let id = if let Some(reason) = suspicious_snapshot_reason(&tx, snapshot)? {
+        let rejection = if validated_runtime {
+            None
+        } else {
+            suspicious_snapshot_reason(&tx, snapshot)?
+        };
+        let id = if let Some(reason) = rejection {
             insert_rejected_snapshot(&tx, snapshot, &reason, None)?
         } else {
             insert_header(&tx, snapshot)?
@@ -563,7 +580,7 @@ mod tests {
         s
     }
 
-    fn codex_snapshot(
+    fn guarded_snapshot(
         ms: i64,
         session_pct: f32,
         weekly_pct: f32,
@@ -692,7 +709,7 @@ mod tests {
     #[test]
     fn codex_zero_zero_with_backward_resets_is_rejected() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             6.0,
             9.0,
@@ -701,7 +718,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let bad = codex_snapshot(
+        let bad = guarded_snapshot(
             1_783_601_095_000,
             0.0,
             0.0,
@@ -731,7 +748,7 @@ mod tests {
     #[test]
     fn codex_hundred_hundred_with_identical_resets_is_rejected() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             6.0,
             9.0,
@@ -740,7 +757,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let bad = codex_snapshot(
+        let bad = guarded_snapshot(
             1_783_601_095_000,
             100.0,
             100.0,
@@ -766,7 +783,7 @@ mod tests {
         let store = UsageStore::open_in_memory().unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         store
-            .insert_snapshot(&codex_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0))
+            .insert_snapshot(&guarded_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0))
             .unwrap();
         store
             .insert_failure_kind(
@@ -810,7 +827,7 @@ mod tests {
             )
             .unwrap();
         store
-            .insert_snapshot(&codex_snapshot(now + 3_600_000, 12.0, 7.0, 0, 0))
+            .insert_snapshot(&guarded_snapshot(now + 3_600_000, 12.0, 7.0, 0, 0))
             .unwrap();
 
         let row = store
@@ -826,7 +843,7 @@ mod tests {
     #[test]
     fn codex_zero_after_supported_reset_is_accepted() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             98.0,
             9.0,
@@ -835,7 +852,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let reset = codex_snapshot(
+        let reset = guarded_snapshot(
             1_783_610_000_000,
             0.0,
             9.0,
@@ -853,7 +870,7 @@ mod tests {
     #[test]
     fn codex_exhaustion_with_distinct_resets_is_accepted() {
         let store = UsageStore::open_in_memory().unwrap();
-        let prev = codex_snapshot(
+        let prev = guarded_snapshot(
             1_783_601_000_000,
             98.0,
             99.0,
@@ -862,7 +879,7 @@ mod tests {
         );
         store.insert_snapshot(&prev).unwrap();
 
-        let full = codex_snapshot(
+        let full = guarded_snapshot(
             1_783_601_095_000,
             100.0,
             100.0,
@@ -998,5 +1015,44 @@ mod tests {
         assert_eq!(n, 1);
         let hist = store.get_history("claude", 0, 10, None).unwrap();
         assert_eq!(hist.len(), 1);
+    }
+    #[test]
+    fn validated_runtime_snapshots_accept_extremes_without_text_probe_heuristics() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let previous = guarded_snapshot(1000, 20.0, 40.0, 5000, 9000);
+        store.insert_snapshot(&previous).unwrap();
+        let full = guarded_snapshot(2000, 100.0, 100.0, 9000, 9000);
+        store.insert_runtime_snapshot(&full).unwrap();
+        let zero = guarded_snapshot(3000, 0.0, 0.0, 4000, 8000);
+        store.insert_runtime_snapshot(&zero).unwrap();
+        let rows = store.get_history(&previous.provider, 0, 10, None).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows
+            .iter()
+            .all(|row| row.parsed_ok && row.failure_reason.is_none()));
+        assert_eq!(rows[0].session_pct, Some(0.0));
+        assert_eq!(rows[1].session_pct, Some(100.0));
+        assert_eq!(
+            store
+                .get_latest(&previous.provider, None)
+                .unwrap()
+                .unwrap()
+                .captured_at,
+            3000
+        );
+    }
+
+    #[test]
+    fn runtime_snapshots_share_retention_with_probe_snapshots() {
+        let store = UsageStore::open_in_memory_with_cap(2).unwrap();
+        let sample = make_snapshot(1000);
+        store.insert_snapshot(&sample).unwrap();
+        store.insert_runtime_snapshot(&make_snapshot(2000)).unwrap();
+        store.insert_runtime_snapshot(&make_snapshot(3000)).unwrap();
+        let rows = store.get_history(&sample.provider, 0, 10, None).unwrap();
+        assert_eq!(
+            rows.iter().map(|row| row.captured_at).collect::<Vec<_>>(),
+            vec![3000, 2000]
+        );
     }
 }

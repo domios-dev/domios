@@ -5,6 +5,55 @@ use crate::multiplexer::types::TabBacking;
 use crate::plan::{OrchestratorRef, Plan};
 
 #[test]
+fn runtime_heartbeat_health_tracks_loaded_and_failed_epochs_honestly() {
+    use crate::service::agent_runtime::model::RuntimePhase;
+    assert_eq!(snapshot::runtime_process(&RuntimePhase::Ready), "present");
+    assert_eq!(snapshot::runtime_process(&RuntimePhase::Loading), "unknown");
+    for phase in [
+        RuntimePhase::Unloaded { reason: None },
+        RuntimePhase::Degraded {
+            reason: "opaque-fault".into(),
+        },
+    ] {
+        assert_eq!(snapshot::runtime_process(&phase), "absent");
+    }
+}
+
+#[test]
+fn runtime_heartbeat_cache_observes_classified_turns_once_without_history_replay() {
+    let owner = ChatMsg {
+        id: "owner-turn".into(),
+        kind: "user".into(),
+        content: "opaque-owner".into(),
+        ..Default::default()
+    };
+    let reminder = ChatMsg {
+        id: "reminder-turn".into(),
+        kind: "user".into(),
+        content: "opaque-reminder".into(),
+        inbound_kind: Some("reminder".into()),
+        ..Default::default()
+    };
+    let messages = vec![owner, reminder];
+    let (first, cursor, unavailable) = snapshot::appended_messages(messages.clone(), None);
+    assert!(!unavailable);
+    assert_eq!(
+        first
+            .iter()
+            .filter(|message| snapshot::is_owner_turn(message))
+            .count(),
+        1
+    );
+    assert_eq!(first.len(), 2);
+    assert_eq!(cursor.as_deref(), Some("reminder-turn"));
+    let (again, next_cursor, unavailable) =
+        snapshot::appended_messages(messages, cursor.as_deref());
+    assert!(!unavailable);
+    assert!(again.is_empty());
+    assert_eq!(next_cursor, cursor);
+}
+
+#[test]
 fn heartbeat_gate_turn_hashes_detect_loops_across_ticks() {
     let message = ChatMsg {
         id: "turn-a".into(),

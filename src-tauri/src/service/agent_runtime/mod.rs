@@ -1,12 +1,17 @@
 pub(crate) mod authority;
+mod bootstrap;
+mod completions;
 pub mod engine;
+mod environment;
 mod initialize;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod model;
 #[cfg(any(unix, test))]
 mod ownership;
-mod process;
+pub(crate) mod process;
+pub(crate) mod projections;
+pub(crate) mod prompt_answers;
 mod question_delivery;
 pub mod questions;
 mod rpc;

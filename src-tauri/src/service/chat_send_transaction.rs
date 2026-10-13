@@ -533,8 +533,40 @@ impl ChatSendLedger {
         live_binding: Option<SendLiveBinding>,
         turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     ) -> Result<ChatSendStatus, String> {
+        self.try_start_scoped_identity(
+            tab_id,
+            turn_evidence_text,
+            anchor,
+            live_binding,
+            turn_normalization,
+            None,
+        )
+    }
+
+    pub(crate) fn start_runtime_claim(
+        &self,
+        tab_id: &str,
+        text: &str,
+        send_id: &str,
+    ) -> Result<ChatSendStatus, String> {
+        uuid::Uuid::parse_str(send_id).map_err(|_| "Runtime claim ID invalid")?;
+        self.try_start_scoped_identity(tab_id, text, None, None, Default::default(), Some(send_id))
+    }
+
+    fn try_start_scoped_identity(
+        &self,
+        tab_id: &str,
+        turn_evidence_text: &str,
+        anchor: Option<SendEvidenceAnchor>,
+        live_binding: Option<SendLiveBinding>,
+        turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+        send_id: Option<&str>,
+    ) -> Result<ChatSendStatus, String> {
         let normalized_payload = normalize_written_payload(turn_evidence_text);
         let mut state = self.state.lock();
+        if send_id.is_some_and(|id| state.by_id.contains_key(id)) {
+            return Err("Runtime claim already admitted; replay refused".into());
+        }
         let in_flight = state
             .by_id
             .values()
@@ -550,7 +582,9 @@ impl ChatSendLedger {
         let sequence = state.next_sequence;
         state.next_sequence += 1;
         let status = ChatSendStatus {
-            send_id: uuid::Uuid::new_v4().to_string(),
+            send_id: send_id
+                .map(str::to_string)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             tab_id: tab_id.to_string(),
             state: ChatSendState::Pending,
             error: None,
