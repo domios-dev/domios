@@ -461,6 +461,17 @@ Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification 
 | `node` missing in `Prepare compile stubs`. | Clean runner PATH had no Node.js. | Install official Node LTS zip, prepend it in `.env`, install `pnpm`, and add shims so PowerShell does not pick blocked `.ps1` launchers. | If Node download is blocked, install supported Node LTS manually and add it to `.env`. |
 | `link.exe` missing in Rust lib tests. | Visual Studio Build Tools and/or Windows SDK were absent. | Bootstrap detects `vswhere`, `vcvarsall.bat`, and Windows SDK inventory; with `-InstallVisualStudioBuildTools` in an elevated shell it installs Build Tools C++ workload, ARM64 tools, and Windows SDK, then writes MSVC `PATH`, `INCLUDE`, and `LIB` into runner `.env`. | If elevation/UAC is unavailable, install Visual Studio Build Tools manually with C++ tools and Windows SDK, then re-run bootstrap. |
 
+## CI job-local Bash path repair
+
+If Rust setup reports Bash is missing although checkout resolves Git, the service
+PATH may expose Git's cmd directory without its bin directory. The Rust shard
+and native workflows run scripts/ci-runner-paths.mjs before composite actions:
+it verifies Bash from standard Git installs or the inherited Git path, appends
+that directory and existing account-local Rust proxies to GITHUB_PATH, and
+fails clearly if Bash is absent. This changes only the current job environment.
+Restore Git for Windows on the runner if preflight refuses; do not remove the
+runner from the shared pool or replace its service/global PATH to hide failure.
+
 ## Verification Checklist
 
 Run this after bootstrap:
