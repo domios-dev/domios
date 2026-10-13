@@ -1,13 +1,8 @@
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
+import { thoughtPresentation } from "./thoughtModel";
 
 export const THOUGHT_MAX_HEIGHT = "200px";
-
-/** First non-empty line, with a whole-line bold heading unwrapped. */
-export function thoughtHeadline(text: string): string {
-  const line = text.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
-  return line.replace(/^\*\*(.+)\*\*$/, "$1").trim();
-}
 
 export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", testId = "chat-thought", defaultExpanded = false }: {
   text: string;
@@ -21,8 +16,17 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
   const regionId = useId();
   const open = expanded ?? localExpanded;
   const toggle = onToggle ?? setLocalExpanded;
-  const headline = thoughtHeadline(text);
+  const { headline, expandable } = thoughtPresentation(text);
   if (!headline) return null;
+
+  if (!expandable) {
+    return (
+      <div data-testid={testId} className="flex min-w-0 items-start gap-1.5 px-2 py-0.5 text-[11px] opacity-70" style={{ color: "var(--ct-muted-fg)" }}>
+        <span className="shrink-0">{label}</span>
+        <span data-testid="chat-thought-line" className="min-w-0 whitespace-pre-wrap break-words italic">{text}</span>
+      </div>
+    );
+  }
 
   return (
     <div data-testid={testId} className="min-w-0">
