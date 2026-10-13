@@ -311,7 +311,6 @@ fn supporter_first_opinion_safe_response_historical_focus_cannot_supply_update_e
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_safe_response_post_launch_planner_and_owner_boundary() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "safe-response-pty".into());

@@ -1,8 +1,4 @@
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     use crate::agent::test_provider::MockProvider;
 

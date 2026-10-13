@@ -220,10 +220,6 @@ mod tests {
     /// tab-state subscribers therefore leaves the transcript frozen with no
     /// tailer and nothing to re-attach it.
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn binding_change_broadcasts_tab_state() {
         let (mux, tab) = MultiplexerState::new();
         let fixture = ServiceFixture::new(mux);
@@ -246,10 +242,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn agent_fork_legacy_guess_cannot_bind_a_distinct_session() {
         let (mut mux, tab) = MultiplexerState::new();
         mux.get_tab_mut(&tab).unwrap().fork_source_session_id = Some("source".into());

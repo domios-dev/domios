@@ -69,7 +69,6 @@ fn chat_backend_only_fields_names_exactly_the_set_flags() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn spawn_rejects_transport_mismatched_flags() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -140,7 +139,6 @@ impl crate::chatbackend::ChatBackendProvider for ShellFixture {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn chat_backend_spawn_keeps_its_fields_and_refuses_pty_launch_args() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

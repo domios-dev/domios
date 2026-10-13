@@ -1,10 +1,6 @@
 use super::idle_restart_termination_allowed;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn agent_restart_only_proven_lifecycle_exit_releases_exit_submission() {
     for proven_exit in [false, true] {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();

@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unattributed_close_of_coordinator_reports_missing_attribution() {
     let (mut mux, coordinator) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&coordinator).expect("initial Tab");

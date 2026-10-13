@@ -646,10 +646,6 @@ fn recovery_stops_on_provider_modal_without_using_screen_turn_state() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the ServiceContext harness requires an interactive desktop runtime"
-)]
 fn failed_agent_readiness_is_not_overridden_by_shell_prompt_text() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::delivery_error::DeliveryError;

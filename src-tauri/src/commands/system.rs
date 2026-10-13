@@ -30,7 +30,7 @@ pub fn open_folder(path: String) -> Result<(), String> {
 
 /// What the OS says about desktop toasts right now, without raising a prompt.
 #[tauri::command]
-pub async fn notify_permission_state(app: tauri::AppHandle) -> String {
+pub async fn notify_permission_state(app: crate::app_runtime::AppHandle) -> String {
     tokio::task::spawn_blocking(move || crate::api::os_notify::toast_permission(&app).to_string())
         .await
         .unwrap_or_else(|_| "unknown".to_string())
@@ -40,7 +40,10 @@ pub async fn notify_permission_state(app: tauri::AppHandle) -> String {
 /// asks nothing and just reports what is already known. Off the runtime, because
 /// a real OS prompt waits on the user and would otherwise starve every tab.
 #[tauri::command]
-pub async fn establish_notify_permission(app: tauri::AppHandle, enabling: bool) -> String {
+pub async fn establish_notify_permission(
+    app: crate::app_runtime::AppHandle,
+    enabling: bool,
+) -> String {
     tokio::task::spawn_blocking(move || {
         crate::api::os_notify::establish_toast_permission(&app, enabling).to_string()
     })

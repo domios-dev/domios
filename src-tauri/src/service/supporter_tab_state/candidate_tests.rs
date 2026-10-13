@@ -274,7 +274,6 @@ fn supporter_first_opinion_scrape_a004b77d4_transcript_and_composer_copy_negativ
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "fixture-pty".into());
@@ -321,7 +320,6 @@ fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "safe-choice-batch-pty".into());
@@ -449,7 +447,6 @@ struct CandidateModel {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_disconnect() {
     for arm in 0..3 {
         let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
@@ -719,7 +716,6 @@ fn supporter_first_opinion_unknown_launch_block_uses_input_area_evidence() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_scrape_explicit_handle_wins_and_failed_revalidation_abstains() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "fixture-explicit-pty".into());
@@ -790,7 +786,6 @@ fn supporter_first_opinion_scrape_explicit_handle_wins_and_failed_revalidation_a
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_scrape_service_user_answer_and_reused_pty_new_nonce_cancel() {
     for user_response in [true, false] {
         let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();

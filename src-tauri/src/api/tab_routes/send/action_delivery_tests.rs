@@ -372,13 +372,11 @@ fn assert_plain_text_is_held_until_provider_dialog_clears(dialog: ProviderDialog
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plain_text_is_held_when_a_trust_dialog_frame_is_on_screen() {
     assert_plain_text_is_held_until_provider_dialog_clears(ProviderDialogFixture::Trust);
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plain_text_is_held_then_written_once_when_an_update_dialog_clears() {
     assert_plain_text_is_held_until_provider_dialog_clears(ProviderDialogFixture::Update);
 }

@@ -315,7 +315,7 @@ pub struct ServiceContext {
     pub screen_state: ScreenStateHandle,
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
-    pub app_handle: tauri::AppHandle,
+    pub app_handle: crate::app_runtime::AppHandle,
     pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
     pub(crate) orchestrator_attach_locks: TeamOrchestratorAttachLocks,
     pub agent_tracker: AgentTrackerState,

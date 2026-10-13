@@ -54,7 +54,6 @@ fn owner_call(owner: &str, fields: Value) -> Option<Value> {
     Some(params)
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
     let (fixture, plan_id, owner) = keyed_fixture();

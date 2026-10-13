@@ -1,7 +1,7 @@
 //! `agent.*` JSON-RPC handlers.
 
+use crate::app_runtime::AppHandle;
 use serde_json::Value;
-use tauri::AppHandle;
 
 use crate::service::ServiceState;
 
@@ -643,7 +643,6 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn agent_report_refused_kind_routes_to_diagnostic_without_recording_report() {
         let (mut mux, parent_tab_id) = MultiplexerState::new();
         let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();
@@ -712,7 +711,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn socket_agent_ack_releases_the_armed_worker_ack_waiter() {
         let (mut mux, _) = MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();

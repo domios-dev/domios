@@ -649,7 +649,6 @@ fn waived_planner_fixture() -> (
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_waiver_keeps_tab_role_and_team() {
     let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
     let before_team = fixture
@@ -682,7 +681,6 @@ fn planner_waiver_keeps_tab_role_and_team() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn explicit_planner_clear_keeps_previous_role_removal_semantics() {
     let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
 
@@ -704,7 +702,6 @@ fn explicit_planner_clear_keeps_previous_role_removal_semantics() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restore_keeps_persisted_role_and_team_after_plan_planner_change() {
     let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
     fixture
@@ -737,7 +734,6 @@ fn restore_keeps_persisted_role_and_team_after_plan_planner_change() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn role_and_team_removal_are_journaled() {
     let (fixture, _, planner_tab, _) = waived_planner_fixture();
 

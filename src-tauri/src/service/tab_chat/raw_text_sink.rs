@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use tauri::AppHandle;
+use crate::app_runtime::AppHandle;
 
 use crate::service::tab_chat::tailer::RawTextSink;
 

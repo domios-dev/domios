@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn recovered_moved_owner_passes_lifecycle_guard_and_foreign_callers_fail() {
     use crate::multiplexer::state::MultiplexerState;

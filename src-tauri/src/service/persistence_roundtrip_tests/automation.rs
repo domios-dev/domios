@@ -48,10 +48,6 @@ fn cron_params(root: &std::path::Path, workspace_id: String) -> CronCreateParams
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn cron_create_update_delete_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -112,10 +108,6 @@ fn cron_create_update_delete_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn cron_run_start_finish_and_history_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
@@ -171,10 +163,6 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn sentinel_create_update_and_stop_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
