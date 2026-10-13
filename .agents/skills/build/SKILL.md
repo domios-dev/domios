@@ -117,6 +117,79 @@ CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
 do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
 SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
 
+## Shared compile cache
+
+`build.sh` owns cache setup through `scripts/cache-policy.sh`; `build.ps1`
+forwards to it. Release, DEV and capped Rust tests use the same configuration.
+On eight, air, ubunta, ROG, BLACKSTAR and green, first run
+`codeterm mem secret sync`. The two vault entries are
+`domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key`.
+Build setup resolves both directly into process environment variables
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; never write them to a file,
+argv, logs or memory. It exports `SCCACHE_ENDPOINT=http://100.64.10.5:9000`,
+`SCCACHE_BUCKET=sccache`, `SCCACHE_REGION=us-east-1` and
+`SCCACHE_S3_USE_SSL=false`. Setup reads the running server's actual location
+first. Matching S3 bucket/prefix or local disk storage is reused, even while
+Cargo is active. Only a storage mismatch restarts the server; an active
+Cargo/rustc process then refuses the change with exit 75. Serialize machine
+build ownership before changing storage. Each setup checks the actual server;
+no inherited process marker can bypass a required storage transition.
+Every setup prints `sccache: shared S3 cache at <endpoint>/<bucket>` or
+`sccache: local disk cache at <dir> (reason)`, without credentials.
+When either secret is unavailable, one log line announces local disk fallback;
+`SCCACHE_CACHE_SIZE` retains its existing default of `10G` and custom limits.
+A configured shared endpoint that cannot start is an error, not a claimed hit.
+
+`./build.sh cache-status` (Windows: `.\build.ps1 cache-status`) resolves the
+configured location, reads the running server's actual `Cache location`, and
+checks the shared endpoint's health URL. It starts no build or cache server,
+and changes no hooks or compiler environment. Configured and actual locations
+can differ until the next idle setup restarts the server.
+
+For cross-machine Rust reuse, CI must use identical **physical** paths:
+
+| Builders | Checkout | CARGO_HOME |
+|---|---|---|
+| eight, air | `/Users/Shared/domios-ci/work/codeterm` | `/Users/Shared/domios-ci/cargo` |
+| ROG, BLACKSTAR, green | `C:\domios-ci\work\codeterm` | `C:\domios-ci\cargo` |
+| ubunta | `/opt/domios-ci/work/codeterm` | `/opt/domios-ci/cargo` |
+
+Only the exact CI checkout paths above use checkout-local `target-check` for
+exceptional test compilation; other worktrees retain gateway target isolation.
+Each machine owns its own clean Cargo target; no target directory is shared
+across machines or worktrees. Pin the repository toolchain, target triple,
+profile, features and build environment on each same-OS pair. Developer
+checkouts stay at their existing paths and use shared storage when credentials
+resolve, but different paths may miss. Shared macOS directories need write
+access for each local builder account; they contain source and disposable Cargo
+artifacts, never credentials.
+
+Sccache 0.17 documents `SCCACHE_BASEDIRS`, but its Rust
+[`generate_hash_key`](https://github.com/mozilla/sccache/blob/v0.17.0/src/compiler/rust.rs)
+hashes cwd and Cargo environment paths directly, without that rewriting.
+Keep the issue #327 guard; BASEDIRS alone cannot prove Rust path independence.
+Upstream Rust normalization is a separate follow-up. Also match
+toolchain executable paths: `CARGO` is hashed. Select the pinned toolchain under
+`/Users/Shared/domios-ci/rustup/toolchains/` on macOS,
+`C:\domios-ci\rustup\toolchains\` on Windows, or
+`/opt/domios-ci/rustup/toolchains/` on Linux in the builder process PATH;
+do not change developer toolchain defaults. See the builder path
+contract in `.codeterm/build-machine/README.md`.
+
+Measure a newly created checkout at one SHA with an empty target on each
+same-OS pair, first the populating builder and then the consuming builder.
+Capture `sccache --show-stats`, `rustc -vV`, the SHA, exact command, raw exit and
+wall time. Compute hit rate as hits / (hits + misses), excluding noncacheable
+calls; a successful build alone is not cache-hit proof.
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| Local fallback line on an intended builder | One or both vault entries could not resolve | Run `codeterm mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
+| Shared server startup fails | Endpoint unreachable, credentials rejected, or installed sccache lacks S3 support | Verify Tailscale connectivity and tool features; inspect metadata and server health without secret logging. Preserve the failed receipt. |
+| Windows PowerShell refuses `build.ps1` because scripts are disabled | The shell process uses a restrictive execution policy | Invoke the authorized build through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1 <operation>`; this changes only that process, never machine policy. |
+| Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
+| Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
+
 ## Cache retention and troubleshooting
 
 Gateway acquisition triggers retention at most once per hour; there are no timers or background sweep jobs. `cache-retention.json` in the machine gateway records the last completed run. Exceptional targets carry `.codeterm-cache.json` with their physical checkout path, last-use timestamp, measured byte count, and live build-owner PIDs. Preparation refreshes the marker even for exceptional commands that run outside the gateway.
@@ -629,4 +702,4 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 23 -->
+<!-- revision: 25 -->

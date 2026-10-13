@@ -43,6 +43,21 @@ fn rpc_id(id: &RpcId) -> bool {
     }
 }
 
+pub fn validate_runtime_settings(settings: &RuntimeSettings) -> Result<(), RuntimeFailure> {
+    validate_runtime_size(settings, MAX_RUNTIME_VALUE_BYTES)?;
+    let mut seen = std::collections::HashSet::new();
+    if settings.additional_directories.len() > 32
+        || settings.additional_directories.iter().any(|directory| {
+            !identifier(directory)
+                || !std::path::Path::new(directory).is_absolute()
+                || !seen.insert(directory)
+        })
+    {
+        return Err(invalid("invalid additional runtime directories"));
+    }
+    Ok(())
+}
+
 pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailure> {
     validate_runtime_size(ctx, MAX_RUNTIME_VALUE_BYTES)?;
     if ctx.epoch == 0
@@ -60,6 +75,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     {
         return Err(invalid("invalid runtime authority"));
     }
+    validate_runtime_settings(&ctx.settings)?;
     validate_active_turns(ctx)?;
     let mut sends = std::collections::HashSet::new();
     for claim in &ctx.claimed_sends {
@@ -86,6 +102,12 @@ pub fn validate_runtime_operation(
 ) -> Result<(), RuntimeFailure> {
     validate_runtime_context(ctx)?;
     validate_runtime_size(op, MAX_RUNTIME_VALUE_BYTES)?;
+    match op {
+        RuntimeOperation::OpenThread { settings, .. }
+        | RuntimeOperation::ResumeThread { settings, .. }
+        | RuntimeOperation::SubmitTurn { settings, .. } => validate_runtime_settings(settings)?,
+        _ => {}
+    }
     let thread = match op {
         RuntimeOperation::ResumeThread { thread_id, .. } => {
             if ctx
@@ -313,6 +335,9 @@ fn validate_runtime_result(
     op: &RuntimeOperation,
     result: &RuntimeResult,
 ) -> Result<(), RuntimeFailure> {
+    if let RuntimeResult::ThreadLoaded { settings, .. } = result {
+        validate_runtime_settings(settings)?;
+    }
     let valid = match (op, result) {
         (RuntimeOperation::Initialize, RuntimeResult::Initialized) => true,
         (RuntimeOperation::OpenThread { .. }, RuntimeResult::ThreadLoaded { thread_id, .. }) => {
@@ -546,6 +571,9 @@ pub fn validate_runtime_reduction(
             return Err(mismatch("event retargets runtime thread"));
         }
         match event {
+            AgentRuntimeEvent::ControlsConfirmed { settings, .. } => {
+                validate_runtime_settings(settings)?
+            }
             AgentRuntimeEvent::Question {
                 item_id, questions, ..
             } => {

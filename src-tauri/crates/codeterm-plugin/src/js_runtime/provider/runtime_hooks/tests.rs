@@ -362,3 +362,68 @@ fn runtime_history_questions_are_typed_bounded_and_thread_confined() {
     unknown["kind"] = json!("question");
     assert!(serde_json::from_value::<RuntimeStep>(step(json!([unknown]))).is_err());
 }
+
+#[test]
+fn runtime_additional_directories_default_and_host_bounds() {
+    let empty: RuntimeSettings = serde_json::from_value(json!({})).unwrap();
+    assert!(empty.additional_directories.is_empty());
+    assert_eq!(serde_json::to_value(&empty).unwrap(), json!({}));
+    let absolute = std::env::temp_dir()
+        .join("runtime-directory-fixture")
+        .to_string_lossy()
+        .into_owned();
+    let valid: RuntimeSettings =
+        serde_json::from_value(json!({"additionalDirectories":[absolute.clone()]})).unwrap();
+    assert!(validate_runtime_settings(&valid).is_ok());
+    assert_eq!(
+        serde_json::to_value(&valid).unwrap()["additionalDirectories"],
+        json!([absolute.clone()])
+    );
+    for directories in [
+        vec!["relative".into()],
+        vec![absolute.clone(); 33],
+        vec![absolute.clone(); 2],
+        vec![String::new()],
+        vec![format!("{absolute}\0")],
+        vec![format!("{absolute}{}", "x".repeat(4096))],
+    ] {
+        let bad = RuntimeSettings {
+            additional_directories: directories,
+            ..Default::default()
+        };
+        assert!(validate_runtime_settings(&bad).is_err());
+        let mut ctx = context();
+        ctx.settings = bad.clone();
+        assert!(validate_runtime_context(&ctx).is_err());
+        let op = RuntimeOperation::OpenThread {
+            instructions: String::new(),
+            settings: bad,
+        };
+        assert!(validate_runtime_operation(&context(), &op).is_err());
+    }
+}
+
+#[test]
+fn runtime_network_access_preserves_false_and_refuses_non_boolean_values() {
+    let empty: RuntimeSettings = serde_json::from_value(json!({})).unwrap();
+    assert_eq!(empty.network_access, None);
+    assert!(serde_json::to_value(empty)
+        .unwrap()
+        .get("networkAccess")
+        .is_none());
+    for allowed in [false, true] {
+        let settings: RuntimeSettings =
+            serde_json::from_value(json!({"networkAccess":allowed})).unwrap();
+        assert_eq!(settings.network_access, Some(allowed));
+        assert!(validate_runtime_settings(&settings).is_ok());
+        assert_eq!(
+            serde_json::to_value(settings).unwrap()["networkAccess"],
+            json!(allowed)
+        );
+    }
+    for invalid in [json!("true"), json!(1), json!([]), json!({})] {
+        assert!(
+            serde_json::from_value::<RuntimeSettings>(json!({"networkAccess":invalid})).is_err()
+        );
+    }
+}
