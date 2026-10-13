@@ -328,3 +328,37 @@ fn runtime_completed_parent_preserves_active_descendant_without_interrupting_par
     ctx.thread_parents[0].parent_thread_id = "grandchild".into();
     assert!(validate_runtime_context(&ctx).is_err());
 }
+
+#[test]
+fn runtime_history_questions_are_typed_bounded_and_thread_confined() {
+    let mut ctx = context();
+    ctx.thread_id = Some("own-thread".into());
+    let cap = provider("module.exports={}").agent_runtime().unwrap();
+    let op: RuntimeOperation =
+        serde_json::from_value(json!({"kind":"readHistory","threadId":"own-thread"})).unwrap();
+    let reply: RpcReply = serde_json::from_value(json!({"kind":"success","value":null})).unwrap();
+    let question = json!({"threadId":"own-thread","itemId":"question-item","questions":[{"id":"q1","text":"choose","options":[{"value":"native-id","label":"label"}]}],"response":"message","resolved":true});
+    let step = |questions: Value| json!({"kind":"complete","result":{"kind":"historyPage","threadId":"own-thread","items":[],"openItems":[],"questions":questions}});
+    let good: RuntimeStep = serde_json::from_value(step(json!([question.clone()]))).unwrap();
+    assert!(validate_runtime_step(&cap, &ctx, &op, &reply, &good).is_ok());
+    assert_eq!(
+        serde_json::to_value(&good).unwrap()["result"]["questions"][0],
+        question
+    );
+    let mut wrong_thread = question.clone();
+    wrong_thread["threadId"] = json!("foreign-thread");
+    let mut too_many = question.clone();
+    too_many["questions"] = json!(vec![question["questions"][0].clone(); 33]);
+    for questions in [
+        json!([wrong_thread]),
+        json!([question.clone(), question.clone()]),
+        json!([too_many]),
+        json!(vec![question.clone(); 1025]),
+    ] {
+        let bad: RuntimeStep = serde_json::from_value(step(questions)).unwrap();
+        assert!(validate_runtime_step(&cap, &ctx, &op, &reply, &bad).is_err());
+    }
+    let mut unknown = question;
+    unknown["kind"] = json!("question");
+    assert!(serde_json::from_value::<RuntimeStep>(step(json!([unknown]))).is_err());
+}

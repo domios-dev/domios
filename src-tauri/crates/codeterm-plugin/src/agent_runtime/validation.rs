@@ -332,9 +332,24 @@ fn validate_runtime_result(
                 thread_id,
                 items,
                 open_items,
+                questions,
                 ..
             },
         ) => {
+            if let Some(questions) = questions {
+                if questions.len() > MAX_RUNTIME_BATCH {
+                    return Err(invalid("too many history questions"));
+                }
+                let mut ids = std::collections::HashSet::new();
+                for question in questions {
+                    if &question.thread_id != thread_id || !ids.insert(&question.item_id) {
+                        return Err(mismatch(
+                            "history question retargets thread or duplicates item",
+                        ));
+                    }
+                    validate_question_fields(&question.item_id, &question.questions)?;
+                }
+            }
             target == thread_id
                 && items.len() <= MAX_RUNTIME_BATCH
                 && open_items.len() <= MAX_RUNTIME_BATCH
@@ -534,27 +549,7 @@ pub fn validate_runtime_reduction(
             AgentRuntimeEvent::Question {
                 item_id, questions, ..
             } => {
-                if !identifier(item_id) || questions.is_empty() || questions.len() > 32 {
-                    return Err(invalid("invalid question event"));
-                }
-                let mut ids = std::collections::HashSet::new();
-                for question in questions {
-                    if !identifier(&question.id)
-                        || !ids.insert(&question.id)
-                        || question.text.len() > 65536
-                        || question.options.len() > 128
-                    {
-                        return Err(invalid("invalid question fields"));
-                    }
-                    let mut options = std::collections::HashSet::new();
-                    if question.options.iter().any(|option| {
-                        !identifier(&option.value)
-                            || !options.insert(&option.value)
-                            || option.label.len() > 65536
-                    }) {
-                        return Err(invalid("invalid question options"));
-                    }
-                }
+                validate_question_fields(item_id, questions)?;
             }
             AgentRuntimeEvent::Prompt { request_id, .. }
             | AgentRuntimeEvent::PromptResolved { request_id, .. }
@@ -563,6 +558,34 @@ pub fn validate_runtime_reduction(
                 return Err(invalid("invalid prompt request id"))
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_question_fields(
+    item_id: &str,
+    questions: &[RuntimeQuestion],
+) -> Result<(), RuntimeFailure> {
+    if !identifier(item_id) || questions.is_empty() || questions.len() > 32 {
+        return Err(invalid("invalid question event"));
+    }
+    let mut ids = std::collections::HashSet::new();
+    for question in questions {
+        if !identifier(&question.id)
+            || !ids.insert(&question.id)
+            || question.text.len() > 65536
+            || question.options.len() > 128
+        {
+            return Err(invalid("invalid question fields"));
+        }
+        let mut options = std::collections::HashSet::new();
+        if question.options.iter().any(|option| {
+            !identifier(&option.value)
+                || !options.insert(&option.value)
+                || option.label.len() > 65536
+        }) {
+            return Err(invalid("invalid question options"));
         }
     }
     Ok(())
