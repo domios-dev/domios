@@ -722,6 +722,7 @@ impl ServiceContext {
 
         // Same builder as the scheduler's automatic fire: one routing decision, so a
         // triggered run and a scheduled run cannot disagree about the runtime.
+        let runtime_owner_prebound = super::agent_runtime::engine::requested(self, &agent);
         let spec = crate::cron::spawn_spec::build_cron_spawn_spec(
             self.chatbackend_registry.as_ref(),
             crate::cron::spawn_spec::CronSpawnInputs {
@@ -748,13 +749,15 @@ impl ServiceContext {
         match spawn {
             Ok(handle) => {
                 run_info.tab_id = Some(handle.tab_id.clone());
-                cron.lock().register_tab(&handle.tab_id, id, &run_id);
-                if let Err(error) = commit(cron, |store| {
-                    Ok(store.prepare_set_run_tab(id, &run_id, &handle.tab_id))
-                }) {
-                    log::error!(
-                        "Failed to record triggered cron Tab: job={id} run={run_id}: {error}"
-                    );
+                if !runtime_owner_prebound {
+                    cron.lock().register_tab(&handle.tab_id, id, &run_id);
+                    if let Err(error) = commit(cron, |store| {
+                        Ok(store.prepare_set_run_tab(id, &run_id, &handle.tab_id))
+                    }) {
+                        log::error!(
+                            "Failed to record triggered cron Tab: job={id} run={run_id}: {error}"
+                        );
+                    }
                 }
                 // Register with the auto-complete watcher (cron flavor).
                 if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.tab_id).cloned() {
