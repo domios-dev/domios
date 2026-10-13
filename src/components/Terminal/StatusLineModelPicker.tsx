@@ -39,7 +39,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
     <StatusLineModelPicker
       tabId={tab.id}
       descriptor={descriptor}
-      facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend", protected: tab.protected === true }}
+      facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend" }}
       label={label}
       modelCandidates={[statusLineModelName(tab)]}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}

@@ -48,13 +48,16 @@ fn first_post_boundary_model_confirms_match_and_rejects_old_model() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
-    for mode in [
+    for (mode, general) in [
         ModelSwitchMode::Live,
         ModelSwitchMode::LiveCommand,
         ModelSwitchMode::RestartResume,
         ModelSwitchMode::NextTurn,
-    ] {
-        let (mux, tab_id) = seeded_tab("staging-provider");
+    ]
+    .into_iter()
+    .flat_map(|mode| [false, true].map(|general| (mode, general)))
+    {
+        let (mux, tab_id) = seeded_tab_for("staging-provider", general);
         let fixture = ServiceFixture::new(mux);
         let _pty = fixture.bind_test_pty_session(&tab_id, SESSION, NONCE);
         let pty_id = fixture
@@ -77,6 +80,17 @@ fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
         assert_eq!(outcome.confirmation, ModelSwitchConfirmation::AfterTurn);
         assert_eq!(outcome.mechanism, mode);
         assert!(outcome.restart.is_none());
+        assert_eq!(outcome.session_id, SESSION);
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .protected,
+            general
+        );
         assert!(!restart_attempted(&fixture, &tab_id));
         let replacement = fixture
             .service
@@ -198,7 +212,18 @@ fn live_mode_uses_the_route_probe_and_falls_back_with_a_reason() {
 }
 
 fn seeded_tab(provider: &str) -> (MultiplexerState, String) {
-    let (mut mux, tab_id) = MultiplexerState::new();
+    seeded_tab_for(provider, false)
+}
+
+fn seeded_tab_for(provider: &str, general: bool) -> (MultiplexerState, String) {
+    let (mut mux, initial_tab) = MultiplexerState::new();
+    let tab_id = if general {
+        crate::service::general_agent::ensure_general_workspace(&mut mux, true);
+        mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+            .unwrap()
+    } else {
+        initial_tab
+    };
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.cwd = Some(std::env::temp_dir().display().to_string());
     tab.agent_type = Some(provider.into());
