@@ -164,7 +164,7 @@ async fn ensure_locked(
         {
             return Err(RuntimeFailure::Superseded);
         }
-        validate_restored_arguments(provider, target.restorable_launch.as_ref())?;
+        validate_restored_arguments(provider, Some(&target.restorable_launch))?;
     }
     let old = session.process.lock().clone();
     let registered = svc.agent_registry.provider_arc(provider);
