@@ -40,7 +40,8 @@ const PROVIDER: &str = "settings-fixture";
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
-    return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
+    const target = op.kind === 'interrupt' ? {threadId:op.threadId,turnId:op.activeTurnId} : undefined;
+    return {action:{kind:'request',call:{method:op.kind,params:op,...(target ? {target} : {})}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
     let result = {kind:'done'};
