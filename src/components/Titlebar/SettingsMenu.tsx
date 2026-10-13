@@ -1,11 +1,9 @@
 import { useState } from "react";
 import { UpdateTray } from "./UpdateTray";
 import { GearIcon } from "../Icons";
-
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { UI_TRAY_BTN } from "../shared/design";
 import { SETTINGS_SECTIONS, type SectionId } from "../Settings/sections";
-
 
 interface SettingsMenuProps {
   onOpenSection: (section?: SectionId) => void;

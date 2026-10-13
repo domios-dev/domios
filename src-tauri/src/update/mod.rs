@@ -85,8 +85,9 @@ pub struct UpdateState {
     pub download_total_bytes: Option<u64>,
 }
 
-static STATUS_EMITTER: std::sync::OnceLock<Box<dyn Fn(serde_json::Value) + Send + Sync>> =
-    std::sync::OnceLock::new();
+type StatusEmitter = Box<dyn Fn(serde_json::Value) + Send + Sync>;
+
+static STATUS_EMITTER: std::sync::OnceLock<StatusEmitter> = std::sync::OnceLock::new();
 
 pub fn bind_status_emitter(app: tauri::AppHandle) {
     let _ = STATUS_EMITTER.set(Box::new(move |status| {
@@ -96,8 +97,11 @@ pub fn bind_status_emitter(app: tauri::AppHandle) {
 
 impl UpdateState {
     fn publish_status(&self) {
+        let status = self.runtime_status();
+        #[cfg(test)]
+        state_tests::capture_status(&status);
         if let Some(emit) = STATUS_EMITTER.get() {
-            emit(self.runtime_status());
+            emit(status);
         }
     }
 
@@ -155,7 +159,6 @@ impl UpdateState {
         self.phase = UpdatePhase::Downloading;
         if self.phase_changed_at.is_none() {
             self.phase_changed_at = Some(std::time::Instant::now());
-            self.publish_status();
         }
         if total.is_some() {
             self.download_total_bytes = total;
@@ -176,6 +179,34 @@ impl UpdateState {
 #[cfg(test)]
 mod state_tests {
     use super::*;
+
+    thread_local! {
+        static CAPTURED: std::cell::RefCell<Option<Vec<serde_json::Value>>> = const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn capture_status(status: &serde_json::Value) {
+        CAPTURED.with_borrow_mut(|events| {
+            if let Some(events) = events {
+                events.push(status.clone());
+            }
+        });
+    }
+
+    #[test]
+    fn update_status_events_follow_state_transitions() {
+        CAPTURED.set(Some(Vec::new()));
+        let mut state = empty_state();
+        state.set_phase(UpdatePhase::Downloading);
+        state.record_download_chunk(25, Some(100));
+        state.set_error("fixture-failure");
+        let events = CAPTURED.take().unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["phase"], "downloading");
+        assert_eq!(events[1]["downloaded_bytes"], 25);
+        assert_eq!(events[1]["download_progress"], 0.25);
+        assert_eq!(events[2]["phase"], "error");
+        assert_eq!(events[2]["last_error"], "fixture-failure");
+    }
 
     fn empty_state() -> UpdateState {
         UpdateState {

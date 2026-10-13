@@ -1,21 +1,20 @@
-import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { listen } from "../lib/bridge";
 import { checkUpdateAvailability, type UpdateAvailabilitySnapshot } from "../lib/updateAvailability";
-import { availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, type UpdateIntent } from "../lib/updatePanelModel";
+import { availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, type UpdateIntent, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { useUpdate } from "./useUpdate";
 
-const INTENT_KEY = "codeterm.update-all.intent";
 const EMPTY: UpdateAvailabilitySnapshot = { items: [], errors: {} };
 
 function savedIntent(): UpdateIntent | null {
-  return readUpdateIntent(localStorage.getItem(INTENT_KEY));
+  return readUpdateIntent(localStorage.getItem(UPDATE_INTENT_KEY));
 }
 
 function persistIntent(intent: UpdateIntent | null): void {
-  if (intent) localStorage.setItem(INTENT_KEY, JSON.stringify(intent));
-  else localStorage.removeItem(INTENT_KEY);
+  if (intent) localStorage.setItem(UPDATE_INTENT_KEY, JSON.stringify(intent));
+  else localStorage.removeItem(UPDATE_INTENT_KEY);
 }
 
 function useUpdatePanelController() {
@@ -23,12 +22,13 @@ function useUpdatePanelController() {
   const [snapshot, setSnapshot] = useState(EMPTY);
   const [intent, setIntent] = useState(savedIntent);
   const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [ready, setReady] = useState(false);
   const running = useRef(false);
   const offer = useSyncExternalStore(subscribeFrontendUpdateOffer, frontendUpdateOffer, () => null);
   const items = panelItems(snapshot.items);
 
-  const refresh = async (force = false) => {
+  const refresh = useCallback(async (force = false) => {
     try {
       const next = await checkUpdateAvailability(force);
       setSnapshot(next);
@@ -38,7 +38,7 @@ function useUpdatePanelController() {
       setError(String(failure));
       throw failure;
     }
-  };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -55,14 +55,14 @@ function useUpdatePanelController() {
     return () => { disposed = true; stop?.(); };
   }, []);
 
-  const save = (next: UpdateIntent | null) => {
+  const save = useCallback((next: UpdateIntent | null) => {
     persistIntent(next);
     setFrontendUpdateHeld(next !== null);
     setIntent(next);
-  };
+  }, []);
 
   useEffect(() => {
-    if (!ready || !intent || running.current || error) return;
+    if (!ready || !intent || running.current || error || Object.keys(snapshot.errors).length > 0) return;
     const host = snapshot.items.find(item => item.kind === "app")?.installed;
     if (!host) return;
     const step = nextUpdateStep(intent, host, items);
@@ -83,29 +83,35 @@ function useUpdatePanelController() {
       } catch (failure) { setError(String(failure)); }
       finally { running.current = false; }
     })();
-  }, [ready, intent, snapshot, offer, error]);
+  }, [ready, intent, snapshot, offer, error, items, refresh, save]);
 
   const updateAll = async () => {
     if (intent || running.current || app.installing) return;
+    running.current = true;
+    setStarting(true);
     setError(null);
     try {
       const fresh = await refresh(true);
+      if (Object.keys(fresh.errors).length > 0) throw new Error("Some update sources could not be checked");
       const next = availabilityIntent(fresh.items);
+      running.current = false;
       save(next);
       if (next.appTarget) {
         const result = await app.applyUpdate();
         if (!result) throw new Error("App update failed");
       }
     } catch (failure) { setError(String(failure)); }
+    finally { running.current = false; setStarting(false); }
   };
 
   const retry = async () => {
     setError(null);
-    if (intent?.stage === "app") await app.applyUpdate();
+    const host = snapshot.items.find(item => item.kind === "app")?.installed;
+    if (intent?.stage === "app" && host !== intent.appTarget) await app.applyUpdate();
     await refresh(true);
   };
 
-  return { snapshot, items, busy: intent !== null || app.installing, error: error ?? app.error,
+  return { snapshot, items, busy: starting || intent !== null || app.installing, error: error ?? app.error,
     updateAll, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
 }
 

@@ -1,3 +1,4 @@
+import { readUpdateIntent, UPDATE_INTENT_KEY } from "../updatePanelModel";
 import type { TransportClient } from "../transportClient";
 import { COMPOSER_DRAFT_PREFIX } from "../composerDraftGc";
 import { setPersistedChatScrollState, type ChatScrollState } from "../../components/Terminal/chatViewport";
@@ -5,7 +6,7 @@ import { frontendSignals, setCheckpointRestorer } from "./appState";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions, type FrontendUpdateOffer } from "./runtime";
 
 let runtime: Awaited<ReturnType<typeof initializeFrontendUpdateRuntime>> | null = null;
-let held = typeof localStorage !== "undefined" && localStorage.getItem("codeterm.update-all.intent") !== null;
+let held = typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" && readUpdateIntent(localStorage.getItem(UPDATE_INTENT_KEY)) !== null;
 let offer: FrontendUpdateOffer | null = null;
 const offerListeners = new Set<() => void>();
 
@@ -51,7 +52,7 @@ export async function initializeBrowserFrontendUpdates(client: TransportClient, 
   const modals = new MutationObserver(syncModals);
   modals.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "open"] });
   try {
-    runtime = await initializeFrontendUpdateRuntime(client, { ...context, held, signals: frontendSignals, storage: sessionStorage,
+    runtime = await initializeFrontendUpdateRuntime(client, { ...context, held: () => held, signals: frontendSignals, storage: sessionStorage,
       navigate: path => location.assign(path), events: window, onOffer: publishOffer,
       event: detail => new CustomEvent(ROOT_RENDERED_EVENT, { detail }),
     });

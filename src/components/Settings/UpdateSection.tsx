@@ -1,4 +1,4 @@
-import { UpdatePanel } from "../UpdatePanel";
+import { UpdatePanelContents } from "../UpdatePanel";
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect } from "react";
 import { AlertCircle, CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
@@ -54,14 +54,13 @@ export function UpdateSection({ config, onUpdate }: {
             : "idle";
 
   return (
-    <>
-    {unified && <UpdatePanel />}
     <SettingsCard
       icon={<Download size={16} />}
       title="Updates"
-      headerRight={<SettingsPill tone={statusTone}>{statusText}</SettingsPill>}
+      headerRight={<SettingsPill tone={unified?.items.length ? "accent" : statusTone}>{unified?.items.length ? "updates available" : statusText}</SettingsPill>}
     >
       <div className="flex flex-col gap-3">
+        {unified && <UpdatePanelContents />}
         <Toggle label="Update provider CLIs automatically"
           checked={config.updater?.auto_update_provider_clis ?? true}
           onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
@@ -90,7 +89,7 @@ export function UpdateSection({ config, onUpdate }: {
             )}
             <button
               type="button"
-              onClick={() => void refresh(true)}
+              onClick={() => { void (unified ? unified.refresh(true) : refresh(true)).catch(() => {}); }}
               disabled={installing || checking}
               className={`${UI_BUTTON.ghost} ${UI_BUTTON.sm} gap-1.5 disabled:opacity-50`}
             >
@@ -157,7 +156,6 @@ export function UpdateSection({ config, onUpdate }: {
         )}
       </div>
     </SettingsCard>
-    </>
   );
 }
 

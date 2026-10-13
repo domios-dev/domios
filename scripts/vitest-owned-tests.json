@@ -190,5 +190,6 @@
   "src/components/shared/CommunityLinks.test.tsx",
   "src/components/Settings/PrivacyTab.test.tsx",
   "src/lib/promptAnswers.test.ts",
-  "src/lib/updateAvailability.test.ts"
+  "src/lib/updateAvailability.test.ts",
+  "src/components/Titlebar/UpdateTray.test.tsx"
 ]

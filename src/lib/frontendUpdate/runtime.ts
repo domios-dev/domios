@@ -33,7 +33,7 @@ export interface FrontendRuntimeOptions {
   boot: BootContext | null;
   bundled: BootContext["bundled"];
   onError(error: unknown): void;
-  held?: boolean;
+  held?: () => boolean;
   onOffer?(offer: FrontendUpdateOffer | null): void;
 }
 
@@ -60,7 +60,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
     preparePageReload({ apiOrigin: client.origin(), token, clientId: options.clientId, ticket,
       attempted: options.boot?.attempted ?? [], bundled: options.bundled }, options.storage, options.navigate);
   }, state => options.onOffer?.(updateOffer(state)));
-  controller.dispatch({ type: "hold", held: options.held === true });
+  controller.dispatch({ type: "hold", held: options.held?.() === true });
   const stopSignals = options.signals.subscribe(change => {
     if (change === "checkpoint") controller.dispatch({ type: "edited", checkpoint: options.signals.checkpoint() });
     else controller.dispatch({ type: "safety", safety: options.signals.safety() });
