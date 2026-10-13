@@ -128,6 +128,8 @@ pub struct PendingRuntimeRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeContext {
     #[serde(default)]
+    pub thread_parents: Vec<RuntimeThreadParent>,
+    #[serde(default)]
     pub active_turns: Vec<RuntimeActiveTurn>,
     pub epoch: u64,
     pub tab_id: String,
@@ -471,4 +473,11 @@ pub struct RuntimeCallTarget {
     pub thread_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeThreadParent {
+    pub thread_id: String,
+    pub parent_thread_id: String,
 }

@@ -270,7 +270,13 @@
         "settings": {},
         "providerSettings": {},
         "threadId": "thread-a",
-        "activeTurnId": "turn-a"
+        "activeTurnId": "turn-a",
+        "activeTurns": [
+          {
+            "threadId": "thread-a",
+            "turnId": "turn-a"
+          }
+        ]
       },
       "operation": {
         "kind": "interrupt",

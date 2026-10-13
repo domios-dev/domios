@@ -234,6 +234,10 @@ fn runtime_active_turns_and_interrupt_targets_are_confined() {
     let mut ctx = context();
     ctx.thread_id = Some("root".into());
     ctx.active_turn_id = Some("root-turn".into());
+    ctx.thread_parents = vec![RuntimeThreadParent {
+        thread_id: "child".into(),
+        parent_thread_id: "root".into(),
+    }];
     ctx.active_turns = vec![RuntimeActiveTurn {
         thread_id: "child".into(),
         turn_id: "child-turn".into(),
@@ -282,4 +286,45 @@ fn runtime_event_batch_accepts_ordered_rooted_descendants_only() {
     assert!(validate_host_runtime_events(&ctx, &[child.clone(), grandchild.clone()]).is_ok());
     assert!(validate_host_runtime_events(&ctx, &[grandchild, child]).is_err());
     assert!(validate_host_runtime_events(&ctx, &[event("child", "foreign")]).is_err());
+}
+
+#[test]
+fn runtime_completed_parent_preserves_active_descendant_without_interrupting_parent() {
+    let cap = provider("module.exports={}").agent_runtime().unwrap();
+    let mut ctx = context();
+    ctx.thread_id = Some("root".into());
+    ctx.thread_parents = vec![
+        RuntimeThreadParent {
+            thread_id: "child".into(),
+            parent_thread_id: "root".into(),
+        },
+        RuntimeThreadParent {
+            thread_id: "grandchild".into(),
+            parent_thread_id: "child".into(),
+        },
+    ];
+    ctx.active_turns = vec![RuntimeActiveTurn {
+        thread_id: "grandchild".into(),
+        turn_id: "grandchild-turn".into(),
+        parent_thread_id: Some("child".into()),
+    }];
+    assert!(validate_runtime_context(&ctx).is_ok());
+    let event:AgentRuntimeEvent=serde_json::from_value(json!({"kind":"turnState","threadId":"grandchild","parentThreadId":"child","turnId":"grandchild-turn","state":"working"})).unwrap();
+    assert!(validate_host_runtime_event(&ctx, &HostAgentRuntimeEvent { at: 1, event }).is_ok());
+    let op = RuntimeOperation::Interrupt {
+        thread_id: "root".into(),
+        active_turn_id: None,
+    };
+    let call = |thread: &str, turn: &str| RpcCall {
+        method: "interrupt".into(),
+        params: Value::Null,
+        target: Some(RuntimeCallTarget {
+            thread_id: thread.into(),
+            turn_id: Some(turn.into()),
+        }),
+    };
+    assert!(validate_runtime_call(&cap, &ctx, &op, &call("grandchild", "grandchild-turn")).is_ok());
+    assert!(validate_runtime_call(&cap, &ctx, &op, &call("child", "completed-turn")).is_err());
+    ctx.thread_parents[0].parent_thread_id = "grandchild".into();
+    assert!(validate_runtime_context(&ctx).is_err());
 }
