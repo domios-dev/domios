@@ -137,7 +137,10 @@ mod tests {
         drop(reservation);
         let reopened = UserSendStore::open(dir.path()).unwrap();
         assert_eq!(reopened.take_runtime_write_observer(&status).unwrap(), None);
-        let sent = ledger.confirm_send(&record.send_id).unwrap();
+        let sent = ChatSendStatus {
+            state: ChatSendState::Sent,
+            ..status
+        };
         assert_eq!(
             reopened.take_runtime_write_observer(&sent).unwrap(),
             Some(observer)
