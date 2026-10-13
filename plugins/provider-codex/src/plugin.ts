@@ -1,3 +1,4 @@
+import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
 import { codexToolOutputText } from "./toolOutput";
 import {parseSessionObservations} from "./signals";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
@@ -183,6 +184,9 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin: PluginModule = {
+  runtimePlan,
+  runtimeResponse,
+  runtimeReduce,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
   },

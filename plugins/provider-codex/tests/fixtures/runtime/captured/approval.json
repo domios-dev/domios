@@ -1,0 +1,2016 @@
+{
+  "schemaVersion": 1,
+  "captured": {
+    "cliVersion": "0.160.0",
+    "model": "gpt-6-luna",
+    "scenario": "approval"
+  },
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/capture",
+    "hostVersion": "1.14.7",
+    "tabId": "capture-tab",
+    "bindingNonce": "capture-nonce",
+    "settings": {
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "mode": "approval-required"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise.",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "sendId": "capture-approval",
+        "input": {
+          "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+          "attachments": []
+        },
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-approval",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "input": {
+              "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "operation": {
+        "kind": "answer",
+        "requestId": 0,
+        "answer": {
+          "kind": "choice",
+          "values": [
+            "decline"
+          ]
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "clientInfo": {
+              "name": "domios",
+              "version": "1.14.7"
+            },
+            "capabilities": {
+              "experimentalApi": true,
+              "optOutNotificationMethods": [
+                "turn/diff/updated"
+              ]
+            }
+          }
+        }
+      },
+      "receiptMs": 1.961
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "userAgent": "domios/0.160.0 (Mac OS 26.7.1; arm64) CodeTerm/1.6.2 (domios; 1.14.7)",
+          "codexHome": "/home/capture/.codex",
+          "platformFamily": "unix",
+          "platformOs": "macos"
+        }
+      },
+      "receiptMs": 105.607
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "notification",
+        "notification": {
+          "method": "initialized",
+          "params": {}
+        }
+      },
+      "receiptMs": 105.647
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "receiptMs": 105.675
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/read",
+          "params": {
+            "refreshToken": false
+          }
+        }
+      },
+      "receiptMs": 105.678
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "account": {
+            "type": "chatgpt",
+            "planType": "prolite"
+          },
+          "requiresOpenaiAuth": true,
+          "workspaceRouting": {
+            "chatgptAccountId": "68ef3b08-560f-48fb-9d89-f80419069600",
+            "backendOrigin": "https://chatgpt.com",
+            "accountRoutingOverride": "NO_CONSTRAINT"
+          }
+        }
+      },
+      "receiptMs": 394.745
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/start",
+          "params": {
+            "cwd": "/work/capture",
+            "model": "gpt-6-luna",
+            "threadSource": "user",
+            "config": {
+              "model_reasoning_effort": "low"
+            },
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandbox": "read-only",
+            "developerInstructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise."
+          }
+        }
+      },
+      "receiptMs": 394.792
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "environments": [
+              {
+                "environmentId": "local",
+                "cwd": "/work/capture",
+                "runtimeWorkspaceRoots": [
+                  "/work/capture"
+                ]
+              }
+            ],
+            "extra": null,
+            "sessionId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "preview": "",
+            "ephemeral": false,
+            "section": null,
+            "sectionEnteredAt": null,
+            "projectId": null,
+            "historyMode": "paginated",
+            "modelProvider": "openai",
+            "model": "gpt-6-luna",
+            "reasoningEffort": "low",
+            "createdAt": 1791902561,
+            "updatedAt": 1791902561,
+            "recencyAt": 1791902561,
+            "status": {
+              "type": "idle"
+            },
+            "path": "/home/capture/.codex/sessions/2026/10/13/rollout-2026-10-13T17-42-41-01a135b7-35e5-7871-9d38-269c27817cc8.jsonl",
+            "cwd": "/work/capture",
+            "cliVersion": "0.160.0",
+            "originator": "domios",
+            "source": "vscode",
+            "canAcceptDirectInput": true,
+            "threadSource": "user",
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "daybreakEnabled": null,
+            "turns": []
+          },
+          "model": "gpt-6-luna",
+          "modelProvider": "openai",
+          "serviceTier": "default",
+          "disabledPluginIds": [],
+          "cwd": "/work/capture",
+          "runtimeWorkspaceRoots": [
+            "/work/capture"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "untrusted",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": "low",
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      },
+      "receiptMs": 481.828
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/inject_items",
+          "params": {
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "items": [
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Domios thread binding marker."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "receiptMs": 481.876
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 834.61
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "clientUserMessageId": "capture-approval",
+            "input": [
+              {
+                "type": "text",
+                "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action."
+              }
+            ],
+            "cwd": "/work/capture",
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "readOnly"
+            },
+            "model": "gpt-6-luna",
+            "effort": "low"
+          }
+        }
+      },
+      "receiptMs": 834.705
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 843.628
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 844.891,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-approval",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "input": {
+              "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turn": {
+            "id": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1791902562,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 844.953,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-approval",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "input": {
+              "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a135b7-3ad2-7972-943e-b62a3a963a68",
+            "clientId": "capture-approval",
+            "content": [
+              {
+                "type": "text",
+                "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "startedAtMs": 1791902563026
+        }
+      },
+      "receiptMs": 1659.977,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-approval",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "input": {
+              "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a135b7-3ad2-7972-943e-b62a3a963a68",
+            "clientId": "capture-approval",
+            "content": [
+              {
+                "type": "text",
+                "text": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "completedAtMs": 1791902563026
+        }
+      },
+      "receiptMs": 1661.214,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "status": {
+            "type": "active",
+            "activeFlags": [
+              "waitingOnApproval"
+            ]
+          }
+        }
+      },
+      "receiptMs": 4120.623,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "commandExecution",
+            "id": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "pluginId": null,
+            "scriptPath": null,
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "processId": null,
+            "source": "agent",
+            "status": "inProgress",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "aggregatedOutput": null,
+            "exitCode": null,
+            "durationMs": null
+          },
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "startedAtMs": 1791902565487
+        }
+      },
+      "receiptMs": 4120.711,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "request",
+        "requestId": 0,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "kind": "command",
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+          "startedAtMs": 1791902565486,
+          "environmentId": "local",
+          "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "cwd": "/work/capture",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "printf 'capture' > capture-proof.txt"
+            }
+          ],
+          "proposedExecpolicyAmendment": [
+            "/bin/zsh",
+            "-lc",
+            "printf 'capture' > capture-proof.txt"
+          ],
+          "availableDecisions": [
+            "accept",
+            {
+              "acceptWithExecpolicyAmendment": {
+                "execpolicy_amendment": [
+                  "/bin/zsh",
+                  "-lc",
+                  "printf 'capture' > capture-proof.txt"
+                ]
+              }
+            },
+            "cancel"
+          ]
+        }
+      },
+      "receiptMs": 4120.741,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8"
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "reply",
+        "requestId": 0,
+        "result": {
+          "kind": "success",
+          "value": {
+            "decision": "decline"
+          }
+        }
+      },
+      "receiptMs": 4120.79
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "receiptMs": 4120.813
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "serverRequest/resolved",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "requestId": 0
+        }
+      },
+      "receiptMs": 4120.913,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "commandExecution",
+            "id": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "pluginId": null,
+            "scriptPath": null,
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "processId": null,
+            "source": "agent",
+            "status": "declined",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "aggregatedOutput": null,
+            "exitCode": null,
+            "durationMs": null
+          },
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "completedAtMs": 1791902565487
+        }
+      },
+      "receiptMs": 4120.956,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 4120.967,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 16297,
+              "inputTokens": 16255,
+              "cachedInputTokens": 11008,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 42,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 16297,
+              "inputTokens": 16255,
+              "cachedInputTokens": 11008,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 42,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      },
+      "receiptMs": 4123.064,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+            "text": "",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "startedAtMs": 1791902567240
+        }
+      },
+      "receiptMs": 5874.064,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "itemId": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "delta": "DECL"
+        }
+      },
+      "receiptMs": 5874.165,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "itemId": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "delta": "IN"
+        }
+      },
+      "receiptMs": 5874.182,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "itemId": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "delta": "ED"
+        }
+      },
+      "receiptMs": 5874.208,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+            "text": "DECLINED",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "completedAtMs": 1791902567240
+        }
+      },
+      "receiptMs": 5875.544,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 32646,
+              "inputTokens": 32597,
+              "cachedInputTokens": 22016,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 49,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 16349,
+              "inputTokens": 16342,
+              "cachedInputTokens": 11008,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 7,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      },
+      "receiptMs": 5921.518,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      "receiptMs": 5941.571,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+          "turn": {
+            "id": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "items": [
+              {
+                "type": "agentMessage",
+                "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+                "text": "DECLINED",
+                "phase": "final_answer",
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "summary",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1791902562,
+            "completedAt": 1791902567,
+            "durationMs": 5097
+          }
+        }
+      },
+      "receiptMs": 5941.689,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "pendingRequest": {
+          "requestId": 0,
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "kind": "command",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+            "itemId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "startedAtMs": 1791902565486,
+            "environmentId": "local",
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "proposedExecpolicyAmendment": [
+              "/bin/zsh",
+              "-lc",
+              "printf 'capture' > capture-proof.txt"
+            ],
+            "availableDecisions": [
+              "accept",
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": [
+                    "/bin/zsh",
+                    "-lc",
+                    "printf 'capture' > capture-proof.txt"
+                  ]
+                }
+              },
+              "cancel"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "auth",
+              "state": "signedIn"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "settings": {
+              "model": "gpt-6-luna",
+              "effort": "low",
+              "mode": "approval-required"
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+            "sendId": "capture-approval",
+            "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "state": "working"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+        "state": "working",
+        "startedAt": 1791902562000
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "01a135b7-3ad2-7972-943e-b62a3a963a68",
+          "seq": 1,
+          "type": "user",
+          "content": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+          "timestamp": "2026-10-13T14:42:43.026Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "sendId": "capture-approval",
+        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "01a135b7-3ad2-7972-943e-b62a3a963a68",
+          "seq": 1,
+          "type": "user",
+          "content": "Run a shell command to write the word capture into capture-proof.txt. If permission is refused, reply DECLINED and stop. Do not substitute another action.",
+          "timestamp": "2026-10-13T14:42:43.026Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "state": "needs_input"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "command",
+          "toolSummary": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "toolDetail": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "toolId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+          "toolName": "commandExecution",
+          "toolInput": {
+            "type": "commandExecution",
+            "id": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "pluginId": null,
+            "scriptPath": null,
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "processId": null,
+            "source": "agent",
+            "status": "inProgress",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "aggregatedOutput": null,
+            "exitCode": null,
+            "durationMs": null
+          },
+          "toolArgs": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "collapsed": true,
+          "timestamp": "2026-10-13T14:42:45.487Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "prompt",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "requestId": 0,
+        "prompt": {
+          "question": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "options": [
+            {
+              "label": "Approve",
+              "value": "accept"
+            },
+            {
+              "label": "Approve with the proposed rule",
+              "value": "{\"acceptWithExecpolicyAmendment\":{\"execpolicy_amendment\":[\"/bin/zsh\",\"-lc\",\"printf 'capture' > capture-proof.txt\"]}}"
+            },
+            {
+              "label": "Cancel",
+              "value": "cancel"
+            },
+            {
+              "label": "Decline",
+              "value": "decline"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+        "state": "needs_input"
+      },
+      {
+        "kind": "promptResolved",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "requestId": 0
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "command",
+          "toolSummary": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "toolDetail": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "toolId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+          "toolName": "commandExecution",
+          "toolInput": {
+            "type": "commandExecution",
+            "id": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
+            "pluginId": null,
+            "scriptPath": null,
+            "command": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+            "cwd": "/work/capture",
+            "processId": null,
+            "source": "agent",
+            "status": "declined",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "printf 'capture' > capture-proof.txt"
+              }
+            ],
+            "aggregatedOutput": null,
+            "exitCode": null,
+            "durationMs": null
+          },
+          "toolArgs": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "collapsed": true,
+          "toolError": true,
+          "timestamp": "2026-10-13T14:42:45.487Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "state": "working"
+      },
+      {
+        "kind": "usage",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "usage": {
+          "input_tokens": 16255,
+          "output_tokens": 42,
+          "cache_write_tokens": 0,
+          "cache_read_tokens": 11008,
+          "used_tokens": 16297,
+          "window_tokens": 258400
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "seq": 3,
+          "type": "assistant",
+          "content": "",
+          "timestamp": "2026-10-13T14:42:47.240Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "seq": 3,
+          "type": "assistant",
+          "content": "DECL",
+          "timestamp": "2026-10-13T14:42:47.240Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "seq": 3,
+          "type": "assistant",
+          "content": "DECLIN",
+          "timestamp": "2026-10-13T14:42:47.240Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "seq": 3,
+          "type": "assistant",
+          "content": "DECLINED",
+          "timestamp": "2026-10-13T14:42:47.240Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "item": {
+          "id": "msg_03a22dce17a6be9e016ace43672fa88191bf871c54d438ff27",
+          "seq": 3,
+          "type": "assistant",
+          "content": "DECLINED",
+          "timestamp": "2026-10-13T14:42:47.240Z",
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        }
+      },
+      {
+        "kind": "usage",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "usage": {
+          "input_tokens": 32597,
+          "output_tokens": 49,
+          "cache_write_tokens": 0,
+          "cache_read_tokens": 22016,
+          "used_tokens": 16349,
+          "window_tokens": 258400
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "state": "idle"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+        "state": "idle",
+        "startedAt": 1791902562000,
+        "completedAt": 1791902567000
+      }
+    ]
+  }
+}
