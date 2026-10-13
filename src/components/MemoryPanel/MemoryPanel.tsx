@@ -1,6 +1,7 @@
 import { memoryListControlsVisible } from "./memoryDetailModel";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { List, Network, RefreshCw } from "lucide-react";
+import { List, Network } from "lucide-react";
+import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { MemorySnapshotCanvas } from "./MemorySnapshotCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
@@ -234,6 +235,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
               index={snapshot.index}
               epoch={snapshot.epoch}
               pulses={pulses}
+              onRefresh={() => void snapshot.refresh()}
+              toolbarView={memoryListControlsVisible(detailOpen) ? <button type="button" data-testid="memory-inspect-view-toggle" data-memory-inspect-view="graph" onClick={() => setInspectView("list")} className="ct-bar-pill"><List size={12} aria-hidden="true" />List</button> : undefined}
               registerFit={registerFit}
               registerRecenter={registerRecenter}
               selectedIdOverride={selectedId}
@@ -241,29 +244,20 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             />
           </div>
         )}
-        {activeTab === "inspect" && memoryListControlsVisible(detailOpen) && (
+        {activeTab === "inspect" && inspectView === "graph" && (!snapshot.index || showSnapshotEmpty) && memoryListControlsVisible(detailOpen) && <CanvasToolbar label="Memory graph controls" onRefresh={() => void snapshot.refresh()} refreshTestId="memory-graph-refresh" view={<button type="button" data-testid="memory-inspect-view-toggle" data-memory-inspect-view="graph" className="ct-bar-pill" onClick={() => setInspectView("list")}><List size={12} aria-hidden="true" />List</button>} />}
+        {activeTab === "inspect" && inspectView === "list" && memoryListControlsVisible(detailOpen) && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5">
             <button
               type="button"
               data-testid="memory-inspect-view-toggle"
               data-memory-inspect-view={inspectView}
-              onClick={() => setInspectView(inspectView === "graph" ? "list" : "graph")}
+              onClick={() => setInspectView("graph")}
               className={`${UI_BUTTON.floating} ${UI_BUTTON.lg} gap-1.5`}
             >
-              {inspectView === "graph" ? <List size={12} /> : <Network size={12} />}
-              {inspectView === "graph" ? "List" : "Graph"}
+              <Network size={12} aria-hidden="true" />
+              Graph
             </button>
-            {inspectView === "graph" && (
-              <button
-                type="button"
-                title="Drop cached layout and refetch"
-                data-testid="memory-graph-refresh"
-                onClick={() => void snapshot.refresh()}
-                className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`}
-              >
-                <RefreshCw size={12} />
-              </button>
-            )}
+
           </div>
         )}
         {activeTab === "activity" && (

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import Sigma from "sigma";
 import Graph from "graphology";
 import EdgeCurveProgram from "@sigma/edge-curve";
@@ -32,6 +33,8 @@ interface Props {
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
   epoch?: number;
+  onRefresh?: () => void;
+  toolbarView?: ReactNode;
   selectedIdOverride?: string | null;
   onSelectedIdChange?: (id: string | null) => void;
 }
@@ -64,6 +67,8 @@ export function MemorySnapshotCanvas({
   registerFit,
   registerRecenter,
   epoch,
+  onRefresh,
+  toolbarView,
   selectedIdOverride,
   onSelectedIdChange,
 }: Props) {
@@ -498,6 +503,7 @@ export function MemorySnapshotCanvas({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
+      <CanvasToolbar label="Memory graph controls" view={toolbarView} onFit={doFit} onZoomOut={() => { void sigmaRef.current?.getCamera().animatedUnzoom(); }} onZoomIn={() => { void sigmaRef.current?.getCamera().animatedZoom(); }} onRefresh={onRefresh} refreshTestId="memory-graph-refresh" />
 
       {chipStyle && (
         <div
