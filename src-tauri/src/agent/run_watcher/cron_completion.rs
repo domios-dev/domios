@@ -6,13 +6,13 @@ use crate::service::ServiceContext;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 #[derive(Default)]
-struct CompletionBarrier {
-    stopped: bool,
-    assistant_ids: HashSet<String>,
+pub(super) struct CompletionBarrier {
+    pub(super) stopped: bool,
+    pub(super) assistant_ids: HashSet<String>,
 }
 
 impl CompletionBarrier {
-    fn ready(&self, messages: &[ChatMsg]) -> bool {
+    pub(super) fn ready(&self, messages: &[ChatMsg]) -> bool {
         self.stopped
             && messages
                 .iter()
@@ -53,6 +53,9 @@ impl RunWatcherRegistry {
         run_id: &str,
         summary: &str,
     ) -> Result<(), String> {
+        if let Some(result) = self.request_runtime_cron_completion(svc, tab_id, run_id, summary) {
+            return result;
+        }
         let state = self.runs.lock().values().find(|state| state.tab_id == tab_id
             && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } if own == run_id))
             .cloned().ok_or("cron run has no active watcher")?;
