@@ -129,14 +129,20 @@ Build setup resolves both directly into process environment variables
 argv, logs or memory. It exports `SCCACHE_ENDPOINT=http://100.64.10.5:9000`,
 `SCCACHE_BUCKET=sccache`, `SCCACHE_REGION=us-east-1` and
 `SCCACHE_S3_USE_SSL=false`. Setup reads the running server's actual location
-first. Matching S3 bucket/prefix or local disk storage is reused, even while
+first. Matching S3 bucket or local disk storage is reused, even while
 Cargo is active. Only a storage mismatch restarts the server; an active
 Cargo/rustc process then refuses the change with exit 75. Serialize machine
 build ownership before changing storage. Each setup checks the actual server;
 no inherited process marker can bypass a required storage transition.
+A caller that cannot resolve the keys reuses any running S3 server with its
+server-owned credentials; it never downgrades that server to local disk.
+A matching S3 bucket keeps its running key prefix, even if a caller requests
+another prefix. Prefix/credential/size maintenance needs an explicitly owned
+idle server transition; ordinary builds never reset a matching server.
 Every setup prints `sccache: shared S3 cache at <endpoint>/<bucket>` or
 `sccache: local disk cache at <dir> (reason)`, without credentials.
-When either secret is unavailable, one log line announces local disk fallback;
+When either secret is unavailable and no S3 server is running, one log line
+announces local disk fallback;
 `SCCACHE_CACHE_SIZE` retains its existing default of `10G` and custom limits.
 A configured shared endpoint that cannot start is an error, not a claimed hit.
 
@@ -184,8 +190,10 @@ calls; a successful build alone is not cache-hit proof.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| A dev build requests S3 but refuses with exit 75 after another caller switched the server back to local | An unresolved-key caller could downgrade a previously shared server | Keep the no-downgrade guard: missing keys reuse running S3; keys may switch local to S3 only while idle. Verify `bash scripts/check-shared-sccache.sh`. |
 | Local fallback line on an intended builder | One or both vault entries could not resolve | Run `codeterm mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
 | Shared server startup fails | Endpoint unreachable, credentials rejected, or installed sccache lacks S3 support | Verify Tailscale connectivity and tool features; inspect metadata and server health without secret logging. Preserve the failed receipt. |
+| Windows build reports MSVC not found despite an installed VS 2022 C++ workload | The VC tools are installed outside the default BuildTools directory | Use `setup_env` discovery through the installed `vswhere` utility; the default tools remain first choice, and discovered host/cross compiler paths also enter process PATH. Verify `source build.sh env` and `bash scripts/check-msvc-discovery.sh`; install nothing or change no global PATH for a relocated installation. |
 | Windows PowerShell refuses `build.ps1` because scripts are disabled | The shell process uses a restrictive execution policy | Invoke the authorized build through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1 <operation>`; this changes only that process, never machine policy. |
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
@@ -484,10 +492,20 @@ baseline + max(20%, 0.25 seconds); smaller increases warn.
 `scripts/slow-unit-tests.json` records alone durations and may only shrink against
 `origin/develop` (`SLOW_UNIT_TESTS_BASE` overrides the ref). Missing or partial
 timings fail closed, and test failures retain their original exit codes.
+Primary runs explicitly disable fail-fast for every manifest so one failed test
+does not cancel the remaining timing inventory.
 For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
 SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
 refuses that mode without serial execution. Ordinary suites retain default
 parallelism.
+The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
+crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
+may only shrink after its first landing. `scripts/unit-test-benchmarks.json`
+contains exact benchmark identities with explicit throughput/latency reasons.
+Exemptions print their identity, timing and reason, preserve test failures,
+and cannot be added or changed after their first landing without review.
+Benchmarks never receive a slow-unit baseline allowance.
+
 Filtersets use nextest's `--filter-expr` syntax. A filterset containing
 `rdeps(...)` runs workspace targets so reverse dependents remain in scope.
 `verify` runs the standard
@@ -614,6 +632,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
 | `verify` downloads FastEmbed into a temporary test data directory and fails on a model-host outage | The Rust test wrapper let fixture-owned `CODETERM_DATA_DIR` choose the immutable model cache. | Use the current wrapper, which exports one machine-shared `CODETERM_EMBED_CACHE_DIR`; override it explicitly only for cache diagnostics. |
+| CLI essence-map test fails after a capability status wording update | The test pinned source prose rather than the status preservation mechanism. | Inject opaque statuses into fixture capability rows and assert those supplied values round-trip; retain node/edge assertions. |
 | Nextest metadata reuse exits 2 with `--manifest-path cannot be used with --cargo-metadata` before selecting tests | The reuse invocation retained a Cargo build selector. | Pass only the saved binaries/Cargo metadata and runtime/filter options to the capped execution phase; keep manifest/package/feature selectors exclusively on the inventory compilation. Rerun the same bounded selector, preserving the zero-executed receipt. |
 | macOS task-authority tests panic creating a Tauri `EventLoop` | The fixture built Wry on a libtest thread. | Use `app_runtime::builder()` and runtime aliases so `cfg(test)` constructs MockRuntime; remove fixture-only desktop ignores. Keep real native window oracles explicitly platform-gated. |
 | Unix REST lifecycle bind gets `Address already in use` | A guessed test port can collide; restart listeners overlap during handoff. | Prebind OS-assigned generation one; enable `SO_REUSEPORT` on every Unix bind. |
@@ -691,4 +710,4 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 25 -->
+<!-- revision: 27 -->

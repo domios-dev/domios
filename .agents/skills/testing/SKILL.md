@@ -93,6 +93,14 @@ node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base RE
 node --test scripts/check-slow-unit-tests.test.mjs
 ```
 
+The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
+crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
+may only shrink after its first landing. `scripts/unit-test-benchmarks.json`
+contains exact benchmark identities with explicit throughput/latency reasons.
+Exemptions print their identity, timing and reason, preserve test failures,
+and cannot be added or changed after their first landing without review.
+Benchmarks never receive a slow-unit baseline allowance.
+
 Candidate JSON contains exact validated binary/test IDs and a nextest filter,
 never shell commands. No candidates means no rerun; missing/incomplete timing
 logs or missing candidate confirmations fail closed. A plain log-only guard

@@ -128,9 +128,30 @@ ct_assert_msvc_lib_arch() {
   IFS="$saved_ifs"
 }
 
+ct_msvc_build_tools_base() {
+  local preferred="$1" vswhere="$2" discovered
+  if [ -d "$preferred/VC/Tools/MSVC" ]; then
+    printf '%s\n' "$preferred"
+    return
+  fi
+  discovered=""
+  if [ -f "$vswhere" ]; then
+    discovered="$("$vswhere" -latest -products '*' -version '[17.0,18.0)' \
+      -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+      -property installationPath | tr -d '\r' | tr '\\' '/')" || discovered=""
+  fi
+  if [ -n "$discovered" ] && [ -d "$discovered/VC/Tools/MSVC" ]; then
+    printf '%s\n' "$discovered"
+  else
+    printf '%s\n' "$preferred"
+  fi
+}
+
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
-    BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools"
+    BT_BASE="$(ct_msvc_build_tools_base \
+      "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
+      "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe")"
     SDK_BASE="C:/Program Files (x86)/Windows Kits/10"
     MSVC_VER=$(ls -1 "$BT_BASE/VC/Tools/MSVC" 2>/dev/null | sort -V | tail -1)
     SDK_VER=$(ls -1 "$SDK_BASE/Include" 2>/dev/null | grep -E '^10\.' | sort -V | tail -1)
@@ -159,10 +180,9 @@ setup_env() {
     export INCLUDE="$vc_root/include;$SDK_BASE/Include/$SDK_VER/ucrt;$SDK_BASE/Include/$SDK_VER/um;$SDK_BASE/Include/$SDK_VER/shared"
     export RC="$SDK_BASE/bin/$SDK_VER/$CT_MSVC_HOST_ARCH/rc.exe"
     ct_assert_msvc_lib_arch "$target_arch" || return 1
-    # Use /c/ prefix for git bash PATH compatibility
-    export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/$MSVC_VER/bin/HostX64/$CT_MSVC_HOST_ARCH:/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/$CT_MSVC_HOST_ARCH:$PATH"
+    export PATH="$(cygpath -u "$host_bin"):$(cygpath -u "$SDK_BASE/bin/$SDK_VER/$CT_MSVC_HOST_ARCH"):$PATH"
     export npm_config_script_shell="$(cygpath -w "$(command -v bash)")"
-    echo "MSVC env loaded (VS 2022 BuildTools, MSVC $MSVC_VER, link libraries $target_arch)"
+    echo "MSVC env loaded (VS 2022 at $BT_BASE, MSVC $MSVC_VER, link libraries $target_arch)"
   fi
 }
 
@@ -347,7 +367,7 @@ run_nextest_scope() {
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass \
     scripts/test-capped.sh \
     --binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json" \
-    "${filter_args[@]}" --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
+    "${filter_args[@]}" --no-fail-fast --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
     run_exit=${PIPESTATUS[0]}
   else
     run_exit=${PIPESTATUS[0]}

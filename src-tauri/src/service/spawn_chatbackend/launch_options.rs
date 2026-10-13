@@ -71,4 +71,5 @@ pub(super) fn apply_prepared(
 }
 
 #[cfg(test)]
+#[path = "launch_options/tests.rs"]
 mod tests;
