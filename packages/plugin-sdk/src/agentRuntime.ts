@@ -9,7 +9,7 @@ export type RuntimeFrame =
   | {kind:"notification"; method:string; params:JsonValue}
   | {kind:"request"; requestId:RpcId; method:string; params:JsonValue};
 
-export interface RuntimeSettings { model?:string; effort?:string; mode?:string }
+export interface RuntimeSettings { model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
 export interface TurnInput { text:string; attachments:readonly ChatAttachment[] }
 export type PromptAnswer =
   | {kind:"choice"; values:readonly string[]}

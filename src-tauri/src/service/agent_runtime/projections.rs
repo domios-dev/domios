@@ -42,6 +42,7 @@ fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> Run
         model: confirmed.model.or_else(|| previous.model.clone()),
         effort: confirmed.effort.or_else(|| previous.effort.clone()),
         mode: confirmed.mode.or_else(|| previous.mode.clone()),
+        ..previous.clone()
     }
 }
 
@@ -287,6 +288,7 @@ mod tests {
             model: Some("old".into()),
             effort: Some("high".into()),
             mode: Some("mode".into()),
+            ..Default::default()
         };
         assert_eq!(
             merge_settings(

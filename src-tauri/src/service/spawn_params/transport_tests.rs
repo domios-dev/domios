@@ -262,3 +262,22 @@ fn direct_runtime_routing_preserves_hidden_worker_env_and_task() {
     assert_eq!(config["preset"], "opaque-preset");
     assert_eq!(metadata.agent.task.as_deref(), Some("opaque-task"));
 }
+
+#[test]
+fn runtime_capability_conversion_refuses_unmapped_args_before_mutation() {
+    let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params(SpawnAgentParams {
+        agent: Some("runtime-fixture".into()),
+        args: Some(vec!["opaque-arg".into()]),
+        model: Some("opaque-model".into()),
+        reasoning_effort: Some("opaque-effort".into()),
+        ..Default::default()
+    });
+    let error = spec.route_agent_to_chatbackend().unwrap_err();
+    assert!(error.contains("runtime_launch_arguments"));
+    let crate::service::spawn::TabCommand::Agent(agent) = spec.command else {
+        panic!("refused conversion changed backing")
+    };
+    assert_eq!(agent.extra_args, ["opaque-arg"]);
+    assert_eq!(agent.model.as_deref(), Some("opaque-model"));
+    assert_eq!(agent.reasoning_effort.as_deref(), Some("opaque-effort"));
+}
