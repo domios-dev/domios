@@ -1,4 +1,5 @@
 import { useId, useState, type CSSProperties } from "react";
+import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { Bell, List, Play, Workflow } from "lucide-react";
 import { AUTOMATION_LABEL, AUTOMATION_TONE, AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
@@ -60,10 +61,8 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId }: { pipeline: 
   const [runId, setRunId] = useState<string | null>(initialRunId ?? null);
   const selected = pipeline.runs?.find((run) => run.id === runId)?.pipeline ?? pipeline;
   const row = (pressed: boolean) => `ct-row ct-run-row${pressed ? " ct-row--selected" : ""}`;
-  return <div className="flex min-w-0 flex-col gap-3">
-    <div className="flex items-center gap-2">
-      <button type="button" className={AUTOMATION_TOOL} aria-expanded={showRuns} onClick={() => setShowRuns(!showRuns)}><List size={13} aria-hidden="true" />Runs<span className="text-[var(--ct-muted-fg)]">{pipeline.runs?.length ?? 0}</span></button>
-    </div>
+  return <div className="relative flex min-w-0 flex-col gap-3 pt-14">
+    <CanvasToolbar label="Pipeline graph controls" extras={<button type="button" className={AUTOMATION_TOOL} aria-expanded={showRuns} onClick={() => setShowRuns(!showRuns)}><List size={13} aria-hidden="true" />Runs<span className="text-[var(--ct-muted-fg)]">{pipeline.runs?.length ?? 0}</span></button>} />
     {showRuns && <div role="group" aria-label="Pipeline runs" className="ct-rows">
       <button type="button" className={row(runId === null)} aria-pressed={runId === null} onClick={() => setRunId(null)}>
         <span className="ct-detail__dot" style={{ "--ct-detail-tone": stateTone(pipeline.state) } as CSSProperties} aria-hidden="true" />

@@ -4,6 +4,7 @@ import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
+import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
@@ -231,29 +232,7 @@ export function MeshCanvas({
         touchAction: "none",
       }}
     >
-      <div className="absolute top-2 right-2 z-10 flex gap-1 text-[10px]">
-        <button
-          onClick={() => zoomBy(ZOOM_STEP)}
-          className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
-          title="Zoom in"
-        >
-          +
-        </button>
-        <button
-          onClick={() => zoomBy(-ZOOM_STEP)}
-          className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
-          title="Zoom out"
-        >
-          −
-        </button>
-        <button
-          onClick={reset}
-          className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px]"
-          title="Reset view"
-        >
-          fit
-        </button>
-      </div>
+      <CanvasToolbar label="Mesh graph controls" onFit={reset} onZoomOut={() => zoomBy(-ZOOM_STEP)} onZoomIn={() => zoomBy(ZOOM_STEP)} />
       <div
         ref={layerRef}
         style={{
