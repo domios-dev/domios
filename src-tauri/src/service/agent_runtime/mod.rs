@@ -1,5 +1,6 @@
 pub(crate) mod authority;
 pub mod engine;
+mod environment;
 mod initialize;
 #[cfg(unix)]
 pub(crate) mod lease;
