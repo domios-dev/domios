@@ -117,6 +117,7 @@ fn update_coordinator_prompt_tab_answers_safe_choice() {
     use codeterm_plugin::provider::AgentProvider;
     use codeterm_types::pty::{PendingPrompt, PromptOption};
     let make_prompt = |options: Vec<(&str, &str)>| PendingPrompt {
+        request_id: None,
         question: "opaque".into(),
         options: options
             .into_iter()

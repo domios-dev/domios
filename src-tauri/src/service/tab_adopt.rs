@@ -406,6 +406,7 @@ mod tests {
         live_shell_tab(&mut mux, &tab_id);
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let prompt = PendingPrompt {
+            request_id: None,
             question: "Which test runner?".into(),
             options: vec![
                 PromptOption {
