@@ -2,7 +2,6 @@ use super::ServiceContext;
 use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
 use std::{sync::Arc, time::Instant};
 use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
 
 impl ServiceContext {
     pub async fn billing(&self) -> Result<Arc<Billing>, String> {
@@ -107,8 +106,7 @@ impl ServiceContext {
         {
             return Err("Account changed while opening billing".into());
         }
-        let app = self.app_handle.clone();
-        tokio::task::spawn_blocking(move || app.shell().open(url.to_string(), None))
+        tokio::task::spawn_blocking(move || crate::commands::system::open_url(url.to_string()))
             .await
             .map_err(|_| "System browser unavailable")?
             .map_err(|_| "System browser unavailable")?;
