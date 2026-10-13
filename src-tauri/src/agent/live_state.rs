@@ -11,6 +11,10 @@ pub(crate) use quiescence::schedule;
 #[path = "live_state/tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "live_state/restore_tests.rs"]
+mod restore_tests;
+
 pub fn start(svc: ServiceState) {
     quiescence::start(svc);
 }
@@ -18,47 +22,33 @@ pub fn start(svc: ServiceState) {
 /// Gather the observable evidence for one tab. Returns `None` when the tab does
 /// not exist — a missing tab is not an agent state, it is a missing tab.
 fn evidence_for_tab(svc: &ServiceContext, tab_id: &str) -> Option<LivenessEvidence> {
-    let (
-        declares_agent,
-        pty_id,
-        chat_bound,
-        boot_stage,
-        boot_in_flight,
-        exit_observed,
-        pending_prompt,
-    ) = {
-        let mux = svc.mux.read();
-        let tab = mux.get_tab(tab_id)?;
-        (
-            tab.agent_type.is_some(),
-            tab.pty_id.clone(),
-            matches!(
-                tab.backing,
-                crate::multiplexer::types::TabBacking::ChatBackend { .. }
-            ),
-            tab.boot_stage,
-            tab.agent_booting,
-            tab.exit_suspected_at.is_some(),
-            tab.pending_prompt.is_some(),
-        )
+    let tab = svc.mux.read().get_tab(tab_id)?.clone();
+    Some(evidence_for_snapshot(svc, &tab))
+}
+
+fn evidence_for_snapshot(
+    svc: &ServiceContext,
+    tab: &crate::multiplexer::types::Tab,
+) -> LivenessEvidence {
+    let backing = match &tab.backing {
+        crate::multiplexer::types::TabBacking::ChatBackend { .. } => AgentBacking::ChatBackend {
+            session_open: svc.tab_chat_backing(&tab.id).is_some(),
+        },
+        _ => AgentBacking::Pty {
+            pty_live: tab
+                .pty_id
+                .as_ref()
+                .map(|pty_id| svc.pty.lock().get_session(pty_id).is_some()),
+        },
     };
-    let backing = if chat_bound {
-        AgentBacking::ChatBackend {
-            session_open: svc.tab_chat_backing(tab_id).is_some(),
-        }
-    } else {
-        AgentBacking::Pty {
-            pty_live: pty_id.map(|pty_id| svc.pty.lock().get_session(&pty_id).is_some()),
-        }
-    };
-    Some(LivenessEvidence {
-        declares_agent,
+    LivenessEvidence {
+        declares_agent: tab.agent_type.is_some(),
         backing,
-        boot_stage,
-        boot_in_flight,
-        provider_exit_observed: exit_observed,
-        pending_prompt,
-    })
+        boot_stage: tab.boot_stage,
+        boot_in_flight: tab.agent_booting,
+        provider_exit_observed: tab.exit_suspected_at.is_some(),
+        pending_prompt: tab.pending_prompt.is_some(),
+    }
 }
 
 /// THE liveness observation for one tab. `Unobserved` when the tab is gone: an
@@ -69,12 +59,75 @@ pub fn observe_tab_liveness(svc: &ServiceContext, tab_id: &str) -> AgentLiveness
         .unwrap_or(AgentLiveness::Unobserved)
 }
 
-/// Observe every tab in `tab_ids` in one pass, for callers (restore reporting)
-/// that need a whole wave's verdict at once.
-pub fn observe_tabs(svc: &ServiceContext, tab_ids: &[String]) -> BTreeMap<String, AgentLiveness> {
+fn classify_restore_liveness(
+    tab: &crate::multiplexer::types::Tab,
+    evidence: LivenessEvidence,
+) -> AgentLiveness {
+    use codeterm_types::pty::BootStage;
+
+    let terminal = !evidence.declares_agent
+        || evidence.provider_exit_observed
+        || (!evidence.boot_in_flight && evidence.boot_stage == Some(BootStage::SpawnFailed))
+        || (!tab.restored_from_snapshot
+            && !evidence.boot_in_flight
+            && matches!(
+                evidence.backing,
+                AgentBacking::Pty {
+                    pty_live: Some(false)
+                }
+            ));
+    if terminal || matches!(evidence.backing, AgentBacking::ChatBackend { .. }) {
+        return classify_agent_liveness(evidence);
+    }
+    if tab.restored_from_snapshot
+        || !tab.launch_session_authenticated()
+        || !matches!(
+            evidence.boot_stage,
+            Some(BootStage::ProviderReady | BootStage::AgentReady | BootStage::PtyReattached)
+        )
+    {
+        return AgentLiveness::Unobserved;
+    }
+    if evidence.boot_stage == Some(BootStage::PtyReattached)
+        && !evidence.boot_in_flight
+        && matches!(
+            evidence.backing,
+            AgentBacking::Pty {
+                pty_live: Some(true)
+            }
+        )
+    {
+        return AgentLiveness::Live;
+    }
+    classify_agent_liveness(evidence)
+}
+
+fn observe_restore_tabs(
+    svc: &ServiceContext,
+    tab_ids: &[String],
+) -> BTreeMap<String, AgentLiveness> {
     tab_ids
         .iter()
-        .map(|tab_id| (tab_id.clone(), observe_tab_liveness(svc, tab_id)))
+        .map(|tab_id| {
+            let tab = svc.mux.read().get_tab(tab_id).cloned();
+            let observed = tab
+                .as_ref()
+                .map(|tab| {
+                    let liveness = classify_restore_liveness(tab, evidence_for_snapshot(svc, tab));
+                    log::debug!(
+                        "[restore-liveness] tab={} session={:?} stage={:?} snapshot_pending={} authenticated={} liveness={}",
+                        tab.id,
+                        tab.agent_session_id,
+                        tab.boot_stage,
+                        tab.restored_from_snapshot,
+                        tab.launch_session_authenticated(),
+                        liveness.as_str(),
+                    );
+                    liveness
+                })
+                .unwrap_or(AgentLiveness::Unobserved);
+            (tab_id.clone(), observed)
+        })
         .collect()
 }
 
@@ -98,7 +151,7 @@ impl ServiceContext {
                 .map(|tab| tab.id.clone())
                 .collect()
         };
-        let observed = observe_tabs(self, &tab_ids);
+        let observed = observe_restore_tabs(self, &tab_ids);
         if !crate::crash::restore_report::settle(&restored_ids, observed.clone()) {
             return;
         }
