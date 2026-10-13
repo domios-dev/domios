@@ -14,7 +14,7 @@ import {
   statusLineSwitchGate,
 } from "./statusLinePickerModel";
 
-const live = { hasSession: true, protected: false };
+const live = { hasSession: true };
 
 function provider(overrides: Partial<ProviderDescriptor> = {}): ProviderDescriptor {
   return {
@@ -49,15 +49,20 @@ test("gate follows the declared switch capability, never the provider id", () =>
   assert.equal(statusLineSwitchGate(undefined, live).interactive, false);
 });
 
-test("gate explains why a protected or stopped tab stays plain text", () => {
-  const protectedGate = statusLineSwitchGate(provider(), { hasSession: true, protected: true });
-  const stoppedGate = statusLineSwitchGate(provider(), { hasSession: false, protected: false });
-  assert.equal(protectedGate.interactive, false);
-  assert.equal(stoppedGate.interactive, false);
-  if (!protectedGate.interactive && !stoppedGate.interactive) {
-    assert.ok(protectedGate.reason.length > 0);
-    assert.notEqual(protectedGate.reason, stoppedGate.reason);
+test("role, title and protection never restrict a supported model switch", () => {
+  for (const model_switch of ["live", "live_command", "next_turn", "restart_resume"] as const) {
+    const descriptor = provider({ model_switch });
+    for (const role of [null, "General", "Worker", "Orchestrator"]) {
+      const facts = { hasSession: true, protected: true, role, title: "main" };
+      assert.deepEqual(statusLineSwitchGate(descriptor, facts), statusLineSwitchGate(descriptor, live));
+    }
   }
+});
+
+test("a stopped tab cannot change its model", () => {
+  const gate = statusLineSwitchGate(provider(), { hasSession: false });
+  assert.equal(gate.interactive, false);
+  if (!gate.interactive) assert.ok(gate.reason.length > 0);
 });
 
 test("current model resolves through id or display name in priority order", () => {

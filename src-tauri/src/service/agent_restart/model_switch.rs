@@ -483,12 +483,6 @@ impl ServiceContext {
         if declared_mode == ModelSwitchMode::Unsupported {
             return Err(ModelSwitchError::Unsupported { provider });
         }
-        if self.general_agent_restart_snapshot(&resolved_tab).is_some() {
-            return Err(ModelSwitchError::NotSwitchable(
-                "the General Agent's model comes from its configuration; change it in Settings"
-                    .to_string(),
-            ));
-        }
         crate::service::spawn::validate_agent_model(
             &self.agent_registry,
             &provider,
