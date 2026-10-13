@@ -98,3 +98,41 @@ fn malformed_missing_mismatched_and_incompatible_offers_are_not_updates() {
         assert_eq!(actual.reason, expected);
     }
 }
+
+#[test]
+fn unified_release_states_compare_precedence_and_compatibility() {
+    for (installed, latest, compatible, expected) in [
+        ("0.1.2", "0.1.3", true, AvailabilityState::UpdateAvailable),
+        ("0.1.3", "0.1.3", true, AvailabilityState::UpToDate),
+        ("0.1.4", "0.1.3", true, AvailabilityState::UpToDate),
+        ("0.1.2", "0.1.3", false, AvailabilityState::Incompatible),
+        (
+            "1.0.0+local",
+            "1.0.0+remote",
+            true,
+            AvailabilityState::UpToDate,
+        ),
+    ] {
+        for kind in [UpdateKind::Plugin, UpdateKind::App, UpdateKind::Frontend] {
+            let item = AvailabilityItem::release("fixture", kind, installed, latest, compatible);
+            assert_eq!(item.state, expected);
+        }
+    }
+}
+
+#[test]
+fn core_plugins_never_offer_a_user_action_even_when_newer() {
+    for latest in ["0.1.2", "0.1.3"] {
+        let decision = decision(Some("0.1.2"), Some(latest), Some(latest), true);
+        let item = AvailabilityItem::plugin(
+            "core",
+            Some("0.1.2"),
+            Some(latest),
+            Some("official"),
+            true,
+            true,
+            &decision,
+        );
+        assert_eq!(item.state, AvailabilityState::CoreSilent);
+    }
+}

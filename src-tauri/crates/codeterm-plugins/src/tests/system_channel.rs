@@ -221,7 +221,7 @@ fn system_channel_named_refresh_returns_materialization_error() {
 }
 
 #[test]
-fn system_channel_aggregate_refresh_skips_failed_materialization() {
+fn system_channel_aggregate_refresh_reports_failure_and_refreshes_healthy_channels() {
     with_data_root(|root| {
         let missing_source = root.join("missing-system-source");
         std::env::set_var(
@@ -245,7 +245,8 @@ fn system_channel_aggregate_refresh_skips_failed_materialization() {
             &[("refreshed-plugin", "provider-new")],
         );
 
-        refresh_channel(None).expect("aggregate refresh skips core failure");
+        let error = refresh_channel(None).expect_err("aggregate refresh reports core failure");
+        assert!(error.contains(SYSTEM_CHANNEL_NAME));
 
         let registry = read_channel_registry().unwrap();
         let healthy = registry.channels.get("healthy").expect("healthy channel");
