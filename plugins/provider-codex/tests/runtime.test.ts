@@ -34,12 +34,17 @@ function allowed(op:Operation, action:RuntimeAction) {
 function replay(fixture:Fixture) {
   const plans = new Map<number,RuntimePlan>();
   const ready = new Set<number>();
+  const counts = new Map<number,number>();
+  let binding:string | undefined;
   const results:Fixture["expected"]["results"] = [];
   const events:AgentEvent[] = [];
   let state:JsonValue = null;
   for (const record of fixture.rpc) {
     if ("frame" in record) {
-      const reduced = hooks.runtimeReduce(record.context ?? fixture.context,state,[record.frame]);
+      const context=record.context ?? fixture.context;
+      const authority=JSON.stringify([context.epoch,context.tabId,context.bindingNonce,context.threadId ?? null]);
+      if(binding !== authority) {state=null;binding=authority;}
+      const reduced = hooks.runtimeReduce(context,state,[record.frame]);
       state = reduced.state; events.push(...reduced.events); continue;
     }
     const entry = fixture.operations[record.operation];
@@ -47,20 +52,30 @@ function replay(fixture:Fixture) {
     const ctx = entry.context ?? fixture.context;
     if (record.direction === "outbound") {
       let plan = plans.get(record.operation);
-      if (!plan) plan = hooks.runtimePlan(ctx,entry.operation);
+      if (!plan) {
+        assert.ok(!results.some(result=>result.operation === record.operation),"Terminal operation must not replay");
+        plan = hooks.runtimePlan(ctx,entry.operation);
+      }
       else assert.ok(ready.has(record.operation),"Next call follows a continuation");
       allowed(entry.operation,plan.action);
       assert.deepEqual(plain(plan.action),record.action);
-      plans.set(record.operation,plan); ready.delete(record.operation); continue;
+      if (plan.action.kind === "questionAnswer") plans.delete(record.operation);
+      else plans.set(record.operation,plan);
+      ready.delete(record.operation); continue;
     }
     const plan = plans.get(record.operation);
     assert.ok(plan,"Reply follows outbound action");
+    const count=(counts.get(record.operation) ?? 0)+1;
+    counts.set(record.operation,count);assert.ok(count <= 32,"Operation step bound");
     const step = hooks.runtimeResponse(ctx,entry.operation,plan.state,record.reply);
     if (step.kind === "continue") {
       if (entry.operation.kind === "submitTurn") {assert.equal(step.beforeAcceptance,true);assert.equal(record.reply.kind,"error");}
       plans.set(record.operation,step.plan);ready.add(record.operation);
     } else {
-      if (step.kind === "complete" && step.notification) allowed(entry.operation,{kind:"notification",notification:step.notification});
+      if (step.kind === "complete") {
+        events.push(...(step.events ?? []));
+        if (step.notification) allowed(entry.operation,{kind:"notification",notification:step.notification});
+      }
       results.push({operation:record.operation,step:plain(step)});plans.delete(record.operation);
     }
   }
@@ -308,3 +323,10 @@ check("history questions survive item pagination and require exact later native 
   assert.equal(read({id:"assistant-answer",type:"agentMessage",text:JSON.stringify(envelope)}).questions?.[0].resolved,undefined);
 });
 console.log(`runtime history hooks: ${count} checks passed`);
+check("reinitialize response auth is part of the full replay event stream",()=> {
+  const fixture=JSON.parse(fs.readFileSync(new URL("runtime-restart.json",root),"utf8")) as Fixture;
+  const result=replay(fixture);assert.equal(result.events.filter(event=>event.kind === "auth").length,1);
+  fixture.expected.events=fixture.expected.events.filter(event=>event.kind !== "auth");
+  assert.throws(()=>replay(fixture));
+});
+console.log(`runtime full event hooks: ${count} checks passed`);
