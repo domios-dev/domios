@@ -5,7 +5,11 @@ impl super::super::ServiceContext {
         let service = self.clone();
         let tab_id = record.authority.tab_id.clone();
         let send_id = record.send_id.clone();
+        #[cfg(test)]
+        let completion = self.ready_user_send_tasks.start(&tab_id);
         tauri::async_runtime::spawn_blocking(move || {
+            #[cfg(test)]
+            let _completion = completion;
             let result = service.drain_selected_user_send_with(
                 &tab_id,
                 Some(&send_id),
