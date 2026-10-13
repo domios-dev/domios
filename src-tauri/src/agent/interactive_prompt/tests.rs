@@ -249,3 +249,15 @@ fn retained_model_pickers_reach_live_pending_prompt_with_structural_evidence() {
         );
     }
 }
+
+#[test]
+fn directory_trust_capability_is_authoritative_over_generic_classification() {
+    for state in [TabState::Working, TabState::Unknown, TabState::IdleStuck] {
+        let parsed = Some((prompt(), PromptKind::DirectoryTrust));
+        assert_eq!(
+            resolve_live_prompt(parsed.clone(), Some(&classification(state, 0.1))),
+            parsed
+        );
+        assert!(resolve_live_prompt(None, Some(&classification(state, 0.1))).is_none());
+    }
+}
