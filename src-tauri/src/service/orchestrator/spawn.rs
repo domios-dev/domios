@@ -324,7 +324,7 @@ impl ServiceContext {
             }
         }
         apply_worker_hierarchy_defaults(&mut params);
-        let default_provider = crate::config::default_agent_provider();
+        let default_provider = self.configuration().general_agent.agent_provider;
         let agent_cmd = params
             .agent
             .clone()
@@ -427,6 +427,7 @@ impl ServiceContext {
         )
         .map_err(|error| error.to_string())?;
         let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &self.configuration(),
             &self.agent_registry,
             &agent_cmd,
             params.model.take(),
@@ -616,7 +617,8 @@ impl ServiceContext {
         }
 
         let permission_bypass_authorization =
-            crate::service::permission_policy::configured_permission_bypass(
+            crate::service::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
                 &self.agent_registry,
                 &agent_cmd,
             )?;

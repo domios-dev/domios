@@ -107,7 +107,9 @@ pub async fn ingest(
     let path = stored.to_string_lossy().to_string();
     let reference = match req.kind {
         AttachmentKind::Voice => {
-            let active = crate::config::load_config()
+            let active = state
+                .svc
+                .configuration()
                 .integrations
                 .voice_transcribe
                 .active;

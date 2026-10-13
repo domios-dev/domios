@@ -72,7 +72,7 @@ pub(super) fn mem_calibration_stale(
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let p: StaleParams = parse_params(params)?;
-    let hygiene = crate::config::memory_config().dream_hygiene;
+    let hygiene = svc.configuration().memory.dream_hygiene;
     svc.mem
         .with_conn(|conn| stale_from_params(conn, &p, &hygiene))
         .map_err(internal_error)

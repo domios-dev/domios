@@ -207,7 +207,7 @@ impl ServiceContext {
 
     pub(crate) fn tab_env(&self, tab_id: &str) -> HashMap<String, String> {
         let mut env = compose_launch_env(
-            &InstanceEnv::resolve(),
+            &InstanceEnv::from_api_config(self.configuration().api),
             Some(&self.tab_launch_env(tab_id)),
             LaunchSurface::Service,
         );
@@ -220,7 +220,7 @@ impl ServiceContext {
     pub(crate) fn frontend_pty_env(&self, tab_id: Option<&str>) -> HashMap<String, String> {
         let tab = tab_id.map(|tab_id| self.tab_launch_env(tab_id));
         let mut env = compose_launch_env(
-            &InstanceEnv::resolve(),
+            &InstanceEnv::from_api_config(self.configuration().api),
             tab.as_ref(),
             LaunchSurface::Frontend,
         );

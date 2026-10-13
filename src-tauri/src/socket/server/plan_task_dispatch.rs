@@ -497,7 +497,7 @@ where
         &svc.agent_registry,
         owned_str(p, "agent").as_deref(),
         requested_model.as_deref(),
-        &crate::config::default_agent_provider(),
+        &svc.configuration().general_agent.agent_provider,
     )
     .map_err(super::model_errors::invalid_model_rpc_error)?;
     let resolved_provider = model_selection.provider_id;
@@ -561,6 +561,7 @@ where
     )
     .map_err(plan_rpc_err)?;
     let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+        &svc.configuration(),
         &svc.agent_registry,
         &resolved_provider,
         selected_model.clone(),

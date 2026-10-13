@@ -40,6 +40,7 @@ fn free_form_provider_keeps_unknown_model_ids() {
 
     assert!(validate_agent_model(&registry, provider_id, Some("does-not-exist")).is_ok());
     let resolved = resolve_fresh_agent_model_with_notice(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         provider_id,
         Some("does-not-exist".into()),
@@ -302,9 +303,15 @@ fn validate_agent_model_accepts_claude_alias() {
         );
     }
     assert_eq!(
-        resolve_fresh_agent_model_with_notice(&registry, "claude", Some("opus[1m]".into()), None,)
-            .model
-            .as_deref(),
+        resolve_fresh_agent_model_with_notice(
+            &crate::config::schema::AppConfig::default(),
+            &registry,
+            "claude",
+            Some("opus[1m]".into()),
+            None,
+        )
+        .model
+        .as_deref(),
         Some("opus[1m]")
     );
 }
@@ -319,6 +326,7 @@ fn concrete_claude_model_stays_concrete_when_provider_does_not_offer_alias() {
     );
 
     let resolved = resolve_fresh_agent_model_with_notice(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         provider_id,
         Some("claude-opus-5".into()),
@@ -348,6 +356,7 @@ fn restore_with_model_missing_from_authoritative_catalogue_records_notice() {
     );
 
     let resumed = resolve_fresh_agent_model_with_notice(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         provider_id,
         Some("removed-model".into()),
@@ -446,8 +455,14 @@ fn free_form_provider_preserves_shortened_unknown_ids() {
 
     assert!(validate_agent_model(&registry, provider_id, Some("big-pickle")).is_ok());
     assert_eq!(
-        resolve_fresh_agent_model(&registry, provider_id, Some("big-pickle".into()), None)
-            .as_deref(),
+        resolve_fresh_agent_model(
+            &crate::config::schema::AppConfig::default(),
+            &registry,
+            provider_id,
+            Some("big-pickle".into()),
+            None
+        )
+        .as_deref(),
         Some("big-pickle")
     );
 }
@@ -500,6 +515,7 @@ fn unavailable_authoritative_catalogue_warns_and_preserves_requested_model() {
 
     assert!(validate_agent_model(&registry, "live-catalogue-fixture", Some(requested)).is_ok());
     let resolved = resolve_fresh_agent_model_with_notice(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         "live-catalogue-fixture",
         Some(requested.into()),
@@ -513,6 +529,7 @@ fn unavailable_authoritative_catalogue_warns_and_preserves_requested_model() {
     assert!(warning.contains("codeterm agent models"), "{warning}");
 
     let resumed = resolve_fresh_agent_model_with_notice(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         "live-catalogue-fixture",
         Some(requested.into()),
@@ -567,6 +584,7 @@ fn authoritative_ids_accept_matching_provider_prefix() {
     .is_ok());
     assert_eq!(
         resolve_fresh_agent_model_with_notice(
+            &crate::config::schema::AppConfig::default(),
             &registry,
             provider_id,
             Some("codex-prefix-fixture:gpt-6-sol".into()),
@@ -606,7 +624,13 @@ fn authoritative_live_default_warns_when_provider_default_is_stale() {
     );
 
     assert!(validate_agent_model(&registry, provider_id, None).is_ok());
-    let resolution = resolve_fresh_agent_model_with_notice(&registry, provider_id, None, None);
+    let resolution = resolve_fresh_agent_model_with_notice(
+        &crate::config::schema::AppConfig::default(),
+        &registry,
+        provider_id,
+        None,
+        None,
+    );
     assert_eq!(resolution.model.as_deref(), Some("live-default"));
     let warning = resolution.warning.expect("stale defaults must be visible");
     assert!(warning.contains("seed-default"), "{warning}");

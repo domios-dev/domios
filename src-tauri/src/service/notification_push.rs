@@ -201,7 +201,7 @@ impl ServiceContext {
     /// channel the category is dropped, so an install that never opted in takes
     /// exactly the pre-existing code path.
     pub(crate) fn resolve_push_plan(&self, intent: PushIntent) -> PushPlan {
-        let cfg = crate::config::load_config();
+        let cfg = self.configuration();
         plan_push(&cfg, &channels::roster(), self, intent)
     }
 
@@ -228,7 +228,7 @@ impl ServiceContext {
 
     /// What settings may offer per channel, in roster order.
     pub(crate) fn push_channel_standings(&self) -> Vec<ChannelStanding> {
-        let cfg = crate::config::load_config();
+        let cfg = self.configuration();
         channels::roster()
             .into_iter()
             .map(|registered| ChannelStanding {

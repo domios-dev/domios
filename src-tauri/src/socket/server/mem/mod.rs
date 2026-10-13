@@ -244,15 +244,15 @@ fn mem_save(
     let id = outcome.id;
     emit_activity(svc, "write", vec![id.clone()]);
 
-    let auto_extract_enabled = crate::config::memory_config().auto_extract;
+    let auto_extract_enabled = svc.configuration().memory.auto_extract;
     if crate::api::mem_routes::items::save_schedules_extraction(
         &outcome.outcome,
         skip_extract,
         is_auto_extracted,
         auto_extract_enabled,
     ) {
-        let mem_cfg = crate::config::memory_config();
-        let default_agent = crate::config::default_agent_provider();
+        let mem_cfg = svc.configuration().memory;
+        let default_agent = svc.configuration().general_agent.agent_provider;
         crate::mem::auto_extract::spawn_extraction_worker(
             svc,
             &mem_cfg,
@@ -367,7 +367,7 @@ fn mem_wake_up(
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let p: WakeUpParams = parse_params(params)?;
-    let opts = wake_up_options_from_params(&p, None);
+    let opts = wake_up_options_from_params(svc.configuration().memory.l1_budget_tokens, &p, None);
     let text = svc.mem.wake_up(&opts).map_err(internal_error)?;
     Ok(serde_json::json!({ "text": text }))
 }
@@ -532,13 +532,13 @@ fn mem_worker_spawn(
         parent: Option<String>,
     }
     let b: SpawnParams = parse_params(params)?;
-    let mem_cfg = crate::config::memory_config();
+    let mem_cfg = svc.configuration().memory;
     let parent = b.parent.unwrap_or_else(|| "user:memory-panel".to_string());
     let resolved = codeterm_mem::worker_agent::resolve_worker(
         b.agent.as_deref(),
         &mem_cfg.extraction_agent,
         &mem_cfg.extraction_model,
-        &crate::config::default_agent_provider(),
+        &svc.configuration().general_agent.agent_provider,
         &mem_cfg.worker_model,
         &crate::service::spawn::CatalogBackgroundModelPort,
     );

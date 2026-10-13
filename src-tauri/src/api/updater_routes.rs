@@ -124,11 +124,8 @@ pub async fn install_update(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     if q.after_update.is_some() {
-        validate_after_update_enabled(
-            true,
-            crate::config::load_config().agent.continue_after_restart,
-        )
-        .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
+        validate_after_update_enabled(true, state.svc.configuration().agent.continue_after_restart)
+            .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
     }
     let caller_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
     if q.method.as_deref() == Some("auto") {

@@ -469,7 +469,14 @@ fn fresh_agent_model_uses_provider_default_when_missing() {
     ));
 
     assert_eq!(
-        resolve_fresh_agent_model(&registry, "model-test-default", None, None).as_deref(),
+        resolve_fresh_agent_model(
+            &crate::config::schema::AppConfig::default(),
+            &registry,
+            "model-test-default",
+            None,
+            None
+        )
+        .as_deref(),
         Some("model-a")
     );
 }
@@ -483,6 +490,7 @@ fn fresh_agent_model_keeps_explicit_model() {
 
     assert_eq!(
         resolve_fresh_agent_model(
+            &crate::config::schema::AppConfig::default(),
             &registry,
             "model-test-explicit",
             Some(" model-b ".into()),
@@ -518,6 +526,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
 
     assert_eq!(
         resolve_fresh_agent_model(
+            &crate::config::schema::AppConfig::default(),
             &registry,
             "model-test-display",
             Some("GPT-5.5".into()),
@@ -536,8 +545,14 @@ fn fresh_agent_model_preserves_free_form_unknown_request() {
     ));
 
     assert_eq!(
-        resolve_fresh_agent_model(&registry, "model-test-stale", Some("stale".into()), None)
-            .as_deref(),
+        resolve_fresh_agent_model(
+            &crate::config::schema::AppConfig::default(),
+            &registry,
+            "model-test-stale",
+            Some("stale".into()),
+            None
+        )
+        .as_deref(),
         Some("stale")
     );
 }
@@ -550,6 +565,7 @@ fn fresh_agent_model_does_not_report_a_free_form_fallback() {
     ));
 
     let mut resolved = resolve_fresh_agent_model_with_notice(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         "model-test-fallback-notice",
         Some("stale".into()),
@@ -693,7 +709,13 @@ fn resume_agent_model_does_not_inject_default() {
     ));
 
     assert_eq!(
-        resolve_fresh_agent_model(&registry, "model-test-resume", None, Some("sid-1")),
+        resolve_fresh_agent_model(
+            &crate::config::schema::AppConfig::default(),
+            &registry,
+            "model-test-resume",
+            None,
+            Some("sid-1")
+        ),
         None
     );
 }

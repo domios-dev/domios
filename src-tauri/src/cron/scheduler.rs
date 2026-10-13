@@ -268,7 +268,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
     // (shared default). Resolved against `agent`'s own catalog so a cron job
     // fired without a stored model still gets a model that provider accepts.
     let model = model.map(|s| s.to_string()).or_else(|| {
-        let mem_cfg = crate::config::memory_config();
+        let mem_cfg = service.configuration().memory;
         let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
             &mem_cfg.dreaming_model,
             &mem_cfg.worker_model,
@@ -341,7 +341,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
                 .get(&handle.tab_id)
                 .cloned()
             {
-                let global_timeout = crate::config::memory_config().worker_timeout_seconds;
+                let global_timeout = service.configuration().memory.worker_timeout_seconds;
                 let timeout = job_timeout.unwrap_or(global_timeout);
                 if job_timeout.is_some() {
                     log::info!(

@@ -781,7 +781,9 @@ pub async fn transcribe_voice(
     Json(body): Json<TranscribeVoiceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let active = crate::config::load_config()
+    let active = state
+        .svc
+        .configuration()
         .integrations
         .voice_transcribe
         .active;

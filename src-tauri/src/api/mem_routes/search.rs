@@ -133,7 +133,7 @@ pub(crate) fn execute_search(
     svc: &ServiceState,
     p: SearchParams,
 ) -> Result<serde_json::Value, SearchError> {
-    let cfg = crate::config::load_config().supporter;
+    let cfg = svc.configuration().supporter;
     resolve_search(&**svc, &svc.supporter_models, &cfg, p)
 }
 

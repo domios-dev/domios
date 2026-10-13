@@ -446,7 +446,11 @@ pub(crate) fn init_states() -> AppStates {
             }
         }
         if general_config.first_run_complete {
-            service::general_agent::generate_instructions(&general_config.agent_provider, None);
+            service::general_agent::generate_instructions(
+                general_config.capability_hints,
+                &general_config.agent_provider,
+                None,
+            );
             duplicate_generals_closed =
                 service::general_agent::ensure_general_workspace(&mut mux_state_inner, false);
         } else {

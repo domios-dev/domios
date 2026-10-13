@@ -627,7 +627,10 @@ impl ServiceContext {
         let Some(provider_id) = provider_id else {
             return Ok(());
         };
-        let resume_enabled = exact_session || crate::config::resume_sessions_enabled(&provider_id);
+        let resume_enabled = exact_session
+            || crate::config::provider_config_from(&self.configuration(), &provider_id)
+                .resume_sessions
+                .unwrap_or(true);
         let resume_session_id = crate::service::restored_launch::restored_resume_session_id(
             resume_enabled,
             session_id.as_deref(),
