@@ -15,7 +15,13 @@
     "providerSettings": {},
     "claimedSends": [],
     "activeTurnId": "turn-a",
-    "activeTurns": []
+    "activeTurns": [
+      {
+        "threadId": "thread-fixture",
+        "turnId": "turn-a"
+      }
+    ],
+    "threadParents": []
   },
   "operations": [
     {

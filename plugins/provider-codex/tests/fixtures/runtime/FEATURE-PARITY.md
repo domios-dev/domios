@@ -14,7 +14,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | thread/items/list | Paginated items per turn | Yes | readHistory continuations and openItems | Host reconciles stable IDs and unfinished items |
 | turn/start | Submit a new turn | Yes | submitTurn with clientUserMessageId, settings, attachments | Exclusive ledger remains host-owned |
 | turn/steer | Add input during active turn | Yes | submitTurn with expectedTurnId; exact refused-before-acceptance fallback | Diverges from reference by attaching our exclusive send ID; never retry uncertainty |
-| turn/interrupt | Stop running turn | Yes, root plus descendants | Root and verified active descendants, deepest first | A10/A10b explicit generic targets are host-validated |
+| turn/interrupt | Stop running turn | Yes, root plus descendants | Root and verified active descendants, deepest first | A10/A10b/A10c generic targets are validated; retained ancestry traverses inactive parents |
 | thread/settings/update | Next-turn model/effort/mode | Old core stages locally | Per-thread control request | Never writes machine config |
 | thread/compact/start | Compact active context | Not exposed as RPC control | compact control | Completion emits contextCompacted |
 | turn/started | Activity and provider start time | Yes | turnState with startedAt in ms | Auto-started goal turns on exact bound thread accepted |

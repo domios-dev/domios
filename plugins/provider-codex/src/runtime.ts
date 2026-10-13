@@ -69,7 +69,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       return request("turn/steer",{threadId:op.threadId,clientUserMessageId:op.sendId,input:params.input,expectedTurnId:op.activeTurnId});
     }
     case "interrupt": {
-      const turns = interruptTargets(ctx,op.threadId,op.activeTurnId ?? ctx.activeTurnId);
+      const turns = interruptTargets(ctx,op.threadId);
       if (!turns.length) fail("provider_refused","No active turn to interrupt");
       return request("turn/interrupt",{threadId:turns[0].threadId,turnId:turns[0].turnId},{stage:"interrupt",remaining:turns.slice(1)});
     }

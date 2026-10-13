@@ -15,7 +15,7 @@ const environment = Object.fromEntries(Object.entries(process.env).filter(([key]
 
 async function capture(scenario) {
   const cwd = mkdtempSync(join(tmpdir(),"runtime-capture-"));
-  const ctx = {epoch:1,cwd,hostVersion:"1.14.7",tabId:"capture-tab",bindingNonce:"capture-nonce",settings,providerSettings:{},claimedSends:[],activeTurns:[]};
+  const ctx = {epoch:1,cwd,hostVersion:"1.14.7",tabId:"capture-tab",bindingNonce:"capture-nonce",settings,providerSettings:{},claimedSends:[],activeTurns:[],threadParents:[]};
   const fixture={schemaVersion:1,captured:{cliVersion:"0.160.0",model,scenario},context:structuredClone(ctx),operations:[],rpc:[],expected:{results:[],events:[]}};
   const started=performance.now();
   const record=entry=>fixture.rpc.push({...entry,receiptMs:Number((performance.now()-started).toFixed(3)),...("frame" in entry ? {context:structuredClone(ctx)} : {})});

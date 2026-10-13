@@ -42,6 +42,7 @@ export interface RuntimeContext {
   cwd:string;
   hostVersion:string;
   activeTurns:readonly RuntimeActiveTurn[];
+  threadParents:readonly RuntimeThreadParent[];
   claimedSends:readonly {sendId:string; threadId:string; input:TurnInput}[];
   tabId:string;
   bindingNonce:string;
@@ -121,3 +122,5 @@ export interface RuntimeQuestion {id:string; text:string; options:readonly {valu
 export interface RuntimeQuestionAnswer {questionId:string; values:readonly string[]; text?:string}
 
 export interface RuntimeActiveTurn {threadId:string; turnId:string; parentThreadId?:string}
+
+export interface RuntimeThreadParent {threadId:string; parentThreadId:string}
