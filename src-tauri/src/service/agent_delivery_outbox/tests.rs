@@ -311,3 +311,66 @@ fn live_resume_provisional_launch_delivers_held_payload_once_after_binding() {
     }
     assert_fixture_auth_drains_once(fixture, tab_id);
 }
+
+#[test]
+fn busy_refused_notice_flushes_once_on_authoritative_idle() {
+    assert_idle_flushes_once(false);
+}
+
+#[test]
+fn idle_racing_busy_refusal_flushes_once_without_another_transition() {
+    assert_idle_flushes_once(true);
+}
+
+fn assert_idle_flushes_once(idle_before_refusal: bool) {
+    use crate::agent::status::TabStatus;
+    use crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore;
+    use crate::service::tab_status_events::publish_statuses;
+    use std::collections::HashMap;
+
+    let temp = tempfile::tempdir().unwrap();
+    let store = AgentDeliveryStore::open(temp.path());
+    let tab = "held-notice-tab";
+    let mut published = HashMap::from([(tab.to_string(), TabStatus::Working)]);
+    let generation = store.state_generation(tab);
+    let publish_idle = |published: &mut HashMap<String, TabStatus>| {
+        publish_statuses(
+            published,
+            &HashMap::from([(tab.to_string(), TabStatus::Idle)]),
+            |_, _| {},
+            |tab_id| store.state_changed(tab_id),
+        );
+    };
+    if idle_before_refusal {
+        publish_idle(&mut published);
+        assert!(store.start_worker(tab));
+        assert!(store.pending_head(tab).unwrap().is_none());
+        store.finish_worker(tab);
+    }
+    let id = store.enqueue(tab, "opaque system notice", None).unwrap();
+    assert_eq!(
+        store.block_after_refusal(tab, generation),
+        !idle_before_refusal
+    );
+    if !idle_before_refusal {
+        assert!(!store.start_worker(tab));
+        publish_idle(&mut published);
+    }
+    assert!(store.start_worker(tab));
+    assert!(!store.start_worker(tab));
+    let record = store.pending_head(tab).unwrap().unwrap();
+    assert_eq!(record.id, id);
+    assert!(store.claim(tab, &id).unwrap());
+    let writes = vec![store.payload(tab, &record).unwrap()];
+    assert!(store.complete_written(tab, &id).unwrap());
+    store.finish_worker(tab);
+
+    let generation = store.state_generation(tab);
+    publish_idle(&mut published);
+    assert_eq!(store.state_generation(tab), generation);
+    assert!(store.start_worker(tab));
+    assert!(store.pending_head(tab).unwrap().is_none());
+    assert!(!store.claim(tab, &id).unwrap());
+    store.finish_worker(tab);
+    assert_eq!(writes, ["opaque system notice"]);
+}
