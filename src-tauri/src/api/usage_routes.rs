@@ -50,14 +50,17 @@ pub async fn usage_latest(
     Query(q): Query<UsageQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let row = state
-        .svc
-        .usage_store
-        .get_latest_with_stale_reason(&q.provider, q.account_id.as_deref())
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage latest failed"))?;
-    Ok(Json(
-        serde_json::to_value(row).unwrap_or(serde_json::json!(null)),
-    ))
+    let result = tokio::task::spawn_blocking(move || {
+        crate::service::agent_runtime::projections::latest(
+            &state.svc,
+            &q.provider,
+            q.account_id.as_deref(),
+        )
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage latest stopped"))?
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage latest failed"))?;
+    Ok(Json(result))
 }
 
 pub async fn usage_history(

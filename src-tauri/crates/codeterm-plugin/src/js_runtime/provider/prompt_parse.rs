@@ -17,6 +17,7 @@ pub(super) fn parsed_prompt_from_js(obj: Value) -> Option<PendingPrompt> {
         });
     }
     Some(PendingPrompt {
+        request_id: None,
         question,
         options: parsed,
         sections: obj.get("sections").and_then(|s| s.as_array()).map(|items| {
