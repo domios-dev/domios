@@ -51,6 +51,7 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "RUNTIME-CONFIG",
     "API",
     "API-TABS",
+    "API-CHAT",
     "API-REPAIR",
     "API-ADOPT",
     "API-EVENTS",
