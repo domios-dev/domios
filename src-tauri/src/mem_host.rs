@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod dreaming_cron_tests;
-mod worker_spawn_spec;
+pub(crate) mod worker_spawn_spec;
 
 use std::collections::HashMap;
 use std::sync::Arc;

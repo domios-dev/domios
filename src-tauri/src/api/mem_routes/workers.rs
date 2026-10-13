@@ -187,6 +187,13 @@ pub async fn workers_report(
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-reported", &info);
 
+    if state
+        .svc
+        .run_watcher
+        .runtime_worker_reported(&info.tab_id, &id)
+    {
+        return Ok(Json(serde_json::json!({ "ok": true, "info": info })));
+    }
     let svc = state.svc.clone();
     let tab_id = info.tab_id.clone();
     tokio::spawn(async move {

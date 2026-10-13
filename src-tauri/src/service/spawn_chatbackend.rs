@@ -614,6 +614,7 @@ impl ServiceContext {
         {
             self.prepare_runtime_cron_owner(tab_id, job_id, run_id)?;
         }
+        self.prepare_runtime_run_watcher(tab_id, metadata)?;
         self.prepare_runtime_worker_binding(&params, tab_id)?;
         self.prepare_agent_runtime_launch_options(tab_id, &params)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
