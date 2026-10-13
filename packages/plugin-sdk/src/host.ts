@@ -374,7 +374,25 @@ export interface LocalRecordingRefusal {
   error: string;
 }
 
+export interface RecordingDeviceSelection {
+  inputId: string;
+  collectionId: string;
+  microphoneId: string;
+}
+
+export interface RecordingInputDevice {
+  id: string;
+  label: string;
+  kind: "hid" | "audio_input";
+  connected: boolean;
+  inputId: string;
+  collectionId: string;
+}
+
 export interface HostLocalRecording {
+  listInputDevices(): RecordingInputDevice[] | LocalRecordingRefusal | null;
+  selectDevices(devices: RecordingDeviceSelection): number | LocalRecordingRefusal | null;
+  savedSelection(): RecordingDeviceSelection | LocalRecordingRefusal | null;
   statusReport(): number[] | LocalRecordingRefusal | null;
   status(): LocalRecordingStatus | LocalRecordingRefusal | null;
   setEnabled(enabled: boolean): LocalRecordingStatus | LocalRecordingRefusal | null;

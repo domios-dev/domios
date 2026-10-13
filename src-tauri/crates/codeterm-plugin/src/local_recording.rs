@@ -73,11 +73,39 @@ impl ReceiverStatusQuery {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SelectedDevices {
     pub input_id: String,
     pub collection_id: String,
     pub microphone_id: String,
+}
+
+impl SelectedDevices {
+    pub fn valid(&self) -> bool {
+        !matches!(self.microphone_id.as_str(), "default" | "communications")
+            && [&self.input_id, &self.collection_id, &self.microphone_id]
+                .iter()
+                .all(|id| !id.is_empty() && id.len() <= 4096 && !id.contains('\0'))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RecordingInputDevice {
+    pub id: String,
+    pub label: String,
+    pub kind: RecordingInputKind,
+    pub connected: bool,
+    pub input_id: String,
+    pub collection_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingInputKind {
+    Hid,
+    AudioInput,
 }
 
 pub trait LocalInputSubscription: Send {
@@ -346,11 +374,27 @@ impl LocalRecordingRegistry {
     }
 
     pub fn select_devices(&self, id: &str, devices: SelectedDevices) -> Result<u64, &'static str> {
-        if devices.input_id.is_empty()
-            || devices.collection_id.is_empty()
-            || devices.microphone_id.is_empty()
-        {
-            return Err("devices_unavailable");
+        self.select_devices_with(id, devices, || Ok(()))
+    }
+
+    /// Persistence must not reenter this registry; the lock excludes concurrent grant revocation.
+    pub fn select_devices_persisted(
+        &self,
+        id: &str,
+        devices: SelectedDevices,
+        persist: impl FnOnce() -> Result<(), String>,
+    ) -> Result<u64, String> {
+        self.select_devices_with(id, devices, persist)
+    }
+
+    fn select_devices_with<E: From<&'static str>>(
+        &self,
+        id: &str,
+        devices: SelectedDevices,
+        persist: impl FnOnce() -> Result<(), E>,
+    ) -> Result<u64, E> {
+        if !devices.valid() {
+            return Err("devices_unavailable".into());
         }
         let (generation, invalidation) = {
             let mut state = self.state.lock();
@@ -358,7 +402,13 @@ impl LocalRecordingRegistry {
                 entries,
                 reservations,
             } = &mut *state;
-            let entry = entries.get_mut(id).ok_or("trigger_not_declared")?;
+            let entry = entries
+                .get_mut(id)
+                .ok_or_else(|| E::from("trigger_not_declared"))?;
+            if !entry.granted {
+                return Err("local_recording_grant_required".into());
+            }
+            persist()?;
             let (old_generation, stopped) = invalidate_entry(entry, reservations);
             entry.devices = Some(devices);
             entry.available = false;

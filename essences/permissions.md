@@ -25,9 +25,12 @@ Hidden memory workers trust their daemon-owned folder. Crons trust the folder ch
 Plugins declare capabilities and permissions. The host registers only capabilities it supports, and declared permissions bound access to local files, subprocesses, network hosts and secrets. A plugin update cannot supply host behavior absent from the installed app. Plugin confinement and official-channel provenance remain under the [plugin-host contract](core.md#core:plugin-host).
 
 A declared local recording trigger requires an explicit user grant. System trust,
-development access, and a manifest request do not supply it. The host owns selected
-devices and recipient selection; the plugin can inspect its own sanitized status
-and arm or disable its trigger without receiving raw input, audio, or authority to
+development access, and a manifest request do not supply it. The plugin may list
+sanitized recording input identities, choose its devices and read only its own
+machine-local saved selection through the granted host capability. The host
+validates the declared input and owns recipient selection; the plugin can inspect
+its own sanitized status and arm or disable its trigger without raw input, audio,
+or authority to
 send to arbitrary tabs. START freezes an authenticated ready recipient and one
 capture generation. A closed explicit choice remains stale; General resolves only
 at START when no explicit choice exists. Cancellation, device loss, revocation and

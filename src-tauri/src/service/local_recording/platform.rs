@@ -21,12 +21,7 @@ pub(crate) enum InputUnavailable {
 use codeterm_plugin::local_recording::{LocalRecordingTrigger, SelectedDevices};
 use std::sync::Arc;
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RecordingInputDevice {
-    pub input_id: String,
-    pub collection_id: String,
-}
+pub(crate) use codeterm_plugin::local_recording::RecordingInputDevice;
 
 pub(crate) fn input_devices(
     trigger: &LocalRecordingTrigger,
@@ -40,6 +35,10 @@ pub(crate) fn input_devices(
             inputs
                 .into_iter()
                 .map(|input| RecordingInputDevice {
+                    id: input.input_id.clone(),
+                    label: input.input_id.clone(),
+                    kind: codeterm_plugin::local_recording::RecordingInputKind::Hid,
+                    connected: true,
                     input_id: input.input_id,
                     collection_id: input.collection_id,
                 })
