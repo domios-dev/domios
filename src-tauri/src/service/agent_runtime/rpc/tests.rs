@@ -44,7 +44,7 @@ async fn pipe_eof_fails_pending_without_replaying_payload() {
         method: "fixture/submit".into(),
         params: json!({"input":"opaque-payload"}),
     };
-    let submit = client.request(&call);
+    let submit = client.request_guarded(&call, None);
     let (result, ()) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(submit, server)
     })
@@ -52,11 +52,14 @@ async fn pipe_eof_fails_pending_without_replaying_payload() {
     .unwrap();
     assert_eq!(result, Err(RuntimeFailure::PipeEof));
     assert!(client
-        .request(&RpcCall {
-            target: None,
-            method: "fixture/submit".into(),
-            params: json!({})
-        })
+        .request_guarded(
+            &RpcCall {
+                target: None,
+                method: "fixture/submit".into(),
+                params: json!({})
+            },
+            None
+        )
         .await
         .is_err());
     assert!(client.0.state.lock().pending.is_empty());
@@ -127,7 +130,7 @@ async fn stdout_eof_fails_inflight_while_peer_stdin_remains_open() {
         params: json!({"input":"opaque"}),
         target: None,
     };
-    let request = client.request(&call);
+    let request = client.request_guarded(&call, None);
     let (result, peer_stdin) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(request, server)
     })
