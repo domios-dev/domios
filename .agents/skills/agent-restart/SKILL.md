@@ -40,6 +40,8 @@ and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
    (`restored_fresh_launch_input`), so restart and restore cannot diverge.
    Coverage: `restart_preserves_launch_args`.
 
+For a Chat-backed tab declaring `agentRuntime`, restart unloads the process and uses the runtime ensure path to resume the same thread with a new epoch and nonce. The composed system prompt, role and launch options remain; claimed or uncertain input never replays. An authorized `--fresh` opens a new thread (`--force` is required while live). A ready receipt requires `thread_loaded`, with null PTY ids; failure stays visibly degraded. Provider handoff into or out of a runtime is refused with `runtime_provider_handoff_unsupported`. Canonical DEV verification checks the thread and nonce before and after resume and fresh, then asks for a previously supplied codeword.
+
 ## Setup
 
 Run a dev instance with at least one Claude Tab so there's an agent to
