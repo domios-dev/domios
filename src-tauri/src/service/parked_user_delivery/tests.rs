@@ -750,6 +750,10 @@ fn settled_listener(
 }
 
 pub(crate) fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
+    fixture
+        .service
+        .ready_user_send_tasks
+        .wait(tab_id, TEST_DEADLINE);
     let owner = fixture
         .service
         .pending_delivery_payloads

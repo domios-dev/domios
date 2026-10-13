@@ -19,6 +19,49 @@ pub(crate) struct ServiceFixture {
     pub(crate) temp: tempfile::TempDir,
 }
 
+#[derive(Default)]
+pub(crate) struct TestReadySendTasks {
+    pending: Mutex<HashMap<String, Vec<tokio::sync::oneshot::Receiver<bool>>>>,
+}
+
+pub(crate) struct TestReadySendTask(Option<tokio::sync::oneshot::Sender<bool>>);
+
+impl Drop for TestReadySendTask {
+    fn drop(&mut self) {
+        if let Some(completion) = self.0.take() {
+            let _ = completion.send(!std::thread::panicking());
+        }
+    }
+}
+
+impl TestReadySendTasks {
+    pub(crate) fn start(&self, tab_id: &str) -> TestReadySendTask {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending
+            .lock()
+            .entry(tab_id.to_owned())
+            .or_default()
+            .push(rx);
+        TestReadySendTask(Some(tx))
+    }
+
+    pub(crate) fn wait(&self, tab_id: &str, deadline: std::time::Duration) {
+        let pending = self.pending.lock().remove(tab_id).unwrap_or_default();
+        tauri::async_runtime::block_on(async {
+            tokio::time::timeout(deadline, async {
+                for task in pending {
+                    assert!(
+                        task.await.expect("ready-send task reports completion"),
+                        "ready-send task panicked"
+                    );
+                }
+            })
+            .await
+            .expect("ready-send tasks complete before the failure deadline");
+        });
+    }
+}
+
 pub(crate) struct TestPtyGuard {
     pty: Arc<TimedMutex<crate::pty::manager::PtyManager>>,
     pty_id: String,
@@ -179,6 +222,7 @@ impl ServiceFixture {
         );
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
         let service = ServiceContext {
+            ready_user_send_tasks: Arc::new(TestReadySendTasks::default()),
             workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
             account: Arc::new(tokio::sync::OnceCell::new()),
             billing: Arc::new(tokio::sync::OnceCell::new()),
