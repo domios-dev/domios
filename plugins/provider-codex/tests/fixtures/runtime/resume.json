@@ -26,7 +26,8 @@
           "model": "fixture-model",
           "effort": "high",
           "mode": "auto-accept-edits"
-        }
+        },
+        "instructions": "refreshed-resume-instructions"
       }
     },
     {
@@ -63,7 +64,8 @@
             "approvalsReviewer": "user",
             "sandbox": "workspace-write",
             "threadId": "thread-fixture",
-            "excludeTurns": true
+            "excludeTurns": true,
+            "developerInstructions": "refreshed-resume-instructions"
           }
         }
       }
@@ -120,7 +122,8 @@
             "approvalsReviewer": "user",
             "sandbox": "workspace-write",
             "threadId": "thread-fixture",
-            "excludeTurns": true
+            "excludeTurns": true,
+            "developerInstructions": "refreshed-resume-instructions"
           }
         }
       }
