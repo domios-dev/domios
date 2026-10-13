@@ -130,7 +130,7 @@ async function run(mode, shard, total) {
       const filter = filterFor(rows, mode);
       const partition = mode === 'shared' ? ['--partition', `hash:${shard}/${total}`] : [];
       const config = path.resolve('ci-rust-receipts', 'selection.toml');
-      fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\ntest-threads = 4\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
+      fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
       const selected = jsonCommand(['nextest', 'list', ...common, '--config-file', config, ...partition, '--message-format', 'json']);
       const selectedTests = [];
       for (const suite of Object.values(selected['rust-suites'])) {
@@ -144,7 +144,7 @@ async function run(mode, shard, total) {
       // Listener lifecycle cases need a process boundary without concurrent fork holders (#620).
       for (const { listener } of executionGroups(selectedTests)) {
         const isolation = 'test(/startup::rest_api::tests::/)';
-        fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${filter}) & ${listener ? isolation : `not (${isolation})`}`)}\nretries = 0\ntest-threads = ${listener ? 1 : 4}\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
+        fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${filter}) & ${listener ? isolation : `not (${isolation})`}`)}\nretries = 0\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`);
         console.log(`[${mode} ${shard}/${total} runner=${receipt.runner}] ${manifest} listener=${listener}`);
         const log = path.resolve('ci-rust-receipts', `${mode}-${mode === 'shared' ? shard : receipt.os}-${manifest.startsWith('src-tauri') ? 'workspace' : 'cli'}-${listener ? 'listener' : 'normal'}.log`);
         const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...common, '--config-file', config, ...partition, '--no-tests=fail', '--status-level', 'pass', '--failure-output', 'immediate-final'], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
