@@ -1,13 +1,25 @@
 use super::dispatch;
+use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{OrchestratorRef, Plan};
-use crate::service::plan::task_key_port_impl::MuxTaskKeyPort;
+use crate::service::plan::ports::{TaskKeyPort, TaskKeyScope};
 use crate::service::test_fixture::ServiceFixture;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// A live owner in the root "Main" workspace, a Team-bound plan, and the
-/// production mux-backed key port.
+struct FixtureTaskKeyPort(MuxState);
+
+impl TaskKeyPort for FixtureTaskKeyPort {
+    fn issue_task_keys(
+        &self,
+        scope: &TaskKeyScope,
+        count: usize,
+        high_water: &std::collections::HashMap<String, u64>,
+    ) -> Vec<String> {
+        crate::service::plan::task_key_port_impl::issue_from_mux(&self.0, scope, count, high_water)
+    }
+}
+
 fn keyed_fixture() -> (ServiceFixture, String, String) {
     let (mut mux, _) = MultiplexerState::new();
     let workspace = mux.list_workspaces()[0].id.clone();
@@ -24,10 +36,7 @@ fn keyed_fixture() -> (ServiceFixture, String, String) {
     fixture
         .service
         .plan_store
-        .bind_task_key_port(Arc::new(MuxTaskKeyPort::new(
-            fixture.service.mux.clone(),
-            fixture.service.app_handle.clone(),
-        )));
+        .bind_task_key_port(Arc::new(FixtureTaskKeyPort(fixture.service.mux.clone())));
     let mut plan = Plan::new(
         "Task keys".into(),
         fixture.temp.path().display().to_string(),

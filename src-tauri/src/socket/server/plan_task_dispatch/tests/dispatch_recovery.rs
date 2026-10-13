@@ -123,7 +123,7 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             provider_id,
         )
-        .with_launch_binary("cmd.exe"),
+        .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
     ));
     fixture
         .service

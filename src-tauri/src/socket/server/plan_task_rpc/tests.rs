@@ -475,7 +475,7 @@ fn starting_worker_with_live_pty(
         .pty
         .lock()
         .spawn(
-            Some("cmd.exe".into()),
+            Some(crate::agent::test_provider::test_shell_binary().into()),
             None,
             80,
             24,

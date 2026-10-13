@@ -529,7 +529,7 @@ mod tests {
         fixture.set_agent_full_access(true);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("remote-mock")
-                .with_launch_binary("cmd.exe"),
+                .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
         ));
         let worktree = fixture.temp.path().display().to_string();
         let request = super::MeshWorkerDispatchRequest {
