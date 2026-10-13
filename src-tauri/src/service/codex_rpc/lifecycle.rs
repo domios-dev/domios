@@ -382,10 +382,7 @@ async fn start(
             .map_err(|error| error.to_string())?
             .port();
         let sidecar = Arc::new(Sidecar {
-            normalizer: Mutex::new(super::normalize::Normalizer::from_history(
-                &thread,
-                history.messages,
-            )),
+            normalizer: Mutex::new(history.normalizer(&thread)),
             auth: Mutex::new(auth),
             controls: Mutex::new(super::model::TurnControls {
                 model: spawn.model.clone(),
