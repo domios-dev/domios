@@ -11,6 +11,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs RUNTIME-CONFIG` — Runtime, UI, session, cron, and memory settings.
 - `codeterm docs API` — REST, socket, and CLI integration reference.
 - `codeterm docs API-TABS` — Tab and workspace REST contracts.
+- `codeterm docs API-CHAT` — Chat send, admission, transcript, and snapshot REST contracts.
 - `codeterm docs API-REPAIR` — Tab identity repair REST contract.
 - `codeterm docs API-ADOPT` — Tab live-PTY adopt REST contract.
 - `codeterm docs API-EVENTS` — Event stream and full-state snapshot load contracts.
@@ -50,4 +51,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs TEST-AUTHORING` — Focused test authoring rules.
 - `codeterm docs ESSENCE-MAP` — Source-backed essence map generation and validation.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
