@@ -130,9 +130,13 @@ impl FrontendBundles {
             self.api_version,
             self.allow_loopback,
         )?;
+        self.stage_verified(&verified)
+    }
+
+    fn stage_verified(&self, verified: &manifest::VerifiedManifest) -> Result<Value, String> {
         let mut newly_pending = false;
         self.change(|state| {
-            newly_pending = state.stage(&verified)?;
+            newly_pending = state.stage(verified)?;
             Ok(())
         })?;
         let manifest = verified.manifest();
