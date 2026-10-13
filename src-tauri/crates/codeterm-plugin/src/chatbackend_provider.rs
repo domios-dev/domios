@@ -213,6 +213,7 @@ pub trait ChatBackendProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let catalog = model_catalog::registered_snapshot(self.id());
         ProviderDescriptor {
+            agent_runtime: None,
             supports_session_fork: false,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
