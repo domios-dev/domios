@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::{oneshot, watch};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -68,6 +68,16 @@ impl Cleanup {
         })
         .await
         .map_err(|_| "Sidecar cleanup deadline")?
+    }
+}
+
+#[cfg(unix)]
+fn observe_exit(mut wait: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
+    loop {
+        match wait() {
+            Err(error) if error.raw_os_error() == Some(libc::EINTR) => continue,
+            result => return result,
+        }
     }
 }
 
@@ -183,29 +193,11 @@ pub async fn spawn(
     let pid = child.id().ok_or("Sidecar has no process id")?;
     #[cfg(windows)]
     let job = crate::service::windows_job::Job::attach(&child)?;
-    let identity = crate::service::process_tree::launch_processes(pid)
-        .into_iter()
-        .find(|process| process.pid == pid)
-        .ok_or("Sidecar process identity unavailable")?;
-    let marker = Marker {
-        owner_pid: std::process::id(),
-        owner_start_token: crate::service::process_tree::launch_processes(std::process::id())
-            .first()
-            .map(|process| process.start_token.clone())
-            .ok_or("Daemon process identity unavailable")?,
-        instance: crate::paths::codeterm_instance_id().into(),
-        tab: tab.into(),
-        pid,
-        start_token: identity.start_token,
-        binary: binary.into(),
-    };
-    std::fs::write(
-        marker_file,
-        serde_json::to_vec(&marker).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| format!("Sidecar marker write {marker_file:?}: {error}"))?;
     let (ready, readiness) = oneshot::channel();
     let ready = std::sync::Arc::new(parking_lot::Mutex::new(Some(ready)));
+    let output = std::sync::Arc::new(parking_lot::Mutex::new(
+        super::process_output::Output::default(),
+    ));
     let expected = format!("listening on: ws://127.0.0.1:{port}");
     let stdout = child.stdout.take().ok_or("Missing sidecar stdout")?;
     let stderr = child.stderr.take().ok_or("Missing sidecar stderr")?;
@@ -216,17 +208,28 @@ pub async fn spawn(
         while let Ok(Some(line)) = lines.next_line().await {
             if line.contains(&expected_stdout) {
                 if let Some(ready) = ready_stdout.lock().take() {
-                    let _ = ready.send(());
+                    let _ = ready.send(Ok(()));
                 }
             }
         }
     });
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if line.contains(&expected) {
-                if let Some(ready) = ready.lock().take() {
-                    let _ = ready.send(());
+    let ready_stderr = ready.clone();
+    let stderr_output = output.clone();
+    let stderr_reader = tauri::async_runtime::spawn(async move {
+        let mut stderr = stderr;
+        let mut bytes = [0u8; 4096];
+        while let Ok(count) = stderr.read(&mut bytes).await {
+            if count == 0 {
+                break;
+            }
+            let listening = {
+                let mut output = stderr_output.lock();
+                output.append_stderr(&bytes[..count]);
+                output.listening(&expected)
+            };
+            if listening {
+                if let Some(ready) = ready_stderr.lock().take() {
+                    let _ = ready.send(Ok(()));
                 }
             }
         }
@@ -234,49 +237,118 @@ pub async fn spawn(
     let (stop, mut stopping) = watch::channel(false);
     let (died, death) = watch::channel(false);
     let token_file = token_file.to_owned();
-    let marker_file = marker_file.to_owned();
+    let marker_path = marker_file.to_owned();
+    let supervisor_output = output.clone();
+    let process_tab = tab.to_owned();
     #[cfg(unix)]
     let mut exited = tokio::task::spawn_blocking(move || {
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) }
+        observe_exit(|| {
+            let result =
+                unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
+            if result == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        })
     });
     tauri::async_runtime::spawn(async move {
         #[cfg(unix)]
-        {
-            tokio::select! { _ = stopping.changed() => {}, _ = &mut exited => {} }
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGKILL);
+        let status = {
+            let group_may_exit = tokio::select! {
+                _ = stopping.changed() => true,
+                result = &mut exited => match result {
+                    Ok(Ok(())) => true,
+                    error => {
+                        log::debug!("[codex-rpc-process] pid={pid} exit_observer_error={error:?}");
+                        false
+                    }
+                },
+            };
+            if group_may_exit {
+                unsafe {
+                    libc::kill(-(pid as i32), libc::SIGKILL);
+                }
+                child.wait().await
+            } else {
+                tokio::select! {
+                    _ = stopping.changed() => {
+                        unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+                        child.wait().await
+                    },
+                    status = child.wait() => status,
+                }
             }
-            let _ = child.wait().await;
-        }
+        };
         #[cfg(windows)]
-        tokio::select! {
+        let status = tokio::select! {
             _ = stopping.changed() => {
-                #[cfg(unix)]
-                unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
-                #[cfg(windows)]
                 job.terminate();
                 let _ = child.kill().await;
-                let _ = child.wait().await;
+                child.wait().await
             },
-            _ = child.wait() => {}
+            status = child.wait() => status,
+        };
+        supervisor_output.lock().exit = Some(match status {
+            Ok(status) => status.to_string(),
+            Err(error) => format!("wait failed: {error}"),
+        });
+        let _ = tokio::time::timeout(Duration::from_secs(1), stderr_reader).await;
+        if !*stopping.borrow() {
+            log::warn!(
+                "[codex-rpc-process] tab={process_tab} {}",
+                supervisor_output.lock().failure("Sidecar exited", pid)
+            );
+        }
+        if let Some(ready) = ready.lock().take() {
+            let _ = ready.send(Err("Sidecar exited before listening"));
         }
         #[cfg(windows)]
         drop(job);
         #[cfg(unix)]
         drop(lease);
         let _ = std::fs::remove_file(token_file);
-        let _ = std::fs::remove_file(marker_file);
+        let _ = std::fs::remove_file(marker_path);
         died.send_replace(true);
     });
     let process = Process { stop, death };
     let ready = tokio::time::timeout(Duration::from_secs(15), readiness)
         .await
         .map_err(|_| "Sidecar listening deadline")
-        .and_then(|result| result.map_err(|_| "Sidecar exited before listening"));
+        .and_then(|result| result.map_err(|_| "Sidecar readiness channel closed"))
+        .and_then(|result| result);
     if let Err(error) = ready {
         process.cleanup().finish().await?;
-        return Err(error.into());
+        return Err(output.lock().failure(error, pid));
+    }
+    let registered = (|| -> Result<(), String> {
+        let identity = crate::service::process_tree::launch_processes(pid)
+            .into_iter()
+            .find(|process| process.pid == pid)
+            .ok_or("Sidecar process identity unavailable")?;
+        let marker = Marker {
+            owner_pid: std::process::id(),
+            owner_start_token: crate::service::process_tree::launch_processes(std::process::id())
+                .first()
+                .map(|process| process.start_token.clone())
+                .ok_or("Daemon process identity unavailable")?,
+            instance: crate::paths::codeterm_instance_id().into(),
+            tab: tab.into(),
+            pid,
+            start_token: identity.start_token,
+            binary: binary.into(),
+        };
+        std::fs::write(
+            marker_file,
+            serde_json::to_vec(&marker).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| format!("Sidecar marker write {marker_file:?}: {error}"))?;
+        Ok(())
+    })();
+    if let Err(error) = registered {
+        process.cleanup().finish().await?;
+        return Err(output.lock().failure(&error, pid));
     }
     Ok(process)
 }
@@ -327,6 +399,63 @@ pub fn sweep(root: &Path, instance: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn codex_rpc_process_exit_observer_interrupt_is_not_exit() {
+        let mut calls = 0;
+        observe_exit(|| {
+            calls += 1;
+            if calls == 1 {
+                Err(std::io::Error::from_raw_os_error(libc::EINTR))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+        assert_eq!(calls, 2);
+        let error =
+            observe_exit(|| Err(std::io::Error::from_raw_os_error(libc::ECHILD))).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn codex_rpc_process_startup_exit_retains_status_and_stderr() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let binary = dir.path().join("fake-provider");
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nprintf 'fixture provider refusal' >&2\nexit 23\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let token = dir.path().join("token");
+        let marker = dir.path().join("marker.json");
+        std::fs::write(&token, "opaque").unwrap();
+        let result = spawn(
+            &binary,
+            dir.path().to_str().unwrap(),
+            Default::default(),
+            "fake-tab",
+            1,
+            &token,
+            &marker,
+        )
+        .await;
+        let Err(error) = result else {
+            panic!("provider must fail before readiness")
+        };
+        assert!(
+            error.starts_with("Sidecar exited before listening:"),
+            "{error}"
+        );
+        assert!(error.contains("exit=exit status: 23"), "{error}");
+        assert!(error.contains("fixture provider refusal"), "{error}");
+        assert!(!token.exists());
+        assert!(!marker.exists());
+    }
 
     #[tokio::test]
     async fn codex_rpc_process_empty_cwd_error_names_exact_invalid_path() {
