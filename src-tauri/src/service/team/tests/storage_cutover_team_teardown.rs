@@ -92,6 +92,9 @@ fn team_storage_fixture() -> TeamStorageFixture {
             service.temp.path().join("crons"),
             MockClock::starting_at(100),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .unwrap(),
     ));

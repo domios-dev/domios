@@ -24,6 +24,9 @@ fn cron_for(
         root.join("crons"),
         clock::system_clock(),
         CronStorageOptions::default(),
+        crate::config::schema::AppConfig::default()
+            .general_agent
+            .agent_provider,
     )
     .expect("startup hydrates cron from Storage");
     let cron = Arc::new(Mutex::new(store));

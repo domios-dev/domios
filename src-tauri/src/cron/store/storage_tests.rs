@@ -53,6 +53,9 @@ fn hydrate(storage: &Storage, temp: &tempfile::TempDir, clock: &Arc<MockClock>) 
         temp.path().join("crons"),
         clock.clone(),
         CronStorageOptions::default(),
+        crate::config::schema::AppConfig::default()
+            .general_agent
+            .agent_provider,
     )
     .expect("hydrate cron storage")
 }

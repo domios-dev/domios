@@ -802,3 +802,22 @@ fn update_run_status_stamps_finished_at_from_mock_clock() {
     let history = store.get_history(&job.id);
     assert_eq!(history[0].finished_at, Some(T0 + 123_456));
 }
+
+#[test]
+fn cron_creation_uses_injected_default_and_preserves_explicit_provider() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = CronStore::load(
+        dir.path().join("crons.json"),
+        system_clock(),
+        "opaque-default-provider".into(),
+    );
+    let mut params = make_params("default provider", "ws-1", "*/30 * * * *");
+    params.agent = None;
+    let job = store.create(params).unwrap();
+    assert_eq!(job.agent, "opaque-default-provider");
+
+    let mut params = make_params("explicit provider", "ws-1", "*/30 * * * *");
+    params.agent = Some("opaque-explicit-provider".into());
+    let job = store.create(params).unwrap();
+    assert_eq!(job.agent, "opaque-explicit-provider");
+}
