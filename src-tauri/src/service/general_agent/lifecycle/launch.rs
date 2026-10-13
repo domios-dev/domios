@@ -9,6 +9,10 @@ pub(super) fn start(
     config: &crate::config::ConfigState,
     target: TabLaunch<'_>,
 ) {
+    if crate::service::agent_runtime::engine::requested(svc, target.provider) {
+        super::runtime_launch::start(svc, mux, config, target);
+        return;
+    }
     let TabLaunch {
         tab_id,
         session_id,
