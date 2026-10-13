@@ -1,4 +1,4 @@
-import { formatAttachmentMarker } from "@codeterm/chat-core";
+import { formatAttachmentMarker, parseMarker } from "@codeterm/chat-core";
 import { classifyTabTarget, type TabTarget } from "../../lib/remoteTabTransport";
 import { planComposerAttachments, type ComposerAttachmentPlan } from "./composerAttachmentPlan";
 import { replyMarker, withReplyMarker, type ComposerReply } from "./composerReply";
@@ -145,19 +145,15 @@ async function resolveLocalParts(
   plans: ComposerAttachmentPlan[],
   deps: AttachmentHandoffDeps,
 ): Promise<AttachmentParts> {
-  let transcribeFailed = false;
-  const parts = await Promise.all(
-    plans.map(async ({ path, transcribe }) => {
-      if (!transcribe) return formatAttachmentMarker(path);
-      try {
-        return await deps.transcribeLocal(path);
-      } catch {
-        transcribeFailed = true;
-        return formatAttachmentMarker(path);
-      }
-    }),
-  );
-  return { parts, transcribeFailed };
+  const parts = await Promise.all(plans.map(async ({ path, transcribe }) => {
+    if (!transcribe) return formatAttachmentMarker(path);
+    try {
+      return requireVoiceTranscript(await deps.transcribeLocal(path));
+    } catch (error) {
+      throw new Error(`Voice transcription failed: ${errorMessage(error)}`);
+    }
+  }));
+  return { parts, transcribeFailed: false };
 }
 
 async function transferCopy(
@@ -190,7 +186,7 @@ async function transferPart(
   deps: AttachmentHandoffDeps,
 ): Promise<string> {
   const transferred = await transferCopy(target, plan, deps);
-  return plan.transcribe && transferred.reference ? transferred.reference : formatAttachmentMarker(transferred.path);
+  return plan.transcribe ? requireVoiceTranscript(transferred.reference) : formatAttachmentMarker(transferred.path);
 }
 
 export function assertNoSourceAttachmentPaths(
@@ -208,4 +204,13 @@ export function assertNoSourceAttachmentPaths(
       );
     }
   }
+}
+
+function requireVoiceTranscript(reference: string | null | undefined): string {
+  if (!reference?.trim()) throw new Error("The target host returned no voice transcript");
+  const marker = parseMarker(reference);
+  if (marker?.kind === "voice" && marker.attrs.status === "untranscribed") {
+    throw new Error(marker.payload.trim() || "The target host could not transcribe the voice note");
+  }
+  return reference;
 }

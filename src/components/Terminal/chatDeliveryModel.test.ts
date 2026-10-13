@@ -154,7 +154,7 @@ test("written sends flow above later rows while held and failed sends retain the
     const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(state, 2));
     const projected = projectTranscript(transcript, deliveryProjectionSends([current]));
     assert.deepEqual(projected.rows.map((row) => row.id),
-      ["held", "failed"].includes(state) ? ["old", "new", "bubble"] : ["old", "bubble", "new"]);
+      ["old", "bubble", "new"]);
     assert.equal(projected.pending.length, 1);
     assert.equal(deliveryState(current), state === "written" ? "sending" : state === "submit_unconfirmed" ? "uncertain"
       : state === "held" ? "queued" : state);
@@ -213,5 +213,21 @@ test("later output never hides proven non-delivery or turns held input into sent
     const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
     assert.equal(deliveryPresentation(current, rows), expected);
     assert.equal(current.status?.state, ledgerState);
+  }
+});
+
+test("unclassified and request-failed sends flow before newer output without changing delivery", () => {
+  const at = 1_800_000_000_000;
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
+    rows: [{ id: "new", type: "assistant", content: "later", timestamp: String(at + 1) }],
+  }).state;
+  for (const requestFailed of [false, true]) {
+    const current = { ...send(), sentAtMs: at, requestFailed };
+    const projection = projectTranscript(transcript, deliveryProjectionSends([current]));
+    assert.deepEqual(projection.rows.map((row) => row.id), ["bubble", "new"]);
+    assert.equal(deliveryState(current), requestFailed ? "failed" : "sending");
+    assert.equal(deliveryPresentation(current, projection.rows), requestFailed ? "failed" : "sending");
+    assert.equal(current.status, undefined);
   }
 });
