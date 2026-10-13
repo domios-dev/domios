@@ -105,7 +105,8 @@ fn write_scripts(dir: &std::path::Path) {
     let cli_path = include_str!("cli_path.sh");
     let zsh_user_startup = |file: &str| {
         format!(
-            r#"if [[ -z "$CODETERM_USER_ZDOTDIR" ]]; then
+            r#"export CODETERM_INTEGRATION_ZDOTDIR="${{CODETERM_INTEGRATION_ZDOTDIR:-$ZDOTDIR}}"
+if [[ -z "$CODETERM_USER_ZDOTDIR" ]]; then
   export CODETERM_USER_ZDOTDIR="${{CODETERM_ORIG_ZDOTDIR:-$HOME}}"
 fi
 ZDOTDIR="$CODETERM_USER_ZDOTDIR"
