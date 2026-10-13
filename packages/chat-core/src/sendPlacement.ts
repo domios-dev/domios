@@ -8,7 +8,7 @@ export function placePendingSends(
 ): NormalizedChatMessage[] {
   const before = new Map<number, NormalizedChatMessage[]>();
   for (const send of pending) {
-    const flowAtMs = send.flowAtMs ?? send.sentAtMs;
+    const flowAtMs = send.flowAtMs;
     const index = flowAtMs == null ? -1 : committed.findIndex((row) => {
       const at = timestampMs(row.timestamp);
       return at != null && at > flowAtMs;
