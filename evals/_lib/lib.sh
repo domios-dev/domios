@@ -847,13 +847,19 @@ new_shell_tab() {
 # shape is refused by the CLI, because the shell would already have eaten it.
 new_agent_tab() {
   local provider="$1" ws="$2" cwd="$3" title="$4" task="${5:-}"
-  local args=( agent spawn "$provider" --workspace "$ws" --cwd "$cwd" --title "$title" )
+  local args=( agent spawn "$provider" --workspace "$ws" --cwd "$cwd" --title "$title" --json )
   if [ -n "$task" ]; then
-    printf '%s' "$task" | dc "${args[@]}" --task-file - 2>&1 \
-      | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+    printf '%s' "$task" | dc "${args[@]}" --task-file - | spawned_tab_id
   else
-    dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+    dc "${args[@]}" | spawned_tab_id
   fi
+}
+
+# Read the spawned tab id from `agent spawn --json`; human output is not a contract.
+spawned_tab_id() {
+  python3 -c 'import json,sys
+d = json.load(sys.stdin)
+print(d.get("tab_id") or (d.get("data") or {}).get("tab_id") or "")'
 }
 
 # Spawn a claude tab in the given workspace. Echoes tab_id.
