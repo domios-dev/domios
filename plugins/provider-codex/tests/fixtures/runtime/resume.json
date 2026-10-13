@@ -34,6 +34,12 @@
         "kind": "readHistory",
         "threadId": "thread-fixture"
       }
+    },
+    {
+      "operation": {
+        "kind": "readHistory",
+        "threadId": "thread-fixture"
+      }
     }
   ],
   "rpc": [
@@ -319,6 +325,165 @@
           ]
         }
       }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/turns/list",
+          "params": {
+            "threadId": "thread-fixture",
+            "itemsView": "notLoaded",
+            "sortDirection": "asc",
+            "limit": 100
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "id": "historical",
+              "status": "completed",
+              "startedAt": 10
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/items/list",
+          "params": {
+            "threadId": "thread-fixture",
+            "turnId": "historical",
+            "sortDirection": "asc",
+            "limit": 100
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32601,
+          "message": "thread/items/list is not supported yet"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/read",
+          "params": {
+            "threadId": "thread-fixture",
+            "includeTurns": true
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "thread-fixture",
+            "source": "appServer",
+            "turns": [
+              {
+                "id": "historical",
+                "status": "completed",
+                "startedAt": 10,
+                "items": [
+                  {
+                    "id": "old-user",
+                    "type": "userMessage",
+                    "clientId": "old-send",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Old question"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "old-assistant",
+                    "type": "agentMessage",
+                    "text": "Old answer"
+                  }
+                ]
+              },
+              {
+                "id": "active",
+                "status": "inProgress",
+                "startedAt": 20,
+                "items": [
+                  {
+                    "id": "open-assistant",
+                    "type": "agentMessage",
+                    "text": "Partial",
+                    "delivery": "async",
+                    "questions": [
+                      {
+                        "id": "color",
+                        "title": "Choose color",
+                        "options": [
+                          "red",
+                          "blue"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/goal/get",
+          "params": {
+            "threadId": "thread-fixture"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32601,
+          "message": "thread/goal/get is not supported yet"
+        }
+      }
     }
   ],
   "expected": {
@@ -453,6 +618,144 @@
               }
             ],
             "nextCursor": "turn-page-2",
+            "questions": [
+              {
+                "threadId": "thread-fixture",
+                "itemId": "open-assistant",
+                "questions": [
+                  {
+                    "id": "color",
+                    "text": "Choose color",
+                    "options": [
+                      {
+                        "value": "red",
+                        "label": "red"
+                      },
+                      {
+                        "value": "blue",
+                        "label": "blue"
+                      }
+                    ]
+                  }
+                ],
+                "response": "message"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "historyPage",
+            "threadId": "thread-fixture",
+            "items": [
+              {
+                "id": "old-user",
+                "seq": 1,
+                "type": "user",
+                "content": "Old question",
+                "toolFlowId": "historical"
+              },
+              {
+                "id": "old-assistant",
+                "seq": 2,
+                "type": "assistant",
+                "content": "Old answer",
+                "toolFlowId": "historical"
+              },
+              {
+                "id": "open-assistant",
+                "seq": 3,
+                "type": "assistant",
+                "content": "Partial",
+                "toolFlowId": "active",
+                "toolInput": {
+                  "id": "open-assistant",
+                  "type": "agentMessage",
+                  "text": "Partial",
+                  "delivery": "async",
+                  "questions": [
+                    {
+                      "id": "color",
+                      "title": "Choose color",
+                      "options": [
+                        "red",
+                        "blue"
+                      ]
+                    }
+                  ]
+                },
+                "interactive": [
+                  {
+                    "type": "question",
+                    "id": "color",
+                    "toolUseId": "open-assistant",
+                    "prompt": "Choose color",
+                    "options": [
+                      {
+                        "value": "red",
+                        "label": "red"
+                      },
+                      {
+                        "value": "blue",
+                        "label": "blue"
+                      }
+                    ],
+                    "multiSelect": false
+                  }
+                ]
+              }
+            ],
+            "openItems": [
+              {
+                "turnId": "active",
+                "item": {
+                  "id": "open-assistant",
+                  "seq": 3,
+                  "type": "assistant",
+                  "content": "Partial",
+                  "toolFlowId": "active",
+                  "toolInput": {
+                    "id": "open-assistant",
+                    "type": "agentMessage",
+                    "text": "Partial",
+                    "delivery": "async",
+                    "questions": [
+                      {
+                        "id": "color",
+                        "title": "Choose color",
+                        "options": [
+                          "red",
+                          "blue"
+                        ]
+                      }
+                    ]
+                  },
+                  "interactive": [
+                    {
+                      "type": "question",
+                      "id": "color",
+                      "toolUseId": "open-assistant",
+                      "prompt": "Choose color",
+                      "options": [
+                        {
+                          "value": "red",
+                          "label": "red"
+                        },
+                        {
+                          "value": "blue",
+                          "label": "blue"
+                        }
+                      ],
+                      "multiSelect": false
+                    }
+                  ]
+                }
+              }
+            ],
             "questions": [
               {
                 "threadId": "thread-fixture",

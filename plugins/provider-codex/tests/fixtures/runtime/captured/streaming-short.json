@@ -128,9 +128,7 @@
             },
             "capabilities": {
               "experimentalApi": true,
-              "optOutNotificationMethods": [
-                "turn/diff/updated"
-              ]
+              "optOutNotificationMethods": []
             }
           }
         }

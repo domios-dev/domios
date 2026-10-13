@@ -940,7 +940,7 @@ function runtimePlan(ctx, op) {
   validateBinding(ctx, op);
   switch (op.kind) {
     case "initialize":
-      return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: object(ctx.providerSettings).includeTurnDiffs === true ? [] : ["turn/diff/updated"] } });
+      return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
       return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
     case "resumeThread":
@@ -993,6 +993,8 @@ function runtimeResponse(ctx, op, raw, reply) {
   const state = object(raw);
   if (reply.kind === "error") {
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
+    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32601)
+      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", items: [], openItems: [], questions: [], seq: 0 }));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && (reply.error.message.includes("codex unarchive") || reply.error.message.includes("session ") && reply.error.message.includes(" is archived")))
@@ -1040,6 +1042,18 @@ function runtimeResponse(ctx, op, raw, reply) {
   }
 }
 function historyResponse(op, state, value) {
+  if (state.stage === "snapshot") {
+    if (!userThread(value, op.threadId)) return refused("History snapshot thread identity unverified");
+    const turns2 = object(value.thread).turns;
+    if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
+    let collected2 = state;
+    for (const raw of turns2) {
+      const turn2 = object(raw);
+      if (!text(turn2.id) || !Array.isArray(turn2.items)) return refused("Missing history snapshot turn items");
+      collected2 = collectHistoryItems(op, collected2, turn2, turn2.items);
+    }
+    return historyGoal(op, collected2);
+  }
   if (state.stage === "goal") {
     const objective = text(object(value.goal).objective);
     if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: { goal: objective } }];
@@ -1058,11 +1072,22 @@ function historyResponse(op, state, value) {
   const turns = list(state.turns).map(object);
   const turn = turns[Number(state.index)];
   if (!turn || !text(turn.id)) return refused("Missing history turn id");
+  const mapped = collectHistoryItems(op, state, turn, value.data);
+  const next = text(value.nextCursor);
+  const cursors = list(state.cursors);
+  if (next && cursors.includes(next)) return refused("Repeated history cursor");
+  const collected = { ...mapped };
+  if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
+  const index = Number(state.index) + 1;
+  if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
+  return historyGoal(op, collected);
+}
+function collectHistoryItems(op, state, turn, entries) {
   const items = list(state.items);
   const openItems = list(state.openItems);
   let seq = Number(state.seq);
   let questions = list(state.questions);
-  for (const entry of value.data) {
+  for (const entry of entries) {
     const record4 = object(entry);
     const rawItem = record4.item ?? record4;
     questions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
@@ -1076,14 +1101,7 @@ function historyResponse(op, state, value) {
       if (turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status))) openItems.push({ turnId: String(turn.id), item: row2 });
     }
   }
-  const next = text(value.nextCursor);
-  const cursors = list(state.cursors);
-  if (next && cursors.includes(next)) return refused("Repeated history cursor");
-  const collected = { ...state, items, openItems, seq, questions };
-  if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
-  const index = Number(state.index) + 1;
-  if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
-  return historyGoal(op, collected);
+  return { ...state, items, openItems, seq, questions };
 }
 function historyItems(op, state, cursor) {
   const turn = object(list(state.turns)[Number(state.index)]);

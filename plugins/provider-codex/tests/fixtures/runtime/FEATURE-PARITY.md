@@ -79,3 +79,5 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | Host process/guarded initialize | codex-app-server-client client and provider managed runtime | Owned by core/Bridge lanes; no process/FS/env/network access in these hooks |
 
 Canonical must regenerate the shared InteractiveOption generated TypeScript after the Rust value field lands. This lane fills source native values structurally and never edits generated artifacts.
+
+Codex 0.160 experimental history divergence: installed app-server acknowledges experimentalApi=true yet thread/items/list returns -32601 "not supported yet". On that correlated method-not-found response only, history falls back to the exact bound thread/read includeTurns:true snapshot, following the reference adapter.ts readThreadSnapshot. It reuses item/question normalization, validates thread identity and complete turn/item arrays, never emits sendEvidence, and remains subject to host snapshot size bounds. Other RPC errors remain failures. All consumed notifications, including turn/diff/updated, stay subscribed.
