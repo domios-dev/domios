@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const classifier = 'scripts/ci-test-classifier/Cargo.toml';
@@ -73,7 +73,32 @@ export function verifyCoverage(receipts, shards = 12) {
   return receipts.map((r) => `| ${r.mode === 'shared' ? `shard ${r.shard}/${shards}` : r.os} | ${r.runner} | ${r.os} | ${r.selected.length} | ${r.seconds.toFixed(1)} s |`).join('\n') + (ignored.length ? `\n\nIgnore counts per source reason:\n${reasonCounts}\n\nExplicit source ignores (${ignored.length} OS/test entries):\n${ignored.join('\n')}` : '');
 }
 
-function run(mode, shard, total) {
+export function executionGroups(selected) {
+  return [false, true].map((listener) => ({
+    listener,
+    selected: selected.filter((test) => test.name.includes('startup::rest_api::tests::') === listener),
+  })).filter((group) => group.selected.length > 0);
+}
+
+export async function captureCommand(command, args, logPath, env = process.env, echo = true) {
+  const fd = fs.openSync(logPath, 'w');
+  try {
+    return await new Promise((resolve) => {
+      const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+      let error;
+      child.on('error', (cause) => { error = cause; });
+      for (const stream of [child.stdout, child.stderr]) stream.on('data', (chunk) => {
+        fs.writeSync(fd, chunk);
+        if (echo) process.stdout.write(chunk);
+      });
+      child.on('close', (status, signal) => resolve({ status, signal, error }));
+    });
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+async function run(mode, shard, total) {
   if (!['shared', 'platform'].includes(mode) || !Number.isInteger(shard) || !Number.isInteger(total) || shard < 1 || shard > total) throw new Error('Invalid mode/partition');
   delete process.env.CODETERM_CONPTY_DIR;
   delete process.env.CODETERM_PLAN_ID;
@@ -83,6 +108,9 @@ function run(mode, shard, total) {
   const receipt = { mode, shard, runner: process.env.RUNNER_NAME, os: process.env.RUNNER_OS, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), all: [], selected: [], exit: 1, seconds: 0 };
   fs.mkdirSync('ci-rust-receipts', { recursive: true });
   try {
+    for (const required of ['scripts/check-slow-unit-tests.mjs', 'scripts/slow-unit-tests.json']) {
+      if (!fs.existsSync(required)) throw new Error(`Anvil dependency not landed: ${required}`);
+    }
     for (const manifest of manifests) {
       const targets = manifest.startsWith('src-tauri') ? ['--lib'] : [];
       const common = ['--manifest-path', manifest, '--workspace', '--locked', ...targets];
@@ -104,18 +132,24 @@ function run(mode, shard, total) {
       const config = path.resolve('ci-rust-receipts', 'selection.toml');
       fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\ntest-threads = 4\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
       const selected = jsonCommand(['nextest', 'list', ...common, '--config-file', config, ...partition, '--message-format', 'json']);
+      const selectedTests = [];
       for (const suite of Object.values(selected['rust-suites'])) {
         for (const [name, test] of Object.entries(suite.testcases)) {
-          if (test['filter-match'].status === 'matches') receipt.selected.push(`${suite['binary-id']}::${name}`);
+          if (test['filter-match'].status === 'matches') {
+            receipt.selected.push(`${suite['binary-id']}::${name}`);
+            selectedTests.push({ id: `${suite['binary-id']}::${name}`, name });
+          }
         }
       }
       // Listener lifecycle cases need a process boundary without concurrent fork holders (#620).
-      for (const listener of [false, true]) {
+      for (const { listener } of executionGroups(selectedTests)) {
         const isolation = 'test(/startup::rest_api::tests::/)';
         fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${filter}) & ${listener ? isolation : `not (${isolation})`}`)}\nretries = 0\ntest-threads = ${listener ? 1 : 4}\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
         console.log(`[${mode} ${shard}/${total} runner=${receipt.runner}] ${manifest} listener=${listener}`);
-        const result = spawnSync('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...common, '--config-file', config, ...partition, '--no-tests=pass', '--failure-output', 'immediate-final'], { stdio: 'inherit', env: { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' } });
+        const log = path.resolve('ci-rust-receipts', `${mode}-${mode === 'shared' ? shard : receipt.os}-${manifest.startsWith('src-tauri') ? 'workspace' : 'cli'}-${listener ? 'listener' : 'normal'}.log`);
+        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo', 'nextest', 'run', ...common, '--config-file', config, ...partition, '--no-tests=fail', '--status-level', 'pass', '--failure-output', 'immediate-final'], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
         if (result.error || result.status !== 0) throw new Error(`Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}: ${result.error || result.status}`);
+        execFileSync(process.execPath, ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'], { stdio: 'inherit' });
       }
     }
     receipt.exit = 0;
@@ -133,5 +167,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     const table = `| Job | Runner | OS | Tests | Duration |\n| --- | --- | --- | ---: | ---: |\n${verifyCoverage(receipts)}\n`;
     console.log(table);
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, table);
-  } else run(process.argv[2], Number(process.argv[3] || 1), Number(process.argv[4] || 1));
+  } else await run(process.argv[2], Number(process.argv[3] || 1), Number(process.argv[4] || 1));
 }

@@ -193,6 +193,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
@@ -214,7 +215,9 @@ jobs:
         if: always()
         with:
           name: rust-receipt-shard-${{ matrix.shard }}
-          path: ci-rust-receipts/*.json
+          path: |
+            ci-rust-receipts/*.json
+            ci-rust-receipts/*.log
           if-no-files-found: error
       - name: Clean compile fixtures
         if: always()
@@ -239,6 +242,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
@@ -260,7 +264,9 @@ jobs:
         if: always()
         with:
           name: rust-receipt-platform-${{ matrix.os }}
-          path: ci-rust-receipts/*.json
+          path: |
+            ci-rust-receipts/*.json
+            ci-rust-receipts/*.log
           if-no-files-found: error
       - name: Clean compile fixtures
         if: always()
