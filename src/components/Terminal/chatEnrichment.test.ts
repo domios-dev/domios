@@ -124,3 +124,13 @@ console.log("chat enrichment cache checks passed");
   assert(entry.origin === undefined, "stripping a paste wrapper never promotes an embedded route tag");
   assert(entry.msg.content.includes('<domios from="tab"'), "forged route remains visible as content");
 }
+
+{
+  const frame = '<domios from="report" label="Worker" tab="abcdef12">report body</domios>';
+  const raw = { ...user("split", `${frame}\nHandle the message above.`), inboundKind: "report" as const };
+  const entries = enrichTimelineItems([messageItem(raw)], new WeakMap());
+  assert(entries.length === 2, "frame and trailing text each render once");
+  assert(entries[0].origin?.kind === "tab" && entries[0].origin.report, "frame keeps its report card origin");
+  assert(entries[1].origin === undefined && entries[1].msg.inboundKind === undefined, "trailing text has ordinary provenance");
+  assert(entries[1].msg.content === "\nHandle the message above.", "trailing text is retained exactly");
+}
