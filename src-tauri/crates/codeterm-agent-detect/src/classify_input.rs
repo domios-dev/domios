@@ -115,9 +115,10 @@ impl ClassifyInputBuilder {
 
     pub fn with_composer_position(
         mut self,
-        position: super::provider::ComposerCursorPosition,
+        position: codeterm_plugin::provider::ComposerCursorPosition,
     ) -> Self {
-        self.prompt_line = position == super::provider::ComposerCursorPosition::PromptLine;
+        self.prompt_line =
+            position == codeterm_plugin::provider::ComposerCursorPosition::PromptLine;
         self
     }
 
@@ -133,8 +134,8 @@ impl ClassifyInputBuilder {
     /// compile error, not a zero:
     ///
     /// ```compile_fail
-    /// use codeterm_lib::agent::offline_state_classifier::ClassifyInput;
-    /// use codeterm_lib::agent::signal_extractor::Motion;
+    /// use codeterm_agent_detect::offline_state_classifier::ClassifyInput;
+    /// use codeterm_agent_detect::signal_extractor::Motion;
     /// let lines: Vec<String> = Vec::new();
     /// let _ = ClassifyInput {
     ///     picker_question: None,

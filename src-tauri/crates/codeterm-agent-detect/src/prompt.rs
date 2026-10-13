@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
-use crate::agent::permission_request::PermissionRequestSignal;
-use crate::multiplexer::types::{PendingPrompt, PromptOption};
+use crate::permission_request::PermissionRequestSignal;
+use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 #[derive(Debug)]
 enum TabPromptState {
@@ -61,7 +61,7 @@ pub struct PermissionRequestInstance {
     pub received_at: Instant,
 }
 
-pub use crate::agent::native_prompt::ResolvedPrompt;
+pub use crate::native_prompt::ResolvedPrompt;
 
 /// A scrape-derived parse: provenance is pinned to non-structured at the seam,
 /// so no caller can promote a screen scrape to `explicit`.
@@ -338,7 +338,7 @@ impl PromptDetector {
         }
     }
 
-    pub(crate) fn active_prompt_occurrence(&self, tab_id: &str) -> Option<Instant> {
+    pub fn active_prompt_occurrence(&self, tab_id: &str) -> Option<Instant> {
         match self.states.get(tab_id) {
             Some(TabPromptState::Active { detected_at, .. }) => Some(*detected_at),
             _ => None,
@@ -462,7 +462,7 @@ where
     parse_prompt_safely(|| parse_fn(clean_ring_text))
 }
 
-pub(crate) fn parse_prompt_safely<T, F>(parse_fn: F) -> Option<T>
+pub fn parse_prompt_safely<T, F>(parse_fn: F) -> Option<T>
 where
     F: FnOnce() -> Option<T>,
 {

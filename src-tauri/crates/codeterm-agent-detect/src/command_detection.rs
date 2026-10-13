@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::agent::semantic_marker::{SemanticEvent, SemanticMarkerParser};
+use crate::semantic_marker::{SemanticEvent, SemanticMarkerParser};
 
 /// One detected shell command. Built incrementally from prompt/command/finished
 /// marks; finalized (pushed to the list) at `CommandEnd`.
@@ -328,7 +328,10 @@ impl ShellCapabilityTracker {
         si.feed(data)
     }
 
-    pub fn command_state(&self, pty_id: &str) -> crate::multiplexer::types::ShellCommandState {
+    pub fn command_state(
+        &self,
+        pty_id: &str,
+    ) -> codeterm_pty::multiplexer::types::ShellCommandState {
         self.tabs
             .get(pty_id)
             .map(|si| si.display_state.state())
