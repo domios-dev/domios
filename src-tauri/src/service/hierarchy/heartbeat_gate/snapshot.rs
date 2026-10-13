@@ -5,6 +5,19 @@ use crate::plan::{Plan, Task, TaskExecutionAttempt, TaskStatus};
 use crate::service::ServiceContext;
 use codeterm_plan::service_plan::state::task_projection;
 
+pub(super) fn situational_learning_catalog(plan: &Plan) -> BTreeMap<String, String> {
+    plan.heartbeat
+        .learnings
+        .iter()
+        .rev()
+        .filter(|learning| {
+            learning.tag.as_deref() != Some("owner") && !learning.text.trim().is_empty()
+        })
+        .take(12)
+        .map(|learning| (learning.id.clone(), scrubbed(&learning.text)))
+        .collect()
+}
+
 fn encoded(value: &impl Serialize) -> String {
     crate::service::supporter::criteria_hash(&serde_json::to_vec(value).unwrap_or_default())
 }
@@ -170,15 +183,7 @@ pub(crate) fn collect(
         plan_id: plan.id.clone(),
         projection: projection.clone(),
         delta,
-        learnings: plan
-            .heartbeat
-            .learnings
-            .iter()
-            .rev()
-            .filter(|l| !l.text.trim().is_empty())
-            .take(12)
-            .map(|l| (l.id.clone(), scrubbed(&l.text)))
-            .collect(),
+        learnings: situational_learning_catalog(plan),
         ..Default::default()
     };
     (snapshot.context, snapshot.truncated) = delta_context(plan, &snapshot.delta);

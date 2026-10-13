@@ -1,8 +1,8 @@
 use super::task_attempts::TaskCompeteRequest;
 use super::{NewTask, PlanStore};
-use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef, TaskStatus};
+use crate::plan::{AgentRef, OrchestratorRef, PlanMode, TaskStatus};
 
-fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
+pub(super) fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let plan = store
@@ -54,7 +54,7 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
     reloaded.scan_project(dir.path()).unwrap();
     let shown = reloaded.show_heartbeat(Some(&plan_id), None, None).unwrap();
     assert_eq!(shown.heartbeat.learnings[0].text, first.learning.text);
-    assert!(shown.reinjection.contains("Recent learnings"));
+    assert!(shown.reinjection.contains(&first.learning.text));
 }
 
 #[test]
@@ -88,48 +88,61 @@ fn heartbeat_keeps_pending_group_records_advisory_without_reflection_block() {
     let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
 
     assert!(shown.reinjection.contains("phase-1"));
-    assert!(shown.reinjection.contains("dispatch allowed"));
     assert!(!shown
         .reinjection
         .contains(super::prompts_plan::REFLECTION_HEARTBEAT_TITLE));
 }
 
 #[test]
-fn heartbeat_lists_plan_skill_with_persisted_purpose() {
+fn heartbeat_lists_only_skills_referenced_by_actionable_work() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let slug = "opaque-skill-token";
     let created = super::plan_skills::create_plan_skill(
         &store,
         &plan_id,
         super::plan_skills::NewPlanSkill {
-            slug: "recovery-check".into(),
-            title: Some("Recovery Check".into()),
+            slug: slug.into(),
+            title: None,
             area: Some("testing".into()),
             check: None,
-            rationale: Some("captured".into()),
+            rationale: Some("fixture".into()),
         },
     )
     .unwrap();
-    std::fs::write(
-        created.skill_md,
-        "---\ntitle: Recovery Check\ndescription: Restore the fixture and verify recovery.\n---\n",
-    )
-    .unwrap();
-    store
-        .add_heartbeat_learning(
-            Some(&plan_id),
-            None,
-            None,
-            "Keep the heartbeat visible.",
-            None,
+    std::fs::write(created.skill_md, "---\ndescription: opaque purpose\n---\n").unwrap();
+    assert!(!store
+        .show_heartbeat(Some(&plan_id), None, None)
+        .unwrap()
+        .reinjection
+        .contains(slug));
+    let id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "fixture".into(),
+                kind: "implement".into(),
+                body: format!("Use `{slug}`"),
+                ..Default::default()
+            },
             20,
         )
         .unwrap();
-
-    let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
-
-    assert!(shown
-        .reinjection
-        .contains("Plan skills (1): recovery-check: Restore the fixture and verify recovery."));
+    assert!(store
+        .prepend_heartbeat_for_plan(&plan_id, "")
+        .contains(slug));
+    store
+        .with_plan(&plan_id, 21, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == id)
+                .unwrap()
+                .status = TaskStatus::InProgress;
+            Ok(())
+        })
+        .unwrap();
+    assert!(!store
+        .prepend_heartbeat_for_plan(&plan_id, "")
+        .contains(slug));
 }
 
 #[test]
@@ -172,8 +185,22 @@ fn heartbeat_renders_live_competitive_attempt_summary() {
         )
         .unwrap();
 
+    assert!(!store
+        .show_heartbeat(Some(&plan_id), None, None)
+        .unwrap()
+        .reinjection
+        .contains(super::prompts_plan::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE));
+    store
+        .with_plan(&plan_id, 23, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap()
+                .status = TaskStatus::InReview;
+            Ok(())
+        })
+        .unwrap();
     let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
-
     assert!(shown
         .reinjection
         .contains(super::prompts_plan::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE));
@@ -240,7 +267,6 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
 
     let text = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
     assert!(text.contains(&format!("plan=\"{}\"", live.id)));
-    assert!(!text.contains("Current focus:"));
     assert!(!text.contains("old focus"));
 
     store.start_task_for_test(&live.id, &task_id, 23);
@@ -294,149 +320,50 @@ fn paused_plan_is_not_resolved_or_prepended_for_heartbeat() {
 #[test]
 fn heartbeat_resolves_for_owner_tab_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
-    let before = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
-    assert!(before.starts_with("<codeterm-role-identity"));
-    assert!(before.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(before.contains("STATE-RECONCILIATION"));
-    assert!(before.contains("Worker reports are pushed into this tab automatically"));
-    assert!(!before.contains("codeterm agent reports"));
-    assert!(before.contains("codeterm orchestrator status --plan"));
-    assert!(before.contains("--tab orch-a"));
-    assert!(!before.contains("--tab orch-a --json"));
-    assert!(before.contains("codeterm orchestrator inspect --plan"));
-    assert!(before.contains("codeterm plan reconcile"));
-    assert!(before.contains("codeterm plan task close"));
-    assert!(before.contains("codeterm send \"<next concrete instruction>\" --tab"));
-    assert!(before.contains("Heartbeat is derived automatically"));
-    assert!(before.contains("codeterm docs ORCHESTRATION"));
-    assert!(!before.contains("Re-arm exactly one heartbeat"));
-    assert!(before.ends_with("continue"));
-
+    let payload = "opaque-trigger";
+    let first = store.prepend_heartbeat_for_orchestrator_tab("orch-a", payload);
+    assert!(first.contains(super::heartbeat::HEARTBEAT_BLOCK_OPEN));
+    assert!(!first.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
+    let fragment = "opaque-learning-token";
     store
-        .with_plan(&plan_id, 10, |plan| {
-            plan.heartbeat.current_focus = Some("Review worker branches".into());
-            plan.heartbeat.active_lanes = vec!["backend tests".into(), "frontend canvas".into()];
-            plan.heartbeat.rules = vec!["Workers report in_review only".into()];
-            Ok(())
-        })
+        .add_heartbeat_learning(Some(&plan_id), None, None, fragment, None, 20)
         .unwrap();
-    store
-        .add_heartbeat_learning(
-            Some(&plan_id),
-            None,
-            None,
-            "Workers report in_review, orchestrator verifies done.",
-            None,
-            20,
-        )
-        .unwrap();
-    store
-        .add_heartbeat_learning(
-            Some(&plan_id),
-            None,
-            None,
-            "workers report in review orchestrator verifies done",
-            None,
-            30,
-        )
-        .unwrap();
-    let after = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
-    assert!(after.contains("<codeterm-state-reconciliation"));
-    assert!(after.contains("<codeterm-orchestrator-heartbeat"));
-    assert!(!after.contains("Current focus:"));
-    assert!(!after.contains("Active lanes:"));
-    assert!(!after.contains("Rules:"));
-    assert!(after.contains("Workers report in_review"));
+    let after = store.prepend_heartbeat_for_orchestrator_tab("orch-a", payload);
+    assert_eq!(after.matches(fragment).count(), 1);
+    assert!(after.ends_with(payload));
     assert_eq!(
-        after
-            .matches("- Workers report in_review, orchestrator verifies done.")
-            .count(),
-        1
+        store.prepend_heartbeat_for_orchestrator_tab("other", payload),
+        payload
     );
-    assert!(after.ends_with("continue"));
-
-    store
-        .with_plan(&plan_id, 40, |plan| {
-            plan.heartbeat.current_focus = Some("Integrate verified branches".into());
-            Ok(())
-        })
-        .unwrap();
-    let resolved_later = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
-    assert!(!resolved_later.contains("Current focus:"));
-
-    let worker_text = store.prepend_heartbeat_for_orchestrator_tab("worker-a", "continue");
-    assert_eq!(worker_text, "continue");
 }
 
 #[test]
-fn notifier_delivery_uses_same_state_reconciliation_prelude() {
+fn notifier_and_owner_reminder_share_compact_delivery() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
-    let text = store.prepend_heartbeat_for_plan(
-        &plan_id,
-        "[task in_review] 'Backend' (task-a) -> in_review by worker-a\nReview it.",
-    );
-
-    assert!(text.contains("<codeterm-state-reconciliation"));
-    assert!(text.contains("<codeterm-role-identity"));
-    assert!(text.contains("STATE-RECONCILIATION"));
-    assert!(text.contains("execution-mode plan with unfinished work"));
-    assert!(text.contains("codeterm docs ORCHESTRATION"));
-    assert!(text.contains("Reconcile live tabs against the plan"));
-    assert!(text.contains("codeterm plan task close"));
-    assert!(text.contains("codeterm plan task update"));
-    assert!(text.contains("[task in_review]"));
+    for payload in ["opaque-notifier", "opaque-reminder"] {
+        let text = store.prepend_heartbeat_for_plan(&plan_id, payload);
+        assert!(text.contains(super::heartbeat::HEARTBEAT_BLOCK_OPEN));
+        assert!(text.contains(super::heartbeat::HEARTBEAT_MORE));
+        assert!(!text.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
+        assert_eq!(text.matches(payload).count(), 1);
+        assert!(text.ends_with(payload));
+    }
 }
 
 #[test]
-fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
+fn refreshed_context_gets_reconciliation_once_at_snapshot_boundary() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
-    store
-        .with_plan(&plan_id, 20, |plan| {
-            plan.heartbeat.current_focus = Some("Review open lanes".into());
-            plan.heartbeat.active_lanes = vec!["owner-only".into()];
-            Ok(())
-        })
-        .unwrap();
-
-    let reminder = super::reminders::orchestrator_nudge_text(&store.get(&plan_id).unwrap());
-    let text = store.prepend_heartbeat_for_plan(&plan_id, &reminder);
-
-    assert!(text.starts_with("<codeterm-role-identity"));
-    assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("Worker reports are pushed into this tab automatically"));
-    assert!(!text.contains("codeterm agent reports"));
-    assert!(text.contains(&format!(
-        "codeterm orchestrator status --plan {plan_id} --tab orch-a"
-    )));
-    assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
-    assert!(text.contains("codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>"));
-    assert!(text.contains("Heartbeat is derived automatically"));
-    assert!(text.contains("codeterm docs ORCHESTRATION"));
-    assert!(!text.contains("<codeterm-orchestrator-heartbeat"));
-    assert!(!text.contains("Current focus:"));
-    assert!(text.ends_with(&reminder));
-    assert!(!reminder.contains("{actionable}"));
-}
-
-#[test]
-fn role_identity_names_planner_peer_across_reinjection() {
-    let (_dir, store, plan_id) = store_with_plan("orch-a");
-    store
-        .with_plan(&plan_id, 20, |plan| {
-            plan.planner = Some(PlannerRef::Tab {
-                tab_id: "planner-a".into(),
-                session_id: None,
-                title: Some("Planner".into()),
-            });
-            Ok(())
-        })
-        .unwrap();
-
-    let text = store.prepend_heartbeat_for_plan(&plan_id, "resume");
-
-    assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("peer tab Planner is tab planner-a"));
-    assert!(text.contains("<codeterm-state-reconciliation"));
+    let plan = store.get(&plan_id).unwrap();
+    let payload = "opaque-refresh-trigger";
+    let text =
+        super::heartbeat::prepend_heartbeat_snapshot(&plan_id, &plan.heartbeat, &[], payload);
+    assert!(text.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
+    assert!(!text.contains("{plan_id}"));
+    assert!(!text.contains("{status}"));
+    assert!(text.ends_with(payload));
+    assert!(!store
+        .prepend_heartbeat_for_plan(&plan_id, payload)
+        .contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
 }
 
 #[test]
@@ -470,8 +397,7 @@ fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
         result, nudge_body,
         "complete plan must not inject reconciliation"
     );
-    assert!(!result.contains("STATE-RECONCILIATION"));
-    assert!(!result.contains("codeterm-state-reconciliation"));
+    assert!(!result.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
 
     let tab_result = store.prepend_heartbeat_for_orchestrator_tab("orch-a", nudge_body);
     assert_eq!(
@@ -488,11 +414,11 @@ fn explicit_complete_mode_plan_produces_no_reconciliation_prepend() {
     let nudge_body = "some message";
     let result = store.prepend_heartbeat_for_plan(&plan_id, nudge_body);
     assert_eq!(result, nudge_body);
-    assert!(!result.contains("STATE-RECONCILIATION"));
+    assert!(!result.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
 }
 
 #[test]
-fn open_work_plan_still_gets_reconciliation_prepend() {
+fn open_work_plan_still_gets_compact_heartbeat() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     store
         .add_task(
@@ -506,10 +432,9 @@ fn open_work_plan_still_gets_reconciliation_prepend() {
         )
         .unwrap();
 
-    // Open work (pending) keeps the plan non-complete so reconciliation still fires.
     let result = store.prepend_heartbeat_for_plan(&plan_id, "text");
     assert!(
-        result.contains("STATE-RECONCILIATION"),
+        result.contains(super::heartbeat::HEARTBEAT_BLOCK_OPEN),
         "open work must not be silenced"
     );
 }
@@ -662,9 +587,9 @@ fn heartbeat_renders_digest_lines_without_other_state() {
         "claude: 62% weekly".into(),
     ];
     let text = store.prepend_heartbeat_for_plan_with_digests(&plan_id, "continue", &digest_lines);
-    assert!(text.contains("Digests:"));
-    assert!(text.contains("5 reports await your verdict"));
-    assert!(text.contains("claude: 62% weekly"));
+    for fragment in &digest_lines {
+        assert_eq!(text.matches(fragment.as_str()).count(), 1);
+    }
 }
 
 /// codeterm#397: `plan next`, orchestrator status, and the heartbeat must
@@ -864,5 +789,8 @@ fn heartbeat_gate_selected_learnings_render_at_most_three_and_fallback_preserves
         store.prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, None),
         baseline
     );
+    for (index, fragment) in fragments.iter().enumerate() {
+        assert_eq!(baseline.contains(fragment), index >= 2);
+    }
     assert_eq!(store.get(&plan_id).unwrap().heartbeat.learnings.len(), 5);
 }
