@@ -230,7 +230,7 @@ function reduceSnapshot(
       { kind: "snapshot", range, rows: rangedRows(range, ownedRows(batch.authority, batch.rows)) },
     ],
     "adopted",
-    limit,
+    Number.POSITIVE_INFINITY,
   );
 }
 
@@ -289,7 +289,12 @@ export function reduceTranscript(
   if (batch.range != null && !isRange(batch.range)) {
     return { state, outcome: "rejected_range" };
   }
-  if (batch.rows.length === 0) return { state, outcome: "ignored_empty" };
+  if (batch.rows.length === 0) {
+    const emptySnapshotOverHistory = batch.kind === "snapshot" && transcriptRowCount(state) > 0;
+    if (emptySnapshotOverHistory || batch.range == null || batch.range.start === batch.range.end) {
+      return { state, outcome: "ignored_empty" };
+    }
+  }
   if (state.authority != null && !sameAuthority(state.authority, batch.authority)) {
     const rotated = reduceTranscript(
       { ...createTranscriptState(), authority: batch.authority },
