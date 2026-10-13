@@ -410,8 +410,11 @@ const lifecycleModule: PluginModule = {
 };
 void lifecycleModule;
 
-import type {AgentRuntime, RuntimeContext, RuntimeAction, AgentEvent, HostAgentEvent, StdioAgentRuntimeCapability} from "./index";
+import type {AgentRuntime, RuntimeContext, RuntimeAction, AgentEvent, HostAgentEvent, StdioAgentRuntimeCapability, RuntimeRestoreContext, Operation} from "./index";
 function runtimeConformance(runtime:AgentRuntime, context:RuntimeContext) {
+  const restored:RuntimeRestoreContext={instructions:"opaque",additionalContext:[{key:"opaque",kind:"application",value:"opaque"}]};
+  const restore:Operation={kind:"control",action:"restoreContext",value:restored};
+  void restore;
   const plan=runtime.runtimePlan(context,{kind:"initialize"});
   const action:RuntimeAction=plan.action;
   const event:AgentEvent={kind:"turnState",threadId:"own",state:"working",startedAt:1000};

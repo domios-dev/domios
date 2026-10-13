@@ -55,13 +55,14 @@ export interface RuntimeContext {
 export type Operation =
   | {kind:"initialize"}
   | {kind:"openThread"; instructions:string; settings:RuntimeSettings}
-  | {kind:"resumeThread"; threadId:string; settings:RuntimeSettings}
+  | {kind:"resumeThread"; threadId:string; instructions:string; settings:RuntimeSettings}
   | {kind:"readHistory"; threadId:string; cursor?:string}
   | {kind:"submitTurn"; threadId:string; activeTurnId?:string;
       sendId:string; input:TurnInput; settings:RuntimeSettings}
   | {kind:"interrupt"; threadId:string; activeTurnId?:string}
   | {kind:"answer"; requestId:RpcId; answer:PromptAnswer}
   | {kind:"answerQuestion"; threadId:string; itemId:string; answers:readonly RuntimeQuestionAnswer[]}
+  | {kind:"control"; threadId?:string; action:"restoreContext"; value:RuntimeRestoreContext}
   | {kind:"control"; threadId?:string; action:string; value:JsonValue};
 export interface RpcCall { method:string; params:JsonValue; target?:{threadId:string;turnId?:string} }
 export type RuntimeAction =
@@ -126,3 +127,6 @@ export interface RuntimeActiveTurn {threadId:string; turnId:string; parentThread
 export interface RuntimeThreadParent {threadId:string; parentThreadId:string}
 
 export interface RuntimeHistoryQuestion {threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"; resolved?:boolean}
+
+export type RuntimeRestoreContext = {instructions:string|null; additionalContext:readonly RuntimeAdditionalContext[]}
+export type RuntimeAdditionalContext = {key:string; kind:"application"|"user"; value:string}
