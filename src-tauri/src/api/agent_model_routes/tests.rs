@@ -203,3 +203,14 @@ fn live_model_switch_success_reports_the_bound_session_record() {
     assert_eq!(body["session_id"], "ses-live");
     assert!(body.get("restart").is_none());
 }
+
+#[test]
+fn runtime_control_refusal_is_typed_and_never_offers_restart_fallback() {
+    let error = ModelSwitchError::RuntimeControlRefused("provider refused settings".into());
+    assert_eq!(model_switch_error_status(&error), StatusCode::CONFLICT);
+    let body = model_switch_error_body(&error);
+    assert_eq!(body["reason"], "runtime_control_refused");
+    assert_eq!(body["mode_used"], "live");
+    assert_eq!(body["ok"], false);
+    assert!(body.get("restart_fallback_available").is_none());
+}

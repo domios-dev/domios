@@ -2,6 +2,7 @@ pub(crate) mod authority;
 mod bootstrap;
 pub(crate) mod capture;
 mod completions;
+pub(crate) mod controls;
 pub mod engine;
 mod envelope_delivery;
 mod environment;
