@@ -155,6 +155,17 @@ async fn ensure_locked(
     config: &Value,
     session: &Arc<Session>,
 ) -> Result<(), RuntimeFailure> {
+    let nonce = session.context.lock().binding_nonce.clone();
+    {
+        let mux = svc.mux.read();
+        let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if target.agent_type.as_deref() != Some(provider)
+            || target.session_binding_nonce.as_deref() != Some(nonce.as_str())
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
+        validate_restored_arguments(provider, Some(&target.restorable_launch))?;
+    }
     let old = session.process.lock().clone();
     let registered = svc.agent_registry.provider_arc(provider);
     let same_adapter = session
@@ -695,3 +706,18 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
         serde_json::json!({"tab_id":tab,"session_binding_nonce":session.context.lock().binding_nonce,"state":value}),
     );
 }
+
+fn validate_restored_arguments(
+    provider: &str,
+    launch: Option<&crate::multiplexer::types::RestorableLaunchParameters>,
+) -> Result<(), RuntimeFailure> {
+    let args = launch
+        .and_then(|launch| launch.args.as_deref())
+        .unwrap_or_default();
+    crate::service::spawn_capability::validate_runtime_launch_arguments(provider, args)
+        .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))
+}
+
+#[cfg(test)]
+#[path = "engine/tests.rs"]
+mod tests;
