@@ -87,6 +87,7 @@ fn cron_recovery_preserves_live_prompt_and_recovers_vanished_workspace_run() {
         &crate::chatbackend::ChatBackendRegistry::new(),
         crate::cron::spawn_spec::CronSpawnInputs {
             job_id: orphan_job.id.clone(),
+            run_id: "fixture-run".into(),
             job_name: orphan_job.name.clone(),
             agent: orphan_job.agent.clone(),
             model: orphan_job.model.clone(),

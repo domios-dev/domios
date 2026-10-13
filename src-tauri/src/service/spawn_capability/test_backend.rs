@@ -46,3 +46,56 @@ pub(crate) fn registry_with_spawnable(id: &'static str) -> crate::chatbackend::C
     registry.register(id, std::sync::Arc::new(SpawnableTestBackend { id }));
     registry
 }
+
+struct RuntimeTestBackend(SpawnableTestBackend);
+
+impl ChatBackendProvider for RuntimeTestBackend {
+    fn id(&self) -> &str {
+        self.0.id()
+    }
+    fn spawnable(&self) -> bool {
+        true
+    }
+    fn describe(&self) -> crate::agent::provider::ProviderDescriptor {
+        let mut descriptor = self.0.describe();
+        descriptor.agent_runtime = Some(codeterm_plugin::agent_runtime::AgentRuntimeCapability {
+            runtime: codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc,
+            command: codeterm_plugin::agent_runtime::AgentRuntimeCommand {
+                binary: "fixture-peer".into(),
+                args: Vec::new(),
+            },
+            inherited_environment_exclusions: Vec::new(),
+            request_methods: Default::default(),
+            notification_methods: Vec::new(),
+        });
+        descriptor
+    }
+    fn open_session(&self, config: serde_json::Value) -> Result<String, ChatBackendError> {
+        self.0.open_session(config)
+    }
+    fn send_message(&self, session: &str, text: &str) -> Result<(), ChatBackendError> {
+        self.0.send_message(session, text)
+    }
+    fn poll(
+        &self,
+        session: &str,
+        cursor: Option<&str>,
+    ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+        self.0.poll(session, cursor)
+    }
+    fn close_session(&self, session: &str) -> Result<(), ChatBackendError> {
+        self.0.close_session(session)
+    }
+    fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+        self.0.list_models()
+    }
+}
+
+pub(crate) fn registry_with_runtime(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
+    let registry = crate::chatbackend::ChatBackendRegistry::new();
+    registry.register(
+        id,
+        std::sync::Arc::new(RuntimeTestBackend(SpawnableTestBackend { id })),
+    );
+    registry
+}

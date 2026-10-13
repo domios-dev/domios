@@ -277,6 +277,43 @@ fn stamp_chatbackend_launch_identity(
     );
 }
 
+fn place_chatbackend_role_kind(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    tab_id: &str,
+    role: &str,
+    profile: Option<&str>,
+    parent: Option<&str>,
+    can_spawn: Option<bool>,
+) -> Result<(), String> {
+    let (parsed, profile) = ServiceContext::parse_role_kind(role, profile)?;
+    mux.set_tab_role_kind(tab_id, parsed, profile.as_deref(), parent)?;
+    if let Some(can_spawn) = can_spawn {
+        mux.set_can_spawn(tab_id, can_spawn)?;
+    }
+    Ok(())
+}
+
+fn runtime_resume_thread(
+    existing: Option<&str>,
+    requested: Option<&str>,
+) -> Result<Option<String>, String> {
+    match (existing, requested) {
+        (Some(existing), Some(requested)) if existing != requested => {
+            Err("Runtime launch cannot replace the exact bound thread".into())
+        }
+        (Some(thread), _) | (None, Some(thread)) => Ok(Some(thread.into())),
+        (None, None) => Ok(None),
+    }
+}
+
+fn runtime_launch_mode(full_access: bool) -> &'static str {
+    if full_access {
+        "full-access"
+    } else {
+        "auto-accept-edits"
+    }
+}
+
 fn runtime_initial_payload(agent: &super::spawn::AgentSpawnSpec) -> Option<String> {
     let task = agent
         .task
@@ -294,7 +331,7 @@ impl ServiceContext {
         spec: SpawnTabSpec,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
-        let (plugin_id, config, role, role_profile, can_spawn, watcher) = match &spec.command {
+        let (plugin_id, mut config, role, role_profile, can_spawn, watcher) = match &spec.command {
             TabCommand::ChatBackend {
                 plugin_id,
                 config,
@@ -312,6 +349,24 @@ impl ServiceContext {
             ),
             _ => return Err("spawn_chatbackend_impl called without ChatBackend command".into()),
         };
+
+        if super::agent_runtime::engine::requested(self, &plugin_id) {
+            let full_access =
+                super::permission_policy::configured_full_access_for(&self.app_handle)?;
+            config["mode"] = serde_json::json!(runtime_launch_mode(full_access));
+        } else if spec
+            .chatbackend_launch
+            .as_ref()
+            .is_some_and(|launch| launch.agent.worker_id.is_some())
+        {
+            return Err(
+                super::spawn_capability::SpawnRejection::CapabilityUnavailable {
+                    requested: plugin_id,
+                    missing: super::spawn_capability::MissingSpawnCapability::WorkerIdentityHandoff,
+                }
+                .to_string(),
+            );
+        }
 
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
@@ -382,24 +437,15 @@ impl ServiceContext {
             }
         }
         if let Some(ref role) = role {
-            let role_result = if emit_state_change {
-                self.set_tab_role(&tab_id, role, spec.parent_tab_id.as_deref(), can_spawn)
-            } else {
-                let parsed = Self::parse_role(role)?;
-                let mut mux = self.mux.write();
-                // Membership door 7: placement mints the parent's Team onto the
-                // parent, so the refusal has to reach the rollback below.
-                match refuse_parenting_under_general_agent(&mux, spec.parent_tab_id.as_deref()) {
-                    Err(refusal) => Err(refusal.to_string()),
-                    Ok(()) => {
-                        mux.set_tab_role(&tab_id, parsed, spec.parent_tab_id.as_deref())?;
-                        if let Some(can_spawn) = can_spawn {
-                            mux.set_can_spawn(&tab_id, can_spawn)?;
-                        }
-                        Ok(())
-                    }
-                }
-            };
+            let role_result = self.assign_chatbackend_spawn_role(
+                &tab_id,
+                role,
+                role_profile.as_deref(),
+                spec.parent_tab_id.as_deref(),
+                launch.and_then(|metadata| metadata.params.plan_id.as_deref()),
+                can_spawn,
+                emit_state_change,
+            );
             if let Err(e) = role_result {
                 self.rollback_provisional_tab_via_close(&tab_id);
                 if emit_state_change {
@@ -451,6 +497,39 @@ impl ServiceContext {
         })
     }
 
+    fn assign_chatbackend_spawn_role(
+        &self,
+        tab_id: &str,
+        role: &str,
+        role_profile: Option<&str>,
+        parent: Option<&str>,
+        plan_id: Option<&str>,
+        can_spawn: Option<bool>,
+        emit_state_change: bool,
+    ) -> Result<(), String> {
+        let (_, profile) = Self::parse_role_kind(role, role_profile)?;
+        refuse_parenting_under_general_agent(&self.mux.read(), parent)?;
+        if profile.as_deref() == Some(codeterm_types::agent::role_kind::builtins::PLANNER) {
+            if let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) {
+                self.place_planner_on_plan(tab_id, plan_id, parent, false)?;
+                return Ok(());
+            }
+        }
+        if emit_state_change {
+            self.set_tab_role_with_profile(tab_id, role, profile.as_deref(), parent, can_spawn)
+        } else {
+            let mut mux = self.mux.write();
+            place_chatbackend_role_kind(
+                &mut mux,
+                tab_id,
+                role,
+                profile.as_deref(),
+                parent,
+                can_spawn,
+            )
+        }
+    }
+
     pub(crate) fn prepare_chatbackend_runtime_launch(
         &self,
         tab_id: &str,
@@ -461,7 +540,33 @@ impl ServiceContext {
         {
             let mut mux = self.mux.write();
             let tab = mux.get_tab_mut(tab_id).ok_or("Runtime launch tab absent")?;
+            if tab.pty_id.is_some() {
+                return Err("Existing runtime launch requires released PTY ownership".into());
+            }
+            if metadata.agent.fork_session {
+                return Err("Runtime spawn cannot replace a bound thread with a fork".into());
+            }
+            tab.agent_session_id = runtime_resume_thread(
+                tab.agent_session_id.as_deref(),
+                metadata.agent.resume_session_id.as_deref(),
+            )?;
+            if let Some(cwd) = metadata.params.cwd.as_deref() {
+                tab.cwd = Some(Self::normalize_resolved_agent_cwd(cwd));
+            }
+            tab.backing = TabBacking::ChatBackend {
+                plugin_id: metadata.agent.provider.clone(),
+                session_id: tab.agent_session_id.clone().unwrap_or_default(),
+            };
+            tab.chat_view = true;
             stamp_chatbackend_launch_identity(tab, metadata);
+        }
+        if let Some(worker_id) = metadata.agent.worker_id.as_deref() {
+            self.workers.set_tab_id(worker_id, tab_id.into());
+        }
+        if let Some(super::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) =
+            &metadata.owner_linkage
+        {
+            self.prepare_runtime_cron_owner(tab_id, job_id, run_id)?;
         }
         self.prepare_runtime_worker_binding(&metadata.params, tab_id)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
