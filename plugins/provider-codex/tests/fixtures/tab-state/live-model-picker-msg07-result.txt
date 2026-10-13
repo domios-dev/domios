@@ -1,0 +1,40 @@
+ 
+ 
+› msg 2 of OR1791877872584 reply with K2
+ 
+ 
+ 
+› msg 3 of OR1791877872584 reply with K3
+ 
+ 
+ 
+› msg 4 of OR1791877872584 reply with K4
+ 
+ 
+ 
+› msg 5 of OR1791877872584 reply with K5
+ 
+ 
+• K5
+ 
+ 
+› Reply with exactly this token and nothing else: LEDGER-LG1791877880346
+ 
+ 
+• LEDGER-LG1791877880346
+ 
+  Worked for 27s • 10:51                                                                                                
+ 
+
+  Select Model and Effort
+ 
+ 
+› 1. GPT-6.1-Sol (current)  Latest workhorse model for coding and everyday work.                                        
+  2. GPT-6-Astra            Frontier intelligence for the most demanding work.
+  3. GPT-6-Sol              Previous generation workhorse model.
+  4. GPT-6-Luna             Fast and affordable model for easier tasks.
+  5. GPT-5.6-Sol            Older generation workhorse model.
+  6. GPT-5.6-Terra          Older balanced model for straightforward work.
+  7. GPT-5.6-Luna           Older fast and efficient model.
+
+  enter select · esc back                                                                                               

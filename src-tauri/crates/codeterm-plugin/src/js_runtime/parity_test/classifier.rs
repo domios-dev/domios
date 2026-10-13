@@ -147,3 +147,34 @@ fn codex_routed_numbered_list_is_not_an_interactive_prompt() {
     }
     assert!(provider.parse_prompt(&picker).is_some());
 }
+
+#[test]
+fn codex_captured_msg07_picker_round_trips_prompt_and_response_shapes() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = load_js("codex");
+    for phase in ["after-trigger", "result"] {
+        let screen = fixture("codex", &format!("live-model-picker-msg07-{phase}.txt"));
+        let result = classify(&provider, "codex", screen.clone());
+        assert_eq!(result.state, TabState::ClarifyingQuestion);
+        assert_eq!(result.confidence, 1.0);
+        let prompt = provider.parse_prompt(&screen).expect("captured picker");
+        assert_eq!(
+            prompt
+                .options
+                .iter()
+                .map(|option| option.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", "2", "3", "4", "5", "6", "7"]
+        );
+        assert_eq!(
+            provider.build_prompt_response(0, &screen),
+            vec![b"\r".to_vec()]
+        );
+        assert_eq!(
+            provider.build_prompt_response(6, &screen),
+            [vec![b"\x1b[B".to_vec(); 6], vec![b"\r".to_vec()]].concat()
+        );
+    }
+}

@@ -139,6 +139,21 @@ for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt", 
   assertNoInputRequest(classify(plugin, screen.replace("› 2.", "  2.")), "submenu without active selection");
 }
 
+for (const phase of ["after-trigger", "result"]) {
+  const screen = fixture(`live-model-picker-msg07-${phase}.txt`);
+  const rewritten = screen.replace(/Select Model and Effort/g, "Opaque heading")
+    .replace(/enter select · esc back/g, "enter accept · esc dismiss");
+  for (const [name, input] of [[phase, screen], [`${phase} rewritten`, rewritten]]) {
+    eq(classify(plugin, input)?.state, "clarifying_question", `${name}: captured picker classifies`);
+    const prompt = plugin.parsePrompt(input);
+    eq(prompt?.options?.map((option: string[]) => option[1]), ["1", "2", "3", "4", "5", "6", "7"], `${name}: all choices extracted`);
+    eq(plugin.buildPromptResponse(0, input), ["DQ=="], `${name}: focused choice answers with Enter`);
+    eq(plugin.buildPromptResponse(6, input), [...Array(6).fill("G1tC"), "DQ=="], `${name}: final choice remains answerable`);
+    assertNoInputRequest(classify(plugin, `${input}\n› ready composer`), `${name}: historical picker`);
+    assert(plugin.parsePrompt(`${input}\n› ready composer`) === null, `${name}: historical choices rejected`);
+  }
+}
+
 console.log("\n--- stale auth prose at ready or streaming tail is neither Question nor Auth ---\n");
 for (const f of ["stale-auth-ready-composer.txt", "stale-auth-streaming.txt"]) {
   assertNoInputRequest(classify(plugin, fixture(f)), f);
