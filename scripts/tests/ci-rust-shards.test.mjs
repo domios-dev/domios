@@ -104,3 +104,38 @@ test('captured nextest logs settle both streams and retain failing process statu
     rmSync(directory, { recursive: true });
   }
 });
+
+test('timing candidates are exact identities inside their original subgroup', async () => {
+  const { candidateFilter } = await import('../ci-rust-shards.mjs');
+  const selected = [{ binary: 'crate::bin/tool', name: 'tests::case' }];
+  const document = { entries: [{ binary: 'crate::bin/tool', test: 'tests::case' }], filter: 'untrusted text' };
+  assert.equal(candidateFilter(document, selected), '(binary_id(=crate::bin/tool) & test(=tests::case))');
+  assert.equal(candidateFilter({ entries: [] }, selected), '');
+  assert.throws(() => candidateFilter({}, selected), /Missing/);
+  assert.throws(() => candidateFilter({ entries: [...document.entries, ...document.entries] }, selected), /Duplicate/);
+  assert.throws(() => candidateFilter({ entries: [{ binary: 'other', test: 'tests::case' }] }, selected), /outside/);
+  assert.throws(() => candidateFilter({ entries: [{ binary: 'crate) | all(', test: 'tests::case' }] }, selected), /Unsafe/);
+});
+
+test('primary and candidate runs share saved binaries while only candidates serialize', async () => {
+  const { reusedNextestArgs } = await import('../ci-rust-shards.mjs');
+  const primary = reusedNextestArgs('BINARY_TOKEN', 'CARGO_TOKEN', 'CONFIG_TOKEN', ['--partition', 'hash:2/12']);
+  const alone = reusedNextestArgs('BINARY_TOKEN', 'CARGO_TOKEN', 'CONFIG_TOKEN', [], true);
+  for (const args of [primary, alone]) {
+    assert.equal(args[args.indexOf('--binaries-metadata') + 1], 'BINARY_TOKEN');
+    assert.equal(args[args.indexOf('--cargo-metadata') + 1], 'CARGO_TOKEN');
+    assert.ok(!args.includes('--manifest-path'));
+    assert.ok(!args.includes('--workspace'));
+  }
+  assert.ok(!primary.includes('--test-threads'));
+  assert.equal(alone[alone.indexOf('--test-threads') + 1], '1');
+  assert.ok(!alone.includes('--partition'));
+});
+
+test('candidate timing audits are reported separately from primary coverage', () => {
+  const receipts = fixture();
+  receipts[3].timingAudits = [{ candidates: [{ binary: 'crate', test: 'shared_a' }], parallelLog: 'TOKEN_LOG', report: 'TOKEN_PARALLEL TOKEN_ALONE' }];
+  const summary = verifyCoverage(receipts, 2);
+  assert.match(summary, /TOKEN_PARALLEL TOKEN_ALONE/);
+  assert.match(summary, /runner-1, TOKEN_LOG/);
+});

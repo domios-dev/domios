@@ -38,11 +38,16 @@ libraries and CLI test targets. Unknown tests and reasonless ignores fail explic
 is named with its reason in logs, receipts and the final summary, including
 counts of distinct tests and OS/test entries per reason.
 The coverage job requires all fifteen successful receipts, identical shared
-inventories across every OS, and exactly one shard execution per shared test.
+inventories across every OS, and exactly one primary shard assignment per
+runnable shared test. Candidate timing reruns are recorded separately.
 Normal suite groups use nextest default parallelism; listener groups remain
 serial for their native isolation boundary. Each nonempty nextest subgroup
 emits every per-test duration with `--status-level pass`; its captured log must
-pass Anvil's `check-slow-unit-tests.mjs` ratchet against the fetched `origin/develop` baseline. Logs accompany the receipts.
+pass the `check-slow-unit-tests.mjs` ratchet against the fetched
+`origin/develop` baseline. Parallel measurements select exact binary/test
+candidates; only those candidates rerun serially using saved binary and Cargo
+metadata. The guard judges alone measurements and reports both timings in the
+receipt and summary. Logs accompany the receipts.
 
 It publishes runner names, test counts and durations in the workflow summary;
 failures identify the shard and runner in their logs. Fixture tests enter shared
