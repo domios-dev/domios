@@ -520,40 +520,48 @@ mod spawn_pty_restore_tests {
 
     #[tokio::test]
     async fn frontend_attach_keeps_live_pty_when_restore_materialization_fails() {
-        let (fixture, tab_id, resume_context) = restored_fixture();
-        let pty_id = "failed-materialization-live-pty";
-        fixture
-            .service
-            .pty
-            .lock()
-            .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-            .expect("backend already owns a live PTY");
-        {
-            let mut mux = fixture.service.mux.write();
-            mux.link_pty(&tab_id, pty_id.into());
-            mux.get_tab_mut(&tab_id).unwrap().pending_delivery =
-                Some(crate::multiplexer::types::PendingDeliveryRecord::new(
-                    "missing-payload-digest".into(),
-                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                ));
-        }
-
-        let attached = spawn_pty_core(
-            &Arc::new(fixture.service.clone()),
-            None,
-            None,
-            80,
-            24,
-            None,
-            Some(tab_id),
+        use crate::service::pty_ownership::{LinkOutcome, PtyOwnership};
+        let ownership = PtyOwnership::default();
+        let claim = ownership
+            .acquire_async("failed-restore-attach".into())
+            .await
+            .unwrap();
+        let linked = Arc::new(parking_lot::Mutex::new(None::<String>));
+        let link_state = linked.clone();
+        let materialized = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let attempted = materialized.clone();
+        let attached = super::super::reuse_live_pty_with_claim(
+            claim,
+            "live-pty".into(),
+            true,
+            move |claim, existing| {
+                claim.settle(
+                    existing,
+                    false,
+                    |id| id == "live-pty",
+                    |id| LinkOutcome::Linked(link_state.lock().replace(id.into())),
+                    |_| panic!("restore failure must preserve the live PTY"),
+                    |_| {},
+                )
+            },
+            move |_| {
+                attempted.store(true, std::sync::atomic::Ordering::Release);
+                Err("injected restore materialization failure".into())
+            },
         )
         .await
-        .expect("restore failure must not discard a live PTY attachment");
-
-        assert_eq!(attached, pty_id);
-        assert!(resume_context.lock().is_empty());
-        let mut pty = fixture.service.pty.lock();
-        pty.kill(pty_id).expect("test PTY cleanup");
+        .unwrap();
+        assert!(materialized.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(attached, "live-pty");
+        assert_eq!(linked.lock().as_deref(), Some("live-pty"));
+        assert_eq!(
+            ownership
+                .acquire_async("failed-restore-attach".into())
+                .await
+                .unwrap()
+                .tab_id(),
+            "failed-restore-attach"
+        );
     }
 }
 

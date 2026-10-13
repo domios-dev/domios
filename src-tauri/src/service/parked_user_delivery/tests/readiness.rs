@@ -139,6 +139,7 @@ fn readiness_latches_for_the_current_pty_generation() {
         "submit_unconfirmed"
     );
     fixture._app.unlisten(listener);
+    await_owner_idle(&fixture, &tab);
     assert_eq!(
         fixture
             .service
