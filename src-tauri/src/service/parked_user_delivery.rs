@@ -144,10 +144,11 @@ pub(crate) enum UserWake {
 
 impl super::ServiceContext {
     pub(crate) fn user_send_authority(&self, tab_id: &str) -> Result<UserSendAuthority, String> {
+        let runtime = super::agent_runtime::requested_for_tab(self, tab_id);
         let (pty_id, binding_nonce, provider_id, session_id, observed_session_id, prelaunch) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("user send tab is absent")?;
-            if !matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty) {
+            if !runtime && !matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty) {
                 return Err("user send owner requires PTY backing".into());
             }
             let session_id = tab.agent_session_id.clone();
@@ -185,6 +186,9 @@ impl super::ServiceContext {
     }
 
     pub(crate) fn user_authority_is_ready(&self, authority: &UserSendAuthority) -> bool {
+        if super::agent_runtime::requested_for_tab(self, &authority.tab_id) {
+            return super::agent_runtime::user_delivery::is_ready(self, authority);
+        }
         let owner = self
             .pending_delivery_payloads
             .user_sends

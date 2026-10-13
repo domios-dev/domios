@@ -93,6 +93,18 @@ fn api_cfg_base_url() -> String {
 // ── PluginHostCtx impl ───────────────────────────────────────────────────────
 
 impl codeterm_plugin::PluginHostCtx for ServiceContext {
+    fn runtime_launch_authorized(
+        &self,
+        binding: &codeterm_plugin::agent_runtime::RuntimeLaunchBinding,
+    ) -> bool {
+        super::agent_runtime::authority::verifies(
+            self,
+            &binding.tab_id,
+            &binding.provider_id,
+            &binding.binding_nonce,
+        )
+    }
+
     // ── Memory ───────────────────────────────────────────────────────────
 
     fn mem_search_json(&self, opts_json: &str) -> String {

@@ -35,6 +35,11 @@ pub(crate) fn known_session_changed(previous: Option<&str>, current: Option<&str
 }
 
 pub(super) fn retain_receipt(index: &mut UserIndex, record: &UserSendRecord, state: ReceiptState) {
+    if index.receipts.iter().any(|receipt| {
+        receipt.send_id == record.send_id && receipt.state == ReceiptState::Delivered
+    }) {
+        return;
+    }
     index
         .receipts
         .retain(|receipt| receipt.send_id != record.send_id);

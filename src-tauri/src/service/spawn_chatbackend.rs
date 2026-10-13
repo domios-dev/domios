@@ -380,8 +380,10 @@ impl ServiceContext {
 
         if let Err(error) = self.chatbackend_launch(plugin_id, tab_id.clone(), config, history_meta)
         {
-            self.rollback_provisional_tab(&ws_id, &tab_id);
-            let _ = self.revoke_agent_pad(&tab_id);
+            if !super::agent_runtime::requested_for_tab(self, &tab_id) {
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+                let _ = self.revoke_agent_pad(&tab_id);
+            }
             if emit_state_change {
                 self.emit_state_changed();
             }
@@ -411,6 +413,9 @@ impl ServiceContext {
         config: serde_json::Value,
         history_meta: serde_json::Value,
     ) -> Result<(), String> {
+        if super::agent_runtime::engine::requested(self, &plugin_id) {
+            return super::agent_runtime::transport::launch(self, &plugin_id, &tab_id, config);
+        }
         let session_id = self
             .chatbackend_open_session(&plugin_id, &tab_id, config)
             .map_err(|error| {
