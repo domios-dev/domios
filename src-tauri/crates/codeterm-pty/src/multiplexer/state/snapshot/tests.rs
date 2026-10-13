@@ -866,6 +866,7 @@ fn snapshot_status_resolver_distinguishes_repaint_from_long_turn() {
 
 fn test_pending_prompt() -> crate::multiplexer::types::PendingPrompt {
     crate::multiplexer::types::PendingPrompt {
+        request_id: None,
         question: "Allow?".into(),
         options: vec![crate::multiplexer::types::PromptOption {
             label: "Yes".into(),

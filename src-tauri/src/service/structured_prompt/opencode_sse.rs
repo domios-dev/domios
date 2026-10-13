@@ -497,6 +497,7 @@ fn parse_permission(props: &Value, kind: PromptKind) -> ParsedEvent {
         })
         .collect();
     let prompt = PendingPrompt {
+        request_id: None,
         question,
         options,
         sections: None,

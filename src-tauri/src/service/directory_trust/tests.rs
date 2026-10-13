@@ -11,6 +11,7 @@ use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
 fn trust_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "directory trust question".into(),
         options: vec![
             PromptOption {
@@ -367,6 +368,7 @@ fn untrusted_shared_lookup_stores_one_owner_prompt_and_notifies_once() {
     tab.pty_id = Some("pty-owner-trust".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "owner-trust-question-1".into(),
         options: vec![
             PromptOption {
@@ -956,6 +958,7 @@ fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answ
 #[test]
 fn trust_dialogs_never_reach_the_legacy_yes_responder() {
     let trust_prompt = PendingPrompt {
+        request_id: None,
         question: "Quick safety check: Is this a project you created or one you trust?".into(),
         options: vec![
             PromptOption {
@@ -1026,6 +1029,7 @@ fn cwd_provenance_refusal_keeps_trust_prompt_out_of_both_auto_responders() {
     assert!(!directory_trust_check_applies(tab));
 
     let trust_prompt = PendingPrompt {
+        request_id: None,
         question: "Should this folder's guidance be loaded?".into(),
         options: vec![
             PromptOption {
