@@ -75,6 +75,8 @@ The notification domain crate uses `./build.sh test-one notification-core <selec
 
 The isolated billing crate uses `./build.sh test-one billing <selector>`; workers defer Rust execution to canonical.
 
+The isolated usage crate uses `./build.sh test-one usage <selector> --wait-build`; it queues through the machine build gateway.
+
 The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
 
 The repository watcher crate uses `./build.sh test-one repowatch tests::`; its Tauri event adapter remains in the app.
@@ -281,6 +283,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted Domios and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | Local install cannot read Tauri permissions under a deleted release directory | A relocated Cargo target retained absolute build-script `root-output` paths. | `install-local` now detects mismatched output roots before Cargo, preserves that exact cache in a sibling `.relocated-*` directory, and regenerates its local target; it leaves current warm caches and the machine sccache intact. |
+| `test-one app usage_routes` exits 97 with zero matches | The usage route module had no tests, so the assigned selector had no oracle. | Add focused query and persisted wire-contract coverage in that module, then rerun the same selector; never accept zero matches or replace it with the whole app suite. |
 | A focused Rust test spends most of its runtime linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`. |
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
