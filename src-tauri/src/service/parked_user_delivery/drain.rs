@@ -2,6 +2,10 @@ use super::*;
 
 impl super::super::ServiceContext {
     pub(crate) fn dispatch_ready_user_send(&self, record: &UserSendRecord) {
+        if super::super::agent_runtime::requested_for_tab(self, &record.authority.tab_id) {
+            self.wake_user_owner(&record.authority.tab_id, UserWake::Admission);
+            return;
+        }
         let service = self.clone();
         let tab_id = record.authority.tab_id.clone();
         let send_id = record.send_id.clone();
@@ -20,6 +24,9 @@ impl super::super::ServiceContext {
     }
 
     pub(crate) fn drain_user_owner(&self, tab_id: &str) -> Result<UserDrain, String> {
+        if super::super::agent_runtime::requested_for_tab(self, tab_id) {
+            return super::super::agent_runtime::user_delivery::drain(self, tab_id);
+        }
         if self
             .pending_delivery_payloads
             .user_sends

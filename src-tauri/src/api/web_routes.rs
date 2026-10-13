@@ -1120,3 +1120,33 @@ pub async fn chat_raw_backfill(
     .map_err(|e| (StatusCode::CONFLICT, e))?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
+
+pub async fn agent_runtime_retry(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+) -> Result<Json<crate::service::agent_runtime::model::RuntimeSnapshot>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    crate::service::agent_runtime::retry(&state.svc, &tab_id)
+        .await
+        .map(Json)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
+#[derive(serde::Deserialize)]
+pub struct RuntimeQuestionAnswerBody {
+    pub answers: Vec<codeterm_plugin::agent_runtime::RuntimeQuestionAnswer>,
+}
+
+pub async fn agent_runtime_answer_question(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((tab_id, item_id)): Path<(String, String)>,
+    Json(body): Json<RuntimeQuestionAnswerBody>,
+) -> Result<Json<crate::service::chat_send_transaction::ChatSendStatus>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    crate::service::agent_runtime::answer_question(&state.svc, &tab_id, &item_id, body.answers)
+        .await
+        .map(Json)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
+}

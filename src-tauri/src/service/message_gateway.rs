@@ -389,6 +389,16 @@ impl Default for MessageGateway {
 }
 
 impl MessageGateway {
+    pub(crate) fn submit_runtime_question_answer(
+        &self,
+        svc: &super::ServiceContext,
+        reservation: super::pending_delivery_payloads::user_sends::UserReservation,
+        input: codeterm_plugin::agent_runtime::TurnInput,
+        resolution: super::pending_delivery_payloads::user_sends::runtime_questions::QuestionResolution,
+    ) -> Result<super::chat_send_transaction::ChatSendStatus, String> {
+        svc.admit_runtime_question_answer(reservation, input, resolution)
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
