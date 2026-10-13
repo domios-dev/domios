@@ -69,6 +69,20 @@ pub(crate) async fn stop_agent_turn(
     tab_id: String,
 ) -> Result<serde_json::Value, String> {
     log::info!("[tab-stop] attempt tab={}", tab_id);
+    if let Some(runtime_tab) = super::agent_runtime::controls::routed_tab(&svc, &tab_id) {
+        return tokio::task::spawn_blocking(move || match svc.stop_decision(&runtime_tab) {
+            StopDecision::NoAgent => Ok(serde_json::json!({"ok": true, "stopped": false})),
+            StopDecision::NotWorking(status) => Ok(serde_json::json!({
+                "ok": true, "stopped": false, "reason": "not_working", "status": status.label(),
+            })),
+            StopDecision::Interrupt { .. } => {
+                super::agent_runtime::controls::interrupt(&svc, &runtime_tab)?;
+                Ok(serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}))
+            }
+        })
+        .await
+        .map_err(|error| format!("Runtime stop operation failed: {error}"))?;
+    }
     if let Some(result) = crate::service::codex_rpc::control::interrupt(&tab_id).await {
         let stopped = result?;
         return Ok(
