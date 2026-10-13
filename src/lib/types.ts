@@ -180,6 +180,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
   pending_model_selection?: { model: string; effort: string | null } | null;
   pending_model_switch_observation?: { launched_model: string } | null;
   close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;

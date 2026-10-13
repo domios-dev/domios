@@ -1,3 +1,5 @@
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
@@ -217,6 +219,7 @@ export function TabSessionChat({
   const tabModel = tab?.agent_session_model ?? shellSessionModel;
   const workingModelBadge = formatModelBadge(tab ? statusLineModelName(tab, shellSessionModel) : tabModel ?? "Unknown model");
   const agentSessionId = tab?.agent_session_id ?? null;
+  const runtime = useAgentRuntimeState(tabId, tab?.session_binding_nonce ?? null, tab?.agent_runtime_state);
   const currentPtyId = tab?.pty_id ?? null;
   const agentActivity = useTabActivity(tabId);
   const sessionBindingSurface = useSessionBindingSurface(tabId, agentSessionId);
@@ -305,10 +308,12 @@ export function TabSessionChat({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
+  const runtimeUnavailable = runtime.state != null && runtime.state.state !== "loaded";
+  const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = loading || recovering || (!hasTranscript && remoteChatReconnecting);
+  const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading || error != null;
-  const setupView = chatBodyView({
+  const setupView = runtimeUnavailable ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
     chatLoading,
     unavailable: transcriptUnavailable,
@@ -779,7 +784,8 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      <RemovedChatPlugin error={effectiveChatBackend ? error : null} />
+      <AgentRuntimeBanner state={runtime.state} onRetry={() => { void runtime.retry(); }} />
+      {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
       <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
