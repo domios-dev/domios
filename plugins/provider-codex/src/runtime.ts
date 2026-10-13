@@ -2,7 +2,7 @@ import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
 } from "@codeterm/plugin-sdk";
-import { object, text, list, userThread, steerRefused } from "./runtimeProtocol";
+import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
 import { json, runtimeItems } from "./runtimeMessages";
 import { accountAuth } from "./runtimeAuth";
 import { interruptTargets } from "./runtimeInterrupt";
@@ -94,12 +94,12 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
   const state = object(raw);
   if (reply.kind === "error") {
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
-    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32601)
+    if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
       return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",items:[],openItems:[],questions:[],seq:0}));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error,op.activeTurnId))
       return continuation(request("turn/start",turnParams(ctx,op)),true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived
-      && (reply.error.message.includes("codex unarchive") || (reply.error.message.includes("session ") && reply.error.message.includes(" is archived"))))
+      && archivedResume(reply.error.message))
       return continuation(request("thread/unarchive",{threadId:op.threadId},{stage:"unarchive"}));
     return refused(reply.error.message,op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error,op.activeTurnId));
   }
