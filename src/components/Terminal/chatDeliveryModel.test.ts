@@ -140,3 +140,23 @@ test("two failed sends remain visible across reload alongside a similar new sess
     }
   }
 });
+
+test("written sends flow above later rows while held and failed sends retain their state", () => {
+  const at = 1_800_000_000_000;
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
+    rows: [
+      { id: "old", type: "assistant", content: "earlier", timestamp: String(at - 1000) },
+      { id: "new", type: "assistant", content: "later", timestamp: String(at + 1000) },
+    ],
+  }).state;
+  for (const state of ["written", "submit_unconfirmed", "delivered", "held", "failed"] as const) {
+    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(state, 2));
+    const projected = projectTranscript(transcript, deliveryProjectionSends([current]));
+    assert.deepEqual(projected.rows.map((row) => row.id),
+      ["held", "failed"].includes(state) ? ["old", "new", "bubble"] : ["old", "bubble", "new"]);
+    assert.equal(projected.pending.length, 1);
+    assert.equal(deliveryState(current), state === "written" ? "sending" : state === "submit_unconfirmed" ? "uncertain"
+      : state === "held" ? "queued" : state);
+  }
+});

@@ -1,8 +1,4 @@
-/**
- * Plugin contract tests for Claude — meta, statusOf, actions, detect.
- * Run: npx tsx plugins/provider-claude/tests/plugin.test.ts
- */
-
+import { runQueuedEvidenceTests } from "./queued-evidence";
 import { runSessionModelTests } from "./session-model";
 import { runFolderTrustRegionTests } from "./folder-trust-region";
 import fs from "node:fs";
@@ -108,6 +104,7 @@ const baseHost = (over: Record<string, unknown>) => ({
 });
 
 runSessionModelTests(loadClaudeWithHost, baseHost, eq);
+runQueuedEvidenceTests(loadHostPlugin, eq, assert);
 
 {
   const fixturePath = path.join(
