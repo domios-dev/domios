@@ -81,6 +81,14 @@ impl UserSendStore {
         let mut next = loaded.index.clone();
         let mut changed = next.runtime_questions.update_status(status)?;
         if status.state == crate::service::chat_send_transaction::ChatSendState::Sent {
+            for receipt in &mut next.receipts {
+                if receipt.send_id == status.send_id
+                    && receipt.state == continuity::ReceiptState::Uncertain
+                {
+                    receipt.state = continuity::ReceiptState::Delivered;
+                    changed = true;
+                }
+            }
             if let Some(record) = next
                 .records
                 .iter()
@@ -112,7 +120,10 @@ impl UserSendStore {
             None,
             None,
             held_before_readiness,
-            Some(question),
+            RuntimeAdmission {
+                question: Some(question),
+                ..Default::default()
+            },
         )
     }
 }
