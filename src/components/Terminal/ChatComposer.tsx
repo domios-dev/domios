@@ -184,6 +184,7 @@ function ChatComposerImpl({
   showComposerError,
   onOpenTerminalFallback,
   promptDock,
+  replacement,
   inlineAttachmentSink,
   contextSlot = null,
   chatBackend = false,
@@ -212,6 +213,7 @@ function ChatComposerImpl({
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   promptDock?: ReactNode;
+  replacement?: ReactNode;
   /** Where pasted and dropped files land as capsules at the caret. */
   inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
   /** Element above the status line that hosts the context header. */
@@ -234,7 +236,7 @@ function ChatComposerImpl({
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
-  const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate);
+  const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const pendingDraftsRef = useRef(new Set<string>());
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
@@ -492,6 +494,8 @@ function ChatComposerImpl({
 
   const openScheduleModal = () => setDelayedModal({ kind: "create", text: input.trim() });
 
+  if (replacement) return <ComposerDock mode={composerLayout.mode} ref={shellRef}>{replacement}</ComposerDock>;
+
   return (
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
       {contextSlot && createPortal(
@@ -718,6 +722,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.observeChatSendStatus === b.observeChatSendStatus
   && a.showComposerError === b.showComposerError
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
+  && a.replacement === b.replacement
   && a.promptDock === b.promptDock
   && a.inlineAttachmentSink === b.inlineAttachmentSink
   && a.contextSlot === b.contextSlot
