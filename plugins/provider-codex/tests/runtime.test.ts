@@ -407,4 +407,44 @@ check("A12b workspace-write network settings preserve false and provider default
     assert.equal(Object.prototype.hasOwnProperty.call(policy,"networkAccess"),false);
   }
 });
+check("initialize negotiates experimental history before planning item pagination",()=> {
+  const op:Operation={kind:"initialize"};
+  let plan=plain(hooks.runtimePlan({...ctx,providerSettings:{includeTurnDiffs:false}},op));
+  assert.deepEqual(plan.action,{kind:"request",call:{method:"initialize",params:{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}}}});
+  let step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}});
+  assert.equal(step.kind,"continue");if(step.kind !== "continue")throw new Error("Expected notification");
+  plan=plain(step.plan);assert.equal(plan.action.kind,"notification");
+  step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:null});
+  if(step.kind !== "continue")throw new Error("Expected account read");
+  plan=plain(step.plan);assert.equal(plan.action.kind,"request");
+  step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{account:{type:"chatgpt"}}});
+  assert.equal(step.kind,"complete");
+  const history:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  plan=plain(hooks.runtimePlan(ctx,history));
+  if(plan.action.kind !== "request")throw new Error("Expected history request");
+  assert.equal(plan.action.call.method,"thread/turns/list");
+  step=hooks.runtimeResponse(ctx,history,plan.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}],nextCursor:null}});
+  if(step.kind !== "continue" || step.plan.action.kind !== "request")throw new Error("Expected experimental item pagination");
+  assert.equal(step.plan.action.call.method,"thread/items/list");
+});
+check("unsupported item pagination uses bound snapshot history without delivery evidence",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const plan=hooks.runtimePlan(ctx,op);
+  const page=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}],nextCursor:null}});
+  if(page.kind !== "continue")throw new Error("Expected item page");
+  const fallback=plain(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32601,message:"thread/items/list is not supported yet"}}));
+  if(fallback.kind !== "continue")throw new Error("Expected snapshot fallback");
+  assert.deepEqual(fallback.plan.action,{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId!,includeTurns:true}}});
+  const snapshot={thread:{id:ctx.threadId!,turns:[{id:"turn",status:"completed",items:[{type:"userMessage",id:"user",content:[{type:"text",text:"hello"}]},{type:"agentMessage",id:"assistant",text:"hi"}]}]}};
+  const step=hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"success",value:snapshot});
+  if(step.kind !== "continue")throw new Error("Expected goal reconciliation");
+  const complete=plain(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported goal"}}));
+  if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history snapshot");
+  assert.deepEqual(complete.result.items.map(item=>item.id),["user","assistant"]);
+  assert.equal(complete.events,undefined);
+  for(const value of [{thread:{id:"foreign",turns:[]}},{thread:{id:ctx.threadId!}},{thread:{id:ctx.threadId!,turns:[{id:"turn"}]}}])
+    assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"success",value}).kind,"refused");
+  assert.equal(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32600,message:"invalid request"}}).kind,"refused");
+  assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"unsupported read"}}).kind,"refused");
+});
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
