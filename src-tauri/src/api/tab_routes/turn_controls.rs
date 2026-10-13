@@ -80,13 +80,8 @@ pub async fn turn_controls(
                         tab.reasoning_effort_identity.requested.as_deref(),
                     )
                 }),
-            tab.agent_session_model
-                .as_deref()
-                .or(tab.agent_provider_resolved_model.as_deref()),
-            tab.reasoning_effort_identity
-                .actual
-                .as_deref()
-                .or(tab.reasoning_effort_identity.resolved.as_deref()),
+            tab.agent_provider_resolved_model.as_deref(),
+            tab.reasoning_effort_identity.resolved.as_deref(),
         );
         validate_controls(
             TurnControls {
