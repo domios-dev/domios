@@ -6,27 +6,14 @@ Domios keeps one append-only journal of every authoritative tab lifecycle transi
 
 ## Utility shell deadlines
 
-Set `--timeout 10m` when creating shells for tests, QA or builds; leave it unset
-for servers. Durations accept positive seconds (`30s`), minutes (`10m`) or hours
-(`2h`), up to 365 days. Only the shell's creating agent can set its lifetime.
+Give test, QA and build shells a deadline; leave servers without one. Durations are `30s`, `10m` or `2h` (up to 365 days); only the creating agent may set them, and remote mesh requests are refused.
 
 ```bash
 codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
-codeterm tab timeout --tab <ID> --timeout 20m
-codeterm tab timeout --tab <ID> --timeout none
+codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
 ```
 
-Changing the timeout resets the deadline from now. It does not restart the shell
-or command; another command may run in the same shell before the deadline.
-At expiry an idle shell closes quietly. Running or unknown activity terminates
-with the shell, and the owner receives one `timed out` status naming the shell,
-purpose, command and elapsed time. Normal completion adds no timeout message;
-its ordinary QA report remains responsible for the result. Command marks own
-activity evidence. A shell without a timeout keeps its existing lifetime.
-Deadlines persist across daemon restart; unavailable restored shells are reported
-as lost to their owner. Timeout control requires a local owning agent; remote
-mesh timeout requests are refused. REST: `POST /api/tabs` accepts `timeout`, and
-`POST /api/tabs/{id}/timeout` accepts `{timeout: "20m"}` with the caller tab header.
+The shell and its command keep running across a reset, and another command may run before the deadline. At expiry an idle shell closes quietly; running or unknown activity is terminated with the shell, and the owner gets one `timed out` status with shell, purpose, command and elapsed time. Normal completion adds nothing. Deadlines survive daemon restart; a shell that cannot be restored is reported as lost. REST: `POST /api/tabs` takes `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}` with the caller tab header.
 
 ## Storage authority and recovery
 

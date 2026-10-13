@@ -16085,6 +16085,16 @@
               "aliases": []
             },
             {
+              "name": "timeout",
+              "positional": false,
+              "required": false,
+              "value_name": "TIMEOUT",
+              "possible_values": [],
+              "default": null,
+              "help": "Shell lifetime: positive duration (30s, 10m, 2h), or none",
+              "aliases": []
+            },
+            {
               "name": "title",
               "positional": false,
               "required": false,
@@ -16354,6 +16364,34 @@
               "possible_values": [],
               "default": null,
               "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "timeout",
+          "about": "Reset an owned utility shell's lifetime from now, or disable it with none",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "timeout",
+              "positional": false,
+              "required": true,
+              "value_name": "DURATION",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
