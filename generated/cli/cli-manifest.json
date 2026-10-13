@@ -11315,6 +11315,34 @@
           ]
         },
         {
+          "name": "set-project",
+          "about": "Repair a plan's project folder after it moves, preserving plan and task identity",
+          "aliases": [],
+          "args": [
+            {
+              "name": "path",
+              "positional": true,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "required": true,
+              "value_name": "PLAN_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "skill",
           "about": "Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)",
           "aliases": [],
