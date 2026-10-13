@@ -7,12 +7,11 @@ import { useLocalImage } from "./localImage";
 
 const TILE_BORDER = "color-mix(in srgb, var(--ct-accent, #58a6ff) 38%, transparent)";
 
-function ImageTile({ attachment, large, onOpen }: { attachment: ChatAttachment; large: boolean; onOpen: (image: FullscreenImage) => void }) {
+function ImageTile({ attachment, onOpen }: { attachment: ChatAttachment; onOpen: (image: FullscreenImage) => void }) {
   const inline = inlineAttachmentSrc(attachment);
   const local = useLocalImage(inline ? undefined : attachment.path);
   const src = inline ?? local.src;
   const name = attachmentFileName(attachment);
-  const height = large ? "h-36" : "h-16";
   return (
     <button
       type="button"
@@ -21,7 +20,7 @@ function ImageTile({ attachment, large, onOpen }: { attachment: ChatAttachment; 
       title={src ? name : `${name} (not available)`}
       disabled={!src}
       onClick={() => { if (src) onOpen({ name, src, path: attachment.path }); }}
-      className={`ct-liquid-interactive relative inline-flex ${height} shrink-0 items-center justify-center overflow-hidden rounded-xl border disabled:cursor-default focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]`}
+      className={`ct-liquid-interactive relative inline-flex h-36 w-36 shrink-0 items-center justify-center overflow-hidden rounded-xl border disabled:cursor-default focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]`}
       style={{
         borderColor: TILE_BORDER,
         background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, transparent)",
@@ -33,7 +32,7 @@ function ImageTile({ attachment, large, onOpen }: { attachment: ChatAttachment; 
           src={src}
           alt=""
           onError={local.markFailed}
-          className={`block h-full w-auto ${large ? "min-w-24 max-w-[18rem]" : "min-w-16 max-w-[9rem]"} object-cover`}
+          className="block h-full w-full object-contain"
           draggable={false}
         />
       ) : (
@@ -75,7 +74,6 @@ export function AttachmentStrip({ images, files, captioned }: { images: ChatAtta
   const [open, setOpen] = useState<FullscreenImage | null>(null);
   const close = useCallback(() => setOpen(null), []);
   const stripRef = useRef<HTMLDivElement>(null);
-  const large = images.length === 1 && files.length === 0;
   return (
     <>
       <div
@@ -86,7 +84,7 @@ export function AttachmentStrip({ images, files, captioned }: { images: ChatAtta
         className={`flex flex-wrap items-end gap-1.5 ${captioned ? "mb-2" : ""}`}
       >
         {images.map((attachment) => (
-          <ImageTile key={attachment.id} attachment={attachment} large={large} onOpen={setOpen} />
+          <ImageTile key={attachment.id} attachment={attachment} onOpen={setOpen} />
         ))}
         {files.map((file) => <FileChip key={file.path} file={file} />)}
       </div>

@@ -1,3 +1,4 @@
+import { messageRowParts } from "@codeterm/chat-core";
 //! Recognises codeterm's own message-injection prefixes and claude's
 //! slash-command XML wrappers inside user chat content. Lets the UI
 //! render them as typed bubbles (cross-tab / Telegram / plugin / Pebble / mesh
@@ -151,7 +152,7 @@ function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch 
 }
 
 export function splitChatPrefixedMessages(content: string): Array<{ origin?: ChatOrigin; body: string }> | null {
-  const parts = parseMessageParts(content);
+  const parts = messageRowParts(parseMessageParts(content));
   if (!parts.some((part) => part.kind === "frame")) return null;
   return parts.map((part) => {
     const prefix = part.kind === "frame" ? detectTransportPrefix(part.content) : null;
