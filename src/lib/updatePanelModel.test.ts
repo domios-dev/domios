@@ -33,3 +33,11 @@ assert.deepEqual(all.pluginIds, ["plugin", "future"]);
 assert.deepEqual(nextUpdateStep(all, "2.0.0", panelItems([incompatible])), { kind: "complete" });
 assert.deepEqual(nextUpdateStep({ ...all, pluginIds: ["future"] }, "2.0.0", panelItems([{ ...incompatible, compatible: true, state: "update_available" }])), { kind: "plugin", id: "future" });
 console.log("availability badges, core exclusion, and post-restart compatibility: 9 assertions passed");
+
+const staged: UpdateAvailabilityItem = { ...plugin, id: "frontend", kind: "frontend", installed: null, state: "ready_to_apply", reason: "staged_bundle" };
+assert.equal(hasUpdateBadge(staged), true);
+assert.equal(hasUpdateBadge({ ...staged, compatible: false }), false);
+assert.equal(hasUpdateBadge({ ...staged, kind: "plugin" }), false);
+assert.equal(panelItems([staged])[0].group, "Interface");
+assert.deepEqual(nextUpdateStep(availabilityIntent([staged]), "1.0.0", panelItems([staged])), { kind: "interface" });
+console.log("staged Interface availability: 5 assertions passed");

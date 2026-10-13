@@ -24,6 +24,7 @@ export function UpdatePanelContents() {
             {section.items.map(item => <div key={item.id} className="flex items-center justify-between gap-3 py-1 text-xs">
               <span>{item.name}</span>
               <span className="font-mono text-[var(--ct-muted)]">{item.currentVersion} → {item.targetVersion}</span>
+              <Button size="sm" disabled={update.busy} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>
             </div>)}
           </section>
         ))}

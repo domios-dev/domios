@@ -11,7 +11,7 @@ const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "t",
 const safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
 const release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: 2, maxApiVersion: 2 };
 
-function fixture(patch = {}, payload = checkpoint) {
+function fixture(patch = {}, payload = checkpoint, pending: typeof release | null = null) {
   let receive!: (name: string, data: unknown) => void;
   const calls: { method: string; path: string; body?: unknown }[] = [];
   const events: Event[] = [];
@@ -29,7 +29,7 @@ function fixture(patch = {}, payload = checkpoint) {
       calls.push({ method, path, body });
       if (path.endsWith("checkpoint")) return (method === "GET" ? { revision: 9, payload } : body) as T;
       if (path.endsWith("activate")) return { ...release, generation: 7, claims: { clientA: "health-secret" } } as T;
-      return { apiVersion: 2, pending: null, quarantined: [] } as T;
+      return { apiVersion: 2, pending, quarantined: [] } as T;
     },
     origin: () => "https://daemon.example", currentToken: () => "api-secret",
     subscribe: (path: string, listener: typeof receive, options: { onEnd: typeof end }) => { expect(path).toBe("/api/events/stream"); receive = listener; end = options.onEnd; subscriptions++; return () => { disposals++; }; },
@@ -153,4 +153,23 @@ it("registers the browser draft restorer before daemon hydration and collects lo
     browser.dispose();
     localStorage.clear();
   }
+});
+
+it("applies staged consent once through checkpoint and activation while respecting Update-all hold", async () => {
+  const f = fixture({ focused: true }, checkpoint, release);
+  const options = { ...f.options, held: () => true };
+  const runtime = await initializeFrontendUpdateRuntime(f.client, options);
+  f.receive("frontend-update-ready", release);
+  runtime.consent();
+  expect(f.calls.filter(call => call.method === "PUT" || call.path.endsWith("activate"))).toEqual([]);
+  const navigated = new Promise<void>(resolve => {
+    const navigate = options.navigate;
+    options.navigate = path => { navigate(path); resolve(); };
+  });
+  runtime.hold(false);
+  runtime.consent();
+  await navigated;
+  expect(f.calls.filter(call => call.path.endsWith("activate"))).toHaveLength(1);
+  expect((f.calls.find(call => call.method === "PUT")?.body as CheckpointWrite).payload.drafts.t).toEqual(checkpoint.drafts.t);
+  runtime.dispose();
 });

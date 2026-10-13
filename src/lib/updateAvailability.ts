@@ -6,7 +6,7 @@ export interface UpdateAvailabilityItem {
   installed: string | null;
   latest: string | null;
   compatible: boolean;
-  state: "up_to_date" | "update_available" | "incompatible" | "core_silent";
+  state: "up_to_date" | "update_available" | "ready_to_apply" | "incompatible" | "core_silent";
   reason: string;
   channel: string | null;
 }
