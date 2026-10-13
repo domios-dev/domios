@@ -113,10 +113,16 @@ failed.
 can push a file past the 1200-line gate that passed minutes earlier. Re-run the
 size check after any fmt.
 
+**The clippy gate rejects deprecated APIs.** Tauri shell's
+ShellExt::open fails under -D deprecated. Use the existing
+crate::commands::system::open_url inside spawn_blocking for account and billing
+browser launches; remove unused shell imports and handles. Recheck the focused
+account service selector and bash scripts/clippy-gate.sh in warm canonical.
+
 ## Release
 
 `.agents/skills/github-release/SKILL.md` owns the sequence. This skill only
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -2,7 +2,6 @@ use crate::secrets::{SaveRequest, SecretError, SecretStoreState, SecretString};
 use async_trait::async_trait;
 use codeterm_account::{Account, Browser, Config, CredentialStore, Error, Secret};
 use std::{sync::Arc, time::Duration};
-use tauri_plugin_shell::ShellExt;
 
 pub struct AccountCredentials {
     store: SecretStoreState,
@@ -101,13 +100,12 @@ impl codeterm_account::IdentityObserver for AnalyticsIdentity {
         }
     }
 }
-struct SystemBrowser(tauri::AppHandle);
+struct SystemBrowser;
 #[async_trait]
 impl Browser for SystemBrowser {
     async fn open(&self, url: &url::Url) -> codeterm_account::Result<()> {
-        let app = self.0.clone();
         let url = url.to_string();
-        tokio::task::spawn_blocking(move || app.shell().open(url, None))
+        tokio::task::spawn_blocking(move || crate::commands::system::open_url(url))
             .await
             .map_err(|_| Error::Browser)?
             .map_err(|_| Error::Browser)
@@ -156,7 +154,7 @@ impl super::ServiceContext {
         let status = self
             .account()
             .await?
-            .login_with_hint(&SystemBrowser(self.app_handle.clone()), hint)
+            .login_with_hint(&SystemBrowser, hint)
             .await
             .map_err(|e| e.to_string())?;
         let _ = self
