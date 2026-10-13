@@ -409,7 +409,7 @@ run_nextest_scope() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc|cache-status) ;;
+  gateway-*|help|gc|cache-status|cache-verify) ;;
   *) setup_env ;;
 esac
 
@@ -526,7 +526,7 @@ fi
 
 # A cold prebuilt refusal must be read-only; every other command keeps the
 # existing hook setup behavior.
-if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ]; then
+if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ] && [ "$CMD" != "cache-verify" ]; then
   git config core.hooksPath .githooks 2>/dev/null || true
 fi
 
@@ -1724,6 +1724,7 @@ CodeTerm build commands
   install-local               Build and install locally
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
+  cache-verify                Verify shared S3 configuration and running server without changes
   gateway-status              Show the machine build owner
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
@@ -1748,6 +1749,10 @@ EOF
     ;;
   cache-status)
     ct_sccache_status
+    ;;
+
+  cache-verify)
+    ct_sccache_verify
     ;;
   gateway-status)
     ct_gateway_status

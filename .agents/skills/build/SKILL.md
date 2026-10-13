@@ -152,13 +152,39 @@ checks the shared endpoint's health URL. It starts no build or cache server,
 and changes no hooks or compiler environment. Configured and actual locations
 can differ until the next idle setup restarts the server.
 
-For cross-machine Rust reuse, CI must use identical **physical** paths:
+CI uses `./build.sh cache-verify` (Windows: `.\build.ps1 cache-verify`). It prints
+configured and actual storage plus endpoint health, exits 0 only when both storage
+checks select the shared S3 bucket, and otherwise exits 2. It never starts or
+restarts a server or checks for an idle machine. Set
+`CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
+that same verification path. Provision local-to-S3 storage separately while idle.
+
+BLACKSTAR-CI WSL builds are owned by a Windows runner. That Windows parent runs
+`codeterm mem secret sync`, resolves both vault entries into `AWS_ACCESS_KEY_ID`
+and `AWS_SECRET_ACCESS_KEY`, and sets `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`.
+Forward these three names through `WSLENV` to the WSL process; append them to any
+existing `WSLENV` list. Values stay exclusively in process environment, never
+runner `.env`, command arguments, files or logs. This explicit source selects
+inherited runner credentials instead of querying an unavailable WSL vault CLI.
+Both values are required. No standalone WSL Worker builds are supported; keep
+Windows interop and mount settings unchanged. Select pinned Rust 1.95.0 only in
+the build process, preserving the machine's default toolchain.
+
+Post-release follow-up: establish a shared Linux user or an approved `/opt` path
+and compare cold/consumer hit and miss data at identical checkout, Cargo and
+compiler paths. The 1.14.7 Linux contract accepts different paths and does not
+claim cross-machine reuse.
+
+For cross-machine Rust reuse, macOS and Windows CI use identical **physical** paths.
+Linux uses user-owned per-machine paths for 1.14.7; cross-machine Linux hits are
+not expected because the usernames differ. No sudo or shared user is required:
 
 | Builders | Checkout | CARGO_HOME |
 |---|---|---|
 | eight, air | `/Users/Shared/domios-ci/work/codeterm` | `/Users/Shared/domios-ci/cargo` |
 | ROG, BLACKSTAR, green | `C:\domios-ci\work\codeterm` | `C:\domios-ci\cargo` |
-| ubunta | `/opt/domios-ci/work/codeterm` | `/opt/domios-ci/cargo` |
+| ubunta | `/home/dev/domios-ci/work/codeterm` | `/home/dev/domios-ci/cargo` |
+| BLACKSTAR WSL | `/home/ci/domios-ci/work/codeterm` | `/home/ci/domios-ci/cargo` |
 
 Only the exact CI checkout paths above use checkout-local `target-check` for
 exceptional test compilation; other worktrees retain gateway target isolation.
@@ -178,7 +204,8 @@ Upstream Rust normalization is a separate follow-up. Also match
 toolchain executable paths: `CARGO` is hashed. Select the pinned toolchain under
 `/Users/Shared/domios-ci/rustup/toolchains/` on macOS,
 `C:\domios-ci\rustup\toolchains\` on Windows, or
-`/opt/domios-ci/rustup/toolchains/` on Linux in the builder process PATH;
+`/home/dev/domios-ci/rustup/toolchains/` on ubunta or
+`/home/ci/domios-ci/rustup/toolchains/` in BLACKSTAR WSL in the builder process PATH;
 do not change developer toolchain defaults. See the builder path
 contract in `.codeterm/build-machine/README.md`.
 
@@ -190,6 +217,7 @@ calls; a successful build alone is not cache-hit proof.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| CI refuses with exit 75 while another build is running | CI invoked cache configuration instead of read-only verification | Use `cache-verify` and set `CODETERM_SCCACHE_VERIFY_ONLY=1` for subsequent CI build processes. Provision storage separately while idle. |
 | A dev build requests S3 but refuses with exit 75 after another caller switched the server back to local | An unresolved-key caller could downgrade a previously shared server | Keep the no-downgrade guard: missing keys reuse running S3; keys may switch local to S3 only while idle. Verify `bash scripts/check-shared-sccache.sh`. |
 | Local fallback line on an intended builder | One or both vault entries could not resolve | Run `codeterm mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
 | Shared server startup fails | Endpoint unreachable, credentials rejected, or installed sccache lacks S3 support | Verify Tailscale connectivity and tool features; inspect metadata and server health without secret logging. Preserve the failed receipt. |
@@ -699,4 +727,4 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 27 -->
+<!-- revision: 28 -->
