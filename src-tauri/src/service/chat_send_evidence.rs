@@ -207,6 +207,11 @@ pub(crate) fn scan_transcript_evidence(
                     .map(|content| (StructuredUserTurn::without_identity(content), false))
                     .collect()
             });
+        log::debug!(
+            "[session-turn-evidence] scan tab={} send={} session={} window={:?} user_turns={} payload_bytes={}",
+            tab_id, candidate.send_id, candidate.anchor.session_id,
+            candidate.anchor.window, turns.len(), candidate.payload.len(),
+        );
         for (turn, has_structured_identity) in turns {
             let eligible_send_ids = if has_structured_identity && turn.id.is_some() {
                 candidates
@@ -360,6 +365,10 @@ impl ServiceContext {
             }
             _ => None,
         };
+        log::debug!(
+            "[session-turn-evidence] binding-capture tab={} provider={:?} session={:?} launch={:?} deferred_first_turn={}",
+            tab_id, provider_id, session_id, binding_nonce, deferred_first_turn.is_some(),
+        );
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {
                 anchor: None,
@@ -401,6 +410,10 @@ impl ServiceContext {
             let source = self.chat_registry.jsonl_source(tab_id);
             jsonl_boundary(path, &source, &session_id)
         };
+        log::debug!(
+            "[session-turn-evidence] append-capture tab={} provider={} session={} window={:?} absence_witness={}",
+            tab_id, provider_id, session_id, window, absence_witness.is_some(),
+        );
         let anchor = window.map(|window| SendEvidenceAnchor {
             provider_id,
             cwd,
