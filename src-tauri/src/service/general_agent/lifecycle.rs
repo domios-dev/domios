@@ -2,6 +2,7 @@
 
 mod launch;
 mod readiness;
+mod runtime_launch;
 
 use super::launch_files::general_agent_env_vars;
 use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
@@ -246,6 +247,18 @@ pub fn start_general_agent(
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
+    if crate::service::agent_runtime::engine::requested(svc, provider_name) {
+        runtime_launch::start_main(
+            svc,
+            mux,
+            config,
+            provider_name,
+            permission_bypass,
+            resume_sessions_enabled,
+        );
+        return;
+    }
+
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
         let (tab_id_opt, current_agent, current_pty_id, current_auto_approve) = {
@@ -316,6 +329,7 @@ pub fn start_general_agent(
                     }
                 }
             } else {
+                crate::service::agent_runtime::engine::stop(&pid);
                 log::info!(
                     "[general-agent] Provider mismatch: running={}, wanted={} — restarting",
                     current_agent,
@@ -557,6 +571,17 @@ fn restart_general_agent_inner(
     force: bool,
 ) {
     if !super::restart_guard::permit(svc, mux, force) {
+        return;
+    }
+    let runtime_tab = {
+        let m = mux.read();
+        m.resolve_tab_id(GENERAL_ALIAS)
+    };
+    if let Some(tab_id) =
+        runtime_tab.filter(|tab| crate::service::agent_runtime::requested_for_tab(svc, tab))
+    {
+        crate::service::agent_runtime::engine::stop(&tab_id);
+        start_general_agent(svc, mux, pty, screen_state, config, app);
         return;
     }
     let mut stale_pty_id = None;
