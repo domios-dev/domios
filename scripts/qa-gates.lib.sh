@@ -181,7 +181,7 @@ qa_gate_desc() {
     ts-unit) echo "TypeScript unit tests (pnpm test:unit)" ;;
     plugin) echo "Plugin tests (pnpm test:plugins)" ;;
     test-all) echo "build.sh test:all aggregate (non-LLM layers)" ;;
-    file-sizes) echo "Source file size discipline (--fail)" ;;
+    file-sizes) echo "Source size and exact provider boundary discipline" ;;
     comment-length) echo "Comment length discipline (--fail)" ;;
     macos-native) echo "macOS native lane (scripts/test-macos-native.sh)" ;;
     linux-docker) echo "Linux Docker lane (scripts/test-linux-docker.sh)" ;;
@@ -245,7 +245,8 @@ qa_run_gate_body() {
       ./build.sh test:all
       ;;
     file-sizes)
-      bash scripts/check-file-sizes.sh --fail
+      bash scripts/check-file-sizes.sh --fail || return $?
+      node scripts/check-provider-boundary.mjs
       ;;
     comment-length)
       bash scripts/check-comment-length.sh --fail
