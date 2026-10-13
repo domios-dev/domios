@@ -411,10 +411,20 @@ baseline + max(20%, 0.25 seconds); smaller increases warn.
 `scripts/slow-unit-tests.json` records alone durations and may only shrink against
 `origin/develop` (`SLOW_UNIT_TESTS_BASE` overrides the ref). Missing or partial
 timings fail closed, and test failures retain their original exit codes.
+Primary runs explicitly disable fail-fast for every manifest so one failed test
+does not cancel the remaining timing inventory.
 For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
 SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
 refuses that mode without serial execution. Ordinary suites retain default
 parallelism.
+The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
+crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
+may only shrink after its first landing. `scripts/unit-test-benchmarks.json`
+contains exact benchmark identities with explicit throughput/latency reasons.
+Exemptions print their identity, timing and reason, preserve test failures,
+and cannot be added or changed after their first landing without review.
+Benchmarks never receive a slow-unit baseline allowance.
+
 Filtersets use nextest's `--filter-expr` syntax. A filterset containing
 `rdeps(...)` runs workspace targets so reverse dependents remain in scope.
 `verify` runs the standard
@@ -541,6 +551,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
 | `verify` downloads FastEmbed into a temporary test data directory and fails on a model-host outage | The Rust test wrapper let fixture-owned `CODETERM_DATA_DIR` choose the immutable model cache. | Use the current wrapper, which exports one machine-shared `CODETERM_EMBED_CACHE_DIR`; override it explicitly only for cache diagnostics. |
+| CLI essence-map test fails after a capability status wording update | The test pinned source prose rather than the status preservation mechanism. | Inject opaque statuses into fixture capability rows and assert those supplied values round-trip; retain node/edge assertions. |
 | Nextest metadata reuse exits 2 with `--manifest-path cannot be used with --cargo-metadata` before selecting tests | The reuse invocation retained a Cargo build selector. | Pass only the saved binaries/Cargo metadata and runtime/filter options to the capped execution phase; keep manifest/package/feature selectors exclusively on the inventory compilation. Rerun the same bounded selector, preserving the zero-executed receipt. |
 | macOS task-authority tests panic creating a Tauri `EventLoop` | The fixture built Wry on a libtest thread. | Use `app_runtime::builder()` and runtime aliases so `cfg(test)` constructs MockRuntime; remove fixture-only desktop ignores. Keep real native window oracles explicitly platform-gated. |
 | Unix REST lifecycle bind gets `Address already in use` | A guessed test port can collide; restart listeners overlap during handoff. | Prebind OS-assigned generation one; enable `SO_REUSEPORT` on every Unix bind. |
