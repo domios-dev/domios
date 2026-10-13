@@ -77,6 +77,8 @@ The isolated billing crate uses `./build.sh test-one billing <selector>`; worker
 
 The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
 
+The repository watcher crate uses `./build.sh test-one repowatch tests::`; its Tauri event adapter remains in the app.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
@@ -537,6 +539,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A release-time test fails in `#[cfg(test)]` code while `check` was green | `check` compiles the production profile only, so test-only code is never type-checked | Run `./build.ps1 check-tests`, which compiles `--all-targets` for both workspaces without the build gateway. A stale generated map or a document over its reading boundary is a different cause: use the matching row above. |
 
 | Plugin test compilation cannot read an include_str! fixture | The relative fixture path traversed one directory beyond the repository root. | Resolve the path from the owning Rust source directory, correct the traversal, and rerun the same focused plugin gate before proceeding. |
+
+A moved repository-watcher source guard can fail with “expected the repository-watch sources, found 1” if it still scans the app path. Scan the new crate sources and retained app adapter, keep channel failure deadlines in test support, then rerun `./build.sh test-one repowatch tests::`.
 
 ## Focused analytics checks
 

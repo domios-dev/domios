@@ -1,6 +1,6 @@
-use crate::repowatch::backend::{ActiveWatch, BatchHandler, WatchBackend, WatchSignal, WatchSpec};
-use crate::repowatch::events::{RepoEventSink, RepoWatchUnavailable};
-use crate::repowatch::registry::RepoWatchRegistry;
+use crate::backend::{ActiveWatch, BatchHandler, WatchBackend, WatchSignal, WatchSpec};
+use crate::events::{RepoEventSink, RepoWatchUnavailable};
+use crate::registry::RepoWatchRegistry;
 use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
@@ -308,7 +308,7 @@ pub fn expect_change_from(roots: &[&Path], target: usize, what: &str, action: im
 pub fn git_available() -> bool {
     let mut command = std::process::Command::new("git");
     command.arg("--version");
-    crate::process_util::no_window_std(&mut command);
+    codeterm_util::process_util::no_window_std(&mut command);
     command
         .output()
         .map(|o| o.status.success())
@@ -325,7 +325,7 @@ pub fn git(dir: &Path, args: &[&str]) {
         .env("GIT_AUTHOR_EMAIL", "t@example.com")
         .env("GIT_COMMITTER_NAME", "Tester")
         .env("GIT_COMMITTER_EMAIL", "t@example.com");
-    crate::process_util::no_window_std(&mut command);
+    codeterm_util::process_util::no_window_std(&mut command);
     let out = command.output().expect("git run");
     assert!(
         out.status.success(),
@@ -378,4 +378,9 @@ pub fn linked_worktree(primary: &Path, name: &str) -> tempfile::TempDir {
         "linked worktree .git must be a FILE"
     );
     holder
+}
+
+pub fn await_reentry_result<T>(rx: &Receiver<T>) -> T {
+    rx.recv_timeout(std::time::Duration::from_secs(5))
+        .expect("sink reentry completes before the failure deadline")
 }

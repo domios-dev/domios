@@ -1,5 +1,5 @@
 use super::support::*;
-use crate::repowatch::identity::RepoIdentity;
+use crate::identity::RepoIdentity;
 use std::sync::Arc;
 
 /// R2 — identity resolution, with linked worktrees as the normal case.
