@@ -426,9 +426,8 @@ function notificationAuth(value) {
 }
 
 // plugins/provider-codex/src/runtimeInterrupt.ts
-function interruptTargets(ctx, root, active) {
+function interruptTargets(ctx, root) {
   const turns = [...ctx.activeTurns];
-  if (active && !turns.some((turn) => turn.threadId === root && turn.turnId === active)) turns.push({ threadId: root, turnId: active });
   const depth = (thread) => {
     let current = thread;
     let count = 0;
@@ -436,7 +435,7 @@ function interruptTargets(ctx, root, active) {
     while (current !== root) {
       if (seen.has(current)) return -1;
       seen.add(current);
-      const parent = turns.find((turn) => turn.threadId === current)?.parentThreadId;
+      const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
       if (!parent) return -1;
       current = parent;
       count++;
@@ -645,7 +644,7 @@ function runtimeReduce(ctx, raw, frames) {
       events.push(notificationAuth(params));
       continue;
     }
-    state.parents ?? (state.parents = Object.fromEntries(ctx.activeTurns.filter((turn) => turn.parentThreadId).map((turn) => [turn.threadId, turn.parentThreadId])));
+    state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
     if (frame.kind === "notification" && frame.method === "thread/started") {
       const thread = object(params.thread);
       const id = text(thread.id);
@@ -893,7 +892,7 @@ function runtimePlan(ctx, op) {
       return request("turn/steer", { threadId: op.threadId, clientUserMessageId: op.sendId, input: params.input, expectedTurnId: op.activeTurnId });
     }
     case "interrupt": {
-      const turns = interruptTargets(ctx, op.threadId, op.activeTurnId ?? ctx.activeTurnId);
+      const turns = interruptTargets(ctx, op.threadId);
       if (!turns.length) fail2("provider_refused", "No active turn to interrupt");
       return request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) });
     }

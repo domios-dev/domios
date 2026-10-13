@@ -209,7 +209,7 @@ check("file change and turn diff use app-server arrays and exact hunks",()=> {
 });
 console.log(`runtime expanded hooks: ${count} checks passed`);
 check("descendant interrupt walks deepest first with explicit targets",()=> {
-  const context={...ctx,activeTurnId:"root-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"child",turnId:"child-turn",parentThreadId:ctx.threadId!},{threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child"}]};
+  const context={...ctx,threadParents:[{threadId:"child",parentThreadId:ctx.threadId!},{threadId:"grandchild",parentThreadId:"child"}],activeTurnId:"root-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"child",turnId:"child-turn",parentThreadId:ctx.threadId!},{threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child"}]};
   const operation:Operation={kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"root-turn"};
   let plan=hooks.runtimePlan(context,operation);
   for(const target of [{threadId:"grandchild",turnId:"grandchild-turn"},{threadId:"child",turnId:"child-turn"},{threadId:ctx.threadId!,turnId:"root-turn"}]) {
@@ -269,3 +269,19 @@ check("unsupported MCP forms remain visible and can only decline or cancel",()=>
   assert.deepEqual(plain(hooks.runtimePlan(context,{kind:"answer",requestId:"mcp",answer:{kind:"choice",values:["decline"]}}).action),{kind:"reply",requestId:"mcp",result:{kind:"success",value:{action:"decline"}}});
 });
 console.log(`runtime reviewed hooks: ${count} checks passed`);
+check("inactive parent retains ancestry but is never an interrupt target",()=> {
+  const context={...ctx,activeTurnId:"root-turn",threadParents:[{threadId:"child",parentThreadId:ctx.threadId!},{threadId:"grandchild",parentThreadId:"child"}],
+    activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"grandchild",turnId:"grandchild-turn"}]};
+  const operation:Operation={kind:"interrupt",threadId:ctx.threadId!};
+  const plan=hooks.runtimePlan(context,operation);assert.equal(plan.action.kind,"request");if(plan.action.kind !== "request")return;
+  assert.deepEqual(plain(plan.action.call.target),{threadId:"grandchild",turnId:"grandchild-turn"});
+  const next=hooks.runtimeResponse(context,operation,plan.state,{kind:"success",value:{}});assert.equal(next.kind,"continue");if(next.kind !== "continue" || next.plan.action.kind !== "request")return;
+  assert.deepEqual(plain(next.plan.action.call.target),{threadId:ctx.threadId!,turnId:"root-turn"});
+  assert.equal(hooks.runtimeResponse(context,operation,next.plan.state,{kind:"success",value:{}}).kind,"complete");
+  const childStart:RuntimeFrame={kind:"notification",method:"turn/started",params:{threadId:"grandchild",turn:{id:"grandchild-turn"}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(context,null,[childStart]).events),[{kind:"turnState",threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child",state:"working"}]);
+});
+check("idle root with no roster turn is not a synthetic interrupt target",()=> {
+  assert.throws(()=>hooks.runtimePlan({...ctx,activeTurnId:"stale",activeTurns:[]},{kind:"interrupt",threadId:ctx.threadId!}));
+});
+console.log(`runtime ancestry hooks: ${count} checks passed`);

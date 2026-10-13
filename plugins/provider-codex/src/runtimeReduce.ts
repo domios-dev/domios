@@ -112,7 +112,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     if (frame.kind === "notification" && frame.method === "account/updated") {
       events.push(notificationAuth(params)); continue;
     }
-    state.parents ??= Object.fromEntries(ctx.activeTurns.filter(turn=>turn.parentThreadId).map(turn=>[turn.threadId,turn.parentThreadId!]));
+    state.parents ??= Object.fromEntries(ctx.threadParents.map(parent=>[parent.threadId,parent.parentThreadId]));
     if (frame.kind === "notification" && frame.method === "thread/started") {
       const thread=object(params.thread);const id=text(thread.id);
       const parent=text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
