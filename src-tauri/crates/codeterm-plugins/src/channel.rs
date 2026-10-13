@@ -171,7 +171,7 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
 /// clone), reads its manifest, and builds one row per plugin. Any failure here is
 /// returned to the caller so `channel_diff` can decide whether to propagate (named
 /// diff) or skip the channel and continue (aggregate diff for the snapshot).
-fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> {
+pub(crate) fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> {
     let channel_path = materialize_channel_for_diff(ch)?;
     let manifest = read_channel_manifest(&channel_path)?;
     let mut rows = Vec::new();

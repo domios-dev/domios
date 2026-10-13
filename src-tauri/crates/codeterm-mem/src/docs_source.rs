@@ -45,6 +45,7 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "BLUEPRINTS",
     "BLUEPRINT-RECIPES",
     "CONFIG",
+    "ACCOUNT",
     "NOTIFICATIONS",
     "INTEGRATIONS",
     "RUNTIME-CONFIG",
