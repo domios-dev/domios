@@ -35,7 +35,9 @@ use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use url::Url;
 
 mod model;
-use model::{boot_failure_action, development_frontend, BootFailureAction, BootObservation};
+use model::{
+    boot_failure_action, development_frontend, external_link, BootFailureAction, BootObservation,
+};
 
 #[derive(Default)]
 struct ShellSupervisor {
@@ -149,6 +151,21 @@ fn navigation_allowed(url: &Url, origin: Option<&str>, unavailable: &Url, fallba
         })
 }
 
+fn open_external_link(url: &Url, origin: Option<&str>) {
+    let Some(url) = external_link(url, origin) else {
+        return;
+    };
+    log::debug!(
+        "[frontend-shell] opening external link: {}",
+        navigation_identity(&url)
+    );
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = crate::commands::open_url(url.into()) {
+            log::debug!("[frontend-shell] external link opener failed: {error}");
+        }
+    });
+}
+
 fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
     let mut capability: serde_json::Value =
         serde_json::from_str(include_str!("../../capabilities/default.json"))?;
@@ -206,7 +223,12 @@ pub(crate) fn create_window(
         )?)?;
         builder = builder.initialization_script(bootstrap_script(&bootstrap)?);
     }
+    let new_window_origin = origin.clone();
     Ok(builder
+        .on_new_window(move |url, _features| {
+            open_external_link(&url, new_window_origin.as_deref());
+            tauri::webview::NewWindowResponse::Deny
+        })
         .on_page_load(|window, payload| {
             log::debug!(
                 "[frontend-shell] page load {:?}: {}",
@@ -225,6 +247,9 @@ pub(crate) fn create_window(
                 "[frontend-shell] navigation allowed={allowed}: {}",
                 navigation_identity(url)
             );
+            if !allowed {
+                open_external_link(url, origin.as_deref());
+            }
             allowed
         })
         .build()?)
