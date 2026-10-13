@@ -39,6 +39,8 @@ export type {
   AnalyticsRefusal,
   HostReceiverTarget,
   HostLocalRecording,
+  RecordingDeviceSelection,
+  RecordingInputDevice,
   LocalRecordingStatus,
   LocalRecordingRefusal,
   HostSurface,

@@ -14,8 +14,12 @@ usage-page/usage tuple. It permits a host-owned `receiverTarget` tab-menu item
 without a webhook receiver. `local_recording` needs an explicit persisted user
 grant; requesting it in a manifest, system trust, and dev mode do not grant it.
 `host.localRecording.status()` and `setEnabled(boolean)` address only the calling
-plugin. Enabling arms the trigger without recording. The host selects exact input
-collection and microphone identities, freezes an authenticated ready recipient at
+plugin. Enabling arms the trigger without recording. With the same declaration
+and user grant, `listInputDevices()` exposes the host's existing input inventory,
+`selectDevices({inputId, collectionId, microphoneId})` selects and persists this
+plugin's identities on this machine, and `savedSelection()` reads only its own
+saved choice. The plugin owns device choice; the host validates the declared input
+at subscription setup and freezes an authenticated ready recipient at
 START, transcribes with the configured voice stage, and admits ordinary tracked
 voice through the existing permission/text pipeline and client token.
 
@@ -23,9 +27,13 @@ An explicit closed recipient stays stale until the owner clears or replaces it.
 General resolves only at START when there is no explicit selection. Cancellation,
 device loss, grant revocation on reload, and unload invalidate subscription and
 capture generations. Linux and web capture are unsupported. The SDK exposes no
-raw HID, audio, device selection, capture lease, transcript commit, or arbitrary
+raw HID, audio, capture lease, transcript commit, or arbitrary
 recipient sender. Windows/macOS adapter and desktop recorder implementation belong
 to the host; the declaration alone does not prove hardware capture or delivery.
+Input inventory currently contains Windows HID receivers, with the native device
+path as identity and fallback label. macOS/Linux inventory returns an empty list.
+Microphone IDs are supplied by desktop media-device enumeration. Generic audio
+inventory and device-change subscriptions require further host support.
 
 ```ts
 import type { PluginModule } from "@codeterm/plugin-sdk";

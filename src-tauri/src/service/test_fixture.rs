@@ -299,6 +299,11 @@ impl ServiceFixture {
                 codeterm_plugin::local_recording::LocalRecordingRegistry::default(),
             ),
             local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
+            local_recording_selections: Arc::new(
+                crate::service::local_recording::RecordingSelectionStore::open(
+                    data_dir.join("local-recording-selections.json"),
+                ),
+            ),
             local_recording_targets: Arc::new(
                 crate::service::receiver_target::ReceiverTargetStore::open(
                     data_dir.join("local-recording-targets.json"),

@@ -410,3 +410,29 @@ fn lark_recording_contract_stale_unavailable_generation_keeps_new_capture() {
     assert_eq!(notifications.lock().len(), 1);
     assert_eq!(notifications.lock()[0].generation, old_generation);
 }
+
+#[test]
+fn device_selection_persist_failure_preserves_selection_and_generation() {
+    let registry = LocalRecordingRegistry::default();
+    configured(&registry, "own", devices("before"));
+    let before = registry.selected_devices("own").unwrap();
+    let result =
+        registry.select_devices_persisted("own", devices("after"), || Err("storage_failed".into()));
+    assert_eq!(result.unwrap_err(), "storage_failed");
+    assert_eq!(registry.selected_devices("own").unwrap(), before);
+}
+
+#[test]
+fn revoked_device_selection_never_calls_persistence() {
+    let registry = LocalRecordingRegistry::default();
+    configured(&registry, "own", devices("before"));
+    registry.revoke("own");
+    let result = registry.select_devices_persisted("own", devices("after"), || {
+        panic!("revoked selection must not reach storage")
+    });
+    assert_eq!(result.unwrap_err(), "local_recording_grant_required");
+    assert_eq!(
+        registry.selected_devices("own").unwrap().0,
+        devices("before")
+    );
+}
