@@ -35,6 +35,16 @@ impl crate::service::ServiceContext {
                 .validate(self.captured_chat_identity(tab_id))
                 .map_err(|error| error.ledger_message())?;
         }
+        if super::super::agent_runtime::requested_for_tab(self, tab_id) {
+            if let Some(capture) = capture {
+                return super::super::agent_runtime::capture::admit(
+                    self,
+                    capture,
+                    &text,
+                    client_token,
+                );
+            }
+        }
         if self.tab_chat_backing(tab_id).is_none()
             || super::super::agent_runtime::requested_for_tab(self, tab_id)
         {

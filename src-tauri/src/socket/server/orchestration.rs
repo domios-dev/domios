@@ -3,8 +3,8 @@
 //! endpoints. All three transports call the same
 //! `ServiceContext::create_orchestration_pair`.
 
+use crate::app_runtime::AppHandle;
 use serde_json::Value;
-use tauri::AppHandle;
 
 use crate::service::{OrchestrationPairParams, ServiceState};
 

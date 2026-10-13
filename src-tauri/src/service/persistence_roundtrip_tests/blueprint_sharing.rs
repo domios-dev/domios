@@ -5,10 +5,6 @@ use tauri::Manager;
 use crate::sentinel::{amend::DefinitionSnapshot, store::Store};
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri service fixture requires Windows"
-)]
 fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, original_tab) = crate::multiplexer::state::MultiplexerState::new();

@@ -18,7 +18,8 @@
     },
     "providerSettings": {},
     "claimedSends": [],
-    "activeTurns": []
+    "activeTurns": [],
+    "threadParents": []
   },
   "operations": [
     {
@@ -38,7 +39,8 @@
         },
         "providerSettings": {},
         "claimedSends": [],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -64,7 +66,8 @@
         },
         "providerSettings": {},
         "claimedSends": [],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -105,7 +108,8 @@
           }
         ],
         "activeTurns": [],
-        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21"
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "threadParents": []
       }
     },
     {
@@ -143,7 +147,8 @@
           }
         ],
         "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
-        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+        "threadParents": []
       }
     }
   ],
@@ -456,7 +461,8 @@
           }
         ],
         "activeTurns": [],
-        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21"
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "threadParents": []
       }
     },
     {
@@ -502,7 +508,8 @@
           }
         ],
         "activeTurns": [],
-        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21"
+        "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
+        "threadParents": []
       }
     },
     {
@@ -577,7 +584,8 @@
           }
         ],
         "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
-        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+        "threadParents": []
       }
     },
     {
@@ -624,7 +632,8 @@
           }
         ],
         "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
-        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+        "threadParents": []
       }
     },
     {
@@ -669,7 +678,8 @@
           }
         ],
         "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
-        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+        "threadParents": []
       }
     },
     {
@@ -712,7 +722,8 @@
           }
         ],
         "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
-        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217"
+        "activeTurnId": "01a135b7-3444-7e91-876e-ec3d97427217",
+        "threadParents": []
       }
     }
   ],
@@ -771,6 +782,10 @@
       }
     ],
     "events": [
+      {
+        "kind": "auth",
+        "state": "signedIn"
+      },
       {
         "kind": "turnState",
         "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",

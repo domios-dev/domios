@@ -1,5 +1,5 @@
 use super::ports::PlanEventSink;
-use tauri::AppHandle;
+use crate::app_runtime::AppHandle;
 
 pub struct TauriPlanEventSink {
     app: AppHandle,

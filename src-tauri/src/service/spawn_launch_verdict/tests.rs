@@ -85,7 +85,6 @@ fn output_tail_keeps_the_last_bounded_lines_without_escapes_or_secrets() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn spawn_reports_pre_ready_exit_as_error() {
     let (fixture, tab_id) = booting_fixture();
     let exit_reason = format!("{EXITED_BEFORE_READINESS}: tab={tab_id} exit_code=1");
@@ -114,7 +113,6 @@ fn spawn_reports_pre_ready_exit_as_error() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn spawn_verdict_waits_for_readiness_and_never_calls_a_deadline_ready() {
     let (fixture, tab_id) = booting_fixture();
 

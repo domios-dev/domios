@@ -52,10 +52,3 @@ fn new_launch_or_process_generation_requires_its_own_first_ready_event() {
     assert!(!latch.is_ready(&next));
     assert!(!latch.mark_ready(&next));
 }
-
-#[test]
-fn only_pre_ready_admissions_wait_for_earlier_preparation() {
-    assert!(admission_order_blocks(true, true));
-    assert!(!admission_order_blocks(false, true));
-    assert!(!admission_order_blocks(true, false));
-}

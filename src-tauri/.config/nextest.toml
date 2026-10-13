@@ -1,3 +1,7 @@
-# Canonical QA gates run every selected test so one pass reports every failure.
+[profile.default]
+fail-fast = false
+status-level = "pass"
+
 [profile.qa]
 fail-fast = false
+status-level = "pass"

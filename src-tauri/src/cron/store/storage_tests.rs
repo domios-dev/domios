@@ -930,7 +930,6 @@ mod consumers {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn storage_cron_consumer_protected_delete_keeps_logs() {
         let (fixture, cron, wake) = legacy_service();
         let id = {
@@ -948,7 +947,6 @@ mod consumers {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn storage_cron_consumer_cancel_marks_the_last_run_too() {
         let (fixture, cron, _) = legacy_service();
         let id = {

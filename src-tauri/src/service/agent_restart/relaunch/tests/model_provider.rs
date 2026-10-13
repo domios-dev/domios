@@ -4,7 +4,6 @@ use codeterm_plugin::provider::{AgentProvider, SessionContentQuery};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(
         crate::multiplexer::state::MultiplexerState::new().0,

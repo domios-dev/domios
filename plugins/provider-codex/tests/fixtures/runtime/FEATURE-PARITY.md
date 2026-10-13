@@ -14,7 +14,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | thread/items/list | Paginated items per turn | Yes | readHistory continuations and openItems | Host reconciles stable IDs and unfinished items |
 | turn/start | Submit a new turn | Yes | submitTurn with clientUserMessageId, settings, attachments | Exclusive ledger remains host-owned |
 | turn/steer | Add input during active turn | Yes | submitTurn with expectedTurnId; exact refused-before-acceptance fallback | Diverges from reference by attaching our exclusive send ID; never retry uncertainty |
-| turn/interrupt | Stop running turn | Yes, root plus descendants | Root and verified active descendants, deepest first | A10/A10b explicit generic targets are host-validated |
+| turn/interrupt | Stop running turn | Yes, root plus descendants | Root and verified active descendants, deepest first | A10/A10b/A10c generic targets are validated; retained ancestry traverses inactive parents |
 | thread/settings/update | Next-turn model/effort/mode | Old core stages locally | Per-thread control request | Never writes machine config |
 | thread/compact/start | Compact active context | Not exposed as RPC control | compact control | Completion emits contextCompacted |
 | turn/started | Activity and provider start time | Yes | turnState with startedAt in ms | Auto-started goal turns on exact bound thread accepted |
@@ -40,7 +40,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | item/tool/requestUserInput | Blocking questions | Yes | Exact native option values and answers keyed by question ID | Multi-question free text UI requires richer answer shape; one free-text question works |
 | mcpServer/elicitation/request | MCP form/URL elicitation | Limited empty form | Existing empty-form prompt/reply retained | Rich forms and URL launch require UI/contract decision |
 | serverRequest/resolved | Remove live request | Yes | promptResolved with exact ID | String and numeric IDs remain distinct |
-| async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action | A9; durable itemId resolution and ordinary send ledger belong core |
+| async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action; typed historyPage.questions | A9; durable itemId resolution and ordinary send ledger belong core |
 | thread/goal/updated | Provider goal text | Yes | Stable sessionIntent item | Durable goal lifecycle/commands deliberately deferred |
 | thread/goal/cleared | Clear provider goal | Not mapped | Clear stable sessionIntent item | Same thread accepts subsequent goal-native turns |
 | thread/goal/get | Read current goal during history | Yes, optional | Optional final-page history enrichment to sessionIntent | Unsupported optional probe does not fail history |
@@ -72,6 +72,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | Steering | CodexAdapterV2.ts steerTurn | expectedTurnId retained; Domios exact correlated pre-acceptance refusal additionally permits one new-turn fallback, required by its exclusive ledger |
 | Token usage | CodexAdapterV2.ts codexProviderTurnTokenUsage | Cumulative counters plus last-turn context window; no reference orchestration accounting model copied |
 | Rate limits | codexUsageLimits.ts mergeCodexRateLimits / codexRateLimitsToWindows | Merge sparse main allowance snapshots; preserve reported durations only instead of guessing plan-dependent durations |
+| JSON display | CodexAdapterV2.ts dynamic tool JSON presentation | Recursively sorted keys make Node and the serde/QuickJS bridge render identically; source string results remain verbatim |
 | Errors | CodexAdapterV2.ts error handler | Retain retryable/class metadata on stable system row; avoid classifying a retry notice as terminal failure |
 | Timing | CodexAdapterV2.ts codexTimestamp / turn handlers | Seconds to ms, host stamps receipt time; plugin never reads a clock |
 | Resume/archive/history | CodexAdapterV2.ts resumeThread; CodexThreadRevert.ts pagination | excludeTurns and archive recovery retained; no rollback/fork action implemented without approved UI/result contract |

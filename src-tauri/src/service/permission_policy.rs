@@ -31,7 +31,9 @@ pub(crate) fn configured_full_access() -> Result<bool, String> {
     require_full_access_choice(crate::config::load_config().agent.full_access)
 }
 
-pub(crate) fn configured_full_access_for(app: &tauri::AppHandle) -> Result<bool, String> {
+pub(crate) fn configured_full_access_for(
+    app: &crate::app_runtime::AppHandle,
+) -> Result<bool, String> {
     let choice = app
         .try_state::<crate::config::ConfigState>()
         .map(|config| config.lock().agent.full_access)
@@ -58,7 +60,7 @@ pub(crate) fn configured_permission_bypass(
 }
 
 pub(crate) fn configured_permission_bypass_for(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     registry: &AgentRegistry,
     provider_id: &str,
 ) -> Result<Option<PermissionBypassAuthorization>, String> {

@@ -34,12 +34,17 @@ function allowed(op:Operation, action:RuntimeAction) {
 function replay(fixture:Fixture) {
   const plans = new Map<number,RuntimePlan>();
   const ready = new Set<number>();
+  const counts = new Map<number,number>();
+  let binding:string | undefined;
   const results:Fixture["expected"]["results"] = [];
   const events:AgentEvent[] = [];
   let state:JsonValue = null;
   for (const record of fixture.rpc) {
     if ("frame" in record) {
-      const reduced = hooks.runtimeReduce(record.context ?? fixture.context,state,[record.frame]);
+      const context=record.context ?? fixture.context;
+      const authority=JSON.stringify([context.epoch,context.tabId,context.bindingNonce,context.threadId ?? null]);
+      if(binding !== authority) {state=null;binding=authority;}
+      const reduced = hooks.runtimeReduce(context,state,[record.frame]);
       state = reduced.state; events.push(...reduced.events); continue;
     }
     const entry = fixture.operations[record.operation];
@@ -47,20 +52,30 @@ function replay(fixture:Fixture) {
     const ctx = entry.context ?? fixture.context;
     if (record.direction === "outbound") {
       let plan = plans.get(record.operation);
-      if (!plan) plan = hooks.runtimePlan(ctx,entry.operation);
+      if (!plan) {
+        assert.ok(!results.some(result=>result.operation === record.operation),"Terminal operation must not replay");
+        plan = hooks.runtimePlan(ctx,entry.operation);
+      }
       else assert.ok(ready.has(record.operation),"Next call follows a continuation");
       allowed(entry.operation,plan.action);
       assert.deepEqual(plain(plan.action),record.action);
-      plans.set(record.operation,plan); ready.delete(record.operation); continue;
+      if (plan.action.kind === "questionAnswer") plans.delete(record.operation);
+      else plans.set(record.operation,plan);
+      ready.delete(record.operation); continue;
     }
     const plan = plans.get(record.operation);
     assert.ok(plan,"Reply follows outbound action");
+    const count=(counts.get(record.operation) ?? 0)+1;
+    counts.set(record.operation,count);assert.ok(count <= 32,"Operation step bound");
     const step = hooks.runtimeResponse(ctx,entry.operation,plan.state,record.reply);
     if (step.kind === "continue") {
       if (entry.operation.kind === "submitTurn") {assert.equal(step.beforeAcceptance,true);assert.equal(record.reply.kind,"error");}
       plans.set(record.operation,step.plan);ready.add(record.operation);
     } else {
-      if (step.kind === "complete" && step.notification) allowed(entry.operation,{kind:"notification",notification:step.notification});
+      if (step.kind === "complete") {
+        events.push(...(step.events ?? []));
+        if (step.notification) allowed(entry.operation,{kind:"notification",notification:step.notification});
+      }
       results.push({operation:record.operation,step:plain(step)});plans.delete(record.operation);
     }
   }
@@ -209,7 +224,7 @@ check("file change and turn diff use app-server arrays and exact hunks",()=> {
 });
 console.log(`runtime expanded hooks: ${count} checks passed`);
 check("descendant interrupt walks deepest first with explicit targets",()=> {
-  const context={...ctx,activeTurnId:"root-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"child",turnId:"child-turn",parentThreadId:ctx.threadId!},{threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child"}]};
+  const context={...ctx,threadParents:[{threadId:"child",parentThreadId:ctx.threadId!},{threadId:"grandchild",parentThreadId:"child"}],activeTurnId:"root-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"child",turnId:"child-turn",parentThreadId:ctx.threadId!},{threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child"}]};
   const operation:Operation={kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"root-turn"};
   let plan=hooks.runtimePlan(context,operation);
   for(const target of [{threadId:"grandchild",turnId:"grandchild-turn"},{threadId:"child",turnId:"child-turn"},{threadId:ctx.threadId!,turnId:"root-turn"}]) {
@@ -269,3 +284,68 @@ check("unsupported MCP forms remain visible and can only decline or cancel",()=>
   assert.deepEqual(plain(hooks.runtimePlan(context,{kind:"answer",requestId:"mcp",answer:{kind:"choice",values:["decline"]}}).action),{kind:"reply",requestId:"mcp",result:{kind:"success",value:{action:"decline"}}});
 });
 console.log(`runtime reviewed hooks: ${count} checks passed`);
+check("inactive parent retains ancestry but is never an interrupt target",()=> {
+  const context={...ctx,activeTurnId:"root-turn",threadParents:[{threadId:"child",parentThreadId:ctx.threadId!},{threadId:"grandchild",parentThreadId:"child"}],
+    activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"grandchild",turnId:"grandchild-turn"}]};
+  const operation:Operation={kind:"interrupt",threadId:ctx.threadId!};
+  const plan=hooks.runtimePlan(context,operation);assert.equal(plan.action.kind,"request");if(plan.action.kind !== "request")return;
+  assert.deepEqual(plain(plan.action.call.target),{threadId:"grandchild",turnId:"grandchild-turn"});
+  const next=hooks.runtimeResponse(context,operation,plan.state,{kind:"success",value:{}});assert.equal(next.kind,"continue");if(next.kind !== "continue" || next.plan.action.kind !== "request")return;
+  assert.deepEqual(plain(next.plan.action.call.target),{threadId:ctx.threadId!,turnId:"root-turn"});
+  assert.equal(hooks.runtimeResponse(context,operation,next.plan.state,{kind:"success",value:{}}).kind,"complete");
+  const childStart:RuntimeFrame={kind:"notification",method:"turn/started",params:{threadId:"grandchild",turn:{id:"grandchild-turn"}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(context,null,[childStart]).events),[{kind:"turnState",threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child",state:"working"}]);
+});
+check("idle root with no roster turn is not a synthetic interrupt target",()=> {
+  assert.throws(()=>hooks.runtimePlan({...ctx,activeTurnId:"stale",activeTurns:[]},{kind:"interrupt",threadId:ctx.threadId!}));
+});
+console.log(`runtime ancestry hooks: ${count} checks passed`);
+check("history questions survive item pagination and require exact later native answers",()=> {
+  const operation:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const question={id:"history-question",type:"agentMessage",delivery:"async",text:"Choose",questions:[{id:"q1",title:"Pick",options:[{value:"native",label:"Display"}]}]};
+  function read(answerItem:JsonValue) {
+    const first=hooks.runtimePlan(ctx,operation);
+    let step=hooks.runtimeResponse(ctx,operation,first.state,{kind:"success",value:{data:[{id:"history-turn",status:"completed"}],nextCursor:"next-turn-page"}});
+    assert.equal(step.kind,"continue");if(step.kind !== "continue")throw new Error("Missing items plan");
+    step=hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value:{data:[{item:question}],nextCursor:"next-item-page"}});
+    assert.equal(step.kind,"continue");if(step.kind !== "continue")throw new Error("Missing item continuation");
+    step=hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value:{data:[{item:answerItem}]}});
+    assert.ok(step.kind === "complete" && step.result.kind === "historyPage");
+    return step.result;
+  }
+  const envelope={itemId:"history-question",answers:[{questionId:"q1",values:["native"]}]};
+  const item={id:"answer",type:"userMessage",content:[{type:"text",text:JSON.stringify(envelope)}]};
+  assert.deepEqual(plain(read(item).questions),[{threadId:ctx.threadId!,itemId:"history-question",questions:[{id:"q1",text:"Pick",options:[{value:"native",label:"Display"}]}],response:"message",resolved:true}]);
+  for (const body of [ {...envelope,itemId:"wrong"},{...envelope,answers:[{questionId:"q1",values:["Display"]}]},{...envelope,answers:[{questionId:"wrong",values:["native"]}]}]) {
+    const result=read({...item,content:[{type:"text",text:JSON.stringify(body)}]});
+    assert.equal(result.questions?.[0].resolved,undefined);
+  }
+  assert.equal(read({id:"assistant-answer",type:"agentMessage",text:JSON.stringify(envelope)}).questions?.[0].resolved,undefined);
+});
+console.log(`runtime history hooks: ${count} checks passed`);
+check("reinitialize response auth is part of the full replay event stream",()=> {
+  const fixture=JSON.parse(fs.readFileSync(new URL("runtime-restart.json",root),"utf8")) as Fixture;
+  const result=replay(fixture);assert.equal(result.events.filter(event=>event.kind === "auth").length,1);
+  fixture.expected.events=fixture.expected.events.filter(event=>event.kind !== "auth");
+  assert.throws(()=>replay(fixture));
+});
+console.log(`runtime full event hooks: ${count} checks passed`);
+check("display JSON is identical for recursively reordered frame keys",()=> {
+  const frame:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"ordered",type:"mcpToolCall",server:"fixture",tool:"lookup",status:"completed",
+    arguments:{z:{b:2,a:1},a:[{z:4,a:3}],"2":"two","10":"ten"},result:{content:[{type:"text",text:"Found"}],metadata:{z:2,a:1},isError:false}}}};
+  function reorder(value:JsonValue):JsonValue {
+    if(Array.isArray(value))return value.map(reorder);
+    if(value !== null && typeof value === "object")return Object.fromEntries(Object.entries(value).reverse().map(([key,entry])=>[key,reorder(entry)]));
+    return value;
+  }
+  const reversed:RuntimeFrame={...frame,params:reorder(frame.params)};
+  const first=hooks.runtimeReduce(ctx,null,[frame]).events[0];const second=hooks.runtimeReduce(ctx,null,[reversed]).events[0];
+  assert.ok(first.kind === "chatItem" && second.kind === "chatItem");
+  assert.deepEqual(plain(first),plain(second));
+  assert.equal(first.item.toolSummary,'{\n  "10": "ten",\n  "2": "two",\n  "a": [\n    {\n      "a": 3,\n      "z": 4\n    }\n  ],\n  "z": {\n    "a": 1,\n    "b": 2\n  }\n}');
+  assert.equal(first.item.toolArgs,first.item.toolSummary);
+  assert.equal(first.item.toolResult,'{\n  "content": [\n    {\n      "text": "Found",\n      "type": "text"\n    }\n  ],\n  "isError": false,\n  "metadata": {\n    "a": 1,\n    "z": 2\n  }\n}');
+  const prompt:RuntimeFrame={kind:"request",requestId:"permissions",method:"item/permissions/requestApproval",params:{threadId:ctx.threadId!,permissions:{z:{b:2,a:1},a:3}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,null,[prompt]).events),plain(hooks.runtimeReduce(ctx,null,[{...prompt,params:reorder(prompt.params)}]).events));
+});
+console.log(`runtime canonical JSON hooks: ${count} checks passed`);

@@ -1,3 +1,5 @@
+import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
+import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { tabStartingLabel } from "../Sidebar/tabAttention";
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
@@ -19,6 +21,7 @@ function compactStatusMessage(text: string): string {
 
 export function AgentStateIndicator({
   activity,
+  runtimeState,
   tab,
   providerName,
   model,
@@ -33,6 +36,7 @@ export function AgentStateIndicator({
   channelLoadingLabel,
 }: {
   activity: TabActivity;
+  runtimeState?: AgentRuntimeState | null;
   tab?: Tab | null;
   providerName?: string | null;
   model?: string | null;
@@ -50,7 +54,7 @@ export function AgentStateIndicator({
   const isQuiet = activity.quiet;
   const isQuestion = activity.kind === "waiting-on-user";
   const phase = activity.phase;
-  const status = activity.label;
+  const status = runtimeActivityLabel(activity.label, activity.kind, runtimeState, Date.now());
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;

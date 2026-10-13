@@ -57,6 +57,23 @@ var serverRequestMethods = [
   "mcpServer/elicitation/request"
 ];
 
+// plugins/provider-codex/src/canonicalJson.ts
+function canonicalJson(value, indentation = 0) {
+  const normalized = JSON.parse(JSON.stringify(value ?? null));
+  const gap = " ".repeat(Math.max(0, Math.min(10, Math.trunc(indentation))));
+  const render = (node, depth) => {
+    if (node === null || typeof node !== "object") return JSON.stringify(node);
+    const parts = Array.isArray(node) ? node.map((entry) => render(entry, depth + 1)) : Object.keys(node).sort().map((key) => `${JSON.stringify(key)}:${gap ? " " : ""}${render(node[key], depth + 1)}`);
+    const [open, close] = Array.isArray(node) ? ["[", "]"] : ["{", "}"];
+    if (!parts.length) return open + close;
+    return gap ? `${open}
+${gap.repeat(depth + 1)}${parts.join(`,
+${gap.repeat(depth + 1)}`)}
+${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
+  };
+  return render(normalized, 0);
+}
+
 // packages/plugin-sdk/src/fileDiffs.ts
 function recordedPatchDiff(path, patch, kind) {
   if (!path.trim()) return [];
@@ -140,7 +157,39 @@ function runtimeQuestions(value) {
   }));
 }
 function questionAnswerInput(itemId, answers) {
-  return { text: JSON.stringify({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
+  return { text: canonicalJson({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
+}
+function answersMatch(questions, raw) {
+  const answers = list(raw).map(object);
+  if (answers.length !== questions.length || new Set(answers.map((answer) => answer.questionId)).size !== answers.length) return false;
+  return questions.every((question) => {
+    const answer = answers.find((answer2) => answer2.questionId === question.id);
+    if (!answer || !Array.isArray(answer.values)) return false;
+    const values = answer.values;
+    if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
+    if (!question.multiSelect && values.length > 1) return false;
+    const freeText = text(answer.text);
+    if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
+    return values.length > 0 || !!freeText;
+  });
+}
+function reconcileHistoryQuestions(threadId, raw, previous) {
+  const item = object(raw);
+  const itemId = text(item.id);
+  if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
+    const old = previous.find((question2) => question2.itemId === itemId);
+    const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
+    return [...previous.filter((existing) => existing.itemId !== itemId), question];
+  }
+  if (item.type !== "userMessage") return [...previous];
+  const content = list(item.content).map(object).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  let answer;
+  try {
+    answer = object(JSON.parse(content));
+  } catch {
+    return [...previous];
+  }
+  return previous.map((question) => answer.itemId === question.itemId && answersMatch(question.questions, answer.answers) ? { ...question, resolved: true } : question);
 }
 
 // plugins/provider-codex/src/fileDiffs.ts
@@ -252,7 +301,7 @@ function toolOutput(value) {
   return display(Array.isArray(result) ? mapped : parts.length ? { ...object(result), content: mapped } : result);
 }
 function display(value) {
-  return typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
+  return typeof value === "string" ? value : canonicalJson(value, 2);
 }
 function runtimeItem(raw, seq, previous) {
   const item = object(raw);
@@ -426,9 +475,8 @@ function notificationAuth(value) {
 }
 
 // plugins/provider-codex/src/runtimeInterrupt.ts
-function interruptTargets(ctx, root, active) {
+function interruptTargets(ctx, root) {
   const turns = [...ctx.activeTurns];
-  if (active && !turns.some((turn) => turn.threadId === root && turn.turnId === active)) turns.push({ threadId: root, turnId: active });
   const depth = (thread) => {
     let current = thread;
     let count = 0;
@@ -436,7 +484,7 @@ function interruptTargets(ctx, root, active) {
     while (current !== root) {
       if (seen.has(current)) return -1;
       seen.add(current);
-      const parent = turns.find((turn) => turn.threadId === current)?.parentThreadId;
+      const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
       if (!parent) return -1;
       current = parent;
       count++;
@@ -452,10 +500,10 @@ function fail(message) {
 }
 function decisionOptions(data) {
   const decisions = list(data.availableDecisions);
-  const supported = decisions.length ? decisions : ["accept", "acceptForSession", "decline", "cancel"];
+  const supported = decisions.length ? [...decisions] : ["accept", "acceptForSession", "decline", "cancel"];
   if (!supported.includes("decline")) supported.push("decline");
   const labels = { accept: "Approve", acceptForSession: "Approve for session", decline: "Decline", cancel: "Cancel" };
-  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : JSON.stringify(value) }));
+  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : canonicalJson(value) }));
 }
 function runtimePrompt(method, params, _id) {
   const data = object(params);
@@ -477,7 +525,7 @@ function runtimePrompt(method, params, _id) {
     case "item/fileChange/requestApproval":
       return { question: String(data.command ?? data.reason ?? "Approve this operation?"), options: decisionOptions(data) };
     case "item/permissions/requestApproval":
-      return { question: `Grant permissions: ${JSON.stringify(data.permissions ?? null)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
+      return { question: `Grant permissions: ${canonicalJson(data.permissions)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
     case "mcpServer/elicitation/request":
       if (data.mode !== "form" || list(object(data.requestedSchema).required).length)
         return { question: String(data.message ?? "Unsupported tool request"), options: [{ label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
@@ -645,7 +693,7 @@ function runtimeReduce(ctx, raw, frames) {
       events.push(notificationAuth(params));
       continue;
     }
-    state.parents ?? (state.parents = Object.fromEntries(ctx.activeTurns.filter((turn) => turn.parentThreadId).map((turn) => [turn.threadId, turn.parentThreadId])));
+    state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
     if (frame.kind === "notification" && frame.method === "thread/started") {
       const thread = object(params.thread);
       const id = text(thread.id);
@@ -893,7 +941,7 @@ function runtimePlan(ctx, op) {
       return request("turn/steer", { threadId: op.threadId, clientUserMessageId: op.sendId, input: params.input, expectedTurnId: op.activeTurnId });
     }
     case "interrupt": {
-      const turns = interruptTargets(ctx, op.threadId, op.activeTurnId ?? ctx.activeTurnId);
+      const turns = interruptTargets(ctx, op.threadId);
       if (!turns.length) fail2("provider_refused", "No active turn to interrupt");
       return request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) });
     }
@@ -997,9 +1045,11 @@ function historyResponse(op, state, value) {
   const items = list(state.items);
   const openItems = list(state.openItems);
   let seq = Number(state.seq);
+  let questions = list(state.questions);
   for (const entry of value.data) {
     const record4 = object(entry);
     const rawItem = record4.item ?? record4;
+    questions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
     const rows = runtimeItems(rawItem, seq + 1);
     seq += rows.length;
     for (const row2 of rows) {
@@ -1013,7 +1063,7 @@ function historyResponse(op, state, value) {
   const next = text(value.nextCursor);
   const cursors = list(state.cursors);
   if (next && cursors.includes(next)) return refused("Repeated history cursor");
-  const collected = { ...state, items, openItems, seq };
+  const collected = { ...state, items, openItems, seq, questions };
   if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
   const index = Number(state.index) + 1;
   if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
@@ -1034,7 +1084,8 @@ function historyComplete(op, state) {
     threadId: op.threadId,
     items: list(state.items),
     openItems: list(state.openItems),
-    ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {}
+    ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
+    ...list(state.questions).length ? { questions: list(state.questions) } : {}
   } };
 }
 
@@ -1045,7 +1096,7 @@ function codexToolOutputText(output) {
   if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
     return output.map((item) => item.text).join("");
   }
-  return typeof output === "object" ? JSON.stringify(output) : String(output);
+  return typeof output === "object" ? canonicalJson(output) : String(output);
 }
 
 // plugins/provider-shared/accessError.ts

@@ -2,7 +2,6 @@ use super::*;
 use crate::multiplexer::state::MultiplexerState;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn remote_task_bound_startup_accepts_matching_identity_without_local_supervisor() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();

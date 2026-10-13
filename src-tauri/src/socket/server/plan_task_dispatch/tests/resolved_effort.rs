@@ -1,7 +1,6 @@
 use super::*;
 use crate::service::test_fixture::ServiceFixture;
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn attempt_records_resolved_reasoning_effort() {
     let root = tempfile::tempdir().unwrap();

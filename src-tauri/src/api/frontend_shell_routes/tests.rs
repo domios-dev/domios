@@ -20,7 +20,6 @@ fn transport_bootstrap_contract_router_merges_once_with_domains() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn transport_bootstrap_contract_auth_status_and_stale_readiness() {
     use axum::{
         body::{to_bytes, Body},

@@ -104,10 +104,6 @@ fn assert_status(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn service_completion_publishes_idle_without_duplicate_events() {
     use tauri::Manager;
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -210,10 +206,6 @@ fn rpc_declared_turns_publish_once_and_reconcile_pty_idle() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn rpc_turn_status_owner_updates_api_and_publishes_once() {
     use tauri::Manager;
     let (mux, tab_id) = rpc_tab();

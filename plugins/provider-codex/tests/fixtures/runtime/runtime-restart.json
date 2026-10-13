@@ -23,7 +23,8 @@
         }
       }
     ],
-    "activeTurns": []
+    "activeTurns": [],
+    "threadParents": []
   },
   "operations": [
     {
@@ -69,7 +70,8 @@
             }
           }
         ],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -105,7 +107,8 @@
             }
           }
         ],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -146,7 +149,8 @@
             }
           }
         ],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     }
   ],
@@ -440,7 +444,8 @@
             }
           }
         ],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -487,7 +492,8 @@
             }
           }
         ],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -528,7 +534,8 @@
             }
           }
         ],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     },
     {
@@ -567,7 +574,8 @@
             }
           }
         ],
-        "activeTurns": []
+        "activeTurns": [],
+        "threadParents": []
       }
     }
   ],
@@ -651,6 +659,10 @@
         "threadId": "thread-fixture",
         "sendId": "before",
         "turnId": "turn-a"
+      },
+      {
+        "kind": "auth",
+        "state": "signedIn"
       },
       {
         "kind": "turnState",

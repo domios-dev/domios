@@ -388,7 +388,6 @@ impl LiveCaller {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_skill_show_backfills_nonce_proven_live_session() {
     let caller = LiveCaller::new();
     let mut params = caller.production_params();
@@ -406,7 +405,6 @@ fn plan_skill_show_backfills_nonce_proven_live_session() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_skill_show_refuses_stale_or_mismatched_nonce() {
     let caller = LiveCaller::new();
     let mut mismatched = caller.production_params();
@@ -445,7 +443,6 @@ fn plan_skill_show_refuses_stale_or_mismatched_nonce() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_skill_show_refuses_partial_identity_without_live_backfill() {
     let caller = LiveCaller::new();
     for partial in [
@@ -577,7 +574,6 @@ impl OwnerFixture {
 /// Neither tab is ever assigned a task, so success here proves the
 /// owner/Planner path never reaches `resolve_skill_task_id`.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_skill_show_serves_the_plan_owner_and_planner() {
     let f = OwnerFixture::new();
 
@@ -594,7 +590,6 @@ fn plan_skill_show_serves_the_plan_owner_and_planner() {
 
 /// Spoofed identities refuse; a verified unassigned reader records no receipt.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plan_skill_show_authenticates_owner_and_unassigned_readers() {
     let f = OwnerFixture::new();
 

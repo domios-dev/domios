@@ -1,12 +1,12 @@
 import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
-  RuntimeFailure, JsonValue, ChatMsg, OpenItem,
+  RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
 } from "@codeterm/plugin-sdk";
 import { object, text, list, userThread, steerRefused } from "./runtimeProtocol";
 import { json, runtimeItems } from "./runtimeMessages";
 import { accountAuth } from "./runtimeAuth";
 import { interruptTargets } from "./runtimeInterrupt";
-import { questionAnswerInput } from "./runtimeQuestions";
+import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 export { runtimeReduce } from "./runtimeReduce";
 
@@ -69,7 +69,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       return request("turn/steer",{threadId:op.threadId,clientUserMessageId:op.sendId,input:params.input,expectedTurnId:op.activeTurnId});
     }
     case "interrupt": {
-      const turns = interruptTargets(ctx,op.threadId,op.activeTurnId ?? ctx.activeTurnId);
+      const turns = interruptTargets(ctx,op.threadId);
       if (!turns.length) fail("provider_refused","No active turn to interrupt");
       return request("turn/interrupt",{threadId:turns[0].threadId,turnId:turns[0].turnId},{stage:"interrupt",remaining:turns.slice(1)});
     }
@@ -168,8 +168,10 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
   const items = list(state.items) as ChatMsg[];
   const openItems = list(state.openItems) as OpenItem[];
   let seq = Number(state.seq);
+  let questions = list(state.questions) as RuntimeHistoryQuestion[];
   for (const entry of value.data) {
     const record = object(entry); const rawItem = record.item ?? record;
+    questions = reconcileHistoryQuestions(op.threadId,rawItem,questions);
     const rows = runtimeItems(rawItem,seq+1);
     seq += rows.length;
     for (const row of rows) {
@@ -184,7 +186,7 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
   const next = text(value.nextCursor);
   const cursors = list(state.cursors);
   if (next && cursors.includes(next)) return refused("Repeated history cursor");
-  const collected = {...state,items,openItems,seq};
+  const collected = {...state,items,openItems,seq,questions};
   if (next) return historyItems(op,{...collected,cursors:[...cursors,next]},next);
   const index = Number(state.index) + 1;
   if (index < turns.length) return historyItems(op,{...collected,index,cursors:[]});
@@ -201,5 +203,6 @@ function historyGoal(op: Extract<Operation,{kind:"readHistory"}>, state: Record<
 }
 function historyComplete(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>): RuntimeStep {
   return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:list(state.items) as ChatMsg[],openItems:list(state.openItems) as OpenItem[],
-    ...(text(state.nextCursor) ? {nextCursor:String(state.nextCursor)} : {})}};
+    ...(text(state.nextCursor) ? {nextCursor:String(state.nextCursor)} : {}),
+    ...(list(state.questions).length ? {questions:list(state.questions) as RuntimeHistoryQuestion[]} : {})}};
 }

@@ -74,7 +74,6 @@ fn journal_provider_for_tab(fixture: &ServiceFixture, tab_id: &str, provider: &s
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn legacy_restored_provider_recovers_from_its_sealed_tab_session_checkpoint() {
     let (fixture, tab_id) = fixture(&[]);
     journal_provider_for_tab(&fixture, &tab_id, "journal-owner");
@@ -97,7 +96,6 @@ fn legacy_restored_provider_recovers_from_its_sealed_tab_session_checkpoint() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn missing_restored_provider_surfaces_a_reason_without_unique_journal_provenance() {
     for owners in [vec![], vec!["owner-one"], vec!["owner-one", "owner-two"]] {
         let (fixture, tab_id) = fixture(&owners);
@@ -120,7 +118,6 @@ fn missing_restored_provider_surfaces_a_reason_without_unique_journal_provenance
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn missing_restored_provider_does_not_revive_a_non_restored_or_booting_tab() {
     for booting in [false, true] {
         let (fixture, tab_id) = fixture(&["fixture-owner"]);

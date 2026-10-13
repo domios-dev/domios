@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
+use crate::app_runtime::AppHandle;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 

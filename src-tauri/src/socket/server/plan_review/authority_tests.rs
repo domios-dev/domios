@@ -53,7 +53,6 @@ fn caller(tab_id: &str, session_id: &str, nonce: &str) -> serde_json::Value {
 
 /// The reproduction: owner tab and nonce match, the tab is a live Team-bound
 /// Orchestrator, but the plan's STORED owner session is stale or absent.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn live_orchestrator_with_rotated_owner_session_is_authorized() {
     for stored in [None, Some("rotated-away")] {
@@ -68,7 +67,6 @@ fn live_orchestrator_with_rotated_owner_session_is_authorized() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn a_matching_stored_owner_session_is_still_authorized() {
     let (fixture, plan_id, owner) = fixture(Some(LIVE_SESSION), true);
@@ -78,7 +76,6 @@ fn a_matching_stored_owner_session_is_still_authorized() {
 }
 
 /// An omitted session id is resolved from the live tab, never guessed.
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn an_omitted_session_id_resolves_from_the_live_tab() {
     let (fixture, plan_id, owner) = fixture(None, true);
@@ -92,7 +89,6 @@ fn an_omitted_session_id_resolves_from_the_live_tab() {
     assert_eq!(actor.session_id.as_deref(), Some(LIVE_SESSION));
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn wrong_tab_wrong_nonce_and_wrong_live_session_are_all_refused() {
     let (fixture, plan_id, owner) = fixture(Some(LIVE_SESSION), true);
@@ -109,7 +105,6 @@ fn wrong_tab_wrong_nonce_and_wrong_live_session_are_all_refused() {
     }
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn a_non_team_orchestrator_is_refused() {
     let (fixture, plan_id, owner) = fixture(None, false);
@@ -121,7 +116,6 @@ fn a_non_team_orchestrator_is_refused() {
     assert_eq!(error.code, -32003);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn a_worker_and_a_draft_planner_are_refused() {
     let (mut mux, _) = MultiplexerState::new();

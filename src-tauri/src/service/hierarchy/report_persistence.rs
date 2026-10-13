@@ -690,7 +690,6 @@ mod tests {
         assert!(store.get(&plan.id).unwrap().tasks[0].milestones.is_empty());
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn spoofed_or_rebound_report_rejects_transition_without_mutating_task() {
         let (mux, _) = MultiplexerState::new();
@@ -747,7 +746,6 @@ mod tests {
             .is_empty());
     }
 
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn verified_nonce_resolves_missing_report_session_id() {
         let (mux, _) = MultiplexerState::new();
