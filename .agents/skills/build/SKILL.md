@@ -402,7 +402,7 @@ the run by the per-test `... ok` lines of the target that owns the test.
 Filtersets use nextest's `--filter-expr` syntax. A filterset containing
 `rdeps(...)` runs workspace targets so reverse dependents remain in scope.
 `verify` runs the standard
-check, full Rust workspace library suite, and source-size integration gate.
+check, full Rust workspace library suite, and source-size and provider-boundary integration gates.
 Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait
 for Cargo and libtest to finish by default. For a targeted diagnostic only, set
 `TEST_CAP_SECS=<positive-seconds>`; an enforced cap terminates the test process
@@ -601,4 +601,4 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 22 -->
+<!-- revision: 23 -->
