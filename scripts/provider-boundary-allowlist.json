@@ -6442,20 +6442,6 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/src/api/agent_model_routes.rs",
-      "token": "codex_rpc",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/src/api/agent_model_routes/tests.rs",
-      "token": "codex_rpc",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
       "file": "src-tauri/src/api/agent_model_routes/tests.rs",
       "token": "codex_rpc_control_model_request_validates_runtime_mode_and_effort",
       "count": 1,
