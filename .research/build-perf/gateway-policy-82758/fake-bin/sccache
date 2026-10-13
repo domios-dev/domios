@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-printf "%s\n" "$SCCACHE_CACHE_SIZE" > "$CODETERM_SCCACHE_CAP_RECEIPT"
-case "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac
