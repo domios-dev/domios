@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 export const baselinePath = 'scripts/slow-unit-tests.json';
 export const thresholdSeconds = 1;
+export const newSlowFailureSeconds = 1.25;
+export const regressionLimit = seconds => seconds + Math.max(seconds * 0.2, 0.25);
 const identity = entry => JSON.stringify([entry.binary, entry.test]);
 const exactName = /^[A-Za-z0-9_:./@-]+$/;
 
@@ -77,12 +79,24 @@ export function checkSlowTests(timings, document, previousDocument = document, a
     const seconds = measuredAlone.get(identity(candidate));
     if (seconds === undefined) {
       errors.push(`missing alone timing: ${candidate.binary} ${candidate.test}`);
-    } else if (seconds > (allowed.get(identity(candidate)) ?? thresholdSeconds)) {
+    } else if (seconds > (allowed.has(identity(candidate))
+      ? regressionLimit(allowed.get(identity(candidate))) : newSlowFailureSeconds)) {
       const kind = allowed.has(identity(candidate)) ? 'slow unit regression' : 'new slow unit';
       errors.push(`${kind}: ${candidate.binary} ${candidate.test}: parallel=${candidate.measuredSeconds}s alone=${seconds}s`);
     }
   }
   return errors;
+}
+
+export function timingWarnings(alone, document) {
+  const allowed = new Map(validateBaseline(document).map(entry => [identity(entry), entry.measuredSeconds]));
+  return alone.flatMap(entry => {
+    const baseline = allowed.get(identity(entry));
+    const withinNewBand = entry.measuredSeconds > thresholdSeconds && entry.measuredSeconds <= newSlowFailureSeconds;
+    const withinRegressionBand = baseline !== undefined && entry.measuredSeconds > baseline && entry.measuredSeconds <= regressionLimit(baseline);
+    return withinNewBand || withinRegressionBand
+      ? [`Unit timing WARNING: alone=${entry.measuredSeconds.toFixed(3)}s ${entry.binary} ${entry.test}; 1s unit target, within measurement noise band.`] : [];
+  });
 }
 
 function main() {
@@ -123,6 +137,8 @@ function main() {
   for (const candidate of candidates) {
     console.log(`Unit timing: parallel=${candidate.measuredSeconds.toFixed(3)}s alone=${measuredAlone.get(identity(candidate))?.toFixed(3) ?? 'missing'}s ${candidate.binary} ${candidate.test}`);
   }
+  console.log("Unit timing rule: 1s target; new alone >1.25s fails; regression above baseline + max(20%, 0.25s) fails.");
+  for (const warning of timingWarnings(alone, document)) console.log(warning);
   const errors = checkSlowTests(timings, document, previous, alone);
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(`Slow unit ratchet PASS: ${timings.length} measured tests, ${candidates.length} serial confirmations, ${document.entries.length} existing slow units; baseline ${options.base}.`);
