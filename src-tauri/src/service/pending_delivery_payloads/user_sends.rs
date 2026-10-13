@@ -11,7 +11,9 @@ use std::sync::Arc;
 mod admission_evidence;
 mod admission_tokens;
 mod runtime_capture;
+mod runtime_observers;
 pub(crate) use admission_evidence::UserAdmissionEvidence;
+use runtime_observers::RuntimeAdmission;
 pub(crate) mod continuity;
 mod ready_launch;
 mod reservations;
@@ -85,6 +87,8 @@ struct UserIndex {
     receipts: Vec<continuity::UserSendReceipt>,
     #[serde(default)]
     runtime_questions: crate::service::agent_runtime::questions::QuestionBook,
+    #[serde(default)]
+    runtime_observers: runtime_observers::WriteObservers,
 }
 
 impl Default for UserIndex {
@@ -95,6 +99,7 @@ impl Default for UserIndex {
             records: Vec::new(),
             receipts: Vec::new(),
             runtime_questions: Default::default(),
+            runtime_observers: Default::default(),
         }
     }
 }
@@ -286,8 +291,7 @@ impl UserSendStore {
             body,
             typed_follow_up,
             held_before_readiness,
-            None,
-            false,
+            RuntimeAdmission::default(),
         )
     }
 
@@ -299,8 +303,7 @@ impl UserSendStore {
         body: Option<PreparedUserBody>,
         typed_follow_up: Option<String>,
         held_before_readiness: bool,
-        question: Option<runtime_questions::QuestionResolution>,
-        capture_required: bool,
+        runtime: RuntimeAdmission,
     ) -> Result<UserSendRecord, String> {
         if reservation.reused {
             return Err("duplicate reservation must resolve the existing ledger status".into());
@@ -345,7 +348,7 @@ impl UserSendStore {
             state: UserSendState::Queued,
             handoff_session: None,
             typed_follow_up,
-            capture_required,
+            capture_required: runtime.capture_required,
             original_digest: digest(original.as_bytes()),
             original_bytes: original.len(),
             prepared_digest: digest(prepared.as_bytes()),
@@ -363,7 +366,7 @@ impl UserSendStore {
             body_bytes: body.as_ref().map_or(0, |body| body.bytes.len()),
         };
         let mut next = loaded.index.clone();
-        if let Some(question) = question {
+        if let Some(question) = runtime.question {
             if next
                 .runtime_questions
                 .get(&question.thread_id, &question.item_id)
@@ -375,6 +378,14 @@ impl UserSendStore {
             next.runtime_questions
                 .resolve(&question.thread_id, &question.item_id, question.receipt)
                 .map_err(|reason| reason.to_string())?;
+        }
+        if let Some(observer) = runtime.observer {
+            next.runtime_observers.insert(
+                &next.records,
+                &next.receipts,
+                &record.send_id,
+                observer,
+            )?;
         }
         next.records.push(record.clone());
         next.records
@@ -918,6 +929,7 @@ impl UserTab {
 
 fn validate_index(index: &UserIndex, tab_id: &str) -> Result<(), String> {
     continuity::validate_receipts(index, tab_id)?;
+    index.runtime_observers.validate()?;
     if index.next_sequence == 0 {
         return Err("user index sequence is invalid".into());
     }
