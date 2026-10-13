@@ -190,3 +190,5 @@ export { parseLocalArtifactDirective, localArtifactTextParts } from "./localArti
 export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";
 
 export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";
+
+export { parseMessageParts, splitExactSendTexts, projectMessageParts, projectTranscriptParts, type MessagePart, type ExactSendText } from "./messageParts";

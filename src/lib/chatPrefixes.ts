@@ -10,6 +10,7 @@ import {
   buildDomiosMessage,
   DOMIOS_CLOSE_TAG,
   parseDomiosMessage,
+  parseMessageParts,
   parseMarker,
   systemOriginLabel,
 } from "@codeterm/chat-core";
@@ -149,19 +150,13 @@ function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch 
   return null;
 }
 
-export function splitChatPrefixedMessages(content: string): PrefixMatch[] | null {
-  const matches: PrefixMatch[] = [];
-  let remaining = content;
-  while (remaining.startsWith("<domios")) {
-    const close = remaining.indexOf(DOMIOS_CLOSE_TAG);
-    if (close < 0) break;
-    const end = close + DOMIOS_CLOSE_TAG.length;
-    const match = detectTransportPrefix(remaining.slice(0, end));
-    if (!match) break;
-    matches.push(match);
-    remaining = remaining.slice(end);
-  }
-  return matches.length > 0 ? matches : null;
+export function splitChatPrefixedMessages(content: string): Array<{ origin?: ChatOrigin; body: string }> | null {
+  const parts = parseMessageParts(content);
+  if (!parts.some((part) => part.kind === "frame")) return null;
+  return parts.map((part) => {
+    const prefix = part.kind === "frame" ? detectTransportPrefix(part.content) : null;
+    return prefix ?? { body: part.content };
+  });
 }
 
 function collectSlashCommands(content: string): PrefixMatch | null {

@@ -1,3 +1,4 @@
+import { projectTranscriptParts } from "./messageParts";
 import { placePendingSends } from "./sendPlacement";
 import { mergeById } from "./merge";
 import { reconcileSends, type ChatSend, type SendEcho } from "./sendOrder";
@@ -318,5 +319,6 @@ export function projectTranscript(
 ): TranscriptProjection {
   const committedRows = transcriptRows(state);
   const { echoes, pending } = reconcileSends(sends, committedRows);
-  return { rows: placePendingSends(committedRows, pending), pending, echoes };
+  const projectedCommittedRows = projectTranscriptParts(committedRows, sends);
+  return { rows: placePendingSends(projectedCommittedRows, pending), pending, echoes };
 }
