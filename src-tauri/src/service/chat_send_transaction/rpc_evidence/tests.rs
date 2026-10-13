@@ -236,5 +236,25 @@ fn parked_user_delivery_accepted_rpc_does_not_block_later_held_message() {
         .owned
         .insert(status.send_id.clone(), (authority.clone(), true));
     ledger.mark_rpc_accepted(&status.send_id);
-    assert!(!ledger.has_written_user_send_before(&authority, status.sequence + 1, true));
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        crate::service::pending_delivery_payloads::user_sends::UserSendStore::open(temp.path())
+            .unwrap();
+    let reservation = store
+        .reserve(authority, None, || ledger.reserve_identity())
+        .unwrap();
+    let record = store
+        .admit(&reservation, "next payload", "next payload", None)
+        .unwrap();
+    drop(reservation);
+    ledger.admit_user(&record);
+    assert!(ledger.begin_user_handoff(&record, "next payload", Default::default()));
+    assert_eq!(
+        ledger.mark_user_written(&record.send_id).unwrap().state,
+        ChatSendState::Written
+    );
+    assert_eq!(
+        ledger.status(&status.send_id).unwrap().state,
+        ChatSendState::Written
+    );
 }

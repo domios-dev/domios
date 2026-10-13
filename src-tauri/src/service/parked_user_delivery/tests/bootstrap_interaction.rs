@@ -116,24 +116,23 @@ fn ready_user_send_does_not_wait_for_bootstrap_submit_completion() {
     let (bootstrap_tx, bootstrap_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = Arc::new(Mutex::new(release_rx));
-    let _bootstrap = BootstrapSubmitBoundary::install(
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _bootstrap = queued_boundary::QueuedSubmitBoundary::install(
         &tab,
-        Arc::new(move |text| {
+        Arc::new(move |record, text, enqueued| {
+            if let Some(record) = record {
+                enqueued();
+                writes_tx.send(record.send_id.clone()).unwrap();
+                return Err(DeliveryError::SubmitUnconfirmed {
+                    tab: record.authority.tab_id.clone(),
+                    detail: "opaque-uncertainty".into(),
+                });
+            }
+            enqueued();
             assert_eq!(text, "opaque-bootstrap");
             bootstrap_tx.send(()).unwrap();
             release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
             Ok(())
-        }),
-    );
-    let (writes_tx, writes_rx) = mpsc::channel();
-    let _user = UserSubmitBoundary::install(
-        &tab,
-        Arc::new(move |record, _| {
-            writes_tx.send(record.send_id.clone()).unwrap();
-            Err(DeliveryError::SubmitUnconfirmed {
-                tab: record.authority.tab_id.clone(),
-                detail: "opaque-uncertainty".into(),
-            })
         }),
     );
     fixture.service.wake_parked_user_send(&tab);

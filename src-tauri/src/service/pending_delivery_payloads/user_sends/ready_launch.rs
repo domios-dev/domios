@@ -39,12 +39,5 @@ impl ReadyUserLaunch {
     }
 }
 
-pub(crate) fn admission_order_blocks(
-    held_before_readiness: bool,
-    earlier_reservation_pending: bool,
-) -> bool {
-    held_before_readiness && earlier_reservation_pending
-}
-
 #[cfg(test)]
 mod tests;
