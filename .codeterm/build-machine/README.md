@@ -34,7 +34,9 @@ machine before dispatching `gh workflow run tests.yml --ref ci/<branch>`.
 The classifier in `scripts/ci-test-classifier` follows Rust source modules and
 inherited cfg gates, including platform cfg attributes inside test bodies.
 `ci-rust-shards.mjs` joins this with nextest's compiled inventory for workspace
-libraries and CLI test targets. Unknown tests and ignored cases fail explicitly.
+libraries and CLI test targets. Unknown tests and reasonless ignores fail explicitly; every source-authored ignore
+is named with its reason in logs, receipts and the final summary, including
+counts of distinct tests and OS/test entries per reason.
 The coverage job requires all fifteen successful receipts, identical shared
 inventories across every OS, and exactly one shard execution per shared test.
 It publishes runner names, test counts and durations in the workflow summary;

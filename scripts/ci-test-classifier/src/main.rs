@@ -30,6 +30,32 @@ fn platform(attrs: &[Attribute]) -> bool {
     })
 }
 
+fn ignore_reason(attrs: &[Attribute]) -> Option<String> {
+    fn reason(meta: &syn::Meta) -> Option<String> {
+        match meta {
+            syn::Meta::NameValue(value) if value.path.is_ident("ignore") => {
+                if let syn::Expr::Lit(value) = &value.value {
+                    if let syn::Lit::Str(value) = &value.lit {
+                        let text = value.value();
+                        return (!text.trim().is_empty()).then_some(text);
+                    }
+                }
+                None
+            }
+            syn::Meta::List(list) if list.path.is_ident("cfg_attr") => {
+                let nested = list
+                    .parse_args_with(
+                        syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+                    )
+                    .ok()?;
+                nested.iter().skip(1).find_map(reason)
+            }
+            _ => None,
+        }
+    }
+    attrs.iter().find_map(|attr| reason(&attr.meta))
+}
+
 fn platform_tokens(text: &str) -> bool {
     let words: Vec<_> = text
         .split(|c: char| !c.is_alphanumeric() && c != '_')
@@ -149,6 +175,7 @@ fn items(
                     output.push(serde_json::json!({
                         "name": format!("{prefix}{}", function.sig.ident),
                         "platform": inherited || platform(&function.attrs) || body.0,
+                        "ignore_reason": ignore_reason(&function.attrs),
                     }));
                 }
             }
@@ -246,6 +273,13 @@ mod tests {
         assert_eq!(rows[0]["platform"], true);
         assert_eq!(rows[1]["scope"], true);
         assert_eq!(rows[1]["platform"], false);
+    }
+
+    #[test]
+    fn preserves_explicit_ignore_reasons_only() {
+        let rows = classify("#[ignore = \"TOKEN_REASON\"] #[test] fn named() {} #[ignore] #[test] fn anonymous() {}");
+        assert_eq!(rows[0]["ignore_reason"], "TOKEN_REASON");
+        assert_eq!(rows[1]["ignore_reason"], serde_json::Value::Null);
     }
 
     #[test]

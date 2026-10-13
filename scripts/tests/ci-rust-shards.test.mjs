@@ -7,8 +7,8 @@ const row = (name, platform = false) => ({ id: `crate::${name}`, name, platform,
 function fixture() {
   const all = [row('shared_a'), row('shared_b'), row('native', true)];
   return [
-    ...['Linux', 'macOS', 'Windows'].map((os) => ({ mode: 'platform', runner: os, os, sha: 'abc', exit: 0, seconds: 1, all, selected: ['crate::native'] })),
-    ...[1, 2].map((shard) => ({ mode: 'shared', shard, runner: `runner-${shard}`, os: 'Linux', sha: 'abc', exit: 0, seconds: 2, all, selected: [`crate::shared_${shard === 1 ? 'a' : 'b'}`] })),
+    ...['Linux', 'macOS', 'Windows'].map((os) => ({ mode: 'platform', runner: os, os, sha: 'abc', exit: 0, seconds: 1, all: structuredClone(all), selected: ['crate::native'] })),
+    ...[1, 2].map((shard) => ({ mode: 'shared', shard, runner: `runner-${shard}`, os: 'Linux', sha: 'abc', exit: 0, seconds: 2, all: structuredClone(all), selected: [`crate::shared_${shard === 1 ? 'a' : 'b'}`] })),
   ];
 }
 
@@ -62,4 +62,17 @@ test('workflow shards use a shared pool and all results feed the coverage job', 
   assert.match(workflow, /shard: \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12\]/);
   assert.match(workflow, /needs: \[changed, rust-shards, rust-platform\]/);
   assert.match(workflow, /fail-fast: false/);
+});
+
+test('explicit ignored reasons remain visible and cannot count as executed coverage', () => {
+  const source = { crate: [{ name: 'tests::a', platform: true, ignore_reason: 'TOKEN_REASON' }] };
+  const rows = classifyInventory(inventory(true), source);
+  assert.equal(rows[0].reason, 'TOKEN_REASON');
+  assert.equal(rows[0].ignored, true);
+  assert.match(filterFor(rows, 'platform'), /none\(\)/);
+  const receipts = fixture();
+  receipts[0].all.push({ ...row('explicit_ignore', true), ignored: true, reason: 'TOKEN_REASON' });
+  assert.match(verifyCoverage(receipts, 2), /TOKEN_REASON: 1 distinct tests, 1 OS\/test entries/);
+  receipts[0].all.at(-1).reason = '';
+  assert.throws(() => verifyCoverage(receipts, 2), /Unexplained/);
 });
