@@ -321,7 +321,6 @@ pub(crate) fn reattach_boot_stage(
         reason.starts_with("restored_provider_unresolved:")
             || reason.starts_with("restored_role_without_provider:")
             || reason.starts_with("restored_session_unavailable:")
-            || reason.starts_with("restored_input_pending:")
     });
     (current == Some(BootStage::SpawnFailed) && !restore_failure)
         .then_some(BootStage::PtyReattached)
@@ -379,6 +378,7 @@ where
         if !authority.matches(tab) {
             return Ok(None);
         }
+        restore_payload::retain_without_replay(tab.pending_delivery.as_mut());
         claim_restored_tab(tab, tab_id, provider_id, session_id, cwd, session_valid)?
     };
     if let Some(launch) = launch.as_ref() {
@@ -684,6 +684,8 @@ impl ServiceContext {
             )
         })?;
         let mut command_error = None;
+        self.restore_durable_user_statuses(tab_id)?;
+        self.reconcile_chat_send_evidence(tab_id);
         let scheduled = restore_materialization_core(
             &self.mux,
             tab_id,
@@ -1078,7 +1080,6 @@ mod restore_boot_stage_tests {
         for reason in [
             "restored_provider_unresolved: no unique owner",
             "restored_role_without_provider: no provider or session",
-            "restored_input_pending: pending input retained",
         ] {
             assert_eq!(
                 reattach_boot_stage(Some(BootStage::SpawnFailed), Some(reason)),
