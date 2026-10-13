@@ -4,6 +4,7 @@ use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
 fn screen_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "opaque question?".into(),
         options: ["opaque-yes", "opaque-no"]
             .iter()
