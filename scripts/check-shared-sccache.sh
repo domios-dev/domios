@@ -56,7 +56,7 @@ for missing in ACCESS SECRET; do
     [ "$SCCACHE_CACHE_SIZE" = 3G ]
     [ "$CT_SCCACHE_STORAGE" = local ]
   ) > "$WORK/local.log"
-  [ "$(rg -c 'shared sccache secrets unavailable; using local disk cache' "$WORK/local.log")" = 1 ]
+  [ "$(rg -c '^sccache: local disk cache at .*shared credentials unavailable' "$WORK/local.log")" = 1 ]
   ! rg -q 'fixture-access|fixture-secret' "$WORK/local.log"
 done
 printf 'PASS missing either credential uses bounded local fallback\n'
@@ -83,3 +83,16 @@ for checkout in /Users/Shared/domios-ci/work/codeterm /opt/domios-ci/work/codete
 done
 [ "$(ct_exceptional_target_dir /developer/worktree /gateway fixture-id)" = /gateway/targets/exceptional/fixture-id ]
 printf 'PASS CI target paths and developer target isolation\n'
+
+(
+  rm -f "$WORK/events"
+  export SCCACHE_CACHE_SIZE=10G
+  curl() { printf 200; }
+  ct_sccache_status
+  [ ! -e "$WORK/events" ]
+) > "$WORK/status.log"
+rg -q '^sccache: shared S3 cache at http://100.88.47.88:9000/sccache$' "$WORK/status.log"
+rg -q '^running server: Cache location fixture$' "$WORK/status.log"
+rg -q '^shared endpoint health: 200$' "$WORK/status.log"
+! rg -q 'fixture-access|fixture-secret' "$WORK/status.log"
+printf 'PASS read-only cache status and endpoint health\n'

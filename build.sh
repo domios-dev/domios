@@ -389,7 +389,7 @@ run_nextest_scope() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc) ;;
+  gateway-*|help|gc|cache-status) ;;
   *) setup_env ;;
 esac
 
@@ -506,7 +506,7 @@ fi
 
 # A cold prebuilt refusal must be read-only; every other command keeps the
 # existing hook setup behavior.
-if [ "$CMD" != "dev-prebuilt" ]; then
+if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ]; then
   git config core.hooksPath .githooks 2>/dev/null || true
 fi
 
@@ -1703,6 +1703,7 @@ CodeTerm build commands
   qa-prep                     Prepare a worktree for QA
   install-local               Build and install locally
   build                       Build production artifacts
+  cache-status                Show configured/server cache locations and endpoint health
   gateway-status              Show the machine build owner
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
@@ -1724,6 +1725,9 @@ EOF
   fmt-check)
     cargo fmt --manifest-path src-tauri/Cargo.toml --check
     cargo fmt --manifest-path cli/Cargo.toml --check
+    ;;
+  cache-status)
+    ct_sccache_status
     ;;
   gateway-status)
     ct_gateway_status

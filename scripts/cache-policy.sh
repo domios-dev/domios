@@ -103,15 +103,51 @@ ct_sccache_storage() {
     unset AWS_SESSION_TOKEN
     export SCCACHE_ENDPOINT=http://100.88.47.88:9000 SCCACHE_BUCKET=sccache
     export SCCACHE_REGION=us-east-1 SCCACHE_S3_USE_SSL=false
-    CT_SCCACHE_STORAGE=shared
-    echo "[cache-policy] shared S3 sccache: ainyiva-bot/sccache"
+    export CT_SCCACHE_STORAGE=shared CT_SCCACHE_REASON=""
   else
     unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
-    CT_SCCACHE_STORAGE=local
-    echo "[cache-policy] shared sccache secrets unavailable; using local disk cache ($SCCACHE_CACHE_SIZE)"
+    export CT_SCCACHE_STORAGE=local CT_SCCACHE_REASON="shared credentials unavailable"
   fi
   unset access_key secret_key
   [ "$trace_enabled" = 0 ] || set -x
+}
+
+ct_sccache_disk_dir() {
+  if [ -n "${SCCACHE_DIR:-}" ]; then
+    printf '%s\n' "$SCCACHE_DIR"
+    return
+  fi
+  case "$OSTYPE" in
+    darwin*) printf '%s/Library/Caches/Mozilla.sccache\n' "$HOME" ;;
+    msys*|cygwin*|win32) printf '%s/Mozilla/sccache/cache\n' "${LOCALAPPDATA:-$HOME/AppData/Local}" ;;
+    *) printf '%s/sccache\n' "${XDG_CACHE_HOME:-$HOME/.cache}" ;;
+  esac
+}
+
+ct_sccache_print_location() {
+  if [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
+    printf 'sccache: shared S3 cache at %s/%s\n' "$SCCACHE_ENDPOINT" "$SCCACHE_BUCKET"
+  else
+    printf 'sccache: local disk cache at %s (%s; limit %s)\n' \
+      "$(ct_sccache_disk_dir)" "${CT_SCCACHE_REASON:-shared credentials unavailable}" "$SCCACHE_CACHE_SIZE"
+  fi
+}
+
+ct_sccache_status() {
+  export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
+  ct_sccache_storage
+  ct_sccache_print_location
+  local stats location http_status
+  stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  location="$(printf '%s\n' "$stats" | sed -n '/^Cache location/p')"
+  if [ -n "$location" ]; then
+    printf 'running server: %s\n' "$location"
+  else
+    printf 'running server: cache location unavailable\n'
+  fi
+  http_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
+    http://100.88.47.88:9000/minio/health/live 2>/dev/null)" || http_status="unreachable"
+  printf 'shared endpoint health: %s\n' "$http_status"
 }
 
 ct_sccache_restart() {
@@ -149,8 +185,11 @@ ct_configure_sccache() {
   echo "[cache-policy] $(sccache --version)"
   if [ "${CT_SCCACHE_CONFIGURED:-0}" != 1 ]; then
     ct_sccache_storage
+    ct_sccache_print_location
     ct_sccache_restart || return $?
     export CT_SCCACHE_CONFIGURED=1
+  else
+    ct_sccache_print_location
   fi
   sccache --show-stats 2>/dev/null | sed -n '/Cache location/,$p' || true
 }
