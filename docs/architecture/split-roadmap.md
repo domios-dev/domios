@@ -138,4 +138,4 @@ Executed: `codeterm-events` (`EventBroadcaster`, `SystemEvent`, generic `emit_ev
 
 ## R4 status
 
-R4(a) done: `socket_path()`/`socket_display_path()` moved from `socket/server` into `codeterm-paths`; all 5 callers plus the server use `crate::paths::`. Remaining (b) invert `cli_rpc_routes`, `mesh_routes/rpc`, `plan_routes/tasks` and (c) physical `codeterm-socket` crate move are not done. Selectors: `./build.sh test-one app socket::server`.
+R4(a) done: `socket_path()`/`socket_display_path()` moved from `socket/server` into `codeterm-paths`; all 5 callers plus the server use `crate::paths::`. R4(b) done: `cli_rpc_routes`, `mesh_routes/rpc` and `plan_routes/tasks` reach socket only through the startup-registered function table in `src-tauri/src/rpc_bridge.rs` (`socket::register_rpc_bridge`); `JsonRpcError` and `DispatchStartup` now live there. Remaining (c) physical `codeterm-socket` crate move are not done. Selectors: `./build.sh test-one app socket::server`.
