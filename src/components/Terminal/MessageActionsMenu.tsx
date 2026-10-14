@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
-import { Check, Copy, Hash, ListChecks, MessageSquarePlus } from "lucide-react";
+import { Trash2, Check, Copy, Hash, ListChecks, MessageSquarePlus } from "lucide-react";
 import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
@@ -15,6 +15,7 @@ export interface MessageMenuActions {
   quote: (clip: ClipMessage) => void;
   ask: (clip: ClipMessage) => void;
   select: () => void;
+  delete?: () => void;
 }
 
 function menuPlacement(anchor: HTMLElement): Placement {
@@ -164,6 +165,7 @@ export function MessageActionsDot({ clip, touch = false, whole = false, hasParts
             <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.quote(clip); }} />
             <div role="separator" className="ct-menu-separator" />
             <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : "Shift-click"} onSelect={() => { hide(); actions.select(); }} />
+            {actions.delete && <MenuItem label="Delete" icon={Trash2} hint="Delete" onSelect={() => { hide(); actions.delete?.(); }} />}
             {touch && <button type="button" role="menuitem" className="ct-menu-row" onClick={() => hide(true)}>Close actions</button>}
           </div>
         </div>
