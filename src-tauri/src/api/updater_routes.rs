@@ -53,7 +53,7 @@ pub async fn check_update(
     let info = match crate::update::checker::check_for_update(&method).await {
         Ok(i) => i,
         Err(e) => {
-            log::error!("[updater] check failed: {}", e);
+            log::debug!("[updater] check failed: {}", e);
             state
                 .update_state
                 .lock()
@@ -417,17 +417,41 @@ mod tests {
 pub async fn availability(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Query(q): Query<CheckUpdateQuery>,
+    query: Result<Query<CheckUpdateQuery>, axum::extract::rejection::QueryRejection>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
-) -> Result<Json<crate::update::discovery::AvailabilitySnapshot>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
-    crate::update::discovery::check(
-        &state.svc.app_handle,
-        &state.update_state,
-        bundles.map(|b| b.0),
-        q.force.unwrap_or(false),
+) -> Result<
+    Json<crate::update::discovery::AvailabilitySnapshot>,
+    (StatusCode, Json<serde_json::Value>),
+> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| availability_error(status, error.to_string()))?;
+    let Query(q) =
+        query.map_err(|error| availability_error(StatusCode::BAD_REQUEST, error.to_string()))?;
+    availability_response(
+        crate::update::discovery::check(
+            &state.svc.app_handle,
+            &state.update_state,
+            bundles.map(|b| b.0),
+            q.force.unwrap_or(false),
+        )
+        .await,
     )
-    .await
-    .map(Json)
-    .map_err(|error| (StatusCode::BAD_GATEWAY, error))
 }
+
+fn availability_response(
+    result: Result<crate::update::discovery::AvailabilitySnapshot, String>,
+) -> Result<
+    Json<crate::update::discovery::AvailabilitySnapshot>,
+    (StatusCode, Json<serde_json::Value>),
+> {
+    result
+        .map(Json)
+        .map_err(|error| availability_error(StatusCode::BAD_GATEWAY, error))
+}
+
+fn availability_error(status: StatusCode, detail: String) -> (StatusCode, Json<serde_json::Value>) {
+    (status, Json(serde_json::json!({ "error": detail })))
+}
+
+#[cfg(test)]
+mod availability_tests;
