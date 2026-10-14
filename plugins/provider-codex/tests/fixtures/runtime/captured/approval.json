@@ -2015,7 +2015,8 @@
       {
         "kind": "turnState",
         "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
-        "state": "working"
+        "state": "working",
+        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea"
       },
       {
         "kind": "usage",
