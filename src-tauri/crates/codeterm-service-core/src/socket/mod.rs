@@ -5,6 +5,7 @@ use server::protocol;
 
 pub(crate) fn register_rpc_bridge() {
     crate::ports::socket::register(crate::ports::socket::RpcBridge {
+        #[cfg(test)]
         protocol_version: || protocol::PROTOCOL_VERSION,
         version_skew_gate: |raw| {
             protocol::version_skew_gate(
