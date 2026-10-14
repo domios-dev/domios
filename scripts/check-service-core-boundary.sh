@@ -16,9 +16,10 @@ if [ -n "$inherent_impls" ]; then
   status=1
 fi
 
+# Named exceptions to port rule 1: the socket entry-point bridge and the one-time sentinel runtime composition.
 port_leaks="$(grep -rnE --include='*.rs' \
   'codeterm_pty|crate::multiplexer|MuxState|lock_hold|Guard<|&ServiceContext|&MultiplexerState|&mut ServiceContext' \
-  "$core/src/ports" || true)"
+  "$core/src/ports" | grep -vE "^$core/src/ports/(socket|sentinel)\.rs:" || true)"
 if [ -n "$port_leaks" ]; then
   echo "service-core boundary: ports/ names a lock, PTY or ServiceContext reference:" >&2
   echo "$port_leaks" >&2

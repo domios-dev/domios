@@ -38,6 +38,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `cache-retention.test.mjs` | scripts check-build-gateway-policy.sh |
 | `capture-upgrade-desk.mjs` | skill gates |
 | `certificates` | scripts release-signing-material.py, tests/release_signing_material_test.py |
+| `chat-scroll-trace` | build.sh chat-scroll-trace; skill dev-testing |
 | `check-analytics-catalog.mjs` | scripts check-analytics-catalog.test.mjs |
 | `check-analytics-catalog.test.mjs` | build.sh script-guards |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
