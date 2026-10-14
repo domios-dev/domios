@@ -222,7 +222,7 @@ jobs:
           toolchain: 1.95.0
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
-          tool: cargo-nextest@0.9.100
+          tool: cargo-nextest@0.9.148
       - name: Prepare compile fixtures
         run: node scripts/ci-rust-prepare.mjs
       - name: Compile and archive once for platform
@@ -281,7 +281,7 @@ jobs:
         run: node scripts/ci-runner-paths.mjs
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
-          tool: cargo-nextest@0.9.100
+          tool: cargo-nextest@0.9.148
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: rust-archive-${{ runner.os }}-${{ runner.arch }}
@@ -335,7 +335,7 @@ jobs:
         run: node scripts/ci-runner-paths.mjs
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
-          tool: cargo-nextest@0.9.100
+          tool: cargo-nextest@0.9.148
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: rust-archive-${{ runner.os }}-${{ runner.arch }}
