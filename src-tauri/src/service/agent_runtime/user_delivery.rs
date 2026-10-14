@@ -33,6 +33,31 @@ pub(crate) fn is_ready(svc: &ServiceContext, authority: &UserSendAuthority) -> b
         && engine::validate_binding(svc, &session).is_ok()
 }
 
+pub(crate) fn is_current_session(
+    svc: &ServiceContext,
+    authority: &UserSendAuthority,
+    thread: &str,
+    nonce: &str,
+) -> bool {
+    if authority.binding_nonce != nonce || !is_ready(svc, authority) {
+        return false;
+    }
+    let Some(session) = engine::for_tab(&authority.tab_id) else {
+        return false;
+    };
+    let context = session.context.lock().clone();
+    let current_epoch = session.state.lock().epoch;
+    context.thread_id.as_deref() == Some(thread)
+        && context.binding_nonce == nonce
+        && current_epoch == context.epoch
+        && svc.mux.read().get_tab(&authority.tab_id).is_some_and(|tab| {
+            matches!(&tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { plugin_id, session_id }
+                if plugin_id == &authority.provider_id && session_id == thread)
+                && tab.launch_session_authenticated()
+                && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        })
+}
+
 pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String> {
     let store = &svc.pending_delivery_payloads.user_sends;
     let owner = store.tab(tab);

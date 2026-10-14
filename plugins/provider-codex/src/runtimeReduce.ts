@@ -1,4 +1,5 @@
 import type { RuntimeContext, JsonValue, RuntimeFrame, RuntimeReduction, AgentEvent, ChatMsg, TokenUsage } from "@codeterm/plugin-sdk";
+import { rateLimitEvents } from "./runtimeUsage";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
 import { json, runtimeItem } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
@@ -7,6 +8,7 @@ import { notificationAuth } from "./runtimeAuth";
 import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
 import { codexReportedSettings } from "./runtimeSettings";
+import { abandonOpenTurn, interruptPendingCalls, runningCallStatus, stampToolLifecycle, type RuntimeItem } from "./runtimeAbandonedTurns";
 import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
 import { threadStatus, turnOutcome, requestDetail, withDetail } from "./runtimeTurnStatus";
 
@@ -15,12 +17,13 @@ interface ReduceState {
   bindingNonce: string;
   threadId?: string;
   seq: number;
-  items: Record<string,ChatMsg>;
+  items: Record<string,RuntimeItem>;
   completed: string[];
   compacted: string[];
   evidenced: string[];
   questions?:string[];
   activeTurnId?: string;
+  abandoned?: string[];
   parents?:Record<string,string>;
   childActive?:Record<string,string>;
   childCompleted?:string[];
@@ -51,7 +54,7 @@ function usage(params: Record<string,unknown>): TokenUsage | undefined {
   const token = object(params.tokenUsage);
   const total = object(token.total);
   if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return undefined;
-  return {input_tokens:total.inputTokens,output_tokens:total.outputTokens,
+  return {...(typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? {cost_micros:Math.round(total.costUsd * 1e6)} : {}),input_tokens:total.inputTokens,output_tokens:total.outputTokens,
     ...(typeof total.cacheWriteInputTokens === "number" ? {cache_write_tokens:total.cacheWriteInputTokens} : {}),
     ...(typeof total.cachedInputTokens === "number" ? {cache_read_tokens:total.cachedInputTokens} : {}),
     ...(typeof object(token.last).totalTokens === "number" ? {used_tokens:Number(object(token.last).totalTokens)} : {}),
@@ -75,7 +78,7 @@ function sendEvidence(ctx: RuntimeContext, item: Record<string,unknown>, turnId:
   })) return undefined;
   return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId};
 }
-function stamp(state: ReduceState, row: ChatMsg, params: Record<string,unknown>): ChatMsg {
+function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unknown>): RuntimeItem {
   const previous = state.items[row.id];
   row.seq = previous?.seq ?? ++state.seq;
   const ms = params.startedAtMs ?? params.completedAtMs;
@@ -93,7 +96,7 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
   const previous = state.items[id];
   if (method === "item/started" || method === "item/completed") {
     const row = runtimeItem(raw,state.seq + 1,previous);
-    return row ? stamp(state,row,params) : undefined;
+    return row ? stamp(state,stampToolLifecycle(row,previous,method,params),params) : undefined;
   }
   const delta = text(params.delta) ?? text(params.message);
   if (!delta) return undefined;
@@ -107,7 +110,7 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
     case "item/mcpToolCall/progress": row.type = "tool_call"; row.toolKind = "generic"; row.toolId = id; row.toolDetail = delta; break;
     default: return undefined;
   }
-  return stamp(state,row,params);
+  return stamp(state,stampToolLifecycle(row,previous,method,params),params);
 }
 
 export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: readonly RuntimeFrame[]): RuntimeReduction {
@@ -147,14 +150,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = {...state.rateLimitSnapshot,...limits};
-      const windows = ["primary","secondary"].flatMap(window => {
-        const value = object(state.rateLimitSnapshot?.[window]);
-        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-        return [{window,usedPercent:Math.max(0,Math.min(100,value.usedPercent)),
-          ...(typeof value.resetsAt === "number" && value.resetsAt >= 0 ? {resetsAt:value.resetsAt * 1000} : {}),
-          ...(typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? {windowMinutes:value.windowDurationMins} : {})}];
-      });
-      if (windows.length) events.push({kind:"rateLimits",rateLimits:windows});
+      events.push(...rateLimitEvents(state.rateLimitSnapshot));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some(parent => parent.threadId === params.threadId);
@@ -172,9 +168,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
+    if (turnId && state.abandoned?.includes(turnId)) continue;
     switch (frame.method) {
       case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
+        events.push(...abandonOpenTurn(state,threadId,turnId));
         state.activeTurnId = turnId;
         delete state.compacting;
         const settings = codexReportedSettings({...params,...object(params.turn)});
@@ -185,6 +183,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         if (!turnId || state.completed.includes(turnId)) break;
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
+        events.push(...interruptPendingCalls(state,threadId,turnId));
         delete state.activeTurnId;
         delete state.compacting;
         const failure = object(object(params.turn).error);
@@ -199,7 +198,8 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         const status = threadStatus(params.status);
         if (!status) break;
         if (status.state === "idle") delete state.compacting;
-        events.push({kind:"turnState",threadId,...withDetail(status,!!state.compacting),...(state.activeTurnId && status.state !== "idle" ? {turnId:state.activeTurnId} : {})});
+        events.push((status.state !== "needs_input" && pendingStatus(state,threadId))
+          || {kind:"turnState",threadId,...withDetail(status,!!state.compacting),...(state.activeTurnId && status.state !== "idle" ? {turnId:state.activeTurnId} : {})});
         break;
       }
       case "item/fileChange/patchUpdated": {
@@ -300,7 +300,10 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
           }
           row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"),collapsed:true},params);
         } else row = mapItem(state,frame.method,params);
-        if (row) events.push({kind:"chatItem",threadId,item:row});
+        if (row) {
+          events.push({kind:"chatItem",threadId,item:row});
+          if (row.type === "tool_call") events.push({kind:"turnState",threadId,...(state.activeTurnId ? {turnId:state.activeTurnId} : {}),state:"working",...{statusLine:runningCallStatus(state) ?? ""}});
+        }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx,object(params.item),turnId);
           if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
@@ -315,4 +318,9 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     }
   }
   return {state:json(state),events};
+}
+
+function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {
+  const statusLine = runningCallStatus(state);
+  return statusLine ? {kind:"turnState",threadId,turnId:state.activeTurnId,state:"working",...{statusLine}} : undefined;
 }

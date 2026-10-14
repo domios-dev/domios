@@ -124,7 +124,8 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
     default: return undefined;
   }
   row.toolId = id; row.toolName ??= String(item.type); row.toolInput ??= item;
-  row.toolArgs = row.toolSummary; row.collapsed = true;
+  if (row.toolSummary !== undefined) row.toolArgs = row.toolSummary;
+  row.collapsed = true;
   if (typeof item.durationMs === "number") row.toolDurationMs = item.durationMs;
   if (row.toolError == null) {
     if (typeof item.exitCode === "number") row.toolError = item.exitCode !== 0;

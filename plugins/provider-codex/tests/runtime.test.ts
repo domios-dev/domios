@@ -26,6 +26,17 @@ const sandbox = vm.createContext({module:{exports:{}},exports:{},host:new Proxy(
 sandbox.exports = sandbox.module.exports;
 vm.runInContext(fs.readFileSync(new URL("../plugin.js",import.meta.url),"utf8"),sandbox);
 const hooks = sandbox.module.exports.default as AgentRuntime;
+const reduce = hooks.runtimeReduce.bind(hooks);
+hooks.runtimeReduce = (...args) => {
+  const result = reduce(...args);
+  const serialized = JSON.stringify(result, (key, value: unknown) => {
+    assert.notEqual(value, undefined, `runtimeReduce returned undefined at ${key}`);
+    assert.ok(!["function", "symbol", "bigint"].includes(typeof value), `runtimeReduce returned non-JSON at ${key}`);
+    if (typeof value === "number") assert.ok(Number.isFinite(value), `runtimeReduce returned non-finite number at ${key}`);
+    return value;
+  });
+  return JSON.parse(serialized);
+};
 const plain = <T>(value:T): T => JSON.parse(JSON.stringify(value));
 let count = 0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ runtime ${name}`);}
@@ -92,7 +103,7 @@ function replay(fixture:Fixture) {
   return {events,state};
 }
 const names = fs.readdirSync(fileURLToPath(root)).filter(n => n.endsWith(".json")).sort();
-assert.equal(names.length,8);
+assert.equal(names.length,9);
 for (const name of names) check(`replay ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(name,root),"utf8"))));
 for (const name of fs.readdirSync(new URL("captured/",root)).filter(n=>n.endsWith(".json") && n!=="metrics.json").sort())
   check(`captured traffic ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(`captured/${name}`,root),"utf8"))));
@@ -178,7 +189,7 @@ check("fixture oracle detects corrupted expected content",()=> {
   const corrupted=structuredClone(sample);corrupted.expected.events[1]={kind:"turnState",threadId:ctx.threadId!,state:"needs_input"};
   assert.throws(()=>replay(corrupted));
 });
-console.log(`runtime hooks: ${count} checks passed (8 shared scenarios)`);
+console.log(`runtime hooks: ${count} checks passed (9 shared scenarios)`);
 check("reasoning summary and content streams stay separate",()=> {
   const frames:RuntimeFrame[]=[
     {kind:"notification",method:"item/reasoning/textDelta",params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"r",contentIndex:0,delta:"private content"}},
@@ -267,7 +278,7 @@ check("initialize guards handshake before publishing observed auth",()=> {
 check("auth refresh and account updates retain unknown state honestly",()=> {
   const operation:Operation={kind:"control",action:"auth",value:null};const plan=hooks.runtimePlan(ctx,operation);
   assert.deepEqual(plain(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"},events:[{kind:"auth",state:"unknown"}]});
-  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:undefined},null,[{kind:"notification",method:"account/updated",params:{authMode:"chatgpt"}}]).events),[{kind:"auth",state:"signedIn"}]);
+  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:undefined},null,[{kind:"notification",method:"account/updated",params:{authMode:"chatgpt"}}]).events),[{kind:"auth",state:"signedIn",billingMode:"subscription"}]);
 });
 check("retry errors remain nonterminal with classified source metadata",()=> {
   const events=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"error",params:{threadId:ctx.threadId!,turnId:"turn-a",willRetry:true,error:{message:"Retrying",codexErrorInfo:{httpConnectionFailed:{httpStatusCode:503}}}}}]).events;
@@ -430,6 +441,9 @@ check("initialize negotiates experimental history before planning item paginatio
   if(step.kind !== "continue")throw new Error("Expected account read");
   plan=plain(step.plan);assert.equal(plan.action.kind,"request");
   step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{account:{type:"chatgpt"}}});
+  assert.equal(step.kind,"continue");
+  if(step.kind !== "continue") throw new Error("Expected current limits read");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{rateLimits:{}}});
   assert.equal(step.kind,"complete");
   const history:Operation={kind:"readHistory",threadId:ctx.threadId!};
   plan=plain(hooks.runtimePlan(ctx,history));
@@ -575,10 +589,10 @@ check("item snapshots retain streamed output only when the final field is absent
     const frame:RuntimeFrame={kind:"notification",method,params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"streamed",delta:"kept"}};
     const completed:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed"}}};
     const result=hooks.runtimeReduce(ctx,null,[frame,completed]);
-    const row=result.events.at(-1);if(row?.kind !== "chatItem")throw new Error("Expected item");
+    const row=result.events.filter(event=>event.kind === "chatItem").at(-1);if(row?.kind !== "chatItem")throw new Error("Expected item");
     assert.equal(type === "agentMessage" ? row.item.content : row.item.toolResult,"kept");
     const final={...completed,params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed",[type === "agentMessage" ? "text" : "aggregatedOutput"]:""}}} as RuntimeFrame;
-    const authoritative=hooks.runtimeReduce(ctx,null,[frame,final]).events.at(-1);
+    const authoritative=hooks.runtimeReduce(ctx,null,[frame,final]).events.filter(event=>event.kind === "chatItem").at(-1);
     if(authoritative?.kind !== "chatItem")throw new Error("Expected final item");
     assert.equal(type === "agentMessage" ? authoritative.item.content : authoritative.item.toolResult,"");
   }
@@ -846,3 +860,63 @@ check("reasoning summary part boundaries and live patch updates reduce into rows
   assert.deepEqual(plain(last.item.fileDiffs)?.map((diff:{path:string;additions:number})=>[diff.path,diff.additions]),[["notes.txt",1]]);
 });
 console.log(`runtime status fidelity regressions: ${count} checks passed`);
+
+check("subscription initialization reads the recorded current limits",()=> {
+  const operation:Operation = {kind:"initialize"};
+  const step = hooks.runtimeResponse(ctx,operation,{stage:"initializeAccount"},{kind:"success",value:{account:{type:"chatgpt"}}});
+  assert.equal(step.kind,"continue");
+  if(step.kind !== "continue") return;
+  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{}}});
+  const value = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-rate-limits-read.json",import.meta.url),"utf8"));
+  const done = hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value});
+  assert.equal(done.kind,"complete");
+  if(done.kind !== "complete") return;
+  assert.equal(done.events?.[1].kind,"rateLimits");
+  assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}).kind,"complete");
+});
+check("API-key auth publishes session billing without requesting subscription limits",()=> {
+  const step = hooks.runtimeResponse(ctx,{kind:"initialize"},{stage:"initializeAccount"},{kind:"success",value:{account:{type:"apiKey"}}});
+  assert.deepEqual(plain(step),{kind:"complete",result:{kind:"initialized"},events:[{kind:"auth",state:"signedIn",billingMode:"api"}]});
+  const params = {threadId:ctx.threadId!,tokenUsage:{total:{inputTokens:100,outputTokens:20,cachedInputTokens:30,costUsd:0.002}}};
+  const result = hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/tokenUsage/updated",params}]);
+  assert.deepEqual(plain(result.events),[{kind:"usage",threadId:ctx.threadId,usage:{input_tokens:100,output_tokens:20,cache_read_tokens:30,cost_micros:2000}}]);
+  assert.equal(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/tokenUsage/updated",params:{...params,threadId:"foreign"}}]).events.length,0);
+});
+
+console.log(`runtime usage regressions: ${count} checks passed`);
+
+check("stalled call remains running until the exact superseding turn event",()=> {
+  const fixture=JSON.parse(fs.readFileSync(new URL("stalled-turn.json",root),"utf8")) as Fixture;
+  const frames=fixture.rpc.flatMap(record=>"frame" in record ? [record.frame] : []);
+  const prefix=hooks.runtimeReduce(fixture.context,null,frames.slice(0,4));
+  const pending=plain(prefix.state) as {items:Record<string,{toolStatus:string}>};
+  assert.equal(pending.items["call-stalled"].toolStatus,"running");
+  const last=prefix.events.at(-1);
+  assert.equal(last?.kind,"turnState");
+  if(last?.kind === "turnState") assert.equal(last.state,"working");
+  const finished=hooks.runtimeReduce(fixture.context,prefix.state,frames.slice(4));
+  const state=plain(finished.state) as {items:Record<string,{toolStatus:string}>};
+  assert.equal(state.items["call-stalled"].toolStatus,"abandoned");
+  assert.equal(finished.events.filter(event=>event.kind === "chatItem" && event.item.systemSubtype === "turn_abandoned").length,1);
+  assert.equal(hooks.runtimeReduce(fixture.context,finished.state,[frames[4]]).events.some(event=>event.kind === "chatItem"),false);
+  const late:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:fixture.context.threadId!,turnId:"turn-stalled",item:{id:"call-stalled",type:"commandExecution",status:"completed"}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(fixture.context,finished.state,[late]).events),[]);
+  const reset=hooks.runtimeReduce({...fixture.context,epoch:fixture.context.epoch+1},finished.state,[frames[4]]);
+  assert.equal(reset.events.some(event=>event.kind === "chatItem" && event.item.systemSubtype === "turn_abandoned"),false);
+});
+check("explicit turn completion interrupts unfinished calls without inventing output",()=> {
+  const frames:RuntimeFrame[]=[
+    {kind:"notification",method:"turn/started",params:{threadId:ctx.threadId!,turn:{id:"open"}}},
+    {kind:"notification",method:"item/started",params:{threadId:ctx.threadId!,turnId:"open",item:{id:"pending",type:"mcpToolCall",tool:"lookup",arguments:{},status:"inProgress"}}},
+    {kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:"open",status:"interrupted"}}},
+  ];
+  const result=hooks.runtimeReduce(ctx,null,frames);
+  const row=result.events.filter(event=>event.kind === "chatItem").at(-1);
+  assert.ok(row?.kind === "chatItem");
+  assert.equal((row.item as {toolStatus?:string}).toolStatus,"interrupted");
+  assert.equal(row.item.toolResult,undefined);
+  assert.equal(row.item.toolError,undefined);
+  const last=result.events.at(-1);
+  assert.ok(last?.kind === "turnState");assert.equal(last.state,"idle");
+});
+console.log(`runtime lifecycle regressions: ${count} checks passed`);

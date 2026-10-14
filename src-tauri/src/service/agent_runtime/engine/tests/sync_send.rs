@@ -32,6 +32,10 @@ fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanu
         session_id: "own-thread".into(),
     };
     let fixture = ServiceFixture::new(mux);
+    use tauri::Manager;
+    assert!(fixture
+        ._app
+        .manage(Arc::new(fixture.service.clone()) as crate::service::ServiceState));
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
@@ -113,8 +117,125 @@ module.exports = {
 
 #[test]
 fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
+    assert_sync_send(false, false, false);
+}
+
+#[test]
+fn bookkeeping_failure_records_typed_warning_and_runtime_remains_ready_and_sendable() {
+    assert_sync_send(true, false, false);
+}
+
+#[test]
+fn restart_bookkeeping_failure_records_warning_and_runtime_remains_ready_and_sendable() {
+    assert_sync_send(true, true, false);
+}
+
+#[test]
+fn task_authority_violation_unbinds_agent_and_records_warning_without_blocking_send() {
+    assert_sync_send(true, false, true);
+}
+
+fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_failure: bool) {
+    const PROVIDER: &str = "sync-send-fixture";
     const PAYLOAD: &str = "opaque supplied user input";
     let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+    if bookkeeping_failure {
+        let mut plan = crate::plan::Plan::new(
+            "Warning fixture".into(),
+            fixture.temp.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab("owner"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let target_task = if authority_failure {
+            fixture
+                .service
+                .plan_store
+                .add_task(
+                    &plan.id,
+                    crate::service::plan::NewTask {
+                        name: "Authority fixture".into(),
+                        ..Default::default()
+                    },
+                    2,
+                )
+                .unwrap()
+        } else {
+            "missing-task".into()
+        };
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .task_binding = Some(crate::multiplexer::types::TaskBinding {
+            plan_id: Some(plan.id.clone()),
+            task_id: Some(target_task.clone()),
+            attempt_id: Some("attempt".into()),
+            ..Default::default()
+        });
+        let own_nonce = for_tab(&tab_id)
+            .unwrap()
+            .context
+            .lock()
+            .binding_nonce
+            .clone();
+        if restart_failure {
+            assert!(fixture
+                .service
+                .authorize_runtime_restart_binding(&tab_id, PROVIDER, &own_nonce, false,)
+                .unwrap()
+                .is_none());
+        } else {
+            fixture
+                .service
+                .finalize_runtime_worker_session(&tab_id, "own-thread", &own_nonce)
+                .unwrap();
+        }
+        let current = for_tab(&tab_id).unwrap();
+        assert!(matches!(current.state.lock().phase, RuntimePhase::Ready));
+        assert!(current
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .task_binding
+                .is_none(),
+            authority_failure
+        );
+        let recorded = fixture.service.plan_store.get(&plan.id).unwrap();
+        let warning = recorded
+            .strides
+            .iter()
+            .find(|stride| stride.kind == "runtime_plan_binding_warning")
+            .unwrap();
+        let payload: Value = serde_json::from_str(&warning.text).unwrap();
+        assert_eq!(payload["kind"], "runtime_plan_binding_warning");
+        assert_eq!(
+            payload["failure_kind"],
+            if authority_failure {
+                "authority_violation"
+            } else {
+                "bookkeeping_unavailable"
+            }
+        );
+        assert_eq!(
+            payload["stage"],
+            if restart_failure {
+                "restart_authorization"
+            } else {
+                "finalization"
+            }
+        );
+        assert_eq!(payload["task_id"], target_task);
+        assert_eq!(payload["attempt_id"], "attempt");
+        assert_eq!(payload["tab_id"], tab_id);
+    }
     let pending = fixture
         .service
         .chat_send_ledger
@@ -241,6 +362,32 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
         .chat_send_ledger
         .confirm_rpc_send(&tab_id, "other-thread", &nonce, &send_id)
         .is_none());
+    let authority = fixture.service.user_send_authority(&tab_id).unwrap();
+    let mut foreign_provider = authority.clone();
+    foreign_provider.provider_id = "foreign-provider".into();
+    assert!(!fixture.service.user_authority_is_current_session(
+        &foreign_provider,
+        "own-thread",
+        &nonce
+    ));
+    let session = for_tab(&tab_id).unwrap();
+    let epoch = session.state.lock().epoch;
+    session.state.lock().epoch = epoch + 1;
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
+    session.state.lock().epoch = epoch;
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "other-thread", &nonce));
+    assert!(!fixture.service.user_authority_is_current_session(
+        &authority,
+        "own-thread",
+        "foreign-nonce"
+    ));
+    assert!(fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
     assert!(fixture
         .service
         .chat_send_ledger

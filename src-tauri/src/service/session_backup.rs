@@ -20,6 +20,15 @@ impl super::ServiceContext {
         store.list_backups()
     }
 
+    pub(crate) fn export_session_backup(
+        &self,
+        name: &str,
+    ) -> Result<crate::session::store::SessionSnapshot, String> {
+        let session = self.session_store()?;
+        let result = session.lock().load_backup(name);
+        result
+    }
+
     /// Additive desk recovery: merge a `backups/` snapshot into the live desk.
     /// Nothing live is replaced or closed; only missing workspaces/tabs return.
     pub fn restore_session_backup(&self, name: &str) -> Result<SnapshotMergeReport, String> {

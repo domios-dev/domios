@@ -203,6 +203,12 @@ impl AgentProvider for NativeRuntime {
                 RuntimeFrame::Request { params, .. }
                 | RuntimeFrame::Notification { params, .. } => params,
             };
+            if let Some(event) = params.get("usageEvent") {
+                events.push(serde_json::from_value(event.clone()).map_err(|error| {
+                    RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, error.to_string())
+                })?);
+                continue;
+            }
             let item: ChatMsg = serde_json::from_value(params.clone()).map_err(|e| {
                 RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, e.to_string())
             })?;

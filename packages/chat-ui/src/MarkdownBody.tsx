@@ -22,7 +22,7 @@ import { SyntaxHighlighter, createElement } from "./syntaxHighlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
-import { inferCodeLanguage } from "./codeLanguage";
+import { inferCodeLanguage, languageFromInfoString } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
 export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolParsing";
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
@@ -49,7 +49,7 @@ function extractCodeText(children: unknown): string {
 function resolveCodeLanguage(className: string | undefined, children: unknown): string | null {
   const explicit = /language-([a-z0-9+#-]+)/i.exec(className || "");
   if (explicit) {
-    return explicit[1].toLowerCase();
+    return languageFromInfoString(explicit[1]);
   }
   const source = extractCodeText(children).replace(/\r/g, "").trim();
   return looksLikeMermaidSource(source) ? "mermaid" : null;

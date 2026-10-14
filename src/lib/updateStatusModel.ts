@@ -20,3 +20,14 @@ export function classifyUpdateStatus(snapshot: UpdateAvailabilitySnapshot) {
   }
   return { errors, information: [...information.values()] };
 }
+
+export type UpdateFailureOrigin = "background" | "check" | "update";
+export interface UpdateFailure { message: string; details: string }
+
+export function classifyUpdateFailure(origin: UpdateFailureOrigin, detail: unknown): UpdateFailure | null {
+  if (origin === "background") return null;
+  return {
+    message: origin === "check" ? "Couldn't check for updates. Try again later." : "Couldn't update. Try again later.",
+    details: detail instanceof Error ? detail.toString() : String(detail),
+  };
+}
