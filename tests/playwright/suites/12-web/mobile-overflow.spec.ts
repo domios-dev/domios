@@ -658,7 +658,7 @@ async function auditSidebarDrawer(page: Page, label: string, expectedOpen: boole
 
 test("@golden mobile web primary surfaces stay inside the viewport audit helper self-check", async ({ webBrowser }, testInfo) => {
   const healthJson = await assertHealthMatchesHead();
-  await testInfo.attach("health.json", { body: healthJson, contentType: "application/json" });
+  await testInfo.attach("health.json", { body: JSON.stringify(healthJson), contentType: "application/json" });
 
   const page = await newWebPage(webBrowser, { width: 320, height: 568 });
   try {
