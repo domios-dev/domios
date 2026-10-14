@@ -68,6 +68,11 @@ impl TurnCounter {
         Self::default()
     }
 
+    /// Stored scheduler deadline. Reading it does not arm a new one.
+    pub fn time_nudge_deadline(&self, tab_id: &str) -> Option<u64> {
+        self.timed.lock().get(tab_id).copied()
+    }
+
     pub fn time_nudge_due(&self, tab_id: &str, now_secs: u64, interval_secs: u64) -> bool {
         if interval_secs == 0 {
             return false;
@@ -343,6 +348,45 @@ mod tests {
                 .time_reminder_telemetry("orch")
                 .delivery_failure_retry_reason,
             None
+        );
+    }
+
+    #[test]
+    fn time_nudge_deadline_reads_without_arming() {
+        let counter = TurnCounter::new();
+        assert_eq!(counter.time_nudge_deadline("tab"), None);
+        assert_eq!(counter.time_nudge_deadline("tab"), None);
+        assert!(!counter.time_nudge_due("tab", 100, 30));
+        assert_eq!(counter.time_nudge_deadline("tab"), Some(100));
+        counter.mark_time_nudged("tab", 140);
+        assert_eq!(counter.time_nudge_deadline("tab"), Some(140));
+    }
+
+    #[test]
+    fn reminder_prefix_does_not_call_a_closed_planner_bound() {
+        use crate::plan::peer::PeerResolution;
+        use crate::service_plan::prompts_plan::{PEER_PLANNER_DOWN_HINT, PEER_WAIVER_HINT};
+
+        let gone = PeerResolution::OrchestratorFallback {
+            bound_tab_id: "tab_x".into(),
+            reason: "planner tab tab_x gone".into(),
+        };
+        let prefix = crate::service_plan::peer_mandate::reminder_planner_prefix(&gone).unwrap();
+        assert!(!prefix.contains("bound"));
+        assert_ne!(prefix, PEER_WAIVER_HINT);
+        assert_ne!(prefix, PEER_PLANNER_DOWN_HINT);
+
+        let dead = PeerResolution::OrchestratorFallback {
+            bound_tab_id: "tab_x".into(),
+            reason: "planner_dead: tab tab_x has no nonce-verified live agent chat session".into(),
+        };
+        assert_eq!(
+            crate::service_plan::peer_mandate::reminder_planner_prefix(&dead),
+            Some(PEER_PLANNER_DOWN_HINT)
+        );
+        assert_eq!(
+            crate::service_plan::peer_mandate::reminder_planner_prefix(&PeerResolution::Unbound),
+            Some(PEER_WAIVER_HINT)
         );
     }
 }
