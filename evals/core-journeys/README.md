@@ -11,19 +11,22 @@ as success. It spends real provider tokens.
 ## Run
 
 Canonical checkout only, in one Team-bound QA utility shell, under the
-Orchestrator's serialized QA authority. DEV must already run the exact build
-under test (`curl -s http://127.0.0.1:7686/api/health | jq .build_sha`) and its
-window must be open, because J2 drives the dialog.
+Orchestrator's serialized QA authority. The run needs a named isolated instance
+with its own port, already running the exact build under test, with its window
+open because J2 drives the dialog. `run.sh` refuses an unset
+`CODETERM_INSTANCE` and ports 7685 and 7686 before it contacts anything.
 
 ```bash
-bash evals/core-journeys/run.sh all
+CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh all --plan   # dry: journeys, steps, evidence paths
+CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh all
+node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 ```
 
 `all` runs `setup`, a bench-owned DEV restart (`./build.sh kill`, then
 `./build.sh dev-prebuilt --wait --wait-build` on the same instance; never port
 7685), `verify`, then `cleanup`, and exits nonzero if any check failed. Evidence
-is `results.json`, `results.md` and `restart.json` under
-`target-check/evals/core-journeys/<stamp>/`; the last line prints the wall time.
+is `results.json`, `results.md`, `restart.json` and `screenshots/{setup,verify}.png`
+under `target-check/evals/core-journeys/<stamp>/`; the last line prints the wall time.
 The budget is about 15 minutes; journeys run in parallel where they do not
 share the window. A run over budget is reported with its per-journey times.
 
@@ -42,6 +45,27 @@ fails), `--history-kb N` sizes the runtime history probe (default 320),
 `--deadline-secs N` sets the ready and reply deadline (default 240), `--all-tabs`
 makes every agent tab on the instance part of the restart oracle, `--keep`
 skips cleanup.
+
+## Evidence contract
+
+`lib/evidence-contract.mjs <run-dir>` is the machine check of a run directory.
+Exit 0: evidence complete and the run passed. Exit 1: an artefact is missing or
+malformed. Exit 3: evidence complete but a check failed. It requires:
+
+- `results.json`: schema 1; every phase (`setup`, `verify`, `cleanup`) with the instance name, an
+  integer port other than 7685/7686, build SHA and wall time; every check with a known journey id,
+  a `verdict` of `pass`, `fail` or `skip` that agrees with `pass`, a reason unless it passed, a duration
+  and a start time; at least one check for SETUP, J1, J2, J3 and J4.
+- ids in `results.json` `state`: run id, workspace id, every tab id, a session id for each J1 tab
+  that answered, and the pre-restart listener, build and tab ids.
+- `results.md`: byte-equal to the rendering of `results.json`.
+- `restart.json` (`upgrade.json` for the first upgrade cycle): `pass`, phase `verified`, listener
+  pid and start time that prove a restart, same instance and port as `results.json`. An operator
+  restart (`setup`/`verify` run by hand) leaves no `restart.json` and fails this check on purpose.
+- `screenshots/setup.png` and `screenshots/verify.png`, taken with `scripts/dev-screenshot.mjs`
+  and recorded in `state.screenshots`; each must exist and be a PNG.
+
+`lib/fixture-run.mjs <dir>` writes a complete synthetic run directory for trying the check.
 
 ## Journeys
 
@@ -72,7 +96,7 @@ QA evidence and are not claimed here.
 
 ## Upgrade (J5)
 
-Use a disposable named instance and its own port; the run refuses 7685, 7686
+Use a disposable named instance and its own port; every mode refuses 7685, 7686
 and an unnamed instance. The N-1 checkout is any worktree at the previous
 release (for example `git worktree add /tmp/cj-prev v1.14.8`).
 
