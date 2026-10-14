@@ -302,6 +302,14 @@ pub(super) fn dispatch(
                     &plan, &task_id,
                 )?;
             }
+            let worker = store.show_task(&task_id).ok().and_then(|shown| {
+                shown.task.execution_attempts.last().and_then(|attempt| {
+                    attempt
+                        .mesh_peer
+                        .is_none()
+                        .then(|| attempt.executor_tab_id.clone())
+                })
+            });
             let result = store
                 .accept_review(
                     &plan_id,
@@ -314,6 +322,14 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            if let Some(worker) = worker {
+                use tauri::Manager;
+                if let Some(handle) = app.try_state::<crate::sentinel::scheduler::Handle>() {
+                    if let Err(error) = handle.remove_worker_watchers(&worker) {
+                        log::error!("[blueprint] accepted task watcher cleanup failed: {error}");
+                    }
+                }
+            }
             emit_plan_changed(app, &plan_id);
             svc.record_kpi_review_verdict(
                 from.tab_id.as_deref().unwrap_or("unknown"),

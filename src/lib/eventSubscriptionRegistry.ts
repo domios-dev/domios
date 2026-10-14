@@ -4,7 +4,7 @@ type Listener = (name: string, data: unknown) => void;
 type Options = NonNullable<Parameters<TransportClient["subscribe"]>[2]>;
 type Connect = TransportClient["subscribe"];
 interface Consumer { listener: Listener; options: Options; stop: Unsubscribe }
-interface Connection { path: string; consumers: Set<Consumer>; close: Unsubscribe; generation: number }
+interface Connection { path: string; consumers: Set<Consumer>; close: Unsubscribe; generation: number; connected: boolean }
 
 export function eventStreamKey(path: string): string | undefined {
   const url = new URL(path, "http://daemon");
@@ -33,6 +33,7 @@ export function createEventSubscriptionRegistry(connect: Connect) {
   const cursors = new Map<string, string>();
   let generation = 0;
   const open = (key: string, connection: Connection) => {
+    connection.connected = true;
     const current = connection.generation = ++generation;
     const valid = () => connections.get(key) === connection && connection.generation === current;
     connection.close = connect(connection.path, (name, data) => {
@@ -63,8 +64,9 @@ export function createEventSubscriptionRegistry(connect: Connect) {
       },
       onEnd: (end: StreamEnd) => {
         if (!valid()) return;
-        connections.delete(key);
-        const consumers = [...connection.consumers];
+        connection.connected = false;
+        connection.generation = ++generation;
+        const consumers = [...connection.consumers].filter((consumer) => consumer.options.onEnd);
         for (const consumer of consumers) consumer.stop();
         for (const consumer of consumers) consumer.options.onEnd?.(end);
       },
@@ -87,7 +89,7 @@ export function createEventSubscriptionRegistry(connect: Connect) {
           url.searchParams.set("since", cursor);
           path = url.pathname + url.search;
         }
-        connection = { path, consumers: new Set(), close: () => {}, generation: 0 };
+        connection = { path, consumers: new Set(), close: () => {}, generation: 0, connected: false };
         connections.set(key, connection);
       }
       const owned = connection;
@@ -105,7 +107,7 @@ export function createEventSubscriptionRegistry(connect: Connect) {
       };
       owned.consumers.add(consumer);
       options.signal?.addEventListener("abort", abort, { once: true });
-      if (created) open(key, owned);
+      if (created || !owned.connected) open(key, owned);
       return consumer.stop;
     },
     replace(next: Connect) {
