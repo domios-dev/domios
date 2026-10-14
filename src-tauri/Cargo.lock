@@ -1319,6 +1319,7 @@ name = "codeterm-config"
 version = "1.6.2"
 dependencies = [
  "codeterm-mesh",
+ "codeterm-notify-types",
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
