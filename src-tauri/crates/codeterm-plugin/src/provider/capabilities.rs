@@ -18,7 +18,17 @@ pub struct PasteCapability {
     #[serde(default)]
     pub typed_follow_up: String,
     #[serde(default)]
+    pub paste_marker_when: PasteMarkerWhen,
+    #[serde(default)]
     pub requires_typed_instruction_for_routed_messages: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PasteMarkerWhen {
+    #[default]
+    Always,
+    Multiline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,9 +51,17 @@ impl PasteCapability {
             })
     }
 
+    pub fn marker_applies_to(&self, text: &str) -> bool {
+        match self.paste_marker_when {
+            PasteMarkerWhen::Always => true,
+            PasteMarkerWhen::Multiline => text.contains('\n'),
+        }
+    }
+
     pub fn typed_follow_up_for(&self, text: &str) -> Option<&str> {
         let follow_up = self.typed_follow_up.as_str();
         (text.lines().count() > self.untrusted_above_lines
+            && self.marker_applies_to(text)
             && Self::is_valid_typed_follow_up(follow_up))
         .then_some(follow_up)
     }
@@ -68,6 +86,7 @@ mod paste_capability_tests {
             multiline: None,
             untrusted_above_lines: 4,
             typed_follow_up: " ::marker::".into(),
+            paste_marker_when: PasteMarkerWhen::Always,
             requires_typed_instruction_for_routed_messages: true,
         };
 
@@ -83,6 +102,18 @@ mod paste_capability_tests {
             ..capability
         };
         assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);
+
+        let multiline_only = PasteCapability {
+            untrusted_above_lines: 0,
+            paste_marker_when: PasteMarkerWhen::Multiline,
+            typed_follow_up: " ::marker::".into(),
+            ..multiline
+        };
+        assert_eq!(multiline_only.typed_follow_up_for("single line"), None);
+        assert_eq!(
+            multiline_only.typed_follow_up_for("a\nb"),
+            Some(" ::marker::")
+        );
     }
 }
 

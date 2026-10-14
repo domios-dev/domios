@@ -30,7 +30,14 @@ export function buildDomiosMessage(
   return `${buildDomiosOpeningTag(attrs)}${body}${suffix}${DOMIOS_CLOSE_TAG}`;
 }
 
-export function parseDomiosMessage(text: string): ParsedDomiosMessage | null {
+function stripLeadingMarker(text: string): string {
+  if (!text.startsWith(DOMIOS_PASTED_MARKER)) return text;
+  const rest = text.slice(DOMIOS_PASTED_MARKER.length).replace(/^\n/, "");
+  return rest.startsWith("<domios") ? rest : text;
+}
+
+export function parseDomiosMessage(input: string): ParsedDomiosMessage | null {
+  const text = stripLeadingMarker(input);
   if (!text.startsWith("<domios")) return null;
   const openEnd = text.indexOf(">");
   if (openEnd < 0) return null;

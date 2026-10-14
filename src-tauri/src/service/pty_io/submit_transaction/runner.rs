@@ -71,6 +71,7 @@ pub(super) fn run_with_submit_key<T: SubmitTransport>(
     )
 }
 
+#[cfg(test)]
 pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     transport: &T,
     text: &str,
@@ -133,12 +134,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
-    if let Err(error) = transport.prewrite_guard() {
-        if matches!(error, InjectionError::AgentTuiPresent { .. }) {
-            log::info!("[submit-transaction] automatic submit stopped: provider dialog detected before paste");
-        }
-        return Err(error);
-    }
+    transport.prewrite_guard()?;
     let started = Instant::now();
     let turn_was_started = enter && transport.turn_started();
     transport.prepare_paste(text, enter);
@@ -193,7 +189,6 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     let submit_started = Instant::now();
     let mut first_submit_key_at = (submit_key_writes > 0).then_some(submit_started);
     let mut submit_observed = !two_phase;
-    let mut dialog_blocked = false;
     let mut force_key_schedule_after_deadline = false;
     while submit_key_writes < transport.max_submit_keys() {
         if submit_key_writes > 0 && !transport.retry_active() {
@@ -247,42 +242,17 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                 false => false,
                 true if !allow_initial_key => match key_guard(false, turn_was_started) {
                     Ok(()) => true,
-                    Err(InjectionError::AgentTuiPresent { .. }) => {
-                        log::info!("[submit-transaction] automatic submit stopped: provider dialog detected during deadline fallback");
-                        dialog_blocked = true;
-                        false
-                    }
                     Err(error) => {
                         key_error = Some(error);
                         false
                     }
                 },
-                true if transport.draft_evidence_count(text) > baseline_evidence => {
-                    match transport.dialog_guard() {
-                        Ok(()) => true,
-                        Err(InjectionError::AgentTuiPresent { .. }) => {
-                            log::info!("[submit-transaction] automatic submit stopped: provider dialog detected during deadline fallback");
-                            dialog_blocked = true;
-                            false
-                        }
-                        Err(error) => {
-                            key_error = Some(error);
-                            false
-                        }
-                    }
-                }
-                true => false,
+                true => true,
             }
         } else {
             loop {
                 match key_guard(allow_initial_key, turn_was_started) {
                     Ok(()) => break true,
-                    Err(error @ InjectionError::AgentTuiPresent { .. }) if bytes_written > 0 => {
-                        log::info!("[submit-transaction] automatic submit stopped: provider dialog detected before key");
-                        dialog_blocked = true;
-                        key_error = Some(error);
-                        break false;
-                    }
                     Err(error @ InjectionError::AgentInputUnavailable { .. })
                         if bytes_written > 0 =>
                     {
@@ -315,31 +285,19 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
             if bytes_written == 0 {
                 return Err(key_error.expect("failed key guard retains its error"));
             }
-            if readiness_deadline_expired
-                && !dialog_blocked
-                && transport.draft_evidence_count(text) > baseline_evidence
-            {
+            if readiness_deadline_expired {
                 match key_guard(allow_initial_key, turn_was_started) {
                     Ok(()) if transport.retry_active() => {
                         log::info!("[submit-transaction] readiness deadline expired with draft present; starting bounded submit-key schedule");
                         force_key_schedule_after_deadline = true;
                         continue;
                     }
-                    Err(InjectionError::AgentTuiPresent { .. }) => {
-                        log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
-                    }
-                    Err(InjectionError::AgentInputUnavailable { .. }) => {
-                        match transport.dialog_guard() {
-                            Ok(()) if transport.retry_active() => {
-                                log::info!("[submit-transaction] readiness deadline expired with draft present; starting bounded submit-key schedule");
-                                force_key_schedule_after_deadline = true;
-                                continue;
-                            }
-                            Err(InjectionError::AgentTuiPresent { .. }) => {
-                                log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
-                            }
-                            _ => {}
-                        }
+                    Err(InjectionError::AgentInputUnavailable { .. })
+                        if transport.retry_active() =>
+                    {
+                        log::info!("[submit-transaction] readiness deadline expired with draft present; starting bounded submit-key schedule");
+                        force_key_schedule_after_deadline = true;
+                        continue;
                     }
                     _ => {}
                 }
@@ -407,7 +365,6 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         && !submit_observed
         && bytes_written > 0
         && submit_key_writes > 0
-        && !dialog_blocked
         && transport.retry_active()
     {
         let deferred_deadline = Instant::now() + opts.submit_timeout;
@@ -440,10 +397,6 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
             }
             match key_guard(false, turn_was_started) {
                 Ok(()) => {}
-                Err(InjectionError::AgentTuiPresent { .. }) => {
-                    log::info!("[submit-transaction] deferred submit stopped: provider dialog detected before key");
-                    break;
-                }
                 Err(InjectionError::AgentInputUnavailable { .. }) => {
                     if transport.wait_for_submit_event(deferred_deadline) {
                         continue;

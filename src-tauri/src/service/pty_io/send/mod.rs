@@ -1,5 +1,6 @@
 //! Interactive send path: shell readiness and all
 //! send/write/batch ServiceContext methods.
+use crate::agent::provider::PasteCapability;
 use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
 
@@ -19,15 +20,17 @@ struct RoutedInput {
 
 fn prepare_routed_input(
     frame: &codeterm_wire::domios::DomiosFrame,
-    requires_typed_instruction: bool,
+    typed_instruction: Option<&PasteCapability>,
 ) -> RoutedInput {
     let body = sanitize_agent_prompt_input(&frame.body);
     let suffix = compose_routed_suffix(&frame.suffix);
-    if requires_typed_instruction {
+    if let Some(capability) = typed_instruction {
         RoutedInput {
+            pasted_tail: capability
+                .marker_applies_to(&body)
+                .then(codeterm_wire::domios::pasted_marker_tail),
             body,
             typed_prefix: Some(frame.opening_tag.clone()),
-            pasted_tail: Some(codeterm_wire::domios::pasted_marker_tail()),
             typed_suffix: Some(suffix),
         }
     } else {
@@ -510,15 +513,15 @@ impl ServiceContext {
                         provider.verify_submit_strategy()
                     })
                     .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let requires_typed_instruction = self
+                let typed_instruction = self
                     .agent_registry
                     .with_provider(&delivery.provider_id, |provider| {
-                        provider.paste_capability().is_some_and(|capability| {
+                        provider.paste_capability().filter(|capability| {
                             capability.requires_typed_instruction_for_routed_messages
                         })
                     })
                     .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let input = prepare_routed_input(&frame, requires_typed_instruction);
+                let input = prepare_routed_input(&frame, typed_instruction.as_ref());
                 let body = input.body;
                 let track_exact_session_turn = !body.is_empty()
                     && matches!(
@@ -752,15 +755,7 @@ impl ServiceContext {
             enqueued,
         )
         .and_then(|result| require_submission_result(result, require_provider_turn))
-        .map_err(|error| match error {
-            crate::service::inject_verify::InjectionError::AgentTuiPresent { .. } => {
-                DeliveryError::TabBusyRefused {
-                    tab: delivery_target.to_string(),
-                    detail: "provider-classified modal dialog is visible".to_string(),
-                }
-            }
-            error => DeliveryError::from_injection(delivery_target, error),
-        })
+        .map_err(|error| DeliveryError::from_injection(delivery_target, error))
     }
 
     fn resolve_tab_and_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {

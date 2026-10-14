@@ -635,10 +635,6 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
-        provider_classified_delivery_modal_visible(self, snapshot)
-    }
-
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     fn is_output_noise(&self, text: &str) -> bool {
         let _ = text;
@@ -1158,24 +1154,4 @@ pub trait AgentProvider: Send + Sync {
     fn is_native(&self) -> bool {
         true
     }
-}
-
-pub(crate) fn provider_classified_delivery_modal_visible<P: AgentProvider + ?Sized>(
-    provider: &P,
-    snapshot: &crate::tab_state::TabStateSnapshot,
-) -> bool {
-    use crate::tab_state::TabState;
-
-    provider
-        .classify_tab_state(snapshot)
-        .is_some_and(|classification| {
-            classification.confidence >= 0.8
-                && matches!(
-                    classification.state,
-                    TabState::WaitingOnAuth
-                        | TabState::UpdatePrompt
-                        | TabState::RateLimited
-                        | TabState::ClarifyingQuestion
-                )
-        })
 }

@@ -5,7 +5,6 @@ use server::protocol;
 
 pub(crate) fn register_rpc_bridge() {
     crate::rpc_bridge::register(crate::rpc_bridge::RpcBridge {
-        protocol_version: protocol::PROTOCOL_VERSION,
         version_skew_gate: |raw| {
             protocol::version_skew_gate(
                 protocol::client_protocol_version(raw),
@@ -18,5 +17,6 @@ pub(crate) fn register_rpc_bridge() {
         recover_remote_attempts: remote_recovery::recover_remote_attempts,
         respawn_remote: remote_recovery::respawn_remote,
         run_dispatch_startup: |startup, ready_rx| startup.run(ready_rx),
+        start_server: server::SocketServer::start,
     });
 }

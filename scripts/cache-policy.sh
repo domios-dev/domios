@@ -206,10 +206,26 @@ ct_sccache_restart() {
     echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
     return 75
   fi
+  local evidence_log="${SCCACHE_ERROR_LOG:-}"
+  if declare -F ct_gateway_dir >/dev/null; then
+    evidence_log="${evidence_log:-$(ct_gateway_dir)/sccache-server.log}"
+    mkdir -p "$(dirname "$evidence_log")"
+    if [ "${CT_GATEWAY_ACTIVE:-0}" = 1 ]; then
+      ct_gateway_state_tool evidence-reset --dir "$(ct_gateway_dir)" --job-id "$CT_BUILD_JOB_ID" || true
+    fi
+  fi
   sccache --stop-server >/dev/null 2>&1 || true
-  if ! sccache --start-server >/dev/null 2>&1; then
+  if ! ct_sccache_start_with_evidence "$evidence_log"; then
     echo "[cache-policy] ERROR: sccache server failed to start with $CT_SCCACHE_STORAGE storage" >&2
     return 2
+  fi
+}
+
+ct_sccache_start_with_evidence() {
+  if [ -n "$1" ]; then
+    SCCACHE_LOG=sccache::server=debug SCCACHE_ERROR_LOG="$1" sccache --start-server >/dev/null 2>&1
+  else
+    sccache --start-server >/dev/null 2>&1
   fi
 }
 

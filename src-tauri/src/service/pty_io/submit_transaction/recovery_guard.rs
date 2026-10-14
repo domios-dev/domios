@@ -1,4 +1,4 @@
-use super::{submit_key_readiness, PtySubmitTransport, SubmitTransport};
+use super::PtySubmitTransport;
 use crate::service::inject_verify::InjectionError;
 
 /// What a recovery key (any submit key after the first) may rely on.
@@ -50,11 +50,10 @@ fn log_recovery_refusal(transport: &PtySubmitTransport<'_>, reason: &'static str
 pub(super) fn submit_key_guard(
     transport: &PtySubmitTransport<'_>,
     allow_initial_key: bool,
-    draft: &str,
 ) -> Result<(), InjectionError> {
     let svc = transport.svc;
     let pty_id = transport.pty_id;
-    let (tab_id, agent_id, session_id, cwd, session_bound, owns_pty, launch_nonce) = {
+    let (agent_id, session_bound, owns_pty, launch_nonce) = {
         let mux = svc.mux.read();
         let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
             return Err(InjectionError::AgentInputUnavailable {
@@ -67,10 +66,7 @@ pub(super) fn submit_key_guard(
             });
         };
         (
-            tab_id,
             tab.agent_type.clone(),
-            tab.agent_session_id.clone(),
-            tab.cwd.clone(),
             tab.launch_session_authenticated(),
             tab.pty_id.as_deref() == Some(pty_id),
             tab.session_binding_nonce.is_some(),
@@ -81,99 +77,29 @@ pub(super) fn submit_key_guard(
             pty_id: pty_id.to_string(),
         });
     }
-    if allow_initial_key && agent_id.is_none() {
-        return transport.dialog_guard();
+    if allow_initial_key {
+        return Ok(());
     }
-    let (screen, input) = {
-        let screen_state = svc.screen_state.lock();
-        (
-            screen_state.get_screen_text(pty_id),
-            screen_state.composer_input_state(pty_id),
-        )
-    };
     let Some(agent_id) = agent_id else {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
     };
-    let Some(screen) = screen else {
-        return Err(InjectionError::AgentInputUnavailable {
-            pty_id: pty_id.to_string(),
-        });
-    };
-    let snapshot = crate::agent::tab_state::TabStateSnapshot {
-        tab_id,
-        agent_type: agent_id.clone(),
-        session_id,
-        cwd,
-        screen_text: screen.clone(),
-    };
-    // Measured before taking the registry lock; only an unbound retry reads it.
-    let draft_present = !allow_initial_key
-        && !session_bound
-        && !draft.trim().is_empty()
-        && transport.draft_evidence_count(draft) > 0;
-    let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
-        if allow_initial_key {
-            let modal_visible = provider.delivery_modal_visible(&snapshot);
-            let allowed = submit_key_readiness(modal_visible);
-            log::debug!(
-                "[submit-audit] first-key guard pty={} modal_visible={} allowed={}",
-                pty_id,
-                modal_visible,
-                allowed
-            );
-            return if allowed {
-                Ok(())
-            } else {
-                Err(InjectionError::AgentTuiPresent {
-                    pty_id: pty_id.to_string(),
-                })
-            };
-        }
-        let authority = recovery_key_authority(RecoveryKeyInputs {
-            session_bound,
-            provider_capability: provider.supports_unbound_submit_recovery(),
-            session_starts_on_first_user_turn: provider.session_starts_on_first_user_turn(),
-            launch_owns_pty: launch_nonce,
-            draft_present,
-        });
-        if let Err(reason) = authority {
-            log_recovery_refusal(transport, reason);
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        }
-        let provider_tui = provider.screen_has_tui(&screen);
-        let (cursor_ready, alternate_screen) = input
-            .as_ref()
-            .map(|state| {
-                let cursor_ready = super::super::send::readiness::composer_input_ready_for_position(
-                    *state,
-                    provider.composer_cursor_position(),
-                    false,
-                );
-                (cursor_ready, state.alternate_screen)
+    let authority = svc
+        .agent_registry
+        .with_provider(&agent_id, |provider| {
+            recovery_key_authority(RecoveryKeyInputs {
+                session_bound,
+                provider_capability: provider.supports_unbound_submit_recovery(),
+                session_starts_on_first_user_turn: provider.session_starts_on_first_user_turn(),
+                launch_owns_pty: launch_nonce,
+                draft_present: true,
             })
-            .unwrap_or((false, false));
-        let composer_ready = cursor_ready && (provider_tui || alternate_screen);
-        recovery_dialog_guard(provider, &snapshot, composer_ready, pty_id)
-    });
-    readiness.unwrap_or_else(|| {
-        Err(InjectionError::AgentInputUnavailable {
-            pty_id: pty_id.to_string(),
         })
-    })
-}
-
-pub(super) fn recovery_dialog_guard(
-    provider: &dyn codeterm_plugin::provider::AgentProvider,
-    snapshot: &crate::agent::tab_state::TabStateSnapshot,
-    composer_ready: bool,
-    pty_id: &str,
-) -> Result<(), InjectionError> {
-    if !composer_ready && provider.delivery_modal_visible(snapshot) {
-        return Err(InjectionError::AgentTuiPresent {
+        .unwrap_or(Err("provider_unavailable"));
+    if let Err(reason) = authority {
+        log_recovery_refusal(transport, reason);
+        return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
     }
@@ -228,12 +154,7 @@ pub(crate) fn nudge_unbound_launch_draft(
         launch_owns_pty: launch_nonce,
         draft_present,
     })?;
-    if let Err(error) = super::pty_owner_guard(svc, pty_id) {
-        return Err(match error {
-            InjectionError::AgentTuiPresent { .. } => "dialog_visible",
-            _ => "pty_not_owned",
-        });
-    }
+    super::pty_owner_guard(svc, pty_id).map_err(|_| "pty_not_owned")?;
     let claim = super::claim_submit_cycle(pty_id);
     if claim.command_wait().is_some() {
         return Err("model_command_in_flight");

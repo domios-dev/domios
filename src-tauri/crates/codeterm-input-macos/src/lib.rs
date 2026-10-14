@@ -3,7 +3,9 @@
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 
+#[cfg(target_os = "macos")]
 const MAX_DESCRIPTOR_ELEMENTS: usize = 512;
+#[cfg(target_os = "macos")]
 const MAX_COLLECTION_DEPTH: usize = 32;
 const DEVICE_ID_PREFIX: &str = "macos-hid-v1:";
 const COLLECTION_ID_PREFIX: &str = "macos-hid-collection-v1:";
@@ -143,6 +145,7 @@ impl CollectionIdentity {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ElementKind {
     Button,
+    #[cfg(target_os = "macos")]
     Other,
 }
 
@@ -235,6 +238,7 @@ fn access_failure_reason(access: AccessCheck) -> MacUnavailableReason {
         AccessCheck::Granted => MacUnavailableReason::Error,
     }
 }
+#[cfg(target_os = "macos")]
 fn native_error(message: &str, reason: MacUnavailableReason) -> (String, MacUnavailableReason) {
     (message.into(), reason)
 }

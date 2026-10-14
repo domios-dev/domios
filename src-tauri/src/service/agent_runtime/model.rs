@@ -399,56 +399,5 @@ pub fn accepts_turn_transition(
         || current == incoming
 }
 
-pub fn observe_turn(
-    context: &mut codeterm_plugin::agent_runtime::RuntimeContext,
-    event: &codeterm_plugin::agent_runtime::AgentRuntimeEvent,
-) {
-    use codeterm_plugin::agent_runtime::{
-        AgentRuntimeEvent, RuntimeActiveTurn, RuntimeThreadParent, RuntimeTurnState,
-    };
-    let AgentRuntimeEvent::TurnState {
-        thread_id,
-        turn_id,
-        parent_thread_id,
-        state,
-        ..
-    } = event
-    else {
-        return;
-    };
-    if context.thread_id.as_ref() != Some(thread_id)
-        && !context
-            .thread_parents
-            .iter()
-            .any(|parent| &parent.thread_id == thread_id)
-    {
-        if let Some(parent) = parent_thread_id {
-            context.thread_parents.push(RuntimeThreadParent {
-                thread_id: thread_id.clone(),
-                parent_thread_id: parent.clone(),
-            });
-        }
-    }
-    if matches!(state, RuntimeTurnState::Idle) {
-        context.active_turns.retain(|turn| {
-            turn.thread_id != *thread_id || turn_id.as_ref().is_some_and(|id| id != &turn.turn_id)
-        });
-    } else if let Some(turn_id) = turn_id {
-        context
-            .active_turns
-            .retain(|turn| turn.thread_id != *thread_id);
-        let parent = context
-            .thread_parents
-            .iter()
-            .find(|parent| &parent.thread_id == thread_id)
-            .map(|parent| parent.parent_thread_id.clone());
-        context.active_turns.push(RuntimeActiveTurn {
-            thread_id: thread_id.clone(),
-            turn_id: turn_id.clone(),
-            parent_thread_id: parent,
-        });
-    }
-}
-
 #[cfg(test)]
 mod tests;

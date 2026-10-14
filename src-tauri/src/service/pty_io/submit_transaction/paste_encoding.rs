@@ -62,6 +62,7 @@ pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8>
     input
 }
 
+#[cfg(test)]
 pub(super) fn encode_paste_frame(
     text: &str,
     typed_prefix: Option<&str>,

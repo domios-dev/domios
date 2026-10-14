@@ -453,7 +453,6 @@ mod tests {
 
     #[test]
     fn version_skew_error_serializes_untranslated_over_mesh_rpc() {
-        use crate::rpc_bridge::{bridge, RpcError};
         let error = protocol::version_skew_gate(2, 6, "recover --here")
             .expect("older mesh client is refused");
         let response = super::MeshRpcResponse {
@@ -471,7 +470,6 @@ mod tests {
 
     #[test]
     fn version_skew_mesh_request_parses_with_and_without_the_version_field() {
-        use crate::rpc_bridge::{bridge, RpcError};
         let versioned: super::MeshRpcRequest = serde_json::from_str(&format!(
             r#"{{"method":"plan.get","params":null,"request_id":"r1","protocol_version":{}}}"#,
             protocol::PROTOCOL_VERSION
