@@ -168,7 +168,7 @@ const plugins = JSON.parse(read("plugins/channel.json")).plugins;
 const workflows = Object.fromEntries(readdirSync(new URL("../../.github/workflows/", import.meta.url))
   .filter(file => file.endsWith(".yml")).map(file => [file, parse(read(`.github/workflows/${file}`))]));
 const workflow = workflows["tests.yml"];
-const exceptions = JSON.parse(read("docs/test-strategy/pr-commands.md").match(/```json\n([\s\S]*?)\n```/)[1]);
+const exceptions = JSON.parse(read("docs/test-strategy/pr-commands.md").match(/```json\r?\n([\s\S]*?)\r?\n```/)[1]);
 const check = (value, cat = catalogue, all = workflows) => workflowErrors(value, cat, overlay, plugins, exceptions, all);
 
 test("PR commands equal the catalogue projection for each ci-scope change class", () => {
