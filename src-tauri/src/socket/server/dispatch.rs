@@ -175,6 +175,7 @@ pub(super) fn dispatch(
                 "plan.task.judge",
                 "plan.task.rm",
                 "plan.lane_remove",
+                "plan.lanes_clean",
                 "plan.milestone.add",
                 "plan.milestone.update",
                 "plan.milestone.rm",

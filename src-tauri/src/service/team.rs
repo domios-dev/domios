@@ -7,7 +7,7 @@ use crate::multiplexer::types::{AgentRole, TabCloseReason};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
-mod close;
+pub(crate) mod close;
 mod close_busy;
 mod storage_teardown;
 #[cfg(test)]
