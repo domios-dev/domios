@@ -298,6 +298,8 @@ pub enum RuntimeResult {
 pub enum RuntimeStep {
     Continue {
         plan: RuntimePlan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        history: Option<RuntimeResult>,
         #[serde(default)]
         before_acceptance: bool,
     },
