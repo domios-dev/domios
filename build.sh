@@ -1324,7 +1324,7 @@ check_queue_worktree() {
   local dir
   dir="$(ct_gateway_dir)/check-worktree"
   if [ ! -e "$dir/.git" ]; then
-    git worktree add --detach "$dir" "$1" >&2
+    git worktree add -q --detach "$dir" "$1" >&2
   fi
   printf '%s\n' "$dir"
 }
@@ -1362,7 +1362,7 @@ check_queue_run() {
 
   enter_build_gateway "$CMD $sha"
   cw="$(check_queue_worktree "$sha")"
-  git -C "$cw" checkout --detach --force "$sha" >&2
+  git -C "$cw" checkout -q --detach --force "$sha" >&2
   cd "$cw"
   prepare_dev_frontend_dist "$cw"
   prepare_bundle_stubs
