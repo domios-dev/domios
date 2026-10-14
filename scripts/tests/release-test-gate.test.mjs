@@ -82,7 +82,7 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.equal(scopeEnv.CI_FULL_MATRIX, "${{ (inputs.source_ref != '' && inputs.scope != 'frontend') || github.event_name == 'schedule' }}");
   assert.equal(scopeEnv.CI_FRONTEND_ONLY, "${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}");
   for (const job of Object.values(tests.jobs)) {
-    for (const step of job.steps.filter(step => step.uses?.startsWith("actions/checkout@"))) {
+    for (const step of (job.steps || []).filter(step => step.uses?.startsWith("actions/checkout@"))) {
       assert.equal(step.with.ref, "${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}");
     }
   }
