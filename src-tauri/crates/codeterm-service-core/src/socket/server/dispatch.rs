@@ -45,7 +45,7 @@ pub(super) fn dispatch(
         }
         "plugin.core_guides" => {
             return Ok(crate::service::plugin_prompt::core_plugin_guides(
-                &svc.agent_command_registry,
+                svc.ext::<crate::agent_commands::AgentCommandRegistryHandle>(),
             ))
         }
         "rest_api.status" | "rest_api.restart" => {
@@ -310,8 +310,9 @@ pub(super) fn dispatch(
                 "mem.graph.repair.orphan_blobs",
                 // Credential-bearing mem.secret.* stays on bearer-authenticated HTTP.
             ];
-            let plugins =
-                crate::service::plugin_skills::granted_catalogs(&svc.agent_command_registry);
+            let plugins = crate::service::plugin_skills::granted_catalogs(
+                svc.ext::<crate::agent_commands::AgentCommandRegistryHandle>(),
+            );
             return Ok(serde_json::json!({ "methods": methods, "plugins": plugins }));
         }
         "mesh.status" => {

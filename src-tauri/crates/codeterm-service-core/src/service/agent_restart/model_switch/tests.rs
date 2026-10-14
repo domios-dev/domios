@@ -263,7 +263,10 @@ fn snapshot(tab_id: &str, provider: &str) -> TabRestartSnapshot {
 }
 
 fn restart_attempted(fixture: &ServiceFixture, tab_id: &str) -> bool {
-    let tracker = fixture.service.restart_tracker.lock();
+    let tracker = fixture
+        .service
+        .ext::<crate::service::agent_restart::RestartTracker>()
+        .lock();
     tracker.last_restart.contains_key(tab_id) || tracker.in_progress.contains(tab_id)
 }
 

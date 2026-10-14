@@ -58,7 +58,7 @@ pub fn new_restart_tracker() -> RestartTracker {
 impl ServiceContext {
     pub(crate) fn model_command_owns_prompt(&self, tab_id: &str) -> bool {
         let owner = self
-            .restart_tracker
+            .ext::<crate::service::agent_restart::RestartTracker>()
             .lock()
             .command_ptys
             .get(tab_id)
@@ -710,7 +710,11 @@ impl ServiceContext {
         tab_id: &str,
         automatic: bool,
     ) -> Result<RestartClaim, AgentRestartError> {
-        claim_restart_attempt(&self.restart_tracker, tab_id, automatic)
+        claim_restart_attempt(
+            self.ext::<crate::service::agent_restart::RestartTracker>(),
+            tab_id,
+            automatic,
+        )
     }
 
     fn session_file_present(&self, snap: &TabRestartSnapshot) -> bool {

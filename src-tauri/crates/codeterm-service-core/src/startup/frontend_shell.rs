@@ -161,7 +161,7 @@ fn open_external_link(url: &Url, origin: Option<&str>) {
         navigation_identity(&url)
     );
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(error) = crate::commands::open_url(url.into()) {
+        if let Err(error) = crate::service::open_url::open_url(url.into()) {
             log::debug!("[frontend-shell] external link opener failed: {error}");
         }
     });

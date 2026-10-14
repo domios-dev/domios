@@ -128,7 +128,7 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
-    let bridge = crate::rpc_bridge::bridge();
+    let bridge = crate::ports::socket::bridge();
     if let Some(error) = (bridge.version_skew_gate)(request.protocol_version.as_ref()) {
         return Err((
             StatusCode::BAD_REQUEST,

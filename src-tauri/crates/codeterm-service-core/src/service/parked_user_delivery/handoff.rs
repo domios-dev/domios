@@ -33,10 +33,10 @@ impl crate::service::ServiceContext {
             }) as PayloadEnqueued
         };
         let tab = tab_id.to_owned();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let completion = self.ready_user_send_tasks.start(tab_id);
         tauri::async_runtime::spawn_blocking(move || {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             let _completion = completion;
             let outcome = submit(payload_enqueued);
             if enqueued.load(Ordering::Acquire) {

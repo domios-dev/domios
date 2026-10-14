@@ -4,17 +4,20 @@ use codeterm_local_recording::LocalRecordingTrigger;
 use codeterm_plugin::local_recording::SelectedDevices;
 
 fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
-    fixture.service.local_recording_registry.register(
-        "trigger",
-        LocalRecordingTrigger {
-            vendor_id: 1,
-            product_id: 2,
-            usage_page: 3,
-            usage: 4,
-            button: None,
-        },
-        true,
-    );
+    fixture
+        .service
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+        .register(
+            "trigger",
+            LocalRecordingTrigger {
+                vendor_id: 1,
+                product_id: 2,
+                usage_page: 3,
+                usage: 4,
+                button: None,
+            },
+            true,
+        );
     let devices = SelectedDevices {
         input_id: "input".into(),
         collection_id: "collection".into(),
@@ -22,23 +25,25 @@ fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
     };
     fixture
         .service
-        .local_recording_registry
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
         .select_devices("trigger", devices.clone())
         .unwrap();
     fixture
         .service
-        .local_recording_registry
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
         .set_enabled("trigger", true)
         .unwrap();
     let generation = fixture
         .service
-        .local_recording_registry
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
         .selected_devices("trigger")
         .unwrap()
         .1;
     assert_eq!(
         crate::service::local_recording::arm_registry_fixture(
-            &fixture.service.local_recording_registry,
+            fixture
+                .service
+                .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>(),
             "trigger"
         ),
         generation
@@ -52,7 +57,9 @@ fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
             &devices,
             generation,
             target,
-            &fixture.service.local_recording_registry,
+            fixture
+                .service
+                .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>(),
         )
         .unwrap();
     fixture
@@ -116,14 +123,17 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
         .has_write_ticket(&accepted.status.send_id));
     match invalidation {
         Invalidation::Cancel => fixture.service.local_recordings.cancel(&capture.lease_id),
-        Invalidation::Revoke => fixture.service.local_recording_registry.revoke("trigger"),
+        Invalidation::Revoke => fixture
+            .service
+            .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+            .revoke("trigger"),
         Invalidation::Unload => fixture
             .service
-            .local_recording_registry
+            .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .unregister("trigger"),
         Invalidation::DeviceLoss => assert!(fixture
             .service
-            .local_recording_registry
+            .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .mark_unavailable("trigger", generation)),
         Invalidation::Deadline => fixture
             .service

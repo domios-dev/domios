@@ -241,7 +241,7 @@ impl ServiceContext {
             &jobs,
             &journals,
             &live_leases,
-            &self.graph_event_subscriptions,
+            self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
         );
         graph::project_worker_states(&mut snapshot, &mux, |tab| self.resolved_tab_status(tab));
         Ok(snapshot)
@@ -345,7 +345,7 @@ impl ServiceContext {
             &jobs,
             &journals,
             &live_leases,
-            &self.graph_event_subscriptions,
+            self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
         );
         graph::project_worker_states(&mut combined, &mux, |tab| self.resolved_tab_status(tab));
         Ok(combined)

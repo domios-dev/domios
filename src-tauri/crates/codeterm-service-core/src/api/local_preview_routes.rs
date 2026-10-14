@@ -158,7 +158,7 @@ pub(super) async fn check(
 }
 
 pub(super) async fn secure_headers(req: Request, next: Next) -> Response {
-    let scoped = super::access_policy::is_preview_read(req.method(), req.uri().path());
+    let scoped = crate::api_support::access_policy::is_preview_read(req.method(), req.uri().path());
     let mut response = next.run(req).await;
     if scoped {
         let headers = response.headers_mut();

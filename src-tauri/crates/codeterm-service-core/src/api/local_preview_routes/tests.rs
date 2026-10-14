@@ -53,7 +53,7 @@ async fn referenced_images_documents_and_pages_match_desktop_shape_and_headers()
         assert_eq!(response.status(), StatusCode::OK);
         assert_headers(&response);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
-        let desktop = crate::commands::html_preview::read_local_preview_file_guarded(
+        let desktop = crate::service::local_preview::html_preview::read_local_preview_file_guarded(
             path.to_str().unwrap(),
             kind,
             |_, _| Ok(()),
@@ -175,7 +175,7 @@ async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals
     ] {
         fixture.reference(&fixture.owner, path);
         assert!(
-            crate::commands::html_preview::read_local_preview_file_guarded(
+            crate::service::local_preview::html_preview::read_local_preview_file_guarded(
                 path.to_str().unwrap(),
                 kind,
                 |_, _| Ok(()),

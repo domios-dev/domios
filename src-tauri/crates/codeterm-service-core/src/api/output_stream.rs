@@ -178,7 +178,11 @@ pub async fn stream_tab_output(
     (StatusCode, &'static str),
 > {
     check_auth(&state, &headers)?;
-    let activity = state.svc.output_stream_activity.subscribe();
+    let activity = state
+        .svc
+        .ext::<crate::service::output_stream_activity::OutputStreamActivityTx>()
+        .0
+        .subscribe();
     let chat = state.svc.tab_chat_backing(&raw_tab_id).is_some();
     let pty_id = if chat {
         None
@@ -619,7 +623,7 @@ pub async fn output_stream(
     );
     let stream = async_stream::stream! {
         let mut guard = guard;
-        let mut activity = svc.output_stream_activity.subscribe();
+        let mut activity = svc.ext::<crate::service::output_stream_activity::OutputStreamActivityTx>().0.subscribe();
         let mut dirty_pty_ids = HashSet::new();
         let mut read_all = true;
         let mut sweep_now = true;

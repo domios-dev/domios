@@ -168,11 +168,13 @@ pub(crate) fn run_action(
     }
     let args = plugin_action_args(&action)?;
     let activity_meta = plugin_action_activity(&action)?;
-    let activity = svc.plugin_activity.start(
-        &activity_meta.plugin_id,
-        activity_meta.kind,
-        &activity_meta.label,
-    );
+    let activity = svc
+        .ext::<Arc<crate::plugin::activity::PluginActivityRegistry>>()
+        .start(
+            &activity_meta.plugin_id,
+            activity_meta.kind,
+            &activity_meta.label,
+        );
     crate::plugin::activity::emit_plugin_activity(svc, &activity);
 
     let result = (|| {
@@ -218,7 +220,7 @@ pub(crate) fn run_action(
     })();
 
     let finished = svc
-        .plugin_activity
+        .ext::<Arc<crate::plugin::activity::PluginActivityRegistry>>()
         .finish(&activity.id, result.as_ref().err().cloned());
     crate::plugin::activity::emit_plugin_activity(svc, &finished);
     result
