@@ -1,4 +1,4 @@
-use super::source::{self, RunBinding, TabBinding};
+use super::source::{self, RunBinding, RunBindOutcome, TabBinding};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
 use crate::cron::store::{CronJob, CronRunInfo, CronRunStatus};
@@ -7,12 +7,6 @@ use serde_json::{json, Value};
 use tauri::Manager;
 
 const MAX_CRON_EVENT_BYTES: usize = 1024;
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct RunBindOutcome {
-    pub(super) changed: bool,
-    pub(super) replaced: Option<RunBinding>,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PendingRunBinding {
