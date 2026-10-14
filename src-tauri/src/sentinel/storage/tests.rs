@@ -22,6 +22,7 @@ use crate::storage::{
 };
 
 mod coherence;
+mod cleanup;
 mod decision_detail;
 mod graph_fields;
 mod pipeline_journal;

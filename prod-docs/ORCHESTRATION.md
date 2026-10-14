@@ -106,7 +106,7 @@ the user, then recover with the named `codeterm plan task respawn` command.
 8. **Let heartbeat follow state.** It derives from plan/task state; answer
    reminders there, never through heartbeat, focus or lane fields.
 9. **Clean up as you go:** when a task is accepted or cancelled, close its Worker tab, utility shells and crons, and remove its merged lane;
-   close any idle utility shell or finished watcher you no longer need. Stop its dev process and record cleanup.
+   One-shot completion watchers retire after terminal work settles; acceptance removes the local Worker’s one-shot watchers. Team close removes its watchers. Close idle utility shells, stop their dev processes, and record cleanup.
 
 Tab-state hints marked `actionable: false` are observations, never instructions
 to answer, notify or mutate state. An actionable event needs two agreeing strong
@@ -179,4 +179,4 @@ holds with `plan review hold --note-from-pad`.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 113 -->
+<!-- revision: 114 -->
