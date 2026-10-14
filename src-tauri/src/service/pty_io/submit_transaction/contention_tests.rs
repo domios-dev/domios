@@ -12,8 +12,8 @@ struct Contention {
 struct Refused;
 
 impl SubmitTransport for Refused {
-    fn dialog_guard(&self) -> Result<(), InjectionError> {
-        Err(InjectionError::AgentTuiPresent {
+    fn prewrite_guard(&self) -> Result<(), InjectionError> {
+        Err(InjectionError::AgentInputUnavailable {
             pty_id: "contention".into(),
         })
     }

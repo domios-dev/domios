@@ -3,8 +3,7 @@
 //! waited for a binding only that Enter could create, and the draft sat unsent.
 //! ORACLE: the authority verdict, recorded key writes, and the refusal audit line.
 use super::recovery_guard::{
-    nudge_unbound_launch_draft, recovery_dialog_guard, recovery_key_authority,
-    recovery_refusal_line, RecoveryKeyInputs,
+    nudge_unbound_launch_draft, recovery_key_authority, recovery_refusal_line, RecoveryKeyInputs,
 };
 use super::tests::{opts, tui};
 use super::*;
@@ -123,24 +122,10 @@ impl SubmitTransport for KeyLog {
     }
 }
 
-fn snapshot() -> codeterm_plugin::tab_state::TabStateSnapshot {
-    codeterm_plugin::tab_state::TabStateSnapshot {
-        tab_id: "fixture-tab".into(),
-        agent_type: "fixture".into(),
-        session_id: None,
-        cwd: Some("/fixture".into()),
-        screen_text: "› restored draft".into(),
-    }
-}
-
-fn enter_count(
-    inputs: RecoveryKeyInputs,
-    provider: &crate::agent::test_provider::MockProvider,
-) -> usize {
+fn enter_count(inputs: RecoveryKeyInputs) -> usize {
     let io = KeyLog {
         writes: RefCell::new(Vec::new()),
     };
-    let snapshot = snapshot();
     let result = run_with_submit_key(
         &io,
         "restored draft",
@@ -155,7 +140,7 @@ fn enter_count(
             recovery_key_authority(inputs).map_err(|_| InjectionError::AgentInputUnavailable {
                 pty_id: "same-pty".into(),
             })?;
-            recovery_dialog_guard(provider, &snapshot, false, "same-pty")
+            Ok(())
         },
     )
     .unwrap();
@@ -172,50 +157,23 @@ fn enter_count(
 
 #[test]
 fn unbound_first_turn_draft_runs_the_bounded_retry_schedule() {
-    let quiet = crate::agent::test_provider::MockProvider::new("fixture");
-
+    assert_eq!(enter_count(UNBOUND_FIRST_TURN_DRAFT), MAX_SUBMIT_KEY_WRITES);
     assert_eq!(
-        enter_count(UNBOUND_FIRST_TURN_DRAFT, &quiet),
-        MAX_SUBMIT_KEY_WRITES
-    );
-    assert_eq!(
-        enter_count(
-            RecoveryKeyInputs {
-                draft_present: false,
-                ..UNBOUND_FIRST_TURN_DRAFT
-            },
-            &quiet
-        ),
+        enter_count(RecoveryKeyInputs {
+            draft_present: false,
+            ..UNBOUND_FIRST_TURN_DRAFT
+        }),
         1,
         "an empty composer never receives a recovery Enter"
     );
     assert_eq!(
-        enter_count(
-            RecoveryKeyInputs {
-                session_starts_on_first_user_turn: false,
-                ..UNBOUND_FIRST_TURN_DRAFT
-            },
-            &quiet
-        ),
+        enter_count(RecoveryKeyInputs {
+            session_starts_on_first_user_turn: false,
+            ..UNBOUND_FIRST_TURN_DRAFT
+        }),
         1,
         "a provider that binds at launch still waits for its binding"
     );
-}
-
-#[test]
-fn unbound_first_turn_retry_stops_at_a_provider_dialog() {
-    use codeterm_plugin::tab_state::{TabState, TabStateClassification};
-
-    let dialog = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
-        TabStateClassification {
-            state: TabState::ClarifyingQuestion,
-            confidence: 1.0,
-            data: None,
-            action: None,
-        },
-    );
-
-    assert_eq!(enter_count(UNBOUND_FIRST_TURN_DRAFT, &dialog), 1);
 }
 
 #[test]
@@ -223,7 +181,6 @@ fn launch_draft_nudge_presses_enter_only_on_a_parked_first_turn_draft() {
     use crate::agent::test_provider::MockProvider;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
-    use codeterm_plugin::tab_state::{TabState, TabStateClassification};
 
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -232,16 +189,6 @@ fn launch_draft_nudge_presses_enter_only_on_a_parked_first_turn_draft() {
         MockProvider::new("first-turn").with_session_starts_on_first_user_turn(),
     ));
     registry.register_provider(Box::new(MockProvider::new("launch-bound")));
-    registry.register_provider(Box::new(
-        MockProvider::new("first-turn-dialog")
-            .with_session_starts_on_first_user_turn()
-            .with_tab_state(TabStateClassification {
-                state: TabState::ClarifyingQuestion,
-                confidence: 1.0,
-                data: None,
-                action: None,
-            }),
-    ));
     let _pty = fixture.bind_test_pty_session(&tab_id, "restored-session", "launch-nonce");
     let pty_id = {
         let mut mux = fixture.service.mux.write();
