@@ -1,6 +1,5 @@
 pub mod agent;
 pub mod agent_commands;
-mod api;
 mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
@@ -95,8 +94,6 @@ pub type UpdateStateHandle = Arc<Mutex<update_state::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
-
-pub use api::routes::register_rest_hooks;
 
 pub fn register_socket() {
     socket::register_rpc_bridge();
