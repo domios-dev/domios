@@ -53,10 +53,11 @@ def import_intermediates(keychain):
 
 
 def identity_entries(output):
-    return re.findall(r'\b([0-9A-Fa-f]{40})\s+"([^"\n]+)"', output)
+    return list(dict.fromkeys(re.findall(r'\b([0-9A-Fa-f]{40})\s+"([^"\n]+)"', output)))
 
 
 def select_identity(all_entries, valid_entries, selector, team):
+    team = team.strip().strip('"')
     candidates = [(fingerprint.upper(), name) for fingerprint, name in all_entries
                   if name.startswith('Developer ID Application:') and name.endswith(f'({team})')]
     if not candidates:
@@ -81,6 +82,11 @@ def resolve_identity(keychain):
         result = subprocess.run(args + [str(keychain)], check=True, text=True, capture_output=True)
         results.append(identity_entries(result.stdout))
     print(f'Job keychain identities: total={len(results[0])}, valid={len(results[1])}')
+    for kind in ['Developer ID Application:', 'Apple Development:', 'Apple Distribution:']:
+        count = sum(name.startswith(kind) for _, name in results[0])
+        print(f'Imported identity type {kind} count={count}')
+    expected_team = required('APPLE_TEAM_ID').strip().strip('"')
+    print(f'Imported identity team matches: {sum(name.endswith(f"({expected_team})") for _, name in results[0])}')
     return select_identity(*results, required('APPLE_SIGNING_IDENTITY'), required('APPLE_TEAM_ID'))
 
 
