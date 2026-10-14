@@ -21,3 +21,4 @@ pub mod windows_env;
 #[cfg(windows)]
 pub mod windows_job;
 pub mod windows_powershell;
+pub mod redact;
