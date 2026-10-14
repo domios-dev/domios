@@ -139,3 +139,7 @@ Executed: `codeterm-events` (`EventBroadcaster`, `SystemEvent`, generic `emit_ev
 ## R4 status
 
 R4(a) done: `socket_path()`/`socket_display_path()` moved from `socket/server` into `codeterm-paths`; all 5 callers plus the server use `crate::paths::`. Remaining (b) invert `cli_rpc_routes`, `mesh_routes/rpc`, `plan_routes/tasks` and (c) physical `codeterm-socket` crate move are not done. Selectors: `./build.sh test-one app socket::server`.
+
+## R3b status
+
+Done: `codeterm-cron` holds `clock` and the pure `schedule` functions (git renames; `cron::clock` is a `pub use` facade, `cron::store` re-exports the schedule API); `codeterm-shutdown` holds `ShutdownReason` and the sentinel `ShutdownLatch` with `subscribe_sentinel_shutdown`/`arm_sentinel_shutdown` (the `SHUTDOWN_CAUSE` state and clean-exit sentinel stay in `crash::shutdown`). The storage bucket constants (`OTHER_BUCKET` and siblings) were already in `codeterm-storage`; `crate::storage` re-exports them. Not moved: `CronStore` and its staged-commit layer, which depend on `cron::scheduler::CronState`; sentinel needs only `parse_oneshot_schedule_at` from it. Selectors: `./build.sh test-one cron NAME` (crate-level, if supported, else `cargo test -p codeterm-cron` / `-p codeterm-shutdown`), app `crash::shutdown`, `cron::store`, `cron::clock`.
