@@ -20,7 +20,8 @@ assert.deepEqual([...chatDaySeparators([
 assert.deepEqual([...chatDaySeparators([], context)], []);
 assert.deepEqual([...chatDaySeparators([null, Number.NaN], context)], []);
 assert.deepEqual(messageTimeLabels(Date.parse("2026-01-01T23:15:00Z"), { timeZone: "Europe/Riga", locale: "en-GB" }), {
-  time: "1:15", date: "Friday, 2 January 2026", dateTime: "2026-01-01T23:15:00.000Z",
+  time: "1:15", date: "Friday, 2 January 2026", shortDate: "2 Jan 2026", dateTime: "2026-01-01T23:15:00.000Z",
 });
+assert.equal(messageTimeLabels(Date.parse("2026-01-01T23:15:00Z"), { timeZone: "Europe/Riga", locale: "en-GB", now: Date.parse("2026-06-01T00:00:00Z") })?.shortDate, "2 Jan");
 assert.equal(messageTimeLabels(Number.NaN, context), null);
 console.log("chatTimeModel: 12 assertions passed");

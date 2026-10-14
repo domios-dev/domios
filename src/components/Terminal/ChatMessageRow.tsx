@@ -85,7 +85,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
     if (!open) setHot(rowRef.current?.matches(":hover, :focus-within") ?? false);
   };
 
-  const time = timestamp == null || (!hot && !menuOpen) ? null : messageTimeLabels(timestamp, { timeZone: TIME_ZONE });
+  const time = timestamp == null || (!hot && !menuOpen) ? null : messageTimeLabels(timestamp, { timeZone: TIME_ZONE, now: Date.now() });
   const dot = clip && (!selecting || menuOpen) ? (
     <MessageActionsDot metadata={time ? { ...time, sender: fullClip?.author, deliveryState } : undefined} touch={touchMenu} whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
   ) : null;
