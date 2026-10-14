@@ -69,10 +69,19 @@ A Worker proves a committed Rust change with `./build.sh check-queue [<sha>]`
 (default: lane HEAD). It checks the SHA out in the per-machine check worktree
 (`<gateway dir>/check-worktree`, own warm `target/app` and `target/cli`, never
 canonical or a lane target), runs incremental
-`cargo check --all-targets --message-format=short` for the touched packages
-(plus `codeterm` as dependent unless `--touched-only`), and prints at most
-`--max-errors` (default 20) `file:line:col: error[...]` lines with an
-`errors=N shown=M` total. A busy gateway refuses at once with exit 75; do source
+`cargo clippy --all-targets --no-deps --message-format=short` with the shared
+`scripts/clippy-allow.sh` policy for the touched packages (plus `codeterm` as
+dependent unless `--touched-only`), and prints at most `--max-errors` (default
+20) `file:line:col: error[...]` lines with an `errors=N shown=M` total, then at
+most `--max-warnings` (default 40) warning lines, one `warnings crate=<name>
+count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
+Warnings count as errors: any rustc or clippy warning in a touched crate fails
+the run, and a Worker reports only with `errors=0` and `failing=none`.
+`--all` lints the whole app workspace and the CLI and fails on any warning.
+`./build.sh check` ends with one `warnings crate=` line per warned crate and a
+`check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate
+and the CLI deny `warnings` through `[lints]` in Cargo.toml, so a new warning is
+a compile error everywhere; fix it at the root, never with `#[allow]`. A busy gateway refuses at once with exit 75; do source
 work and never poll. The first run on a machine is cold, later runs are warm.
 
 The provider boundary guard compares exact exceptions with `origin/develop`; CI supplies the target SHA through `PROVIDER_BOUNDARY_BASE`. Each exception names one exact file/token pair and its count. Lower or remove the entry when occurrences leave; moving or formatting existing occurrences within a file is allowed. Counts may only shrink; new provider coupling belongs in the provider plugin.
