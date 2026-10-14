@@ -7,7 +7,7 @@ use tauri::Manager;
 
 use crate::multiplexer::types::TabBacking;
 use crate::service::ServiceState;
-use crate::{api, cron, mem, mesh, service, socket, CronState, CronWake};
+use crate::{api, cron, mem, mesh, service, CronState, CronWake};
 
 use super::states::AppStates;
 
@@ -330,8 +330,7 @@ pub(crate) fn start_servers(
         }
         let router = api::routes::create_router_with_frontend(api_state, bundles);
         app.manage(api::routes::LocalApiRouter(router.clone()));
-        socket::register_rpc_bridge();
-        if let Err(e) = socket::server::SocketServer::start(
+        if let Err(e) = (crate::rpc_bridge::bridge().start_server)(
             states.mux.clone(),
             states.pty.clone(),
             states.notif.clone(),
