@@ -48,25 +48,36 @@ test("drift folds mid-gesture only once the spacer nears exhaustion or the trans
 });
 
 test("a layout pass absorbs an owned shift while the spacer has room", () => {
-  assert.deepEqual(chatSpacerAfterLayout({ base: 20000, drift: 0, shift: 300, absorb: true, viewportHeight: 800 }), { drift: -300, scrollBy: 0 });
+  assert.deepEqual(chatSpacerAfterLayout({ base: 20000, drift: 0, shift: 300, absorb: true, viewportHeight: 800, scrollTop: 30000 }), { drift: -300, scrollBy: 0 });
 });
 
 test("a layout pass leaves a shift it does not own to the idle writer", () => {
-  assert.deepEqual(chatSpacerAfterLayout({ base: 20000, drift: -100, shift: 300, absorb: false, viewportHeight: 800 }), { drift: -100, scrollBy: 0 });
+  assert.deepEqual(chatSpacerAfterLayout({ base: 20000, drift: -100, shift: 300, absorb: false, viewportHeight: 800, scrollTop: 30000 }), { drift: -100, scrollBy: 0 });
 });
 
 test("a shift larger than the spacer folds whole into one scroll delta", () => {
   // Spacer holds 2822px; a fling mounts rows 3600px taller than estimated.
   const base = 18960;
   const drift = 2822 - base;
-  const next = chatSpacerAfterLayout({ base, drift, shift: 3600, absorb: true, viewportHeight: 844 });
+  const next = chatSpacerAfterLayout({ base, drift, shift: 3600, absorb: true, viewportHeight: 844, scrollTop: 3000 });
   assert.equal(next.drift, 0);
   // Content above the anchor grows by the shift plus the restored spacer; the scroll follows it exactly.
   assert.equal(next.scrollBy, 3600 + base - 2822);
 });
 
 test("an idle fold at the transcript top only removes the drift", () => {
-  assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 400, shift: 0, absorb: false, viewportHeight: 800 }), { drift: 0, scrollBy: -400 });
+  assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 400, shift: 0, absorb: false, viewportHeight: 800, scrollTop: 900 }), { drift: 0, scrollBy: -400 });
+});
+
+test("a mid-gesture fold at the transcript top keeps what it cannot scroll as space above the first row", () => {
+  // A fling sits 117px into estimated rows that mount 286px shorter; the anchor would need scrollTop -169.
+  assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 0, shift: -286, absorb: true, viewportHeight: 844, scrollTop: 117 }),
+    { drift: 169, scrollBy: -117 });
+  // The held space stays put while the finger rests at the top, and folds once the view moves down far enough.
+  assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 169, shift: 0, absorb: true, viewportHeight: 844, scrollTop: 0 }),
+    { drift: 169, scrollBy: 0 });
+  assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 169, shift: 0, absorb: true, viewportHeight: 844, scrollTop: 400 }),
+    { drift: 0, scrollBy: -169 });
 });
 
 test("the shift anchor is the first row reaching into the viewport", () => {
