@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO="$(git rev-parse --show-toplevel)"
-SRC="${REPO}/src-tauri/src"
+SRC="${REPO}/src-tauri/crates/codeterm-service-core/src"
 
 # Methods that are &self on MultiplexerState — never need an exclusive write guard.
 READ_METHODS="snapshot|get_tab|tab_id_for_pty|resolve_tab_id|get_focused_tab_id|other_session_ids|tab_ids_with_session|list_workspaces|to_session_snapshot"
