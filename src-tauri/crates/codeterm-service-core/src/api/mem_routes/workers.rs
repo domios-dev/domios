@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
+use crate::mem_host::cancel_worker;
 use crate::multiplexer::types::TabCloseReason;
 
 pub async fn workers_list(
@@ -207,29 +208,6 @@ pub async fn workers_report(
     });
 
     Ok(Json(serde_json::json!({ "ok": true, "info": info })))
-}
-
-/// Terminate one Worker by exact id: mark it terminal, close its tab, announce
-/// it. Shared by the kill route and extraction revocation so both cancel a
-/// Worker the same way — and only ever the Worker named.
-pub fn cancel_worker(
-    svc: &std::sync::Arc<crate::service::ServiceContext>,
-    worker_id: &str,
-) -> Option<codeterm_mem::workers::GraphWorkerInfo> {
-    let info = match svc.workers.kill(worker_id) {
-        Ok(info) => info,
-        Err(e) => {
-            log::warn!("[graph-workers] cancel {}: {}", worker_id, e);
-            return None;
-        }
-    };
-    if !info.tab_id.is_empty() {
-        if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
-            log::warn!("[graph-workers] cancel Tab {}: {}", info.tab_id, e);
-        }
-    }
-    crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
-    Some(info)
 }
 
 pub async fn workers_kill(

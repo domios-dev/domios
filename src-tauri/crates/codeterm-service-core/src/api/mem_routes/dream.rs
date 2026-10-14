@@ -3,16 +3,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
+use crate::mem_ops::dream::*;
 use crate::mem::dreaming;
-
-#[derive(Deserialize)]
-pub struct ExtractPendingParams {
-    #[serde(default)]
-    pub limit: Option<usize>,
-}
 
 pub async fn mem_extract_pending(
     AxumState(state): AxumState<AppState>,
@@ -23,12 +17,6 @@ pub async fn mem_extract_pending(
     let limit = p.limit.unwrap_or(200).clamp(1, 1000);
     let count = crate::mem::auto_extract::run_extract_pending(state.svc.clone(), limit);
     Ok(Json(serde_json::json!({ "queued": count })))
-}
-
-#[derive(Deserialize, Default)]
-pub struct DreamParams {
-    #[serde(default)]
-    pub phase: Option<String>,
 }
 
 pub async fn mem_dream(
@@ -84,7 +72,7 @@ pub async fn mem_dream(
         let hygiene = state.svc.configuration().memory.dream_hygiene;
         let calib = tokio::task::spawn_blocking(move || {
             svc.mem.with_conn(|conn| {
-                crate::api::mem_routes::calibration::run_nightly_calibration(
+                crate::mem_ops::calibration::run_nightly_calibration(
                     conn,
                     &hygiene,
                     chrono::Utc::now(),
@@ -166,14 +154,6 @@ async fn run_recluster_inline(
         )),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
-}
-
-#[derive(Deserialize, Default)]
-pub struct DreamDiaryParams {
-    #[serde(default)]
-    pub offset: Option<usize>,
-    #[serde(default)]
-    pub limit: Option<usize>,
 }
 
 pub async fn mem_dream_diary(

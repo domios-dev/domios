@@ -29,6 +29,7 @@ pub mod lock_hold;
 pub mod logs;
 pub mod mem;
 pub mod mem_host;
+mod mem_ops;
 pub mod mesh;
 pub mod message_markers;
 pub mod multiplexer;
@@ -252,7 +253,7 @@ pub fn run(
             let graph_node_registry = Arc::new(codeterm_plugin::graph_nodes::GraphNodeRegistry::default());
             let event_source_registry = Arc::new(codeterm_plugin::event_source::EventSourceRegistry::default());
             let graph_event_subscriptions = codeterm_plugin::graph_events::SubscriptionTable::new();
-            let decision_model_registry = crate::api::mem_routes::decision::default_registry();
+            let decision_model_registry = crate::service::supporter::registry::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
             let bubble_registry: crate::bubble::BubbleRegistryHandle =

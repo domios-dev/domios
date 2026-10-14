@@ -1,7 +1,7 @@
 use super::approval::{admit, scope_key, scope_keys, ReminderOutcome};
 use super::tests::{plan, task};
 use super::*;
-use crate::api::mem_routes::decision::SupporterRegistry;
+use crate::service::supporter::registry::SupporterRegistry;
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
 use crate::service::hierarchy::heartbeat_gate::{Telemetry, Worker};

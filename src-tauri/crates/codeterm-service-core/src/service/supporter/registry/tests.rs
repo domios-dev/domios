@@ -16,7 +16,7 @@ use super::{
     candidate, registered_adapters, supporter_state, supporter_token_dir, token_store,
     DecisionBackend, SupporterRegistry, Untouched,
 };
-use crate::api::mem_routes::search::{
+use crate::mem_ops::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
     RERANK_EXCLUSIVE,
 };

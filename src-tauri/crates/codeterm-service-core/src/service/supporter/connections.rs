@@ -6,7 +6,7 @@ use codeterm_types::config::{SupporterConfig, SupporterConnection};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::api::mem_routes::decision::SupporterRegistry;
+use crate::service::supporter::registry::SupporterRegistry;
 use crate::mem::decision::token_store::TokenStore;
 
 pub(crate) static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
