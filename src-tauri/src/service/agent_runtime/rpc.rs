@@ -253,7 +253,7 @@ impl Drop for PendingRequest {
     }
 }
 
-const FRAME_LIMIT: usize = 4 * 1024 * 1024;
+const FRAME_LIMIT: usize = 16 * 1024 * 1024;
 async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
 ) -> Result<Option<String>, RuntimeFailure> {

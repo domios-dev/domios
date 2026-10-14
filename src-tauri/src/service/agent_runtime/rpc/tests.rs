@@ -183,3 +183,19 @@ async fn writer_revalidates_authority_before_any_bytes_and_reports_proven_refusa
     assert!(client.0.state.lock().pending.is_empty());
     drop(peer);
 }
+
+#[tokio::test]
+async fn multi_mib_history_frames_fit_but_transport_remains_bounded() {
+    let history = format!(
+        "{{\"id\":1,\"result\":\"{}\"}}\n",
+        "x".repeat(12 * 1024 * 1024)
+    );
+    let mut reader = tokio::io::BufReader::new(history.as_bytes());
+    assert_eq!(read_frame(&mut reader).await.unwrap().unwrap(), history);
+    let oversized = vec![b'x'; FRAME_LIMIT + 1];
+    let mut reader = tokio::io::BufReader::new(oversized.as_slice());
+    assert!(matches!(
+        read_frame(&mut reader).await,
+        Err(RuntimeFailure::InvalidFrame(_))
+    ));
+}
