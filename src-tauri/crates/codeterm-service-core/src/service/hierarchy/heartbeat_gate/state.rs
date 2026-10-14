@@ -77,6 +77,7 @@ pub(crate) struct Gate {
     blocker_notices: Mutex<HashSet<String>>,
     epochs: AtomicU64,
     ticks: Mutex<VecDeque<DeliveryTick>>,
+    bodies: Mutex<VecDeque<(String, String, String)>>,
 }
 
 pub(crate) struct Claim<'a> {
@@ -102,6 +103,23 @@ impl Drop for Claim<'_> {
 }
 
 impl Gate {
+    pub(crate) fn remember_body(&self, tab: &str, plan: &str, text: &str) {
+        let mut bodies = self.bodies.lock();
+        bodies.retain(|(t, p, _)| t != tab || p != plan);
+        bodies.push_back((tab.into(), plan.into(), text.into()));
+        while bodies.len() > MAX_SCOPES {
+            bodies.pop_front();
+        }
+    }
+
+    pub(crate) fn last_body(&self, tab: &str, plan: &str) -> Option<String> {
+        self.bodies
+            .lock()
+            .iter()
+            .find(|(t, p, _)| t == tab && p == plan)
+            .map(|(_, _, text)| text.clone())
+    }
+
     pub(crate) fn claim_blocker_notice(&self, event_key: &str) -> bool {
         self.blocker_notices.lock().insert(event_key.to_string())
     }

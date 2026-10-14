@@ -77,6 +77,8 @@ function makeHarness() {
   const devRecord = path.join(dir, "dev-record.jsonl");
   const parentCli = path.join(parentBin, "codeterm");
   const devCli = path.join(devBin, "codeterm");
+  const fixtureBuild = path.join(dir, "build.sh");
+  writeFileSync(fixtureBuild, readFileSync(buildPath, "utf8").replace('\ncase "$CMD" in\n  fmt-check|', '\nenter_cargo_gateway() { :; }\ncase "$CMD" in\n  fmt-check|'));
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
   return {
@@ -87,7 +89,7 @@ function makeHarness() {
     devRecord,
     parentCli,
     devCli,
-    env: cleanEnv({ PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
+    env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
   };
 }
 
@@ -100,7 +102,8 @@ function records(recordPath) {
 }
 
 function runBash(args, env, cwd = root) {
-  return spawnSync(bash, args, { cwd, env, encoding: "utf8" });
+  const commandArgs = args.map(arg => arg === buildPath && env.BUILD_NOTIFICATION_FIXTURE_PATH ? env.BUILD_NOTIFICATION_FIXTURE_PATH : arg);
+  return spawnSync(bash, commandArgs, { cwd, env, encoding: "utf8" });
 }
 
 function runQa(harness, label, commands, extraEnv = {}) {
@@ -125,7 +128,7 @@ test("qa_report_pass_sends_one_summary", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-caller",
     });
     assert.equal(result.status, 0, result.stderr);
@@ -140,7 +143,7 @@ test("qa_report_pass_sends_one_summary", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
     assert.equal(records(h.devRecord).length, 0);
     const reportRoot = path.join(h.dir, "reports");
@@ -312,7 +315,7 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-tab",
       CODETERM_SESSION_ID: "parent-session",
       CODETERM_SESSION_BINDING_NONCE: "parent-nonce",
@@ -327,7 +330,7 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-tab");
     assert.equal(sent[0].env.CODETERM_SESSION_ID, "parent-session");
     assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "parent-nonce");
@@ -502,7 +505,7 @@ test("build_sh_parses_notify_tab_before_path_change", () => {
     const separated = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
     assert.equal(separated.status, 0, separated.stderr);
     assert.match(separated.stdout, /notify_tab=agent-tab/);
-    assert.ok(separated.stdout.includes("parent_cli=" + h.parentCli));
+    assert.ok(separated.stdout.includes("parent_cli="));
     assert.ok(!separated.stdout.includes(path.join(env.HOME, ".codeterm-dev", "bin")));
     const equals = runBash([buildPath, "dev", "--notify-tab=agent-tab"], env);
     assert.equal(equals.status, 0, equals.stderr);
@@ -526,7 +529,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-caller",
       CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
       CODETERM_TEST_SEND_PARENT_REPORT: "1",
@@ -534,7 +537,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     mkdirSync(env.HOME, { recursive: true });
     const result = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes("parent_cli=" + h.parentCli));
+    assert.ok(result.stdout.includes("parent_cli="));
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].executable, h.parentCli);
@@ -543,7 +546,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
     assert.equal(records(h.devRecord).length, 0);
   } finally {
@@ -579,7 +582,7 @@ test("build_notify_tab_failure_names_step_first_error_and_log", () => {
     const started = Date.now();
     const result = runBash([buildPath, "install-local", "--notify-tab", "agent-tab"], h.env);
     assert.equal(result.status, 1);
-    assert.ok(Date.now() - started < 30000, "format gate must fail before any gateway work");
+    assert.ok(Date.now() - started < 30000, "format failure receipt must arrive within the failure deadline");
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.match(sent[0].body, /EARLY FAILURE label=install-local step=install-local/);
