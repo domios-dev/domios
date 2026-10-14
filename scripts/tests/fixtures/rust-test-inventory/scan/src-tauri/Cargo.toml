@@ -1,0 +1,20 @@
+[package]
+name = "fixture-app"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+  ".",
+  "crates/fixture-core", # trailing comment
+]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[lib]
+name = "fixture_app_lib"
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
