@@ -213,6 +213,25 @@ pub struct ItemCache {
     positions: HashMap<String, usize>,
 }
 impl ItemCache {
+    pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
+        if let Some(status) = item.tool_status.as_deref() {
+            let previous = self
+                .positions
+                .get(&item.id)
+                .map(|index| &self.items[*index]);
+            item.tool_started_at_ms = item
+                .tool_started_at_ms
+                .or_else(|| previous.and_then(|row| row.tool_started_at_ms))
+                .or_else(|| (status == "running").then_some(at));
+            if status != "running" {
+                item.tool_completed_at_ms = item
+                    .tool_completed_at_ms
+                    .or_else(|| previous.and_then(|row| row.tool_completed_at_ms))
+                    .or(Some(at));
+            }
+        }
+        self.reconcile(item)
+    }
     pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
         if let Some(index) = self.positions.get(&item.id).copied() {
             item.seq = self.items[index].seq;

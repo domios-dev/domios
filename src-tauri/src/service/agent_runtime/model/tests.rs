@@ -288,3 +288,22 @@ fn failure_display_preserves_supplied_details_without_debug_wrapper() {
         assert_ne!(failure.to_string(), format!("{failure:?}"));
     }
 }
+
+#[test]
+fn live_tool_elapsed_boundaries_follow_events_and_survive_updates() {
+    let mut cache = ItemCache::default();
+    let row = |status: &str| ChatMsg {
+        id: "call".into(),
+        tool_status: Some(status.into()),
+        ..Default::default()
+    };
+    let start = cache.reconcile_live(row("running"), 1_000);
+    assert_eq!(start.tool_started_at_ms, Some(1_000));
+    let progress = cache.reconcile_live(row("running"), 601_000);
+    assert_eq!(progress.tool_started_at_ms, Some(1_000));
+    assert_eq!(progress.tool_completed_at_ms, None);
+    let abandoned = cache.reconcile_live(row("abandoned"), 602_000);
+    assert_eq!(abandoned.tool_started_at_ms, Some(1_000));
+    assert_eq!(abandoned.tool_completed_at_ms, Some(602_000));
+    assert_eq!(cache.snapshot().len(), 1);
+}

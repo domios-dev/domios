@@ -321,6 +321,25 @@
         "turnId": "turn-a"
       },
       {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "turn-a:abandoned",
+          "seq": 2,
+          "type": "system",
+          "content": "Turn interrupted by a new turn",
+          "systemSubtype": "turn_abandoned",
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "idle",
+        "detail": "interrupted"
+      },
+      {
         "kind": "turnState",
         "threadId": "thread-fixture",
         "turnId": "turn-b",
@@ -331,7 +350,7 @@
         "threadId": "thread-fixture",
         "item": {
           "id": "fallback-user",
-          "seq": 2,
+          "seq": 3,
           "type": "user",
           "content": "Next request",
           "toolFlowId": "turn-b"

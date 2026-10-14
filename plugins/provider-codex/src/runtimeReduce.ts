@@ -7,6 +7,7 @@ import { notificationAuth } from "./runtimeAuth";
 import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
 import { codexReportedSettings } from "./runtimeSettings";
+import { abandonOpenTurn, interruptPendingCalls, runningCallStatus, stampToolLifecycle, type RuntimeItem } from "./runtimeAbandonedTurns";
 import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
 
 interface ReduceState {
@@ -14,12 +15,13 @@ interface ReduceState {
   bindingNonce: string;
   threadId?: string;
   seq: number;
-  items: Record<string,ChatMsg>;
+  items: Record<string,RuntimeItem>;
   completed: string[];
   compacted: string[];
   evidenced: string[];
   questions?:string[];
   activeTurnId?: string;
+  abandoned?: string[];
   parents?:Record<string,string>;
   childActive?:Record<string,string>;
   childCompleted?:string[];
@@ -73,7 +75,7 @@ function sendEvidence(ctx: RuntimeContext, item: Record<string,unknown>, turnId:
   })) return undefined;
   return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId};
 }
-function stamp(state: ReduceState, row: ChatMsg, params: Record<string,unknown>): ChatMsg {
+function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unknown>): RuntimeItem {
   const previous = state.items[row.id];
   row.seq = previous?.seq ?? ++state.seq;
   const ms = params.startedAtMs ?? params.completedAtMs;
@@ -91,7 +93,7 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
   const previous = state.items[id];
   if (method === "item/started" || method === "item/completed") {
     const row = runtimeItem(raw,state.seq + 1,previous);
-    return row ? stamp(state,row,params) : undefined;
+    return row ? stamp(state,stampToolLifecycle(row,previous,method,params),params) : undefined;
   }
   const delta = text(params.delta) ?? text(params.message);
   if (!delta) return undefined;
@@ -105,7 +107,7 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
     case "item/mcpToolCall/progress": row.type = "tool_call"; row.toolKind = "generic"; row.toolId = id; row.toolDetail = delta; break;
     default: return undefined;
   }
-  return stamp(state,row,params);
+  return stamp(state,stampToolLifecycle(row,previous,method,params),params);
 }
 
 export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: readonly RuntimeFrame[]): RuntimeReduction {
@@ -170,9 +172,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
+    if (turnId && state.abandoned?.includes(turnId)) continue;
     switch (frame.method) {
       case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
+        events.push(...abandonOpenTurn(state,threadId,turnId));
         state.activeTurnId = turnId;
         const settings = codexReportedSettings({...params,...object(params.turn)});
         if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
@@ -182,6 +186,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         if (!turnId || state.completed.includes(turnId)) break;
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
+        events.push(...interruptPendingCalls(state,threadId,turnId));
         delete state.activeTurnId;
         const failure = object(object(params.turn).error);
         if (text(failure.message)) {
@@ -193,8 +198,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       case "thread/status/changed": {
         const status = object(params.status);
         const type = typeof params.status === "string" ? params.status : status.type;
-        if (type === "idle") events.push({kind:"turnState",threadId,state:"idle"});
-        else if (type === "active") events.push({kind:"turnState",threadId,state:list(status.activeFlags).some(f => f === "waitingOnApproval" || f === "waitingOnUserInput") ? "needs_input" : "working"});
+        if (type === "idle") events.push(pendingStatus(state,threadId) ?? {kind:"turnState",threadId,state:"idle"});
+        else if (type === "active") {
+          const waiting = list(status.activeFlags).some(f => f === "waitingOnApproval" || f === "waitingOnUserInput");
+          events.push(!waiting && pendingStatus(state,threadId) || {kind:"turnState",threadId,state:waiting ? "needs_input" : "working"});
+        }
         break;
       }
       case "thread/tokenUsage/updated": {
@@ -271,7 +279,10 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
           }
           row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.join("\n") || parts.content.join("\n"),collapsed:true},params);
         } else row = mapItem(state,frame.method,params);
-        if (row) events.push({kind:"chatItem",threadId,item:row});
+        if (row) {
+          events.push({kind:"chatItem",threadId,item:row});
+          if (row.type === "tool_call") events.push({kind:"turnState",threadId,...(state.activeTurnId ? {turnId:state.activeTurnId} : {}),state:"working",...{statusLine:runningCallStatus(state) ?? ""}});
+        }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx,object(params.item),turnId);
           if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
@@ -286,4 +297,9 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     }
   }
   return {state:json(state),events};
+}
+
+function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {
+  const statusLine = runningCallStatus(state);
+  return statusLine ? {kind:"turnState",threadId,turnId:state.activeTurnId,state:"working",...{statusLine}} : undefined;
 }
