@@ -50,6 +50,7 @@ pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
         compaction: Mutex::new(Default::default()),
+        abort_note: Mutex::new(None),
     });
     SESSIONS.lock().insert(tab.id.clone(), session);
     LiveRuntime {
