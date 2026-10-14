@@ -17,6 +17,10 @@ platform caller and both test stages, verifies downloaded draft artifact signatu
 
 Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `fmt` ask for `light` and run on any free one; release Rust archives queue independently of fast checks; standalone full tests keep the fmt prerequisite.
 
+### Pausing a machine (owner is working on it)
+
+`./build.sh runner-pause BLACKSTAR` parks every `BLACKSTAR-*` runner: its custom labels become `paused`, so no workflow job routes there, and any label only it served (today `windows-x64-build`) is lent to an online runner of the same OS (ROG). The saved labels live in `.codeterm/build-machine/paused/BLACKSTAR.json`; commit it so the pause is visible in git. `./build.sh runner-resume BLACKSTAR` restores the labels, takes the lent ones back and deletes the file; `./build.sh runner-status` lists runners and paused machines. Run `scripts/check-release-runners.sh` after either. A pause refuses when a label would be left with no online runner of that OS.
+
 ### Observed release/test runner overlap
 
 Inventory read with `gh api repos/rollacode/codeterm/actions/runners` on 2026-10-14:

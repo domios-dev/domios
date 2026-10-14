@@ -164,6 +164,7 @@ impl AgentProvider for ClaudeProvider {
             multiline: None,
             untrusted_above_lines: 0,
             typed_follow_up: codeterm_wire::domios::pasted_marker_tail(),
+            paste_marker_when: crate::provider::PasteMarkerWhen::Multiline,
             requires_typed_instruction_for_routed_messages: true,
         })
     }
@@ -395,11 +396,6 @@ impl AgentProvider for ClaudeProvider {
                 crate::detector::parse_permission_prompt(text)
                     .map(|(question, options)| crate::prompt::build_prompt(question, options))
             })
-    }
-
-    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
-        self.parse_prompt(&snapshot.screen_text).is_some()
-            || crate::provider::provider_classified_delivery_modal_visible(self, snapshot)
     }
 
     fn has_hooks(&self) -> bool {
