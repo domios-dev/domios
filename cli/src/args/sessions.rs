@@ -61,6 +61,22 @@ pub enum SessionsAction {
 
 #[derive(Subcommand)]
 pub enum BackupsAction {
+    /// Export a read-only, sanitized desk snapshot with transcript size evidence.
+    Export {
+        /// Unix backup timestamp, or latest for the live desk.
+        name: String,
+        /// Required: message bodies, paths and secrets become same-size filler.
+        #[arg(long, required = true)]
+        sanitize: bool,
+        /// Destination JSON file. Nothing is written to the instance.
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
+    /// Replace a disposable named DEV desk with a sanitized fixture.
+    Import {
+        #[arg(long)]
+        file: std::path::PathBuf,
+    },
     /// List desk snapshot backups, newest first, with workspace/tab counts.
     List {
         /// Max backups shown.
