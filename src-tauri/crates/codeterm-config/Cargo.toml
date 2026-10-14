@@ -1,0 +1,22 @@
+[package]
+name = "codeterm-config"
+version = "1.6.2"
+edition = "2021"
+
+[dependencies]
+hostname = "0.4.2"
+url = "2"
+codeterm-mesh = { path = "../codeterm-mesh" }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-util = { path = "../codeterm-util" }
+log = "0.4"
+parking_lot = "0.12"
+serde = "1"
+serde_json = "1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+codeterm-notify-types = { path = "../codeterm-notify-types" }
+tempfile = "3"

@@ -1,5 +1,5 @@
 mod agent_access;
-pub(crate) mod bounds;
+pub mod bounds;
 mod dropped_keys;
 mod kpi_default;
 mod load;
@@ -20,10 +20,10 @@ use schema::{AppConfig, ThemeConfig};
 pub type ConfigState = Arc<Mutex<AppConfig>>;
 
 fn config_path() -> Result<PathBuf, String> {
-    crate::paths::config_path()
+    codeterm_paths::config_path()
 }
 
-pub(crate) fn sanitize_plugin_settings(config: &mut AppConfig) {
+pub fn sanitize_plugin_settings(config: &mut AppConfig) {
     for settings in config.plugins.values_mut() {
         if let serde_json::Value::Object(fields) = settings {
             fields.remove("pinned");
@@ -31,7 +31,7 @@ pub(crate) fn sanitize_plugin_settings(config: &mut AppConfig) {
     }
 }
 
-pub(crate) fn changed_provider_settings(before: &AppConfig, after: &AppConfig) -> Vec<String> {
+pub fn changed_provider_settings(before: &AppConfig, after: &AppConfig) -> Vec<String> {
     let mut changed = BTreeSet::new();
     changed.extend(changed_settings_keys(&before.plugins, &after.plugins));
     changed.extend(changed_settings_keys(&before.agents, &after.agents));
@@ -197,7 +197,7 @@ pub fn canonical_api_bind_addr(api: &schema::ApiConfig) -> Result<SocketAddr, St
     Ok(SocketAddr::new(host, api.port))
 }
 
-pub(crate) fn exact_cors_origin(origin: &str) -> bool {
+pub fn exact_cors_origin(origin: &str) -> bool {
     if origin.contains('*') {
         return false;
     }
@@ -234,7 +234,7 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
     Ok(())
 }
 
-pub(crate) fn provider_config_from(
+pub fn provider_config_from(
     config: &schema::AppConfig,
     provider_id: &str,
 ) -> schema::ProviderConfig {
@@ -246,7 +246,7 @@ pub(crate) fn provider_config_from(
     out
 }
 
-pub(crate) fn usage_tracking_enabled_from(cfg: &schema::AppConfig, provider_id: &str) -> bool {
+pub fn usage_tracking_enabled_from(cfg: &schema::AppConfig, provider_id: &str) -> bool {
     if !cfg.usage.enabled {
         return false;
     }
@@ -274,7 +274,7 @@ fn normalize_runtime_defaults(config: &mut AppConfig) {
         config.mesh.instance_name = default_mesh_instance_name();
     }
     if codeterm_paths::is_dev_instance() {
-        config.mesh.instance_name = crate::mesh::identity::instance_mesh_name_for_dev(
+        config.mesh.instance_name = codeterm_mesh::identity::instance_mesh_name_for_dev(
             &config.mesh.instance_name,
             &codeterm_paths::instance_suffix(),
         );
@@ -295,7 +295,7 @@ fn default_mesh_instance_name() -> String {
 
 /// Resolve theme: if config has a named theme, load its colors as a base,
 /// then apply any user-specified color overrides on top.
-pub(crate) fn resolve_theme(config: &mut AppConfig) {
+pub fn resolve_theme(config: &mut AppConfig) {
     let theme_name = config.theme.name.clone();
     if let Some(base) = schema::get_any_theme(&theme_name) {
         // For each color field, if the user didn't set it (empty or serde default), use the built-in theme color.
@@ -491,7 +491,7 @@ mod tests {
     /// re-defaulted on restart and the user's choice would silently expire.
     #[test]
     fn notification_level_sound_answers_survive_the_config_read() {
-        use codeterm_notification_core::contract::NotifyLevel;
+        use codeterm_notify_types::NotifyLevel;
 
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config.toml");
@@ -781,7 +781,7 @@ enabled = true
         let extra = &config.agents["claude"].extra;
         assert_eq!(
             extra
-                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+                .get(crate::schema::INTEGRATION_CONSENT_GRANTED)
                 .and_then(toml::Value::as_bool),
             Some(true)
         );
@@ -816,7 +816,7 @@ enabled = true
         let extra = &reloaded.agents["claude"].extra;
         assert_eq!(
             extra
-                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+                .get(crate::schema::INTEGRATION_CONSENT_GRANTED)
                 .and_then(toml::Value::as_bool),
             Some(true)
         );
@@ -862,7 +862,7 @@ enabled = true
         assert!(error.contains("restore"));
         assert_eq!(state.lock().terminal.scrollback, 10000);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), disk_before);
-        crate::persisted_state::release_hold(&path);
+        codeterm_util::persisted_state::release_hold(&path);
     }
 }
 
@@ -908,12 +908,12 @@ fn save_config_and_apply_at(
     Ok(())
 }
 
-pub(crate) fn save_config_and_apply(state: &ConfigState, config: AppConfig) -> Result<(), String> {
+pub fn save_config_and_apply(state: &ConfigState, config: AppConfig) -> Result<(), String> {
     let path = config_path()?;
     save_config_and_apply_at(&path, state, config)
 }
 
-pub(crate) fn save_hook_reconciliation_config(config: &AppConfig) -> Result<(), String> {
+pub fn save_hook_reconciliation_config(config: &AppConfig) -> Result<(), String> {
     let path = config_path()?;
     save_hook_reconciliation_config_at(&path, config)
 }

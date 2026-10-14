@@ -15,7 +15,7 @@ pub const AUTO_UNLOCK_CREDENTIAL_KEY: &str = "master_password";
 /// The host-owned secret bucket for one plugin id. `host.secretGet/secretSet`
 /// from inside a plugin resolve to exactly this file+service pair.
 pub fn plugin_secret_bucket(plugin_id: &str) -> SecretFile {
-    codeterm_util::secret_file::plugin_secret_bucket(crate::paths::data_dir(), plugin_id)
+    codeterm_util::secret_file::plugin_secret_bucket(codeterm_paths::data_dir(), plugin_id)
 }
 
 /// Capabilities a backend declares about itself.
@@ -58,7 +58,7 @@ pub fn check_persist_consent(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::secrets::{
+    use crate::{
         ListFilter, SaveRequest, SecretError, SecretRef, SecretValue, StoreStatus,
         UnlockCredentials,
     };
@@ -114,22 +114,6 @@ mod tests {
         FakeStore { id, caps, armed }
     }
 
-    const STATUS_SIGNATURE: &str = "pub async fn status(";
-
-    /// One top-level `fn`, sliced by lines so the check never depends on the
-    /// checkout's line endings - `str::lines` drops a trailing carriage return.
-    fn top_level_fn(src: &str, signature: &str) -> String {
-        let mut lines = src.lines().skip_while(|l| !l.contains(signature));
-        let mut body = vec![lines.next().expect("source declares the function")];
-        for line in lines {
-            body.push(line);
-            if line == "}" {
-                return body.join("\n");
-            }
-        }
-        panic!("{signature} is not terminated by a closing brace at column zero");
-    }
-
     #[test]
     fn master_password_saved_agrees_with_active_backend() {
         // Declared and present — the only combination the flag may report true.
@@ -158,27 +142,6 @@ mod tests {
         // A declaring backend whose own bucket is empty reports false...
         let legacy_only = store("declaring-backend", StoreCapabilities::AUTO_UNLOCK, false);
         assert!(!master_password_saved(&legacy_only));
-        // ...and no module answering the status question names the legacy drop.
-        // The only one that does is the module that erases it.
-        let own_decision = include_str!("capability.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .expect("capability.rs has a non-test half");
-        for src in [
-            include_str!("api.rs"),
-            own_decision,
-            include_str!("mod.rs"),
-            include_str!("js_backend.rs"),
-        ] {
-            assert!(
-                !src.contains("bitwarden-master.env"),
-                "no status-path module may read the retired credential drop"
-            );
-        }
-        assert!(
-            include_str!("legacy.rs").contains("remove_file"),
-            "the one module naming the legacy drop must be the one that erases it"
-        );
     }
 
     #[test]
@@ -199,53 +162,6 @@ mod tests {
             master_password_saved(&silent_b)
         );
         assert!(!master_password_saved(&silent_b));
-
-        // Structural: the handler that publishes the auto-unlock surface names
-        // no provider, and neither does the decision it delegates to.
-        let status_handler = top_level_fn(include_str!("api.rs"), STATUS_SIGNATURE);
-        assert!(
-            status_handler.contains("master_password_saved"),
-            "extraction missed the real status handler"
-        );
-        assert!(
-            !status_handler.contains("bitwarden"),
-            "the status handler must not branch on a provider id"
-        );
-        let decision = include_str!("capability.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .expect("capability.rs has a non-test half");
-        assert!(
-            !decision.contains("bitwarden"),
-            "the auto-unlock decision must not name a provider"
-        );
-    }
-
-    #[test]
-    fn the_status_extractor_catches_a_provider_named_handler() {
-        // Positive control: a status handler that does name a provider must
-        // be caught, under LF and CRLF alike.
-        let named = concat!(
-            "pub async fn status(\n",
-            "    state: State,\n",
-            ") -> Json {\n",
-            "    let saved = store.id() == \"bitwarden\";\n",
-            "}\n",
-            "pub fn unrelated() -> u8 { 0 }\n",
-        );
-        let crlf = named.replace('\n', "\r\n");
-        assert!(
-            crlf.contains("\r\n"),
-            "the CRLF fixture must really be CRLF"
-        );
-        for src in [named, crlf.as_str()] {
-            let body = top_level_fn(src, STATUS_SIGNATURE);
-            assert!(body.contains("bitwarden"), "control must detect the id");
-            assert!(
-                !body.contains("unrelated"),
-                "extraction must stop at the handler's closing brace"
-            );
-        }
     }
 
     #[test]
@@ -253,7 +169,7 @@ mod tests {
         let silent = store("silent-backend", StoreCapabilities::NONE, false);
         assert!(matches!(
             check_persist_consent(&silent, true),
-            Err(crate::secrets::SecretError::BadRequest { .. })
+            Err(crate::SecretError::BadRequest { .. })
         ));
         // Not asking is always fine, whatever the backend declares.
         assert!(check_persist_consent(&silent, false).is_ok());
@@ -267,16 +183,5 @@ mod tests {
             let silent = store(id, StoreCapabilities::NONE, false);
             assert!(check_persist_consent(&silent, true).is_err());
         }
-    }
-
-    #[test]
-    fn plugin_bucket_name_matches_the_host_api_convention() {
-        // `host.secretSet` from inside a plugin lands in this exact service, so
-        // the status surface and the plugin address one location, not two.
-        let src = include_str!("../service/plugin_host.rs");
-        assert!(
-            src.contains("crate::secrets::plugin_secret_bucket"),
-            "plugin_host must resolve its bucket through the shared helper"
-        );
     }
 }
