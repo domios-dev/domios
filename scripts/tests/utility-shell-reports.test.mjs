@@ -618,3 +618,22 @@ test("build_notify_tab_requires_a_value", () => {
     rmSync(h.dir, { recursive: true, force: true });
   }
 });
+
+test("check_queue_notifies_invalid_revision_without_reaching_cargo", () => {
+  const h = makeHarness();
+  try {
+    writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+    const result = runBash([buildPath, "check-queue", "does-not-exist-notify-fixture", "--notify-tab", "agent-tab"], h.env);
+    assert.notEqual(result.status, 0);
+    assert.notEqual(result.status, 2, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "agent-tab"]);
+    assert.match(sent[0].body, /EARLY FAILURE label=check-queue/);
+    assert.match(sent[0].body, /does-not-exist-notify-fixture/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-check-queue/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
