@@ -55,11 +55,14 @@ function parseAttachmentParts(content: string): MessagePart[] {
   return parts.length ? parts : [{ kind: "text", content }];
 }
 
+// Claude Code wraps a pasted send in this envelope; split around an exact send, the envelope alone is not a row.
+const PASTE_ENVELOPE_TAG = /<[\\/]{0,2}pasted_content(?:\s+id="[^"]*")?\s*>/g;
+
 export function messageRowParts(parts: readonly MessagePart[]): MessagePart[] {
   const rows: MessagePart[] = [];
   let attachmentRow = false;
   for (const part of parts) {
-    if (part.kind === "text" && !part.content.trim()) continue;
+    if (part.kind === "text" && !part.content.replace(PASTE_ENVELOPE_TAG, "").trim()) continue;
     const previous = rows[rows.length - 1];
     if (part.kind !== "frame" && previous?.kind === "text" && previous.correlationId === part.correlationId && (attachmentRow || part.kind === "attachment")) {
       previous.content += part.content;
