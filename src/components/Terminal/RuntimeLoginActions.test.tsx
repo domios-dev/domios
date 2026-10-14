@@ -16,14 +16,14 @@ it("starts browser login once, opens the native browser, and renders the device 
   bridge.openUrl.mockResolvedValue(undefined);
   try {
     await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
-    const button=Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Sign in to Fixture")!;
+    const button=Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Continue in browser")!;
     await act(async()=>{button.click();button.click();});
     expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"owned",request:{method:"browser"}});
     await act(async()=>resolve({login:{status:"pending",url:"https://example.test/login"}}));
     expect(bridge.openUrl).toHaveBeenCalledExactlyOnceWith("https://example.test/login");
     await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={{...state,login:{status:"pending",loginId:"fixture",url:"https://example.test/device",userCode:"ABCD-1234"}}}/>));
     expect(host.querySelector('output[aria-label="Device code"]')?.textContent).toBe("ABCD-1234");
-    expect(host.querySelector('a[aria-label="Open sign-in link"]')?.getAttribute("href")).toBe("https://example.test/device");
+    expect(host.querySelector('a[aria-label="Open sign-in page"]')?.getAttribute("href")).toBe("https://example.test/device");
     expect(host.querySelector('button[aria-label="Copy device code"]')).not.toBeNull();
   } finally {await act(async()=>root.unmount());}
 });

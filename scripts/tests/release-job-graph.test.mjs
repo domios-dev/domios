@@ -33,7 +33,7 @@ test('every platform checks its own built bundle before any upload, with indepen
   assert.equal(workflow('release-windows').jobs.build.strategy['fail-fast'], false);
 });
 test('production publications serialize and verify draft bytes before becoming public', () => {
-  assert.equal(release.concurrency['cancel-in-progress'], '${{ inputs.dry_run }}');
+  assert.equal(release.concurrency['cancel-in-progress'], '${{ inputs.dry_run == true }}');
   assert.match(release.concurrency.group, /release-publication/);
   const steps = workflow('release-manifest-validate').jobs.validate.steps;
   const verify = steps.findIndex(step => step.name === 'Verify draft artifact signatures before publication');
@@ -53,4 +53,33 @@ test('release CI actions are immutable and every executable job has a deadline',
       }
     }
   }
+});
+
+test('Mac jobs provision secret material before building and always clean up', () => {
+  for (const job of [builder.jobs.macos, builder.jobs['linux-arm64'], workflow('release-credentials').jobs.macos]) {
+    const steps = job.steps;
+    const setup = steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py macos');
+    const cleanup = steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py cleanup');
+    assert.ok(setup >= 0 && cleanup > setup);
+    assert.equal(steps[cleanup].if, 'always()');
+    for (const name of ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_ID', 'APPLE_TEAM_ID', 'APPLE_PASSWORD', 'TAURI_SIGNING_PRIVATE_KEY']) {
+      assert.equal(steps[setup].env[name], '${{ secrets.' + name + ' }}');
+    }
+    for (const [index, step] of steps.entries()) {
+      if (/mac-bundle|signer sign|check-release-credentials-mac/.test(step.run || '')) assert.ok(setup < index && index < cleanup);
+      assert.doesNotMatch(step.run || '', /\.tauri\/codeterm\.key|login\.keychain/);
+    }
+  }
+  assert.equal(builder.jobs.macos.env.APPLE_SIGNING_IDENTITY, '${{ secrets.APPLE_SIGNING_IDENTITY }}');
+  for (const job of Object.values(builder.jobs)) assert.equal(job.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD, '${{ secrets.TAURI_KEY_PASSWORD }}');
+  const read = path => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
+  const provision = read('scripts/release-signing-material.py');
+  for (const command of ['create-keychain', 'import', 'set-key-partition-list', 'list-keychains', 'delete-keychain']) assert.ok(provision.includes(`'${command}'`));
+  assert.match(provision, /required\('RUNNER_TEMP'\)/);
+  assert.match(provision, /chmod\(0o600\)/);
+  for (const path of ['scripts/check-release-credentials-mac.sh', 'scripts/release-macos-x86_64.sh', '.agents/skills/github-release/scripts/build-mac.sh', '.agents/skills/github-release/scripts/pack-mac-updater.sh', '.agents/skills/github-release/scripts/notarize-dmg.sh']) {
+    assert.doesNotMatch(read(path), /\.tauri\/codeterm\.key|login\.keychain|--password/);
+  }
+  assert.match(read('scripts/check-release-credentials-mac.sh'), /find-identity -v -p codesigning "\$RELEASE_KEYCHAIN"/);
+  assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
 });
