@@ -97,9 +97,10 @@ export type AgentEvent =
   | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; billingMode?:"subscription"|"api"|"unknown"; detail?:string}
   | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]};
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
+export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
   usage?:boolean;
-  runtime:"stdio-jsonrpc";
+  runtime:AgentRuntimeTransport;
   command:{binary:string; args:readonly string[]};
   login?: {methods:readonly RuntimeLoginMethod[]; terminalCommand?:string};
   inheritedEnvironmentExclusions?:readonly string[];

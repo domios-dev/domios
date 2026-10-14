@@ -117,7 +117,7 @@ Bounds are per tab and per runtime epoch. Overflow is amortized: the host trunca
 | Item maps | 1000 live items or 8 MiB of item text, first reached | Heavy text keeps its tail. The oldest closed items retire. The process stays up |
 | Outstanding server requests | 64 | The excess request gets an immediate protocol error. The process stays up |
 
-A successful batch sets the consecutive bookkeeping count to zero. dev.6's total plugin-state budget stays in force until `mapFrames` removes the blob.
+A successful batch sets the consecutive bookkeeping count to zero. This contract introduces the broadcast floor and the total serialized budget: the plugin keeps the state blob at 192 KiB so a batch stays under the 256 KiB host ceiling, until `mapFrames` removes the blob. Each warning row uses a new monotonic id, so two warnings in one epoch stay distinct rows.
 
 ## Failures
 
