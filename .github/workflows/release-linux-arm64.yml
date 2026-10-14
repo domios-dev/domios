@@ -65,6 +65,10 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
 
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -96,7 +100,7 @@ jobs:
           rm -rf "$ART"
           mkdir -p "$ART"
           git bundle create "$ART/source.bundle" HEAD
-          docker run --rm --pull=never --platform linux/arm64 \
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- docker run --rm --pull=never --platform linux/arm64 \
             -v "$ART:/work" -v "$PWD/.codeterm/build-machine/scripts/build-linux.sh:/build-linux.sh:ro" \
             -e DOMIOS_FIREBASE_API_KEY -e DOMIOS_FIREBASE_PROJECT_ID -e DOMIOS_FIREBASE_APP_ID \
             -e DOMIOS_ACCOUNT_REDEEM_URL -e DOMIOS_BILLING_FUNCTIONS_URL \
@@ -139,3 +143,11 @@ jobs:
       - name: Clean up temporary release signing material
         if: always()
         run: python3 scripts/release-signing-material.py cleanup
+
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: release-Linux
+          target: aarch64-unknown-linux-gnu
