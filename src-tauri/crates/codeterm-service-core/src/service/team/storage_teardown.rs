@@ -101,6 +101,7 @@ impl ServiceContext {
                 },
             )
         };
+        // Last check, after the mux and cron-store guards are dropped.
         teardown.sentinel.store.ensure_external_commit_ready()?;
         Ok((prepared, Some(teardown)))
     }
