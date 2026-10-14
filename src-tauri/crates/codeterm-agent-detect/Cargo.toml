@@ -16,3 +16,6 @@ log = "0.4"
 
 [dev-dependencies]
 parking_lot = "0.12"
+
+[lints]
+workspace = true

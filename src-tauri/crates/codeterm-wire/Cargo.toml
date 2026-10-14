@@ -2,3 +2,6 @@
 name = "codeterm-wire"
 version = "1.6.2"
 edition = "2021"
+
+[lints]
+workspace = true
