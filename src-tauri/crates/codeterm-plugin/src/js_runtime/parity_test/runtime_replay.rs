@@ -37,12 +37,16 @@ enum Record {
     Outbound {
         #[serde(default)]
         receipt_ms: Option<f64>,
+        #[serde(default)]
+        adapter_step: bool,
         operation: usize,
         action: RuntimeAction,
     },
     Inbound {
         #[serde(default)]
         receipt_ms: Option<f64>,
+        #[serde(default)]
+        adapter_step: bool,
         operation: Option<usize>,
         #[serde(default)]
         reply: Option<RpcReply>,
@@ -161,18 +165,26 @@ fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
                 serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
             let mut previous = 0.0;
             for record in &fixture.rpc {
-                let receipt = match record {
-                    Record::Outbound { receipt_ms, .. } | Record::Inbound { receipt_ms, .. } => {
-                        receipt_ms
+                let (receipt, adapter_step) = match record {
+                    Record::Outbound {
+                        receipt_ms,
+                        adapter_step,
+                        ..
                     }
+                    | Record::Inbound {
+                        receipt_ms,
+                        adapter_step,
+                        ..
+                    } => (receipt_ms, *adapter_step),
                 };
                 if let Some(receipt) = receipt {
+                    assert!(!adapter_step, "an adapter step claims no receipt");
                     assert!(receipt.is_finite() && *receipt >= previous);
                     previous = *receipt;
                 } else {
                     assert!(
-                        fixture.captured.is_none(),
-                        "captured RPC record must have receiptMs"
+                        fixture.captured.is_none() || adapter_step,
+                        "captured RPC record must have receiptMs or be an adapterStep"
                     );
                 }
             }
