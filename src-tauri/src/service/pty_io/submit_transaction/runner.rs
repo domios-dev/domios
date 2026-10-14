@@ -71,6 +71,7 @@ pub(super) fn run_with_submit_key<T: SubmitTransport>(
     )
 }
 
+#[cfg(test)]
 pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     transport: &T,
     text: &str,

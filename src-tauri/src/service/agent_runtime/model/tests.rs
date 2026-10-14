@@ -311,3 +311,11 @@ fn live_tool_elapsed_boundaries_follow_events_and_survive_updates() {
     assert_eq!(abandoned.tool_completed_at_ms, Some(602_000));
     assert_eq!(cache.snapshot().len(), 1);
 }
+
+fn observe_turn(
+    context: &mut codeterm_plugin::agent_runtime::RuntimeContext,
+    event: &codeterm_plugin::agent_runtime::AgentRuntimeEvent,
+) {
+    use crate::service::agent_runtime::events::{observe, translate};
+    observe(context, &translate(event));
+}

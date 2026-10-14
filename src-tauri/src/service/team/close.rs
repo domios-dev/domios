@@ -482,15 +482,14 @@ pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
             if let Some(path) = line.strip_prefix("worktree ") {
                 worktree = Some(path);
             }
-            if line.strip_prefix("branch refs/heads/") == Some(branch) {
-                if worktree
+            if line.strip_prefix("branch refs/heads/") == Some(branch)
+                && worktree
                     .zip(lane.worktree_path.as_deref())
                     .is_none_or(|(actual, expected)| {
                         !crate::service::worker_lane::same_path(actual, expected)
                     })
-                {
-                    return Some("lane branch is checked out in a different worktree".into());
-                }
+            {
+                return Some("lane branch is checked out in a different worktree".into());
             }
         }
     }

@@ -38,7 +38,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
 | `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
-| `check-build-check-queue.sh` |  |
+| `check-build-check-queue.sh` | build.sh script-guards |
 | `check-build-dev-port-overrides.sh` | build.sh script-guards |
 | `check-build-gateway-mutex-cleanup.sh` | CI build-gateway.yml; skill build |
 | `check-build-gateway-owner-reap.sh` | CI build-gateway.yml; skill build |
@@ -86,6 +86,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `ci-rust-shards.mjs` | CI tests.yml; scripts tests/ci-rust-shards.test.mjs |
 | `ci-scope.mjs` | CI release.yml, tests.yml; scripts tests/ci-scope.test.mjs; skill github-release |
 | `ci-test-classifier` | scripts ci-rust-archives.mjs |
+| `clippy-allow.sh` | scripts clippy-gate.sh; build.sh check-queue |
 | `clippy-gate.sh` | build.sh release-preflight; CI tests.yml; scripts test-clippy-gate.sh; skill build, gates, testing |
 | `collect-rust-warnings.mjs` | build.sh ci-archives; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs |
 | `comment-length-allowlist.txt` | CI comment-length.yml; scripts check-comment-length.sh |
