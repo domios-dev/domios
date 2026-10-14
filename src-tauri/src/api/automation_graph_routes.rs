@@ -639,6 +639,15 @@ mod tests {
         async fn sentinel_graph_delete_removes_the_graph_from_the_list_and_persisted_file() {
             let fixture = Fixture::new(None);
             let job = fixture.create();
+            let mut web_events = fixture.state.events.subscribe();
+            let (tx, mut desktop_events) = tokio::sync::mpsc::unbounded_channel();
+            let listener = fixture.runtime.service.app_handle.listen_any(
+                "automation-graph-changed",
+                move |event| {
+                    tx.send(serde_json::from_str::<Value>(event.payload()).unwrap())
+                        .unwrap();
+                },
+            );
             let path = format!("/api/automation/blueprints/{}", job.id);
             let body = json!({"workspace_id":fixture.workspace,"team_id":null});
             assert_eq!(
@@ -648,6 +657,24 @@ mod tests {
                     .0,
                 StatusCode::NO_CONTENT
             );
+            let desktop =
+                tokio::time::timeout(std::time::Duration::from_secs(5), desktop_events.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            let web = tokio::time::timeout(std::time::Duration::from_secs(5), web_events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match web.event {
+                crate::api::events::SystemEvent::Generic { event_type, data } => {
+                    assert_eq!(event_type, "automation-graph-changed");
+                    assert_eq!(data, desktop);
+                    assert_eq!(data["workspace_id"], fixture.workspace);
+                }
+                other => panic!("unexpected web event: {other:?}"),
+            }
+            fixture.runtime.service.app_handle.unlisten(listener);
             let (status, graph) = fixture
                 .request(
                     Method::GET,

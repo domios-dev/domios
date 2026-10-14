@@ -42,6 +42,14 @@ impl SentinelCaller {
             && job.workspace_id == self.workspace
     }
 
+    pub(super) fn may_list(&self, job: &Sentinel, team_owner: bool) -> bool {
+        self.owns(job)
+            || (team_owner
+                && self.team.is_some()
+                && job.team_id == self.team
+                && job.workspace_id == self.workspace)
+    }
+
     pub(super) fn can_amend(&self, job: &Sentinel) -> bool {
         if job.pipeline().is_some() {
             return self.owns(job);
@@ -630,6 +638,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn sentinel_list(&self, caller: &SentinelCaller) -> Result<Vec<Sentinel>, String> {
+        let team_owner = {
+            let mux = self.mux.read();
+            if !caller_is_live(&mux, caller) {
+                return Err("blueprint caller scope changed".into());
+            }
+            mux.get_tab(&caller.tab)
+                .is_some_and(|tab| tab.has_team_orchestrator_authority())
+        };
         let handle = self
             .app_handle
             .try_state::<Handle>()
@@ -639,7 +655,7 @@ impl ServiceContext {
         let jobs = store
             .list()
             .iter()
-            .filter(|job| caller.owns(job))
+            .filter(|job| caller.may_list(job, team_owner))
             .cloned()
             .collect();
         Ok(jobs)
@@ -817,6 +833,22 @@ mod tests {
             nonce: None,
         };
         assert!(caller.owns(&job));
+        let owner = SentinelCaller {
+            tab: "orchestrator".into(),
+            ..caller.clone()
+        };
+        assert!(owner.may_list(&job, true));
+        assert!(!owner.may_list(&job, false));
+        assert!(!SentinelCaller {
+            team: Some("foreign".into()),
+            ..owner.clone()
+        }
+        .may_list(&job, true));
+        assert!(!SentinelCaller {
+            workspace: "foreign".into(),
+            ..owner
+        }
+        .may_list(&job, true));
         assert!(SentinelCaller {
             tab: "editor".into(),
             ..caller.clone()
