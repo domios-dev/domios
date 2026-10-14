@@ -522,7 +522,6 @@ fn team_create_round_trip_expected_red() {
     close(restarted);
 }
 
-
 #[test]
 fn team_close_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
