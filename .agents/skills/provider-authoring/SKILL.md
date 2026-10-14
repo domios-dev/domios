@@ -299,6 +299,21 @@ All fields optional.
 | `modelSwitch` | `"restart_resume"` \| `"live"` \| `"live_command"` \| `"next_turn"` \| `"unsupported"` | `next_turn` keeps the session running: an RPC endpoint receives per-turn controls; a provider hook consumes the authenticated tab's resolved controls before persisting its user message. Hook providers require `sessionModelTranscriptBoundary` and `detectSessionModelAfterBoundary`; the shared core stages busy requests and confirms only a new assistant record. Unavailable boundaries refuse without restart. `live` uses the tab's advertised model route. `restart_resume` resumes the same verified session with new launch args and waits for post-boundary assistant evidence. `live_command` runs a declared idle command and confirms fresh bound-session output; failures never restart automatically. Default `unsupported` refuses without writing. |
 | `modelSwitchCommands` | `{model: {command, confirmation}, effort?: {command, confirmation}, transcript: {recordType, contentPath, prefix, suffix, ignoredContentRegexes?}}` | Required for `live_command`. Commands substitute `{model}` or `{effort}`; confirmation regexes also accept `{display_name}`, with selection values regex-escaped. Transcript declarations select the JSONL record type, string content path, and exact output wrapper. Optional `ignoredContentRegexes` identify complete non-turn command records such as caveats and exact command echoes; the inter-command guard excludes only whole-content matches or the exact stdout wrapper, retaining mixed prompt content. Only fresh output in the tab's own bound session confirms a switch. Busy tabs refuse before writing; a timeout fails without replay or restart. The picker offers a separate, confirmed `restart_resume` fallback. |
 
+A live command can declare `confirmationPromptKind: "switch_confirmation"` and export
+`parseSwitchConfirmationPrompt(screen, selection)`. This pure structural classifier
+returns the current two-option confirmation with its confirming option first, or
+null. It must reject unrelated, stale and ambiguous frames without matching vendor
+copy. The host additionally verifies its options against `parsePrompt` and uses
+`buildPromptResponse` for that exact frame. No new sandbox host access is granted.
+
+The observer is armed only when Domios queues that declared slash command, including
+Chat writes. A bare picker command supplies the requested selection from the switch
+operation. A later payload cancels the observer. One response is permitted, and only
+fresh declared output from the same session confirms the switch; no prompt means no
+keys. Screen and own-file events drive observation within a failure deadline.
+This declaration supersedes the legacy regex prompt response for that command.
+Native and JS implementations owe shared classifier parity fixtures.
+
 Each live command may declare `prompt: {screenRegex, responseKeys, cancelKeys?}`. The screen
 regex accepts the same escaped placeholders; response keys are literal UTF-8
 strings (for example `"\r"`), concatenated into one bounded write. The host

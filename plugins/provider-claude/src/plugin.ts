@@ -1,4 +1,5 @@
 import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
+import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
 import { checkClaudeUpdate } from "./update";
@@ -298,6 +299,8 @@ const plugin: PluginModule = {
   },
 
   updatePromptSafeChoice,
+
+  parseSwitchConfirmationPrompt,
 
   parsePrompt(text: string): ParsedPrompt | null {
     const onboarding = claudeOnboardingPrompt(text);

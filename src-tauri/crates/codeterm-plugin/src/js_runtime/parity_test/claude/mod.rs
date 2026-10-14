@@ -18,6 +18,7 @@ mod permission_request;
 mod pre_trust;
 mod sessions;
 mod signals;
+mod switch_confirmation;
 mod usage_sources;
 
 fn pair() -> (ClaudeProvider, JsProvider) {
