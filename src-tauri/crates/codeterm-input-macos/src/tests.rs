@@ -241,6 +241,17 @@ fn lark_input_macos_wrong_identity_and_collection_fail_closed() {
 }
 
 #[test]
+fn lark_input_macos_non_button_element_is_not_approved() {
+    let selected = selection();
+    let mut element = descriptor();
+    element.kind = ElementKind::Other;
+    assert_eq!(
+        approve_descriptor(&selected, &selected.input_id, &[element]),
+        Err(DescriptorError::MissingElement)
+    );
+}
+
+#[test]
 fn lark_input_macos_denied_access_is_distinct_from_native_error() {
     assert_eq!(
         access_failure_reason(AccessCheck::Denied),

@@ -738,7 +738,7 @@ fn raw_device_preparsed_data(device: Handle) -> Result<AlignedPreparsedData, Una
         return Err(unavailable_reason_for_win32(last_error_code()));
     }
     let words = bytes.div_ceil(size_of::<u32>() as u32) as usize;
-    let mut data = AlignedPreparsedData {
+    let data = AlignedPreparsedData {
         words: vec![0; words],
         bytes: bytes as usize,
     };
