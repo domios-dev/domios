@@ -52,7 +52,7 @@ filler histories, size evidence and hidden-tab metadata. CLI:
 `codeterm sessions backups export latest --sanitize --out /tmp/desk.json`.
 `POST /api/session/backups/import` replaces a disposable named `upgrade-restore-*`
 DEV desk without PTYs; PROD refuses it. CLI: `codeterm sessions backups import --file /tmp/desk.json`.
-Import returns `{imported_tabs, restart_required}`; runtime readiness is verified after restart.
+Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_id proves a subsequent restart.
 
 #### Web Mirror
 

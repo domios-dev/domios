@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {worstCases} from './fixtures.mjs';
-import {leaves, validateCapture, requireBackings, verdict, failureReason, measurements} from './model.mjs';
+import {leaves, validateCapture, requireBackings, verdict, failureReason, measurements, requireRestart} from './model.mjs';
 import {peer} from './fake-peer.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -139,4 +139,12 @@ test('shell metadata can be captured while replay refuses its missing fake backi
   document.measurements = measurements(document.snapshot, document.histories);
   assert.equal(validateCapture(document).length, 6);
   assert.throws(() => requireBackings(document), /fixture-long-history.*fake shell\/surface backing missing/);
+});
+
+test('readiness requires an actual daemon restart and the exact staged fixture', () => {
+  const stage = {boot_id: 'before', fixture_sha256: 'fixture'};
+  assert.throws(() => requireRestart(stage, 'before', 'fixture'), /has not restarted/);
+  assert.throws(() => requireRestart({}, 'after', 'fixture'), /has not restarted/);
+  assert.throws(() => requireRestart(stage, 'after', 'different'), /differs from the staged/);
+  assert.doesNotThrow(() => requireRestart(stage, 'after', 'fixture'));
 });
