@@ -16,14 +16,7 @@ pub fn current_start_epoch() -> Option<&'static str> {
     START_EPOCH.get().map(String::as_str)
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ShutdownReason {
-    UserExit,
-    Update,
-    Restart,
-    Signal,
-}
+pub use codeterm_shutdown::ShutdownReason;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
