@@ -509,7 +509,7 @@ function runtimeItem(raw, seq, previous) {
   row2.toolId = id;
   row2.toolName ?? (row2.toolName = String(item.type));
   row2.toolInput ?? (row2.toolInput = item);
-  row2.toolArgs = row2.toolSummary;
+  if (row2.toolSummary !== void 0) row2.toolArgs = row2.toolSummary;
   row2.collapsed = true;
   if (typeof item.durationMs === "number") row2.toolDurationMs = item.durationMs;
   if (row2.toolError == null) {
