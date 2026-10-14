@@ -3,7 +3,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { SentMessageBubble, pickUiFontScaleValue, sentInvocation } from "@codeterm/chat-ui";
 import type { TabNameResolver } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
-import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
+import { acceptsTap, chatAskChoiceState, isChoiceEnabled } from "./chatAskChoiceModel";
 import {
   askAccessibleName,
   choiceAccessibleName,
@@ -24,12 +24,13 @@ interface Props {
  * One agent question, inside the transcript.
  *
  * The container, the colour formula and the scale are the context-request and
- * system-prompt cards'. The answer is read from the notification and never held
- * here, so this card and the bell panel are two views of one record: answering
- * on either closes both, and a second attempt finds the slot already spent.
+ * system-prompt cards'. The answer is read from the notification; only the tap
+ * itself is held here, so the choice shows at once and the record wins as soon
+ * as it moves. This card and the bell panel stay two views of one record.
  */
 export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale }: Props) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const [tapped, setTapped] = useState<string | null>(null);
   const level = notificationLevel(notification);
   const tone = notificationTone(notification);
   const LevelIcon = levelIcon(level);
@@ -37,12 +38,18 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
   const heading = level === null ? notification.title : levelLabel(level);
   const bodyText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const slot = notification.answer;
-  const chosen = slot?.answered ?? null;
+  const recorded = slot?.answered ?? null;
+  const state = chatAskChoiceState(notification, tapped);
   const askedFrom = slot?.asked_from_tab ?? null;
   const choices = (notification.actions ?? []).filter((action) =>
     action.type === "answer" || action.type === "respond_prompt_option",
   );
   const edge = { borderColor: `color-mix(in srgb, ${tone} 18%, transparent)` };
+  const choose = (label: string) => {
+    if (!acceptsTap(state, label, recorded)) return;
+    setTapped(label);
+    onAnswer(notification.id, label);
+  };
 
   return (
     <>
@@ -94,9 +101,26 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
             </div>
           )}
 
-          {notification.answer_pending && <div role="status">Sending answer…</div>}
-          {notification.answer_error && <div role="alert">{notification.answer_error}</div>}
-          {notification.resolved ? (
+          {state.phase === "sending" && (
+            <div
+              role="status"
+              data-testid="chat-ask-sending"
+              className="border-t px-3 py-2 text-[11px]"
+              style={{ ...edge, color: "var(--ct-muted-fg)" }}
+            >
+              Sending <strong className="font-medium" style={{ color: "var(--ct-fg)" }}>{state.chosen}</strong>…
+            </div>
+          )}
+          {state.error && (
+            <div
+              role="alert"
+              className="border-t px-3 py-2 text-[11px]"
+              style={{ ...edge, color: "var(--ct-red)" }}
+            >
+              {state.error}
+            </div>
+          )}
+          {state.phase === "resolved" ? (
             <div
               data-testid="chat-ask-resolved"
               className="border-t px-3 py-2 text-[11px]"
@@ -104,7 +128,7 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
             >
               Resolved in tab.
             </div>
-          ) : chosen && !notification.answer_error && !notification.answer_pending ? (
+          ) : state.phase === "answered" ? (
             <div
               data-testid="chat-ask-answered"
               className="flex items-center gap-1.5 border-t px-3 py-2 text-[11px]"
@@ -120,11 +144,11 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
               <span>
                 Answered{" "}
                 <strong className="font-medium" style={{ color: "var(--ct-fg)" }}>
-                  {chosen}
+                  {state.chosen}
                 </strong>
               </span>
             </div>
-          ) : slot && isAnswerUndeliverable(slot) ? (
+          ) : state.phase === "undeliverable" ? (
             <div
               data-testid="chat-ask-undeliverable"
               className="border-t px-3 py-2 text-[11px]"
@@ -140,9 +164,10 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
                     key={`${choice.label}-${index}`}
                     type="button"
                     data-testid="chat-ask-choice"
-                    disabled={notification.answer_pending || (chosen !== null && chosen !== choice.label)}
+                    disabled={!isChoiceEnabled(state, choice.label, recorded)}
+                    aria-pressed={state.chosen === choice.label}
                     aria-label={choiceAccessibleName(level, notification.title, choice.label)}
-                    onClick={() => onAnswer(notification.id, choice.label)}
+                    onClick={() => choose(choice.label)}
                     className="min-h-7 rounded-md border px-3 text-xs transition-colors hover:brightness-110"
                     style={
                       index === 0
@@ -167,9 +192,9 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
         </div>
       </div>
 
-      {chosen && askedFrom && slot?.delivered && (
+      {recorded && askedFrom && slot?.delivered && (
         <SentMessageBubble
-          inv={sentInvocation(askedFrom, chosen)}
+          inv={sentInvocation(askedFrom, recorded)}
           resolveTabName={resolveTabName}
           fontScale={fontScale}
         />
