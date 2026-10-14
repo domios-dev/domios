@@ -146,12 +146,12 @@ fn product_billing_enum_contract_matches_serialized_authority() {
 async fn product_update_installed_requires_running_target_with_kind_only() {
     let sink = Sink::new(Consent::On).await;
     let path = sink.dir.path().join("update.json");
-    crate::update::analytics::stage(&path, "1.1.0-rc.2").unwrap();
-    crate::update::analytics::stage(&path, "1.1.0-rc.2").unwrap();
+    crate::service::analytics::update_confirm::stage(&path, "1.1.0-rc.2").unwrap();
+    crate::service::analytics::update_confirm::stage(&path, "1.1.0-rc.2").unwrap();
     let worker = sink.worker.clone();
     let receipt = path.clone();
     tokio::task::spawn_blocking(move || {
-        crate::update::analytics::confirm(&receipt, "1.0.0-rc.1", &worker)
+        crate::service::analytics::update_confirm::confirm(&receipt, "1.0.0-rc.1", &worker)
     })
     .await
     .unwrap()
@@ -159,8 +159,8 @@ async fn product_update_installed_requires_running_target_with_kind_only() {
     assert!(sink.events().await.is_empty());
     let worker = sink.worker.clone();
     tokio::task::spawn_blocking(move || {
-        crate::update::analytics::confirm(&path, "1.1.0-rc.2", &worker).unwrap();
-        crate::update::analytics::confirm(&path, "1.1.0-rc.2", &worker).unwrap();
+        crate::service::analytics::update_confirm::confirm(&path, "1.1.0-rc.2", &worker).unwrap();
+        crate::service::analytics::update_confirm::confirm(&path, "1.1.0-rc.2", &worker).unwrap();
     })
     .await
     .unwrap();

@@ -311,7 +311,7 @@ pub(crate) fn arm(svc: &ServiceContext) {
     let Some(start_epoch) = crate::crash::lifecycle::current_start_epoch() else {
         return;
     };
-    let pending_update = crate::update::post_update::pending();
+    let pending_update = crate::service::post_update::pending();
     if let Err((tab_id, reason)) = arm_after_update_message(
         &svc.mux,
         start_epoch,
@@ -322,7 +322,7 @@ pub(crate) fn arm(svc: &ServiceContext) {
                 Ok(crate::session::store::SaveOutcome::Saved)
             )
         },
-        || crate::update::post_update::consume().is_ok(),
+        || crate::service::post_update::consume().is_ok(),
     ) {
         log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason={reason}");
         svc.schedule_session_persist_debounced();
@@ -383,7 +383,7 @@ pub(crate) fn arm(svc: &ServiceContext) {
 fn arm_after_update_message(
     mux: &MuxState,
     start_epoch: &str,
-    message: Option<&crate::update::post_update::PendingMessage>,
+    message: Option<&crate::service::post_update::PendingMessage>,
     persist: impl FnOnce() -> bool,
     consume: impl FnOnce() -> bool,
 ) -> Result<Option<String>, (String, &'static str)> {
@@ -414,7 +414,7 @@ fn arm_after_update_message(
 fn stage_after_update_prompt(
     mux: &MuxState,
     start_epoch: &str,
-    message: &crate::update::post_update::PendingMessage,
+    message: &crate::service::post_update::PendingMessage,
 ) -> Option<String> {
     let mut mux = mux.write();
     let tab_id = mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)?;

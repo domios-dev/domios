@@ -29,7 +29,7 @@ pub fn connected_model(
         .lock()
         .supporter
         .clone();
-    let tokens = TokenStore::new(crate::api::mem_routes::decision::supporter_token_dir());
+    let tokens = TokenStore::new(crate::service::supporter::registry::supporter_token_dir());
     let runtime = supporter::runtime_with_notifications(svc);
     if !supporter::supporter_connected(
         &config,

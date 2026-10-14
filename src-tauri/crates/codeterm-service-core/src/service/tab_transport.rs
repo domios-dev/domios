@@ -159,7 +159,9 @@ impl ServiceContext {
     /// Run registered `chatPreprocessor` text stages over the outbound text (id order
     /// for determinism; no stages ⇒ identity; a broken stage fails safe to passthrough).
     pub fn run_outbound_stages(&self, tab_id: &str, text: String) -> String {
-        let mut stages = self.chat_preprocessor_registry.active();
+        let mut stages = self
+            .ext::<crate::chatpreprocessor::ChatPreprocessorRegistryHandle>()
+            .active();
         if stages.is_empty() {
             return text;
         }

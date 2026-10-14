@@ -44,12 +44,12 @@ pub async fn clock_advance(
     state.cron_wake.notify_all();
     {
         use tauri::Manager;
-        if let Some(sentinels) = state
+        if let Some(ports) = state
             .svc
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            sentinels.notify();
+            ports.wake.notify();
         }
     }
     Ok(Json(serde_json::json!({"now_ms": now_ms})))
@@ -66,13 +66,19 @@ pub async fn event_stats(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use std::sync::atomic::Ordering;
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let pending = state.svc.mux_emit_pending.load(Ordering::Acquire);
+    let pending = state
+        .svc
+        .ext::<crate::service::MuxEmitPending>()
+        .0
+        .load(Ordering::Acquire);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
     Ok(Json(event_stats_snapshot(
-        &state.svc.mux_emit_stats,
+        state
+            .svc
+            .ext::<std::sync::Arc<crate::service::MuxEmitStats>>(),
         pending,
         now,
         &super::stream_census::STREAMS,
@@ -117,13 +123,17 @@ pub async fn force_latch(
         .as_millis() as u64;
     state
         .svc
-        .mux_emit_stats
+        .ext::<std::sync::Arc<crate::service::MuxEmitStats>>()
         .frozen
         .store(true, Ordering::Release);
-    state.svc.mux_emit_pending.store(true, Ordering::Release);
     state
         .svc
-        .mux_emit_stats
+        .ext::<crate::service::MuxEmitPending>()
+        .0
+        .store(true, Ordering::Release);
+    state
+        .svc
+        .ext::<std::sync::Arc<crate::service::MuxEmitStats>>()
         .pending_since_ms
         .store(now, Ordering::Relaxed);
     Ok(Json(serde_json::json!({"latched": true})))
@@ -139,13 +149,17 @@ pub async fn reset_latch(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
-        .mux_emit_stats
+        .ext::<std::sync::Arc<crate::service::MuxEmitStats>>()
         .frozen
         .store(false, Ordering::Release);
-    state.svc.mux_emit_pending.store(false, Ordering::Release);
     state
         .svc
-        .mux_emit_stats
+        .ext::<crate::service::MuxEmitPending>()
+        .0
+        .store(false, Ordering::Release);
+    state
+        .svc
+        .ext::<std::sync::Arc<crate::service::MuxEmitStats>>()
         .pending_since_ms
         .store(0, Ordering::Relaxed);
     Ok(Json(serde_json::json!({"latched": false})))

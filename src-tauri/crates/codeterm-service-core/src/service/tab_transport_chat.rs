@@ -437,7 +437,7 @@ impl ServiceContext {
         }
         chatbackend_reopen_transition(
             &self.mux,
-            &self.chatbackend_reopen_guards,
+            self.ext::<Arc<crate::service::tab_transport_chat::TabReopenGuards>>(),
             tab_id,
             |plugin_id, tab_id, old_session| {
                 let path = crate::service::tab_chat::chatbackend_history::session_path(
