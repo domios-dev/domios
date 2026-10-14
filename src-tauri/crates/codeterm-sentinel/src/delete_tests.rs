@@ -129,7 +129,7 @@ fn blueprint_delete_stages_scenario_removal_in_the_store() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::new(
         dir.path().join("sentinels.json"),
-        crate::cron::clock::MockClock::starting_at(1000),
+        codeterm_cron::clock::MockClock::starting_at(1000),
     );
     for job in fleet() {
         store.insert(job).unwrap();

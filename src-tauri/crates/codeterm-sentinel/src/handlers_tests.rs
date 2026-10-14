@@ -36,7 +36,7 @@ fn sentinel_none_route_has_no_handler_and_does_not_fall_back_to_notify() {
 #[test]
 fn sentinel_handlers_current_create_evaluate_and_reload_positive() {
     let dir = tempfile::tempdir().unwrap();
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let path = dir.path().join("sentinels.json");
     let mut store = Store::new(path.clone(), clock.clone());
     let mut job = store
@@ -79,7 +79,7 @@ fn sentinel_handlers_current_create_evaluate_and_reload_positive() {
 #[test]
 fn sentinel_handlers_paused_creation_is_persisted_and_never_due() {
     let dir = tempfile::tempdir().unwrap();
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let path = dir.path().join("sentinels.json");
     let mut store = Store::new(path.clone(), clock.clone());
     let mut value = definition();
@@ -111,7 +111,7 @@ fn sentinel_handlers_declared_array_roundtrips_order_and_ids() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::new(
         dir.path().join("sentinels.json"),
-        crate::cron::clock::MockClock::starting_at(1000),
+        codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let mut value = definition();
     value["handlers"] = json!({"done": [
@@ -169,7 +169,7 @@ fn sentinel_respond_prompt_shell_probe_source_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::new(
         dir.path().join("sentinels.json"),
-        crate::cron::clock::MockClock::starting_at(1000),
+        codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let mut value = definition();
     value["routes"] = json!({"done": "respond_prompt:onboarding"});
@@ -205,7 +205,7 @@ fn transition(store: &mut Store, job: &super::store::Sentinel) -> (super::store:
 fn sentinel_handlers_claim_reload_never_replays_unconfirmed_attempt() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
     let job = store
         .create(
@@ -237,7 +237,7 @@ fn sentinel_handlers_claim_reload_never_replays_unconfirmed_attempt() {
 #[test]
 fn sentinel_handlers_paused_expiry_preserves_creation_lifetime() {
     let dir = tempfile::tempdir().unwrap();
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(dir.path().join("sentinels.json"), clock.clone());
     let mut value = definition();
     value["paused"] = json!(true);
@@ -256,7 +256,7 @@ fn sentinel_handlers_paused_expiry_preserves_creation_lifetime() {
 #[test]
 fn sentinel_handlers_activation_refuses_exact_scope_and_terminal_targets() {
     let dir = tempfile::tempdir().unwrap();
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(dir.path().join("sentinels.json"), clock.clone());
     let source = store
         .create(
@@ -314,7 +314,7 @@ fn sentinel_handlers_activation_refuses_exact_scope_and_terminal_targets() {
 fn sentinel_handlers_claim_and_result_save_failures_preserve_durable_claim() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
     let job = store
         .create(
@@ -366,7 +366,7 @@ fn sentinel_handlers_definition_validation_and_budgets_are_finite() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::new(
         dir.path().join("sentinels.json"),
-        crate::cron::clock::MockClock::starting_at(1000),
+        codeterm_cron::clock::MockClock::starting_at(1000),
     );
     for handlers in [
         json!({"done":[{"id":"h","type":"notify","parameters":{}},{"id":"h","type":"stop","parameters":{}}]}),
@@ -416,7 +416,7 @@ fn sentinel_handlers_definition_validation_and_budgets_are_finite() {
 fn sentinel_handlers_active_and_total_caps_include_dormant_inventory() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let seed = Store::new(path.clone(), clock.clone());
     let mut jobs = Vec::new();
     for index in 0..256 {
@@ -464,7 +464,7 @@ fn sentinel_handlers_unsupported_and_corrupt_stores_preserve_bytes_and_refuse_wo
         std::fs::write(&path, raw).unwrap();
         let mut store = Store::new(
             path.clone(),
-            crate::cron::clock::MockClock::starting_at(1000),
+            codeterm_cron::clock::MockClock::starting_at(1000),
         );
         let error = store.ensure_available().unwrap_err();
         assert!(error.starts_with(if raw.contains("routes") {
@@ -493,7 +493,7 @@ fn sentinel_handlers_io_failure_and_corruption_after_load_hold_the_original_path
     std::fs::create_dir(&path).unwrap();
     let mut unavailable = Store::new(
         path.clone(),
-        crate::cron::clock::MockClock::starting_at(1000),
+        codeterm_cron::clock::MockClock::starting_at(1000),
     );
     assert!(unavailable
         .ensure_available()
@@ -505,7 +505,7 @@ fn sentinel_handlers_io_failure_and_corruption_after_load_hold_the_original_path
     crate::persisted_state::release_hold(&path);
     let mut store = Store::new(
         path.clone(),
-        crate::cron::clock::MockClock::starting_at(1000),
+        codeterm_cron::clock::MockClock::starting_at(1000),
     );
     assert!(store.ensure_available().is_ok());
     let job = store
@@ -531,7 +531,7 @@ fn sentinel_handlers_io_failure_and_corruption_after_load_hold_the_original_path
 fn sentinel_handlers_real_execution_id_is_preserved_independently_from_durable_claim() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
     let job = store
         .create(
@@ -574,7 +574,7 @@ fn sentinel_handlers_array_limits_unknown_fields_and_long_bucket_ids_are_checked
     let dir = tempfile::tempdir().unwrap();
     let store = Store::new(
         dir.path().join("sentinels.json"),
-        crate::cron::clock::MockClock::starting_at(1000),
+        codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let mut value = definition();
     value["handlers"] = json!({"done":(0..17).map(|index| json!({"id":format!("h_{index}"),"type":"notify","parameters":{}})).collect::<Vec<_>>()});
@@ -602,7 +602,7 @@ fn sentinel_handlers_array_limits_unknown_fields_and_long_bucket_ids_are_checked
 fn sentinel_handlers_activation_requires_durable_declared_claim_and_checks_active_cap() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let seed = Store::new(path.clone(), clock.clone());
     let mut jobs: Vec<_> = (0..65)
         .map(|index| {
@@ -634,7 +634,7 @@ fn sentinel_handlers_activation_requires_durable_declared_claim_and_checks_activ
 fn sentinel_causal_run_json_activation_and_downstream_accept_survive_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
-    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
     let mut child_definition = definition();
     child_definition["paused"] = json!(true);

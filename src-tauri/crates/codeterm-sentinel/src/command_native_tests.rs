@@ -281,7 +281,7 @@ impl Fixture {
     fn command(&self) -> String {
         let quote =
             |path: &std::path::Path| format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"));
-        format!("SENTINEL_PROBE_NATIVE_CONTROL={} SENTINEL_PROBE_NATIVE_ACK={} SENTINEL_PROBE_NATIVE_STARTED={} {} exec {} --exact --ignored --nocapture sentinel::probe::native_tests::probe_native_control_child", quote(&self.dir.path().join("release")), quote(&self.dir.path().join("ready")), quote(&self.dir.path().join("ready")), if self.close_streams { "SENTINEL_PROBE_NATIVE_CLOSE_STREAMS=1" } else { "" }, quote(&std::env::current_exe().unwrap()))
+        format!("SENTINEL_PROBE_NATIVE_CONTROL={} SENTINEL_PROBE_NATIVE_ACK={} SENTINEL_PROBE_NATIVE_STARTED={} {} exec {} --exact --ignored --nocapture probe::native_tests::probe_native_control_child", quote(&self.dir.path().join("release")), quote(&self.dir.path().join("ready")), quote(&self.dir.path().join("ready")), if self.close_streams { "SENTINEL_PROBE_NATIVE_CLOSE_STREAMS=1" } else { "" }, quote(&std::env::current_exe().unwrap()))
     }
 
     fn wait_ready(&self) -> Result<(), String> {

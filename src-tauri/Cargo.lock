@@ -1679,6 +1679,7 @@ dependencies = [
 name = "codeterm-sentinel"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "codeterm-blueprint-types",
  "codeterm-cron",
  "codeterm-paths",
