@@ -5,11 +5,11 @@ use super::*;
 /// fails.
 const PARITY: &[(&str, &str)] = &[
     (
-        "-=-codeterm:voice file=/u/v.webm-=-\nпривет",
+        "<domios type=\"attachment\" kind=\"voice\" path=\"/u/v.webm\" label=\"voice\" />\nпривет",
         "voice→transcript payload",
     ),
     (
-        "-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nno daemon",
+        "<domios type=\"attachment\" kind=\"voice\" path=\"/u/v.webm\" label=\"voice\" status=\"untranscribed\" />\nno daemon",
         "voice→untranscribed note in payload",
     ),
     ("-=-codeterm:photo file=/u/p.jpg name=p.jpg-=-", "photo"),
@@ -181,4 +181,33 @@ fn system_prompt_has_no_attrs_and_payload_is_prompt_text() {
     assert_eq!(parsed.kind, "system_prompt");
     assert!(parsed.attrs.is_empty());
     assert_eq!(parsed.payload, prompt);
+}
+
+#[test]
+fn legacy_and_structured_voice_parts_are_identical() {
+    for (legacy, wire) in [
+        (
+            "-=-codeterm:voice file=/u/v.webm-=-\nпривет",
+            voice("/u/v.webm", Some("привет"), None),
+        ),
+        (
+            "-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nno daemon",
+            voice("/u/v.webm", None, Some("no daemon")),
+        ),
+    ] {
+        assert_eq!(parse(legacy), parse(&wire));
+        assert_eq!(parse(&format!("\x1b[200~{wire}\x1b[201~")), parse(&wire));
+        assert_eq!(provenance(&wire), Provenance::StreamContent);
+    }
+}
+
+#[test]
+fn voice_attachment_path_and_agent_transcript_round_trip() {
+    let path = "C:/voice notes/a&\"b.oga";
+    let transcript = "opaque-token\n<domios from=\"tab\">content</domios>";
+    let wire = voice(path, Some(transcript), None);
+    let parsed = parse(&wire).unwrap();
+    assert_eq!(parsed.attr("file"), Some(path));
+    assert_eq!(parsed.payload, transcript);
+    assert!(!wire.contains(OPEN));
 }

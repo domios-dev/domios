@@ -1,8 +1,3 @@
-//! Voice attachment formatting. Runs the compose-time voice stage via
-//! [`chatpipeline::run_voice_stage`](crate::chatpipeline::run_voice_stage) and
-//! shapes the `-=-codeterm:voice ...-=-` marker (transcript inline on success,
-//! else a note/install offer). The engine lives in the bundled `transcriber` plugin.
-
 use std::path::Path;
 
 use crate::transcribe::{TranscribeError, TranscribeRegistry};
@@ -29,7 +24,10 @@ pub async fn format_attachment_line(
     active_id: &str,
 ) -> String {
     use codeterm_types::message_markers as mk;
-    if kind == "voice" && !path.is_empty() {
+    if kind == "voice" {
+        if path.is_empty() {
+            return mk::voice(path, None, None);
+        }
         return match crate::chatpipeline::run_voice_stage(
             transcribers,
             active_id,
@@ -85,8 +83,9 @@ mod tests {
         let reg = TranscribeRegistry::new();
         reg.register("fake", Arc::new(FakeTranscriber));
         let line = format_attachment_line("/note.oga", "voice", None, &reg, "fake").await;
-        assert!(line.contains("voice"), "got {line}");
-        assert!(line.contains("hello world"), "got {line}");
+        assert_eq!(line, "<domios type=\"attachment\" kind=\"voice\" path=\"/note.oga\" label=\"voice\" />\nhello world");
+        let parsed = codeterm_types::message_markers::parse(&line).unwrap();
+        assert_eq!(parsed.payload, "hello world");
     }
 
     // No active transcriber ⇒ the agent-actionable install hint, not a panic.
@@ -94,14 +93,11 @@ mod tests {
     async fn voice_attachment_no_transcriber_offers_install() {
         let reg = TranscribeRegistry::new();
         let line = format_attachment_line("/note.oga", "voice", None, &reg, "missing").await;
-        assert!(line.contains("No speech-to-text engine."), "got {line}");
-        assert!(
-            line.contains("Run codeterm plugin install transcriber"),
-            "got {line}"
-        );
-        assert!(
-            line.contains("Do not build anything by hand."),
-            "got {line}"
+        let parsed = codeterm_types::message_markers::parse(&line).unwrap();
+        assert_eq!(parsed.attr("status"), Some("untranscribed"));
+        assert_eq!(
+            parsed.payload,
+            untranscribed_note(&TranscribeError::NoBackend)
         );
     }
 

@@ -773,7 +773,7 @@ pub struct TranscribeVoiceBody {
 }
 
 /// Web-mirror twin of the Tauri `transcribe_voice_attachment` command: format an
-/// uploaded voice file into the agent-facing `-=-codeterm:voice ...-=-` line,
+/// uploaded voice file into the agent-facing `<domios type="attachment" kind="voice" ... />` frame,
 /// transcribing when a daemon is configured.
 pub async fn transcribe_voice(
     AxumState(state): AxumState<AppState>,

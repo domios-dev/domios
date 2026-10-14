@@ -197,6 +197,30 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
             .strip_suffix(BRACKETED_PASTE_END)
             .unwrap_or(stripped);
     }
+    if let Some(rest) = normalized.strip_prefix("<domios ") {
+        let end = rest.find("/>")?;
+        let attributes = crate::domios::parse_attributes(rest[..end].trim_end())?;
+        if attributes.get("type")?.as_str() != "attachment"
+            || attributes.get("kind")?.as_str() != "voice"
+            || attributes.contains_key("from")
+        {
+            return None;
+        }
+        let mut attrs = HashMap::from([("file".to_string(), attributes.get("path")?.clone())]);
+        if let Some(status) = attributes.get("status") {
+            attrs.insert("status".to_string(), status.clone());
+        }
+        let body = &rest[end + 2..];
+        let payload = body
+            .strip_prefix("\r\n")
+            .or_else(|| body.strip_prefix(['\n', '\r']))
+            .unwrap_or(body);
+        return Some(ParsedMarker {
+            kind: "voice".into(),
+            attrs,
+            payload: payload.into(),
+        });
+    }
     let rest = normalized.strip_prefix(OPEN)?;
     let close = rest.find(CLOSE)?;
     let head = &rest[..close];
@@ -232,19 +256,23 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
 
 // ── Convenience constructors (one per kind) ──────────────────────────────────
 
-/// Voice marker. The readable text (transcript, or an untranscribed note like
-/// "no daemon — see docs") goes in the PAYLOAD so the agent reads it plainly;
-/// `status=untranscribed` flags the note case for the UI to style differently.
 pub fn voice(file: &str, transcript: Option<&str>, note: Option<&str>) -> String {
-    match (transcript, note) {
-        (Some(t), _) => Marker::new("voice").attr("file", file).payload(t).build(),
-        (None, Some(n)) => Marker::new("voice")
-            .attr("file", file)
-            .attr("status", "untranscribed")
-            .payload(n)
-            .build(),
-        (None, None) => Marker::new("voice").attr("file", file).build(),
+    let mut attrs = vec![
+        ("type", "attachment"),
+        ("kind", "voice"),
+        ("path", file),
+        ("label", "voice"),
+    ];
+    if transcript.is_none() && note.is_some() {
+        attrs.push(("status", "untranscribed"));
     }
+    let tag = crate::domios::build_opening_tag(&attrs);
+    let mut wire = format!("{} />", tag.trim_end_matches('>'));
+    if let Some(payload) = transcript.or(note).filter(|payload| !payload.is_empty()) {
+        wire.push('\n');
+        wire.push_str(payload);
+    }
+    wire
 }
 
 /// Configuration request for a plugin, carrying a core-wrapped (safety-enveloped)
