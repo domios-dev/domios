@@ -164,14 +164,13 @@ test('only release timing audits request an advisory policy', async () => {
   }
 });
 
-test('release timing advice never accepts failed, leaking or timed-out executions', async () => {
+test('release timing advice never accepts failed or timed-out executions', async () => {
   const { requireTestSuccess } = await import('../ci-rust-shards.mjs');
   const ok = { status: 0 };
   requireTestSuccess(ok, 'PASS [ 5.0s] crate slow\nSummary [ 5.0s] 1 tests run: 1 passed', 'primary');
-  for (const status of ['FAIL', 'LEAK', 'TIMEOUT']) {
-    assert.throws(() => requireTestSuccess(ok, `${status} [ 5.0s] crate case`, 'primary'), /failed, leaking or timed-out/);
+  for (const status of ['FAIL', 'TIMEOUT']) {
+    assert.throws(() => requireTestSuccess(ok, `${status} [ 5.0s] crate case`, 'primary'), /failed or timed-out/);
   }
-  assert.throws(() => requireTestSuccess(ok, 'Summary [ 5s] 1 tests run: 1 passed, 1 leaky', 'alone'), /leaking/);
   for (const result of [{ status: 100 }, { status: 124 }, { status: null, signal: 'SIGTERM' }, { status: null, error: new Error('spawn failed') }]) {
     assert.throws(() => requireTestSuccess(result, 'PASS [ 0.1s] crate case', 'alone'));
   }
@@ -203,6 +202,30 @@ test('release advisory records a warning and summary while invalid timing report
     assert.equal(run(true, '').status, 1, 'missing serial confirmation fails');
     writeFileSync(alone, 'PASS [ 5.0s] codeterm_lib advisory_fixture_token\n');
     assert.equal(run(true).status, 1, 'incomplete timing log fails');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('nextest leaky passes stay successful and emit a persisted warning', async () => {
+  const { requireTestSuccess } = await import('../ci-rust-shards.mjs');
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const directory = mkdtempSync(join(tmpdir(), 'nextest-leaky-'));
+  const summary = join(directory, 'summary.md');
+  const warnings = [];
+  try {
+    for (const report of ['LEAK [ 1.4s] codeterm_mem dreaming::tests::fixture', 'Summary [ 5s] 1 tests run: 1 passed, 1 leaky']) {
+      requireTestSuccess({ status: 0 }, report, 'primary', { warn: value => warnings.push(value), summary });
+    }
+    assert.equal(warnings.length, 2);
+    assert.ok(warnings.every(value => value.startsWith('::warning::')));
+    assert.match(readFileSync(summary, 'utf8'), /dreaming::tests::fixture/);
+    assert.match(readFileSync(summary, 'utf8'), /1 leaky/);
+    assert.throws(() => requireTestSuccess({ status: 100 }, 'LEAK [ 1.4s] crate fixture', 'primary', { warn: value => warnings.push(value), summary }));
+    assert.equal(warnings.length, 2, 'failed executions remain fatal before leak advice');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
