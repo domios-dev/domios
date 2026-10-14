@@ -61,7 +61,7 @@ test("dry runs use both test stages by default; bundle-only diagnostics explicit
 });
 
 test("test phases partition every check without a serial chain in the fast gate", () => {
-  assert.deepEqual(Object.keys(tests.jobs).sort(), ["changed", ...fastJobs, ...longJobs].sort());
+  assert.deepEqual(Object.keys(tests.jobs).sort(), ["changed", "rust-warnings", ...fastJobs, ...longJobs].sort());
   const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-archives": { result: "success" } };
   for (const id of fastJobs) {
     assert.deepEqual(dependencies(tests.jobs[id]), ["changed"], id);
@@ -146,7 +146,7 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.equal(scopeEnv.CI_FULL_MATRIX, "${{ (inputs.source_ref != '' && inputs.scope != 'frontend') || github.event_name == 'schedule' }}");
   assert.equal(scopeEnv.CI_FRONTEND_ONLY, "${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}");
   for (const job of Object.values(tests.jobs)) {
-    for (const step of job.steps.filter(step => step.uses?.startsWith("actions/checkout@"))) {
+    for (const step of (job.steps || []).filter(step => step.uses?.startsWith("actions/checkout@"))) {
       assert.equal(step.with.ref, "${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}");
     }
   }

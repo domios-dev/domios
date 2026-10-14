@@ -48,6 +48,7 @@ on:
 # the shared runners. The nightly schedule shares master's group.
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: ${{ inputs.source_ref != '' && format('release-tests-{0}-{1}-{2}', github.run_id, inputs.source_ref, inputs.phase || 'all') || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
@@ -262,15 +263,19 @@ jobs:
           tool: cargo-nextest@0.9.148
       - name: Prepare compile fixtures
         run: node scripts/ci-rust-prepare.mjs
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Compile and archive once for platform
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: |
           source build.sh env
           ct_configure_sccache
           ./build.sh cache-verify
-          node scripts/ci-rust-archives.mjs
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-rust-archives.mjs
       - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -288,6 +293,13 @@ jobs:
           name: rust-build-receipt-${{ matrix.os }}-${{ matrix.arch }}
           path: ci-rust-builds/*.json
           if-no-files-found: error
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: tests-${{ matrix.os }}
+          target: ${{ matrix.os == 'macOS' && 'aarch64-apple-darwin' || matrix.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
       - name: Clean compile fixtures
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
@@ -481,8 +493,18 @@ jobs:
           mkdir -p dist src-tauri/bundled-cli
           [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
           node scripts/prepare-embed-stub.js
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: clippy (repo gate)
-        run: bash scripts/clippy-gate.sh
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash scripts/clippy-gate.sh
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: clippy-Linux
+          target: x86_64-unknown-linux-gnu
       - name: Clean 0-byte stubs
         if: always()
         run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
@@ -572,8 +594,19 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
-        run: pnpm types:check
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c 'pnpm types:check'
+
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: types-${{ runner.os }}
+          target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
       - *cancel-release-on-failure
 
   ts-unit:
@@ -729,3 +762,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/release-notes-sync.test.mjs
       - *cancel-release-on-failure
+
+  rust-warnings:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
+    needs: [changed, rust-archives, clippy-linux, ts-types]
+    if: always()
+    uses: ./.github/workflows/rust-warnings-summary.yml
+    with:
+      source_ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+      report_name: ${{ format('rust-warnings-tests-{0}-report', inputs.phase || 'all') }}
+      cancel_release_on_failure: ${{ inputs.cancel_release_on_failure }}
+      artifacts: ${{ needs.changed.outputs.heavy == 'true' && (inputs.phase == 'fast' && '["rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]' || inputs.phase == 'long' && '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc"]' || '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]') || '[]' }}
