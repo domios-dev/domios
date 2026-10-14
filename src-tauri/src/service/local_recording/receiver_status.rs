@@ -1,5 +1,5 @@
 use crate::service::ServiceContext;
-use codeterm_plugin::local_recording::ReceiverStatusQuery;
+use codeterm_types::local_recording::ReceiverStatusQuery;
 
 impl ServiceContext {
     pub(crate) fn read_receiver_status_report(
@@ -19,7 +19,7 @@ impl ServiceContext {
             .selected_devices(plugin_id)
             .ok_or("devices_unavailable")?;
         #[cfg(windows)]
-        let report = super::platform::windows::receiver_status::read(query, &devices.input_id)?;
+        let report = codeterm_input_windows::receiver_status::read(query, &devices.input_id)?;
         #[cfg(not(windows))]
         let report = {
             let _ = devices;

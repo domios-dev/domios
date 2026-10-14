@@ -2,9 +2,11 @@
 
 ## Status
 
-This lane contains OS-local source and portable decoder fixtures. It is not wired into the shared local-recording adapter: the selected-device contract remains under review. The input and collection identifier encodings below are local proposals and must be reconciled with that reviewed contract before integration.
-
-Fixture cases are authored but have not been executed. No native macOS build or physical LARK test was available in this lane. The native arm64 build, physical START/STOP double-press, capture/transcription, frozen-A oracle, and Intel-Mac status remain pending.
+The app maps native events through its local-recording adapter; grants,
+reservations and generation checks remain in the plugin registry and service.
+The IOHID descriptor and lifecycle fixtures live in this crate. Extraction does
+not establish physical LARK input or capture/transcription support; the approved
+macOS element mapping and physical-device validation remain separate evidence.
 
 ## Selected receiver and element
 
@@ -26,8 +28,8 @@ Microphone consent is separate from IOHID access. Source inspection found `NSMic
 - Descriptor rejected: keep the device unarmed until its observed application collection and button element are reviewed; do not substitute Windows report bytes.
 - Removal or unload: the active generation ends; reconnect and rearm before another capture.
 
-The native implementation is isolated in `platform/macos/native.rs` and links IOKit and CoreFoundation. `subscribe` has a five-second setup acknowledgement deadline and returns success only after selected-device/descriptor validation, permission/open success, callback registration, and observed run-loop entry. Timeout or post-acquisition setup failure returns `MacSetupFailure` with a pending teardown handle while cleanup continues. A setup-timeout cancellation is rechecked on the native thread and at loop entry. Atlas maps setup failure to `LocalInputSetupError` and retains the reservation until actual release; Atlas calls `subscribe` through `spawn_blocking` outside locks and retains a timed-out setup task until its result can be retired. A stale generation returned after disable or unload must be retired before another subscription can use that exact device. Native property and matching dictionary keys are owned CoreFoundation strings created from Apple's documented key literals and released after use. No bundle or microphone-permission change is included. Rollback is limited to removing this macOS module, its fixtures, and this note; any later shared adapter wiring must be rolled back by its owner as a separate change.
+The native implementation is isolated in `src-tauri/crates/codeterm-input-macos/src/native.rs` and links IOKit and CoreFoundation. `subscribe` has a five-second setup acknowledgement deadline and returns success only after selected-device/descriptor validation, permission/open success, callback registration, and observed run-loop entry. Timeout or post-acquisition setup failure returns `MacSetupFailure` with a pending teardown handle while cleanup continues. A setup-timeout cancellation is rechecked on the native thread and at loop entry. Atlas maps setup failure to `LocalInputSetupError` and retains the reservation until actual release; Atlas calls `subscribe` through `spawn_blocking` outside locks and retains a timed-out setup task until its result can be retired. A stale generation returned after disable or unload must be retired before another subscription can use that exact device. Native property and matching dictionary keys are owned CoreFoundation strings created from Apple's documented key literals and released after use. No bundle or microphone-permission change is included. Rollback is limited to removing this macOS module, its fixtures, and this note; any later shared adapter wiring must be rolled back by its owner as a separate change.
 
 ## Required verification
 
-Run `./build.sh check` and `./build.sh test-one app lark_input_macos` in an Orchestrator-authorized warm arm64 Mac Team shell. Record the native build and fixture count separately. Then run the physical DEV oracle with the exact LARK receiver and microphone: double-press START/STOP, speak a unique token into the frozen A capture while B is focused, and exercise cancel, unplug, access denial, and unload. A mock or native compile does not replace that physical result. Intel-Mac proof also remains pending.
+Run `./build.sh check` and `./build.sh test-one input-macos lark_input_macos` in an Orchestrator-authorized warm arm64 Mac Team shell. Record the native build and fixture count separately. Then run the physical DEV oracle with the exact LARK receiver and microphone: double-press START/STOP, speak a unique token into the frozen A capture while B is focused, and exercise cancel, unplug, access denial, and unload. A mock or native compile does not replace that physical result. Intel-Mac proof also remains pending.

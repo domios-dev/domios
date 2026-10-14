@@ -7,6 +7,7 @@ pub mod blueprint_terminal;
 pub mod config;
 pub mod decision;
 pub mod domios;
+pub mod local_recording;
 pub mod mesh;
 pub mod message_markers;
 pub mod notification;

@@ -1,3 +1,4 @@
+use codeterm_types::local_recording::LocalRecordingTrigger;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -8,10 +9,7 @@ use crate::js_runtime::{
     manifest::PermissionsConfig,
     vm::{call_json, PluginVm},
 };
-use crate::{
-    host_traits::PluginHostCtx,
-    local_recording::{LocalRecordingTrigger, SelectedDevices},
-};
+use crate::{host_traits::PluginHostCtx, local_recording::SelectedDevices};
 
 fn devices() -> SelectedDevices {
     SelectedDevices {

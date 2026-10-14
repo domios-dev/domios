@@ -16,14 +16,14 @@ const WAIT_TIMEOUT: u32 = 0x0000_0102;
 const WAIT_FAILED: u32 = u32::MAX;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::service::local_recording::platform) enum SetupFailure {
+pub enum SetupFailure {
     Unavailable(UnavailableReason),
     Stopped,
     Timeout,
     CompletionLost,
 }
 
-pub(in crate::service::local_recording::platform) struct WindowsInputPendingSubscription {
+pub struct WindowsInputPendingSubscription {
     control: Arc<ThreadControl>,
     startup: Option<Receiver<Result<(), SetupFailure>>>,
     completion: Option<Receiver<Result<(), TeardownError>>>,
@@ -31,19 +31,19 @@ pub(in crate::service::local_recording::platform) struct WindowsInputPendingSubs
     abandoned: bool,
 }
 
-pub(in crate::service::local_recording::platform) struct WindowsInputSubscription {
+pub struct WindowsInputSubscription {
     control: Arc<ThreadControl>,
     completion: Option<Receiver<Result<(), TeardownError>>>,
     thread: Option<JoinHandle<()>>,
     stop_requested: bool,
 }
 
-pub(in crate::service::local_recording::platform) struct WindowsInputSetupFailure {
+pub struct WindowsInputSetupFailure {
     pub reason: SetupFailure,
     pub teardown: WindowsInputTeardown,
 }
 
-pub(in crate::service::local_recording::platform) struct WindowsInputTeardown {
+pub struct WindowsInputTeardown {
     completion: Option<Receiver<Result<(), TeardownError>>>,
     thread: Option<JoinHandle<()>>,
     completion_result: Option<Result<(), TeardownError>>,
@@ -52,7 +52,7 @@ pub(in crate::service::local_recording::platform) struct WindowsInputTeardown {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::service::local_recording::platform) enum TeardownError {
+pub enum TeardownError {
     CompletionLost,
     CompletionTimeout,
     ThreadExitTimeout,
@@ -63,7 +63,7 @@ pub(in crate::service::local_recording::platform) enum TeardownError {
 }
 
 impl WindowsInputSubscription {
-    pub(in crate::service::local_recording::platform) fn start_pending(
+    pub fn start_pending(
         identity: SelectedInputIdentity,
         generation: u64,
         callback: impl Fn(WindowsInputEvent) + Send + Sync + 'static,
@@ -104,9 +104,7 @@ impl WindowsInputSubscription {
         })
     }
 
-    pub(in crate::service::local_recording::platform) fn request_stop(
-        mut self,
-    ) -> WindowsInputTeardown {
+    pub fn request_stop(mut self) -> WindowsInputTeardown {
         self.stop_requested = true;
         WindowsInputTeardown::stopping(&self.control, self.completion.take(), self.thread.take())
     }
@@ -121,7 +119,7 @@ impl Drop for WindowsInputSubscription {
 }
 
 impl WindowsInputPendingSubscription {
-    pub(in crate::service::local_recording::platform) fn wait_until_ready(
+    pub fn wait_until_ready(
         mut self,
     ) -> Result<WindowsInputSubscription, WindowsInputSetupFailure> {
         let result = self
@@ -148,9 +146,7 @@ impl WindowsInputPendingSubscription {
         }
     }
 
-    pub(in crate::service::local_recording::platform) fn request_stop(
-        self,
-    ) -> WindowsInputTeardown {
+    pub fn request_stop(self) -> WindowsInputTeardown {
         self.into_teardown()
     }
 
@@ -191,9 +187,7 @@ impl WindowsInputTeardown {
         }
     }
 
-    pub(in crate::service::local_recording::platform) fn wait_blocking(
-        &mut self,
-    ) -> Result<TeardownAcknowledgement, TeardownError> {
+    pub fn wait_blocking(&mut self) -> Result<TeardownAcknowledgement, TeardownError> {
         let deadline = Instant::now() + TEARDOWN_DEADLINE;
         if !self.joined {
             if self.completion_result.is_none() {
@@ -229,18 +223,18 @@ impl WindowsInputTeardown {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::service::local_recording::platform) struct TeardownAcknowledgement {
+pub struct TeardownAcknowledgement {
     pub wake_error: Option<u32>,
 }
 
 #[derive(Default)]
-pub(in crate::service::local_recording::platform) struct ThreadControl {
+pub(crate) struct ThreadControl {
     pub(super) stop_requested: AtomicBool,
     pub(super) thread_id: AtomicU32,
 }
 
 impl ThreadControl {
-    pub(in crate::service::local_recording::platform) fn request_stop(&self) -> Option<u32> {
+    pub fn request_stop(&self) -> Option<u32> {
         self.stop_requested.store(true, Ordering::Release);
         let thread_id = self.thread_id.load(Ordering::Acquire);
         request_stop_wake(thread_id, |thread_id| unsafe {
@@ -251,16 +245,14 @@ impl ThreadControl {
     }
 }
 
-pub(in crate::service::local_recording::platform) fn request_stop_wake(
+pub(crate) fn request_stop_wake(
     thread_id: u32,
     post: impl FnOnce(u32) -> Result<(), u32>,
 ) -> Option<u32> {
     (thread_id != 0).then(|| post(thread_id).err()).flatten()
 }
 
-pub(in crate::service::local_recording::platform) fn setup_entry_result(
-    stop_requested: bool,
-) -> Result<(), SetupFailure> {
+pub(crate) fn setup_entry_result(stop_requested: bool) -> Result<(), SetupFailure> {
     if stop_requested {
         Err(SetupFailure::Stopped)
     } else {
@@ -268,7 +260,7 @@ pub(in crate::service::local_recording::platform) fn setup_entry_result(
     }
 }
 
-pub(in crate::service::local_recording::platform) fn receive_completion(
+pub(crate) fn receive_completion(
     completion: &Receiver<Result<(), TeardownError>>,
     timeout: Duration,
 ) -> Result<Result<(), TeardownError>, TeardownError> {
@@ -279,7 +271,7 @@ pub(in crate::service::local_recording::platform) fn receive_completion(
     }
 }
 
-pub(in crate::service::local_recording::platform) fn teardown_acknowledgement(
+pub(crate) fn teardown_acknowledgement(
     wake_error: Option<u32>,
     release: Result<(), TeardownError>,
 ) -> Result<TeardownAcknowledgement, TeardownError> {

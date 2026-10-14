@@ -35,4 +35,4 @@ Stop posts a quit request to the dedicated listener thread. Cleanup unregisters 
 
 Owner selects the approved receiver's exact full path and Col01, records `HidP_GetCaps` and `HidP_GetButtonCaps`, arms the selected subscription, and performs one physical double-press. Record the listener generation and require exactly one `Press` for the descriptor-resolved `0x000C:0x00E9` rising state; its release must emit none. Verify unrelated input produces no decoded/logged report, then unplug and reconnect to confirm removal invalidates the generation and a fresh explicit subscription emits no synthetic press. This step proves the button adapter only; it does not claim recording or transcription.
 
-Warm fixture selector: `./build.ps1 test-one app lark_input_windows`. It must execute all 16 deterministic fixtures with a nonzero case count. No native test is ignored; the physical DEV step is not part of the fixture selector.
+Warm fixture selector: `./build.ps1 nextest input-platform`. It must execute the Windows decoder/lifecycle and receiver-status fixtures with a nonzero case count. No native test is ignored; the physical DEV step is not part of the fixture selector.

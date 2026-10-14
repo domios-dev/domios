@@ -3,7 +3,7 @@ use crate::host_traits::PluginHostCtx;
 use crate::js_runtime::host_api::PluginSandbox;
 use crate::js_runtime::manifest::PermissionsConfig;
 use crate::js_runtime::vm::{call_json, PluginVm};
-use crate::local_recording::LocalRecordingTrigger;
+use codeterm_types::local_recording::LocalRecordingTrigger;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -105,7 +105,7 @@ fn lark_recording_contract_js_missing_grant_refuses_even_with_native_host_grant(
 fn receiver_status_fixed_declaration_is_confined_and_native_js_equal() {
     let native = Arc::new(AnalyticsHost::default());
     let host: Arc<dyn PluginHostCtx> = native.clone();
-    let query = crate::local_recording::ReceiverStatusQuery {
+    let query = codeterm_types::local_recording::ReceiverStatusQuery {
         usage_page: 9,
         usage: 1,
         report_id: 7,
@@ -140,7 +140,7 @@ fn receiver_status_missing_or_oversized_declaration_refuses_io() {
     let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
     for query in [
         None,
-        Some(crate::local_recording::ReceiverStatusQuery {
+        Some(codeterm_types::local_recording::ReceiverStatusQuery {
             usage_page: 9,
             usage: 1,
             report_id: 7,
