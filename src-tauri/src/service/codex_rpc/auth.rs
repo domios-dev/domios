@@ -150,4 +150,3 @@ mod tests {
         assert_eq!(account_state(&json!({})), AuthState::Unknown);
     }
 }
-const _SPLIT_METRIC_PROBE: u8 = 0;

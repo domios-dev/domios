@@ -421,4 +421,3 @@ mod tests {
         assert_eq!(error.data.as_ref().unwrap()["current_version"], 9);
     }
 }
-const _SPLIT_METRIC_PROBE: u8 = 0;

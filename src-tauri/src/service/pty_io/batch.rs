@@ -116,4 +116,3 @@ mod tests {
         assert_eq!(deadlines, [std::time::Duration::from_millis(5)]);
     }
 }
-const _SPLIT_METRIC_PROBE: u8 = 0;
