@@ -29,6 +29,3 @@ pub(crate) fn resize(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

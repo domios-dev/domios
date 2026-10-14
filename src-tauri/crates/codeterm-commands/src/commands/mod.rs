@@ -25,3 +25,10 @@ pub use system::*;
 pub use system_info::*;
 pub use tab::*;
 pub use update::*;
+
+#[cfg(test)]
+mod identity_tests;
+#[cfg(test)]
+mod ownership_tests;
+#[cfg(test)]
+mod resize_tests;
