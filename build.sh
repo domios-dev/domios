@@ -30,6 +30,54 @@ dev_notify_capture_parent
 CMD="${1:-dev}"
 CT_DEV_WAIT=0
 DEV_NOTIFY_TAB=""
+
+# Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
+# (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
+case "$CMD" in
+  check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check)
+    if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
+      BUILD_NOTIFY_GIVEN=0
+      BUILD_NOTIFY_WANT_VALUE=0
+      BUILD_NOTIFY_ARGS=()
+      [ -z "${BUILD_NOTIFY_TAB+x}" ] || BUILD_NOTIFY_GIVEN=1
+      for BUILD_NOTIFY_ARG in "${@:2}"; do
+        if [ "$BUILD_NOTIFY_WANT_VALUE" = 1 ]; then
+          BUILD_NOTIFY_TAB="$BUILD_NOTIFY_ARG"
+          BUILD_NOTIFY_WANT_VALUE=0
+          continue
+        fi
+        case "$BUILD_NOTIFY_ARG" in
+          --notify-tab) BUILD_NOTIFY_WANT_VALUE=1; BUILD_NOTIFY_GIVEN=1 ;;
+          --notify-tab=*) BUILD_NOTIFY_TAB="${BUILD_NOTIFY_ARG#--notify-tab=}"; BUILD_NOTIFY_GIVEN=1 ;;
+          *) BUILD_NOTIFY_ARGS+=("$BUILD_NOTIFY_ARG") ;;
+        esac
+      done
+      if [ "$BUILD_NOTIFY_GIVEN" = 1 ] && { [ "$BUILD_NOTIFY_WANT_VALUE" = 1 ] || [ -z "${BUILD_NOTIFY_TAB:-}" ]; }; then
+        echo "ERROR: --notify-tab requires a non-empty tab id" >&2
+        exit 2
+      fi
+      if [ "$BUILD_NOTIFY_GIVEN" = 1 ]; then
+        if [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
+          echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
+          exit 127
+        fi
+        BUILD_NOTIFY_LOG="$(mktemp "${TMPDIR:-/tmp}/codeterm-build-$CMD.XXXXXX")"
+        BUILD_NOTIFY_MARKER="$BUILD_NOTIFY_LOG.sent"
+        rm -rf "$BUILD_NOTIFY_MARKER"
+        BUILD_NOTIFY_STATUS=0
+        report_run_stream "$BUILD_NOTIFY_MARKER" "$BUILD_NOTIFY_TAB" "$CMD" "$CMD ${BUILD_NOTIFY_ARGS[*]:-}" "$BUILD_NOTIFY_LOG" \
+          env BUILD_NOTIFY_CHILD=1 bash "$0" "$CMD" ${BUILD_NOTIFY_ARGS[@]+"${BUILD_NOTIFY_ARGS[@]}"} || BUILD_NOTIFY_STATUS=$?
+        if [ "$BUILD_NOTIFY_STATUS" -eq 0 ]; then
+          BUILD_NOTIFY_BODY="$(dev_notify_new_body_file)"
+          printf 'OK label=%s step=%s\nLog: %s\n' "$CMD" "$CMD ${BUILD_NOTIFY_ARGS[*]:-}" "$BUILD_NOTIFY_LOG" > "$BUILD_NOTIFY_BODY"
+          dev_notify_send_once "$BUILD_NOTIFY_MARKER" "$BUILD_NOTIFY_TAB" "$BUILD_NOTIFY_BODY" || true
+        fi
+        rm -rf "$BUILD_NOTIFY_MARKER"
+        exit "$BUILD_NOTIFY_STATUS"
+      fi
+    fi
+    ;;
+esac
 if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
   DEV_NOTIFY_ARGS=("${@:2}")
   DEV_NOTIFY_INDEX=0
@@ -958,8 +1006,10 @@ require_release_source() {
     } | sort -u
   )"
   if [ -n "$dirty" ]; then
-    echo "ERROR: release source is not clean; refusing provenance capture" >&2
-    echo "$dirty" >&2
+    echo "ERROR: release source is not clean ($(printf '%s
+' "$dirty" | wc -l | tr -d ' ') paths); refusing provenance capture" >&2
+    printf '%s
+' "$dirty" | head -n 20 >&2
     exit 2
   fi
 }
@@ -1734,7 +1784,12 @@ CodeTerm build commands
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
-  install-local               Build and install locally
+  install-local               Build and install locally (cheap fmt/size/clean gates first)
+  qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
+  lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
+
+Long operations (check, check-tests, test-one, test, verify, build, install-local, release-preflight)
+accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
   cache-verify                Verify shared S3 configuration and running server without changes
@@ -2066,9 +2121,12 @@ EOF
         exit 2
         ;;
     esac
+    cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+    cargo fmt --manifest-path cli/Cargo.toml --all --check
+    bash scripts/check-file-sizes.sh --fail
+    require_release_source
     enter_build_gateway "$CMD ${*:2}"
     node scripts/check-release-locks.mjs
-    require_release_source
     ct_load_release_signing_key
     prepare_local_install_target
     ensure_deps
@@ -2117,6 +2175,44 @@ EOF
       -u RUSTC_WRAPPER \
       -u SCCACHE_BASEDIRS \
       "$FRESH_CLI" "${INSTALL_ARGS[@]}"
+    ;;
+  qa-batch)
+    # ./build.sh qa-batch <label> [--notify-tab <tab>] '<cmd>' ... — `check` always runs first.
+    qa_label="${2:?qa-batch requires a label then one or more quoted commands}"
+    qa_cmds=()
+    qa_tab="${BUILD_NOTIFY_TAB:-}"
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --notify-tab) qa_tab="${2:?--notify-tab requires a non-empty tab id}"; shift 2 ;;
+        --notify-tab=*) qa_tab="${1#--notify-tab=}"; shift ;;
+        *) qa_cmds+=("$1"); shift ;;
+      esac
+    done
+    [ "${#qa_cmds[@]}" -gt 0 ] || { echo "ERROR: qa-batch requires at least one command after the label" >&2; exit 2; }
+    QA_NOTIFY_TAB="$qa_tab" bash scripts/qa-report.sh "$qa_label" "./build.sh check" "${qa_cmds[@]}"
+    ;;
+  lane-recover)
+    # ./build.sh lane-recover keep <lane-branch> <worktree> — park the tip on keep/<lane-branch>, drop the clean worktree and lane branch.
+    # ./build.sh lane-recover merge <lane-branch>           — real-merge keep/<lane-branch> into the current branch.
+    lr_mode="${2:?lane-recover requires keep or merge}"
+    lr_branch="${3:?lane-recover requires the lane branch name}"
+    case "$lr_mode" in
+      keep)
+        lr_tree="${4:?lane-recover keep requires the worktree path}"
+        [ -z "$(git -C "$lr_tree" status --porcelain)" ] || { echo "ERROR: worktree $lr_tree is dirty; commit or inspect it first" >&2; exit 2; }
+        git rev-parse --verify --quiet "refs/heads/$lr_branch" >/dev/null || { echo "ERROR: no branch $lr_branch" >&2; exit 2; }
+        git branch --force "keep/$lr_branch" "$lr_branch"
+        git worktree remove "$lr_tree"
+        git branch -D "$lr_branch"
+        echo "Kept tip on keep/$lr_branch; re-dispatch the lane with the correct base, then: ./build.sh lane-recover merge $lr_branch"
+        ;;
+      merge)
+        git merge --no-ff -m "Merge kept lane $lr_branch" "keep/$lr_branch"
+        git merge-base --is-ancestor "keep/$lr_branch" HEAD && git branch -d "keep/$lr_branch"
+        ;;
+      *) echo "ERROR: lane-recover mode must be keep or merge" >&2; exit 2 ;;
+    esac
     ;;
   qa-prep)
     enter_build_gateway "$CMD ${*:2}"
