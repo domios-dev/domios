@@ -21,12 +21,12 @@ mod stop;
 #[cfg(test)]
 use crate::service::hook_session_binding::{
     acknowledge_and_reconcile_session_binding, acknowledge_authenticated_launch,
-    bind_planner_session_after_claim, session_start_string,
+    bind_detected_session, session_start_string,
 };
 use crate::service::hook_session_binding::{
-    bind_reported_session, escaped_hook_log_field, finish_session_binding,
-    reported_transcript_path, session_start_session_id, unchanged_acknowledged_hook_report,
-    SessionStartClaim,
+    bind_planner_session_after_claim, bind_reported_session, escaped_hook_log_field,
+    finish_session_binding, reported_transcript_path, session_start_session_id,
+    unchanged_acknowledged_hook_report, SessionStartClaim,
 };
 pub(crate) use provider_events::hook_provider_event;
 use recording::record_hook_post;

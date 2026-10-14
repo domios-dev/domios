@@ -25,16 +25,16 @@ pub(crate) use session_start_payload::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionStartClaim {
-    prev: Option<String>,
+    pub(crate) prev: Option<String>,
     pub(crate) changed: bool,
     pub(crate) nonce_verified: bool,
-    nonce_already_acknowledged: bool,
+    pub(crate) nonce_already_acknowledged: bool,
     identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeferredBindingPremise {
-    previous_session_id: String,
+    pub(crate) previous_session_id: String,
 }
 
 pub(crate) type SessionBindError = (StatusCode, String, Option<DeferredBindingPremise>);
@@ -51,7 +51,7 @@ enum SessionBindingSource {
 }
 
 impl SessionStartClaim {
-    fn is_unchanged_acknowledged_report(&self) -> bool {
+    pub(crate) fn is_unchanged_acknowledged_report(&self) -> bool {
         !self.changed && self.nonce_verified && self.nonce_already_acknowledged
     }
 

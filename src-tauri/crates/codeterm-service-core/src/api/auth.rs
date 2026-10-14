@@ -419,7 +419,7 @@ pub async fn auth_middleware(
 
 #[cfg(test)]
 mod tests {
-    use super::crate::api_support::access_policy::check_access;
+    use crate::api_support::access_policy::check_access;
     use super::*;
 
     #[test]
