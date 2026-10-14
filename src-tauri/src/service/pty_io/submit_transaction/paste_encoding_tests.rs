@@ -89,6 +89,54 @@ fn routed_tags_are_typed_around_a_bracketed_body_only() {
     );
 }
 
+#[test]
+fn pasted_tail_is_a_second_bracketed_paste_in_the_same_write_only_after_a_bracketed_body() {
+    let tail = "\n::tail::";
+    let bracketed = encode_paste_frame_with_tail(
+        "line one\nline two",
+        None,
+        Some(tail),
+        None,
+        Some(true),
+        PasteEncodingCapability::MultilineTui,
+    );
+    assert_eq!(
+        String::from_utf8(bracketed).unwrap(),
+        format!(
+            "{BRACKETED_PASTE_START}line one\nline two{BRACKETED_PASTE_END}{BRACKETED_PASTE_START}{tail}{BRACKETED_PASTE_END}"
+        )
+    );
+
+    let open = "<domios from=\"tab\" tab=\"abc12345\">";
+    let routed = encode_paste_frame_with_tail(
+        "body",
+        Some(open),
+        Some(tail),
+        Some("</domios>"),
+        Some(false),
+        PasteEncodingCapability::LiveModeOnly,
+    );
+    assert_eq!(
+        String::from_utf8(routed).unwrap(),
+        format!(
+            "{open}{BRACKETED_PASTE_START}body{BRACKETED_PASTE_END}{BRACKETED_PASTE_START}{tail}{BRACKETED_PASTE_END}</domios>"
+        )
+    );
+
+    for (live_mode, capability) in [
+        (Some(false), PasteEncodingCapability::MultilineTui),
+        (Some(true), PasteEncodingCapability::Unsupported),
+        (Some(true), PasteEncodingCapability::TaggedBlock),
+    ] {
+        let plain =
+            encode_paste_frame_with_tail("one\ntwo", None, Some(tail), None, live_mode, capability);
+        assert!(
+            !String::from_utf8(plain).unwrap().contains("::tail::"),
+            "no tail without a bracketed body"
+        );
+    }
+}
+
 #[derive(Default)]
 struct SubmitSemantics {
     payload_writes: usize,
