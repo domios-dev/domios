@@ -1095,6 +1095,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-mem",
  "codeterm-service-core",
+ "codeterm-socket",
  "codeterm-types",
  "fastembed",
  "serde",
@@ -1743,6 +1744,40 @@ version = "0.1.0"
 dependencies = [
  "parking_lot",
  "serde",
+]
+
+[[package]]
+name = "codeterm-socket"
+version = "1.14.9-dev.6"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "codeterm-blueprint-types",
+ "codeterm-bridge",
+ "codeterm-events",
+ "codeterm-mem",
+ "codeterm-notification-core",
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-sentinel",
+ "codeterm-service-core",
+ "codeterm-types",
+ "codeterm-util",
+ "interprocess",
+ "libc",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tempfile",
+ "tokio",
+ "tower",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

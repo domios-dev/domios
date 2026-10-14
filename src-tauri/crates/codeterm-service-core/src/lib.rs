@@ -56,7 +56,6 @@ pub mod secrets;
 pub mod service;
 pub mod session;
 pub mod shell;
-mod socket;
 mod startup;
 pub mod storage;
 #[cfg(test)]
@@ -97,10 +96,6 @@ pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
 pub use api::routes::register_rest_hooks;
-
-pub fn register_socket() {
-    socket::register_rpc_bridge();
-}
 
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 

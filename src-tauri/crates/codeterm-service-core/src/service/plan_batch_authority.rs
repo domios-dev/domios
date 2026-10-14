@@ -239,6 +239,3 @@ fn refuse(store: &PlanStore, plan_id: &str, task: &Task, tab_id: Option<&str>) -
         task_id,
     }
 }
-
-#[cfg(test)]
-mod tests;
