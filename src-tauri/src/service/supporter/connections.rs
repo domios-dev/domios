@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use codeterm_decision::{DecisionModel, TokenMode};
 use codeterm_types::config::{SupporterConfig, SupporterConnection};
-use codeterm_types::decision::{DecisionModel, TokenMode};
 use serde::Serialize;
 use serde_json::{json, Value};
 

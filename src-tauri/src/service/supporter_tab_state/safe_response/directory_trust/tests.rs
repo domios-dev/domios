@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::DecisionQuestion;
+use codeterm_decision::DecisionQuestion;
 
 const NO_FIRST: &str = include_str!(
     "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"

@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::{DecisionQuestion, NamedDecisionQuestion};
+use codeterm_decision::{DecisionQuestion, NamedDecisionQuestion};
 
 fn choice(instructions: String, options: &[(&str, &str)]) -> NamedDecisionQuestion {
     NamedDecisionQuestion {

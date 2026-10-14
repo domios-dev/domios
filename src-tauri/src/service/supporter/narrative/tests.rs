@@ -12,7 +12,7 @@ fn supporter_feed_tab_state_groups_named_questions_without_option_text() {
         declared_safe_choice: Some(private_option.into()),
         decision_point: "launch_ready".into(),
     };
-    let response = codeterm_types::decision::DecisionResponse {
+    let response = codeterm_decision::DecisionResponse {
         answers: DecisionAnswers::from([
             (
                 "label".into(),

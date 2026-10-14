@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use codeterm_types::decision::{DecisionError, DecisionPricing, DecisionUsage};
+use codeterm_decision::{DecisionError, DecisionPricing, DecisionUsage};
 use codeterm_types::notification::NotifyLevel;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};

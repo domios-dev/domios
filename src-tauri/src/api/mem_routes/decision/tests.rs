@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     deadline, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
     DecisionRequest, TokenMode,
 };
@@ -262,10 +262,10 @@ impl DecisionModel for StubModel {
 
     fn decide_questions(
         &self,
-        request: &codeterm_types::decision::DecisionQuestionsRequest,
+        request: &codeterm_decision::DecisionQuestionsRequest,
         deadline: Instant,
-    ) -> Result<codeterm_types::decision::DecisionResponse, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+    ) -> Result<codeterm_decision::DecisionResponse, DecisionError> {
+        codeterm_decision::physical::before_request()?;
         let answers = request
             .questions
             .iter()
@@ -284,7 +284,7 @@ impl DecisionModel for StubModel {
                     .map(|answer| (name.clone(), answer))
             })
             .collect::<Result<_, _>>()?;
-        Ok(codeterm_types::decision::DecisionResponse {
+        Ok(codeterm_decision::DecisionResponse {
             answers,
             usage: None,
         })

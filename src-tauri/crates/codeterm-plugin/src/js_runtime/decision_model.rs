@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     decide_questions_sequentially, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo,
     DecisionPricing, DecisionPrimitives, DecisionQuestionsRequest, DecisionRequest,
     DecisionResponse, TokenMode,
@@ -59,7 +59,7 @@ impl DecisionModel for JsDecisionModel {
         call_json_or_default(&self.vm, &self.id, "pricing")
     }
 
-    fn metadata(&self) -> codeterm_types::decision::DecisionMetadata {
+    fn metadata(&self) -> codeterm_decision::DecisionMetadata {
         call_json(&self.vm, "metadata", &[]).unwrap_or_default()
     }
 
@@ -187,7 +187,7 @@ fn map_vm_error(error: VmError) -> DecisionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeterm_types::decision::DecisionQuestion;
+    use codeterm_decision::DecisionQuestion;
     use std::collections::BTreeMap;
     use std::time::Duration;
 
@@ -346,7 +346,7 @@ mod tests {
 #[cfg(test)]
 mod questions_tests {
     use super::*;
-    use codeterm_types::decision::{DecisionQuestion, DecisionUsage, NamedDecisionQuestion};
+    use codeterm_decision::{DecisionQuestion, DecisionUsage, NamedDecisionQuestion};
     use std::collections::BTreeMap;
     use std::time::Duration;
 

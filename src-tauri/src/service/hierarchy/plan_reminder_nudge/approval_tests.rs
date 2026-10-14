@@ -7,11 +7,11 @@ use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
 use crate::service::hierarchy::heartbeat_gate::{Telemetry, Worker};
 use crate::service::hierarchy::stalled_team::{maybe_nudge_stalled_team, StallEpisodeTracker};
 use crate::service::supporter::{SupporterRuntime, TokenSnapshot};
-use codeterm_types::config::{SupporterConfig, SupporterConnection};
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionAnswers, DecisionError, DecisionModel, DecisionModelInfo,
     DecisionPrimitives, DecisionQuestionsRequest, DecisionRequest, DecisionResponse, TokenMode,
 };
+use codeterm_types::config::{SupporterConfig, SupporterConnection};
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -112,7 +112,7 @@ impl DecisionModel for FakeChoice {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.last_state.lock() = request.state.clone();
         let barrier = self.barrier.lock().take();

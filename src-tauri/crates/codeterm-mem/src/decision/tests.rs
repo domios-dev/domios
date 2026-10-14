@@ -10,7 +10,7 @@ use super::rerank::{
     run_stage, run_stage_until, truncate_chars, FallbackReason, RerankCandidate, StageConfig,
     StageOutcome, SCORE_LEVELS,
 };
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
     DecisionRequest, TokenMode,
 };

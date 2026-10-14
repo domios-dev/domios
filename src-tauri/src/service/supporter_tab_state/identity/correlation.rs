@@ -1,7 +1,7 @@
 use super::{DecisionSource, LocalIdentity};
 use crate::service::supporter::criteria_hash;
 use crate::service::supporter_tab_state::{criteria, ObservationTrigger};
-use codeterm_types::decision::{DecisionAnswer, DecisionResponse};
+use codeterm_decision::{DecisionAnswer, DecisionResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
