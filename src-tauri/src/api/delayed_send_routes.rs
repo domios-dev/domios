@@ -1,6 +1,7 @@
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
@@ -23,6 +24,12 @@ pub struct UpdateDelayedMessageBody {
     scheduled_at_ms: Option<u64>,
     stash: Option<bool>,
     recurrence: Option<crate::delayed_send::recurrence::RecurrenceRule>,
+}
+
+pub(crate) fn mutation_refusal_response(
+    id: &str,
+) -> Option<(StatusCode, Json<crate::delayed_send::SystemEntryRefusal>)> {
+    crate::delayed_send::system_entry_refusal(id).map(|body| (StatusCode::CONFLICT, Json(body)))
 }
 
 pub async fn list(
@@ -62,8 +69,11 @@ pub async fn update(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UpdateDelayedMessageBody>,
-) -> Result<Json<crate::delayed_send::DelayedMessageView>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> Result<Json<crate::delayed_send::DelayedMessageView>, Response> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()).into_response())?;
+    if let Some(refusal) = mutation_refusal_response(&id) {
+        return Err(refusal.into_response());
+    }
     let msg = crate::delayed_send::update_message(
         &state.svc,
         id,
@@ -72,7 +82,7 @@ pub async fn update(
         body.stash,
         body.recurrence,
     )
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    .map_err(|e| (StatusCode::BAD_REQUEST, e).into_response())?;
     Ok(Json(msg))
 }
 
@@ -80,10 +90,13 @@ pub async fn delete(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<crate::delayed_send::DelayedMessageView>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> Result<Json<crate::delayed_send::DelayedMessageView>, Response> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()).into_response())?;
+    if let Some(refusal) = mutation_refusal_response(&id) {
+        return Err(refusal.into_response());
+    }
     let msg = crate::delayed_send::delete_message(&state.svc, id)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, e).into_response())?;
     Ok(Json(msg))
 }
 
@@ -91,11 +104,14 @@ pub async fn send_now(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> Result<Json<serde_json::Value>, Response> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()).into_response())?;
+    if let Some(refusal) = mutation_refusal_response(&id) {
+        return Err(refusal.into_response());
+    }
     crate::delayed_send::send_message_now(state.svc.clone(), id)
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, e).into_response())?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -105,6 +121,8 @@ mod tests {
     use crate::delayed_send::{
         recurrence::RecurrenceRule, DelayedMessage, DelayedMessageState, DelayedMessageView,
     };
+    use axum::http::StatusCode;
+    use axum::Json;
 
     fn rule() -> RecurrenceRule {
         RecurrenceRule {
@@ -154,6 +172,9 @@ mod tests {
                 team_id: Some("team-1".into()),
                 last_tick_unconfirmed: false,
                 last_tick_send_sequence: 0,
+                origin: crate::delayed_send::MessageOrigin::User,
+                reason: None,
+                ticks: Vec::new(),
             },
             current_session_id: None,
             session_changed: false,
@@ -162,5 +183,20 @@ mod tests {
         assert_eq!(value["recurrence"]["everyMs"], 600_000);
         assert_eq!(value["scheduledAtMs"], 1_200_000);
         assert_eq!(value["skippedTicks"], 2);
+        assert!(value.get("origin").is_none());
+    }
+
+    #[test]
+    fn patch_and_delete_of_a_system_entry_return_a_typed_refusal() {
+        for id in ["system:heartbeat:pl:tab", "system:heartbeat:worker:tab"] {
+            let (status, Json(body)) = super::mutation_refusal_response(id).unwrap();
+            assert_eq!(status, StatusCode::CONFLICT);
+            assert_eq!(body.code, "system_entry_immutable");
+            assert_eq!(body.origin, "system");
+            let value = serde_json::to_value(&body).unwrap();
+            assert_eq!(value["code"], "system_entry_immutable");
+            assert_eq!(value["origin"], "system");
+        }
+        assert!(super::mutation_refusal_response("dmsg-1").is_none());
     }
 }

@@ -12,7 +12,11 @@ use crate::persisted_state::{Loaded, StateFile};
 use crate::service::ServiceState;
 
 pub mod recurrence;
+mod system_entries;
 use recurrence::RecurrenceRule;
+pub use system_entries::{
+    system_entry_refusal, DeliveryTickView, MessageOrigin, SystemEntryRefusal,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,6 +59,12 @@ pub struct DelayedMessage {
     pub last_tick_unconfirmed: bool,
     #[serde(skip)]
     pub last_tick_send_sequence: u64,
+    #[serde(default, skip_serializing_if = "MessageOrigin::is_user")]
+    pub origin: MessageOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ticks: Vec<DeliveryTickView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,6 +257,9 @@ impl DelayedSendQueue {
             team_id,
             last_tick_unconfirmed: false,
             last_tick_send_sequence,
+            origin: MessageOrigin::User,
+            reason: None,
+            ticks: Vec::new(),
         };
         {
             let mut inner = self.inner.lock();
@@ -287,6 +300,7 @@ impl DelayedSendQueue {
         recurrence: Option<RecurrenceRule>,
         last_tick_send_sequence: Option<u64>,
     ) -> Result<DelayedMessage, String> {
+        system_entries::refuse_system_mutation(id)?;
         let recurrence_changed = recurrence.is_some();
         let updated = {
             let mut inner = self.inner.lock();
@@ -342,6 +356,7 @@ impl DelayedSendQueue {
     }
 
     pub fn delete(&self, id: &str) -> Result<DelayedMessage, String> {
+        system_entries::refuse_system_mutation(id)?;
         let removed = {
             let mut inner = self.inner.lock();
             let idx = inner
@@ -363,6 +378,9 @@ impl DelayedSendQueue {
             let mut inner = self.inner.lock();
             let mut due = Vec::new();
             for msg in &mut inner.messages {
+                if system_entries::is_system_entry_id(&msg.id) {
+                    continue;
+                }
                 if msg.state == DelayedMessageState::Queued && msg.scheduled_at_ms <= now_ms {
                     msg.state = DelayedMessageState::Sending;
                     msg.error = None;
@@ -378,6 +396,7 @@ impl DelayedSendQueue {
     }
 
     pub fn claim_now(&self, id: &str) -> Result<DelayedMessage, String> {
+        system_entries::refuse_system_mutation(id)?;
         let claimed = {
             let mut inner = self.inner.lock();
             let msg = inner
@@ -662,12 +681,16 @@ pub fn list_views(
         Some(tab_id) => Some(resolve_tab_id(svc, &tab_id)?),
         None => None,
     };
-    Ok(svc
+    let mut views: Vec<_> = svc
         .delayed_send
         .list(resolved.as_deref())
         .into_iter()
         .map(|msg| to_view(svc, msg))
-        .collect())
+        .collect();
+    if let Some(tab_id) = resolved.as_deref() {
+        views.extend(system_entries::views_for_tab(svc, tab_id));
+    }
+    Ok(views)
 }
 
 pub fn create_message(

@@ -56,6 +56,12 @@ pub const PEER_PLANNER_DOWN_HINT: &str = "A Planner specialist is bound, but its
      update --planner <TAB_ID>`, or waive with `codeterm plan update --planner \
      none --note <reason>`. Re-binding the same dead tab does not revive it.";
 
+/// The planner ref names a tab that is no longer open. Distinct from the down
+/// hint: that tab is not attached, so the reminder must not say that it is.
+pub const CLOSED_PLANNER_HINT: &str = "The Planner specialist's tab is closed, so planning \
+     cannot be delegated to it. Spawn a Planner and attach it with `codeterm plan update \
+     --planner <TAB_ID>`, or waive with `codeterm plan update --planner none --note <reason>`.";
+
 pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
     "Planning is not approved yet — state the GOAL and hand the Team Plan to {planner} to draft, \
      then review and approve it. Draft it yourself only on a formal Planner waiver or a narrow \
