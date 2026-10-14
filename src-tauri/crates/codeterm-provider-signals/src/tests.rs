@@ -12,7 +12,7 @@ fn class_of(record: &Value) -> ApiErrorKind {
 #[test]
 fn recorded_fixtures_map_onto_one_declared_class() {
     let fixtures: Value = serde_json::from_str(include_str!(
-        "../../../../../../plugins/provider-shared/access-errors.json"
+        "../../../../plugins/provider-shared/access-errors.json"
     ))
     .unwrap();
     let mut checked = 0;

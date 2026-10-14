@@ -9,35 +9,35 @@ pub struct BuiltinTheme {
 pub const BUILTIN_THEMES: &[BuiltinTheme] = &[
     BuiltinTheme {
         id: "github-dark",
-        toml_str: include_str!("../../../themes/github-dark.toml"),
+        toml_str: include_str!("../../../../themes/github-dark.toml"),
     },
     BuiltinTheme {
         id: "dracula",
-        toml_str: include_str!("../../../themes/dracula.toml"),
+        toml_str: include_str!("../../../../themes/dracula.toml"),
     },
     BuiltinTheme {
         id: "catppuccin-mocha",
-        toml_str: include_str!("../../../themes/catppuccin-mocha.toml"),
+        toml_str: include_str!("../../../../themes/catppuccin-mocha.toml"),
     },
     BuiltinTheme {
         id: "one-dark",
-        toml_str: include_str!("../../../themes/one-dark.toml"),
+        toml_str: include_str!("../../../../themes/one-dark.toml"),
     },
     BuiltinTheme {
         id: "nord",
-        toml_str: include_str!("../../../themes/nord.toml"),
+        toml_str: include_str!("../../../../themes/nord.toml"),
     },
     BuiltinTheme {
         id: "github-light",
-        toml_str: include_str!("../../../themes/github-light.toml"),
+        toml_str: include_str!("../../../../themes/github-light.toml"),
     },
     BuiltinTheme {
         id: "solarized-light",
-        toml_str: include_str!("../../../themes/solarized-light.toml"),
+        toml_str: include_str!("../../../../themes/solarized-light.toml"),
     },
     BuiltinTheme {
         id: "pip-boy",
-        toml_str: include_str!("../../../themes/pip-boy.toml"),
+        toml_str: include_str!("../../../../themes/pip-boy.toml"),
     },
 ];
 
@@ -61,7 +61,7 @@ pub fn list_builtin_theme_ids() -> Vec<String> {
 
 /// Directory for user custom themes.
 pub fn user_themes_dir() -> Option<std::path::PathBuf> {
-    Some(crate::paths::data_dir().join("themes"))
+    Some(codeterm_paths::data_dir().join("themes"))
 }
 
 /// Load a custom theme from the user themes directory.

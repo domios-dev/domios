@@ -478,7 +478,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     // ── Socket / API ─────────────────────────────────────────────────────
 
     fn socket_display_path(&self) -> String {
-        crate::socket::server::socket_display_path()
+        crate::paths::socket_display_path()
     }
 
     fn api_base_url(&self) -> String {

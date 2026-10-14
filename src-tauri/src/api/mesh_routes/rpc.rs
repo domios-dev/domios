@@ -5,7 +5,7 @@ use axum::{extract::State as AxumState, http::HeaderMap, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::api::routes::AppState;
-use crate::socket::server::protocol;
+use crate::rpc_bridge::{bridge, RpcError};
 
 const CACHE_CAPACITY: usize = 512;
 
@@ -24,7 +24,7 @@ pub struct MeshRpcResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<crate::socket::server::JsonRpcError>,
+    error: Option<RpcError>,
 }
 
 #[derive(Default)]
@@ -133,18 +133,14 @@ pub(super) async fn handle_mesh_rpc(
     if request.request_id.is_empty() || request.request_id.len() > 128 {
         return MeshRpcResponse {
             result: None,
-            error: Some(crate::socket::server::JsonRpcError {
+            error: Some(RpcError {
                 code: -32602,
                 message: "request_id must contain 1 to 128 characters".to_string(),
                 data: None,
             }),
         };
     }
-    if let Some(error) = protocol::version_skew_gate(
-        protocol::client_protocol_version(request.protocol_version.as_ref()),
-        protocol::PROTOCOL_VERSION,
-        protocol::RECOVERY_COMMAND,
-    ) {
+    if let Some(error) = (bridge().version_skew_gate)(request.protocol_version.as_ref()) {
         return MeshRpcResponse {
             result: None,
             error: Some(error),
@@ -176,7 +172,7 @@ pub(super) async fn handle_mesh_rpc(
             Ok(_) => {
                 entry.complete(MeshRpcResponse {
                     result: None,
-                    error: Some(crate::socket::server::JsonRpcError {
+                    error: Some(RpcError {
                         code: -32003,
                         message: "remote task lifecycle mutation requires Full mesh access".into(),
                         data: None,
@@ -187,7 +183,7 @@ pub(super) async fn handle_mesh_rpc(
             Err((_, message)) => {
                 entry.complete(MeshRpcResponse {
                     result: None,
-                    error: Some(crate::socket::server::JsonRpcError {
+                    error: Some(RpcError {
                         code: -32003,
                         message,
                         data: None,
@@ -207,9 +203,9 @@ pub(super) async fn handle_mesh_rpc(
         let svc = state.svc.clone();
         match tokio::task::spawn_blocking(move || {
             if let Some(peer_id) = mesh_peer {
-                crate::socket::server::dispatch_mesh_rpc(&method, params, &svc, &peer_id)
+                (bridge().dispatch_mesh_rpc)(&method, params, &svc, &peer_id)
             } else {
-                crate::socket::server::dispatch_service_rpc(&method, params, &svc)
+                (bridge().dispatch_service_rpc)(&method, params, &svc)
             }
         })
         .await
@@ -224,7 +220,7 @@ pub(super) async fn handle_mesh_rpc(
             },
             Err(error) => MeshRpcResponse {
                 result: None,
-                error: Some(crate::socket::server::JsonRpcError {
+                error: Some(RpcError {
                     code: -32603,
                     message: format!("mesh RPC dispatch failed: {error}"),
                     data: None,
@@ -234,7 +230,7 @@ pub(super) async fn handle_mesh_rpc(
     } else {
         MeshRpcResponse {
             result: None,
-            error: Some(crate::socket::server::JsonRpcError {
+            error: Some(RpcError {
                 code: -32601,
                 message: format!("method '{}' is not available over mesh RPC", request.method),
                 data: None,
@@ -456,7 +452,7 @@ mod tests {
 
     #[test]
     fn version_skew_error_serializes_untranslated_over_mesh_rpc() {
-        use crate::socket::server::protocol;
+        use crate::rpc_bridge::{bridge, RpcError};
         let error = protocol::version_skew_gate(2, 6, "recover --here")
             .expect("older mesh client is refused");
         let response = super::MeshRpcResponse {
@@ -474,7 +470,7 @@ mod tests {
 
     #[test]
     fn version_skew_mesh_request_parses_with_and_without_the_version_field() {
-        use crate::socket::server::protocol;
+        use crate::rpc_bridge::{bridge, RpcError};
         let versioned: super::MeshRpcRequest = serde_json::from_str(&format!(
             r#"{{"method":"plan.get","params":null,"request_id":"r1","protocol_version":{}}}"#,
             protocol::PROTOCOL_VERSION

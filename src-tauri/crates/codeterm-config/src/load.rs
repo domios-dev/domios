@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 
 use super::schema::AppConfig;
 use super::{agent_access, dropped_keys, kpi_default, normalize_runtime_defaults, resolve_theme};
-use crate::persisted_state::{Loaded, StateFile};
+use codeterm_util::persisted_state::{Loaded, StateFile};
 
 pub(super) const SALVAGED_CONFIG_MARKER: &str =
     "# CodeTerm salvaged config; remove this marker after reviewing or restoring the corrupt copy.";
