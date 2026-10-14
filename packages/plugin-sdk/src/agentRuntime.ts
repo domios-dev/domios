@@ -24,6 +24,7 @@ export interface PendingPrompt {
   selected_values?:readonly string[];
 }
 export interface TokenUsage {
+  cost_micros?:number;
   input_tokens:number;
   output_tokens:number;
   cache_read_tokens?:number;
@@ -93,10 +94,11 @@ export type AgentEvent =
   | {kind:"contextCompacted"; threadId:string; itemId:string}
   | {kind:"question"; threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"}
   | {kind:"authLogin"; login:RuntimeLoginState}
-  | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; detail?:string}
+  | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; billingMode?:"subscription"|"api"|"unknown"; detail?:string}
   | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]};
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export interface StdioAgentRuntimeCapability {
+  usage?:boolean;
   runtime:"stdio-jsonrpc";
   command:{binary:string; args:readonly string[]};
   login?: {methods:readonly RuntimeLoginMethod[]; terminalCommand?:string};

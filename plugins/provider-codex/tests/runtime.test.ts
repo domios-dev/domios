@@ -278,7 +278,7 @@ check("initialize guards handshake before publishing observed auth",()=> {
 check("auth refresh and account updates retain unknown state honestly",()=> {
   const operation:Operation={kind:"control",action:"auth",value:null};const plan=hooks.runtimePlan(ctx,operation);
   assert.deepEqual(plain(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"},events:[{kind:"auth",state:"unknown"}]});
-  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:undefined},null,[{kind:"notification",method:"account/updated",params:{authMode:"chatgpt"}}]).events),[{kind:"auth",state:"signedIn"}]);
+  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:undefined},null,[{kind:"notification",method:"account/updated",params:{authMode:"chatgpt"}}]).events),[{kind:"auth",state:"signedIn",billingMode:"subscription"}]);
 });
 check("retry errors remain nonterminal with classified source metadata",()=> {
   const events=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"error",params:{threadId:ctx.threadId!,turnId:"turn-a",willRetry:true,error:{message:"Retrying",codexErrorInfo:{httpConnectionFailed:{httpStatusCode:503}}}}}]).events;
@@ -441,6 +441,9 @@ check("initialize negotiates experimental history before planning item paginatio
   if(step.kind !== "continue")throw new Error("Expected account read");
   plan=plain(step.plan);assert.equal(plan.action.kind,"request");
   step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{account:{type:"chatgpt"}}});
+  assert.equal(step.kind,"continue");
+  if(step.kind !== "continue") throw new Error("Expected current limits read");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{rateLimits:{}}});
   assert.equal(step.kind,"complete");
   const history:Operation={kind:"readHistory",threadId:ctx.threadId!};
   plan=plain(hooks.runtimePlan(ctx,history));
@@ -815,3 +818,27 @@ check("activity updates a spawn receiver without losing its identity or metadata
   assert.deepEqual(plain(hooks.runtimeReduce(ctx,finished.state,[{...activity,params:{...activity.params as Record<string,JsonValue>,threadId:"foreign"}}]).events),[]);
 });
 console.log(`runtime subagent regressions: ${count} checks passed`);
+
+check("subscription initialization reads the recorded current limits",()=> {
+  const operation:Operation = {kind:"initialize"};
+  const step = hooks.runtimeResponse(ctx,operation,{stage:"initializeAccount"},{kind:"success",value:{account:{type:"chatgpt"}}});
+  assert.equal(step.kind,"continue");
+  if(step.kind !== "continue") return;
+  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{}}});
+  const value = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-rate-limits-read.json",import.meta.url),"utf8"));
+  const done = hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value});
+  assert.equal(done.kind,"complete");
+  if(done.kind !== "complete") return;
+  assert.equal(done.events?.[1].kind,"rateLimits");
+  assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}).kind,"complete");
+});
+check("API-key auth publishes session billing without requesting subscription limits",()=> {
+  const step = hooks.runtimeResponse(ctx,{kind:"initialize"},{stage:"initializeAccount"},{kind:"success",value:{account:{type:"apiKey"}}});
+  assert.deepEqual(plain(step),{kind:"complete",result:{kind:"initialized"},events:[{kind:"auth",state:"signedIn",billingMode:"api"}]});
+  const params = {threadId:ctx.threadId!,tokenUsage:{total:{inputTokens:100,outputTokens:20,cachedInputTokens:30,costUsd:0.002}}};
+  const result = hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/tokenUsage/updated",params}]);
+  assert.deepEqual(plain(result.events),[{kind:"usage",threadId:ctx.threadId,usage:{input_tokens:100,output_tokens:20,cache_read_tokens:30,cost_micros:2000}}]);
+  assert.equal(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/tokenUsage/updated",params:{...params,threadId:"foreign"}}]).events.length,0);
+});
+
+console.log(`runtime usage regressions: ${count} checks passed`);

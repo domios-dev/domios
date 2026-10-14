@@ -6,6 +6,7 @@ import { object, text, list, userThread, steerRefused, archivedResume } from "./
 import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem, boundHistoryRows } from "./runtimeHistoryBounds";
 import { json, runtimeItems } from "./runtimeMessages";
 import { loginPlan, loginResponse } from "./runtimeLogin";
+import { rateLimitEvents } from "./runtimeUsage";
 import { accountAuth } from "./runtimeAuth";
 import { interruptTargets } from "./runtimeInterrupt";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
@@ -97,6 +98,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
   validateBinding(ctx,op);
   const state = object(raw);
   if (reply.kind === "error") {
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
@@ -113,7 +115,12 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
     case "initialize":
       if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:{stage:"initializedNotification"}});
       if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));
-      return {kind:"complete",result:{kind:"initialized"},events:[accountAuth(value)]};
+      if (state.stage === "initializeAccount") {
+        const auth = accountAuth(value);
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read",{}, {stage:"initializeLimits",auth}));
+        return {kind:"complete",result:{kind:"initialized"},events:[auth]};
+      }
+      return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits)]};
     case "openThread": {
       if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:state.settings as RuntimeSettings}};
       const threadId = userThread(value);

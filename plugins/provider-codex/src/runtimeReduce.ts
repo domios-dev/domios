@@ -1,4 +1,5 @@
 import type { RuntimeContext, JsonValue, RuntimeFrame, RuntimeReduction, AgentEvent, ChatMsg, TokenUsage } from "@codeterm/plugin-sdk";
+import { rateLimitEvents } from "./runtimeUsage";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
 import { json, runtimeItem } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
@@ -49,7 +50,7 @@ function usage(params: Record<string,unknown>): TokenUsage | undefined {
   const token = object(params.tokenUsage);
   const total = object(token.total);
   if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return undefined;
-  return {input_tokens:total.inputTokens,output_tokens:total.outputTokens,
+  return {...(typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? {cost_micros:Math.round(total.costUsd * 1e6)} : {}),input_tokens:total.inputTokens,output_tokens:total.outputTokens,
     ...(typeof total.cacheWriteInputTokens === "number" ? {cache_write_tokens:total.cacheWriteInputTokens} : {}),
     ...(typeof total.cachedInputTokens === "number" ? {cache_read_tokens:total.cachedInputTokens} : {}),
     ...(typeof object(token.last).totalTokens === "number" ? {used_tokens:Number(object(token.last).totalTokens)} : {}),
@@ -145,14 +146,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = {...state.rateLimitSnapshot,...limits};
-      const windows = ["primary","secondary"].flatMap(window => {
-        const value = object(state.rateLimitSnapshot?.[window]);
-        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-        return [{window,usedPercent:Math.max(0,Math.min(100,value.usedPercent)),
-          ...(typeof value.resetsAt === "number" && value.resetsAt >= 0 ? {resetsAt:value.resetsAt * 1000} : {}),
-          ...(typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? {windowMinutes:value.windowDurationMins} : {})}];
-      });
-      if (windows.length) events.push({kind:"rateLimits",rateLimits:windows});
+      events.push(...rateLimitEvents(state.rateLimitSnapshot));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some(parent => parent.threadId === params.threadId);

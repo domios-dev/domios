@@ -17,6 +17,8 @@ pub struct AgentRuntimeCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default)]
+    pub usage: bool,
     pub runtime: AgentRuntimeProtocol,
     pub command: AgentRuntimeCommand,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
