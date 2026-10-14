@@ -27,8 +27,14 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
                     "version".into(),
                     serde_json::json!(env!("CARGO_PKG_VERSION")),
                 );
-                obj.insert("build".into(), serde_json::json!(env!("BUILD_HASH")));
-                obj.insert("build_sha".into(), serde_json::json!(env!("BUILD_SHA")));
+                obj.insert(
+                    "build".into(),
+                    serde_json::json!(codeterm_build_info::BUILD_HASH),
+                );
+                obj.insert(
+                    "build_sha".into(),
+                    serde_json::json!(codeterm_build_info::BUILD_SHA),
+                );
                 obj.insert(
                     "boot_id".into(),
                     serde_json::json!(state.svc.events.boot_id()),
