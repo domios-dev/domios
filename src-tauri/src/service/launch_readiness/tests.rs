@@ -8,6 +8,9 @@ use std::time::Duration;
 #[path = "tests/owner_prompt.rs"]
 mod owner_prompt;
 
+#[path = "tests/deferred_exit.rs"]
+mod deferred_exit;
+
 /// A launch that wrote its command and has proved nothing yet.
 fn launching_tab(pty_id: &str, nonce: &str) -> Tab {
     let (mut state, _root) = crate::multiplexer::state::MultiplexerState::new();
