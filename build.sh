@@ -15,7 +15,6 @@
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to the active dev data directory
-#                          without waiting for the app/dev build gateway
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
@@ -393,7 +392,6 @@ run_nextest_scope() {
       ;;
   esac
 
-  enter_build_gateway "$CMD $scope${filterset:+ $filterset}"
   if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ]; then
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
@@ -534,10 +532,7 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
 else
   BUILD_ARGS=()
   for arg in "${@:2}"; do
-    if [ "$arg" = "--wait-build" ] && [ "$CMD" = "check-tests" ]; then
-      echo "ERROR: check-tests does not use the build gateway, so --wait-build has no effect; run ./build.sh check-tests without it" >&2
-      exit 2
-    elif [ "$arg" = "--wait-build" ]; then
+    if [ "$arg" = "--wait-build" ]; then
       export CODETERM_BUILD_GATEWAY_MODE=queue
     else
       BUILD_ARGS+=("$arg")
@@ -581,7 +576,7 @@ fi
 
 if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
   if named_dev_wait_isolated; then
-    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=skipped\n' "$(named_dev_target_dir)"
+    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
   else
     printf 'mode=shared\nbuild_gateway=required\n'
   fi
@@ -714,8 +709,13 @@ enter_stable_build_path() {
   CT_REAL_WORKTREE="$(cd "${1:-.}" && pwd -P)"
   export CT_REAL_WORKTREE
   [ "${CODETERM_STABLE_BUILD_PATH:-1}" = 1 ] || return 0
+  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = production ] || return 0
   case "$OSTYPE" in msys*|cygwin*|win32) ;; *) return 0 ;; esac
   local drive="${CODETERM_STABLE_BUILD_DRIVE:-X}" lower
+  if ! ct_gateway_owned_by_caller; then
+    echo "ERROR: stable build mapping requires the exact production gateway owner" >&2
+    return 75
+  fi
   lower="$(printf '%s' "$drive" | tr 'A-Z' 'a-z')"
   MSYS2_ARG_CONV_EXCL='*' subst "$drive:" /D >/dev/null 2>&1 || true
   if ! MSYS2_ARG_CONV_EXCL='*' subst "$drive:" "$(cygpath -w "$CT_REAL_WORKTREE")" >/dev/null 2>&1; then
@@ -723,12 +723,16 @@ enter_stable_build_path() {
     return 0
   fi
   CT_STABLE_BUILD_DRIVE_MAPPED="$drive"
+  CT_STABLE_BUILD_JOB_ID="$CT_BUILD_JOB_ID"
   cd "/$lower"
   echo "[cache-policy] stable build path $drive:\ -> $CT_REAL_WORKTREE"
 }
 
 release_stable_build_path() {
   [ -n "${CT_STABLE_BUILD_DRIVE_MAPPED:-}" ] || return 0
+  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = production ] || return 0
+  [ -n "${CT_STABLE_BUILD_JOB_ID:-}" ] || return 0
+  [ "$(cat "$(ct_gateway_dir)/lock/job_id" 2>/dev/null)" = "${CT_STABLE_BUILD_JOB_ID:-}" ] || return 0
   cd "${CT_REAL_WORKTREE:-/}" 2>/dev/null || cd /
   MSYS2_ARG_CONV_EXCL='*' subst "$CT_STABLE_BUILD_DRIVE_MAPPED:" /D >/dev/null 2>&1 || true
   CT_STABLE_BUILD_DRIVE_MAPPED=""
@@ -1455,13 +1459,21 @@ check_warning_summary() {
   '
 }
 
-check_queue_worktree() {
-  local dir
-  dir="$(ct_gateway_dir)/check-worktree"
-  if [ ! -e "$dir/.git" ]; then
-    git worktree add -q --detach "$dir" "$1" >&2
+configure_dev_cargo() {
+  CT_DEV_CARGO_PROFILE=dev
+  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" src-tauri/Cargo.toml)"
+  CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
+  CT_DEV_TAURI_ARGS=()
+  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
+    CT_DEV_CHECK_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
+    CT_DEV_TAURI_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
   fi
-  printf '%s\n' "$dir"
+  CT_DEV_TAURI_ARGS+=(-- --profile "$CT_DEV_CARGO_PROFILE")
+}
+
+check_queue_worktree() {
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/check-worktree.mjs" \
+    "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START"
 }
 
 check_queue_run() {
@@ -1512,14 +1524,12 @@ check_queue_run() {
   CT_BUILD_CRATES="$(printf '%s\n' "${pkg_args[@]}" | sed '/^-p$/d')"
   [ "$cli" != 1 ] || CT_BUILD_CRATES="${CT_BUILD_CRATES}${CT_BUILD_CRATES:+ }codeterm-cli"
   CT_BUILD_TOUCHED_FILES_COUNT="$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')"
-  enter_build_gateway "$CMD $sha"
+  enter_cargo_gateway "$CMD $sha"
   cw="$(check_queue_worktree "$sha")"
-  git -C "$cw" checkout -q --detach --force "$sha" >&2
   cd "$cw"
   enter_stable_build_path "$cw"
   prepare_dev_frontend_dist "$cw"
   prepare_bundle_stubs
-  ct_configure_sccache
   unset CARGO_INCREMENTAL
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   started="$(date +%s)"
@@ -1533,6 +1543,9 @@ check_queue_run() {
     CARGO_TARGET_DIR="$cw/target/cli" cargo clippy --manifest-path cli/Cargo.toml \
       --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" >> "$out" 2>&1 || status=$?
   fi
+  configure_dev_cargo
+  CODETERM_DEV=1 CODETERM_WEB_DIST="$cw/dist" CARGO_TARGET_DIR="$cw/target/app" \
+    cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short >> "$out" 2>&1 || status=$?
   grep 'cargo::core::compiler::fingerprint' "$out" || true
   check_queue_errors "$max_errors" "$status" < "$out"
   check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
@@ -1571,14 +1584,16 @@ start_dev_wait_process() {
   local log="$1"
   local conf
   conf="$(dev_conf_path)"
-  local cmd=(pnpm tauri dev --no-watch --config "$conf")
+  configure_dev_cargo
+  local cmd=(pnpm tauri dev --no-watch --config "$conf" "${CT_DEV_TAURI_ARGS[@]}")
   if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
     local session="codeterm-dev${CT_SUFFIX}-$$"
-    local root_q log_q conf_q
+    local root_q log_q conf_q args_q
     printf -v root_q "%q" "$(pwd)"
     printf -v log_q "%q" "$log"
     printf -v conf_q "%q" "$conf"
-    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q >> $log_q 2>&1"
+    printf -v args_q "%q " "${CT_DEV_TAURI_ARGS[@]}"
+    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q $args_q >> $log_q 2>&1"
     echo "screen:$session"
     return
   fi
@@ -1954,6 +1969,17 @@ prepare_release_bundle_inputs() {
   node scripts/bundle-embed.js
 }
 
+enter_cargo_gateway() {
+  enter_build_gateway "$@"
+  ct_configure_sccache
+}
+
+case "$CMD" in
+  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+    enter_cargo_gateway "$CMD ${*:2}"
+    ;;
+esac
+
 case "$CMD" in
   help)
     cat <<'EOF'
@@ -2120,10 +2146,8 @@ EOF
     retain_dev_pdb "${2:-}" "${3:-$(dev_pdb_source)}" "${4:-}"
     ;;
   check)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    ct_configure_sccache
     check_log="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.cargo-check.log"
     cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee "$check_log"
     check_status="${PIPESTATUS[0]}"
@@ -2152,7 +2176,6 @@ EOF
     esac
     ;;
   check-tests)
-    ct_configure_sccache
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
@@ -2165,20 +2188,16 @@ EOF
     pnpm build
     ;;
   ci-archives)
-    ct_configure_sccache
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-archives.mjs
     ;;
   release-inputs)
-    ct_configure_sccache
     ensure_deps
     prepare_release_bundle_inputs
     ;;
   release-preflight)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ensure_deps
-    ct_configure_sccache
     cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
@@ -2209,10 +2228,8 @@ EOF
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
   test)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    ct_configure_sccache
     run_workspace_lib_tests
     ;;
   test-one)
@@ -2220,7 +2237,6 @@ EOF
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
-        enter_build_gateway "$CMD ${*:2}"
         if [ "$test_filter" = "build_identity_required" ]; then
           scripts/test-capped.sh --exec node --test scripts/tests/build_identity_required.test.mjs
           exit $?
@@ -2231,30 +2247,24 @@ EOF
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib "$test_filter"
         ;;
       input-macos|input-windows)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
       frontend-bundle|codeterm-frontend-bundle)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
         ;;
       agent-detect|codeterm-agent-detect)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-agent-detect --lib "$test_filter"
         ;;
       billing) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-billing/Cargo.toml -p codeterm-billing --lib "$test_filter" ;;
       usage)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-usage/Cargo.toml -p codeterm-usage --lib "$test_filter"
         ;;
       account) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-account/Cargo.toml -p codeterm-account --lib "$test_filter" ;;
       notification-core|codeterm-notification-core)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-notification-core --lib "$test_filter"
         ;;
       analytics) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
       repowatch|codeterm-repowatch)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-repowatch --lib "$test_filter"
         ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
@@ -2266,11 +2276,9 @@ EOF
       # the working codeterm-pty test path.
       pty-fork) scripts/test-capped.sh --manifest-path src-tauri/pty-fork/Cargo.toml "$test_filter" ;;
       util|codeterm-util)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-util --lib "$test_filter"
         ;;
       browser|codeterm-browser)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-browser --lib "$test_filter"
         ;;
       types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter" ;;
@@ -2294,11 +2302,9 @@ EOF
     run_nextest_scope "${@:2}"
     ;;
   verify)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ensure_deps
-    ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
     run_workspace_lib_tests
     TEST_CAP_SECS="${TEST_CAP_SECS:-3600}" scripts/test-capped.sh --manifest-path cli/Cargo.toml
@@ -2310,20 +2316,17 @@ EOF
     bash scripts/check-script-catalog.sh
     ;;
   worktree-check)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     cargo check --manifest-path src-tauri/Cargo.toml --all-targets "${@:2}"
     ;;
   build)
-    enter_build_gateway "$CMD ${*:2}"
     node scripts/check-release-locks.mjs
     require_release_source
     ct_load_release_signing_key
     prepare_release_target
     ensure_deps
-    ct_configure_sccache
     prepare_release_bundle_inputs
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
@@ -2356,16 +2359,15 @@ EOF
         exit 2
         ;;
     esac
+    enter_cargo_gateway "$CMD ${*:2}"
     cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
     require_release_source
-    enter_build_gateway "$CMD ${*:2}"
     node scripts/check-release-locks.mjs
     ct_load_release_signing_key
     prepare_local_install_target
     ensure_deps
-    ct_configure_sccache
     prepare_release_bundle_inputs
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
@@ -2470,14 +2472,11 @@ EOF
     esac
     ;;
   qa-prep)
-    enter_build_gateway "$CMD ${*:2}"
     bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
     ;;
   bootstrap)
-    enter_build_gateway "$CMD ${*:2}"
     ensure_deps
     prepare_bundle_stubs
-    ct_configure_sccache
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
@@ -2485,19 +2484,15 @@ EOF
     echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
     ;;
   embed)
-    enter_build_gateway "$CMD ${*:2}"
     # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
     # by default — use this when you change embed sources or pull new
     # ONNX/embeddings deps.
     prepare_bundle_stubs
-    ct_configure_sccache
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
     CODETERM_DEV=1 node scripts/bundle-embed.js
     echo "codeterm-embed rebuilt"
     ;;
   cli)
-    echo "[build] CLI uses Cargo's cli/target lock; app/dev gateway is independent."
-    ct_configure_sccache
     cargo build --release --manifest-path cli/Cargo.toml
     built_cli_artifact="$(cli_release_binary)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
@@ -2506,7 +2501,6 @@ EOF
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     ;;
   clean)
-    enter_build_gateway "$CMD ${*:2}"
     cargo clean --manifest-path src-tauri/Cargo.toml
     ;;
   kill)
@@ -2545,6 +2539,7 @@ EOF
     export PATH="$CT_DATA_DIR/bin:$PATH"
     export CODETERM_CLI_PATH="$(dev_cli_path)"
     export CODETERM_DEV=1
+    configure_dev_cargo
     export CODETERM_WEB_DIST="$(pwd -P)/dist"
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     node scripts/dev-prep.mjs --no-server
@@ -2637,14 +2632,12 @@ EOF
     DEV_NOTIFY_STAGE=build
     if named_dev_wait_isolated; then
       prepare_named_dev_target
-      echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
     else
       kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
-      enter_build_gateway "$CMD ${*:2}"
     fi
+    enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
     ensure_deps
-    ct_configure_sccache
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     built_cli_artifact="$(cli_release_binary)"
@@ -2665,6 +2658,7 @@ EOF
     # first-launch embedded extract is skipped so ~/.codeterm/plugins/
     # doesn't shadow the workspace.
     export CODETERM_DEV=1
+    configure_dev_cargo
     export CODETERM_WEB_DIST="$(pwd -P)/dist"
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     start_web_watch
@@ -2768,7 +2762,7 @@ EOF
         EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
         DEV_NOTIFY_STAGE=launch
         DEV_NOTIFY_WAITER_PID=
-        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" 2>&1 | tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev; then
+        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" 2>&1 | tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev; then
           DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
         else
           DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
@@ -2788,7 +2782,7 @@ EOF
         DEV_NOTIFY_WAITER_PID=
         DEV_NOTIFY_STAGE=exited
       else
-        pnpm tauri dev --no-watch --config "$(dev_conf_path)" || dev_status=$?
+        pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" || dev_status=$?
       fi
       retain_dev_pdb "$(git rev-parse HEAD 2>/dev/null || true)"
       exit "$dev_status"
@@ -2809,7 +2803,6 @@ EOF
     "$PYTHON_BIN" -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
-    enter_build_gateway "$CMD ${*:2}"
     # Aggregate runner for every enabled NON-LLM test layer. Unit layers always run;
     # dev-dependent API integration tests run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff

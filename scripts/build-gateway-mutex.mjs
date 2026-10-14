@@ -29,21 +29,23 @@ const gone = (owner, token) => spawnSync(bash, [
 ], { stdio: 'ignore' }).status === 0;
 
 let pending;
-const watcher = fs.watch(directory, () => pending?.());
+const watcher = fs.watch(directory, () => pending?.(true));
 let ownershipWatcher;
-async function changed(previous) {
+async function changed(previous, identityEvent = false) {
   ownershipWatcher?.close();
   ownershipWatcher = undefined;
-  try { ownershipWatcher = fs.watch(mutex, () => pending?.()); }
+  try { ownershipWatcher = fs.watch(mutex, () => pending?.(true)); }
   catch (error) { if (!['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
   if (fingerprint() !== previous) return;
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending = undefined;
-      reject(new Error('Timed out acquiring build gateway state mutex (ownership incomplete or busy).'));
+      reject(new Error(publisher.identityUnavailable
+        ? 'Gateway publication helper identity unavailable; no ownership published. Retry-safe after process lookup recovers (exit 75).'
+        : 'Timed out acquiring build gateway state mutex (ownership incomplete or busy).'));
     }, Math.max(0, deadline - Date.now()));
-    pending = () => {
-      if (fingerprint() === previous) return;
+    pending = (event = false) => {
+      if (!(identityEvent && event) && fingerprint() === previous) return;
       clearTimeout(timer);
       pending = undefined;
       resolve();
@@ -61,7 +63,9 @@ try {
     fs.writeFileSync(path.join(candidate, 'metadata.json'), JSON.stringify({ pid, startToken }));
   }
   while (true) {
-    if (Date.now() >= deadline) throw new Error('Timed out acquiring build gateway state mutex.');
+    if (Date.now() >= deadline) throw new Error(publisher.identityUnavailable
+      ? 'Gateway publication helper identity unavailable; no ownership published. Retry-safe after process lookup recovers (exit 75).'
+      : 'Timed out acquiring build gateway state mutex.');
     if (operation === 'acquire') {
       const observed = fingerprint();
       const owner = read('pid');
@@ -69,9 +73,9 @@ try {
       // Checking a live metadata owner must not block its release behind the publication guard.
       if (owner && token && alive(owner, token)) { await changed(observed); continue; }
     }
+    const publicationSnapshot = fingerprint();
     if (!publisher.acquire()) {
-      const observed = fingerprint();
-      if (fs.existsSync(guard)) await changed(observed);
+      if (publisher.identityUnavailable || fs.existsSync(guard)) await changed(publicationSnapshot, publisher.identityUnavailable);
       continue;
     }
     if (scope === 'fixture' && process.env.CT_GATEWAY_PUBLICATION_BARRIER) {
