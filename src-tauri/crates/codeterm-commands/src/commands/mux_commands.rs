@@ -177,3 +177,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "mux_commands/rename_tests.rs"]
+mod rename_tests;

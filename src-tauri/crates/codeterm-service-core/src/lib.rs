@@ -1025,3 +1025,6 @@ mod windows_rc_ownership_regression;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod persistence_test_support;
