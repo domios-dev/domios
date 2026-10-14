@@ -149,6 +149,16 @@ Claimed or uncertain records remain held and are never replayed.
   hide the bubble across restart and later evidence without replay. Delivered
   bubbles have no Delete. Provider echoes reconcile into that bubble.
 
+## The only screen-derived guard
+
+After a launch's first readiness the payload is always written: no guard reads the screen
+before the paste. The first submit key and every recovery key are withheld in exactly one
+case: the provider's declared classifier (`classify_tab_state`, confidence at or above 0.8, a
+prompt state) identifies a real choice prompt. Then the payload stays in the composer, the
+send settles `submit_unconfirmed` (`InjectionError::SubmitWithheldForPrompt`) and the ledger
+carries `pending_reason = waiting_on_prompt`. `parse_prompt`, cursor glyphs and composer
+heuristics never gate a send; a provider without a classifier never withholds Enter.
+
 ## Hard don'ts
 
 - No sleeps, polling intervals, or timer-driven "success" anywhere in the
@@ -173,4 +183,4 @@ Claimed or uncertain records remain held and are never replayed.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
