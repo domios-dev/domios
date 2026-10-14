@@ -130,7 +130,7 @@ fn codex_rpc_recorded_settings_reconfirm_restored_effort_for_current_binding() {
         apply_session_owned_actual, clear_runtime_evidence, persist_launch_identity,
     };
     let events = include_str!(
-        "../../../../../evals/codex-remote-spike/evidence/windows-inject-observer.ndjson"
+        "../../../../../../../evals/codex-remote-spike/evidence/windows-inject-observer.ndjson"
     );
     let frame = events
         .lines()

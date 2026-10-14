@@ -81,7 +81,7 @@ fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
         .unwrap_or_else(|| {
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../evals/heartbeat-replay/reconstructed.json"
+                "/../../../evals/heartbeat-replay/reconstructed.json"
             ))
             .into()
         });

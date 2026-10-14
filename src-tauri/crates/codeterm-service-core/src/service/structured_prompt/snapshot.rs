@@ -105,11 +105,11 @@ mod tests {
     #[test]
     fn snapshot_file_diffs_use_the_provider_mapping() {
         let manifest = crate::test_support::fixture_manifest_dir()
-            .join("../plugins/provider-opencode/plugin.json");
+            .join("../../../plugins/provider-opencode/plugin.json");
         let provider = crate::plugin::js_runtime::loader::load_one(&manifest).unwrap();
         let fixtures: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../tests/fixtures/opencode-1.18.35-tool-parts.json"
+            "/../../../tests/fixtures/opencode-1.18.35-tool-parts.json"
         )))
         .unwrap();
         let mut part = fixtures[0]["part"].clone();

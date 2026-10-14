@@ -6,14 +6,14 @@ use super::*;
 fn captured_switch_outputs_confirm_model_and_effort_from_exact_records() {
     let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/plugin.json"
+        "/../../../plugins/provider-claude/plugin.json"
     )))
     .unwrap();
     let commands: crate::agent::provider::ModelSwitchCommands =
         serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
     let records: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
     )))
     .unwrap();
     let bytes = records

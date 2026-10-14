@@ -48,7 +48,7 @@ fn wait_until<F: Fn() -> bool>(deadline_ms: u64, f: F) -> bool {
 
 fn workspace_plugins_root() -> PathBuf {
     crate::test_support::fixture_manifest_dir()
-        .join("..")
+        .join("../../..")
         .join("plugins")
 }
 

@@ -20,7 +20,7 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
     ).unwrap();
     drop(connection);
     let plugin = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
-        .join("../plugins/provider-opencode");
+        .join("../../../plugins/provider-opencode");
     let manifest: PluginManifest =
         serde_json::from_slice(&std::fs::read(plugin.join("plugin.json")).unwrap()).unwrap();
     let mut source = std::fs::read_to_string(plugin.join("plugin.js")).unwrap();

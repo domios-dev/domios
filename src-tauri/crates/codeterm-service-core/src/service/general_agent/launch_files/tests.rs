@@ -12,7 +12,7 @@ fn fixture() -> (ServiceFixture, String, String) {
     let provider = format!("structured-ga-{}", uuid::Uuid::new_v4());
     let mut manifest: PluginManifest = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-codex/plugin.json"
+        "/../../../plugins/provider-codex/plugin.json"
     )))
     .unwrap();
     manifest.id = provider.clone();
@@ -20,7 +20,7 @@ fn fixture() -> (ServiceFixture, String, String) {
         &provider,
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../plugins/provider-codex/plugin.js"
+            "/../../../plugins/provider-codex/plugin.js"
         ))
         .into(),
     )

@@ -130,7 +130,7 @@ fn drain_mux_events(receiver: &mut tokio::sync::broadcast::Receiver<crate::api::
 
 fn rpc_provider() -> crate::plugin::js_runtime::JsProvider {
     use crate::plugin::js_runtime::{PluginManifest, PluginVm};
-    let manifest_json = include_str!("../../../../plugins/provider-codex/plugin.json");
+    let manifest_json = include_str!("../../../../../../plugins/provider-codex/plugin.json");
     let manifest: PluginManifest = serde_json::from_str(manifest_json).unwrap();
     let vm = PluginVm::from_source_with(
         &manifest.id,

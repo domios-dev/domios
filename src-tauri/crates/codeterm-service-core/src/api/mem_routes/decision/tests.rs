@@ -787,7 +787,8 @@ fn supporter_token_dir_is_under_data_dir() {
     assert!(dir.starts_with(codeterm_paths::data_dir()));
     assert!(dir.ends_with("supporter"));
     let repo_root = crate::test_support::fixture_manifest_dir()
-        .parent()
+        .ancestors()
+        .nth(3)
         .unwrap();
     assert!(!dir.starts_with(repo_root), "{}", dir.display());
     assert!(token_store().path(STUB_ID).starts_with(&dir));

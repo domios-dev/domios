@@ -1,8 +1,8 @@
 const STATUS_SIGNATURE: &str = "pub async fn status(";
-const CAPABILITY_SRC: &str = include_str!("../../crates/codeterm-secrets/src/capability.rs");
-const LIB_SRC: &str = include_str!("../../crates/codeterm-secrets/src/lib.rs");
-const JS_BACKEND_SRC: &str = include_str!("../../crates/codeterm-secrets/src/js_backend.rs");
-const LEGACY_SRC: &str = include_str!("../../crates/codeterm-secrets/src/legacy.rs");
+const CAPABILITY_SRC: &str = include_str!("../../../codeterm-secrets/src/capability.rs");
+const LIB_SRC: &str = include_str!("../../../codeterm-secrets/src/lib.rs");
+const JS_BACKEND_SRC: &str = include_str!("../../../codeterm-secrets/src/js_backend.rs");
+const LEGACY_SRC: &str = include_str!("../../../codeterm-secrets/src/legacy.rs");
 
 fn decision_half() -> &'static str {
     CAPABILITY_SRC

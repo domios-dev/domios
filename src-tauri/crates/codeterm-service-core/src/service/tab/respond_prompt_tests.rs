@@ -98,7 +98,7 @@ fn has_input_events(cast: PathBuf) -> bool {
 fn detected_prompt_stays_respondable_without_notification() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
-            "../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
+            "../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
         ),
     )
     .expect("Claude trust fixture");
@@ -204,7 +204,7 @@ fn detected_prompt_stays_respondable_without_notification() {
 fn tab_respond_answers_trust_prompt_in_pair_tabs() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
-            "../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
+            "../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
         ),
     )
     .expect("Claude trust fixture");

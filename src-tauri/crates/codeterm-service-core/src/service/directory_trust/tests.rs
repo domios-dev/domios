@@ -147,7 +147,7 @@ fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
 #[test]
 fn trust_responder_never_writes_on_a_non_trust_dialog() {
     let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
-        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+        "../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
     );
     let screen = std::fs::read_to_string(fixture_path).unwrap();
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
@@ -177,7 +177,7 @@ fn trust_responder_never_writes_on_a_non_trust_dialog() {
 #[test]
 fn core_trust_decision_answers_claude_folder_trust_fixtures() {
     let fixture_dir = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
-        .join("../plugins/provider-claude/tests/fixtures/folder-trust");
+        .join("../../../plugins/provider-claude/tests/fixtures/folder-trust");
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
     for (file, step) in [
         ("quick-safety-yes-focused.txt", b"\r".as_slice()),
@@ -660,7 +660,7 @@ fn fresh_team_directory_trust_answers_one_transaction_under_race() {
 #[test]
 fn observed_trust_clear_resolves_only_the_current_launch_binding() {
     let trust_screen = include_str!(
-        "../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"
+        "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"
     );
     let (mut mux, tab_id) = agent_tab(None, false);
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -809,7 +809,7 @@ fn trust_trusted_dir_by_provenance_auto_answers_no_notification() {
 
 #[test]
 fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
-    let capture = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let capture = include_str!("../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
     let response = provider
         .launch_onboarding_response(capture)
@@ -853,8 +853,8 @@ fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
 fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answered() {
     use codeterm_types::agent::roles::AgentRole;
 
-    let yes_focused = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
-    let not_now_focused = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
+    let yes_focused = include_str!("../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let not_now_focused = include_str!("../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
     let (mut mux, planner_tab_id) = agent_tab(None, true);
     let planner = mux.get_tab_mut(&planner_tab_id).unwrap();
     planner.role = Some(AgentRole::Manager);

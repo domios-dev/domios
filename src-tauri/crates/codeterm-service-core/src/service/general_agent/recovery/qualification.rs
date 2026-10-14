@@ -64,7 +64,7 @@ fn valid_hash(value: &str) -> bool {
 
 pub(crate) fn recorded_qualification() -> Option<Qualification> {
     serde_json::from_str(include_str!(
-        "../../../../../evals/tab-state-jev/qualification.json"
+        "../../../../../../../evals/tab-state-jev/qualification.json"
     ))
     .ok()
 }

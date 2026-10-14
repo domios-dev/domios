@@ -4,7 +4,7 @@ use super::*;
 fn consumed_owner_attachments_confirm_the_complete_payload_only_in_the_own_session() {
     let records = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/owner-mid-turn-2.1.296.jsonl"
+        "/../../../plugins/provider-claude/tests/fixtures/owner-mid-turn-2.1.296.jsonl"
     ));
     for record in records.lines().filter_map(|line| {
         let value: serde_json::Value = serde_json::from_str(line).unwrap();

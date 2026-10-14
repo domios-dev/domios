@@ -6,7 +6,7 @@ fn provider_compat_opencode_direct_sqlite_is_declared_and_fails_closed() {
     let manifest =
         codeterm_plugin::js_runtime::PluginManifest::from_json_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../plugins/provider-opencode/plugin.json"
+            "/../../../plugins/provider-opencode/plugin.json"
         )))
         .unwrap();
     let policy = manifest.cli_compatibility.unwrap();

@@ -11,10 +11,10 @@ use crate::agent::kpi::{KpiAttribution, KpiRecorder};
 const CLAUDE_STREAMED: &str = include_str!("../kpi/usage/fixtures/claude-streamed-responses.jsonl");
 const CODEX_REPEATED: &str = include_str!("../kpi/usage/fixtures/codex-repeated-token-count.jsonl");
 const SUBAGENT_PARENT: &str = include_str!(
-    "../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b.jsonl"
+    "../../../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b.jsonl"
 );
 const SIDECHAIN: &str = include_str!(
-    "../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b/subagents/agent-af66d7d8e4a99a6bb.jsonl"
+    "../../../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b/subagents/agent-af66d7d8e4a99a6bb.jsonl"
 );
 
 struct LegacySource<'a> {

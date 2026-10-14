@@ -192,12 +192,12 @@ fn supporter_first_opinion_confirmation_seed_and_child_are_one_shot_per_step() {
 fn supporter_first_opinion_safe_response_provider_option_order_and_focus() {
     use codeterm_plugin::provider::AgentProvider;
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
-    let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let screen = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     let initial = provider_target(&provider, screen).unwrap();
     assert_eq!(initial.kind, Kind::Onboarding);
     assert_eq!(initial.choice, "2");
     assert_eq!(initial.step, b"j");
-    let focused = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
+    let focused = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
     let focused_target = provider_target(&provider, focused).unwrap();
     assert_eq!(focused_target.choice, initial.choice);
     assert_eq!(focused_target.step, b"\r");
@@ -212,7 +212,7 @@ fn supporter_first_opinion_safe_response_provider_option_order_and_focus() {
 #[test]
 fn sentinel_respond_prompt_onboarding_uses_declared_provider_choice() {
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
-    let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let screen = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     let target = provider_target(&provider, screen).unwrap();
     assert_eq!(target.kind, Kind::Onboarding);
     assert!(target.kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
@@ -255,7 +255,7 @@ fn sentinel_respond_prompt_login_and_quota_are_never_authorized() {
     }
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
     let login = include_str!(
-        "../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
+        "../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
     );
     assert!(provider_target(&provider, login).is_none());
 }
@@ -326,7 +326,7 @@ fn supporter_first_opinion_safe_response_post_launch_planner_and_owner_boundary(
     fixture.service.agent_registry.register_provider(Box::new(
         codeterm_plugin::agent_claude::ClaudeProvider::new(),
     ));
-    let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let screen = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     assert!(fixture
         .service
         .mux

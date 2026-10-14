@@ -2,25 +2,25 @@ use super::*;
 use codeterm_decision::DecisionQuestion;
 
 const NO_FIRST: &str = include_str!(
-    "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"
+    "../../../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"
 );
 const YES_FOCUSED: &str = include_str!(
-    "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-yes-focused.txt"
+    "../../../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-yes-focused.txt"
 );
 const PREAPPROVED_LOCAL_NO_FIRST: &str = include_str!(
-    "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/trust-local-preapproved-no-first.txt"
+    "../../../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/trust-local-preapproved-no-first.txt"
 );
 const RULE_AFFIRMATIVE: &str = include_str!(
-    "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/trust-rule-focus-affirmative.txt"
+    "../../../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/trust-rule-focus-affirmative.txt"
 );
 const TOOL_PERMISSION: &str = include_str!(
-    "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/tool-permission.txt"
+    "../../../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/tool-permission.txt"
 );
 const ONBOARDING: &str = include_str!(
-    "../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt"
+    "../../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt"
 );
 const AUTH_LOGIN: &str = include_str!(
-    "../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
+    "../../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
 );
 const JOB_DIR: &str = "/srv/cron/nightly";
 
@@ -719,7 +719,7 @@ fn sentinel_respond_prompt_login_is_refused_before_dispatch() {
     fixture.service.screen_state.lock().process(
         &pty,
         include_str!(
-            "../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
+            "../../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
         )
         .as_bytes(),
     );

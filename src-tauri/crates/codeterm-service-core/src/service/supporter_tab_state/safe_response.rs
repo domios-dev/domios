@@ -335,7 +335,7 @@ pub(super) fn criteria_version() -> String {
 fn recorded_qualification(
 ) -> Option<super::super::general_agent::recovery::qualification::Qualification> {
     serde_json::from_str(include_str!(
-        "../../../../evals/tab-state-jev/safe-response-qualification.json"
+        "../../../../../../evals/tab-state-jev/safe-response-qualification.json"
     ))
     .ok()
 }
@@ -370,7 +370,7 @@ fn receipt_qualified(receipt: &Receipt, kind: Kind) -> bool {
         .and_then(|envelope| envelope.adapter.as_ref())
         .and_then(|model| model.model_id());
     let heldout_hash = supporter::criteria_hash(include_bytes!(
-        "../../../../evals/tab-state-jev/heldout.jsonl"
+        "../../../../../../evals/tab-state-jev/heldout.jsonl"
     ));
     qualified_for(
         &receipt.adapter_id,

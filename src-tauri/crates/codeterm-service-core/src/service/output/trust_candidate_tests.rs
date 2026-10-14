@@ -3,7 +3,9 @@ use super::may_be_directory_trust_prompt;
 fn fixture(provider: &str, name: &str) -> String {
     std::fs::read_to_string(
         std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
-            .join(format!("../plugins/provider-{provider}/tests/fixtures"))
+            .join(format!(
+                "../../../plugins/provider-{provider}/tests/fixtures"
+            ))
             .join(name),
     )
     .expect("dialog fixture")

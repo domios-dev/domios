@@ -57,10 +57,10 @@ mod tests {
         use std::collections::BTreeSet;
         use std::path::Path;
         let manifest = crate::test_support::fixture_manifest_dir();
-        let frontend = Path::new(manifest).join("../src");
+        let frontend = Path::new(manifest).join("../../../src");
         let backend = Path::new(manifest).join("src");
 
-        let packages = Path::new(manifest).join("../packages");
+        let packages = Path::new(manifest).join("../../../packages");
         let mut frontend_sources = read_sources(&frontend, &["ts", "tsx", "js", "jsx"]);
         frontend_sources.extend(read_sources(&packages, &["ts", "tsx", "js", "jsx"]));
         frontend_sources.retain(|(path, _)| !path.to_string_lossy().contains(".test."));

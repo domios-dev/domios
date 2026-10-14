@@ -486,8 +486,8 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
     let _config_guard = fixture
         .service
         .override_supporter_decision_for_test(config, runtime);
-    let initial = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
-    let focused = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
+    let initial = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let focused = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
     std::fs::write(fixture.temp.path().join("initial.txt"), initial).unwrap();
     std::fs::write(fixture.temp.path().join("focused.txt"), focused).unwrap();
     let script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\

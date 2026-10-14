@@ -373,7 +373,7 @@ fn qualified(service: &ServiceContext, config: &codeterm_types::config::Supporte
         model.as_deref(),
         &crate::service::supporter_tab_state::criteria_version(),
         &crate::service::supporter::criteria_hash(include_bytes!(
-            "../../../../../evals/tab-state-jev/heldout.jsonl"
+            "../../../../../../../evals/tab-state-jev/heldout.jsonl"
         )),
     )
 }

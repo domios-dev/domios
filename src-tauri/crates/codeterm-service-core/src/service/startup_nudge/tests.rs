@@ -80,7 +80,7 @@ fn a_prompt_the_host_may_not_answer_blocks_the_reminder() {
 #[test]
 fn a_codex_update_dialog_blocks_startup_reminders() {
     let path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
-        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+        "../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
     );
     let screen = std::fs::read_to_string(path).expect("Codex update fixture");
     let modal_on_screen = crate::agent::detector::detect_interactive_prompt(&screen);

@@ -310,7 +310,7 @@ fn providers_merge_to_the_newest_limit_hits() {
 
 fn plugins_root() -> PathBuf {
     crate::test_support::fixture_manifest_dir()
-        .join("..")
+        .join("../../..")
         .join("plugins")
 }
 

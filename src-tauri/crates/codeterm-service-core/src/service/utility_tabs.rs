@@ -17,7 +17,7 @@ pub(super) fn normalize_icon(icon: Option<String>) -> Result<Option<String>, Str
     let Some(icon) = icon else { return Ok(None) };
     let name = icon.trim().to_ascii_lowercase();
     let names: Vec<String> =
-        serde_json::from_str(include_str!("../../../src/lib/lucideIconNames.json"))
+        serde_json::from_str(include_str!("../../../../../src/lib/lucideIconNames.json"))
             .map_err(|error| error.to_string())?;
     if names.binary_search(&name).is_err() {
         return Err(format!("Unknown Lucide icon '{icon}'; use a kebab-case name such as bug, hammer or flask-conical"));
