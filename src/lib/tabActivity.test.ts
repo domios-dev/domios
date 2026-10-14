@@ -70,4 +70,8 @@ const interrupted = tabActivity({ ...agent, agent_state: { state: "idle", phase:
 assert.equal(interrupted.kind, "idle");
 assert.notEqual(interrupted.label, tabActivity({ ...agent, agent_state: { state: "idle", phase: "failed" } }).label);
 assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "error" } }).kind, "waiting-on-user");
+const providerSignals = { auth: null, api_error: "usage_limit" as const, permission_mode: null };
+assert.equal(tabActivity({ ...agent, provider_signals: providerSignals }).label, "Usage limit reached");
+assert.equal(tabActivity({ ...agent, pending_prompt: pending, provider_signals: providerSignals }, "Waiting").label, pending.question);
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working" }, provider_signals: providerSignals }).label, "Working");
 console.log(`tab activity: ${cases.length} table cases, ${startingStages.length} boot stages and working-count checks passed`);

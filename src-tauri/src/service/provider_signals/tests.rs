@@ -32,10 +32,9 @@ fn claude_signals_auth_overrides_scrape_only_when_available() {
 fn claude_signals_transcript_errors_and_plan_drift_are_typed() {
     let mut signals = ProviderSignals::default();
     signals.observe(&SessionObservations {
-        unavailable_model: None,
         api_error: Some(ApiErrorKind::RateLimit),
         permission_mode: Some(PermissionMode::Plan),
-        clears_api_error: false,
+        ..Default::default()
     });
     assert!(plan_drift(&signals));
     assert_eq!(
@@ -43,10 +42,8 @@ fn claude_signals_transcript_errors_and_plan_drift_are_typed() {
         TabState::RateLimited
     );
     signals.observe(&SessionObservations {
-        unavailable_model: None,
-        api_error: None,
-        permission_mode: None,
         clears_api_error: true,
+        ..Default::default()
     });
     assert_eq!(signals.api_error, None);
     assert!(plan_drift(&signals));
@@ -168,6 +165,133 @@ fn provider_access_recovery_resolves_a_preexisting_condition() {
     );
     assert!(store.notification(&id).unwrap().resolved);
     assert!(store.notification(&id).unwrap().read);
+    assert!(store
+        .resolve_tab_condition(
+            "own",
+            crate::notification::dedupe::TabCondition::ProviderAccessLost,
+        )
+        .is_empty());
+}
+
+#[test]
+fn provider_turn_classes_classify_without_taking_the_auth_loss_latch() {
+    for (error, state, lost) in [
+        (ApiErrorKind::UsageLimit, TabState::RateLimited, false),
+        (ApiErrorKind::RateLimit, TabState::RateLimited, false),
+        (ApiErrorKind::ServerOverloaded, TabState::Unknown, false),
+        (ApiErrorKind::AuthExpiry, TabState::WaitingOnAuth, false),
+        (ApiErrorKind::Authentication, TabState::WaitingOnAuth, true),
+    ] {
+        let mut signals = ProviderSignals::default();
+        signals.observe(&SessionObservations {
+            api_error: Some(error),
+            ..Default::default()
+        });
+        assert_eq!(classify(&signals, None).unwrap().state, state);
+        assert_eq!(signals.access_lost(), lost);
+    }
+}
+
+#[test]
+fn one_failed_turn_admits_one_incident_and_a_repeat_adds_none() {
+    use crate::agent::chat_types::RichMessage;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::TaskBinding;
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.task_binding = Some(TaskBinding {
+        task_id: Some("task".into()),
+        ..Default::default()
+    });
+    tab.provider_signals.api_error = Some(ApiErrorKind::Authentication);
+    let rate = RichMessage {
+        provider_session_id: Some("own".into()),
+        uuid: Some("turn-429".into()),
+        provider_observations: Some(SessionObservations {
+            api_error: Some(ApiErrorKind::RateLimit),
+            retry_after_secs: Some(12),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fresh = fresh_turn_incidents(tab, "own", &[rate.clone()]);
+    assert_eq!(fresh.len(), 1);
+    assert_eq!(fresh[0].worker, tab_id);
+    assert_eq!(fresh[0].task.as_deref(), Some("task"));
+    assert_eq!(fresh[0].provider, "fixture");
+    assert_eq!(fresh[0].class, ApiErrorKind::RateLimit);
+    assert_eq!(fresh[0].retry_after, Some(12));
+    assert!(fresh[0].turn_stopped);
+    assert!(!fresh[0].pauses_for_exhaustion);
+    assert!(tab.provider_signals.access_lost());
+    assert!(fresh_turn_incidents(tab, "own", &[rate]).is_empty());
+    let foreign = RichMessage {
+        provider_session_id: Some("foreign".into()),
+        uuid: Some("turn-foreign".into()),
+        provider_observations: Some(SessionObservations {
+            api_error: Some(ApiErrorKind::UsageLimit),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(fresh_turn_incidents(tab, "own", &[foreign]).is_empty());
+    let usage = RichMessage {
+        provider_session_id: Some("own".into()),
+        uuid: Some("turn-usage".into()),
+        provider_observations: Some(SessionObservations {
+            api_error: Some(ApiErrorKind::UsageLimit),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let paused = fresh_turn_incidents(tab, "own", &[usage]);
+    assert_eq!(paused.len(), 1);
+    assert!(paused[0].pauses_for_exhaustion);
+    let auth = RichMessage {
+        provider_session_id: Some("own".into()),
+        uuid: Some("turn-auth".into()),
+        provider_observations: Some(SessionObservations {
+            api_error: Some(ApiErrorKind::Authentication),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(fresh_turn_incidents(tab, "own", &[auth]).is_empty());
+}
+
+#[test]
+fn provider_turn_recovery_resolves_a_preexisting_condition() {
+    use crate::notification::store::{
+        Ask, NotificationProvenance, NotificationSeverity, NotificationStore, PushRequest,
+    };
+    let mut store = NotificationStore::new(10);
+    let request = PushRequest {
+        scope: "own".into(),
+        level: crate::notification::push::NotifyLevel::Verbose,
+        event_key: "turn-token".into(),
+        title: "opaque".into(),
+        body: None,
+        severity: NotificationSeverity::Error,
+        provenance: NotificationProvenance {
+            tab_id: Some("own".into()),
+            ..Default::default()
+        },
+        per_scope_limit: 100,
+        ask: Ask::about(
+            crate::notification::dedupe::TabCondition::ProviderTurnError,
+            None,
+        ),
+    };
+    let id = store.add_push(request).id().to_string();
+    assert_eq!(
+        store.resolve_tab_condition(
+            "own",
+            crate::notification::dedupe::TabCondition::ProviderTurnError,
+        ),
+        vec![id.clone()]
+    );
+    assert!(store.notification(&id).unwrap().resolved);
     assert!(store
         .resolve_tab_condition(
             "own",

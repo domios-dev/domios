@@ -4,7 +4,7 @@ use codeterm_types::agent::provider_signals::{ApiErrorKind, PermissionMode, Prov
 use tauri::Manager;
 
 mod incident;
-use incident::{incident, incident_transition, IncidentTransition};
+use incident::{deliver_turn, incident, incident_transition, IncidentTransition};
 
 fn enabled(svc: &ServiceContext, provider: &str) -> bool {
     svc.app_handle
@@ -46,11 +46,15 @@ pub(crate) fn classify(
     } else {
         match signals.api_error {
             Some(ApiErrorKind::Authentication) => None,
-            Some(ApiErrorKind::RateLimit) => {
+            Some(ApiErrorKind::AuthExpiry) => {
+                log::debug!("[provider-access] state=auth_expired");
+                Some(TabState::WaitingOnAuth)
+            }
+            Some(ApiErrorKind::RateLimit | ApiErrorKind::UsageLimit) => {
                 log::debug!("[provider-access] state=rate_limited");
                 Some(TabState::RateLimited)
             }
-            Some(ApiErrorKind::Other) => {
+            Some(ApiErrorKind::ServerOverloaded | ApiErrorKind::Other) => {
                 log::debug!("[provider-access] state=unknown");
                 Some(TabState::Unknown)
             }
@@ -94,7 +98,7 @@ pub(crate) fn apply(
     let structured = provider
         .as_deref()
         .is_some_and(|provider| enabled(svc, provider));
-    let (changed, changed_error, refresh_needed, transition) = {
+    let (changed, changed_error, refresh_needed, transition, fresh) = {
         let mut mux = svc.mux.write();
         let Some(tab) = mux.get_tab_mut(tab_id) else {
             return;
@@ -123,6 +127,7 @@ pub(crate) fn apply(
                     .as_ref()
                     .is_some_and(|observation| observation.clears_api_error)
             });
+        let fresh = fresh_turn_incidents(tab, session, records);
         (
             previous != tab.provider_signals,
             (previous.api_error != tab.provider_signals.api_error)
@@ -147,8 +152,18 @@ pub(crate) fn apply(
                 }
                 transition => transition,
             },
+            fresh,
         )
     };
+    for turn in &fresh {
+        if turn.pauses_for_exhaustion {
+            svc.signal_worker_interruption(
+                &turn.worker,
+                super::worker_interruption::WorkerInterruptionEvent::ProviderExhausted,
+            );
+        }
+        deliver_turn(svc, tab_id, session, nonce, turn);
+    }
     if let Some(provider) = &provider {
         for record in records
             .iter()
@@ -176,10 +191,53 @@ pub(crate) fn apply(
         if error != ApiErrorKind::Authentication {
             warn(svc, tab_id, format!("Provider API error: {error:?}"));
         }
-        if error == ApiErrorKind::Authentication {
+        if error == ApiErrorKind::Authentication || error == ApiErrorKind::AuthExpiry {
             refresh_auth(svc, tab_id);
         }
     }
+}
+
+fn fresh_turn_incidents(
+    tab: &mut crate::multiplexer::types::Tab,
+    session: &str,
+    records: &[crate::agent::chat_types::RichMessage],
+) -> Vec<codeterm_types::agent::provider_signals::ProviderTurnIncident> {
+    use codeterm_types::agent::provider_signals::{admit_key, ProviderTurnIncident};
+    let task = tab
+        .task_binding
+        .as_ref()
+        .and_then(|binding| binding.task_id.clone());
+    let provider = tab.agent_type.clone().unwrap_or_default();
+    let worker = tab.id.clone();
+    let mut fresh = Vec::new();
+    for record in records {
+        if record
+            .provider_session_id
+            .as_deref()
+            .is_some_and(|id| id != session)
+        {
+            continue;
+        }
+        let Some(observation) = record.provider_observations.as_ref() else {
+            continue;
+        };
+        let Some(turn) = ProviderTurnIncident::from_observation(
+            &worker,
+            task.as_deref(),
+            &provider,
+            observation,
+            record.uuid.as_deref(),
+        ) else {
+            continue;
+        };
+        if admit_key(
+            &mut tab.provider_signals.admitted_provider_incidents,
+            &turn.idempotency_key,
+        ) {
+            fresh.push(turn);
+        }
+    }
+    fresh
 }
 
 fn observe_records(
