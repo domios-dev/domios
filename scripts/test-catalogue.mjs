@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Caller: build.sh script-guards; CI tests.yml; scripts plugin-tests.sh, tests/test-catalogue.test.mjs; skill testing
+// Caller: build.sh script-guards; CI tests.yml; scripts ci-rust-archives.mjs, plugin-tests.sh, tests/test-catalogue.test.mjs; skill testing
 // Test catalogue: tests/catalogue.json runners whose membership is discovery output, and the stale/flaky overlay.
 //
 //   validate                  discover every runner; fail on an unowned, doubly owned or empty test-looking file, an invalid

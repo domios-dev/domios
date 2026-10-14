@@ -1,9 +1,10 @@
-// Caller: build.sh ci-archives; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs
+// Caller: build.sh ci-archives, release-rust; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
+import { PATHS, discoverRunner, makeContext, selectRunners } from './test-catalogue.mjs';
 
 const commandJson = (program, args) => JSON.parse(execFileSync(program, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
 
@@ -64,11 +65,66 @@ export function verifyArchiveBuilds(builds, receipts) {
     builds.map((b) => '| ' + archivePlatform(b.os, b.arch) + ' | ' + b.runner + ' | ' + b.seconds.toFixed(1) + ' s |').join('\n');
 }
 
-export function archiveTargets(lane) {
-  return lane === 'workspace'
-    ? ['--workspace', '--lib', '--exclude', 'codeterm-input-macos', '--exclude', 'codeterm-input-windows']
-    : ['--workspace'];
+const SHARED_JOB = 'tests.yml:rust-shards';
+const NEXTEST_SCOPE = /^\.\/build\.sh nextest ([\w-]+)$/;
+const SAFE_NAME = /^[A-Za-z0-9_:.\/-]+$/;
+const HOST_PLATFORM = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform] ?? process.platform;
+
+export function releaseRustRunners(catalogue, overlay) {
+  return selectRunners(catalogue, overlay, { tier: 'release' }).runners.filter((r) => r.lang === 'rust' && r.kind !== 'guard');
 }
+
+export function loadReleaseRust(root = '.') {
+  const read = (rel) => JSON.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
+  const catalogue = read(PATHS.catalogue);
+  const overlay = read(PATHS.overlay);
+  const runners = releaseRustRunners(catalogue, overlay);
+  const ctx = makeContext(root, catalogue);
+  return { runners, overlay, testCounts: Object.fromEntries(runners.map((r) => [r.id, discoverRunner(r, ctx).tests.length])) };
+}
+
+const archiveLane = (runner) => (runner.manifest.startsWith('cli/') ? 'cli' : 'workspace');
+
+// One cargo invocation per lane, so target flags are the union over its packages; `--test NAME` stays one unit.
+export function archiveTargets(lane, runners) {
+  const unplaced = runners.filter((r) => !r.ci?.length);
+  if (unplaced.length) throw new Error('Release Rust runners with no CI placement: ' + unplaced.map((r) => r.id).join(', '));
+  const members = runners.filter((r) => r.ci.includes(SHARED_JOB) && archiveLane(r) === lane);
+  if (!members.length) throw new Error('No release Rust runner archives in the ' + lane + ' lane');
+  const units = new Map();
+  for (const r of members) {
+    const flags = r.cargo_targets ?? ['--lib'];
+    for (let i = 0; i < flags.length; i++) {
+      const unit = flags[i] === '--test' ? [flags[i], flags[++i]] : [flags[i]];
+      units.set(unit.join(' '), unit);
+    }
+  }
+  return [...new Set(members.map((r) => r.package))].flatMap((p) => ['-p', p]).concat([...units.values()].flat());
+}
+
+// Groups release Rust runners by build.sh nextest scope; stale and this platform's platform-red markers become exclusions.
+// A group whose inventory holds no test passes nextest's no-tests check; one that should hold tests still fails it.
+export function releaseRustPlan(runners, overlay, platform = HOST_PLATFORM, only = [], testCounts = {}) {
+  const unknown = only.filter((id) => !runners.some((r) => r.id === id));
+  if (unknown.length) throw new Error('Not release-tier Rust runners: ' + unknown.join(', '));
+  const groups = new Map();
+  for (const r of runners.filter((x) => !only.length || only.includes(x.id))) {
+    const scope = NEXTEST_SCOPE.exec(r.runner)?.[1];
+    if (!scope) throw new Error(r.id + ' is release-tier Rust but does not run through ./build.sh nextest <scope>: ' + r.runner);
+    if (!groups.has(scope)) groups.set(scope, { scope, ids: [], budget: 0 });
+    const group = groups.get(scope);
+    group.ids.push(r.id);
+    group.budget = Math.max(group.budget, r.budget_secs);
+  }
+  return [...groups.values()].map((group) => {
+    const skips = [...overlay.stale, ...overlay.platform_red].filter((m) => group.ids.includes(m.runner) && 'binary' in m.target && (!m.platforms || m.platforms.includes(platform)));
+    for (const m of skips) if (!SAFE_NAME.test(m.target.binary) || !SAFE_NAME.test(m.target.test)) throw new Error('Unsafe overlay target for ' + m.runner);
+    const filterset = skips.map((m) => 'not (binary_id(=' + m.target.binary + ') & test(=' + m.target.test + '))').join(' & ');
+    return { ...group, noTests: group.ids.every((id) => testCounts[id] === 0) ? 'pass' : 'fail', filterset };
+  });
+}
+
+export const formatReleasePlan = (plan) => plan.map((g) => [g.scope, g.ids.join(','), g.budget, g.noTests, g.filterset].join('\t') + '\n').join('');
 
 function build() {
   const os = process.env.RUNNER_OS;
@@ -79,6 +135,7 @@ function build() {
   const start = performance.now();
   fs.mkdirSync('ci-rust-archives', { recursive: true });
   fs.mkdirSync('ci-rust-builds', { recursive: true });
+  const { runners } = loadReleaseRust();
   try {
     for (const lane of ['workspace', 'cli']) {
       const manifest = lane === 'workspace' ? 'src-tauri/Cargo.toml' : 'cli/Cargo.toml';
@@ -93,7 +150,7 @@ function build() {
       const include = lane === 'workspace' ? '\narchive.include = [{ path = ' + JSON.stringify('debug/' + runtime) + ', relative-to = "target", on-missing = "error" }]\n' : '\n';
       fs.writeFileSync(config, '[profile.default]\ndefault-filter = "all()"' + include);
       const archive = path.resolve('ci-rust-archives', lane + '.tar.zst');
-      const messages = archiveMessages(['nextest', 'archive', '--manifest-path', manifest, ...archiveTargets(lane), '--locked', '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json']);
+      const messages = archiveMessages(['nextest', 'archive', '--manifest-path', manifest, ...archiveTargets(lane, runners), '--locked', '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json']);
       const generated = generatedDirectories(messages);
       if (lane === 'workspace' && !fs.statSync(path.join(metadata.target_directory, 'debug', runtime)).size) throw new Error('Runtime embed sidecar was overwritten while archiving');
       const extract = path.resolve(process.env.RUNNER_TEMP, 'rust-archive-classify', lane);
@@ -116,4 +173,9 @@ function build() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) build();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  if (process.argv[2] === 'release-plan') {
+    const { runners, overlay, testCounts } = loadReleaseRust();
+    process.stdout.write(formatReleasePlan(releaseRustPlan(runners, overlay, HOST_PLATFORM, process.argv.slice(3), testCounts)));
+  } else build();
+}
