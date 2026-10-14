@@ -19,7 +19,7 @@ pub mod process;
 mod native_tests;
 #[cfg(test)]
 mod owner_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_readiness;
 #[cfg(test)]
 mod tests;
@@ -28,7 +28,7 @@ mod tests;
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(10);
 #[cfg(not(windows))]
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(3);
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub const MAX_OUTPUT_BYTES: usize = 65_536;
 
 #[derive(Debug, Default)]
@@ -41,7 +41,7 @@ pub struct Output {
     pub stderr: super::command::Capture,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn run(
     command: &str,
     cwd: &Path,
@@ -96,7 +96,7 @@ pub fn run_with_receipt(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn run_with_runtime_and_receipt(
     command: &str,
     cwd: &Path,
@@ -204,7 +204,7 @@ fn admit_then<T>(
     start(reservation)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn fixture_output(code: i32, stdout: &[u8], stderr: &[u8]) -> Output {
     #[cfg(unix)]
     let status = {

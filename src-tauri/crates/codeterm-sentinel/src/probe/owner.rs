@@ -387,7 +387,7 @@ pub enum AdmissionError {
     Unavailable(String),
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, PartialEq, Eq)]
 pub struct Snapshot {
     pub free: usize,
@@ -544,7 +544,7 @@ impl ProbeResourceOwner {
         push_diagnostic(&self.core, diagnostic.as_ref());
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn snapshot(&self) -> Snapshot {
         let state = self
             .core
@@ -578,7 +578,7 @@ impl ProbeResourceOwner {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn wait_for_capture_count_with_timeout(
         &self,
         expected: usize,
@@ -597,12 +597,12 @@ impl ProbeResourceOwner {
         state.captures.len() == expected
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn wait_for_unconfirmed_with_timeout(&self, timeout: std::time::Duration) -> bool {
         self.wait_for_unconfirmed_state(timeout, false)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn wait_for_terminal_unconfirmed_with_timeout(
         &self,
         timeout: std::time::Duration,
@@ -610,7 +610,7 @@ impl ProbeResourceOwner {
         self.wait_for_unconfirmed_state(timeout, true)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn wait_for_unconfirmed_state(&self, timeout: std::time::Duration, terminal: bool) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         let mut state = self
@@ -644,7 +644,7 @@ impl ProbeResourceOwner {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn wait_for_free_slots_with_timeout(
         &self,
         expected: usize,

@@ -13,7 +13,7 @@ pub trait Wake: Send + Sync {
     fn wake(&self);
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 type ReadinessHook = Arc<dyn Fn() -> Result<super::process::Deadlines, String> + Send + Sync>;
 
 #[derive(Default)]
@@ -123,7 +123,7 @@ impl Drop for Registration {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WaitPhase {
     Capture,
@@ -150,7 +150,7 @@ pub enum WaitPhase {
     },
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Cancellation {
     pub fn with_readiness(
         ready: impl Fn() -> Result<super::process::Deadlines, String> + Send + Sync + 'static,
@@ -200,7 +200,7 @@ impl Cancellation {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Registration {
     #[cfg(windows)]
     fn fixture_argv(&self) -> Option<Arc<[String]>> {

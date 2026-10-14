@@ -144,15 +144,15 @@ impl std::error::Error for ProbeFailure {}
 
 #[derive(Clone, Copy)]
 pub struct Deadlines {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub admitted: Instant,
     pub operation: Instant,
     pub hard: Instant,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub duration: Duration,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Copy, Debug)]
 pub struct DeadlineReceipt {
     pub admitted: Instant,
@@ -216,7 +216,7 @@ impl Deadlines {
         now >= self.operation
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn receipt(&self) -> DeadlineReceipt {
         DeadlineReceipt {
             admitted: self.admitted,
@@ -294,7 +294,7 @@ impl WindowsLaunchState {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn resumed(&self) -> bool {
         self.resumed
     }

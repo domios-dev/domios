@@ -293,7 +293,7 @@ pub fn validate(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn evaluate(
     machine: &mut Machine,
     output: &[u8],
@@ -315,7 +315,7 @@ pub fn evaluate(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn evaluate_with_other(
     machine: &mut Machine,
     output: &[u8],

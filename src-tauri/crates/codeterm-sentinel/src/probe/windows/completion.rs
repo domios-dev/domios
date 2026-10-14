@@ -118,7 +118,7 @@ pub fn native_error(operation: &str, stdout: Option<bool>, error: u32) -> String
 }
 
 impl WindowsRun {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn trace_native(
         &mut self,
         operation: &'static str,
