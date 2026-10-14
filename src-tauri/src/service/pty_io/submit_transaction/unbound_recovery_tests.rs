@@ -155,7 +155,7 @@ fn enter_count(
             recovery_key_authority(inputs).map_err(|_| InjectionError::AgentInputUnavailable {
                 pty_id: "same-pty".into(),
             })?;
-            recovery_dialog_guard(provider, &snapshot, false, "same-pty")
+            recovery_dialog_guard(provider, &snapshot, "same-pty")
         },
     )
     .unwrap();

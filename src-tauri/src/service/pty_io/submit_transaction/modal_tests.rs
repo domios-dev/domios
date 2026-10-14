@@ -1,37 +1,16 @@
-use super::readiness::{payload_decision, PayloadDecision, DELIVERY_MODAL_OPEN};
+use super::readiness::{enter_decision, EnterDecision};
 use super::*;
-use crate::service::chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding};
-use crate::service::output_feed::delivery_readiness::{DeliveryReadiness, DeliveryReadinessEvents};
+use crate::agent::test_provider::MockProvider;
+use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 
-struct ModalInput {
+struct Composer {
     status: Option<TabStatus>,
-    modal: Cell<bool>,
-    open_during_preparation: Cell<bool>,
     claim: SubmitCycleClaim,
     payloads: RefCell<Vec<String>>,
     keys: Cell<usize>,
 }
 
-impl ModalInput {
-    fn guard(&self) -> Result<(), InjectionError> {
-        match payload_decision(self.modal.get()) {
-            PayloadDecision::Write => Ok(()),
-            PayloadDecision::HoldModal => Err(InjectionError::AgentTuiPresent {
-                pty_id: self.claim.pty_id().into(),
-            }),
-        }
-    }
-}
-
-impl SubmitTransport for ModalInput {
-    fn dialog_guard(&self) -> Result<(), InjectionError> {
-        self.guard()
-    }
-    fn prepare_paste(&self, _: &str, _: bool) {
-        if self.open_during_preparation.replace(false) {
-            self.modal.set(true);
-        }
-    }
+impl SubmitTransport for Composer {
     fn observe(&self) -> Option<Observation> {
         None
     }
@@ -54,25 +33,57 @@ impl SubmitTransport for ModalInput {
         self.claim.is_current()
     }
     fn write_paste(&self, text: &str, _: Instant) -> Result<usize, InjectionError> {
-        self.guard()?;
         self.payloads.borrow_mut().push(text.into());
         let (sender, _) = mpsc::sync_channel(1);
         self.claim.payload_enqueued(sender);
         Ok(text.len())
     }
     fn write_submit_key(&self, key: &[u8], _: Instant) -> Result<(), InjectionError> {
-        self.guard()?;
         assert_eq!(key, b"\r");
         self.keys.set(self.keys.get() + 1);
         Ok(())
     }
 }
 
-fn send(input: &ModalInput, text: &str) -> Result<InjectionResult, InjectionError> {
-    run(
+fn composer(status: Option<TabStatus>, pty: &str) -> Composer {
+    Composer {
+        status,
+        claim: claim_submit_cycle(pty),
+        payloads: RefCell::default(),
+        keys: Cell::new(0),
+    }
+}
+
+fn snapshot(screen: &str) -> TabStateSnapshot {
+    TabStateSnapshot {
+        tab_id: "tab".into(),
+        agent_type: "fixture".into(),
+        session_id: Some("session".into()),
+        cwd: None,
+        screen_text: screen.into(),
+    }
+}
+
+fn classified(state: TabState, confidence: f32) -> MockProvider {
+    MockProvider::new("fixture").with_tab_state(TabStateClassification {
+        state,
+        confidence,
+        data: None,
+        action: None,
+    })
+}
+
+fn send_guarded(
+    input: &Composer,
+    provider: &MockProvider,
+    screen: &str,
+) -> Result<InjectionResult, InjectionError> {
+    let snapshot = snapshot(screen);
+    run_with_submit_key(
         input,
-        text,
+        "opaque-owner-message",
         true,
+        b"\r",
         VerifySubmitStrategy::TuiInputDrained {
             initial_key_delay: Duration::ZERO,
             retry_offsets: [Duration::ZERO; 6],
@@ -83,132 +94,81 @@ fn send(input: &ModalInput, text: &str) -> Result<InjectionResult, InjectionErro
             verify_submit: true,
             ..Default::default()
         },
+        |_| recovery_dialog_guard(provider, &snapshot, input.claim.pty_id()),
     )
 }
 
-fn input(status: Option<TabStatus>, pty: &str, modal: bool) -> ModalInput {
-    ModalInput {
-        status,
-        modal: Cell::new(modal),
-        open_during_preparation: Cell::new(false),
-        claim: claim_submit_cycle(pty),
-        payloads: RefCell::default(),
-        keys: Cell::new(0),
-    }
-}
-
-fn input_with_modal(status: Option<TabStatus>, pty: &str) -> ModalInput {
-    input(status, pty, true)
+fn assert_sent(input: &Composer, result: InjectionResult) {
+    assert_eq!(*input.payloads.borrow(), ["opaque-owner-message"]);
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(result.submit_observed);
 }
 
 #[test]
-fn busy_unknown_and_idle_stuck_without_modal_write_immediately_with_enter() {
+fn only_a_confident_prompt_withholds_enter() {
+    assert_eq!(enter_decision(false), EnterDecision::Submit);
+    assert_eq!(enter_decision(true), EnterDecision::WithholdForPrompt);
+}
+
+#[test]
+fn busy_tab_sends_payload_and_enter() {
     for (status, pty) in [
         (Some(TabStatus::Working), "modal-free-busy"),
         (None, "modal-free-unknown"),
         (Some(TabStatus::Idle), "modal-free-idle-stuck"),
     ] {
-        let input = input(status, pty, false);
-        let result = send(&input, "opaque-owner-message").unwrap();
-        assert_eq!(*input.payloads.borrow(), ["opaque-owner-message"]);
-        assert_eq!(result.submit_key_writes, 1);
-        assert!(result.submit_observed);
-        let held = input_with_modal(status, pty);
-        assert!(matches!(
-            send(&held, "queued"),
-            Err(InjectionError::AgentTuiPresent { .. })
-        ));
-        assert!(held.payloads.borrow().is_empty());
-        assert_eq!(held.keys.get(), 0);
+        let input = composer(status, pty);
+        let result = send_guarded(&input, &classified(TabState::Working, 0.0), "busy").unwrap();
+        assert_sent(&input, result);
     }
 }
 
 #[test]
-fn modal_holds_user_messages_without_reset_then_close_writes_in_order_once_with_enter() {
-    let ledger = ChatSendLedger::default();
-    let first = ledger
-        .try_start_scoped(
-            "tab",
-            "first",
-            None,
-            Some(SendLiveBinding {
-                session_id: Some("own".into()),
-                binding_nonce: Some("launch".into()),
-            }),
-        )
-        .unwrap();
-    let second = ledger
-        .try_start_scoped(
-            "tab",
-            "second",
-            None,
-            Some(SendLiveBinding {
-                session_id: Some("own".into()),
-                binding_nonce: Some("launch".into()),
-            }),
-        )
-        .unwrap();
-    let first_input = input(Some(TabStatus::Working), "modal-held-owner", true);
-    let second_input = input(None, "modal-held-owner", true);
-    let prior = claim_submit_cycle("modal-held-owner");
-    let (sender, _) = mpsc::sync_channel(1);
-    prior.payload_enqueued(sender);
-    let events = DeliveryReadinessEvents::default();
-    let state = |modal_visible| DeliveryReadiness {
-        pty_id: "modal-held-owner".into(),
-        generation: Some(1),
-        modal_visible,
-    };
-    events.prime("tab", state(true));
-    for (pending, input) in [(&first, &first_input), (&second, &second_input)] {
-        assert!(matches!(
-            send(
-                input,
-                if pending.send_id == first.send_id {
-                    "first"
-                } else {
-                    "second"
-                }
-            ),
-            Err(InjectionError::AgentTuiPresent { .. })
-        ));
-        ledger.set_user_pending_reason(&pending.send_id, Some(DELIVERY_MODAL_OPEN));
-        let queued = ledger.status(&pending.send_id).unwrap();
-        assert_eq!(queued.state, ChatSendState::Pending);
-        assert_eq!(queued.pending_reason.as_deref(), Some(DELIVERY_MODAL_OPEN));
-        assert!(input.payloads.borrow().is_empty());
-        assert_eq!(input.keys.get(), 0);
-        assert!(prior.is_current());
-        assert!(!events.observe("tab", state(true)));
-    }
-    assert!(events.observe("tab", state(false)));
-    for (pending, input, text) in [
-        (&first, &first_input, "first"),
-        (&second, &second_input, "second"),
+fn uncertain_classifier_sends() {
+    for state in [
+        TabState::ClarifyingQuestion,
+        TabState::WaitingOnAuth,
+        TabState::UpdatePrompt,
+        TabState::RateLimited,
     ] {
-        input.modal.set(false);
-        ledger.set_user_pending_reason(&pending.send_id, None);
-        let result = send(input, text).unwrap();
-        assert_eq!(input.payloads.borrow().as_slice(), [text]);
-        assert_eq!(result.submit_key_writes, 1);
-        ledger.finish(&pending.send_id, Ok(()));
-        let delivered =
-            ledger.confirm_delivered_user_turns_scoped("tab", "own", Some("launch"), text);
-        assert_eq!(delivered.len(), 1);
-        assert_eq!(delivered[0].state, ChatSendState::Sent);
+        let input = composer(Some(TabStatus::Idle), "modal-uncertain");
+        let result = send_guarded(&input, &classified(state, 0.79), "menu").unwrap();
+        assert_sent(&input, result);
     }
-    assert!(!events.observe("tab", state(false)));
 }
 
 #[test]
-fn modal_opening_after_initial_guard_is_refused_at_final_payload_write() {
-    let input = input(Some(TabStatus::Working), "modal-open-before-enqueue", false);
-    input.open_during_preparation.set(true);
-    assert!(matches!(
-        send(&input, "opaque"),
-        Err(InjectionError::AgentTuiPresent { .. })
-    ));
-    assert!(input.payloads.borrow().is_empty());
-    assert_eq!(input.keys.get(), 0);
-    assert!(!input.claim.cycle.is_current(input.claim.generation));
+fn false_menu_cursor_sends() {
+    let history = "> 1. first\n  2. second\n\n> filled composer text\n";
+    let prompt_like =
+        MockProvider::new("fixture").with_parsed_prompt(codeterm_types::pty::PendingPrompt {
+            request_id: None,
+            question: "Choose".into(),
+            options: Vec::new(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        });
+    let input = composer(Some(TabStatus::Idle), "modal-false-cursor");
+    let result = send_guarded(&input, &prompt_like, history).unwrap();
+    assert_sent(&input, result);
+}
+
+#[test]
+fn real_numbered_prompt_writes_payload_once_and_withholds_enter() {
+    for state in [TabState::ClarifyingQuestion, TabState::WaitingOnAuth] {
+        let input = composer(Some(TabStatus::Working), "modal-real-prompt");
+        let error =
+            send_guarded(&input, &classified(state, 0.8), "Do you want to proceed?").unwrap_err();
+        assert!(matches!(
+            error,
+            InjectionError::SubmitWithheldForPrompt { .. }
+        ));
+        assert_eq!(*input.payloads.borrow(), ["opaque-owner-message"]);
+        assert_eq!(input.keys.get(), 0);
+        let delivery = crate::service::delivery_error::DeliveryError::from_injection("tab", error);
+        assert_eq!(delivery.code(), "submit_unconfirmed");
+        assert!(delivery.bytes_written());
+    }
 }

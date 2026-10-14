@@ -41,7 +41,7 @@ fn busy_claude_screen_is_not_a_delivery_modal_in_native_or_js() {
     );
     assert!(!native.delivery_modal_visible(&busy));
     assert!(!js.delivery_modal_visible(&busy));
-    assert!(native.delivery_modal_visible(&prompt));
+    assert!(!native.delivery_modal_visible(&prompt));
     assert!(js.delivery_modal_visible(&prompt));
 }
 
@@ -90,9 +90,9 @@ fn provider_prompt_fixtures_remain_visible_to_recovery_guards() {
     let claude_js = super::load_js("claude");
     let codex_js = super::load_js("codex");
 
-    for name in [
-        "trust-continue-without-permissions.txt",
-        "tool-permission.txt",
+    for (name, confident_numbered_prompt) in [
+        ("trust-continue-without-permissions.txt", false),
+        ("tool-permission.txt", true),
     ] {
         let screen = std::fs::read_to_string(
             root.join("provider-claude/tests/fixtures/folder-trust")
@@ -109,11 +109,12 @@ fn provider_prompt_fixtures_remain_visible_to_recovery_guards() {
         );
         let claude_snapshot = snapshot(screen);
         assert!(
-            claude_native.delivery_modal_visible(&claude_snapshot),
-            "native Claude modal {name}"
+            !claude_native.delivery_modal_visible(&claude_snapshot),
+            "native Claude declares no classifier, so it never withholds Enter: {name}"
         );
-        assert!(
+        assert_eq!(
             claude_js.delivery_modal_visible(&claude_snapshot),
+            confident_numbered_prompt,
             "JS Claude modal {name}"
         );
     }

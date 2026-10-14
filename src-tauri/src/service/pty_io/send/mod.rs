@@ -753,12 +753,6 @@ impl ServiceContext {
         )
         .and_then(|result| require_submission_result(result, require_provider_turn))
         .map_err(|error| match error {
-            crate::service::inject_verify::InjectionError::AgentTuiPresent { .. } => {
-                DeliveryError::TabBusyRefused {
-                    tab: delivery_target.to_string(),
-                    detail: "provider-classified modal dialog is visible".to_string(),
-                }
-            }
             error => DeliveryError::from_injection(delivery_target, error),
         })
     }
