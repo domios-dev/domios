@@ -150,7 +150,12 @@ pub async fn usage_refresh(
     Json(body): Json<UsageRefreshBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let poller_opt = state.svc.usage_poller.lock().clone();
+    let poller_opt = state
+        .svc
+        .ext::<crate::usage::poller::UsagePollerSlot>()
+        .0
+        .lock()
+        .clone();
     let Some(poller) = poller_opt else {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "poller not running"));
     };

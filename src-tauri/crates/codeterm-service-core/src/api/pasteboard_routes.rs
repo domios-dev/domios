@@ -33,7 +33,7 @@ pub async fn paste_create(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let entry = state
         .svc
-        .pasteboard
+        .ext::<crate::pasteboard::PasteboardState>()
         .put(PutParams {
             body: body.body,
             content_type: body.content_type,
@@ -65,7 +65,7 @@ pub async fn paste_get(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let entry = state
         .svc
-        .pasteboard
+        .ext::<crate::pasteboard::PasteboardState>()
         .get(&id, query.pop.unwrap_or(false))
         .ok_or((StatusCode::NOT_FOUND, format!("paste not found: {}", id)))?;
     // pretending to be lossless. If/when binary support lands, switch to a separate base64 field.
@@ -87,7 +87,7 @@ pub async fn paste_delete(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     state
         .svc
-        .pasteboard
+        .ext::<crate::pasteboard::PasteboardState>()
         .remove(&id)
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -98,6 +98,6 @@ pub async fn paste_list(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let entries = state.svc.pasteboard.list();
+    let entries = state.svc.ext::<crate::pasteboard::PasteboardState>().list();
     Ok(Json(serde_json::to_value(entries).unwrap()))
 }

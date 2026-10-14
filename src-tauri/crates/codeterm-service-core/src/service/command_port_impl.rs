@@ -12,7 +12,8 @@ impl CommandPort for ServiceContext {
     }
 
     fn mark_user_activity(&self) {
-        self.user_last_activity.mark();
+        self.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
+            .mark();
     }
 
     fn mux_snapshot(&self) -> MultiplexerSnapshot {

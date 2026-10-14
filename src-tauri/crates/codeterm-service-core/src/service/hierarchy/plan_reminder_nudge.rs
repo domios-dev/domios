@@ -459,7 +459,8 @@ impl<'a> LiveHost<'a> {
 
 impl ReminderHost for LiveHost<'_> {
     fn gate(&self) -> &Gate {
-        &self.svc.heartbeat_gate
+        self.svc
+            .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
     }
 
     fn supporter(&self) -> Supporter<'_> {

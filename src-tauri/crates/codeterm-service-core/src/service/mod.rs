@@ -291,16 +291,18 @@ pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
-pub(crate) use team::{TeamCartographerAttachLocks, TeamOrchestratorAttachLocks};
+pub(crate) use team::{CartographerAttachLocks, OrchestratorAttachLocks};
 pub(crate) use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
     restore_review_attempt_binding_for_mux, AttemptBindingRestoreResult,
     AttemptBindingRestoreTarget,
 };
-pub(crate) use worker_persona::WorkerPersonaReservations;
+pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservations};
 
 mod configuration;
+pub(crate) mod extensions;
+pub(crate) use extensions::Extensions;
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -309,12 +311,7 @@ pub struct ServiceContext {
     pub(crate) lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
     #[cfg(test)]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
-    pub account: Arc<tokio::sync::OnceCell<Arc<codeterm_account::Account>>>,
-    pub billing: Arc<tokio::sync::OnceCell<Arc<codeterm_billing::Billing>>>,
-    pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
-    pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,
-    pub(crate) workspace_relocation_lock: Arc<parking_lot::Mutex<()>>,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,
@@ -322,26 +319,16 @@ pub struct ServiceContext {
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
     pub app_handle: crate::app_runtime::AppHandle,
-    pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
-    pub(crate) orchestrator_attach_locks: TeamOrchestratorAttachLocks,
     pub agent_tracker: AgentTrackerState,
-    /// Per-pty shell-integration capability accumulators (OSC 133/633/7 ->
-    /// command list + cwd). Fed from `process_pty_output`; consumed by chat.
-    pub shell_caps: crate::ShellCapabilityState,
     pub report_store: ReportStoreState,
     /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
     pub kpi: crate::agent::kpi::KpiRecorder,
-    pub(crate) protocol_recorder: Arc<protocol_recorder::ProtocolRecorder>,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
-    pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
     pub activity: Arc<crate::mem::activity::ActivityRing>,
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
-    pub plugin_activity: Arc<crate::plugin::activity::PluginActivityRegistry>,
-    pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
-    pub(crate) provider_tree_witnesses: Arc<process_tree::ProviderTreeWitnesses>,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
@@ -351,133 +338,73 @@ pub struct ServiceContext {
     pub remote_workers: crate::service::remote_workers::RemoteWorkerRegistryHandle,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
-    /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
-    pub bridge_outbound_rx: Arc<
-        parking_lot::Mutex<
-            Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>,
-        >,
-    >,
-    /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
-    pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
-    /// Per-tab Telegram topic bindings, sender identity and open authority.
-    pub bridge_threads: Arc<codeterm_bridge::bridge::threads::ThreadService>,
-    /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
-    pub restart_tracker: agent_restart::RestartTracker,
     /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
     pub chat_registry: Arc<crate::service::tab_chat::ChatRegistry>,
-    pub delayed_send: crate::delayed_send::DelayedSendQueue,
     /// Active secret-store backend. Built-ins via factory; plugin backends
     /// (e.g. Bitwarden) come from `secret_registry`.
     pub secrets: crate::secrets::SecretStoreState,
-    /// Registry of plugin-contributed secret backends, keyed by id.
-    pub secret_registry: Arc<crate::secrets::SecretRegistry>,
-    /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
-    /// Voice notes resolve the active transcriber here by id.
-    pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
-    pub converter_registry: Arc<codeterm_plugin::converter::ConverterRegistry>,
-    pub graph_node_registry: Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>,
-    pub event_source_registry: Arc<codeterm_plugin::event_source::EventSourceRegistry>,
-    pub graph_event_subscriptions: codeterm_plugin::graph_events::SubscriptionTable,
     /// Decision adapters for the stage-2 recall re-rank, resolved by configured id.
     pub supporter_models: Arc<crate::api::mem_routes::decision::SupporterRegistry>,
-    /// Registry of glance-view providers (plugins with `glanceView`). Plugin
-    /// bubbles render their popovers from here.
-    pub glance_registry: crate::glance::GlanceRegistryHandle,
-    /// Registry of status-bubble providers (plugins with `statusBubble`). The
-    /// tab-footer bubble row polls these per tab context.
-    pub bubble_registry: crate::bubble::BubbleRegistryHandle,
-    /// Sole owner of repository file watches. Status bubbles subscribe here
-    /// per visible tab; the registry refcounts one watcher per identity.
-    pub repo_watch: crate::repowatch::RepoWatchRegistryHandle,
-    /// Registry of view providers (plugins with `view`). The iframe bridge
-    /// (`ct.invoke`) routes here, gated by the plugin's permissions.
-    pub view_registry: crate::view_host::ViewRegistryHandle,
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
     /// tabs route their I/O here via the `TabTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
-    /// Per-tab locks serializing the chatBackend restore→reopen transition so a
-    /// concurrent send/deliver can't double-open one tab's plugin session.
-    pub chatbackend_reopen_guards: Arc<tab_transport_chat::TabReopenGuards>,
     /// Unified facade over the agent + chat-backend stores. Listing and
     /// spawn-classify go through this so call-sites stop touching two registries.
     pub provider_registry: Arc<crate::provider::ProviderRegistry>,
-    /// Registry of chatPreprocessor providers (plugins with `chatPreprocessor`).
-    /// `run_outbound_stages` runs these send-time text stages over every user
-    /// turn before dispatching to transport.
-    pub chat_preprocessor_registry: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
-    /// Registry of agent-command handlers (plugins with the `agent_commands`
-    /// grant). The socket dispatch routes `plugin:<id>.<verb>` here — the inverse
-    /// seam letting a spawned agent drive a plugin's `onAgentCommand`.
-    pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
-    /// Registry of synchronous webhook receivers declared by JS plugins.
-    /// Inbound API routes resolve the receiver here by manifest plugin id.
-    pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
-    pub local_recording_registry: codeterm_plugin::local_recording::LocalRecordingRegistryHandle,
     pub(crate) local_recordings: Arc<local_recording::RecordingLeases>,
-    /// Manifest-declared tab menu items, keyed by plugin id.
-    pub tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle,
-    /// Surface declarations of enabled view plugins, keyed by plugin id.
-    pub surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
-    pub(crate) surface_runtimes: Arc<surface::SurfaceRuntimeRegistry>,
-    pub(crate) surface_activity: Arc<surface::SurfaceActivityGate>,
-    /// Sole owner of the webhook-receiver → tab bindings.
-    pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
-    pub(crate) local_recording_selections: Arc<local_recording::RecordingSelectionStore>,
-    pub(crate) local_recording_targets: Arc<receiver_target::ReceiverTargetStore>,
-    /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
-    pub mux_emit_pending: Arc<AtomicBool>,
-    pub(crate) published_tab_statuses:
-        Arc<parking_lot::Mutex<HashMap<String, crate::agent::status::TabStatus>>>,
-    /// Evidence counters for the daemon→desktop event path (event-freeze probe).
-    pub mux_emit_stats: Arc<MuxEmitStats>,
-    pub(crate) output_stream_activity:
-        tokio::sync::broadcast::Sender<output_stream_activity::OutputStreamActivity>,
-    /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
-    pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
     pub tokens: Arc<crate::service::tokens::TokenStore>,
-    /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
-    /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
-    pub pasteboard: crate::pasteboard::PasteboardState,
-    /// Watches bytes about to be written to PTYs; a typed provider launch may
-    /// claim a bare shell, but never contradict a claimed session.
-    pub input_parser: Arc<input_parser::InputParser>,
     pub usage_store: crate::usage::UsageStoreHandle,
-    pub usage_activity: crate::usage::TabActivity,
-    pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
-    pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
     /// Global plan store with project-scoped queries. Sole writer.
     pub plan_store: Arc<crate::service::plan::PlanStore>,
-    pub plan_watchers: Arc<
-        parking_lot::Mutex<
-            std::collections::HashMap<
-                std::path::PathBuf,
-                crate::service::plan::watcher::PlanWatcher,
-            >,
-        >,
-    >,
-    pub loaded_plan_projects:
-        Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
-    pub plan_startup_loaded: Arc<AtomicBool>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
-    pub(crate) heartbeat_gate: Arc<hierarchy::heartbeat_gate::Gate>,
-    pub(crate) stalled_team_nudges:
-        Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>,
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
-    pub(crate) reply_relays: Arc<reply_relay::ReplyRelayRegistry>,
     pub(crate) deferred_session_bindings:
         Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
-    pub(crate) worker_identity_allocator:
-        Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
     pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
+    pub(crate) extensions: Arc<Extensions>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
+
+impl ServiceContext {
+    pub fn ext<T: std::any::Any + Send + Sync>(&self) -> &T {
+        self.extensions.get::<T>()
+    }
+}
+
+/// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
+pub struct MuxEmitPending(pub Arc<AtomicBool>);
+
+pub(crate) struct PublishedTabStatuses(
+    pub(crate) Arc<parking_lot::Mutex<HashMap<String, crate::agent::status::TabStatus>>>,
+);
+
+pub struct PlanWatchers(
+    pub  Arc<
+        parking_lot::Mutex<HashMap<std::path::PathBuf, crate::service::plan::watcher::PlanWatcher>>,
+    >,
+);
+
+pub struct LoadedPlanProjects(
+    pub Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
+);
+
+pub struct PlanStartupLoaded(pub Arc<AtomicBool>);
+
+/// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
+pub struct BridgeOutboundRx(
+    pub  Arc<
+        parking_lot::Mutex<
+            Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>,
+        >,
+    >,
+);
 
 /// Instrumentation for the desktop `mux-state-changed` emit path. `requests` =
 /// `emit_state_changed` calls; `fires` = actual `app.emit` calls; `suppressed`
@@ -722,31 +649,41 @@ impl ServiceContext {
     pub(crate) fn emit_state_changed_after_bus_publish(&self) {
         self.publish_authoritative_tab_statuses();
         self.output_stream_mux_changed();
-        self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        self.ext::<Arc<crate::service::MuxEmitStats>>()
+            .requests
+            .fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
-        if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
+        if self
+            .ext::<Arc<crate::service::MuxEmitStats>>()
+            .frozen
+            .load(Ordering::Acquire)
+        {
             self.schedule_session_persist_debounced();
-            self.mux_emit_stats
+            self.ext::<Arc<crate::service::MuxEmitStats>>()
                 .suppressed
                 .fetch_add(1, Ordering::Relaxed);
             return;
         }
         // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
-        if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
-            self.mux_emit_stats
+        if self
+            .ext::<crate::service::MuxEmitPending>()
+            .0
+            .swap(true, Ordering::AcqRel)
+        {
+            self.ext::<Arc<crate::service::MuxEmitStats>>()
                 .suppressed
                 .fetch_add(1, Ordering::Relaxed);
             return;
         }
-        self.mux_emit_stats
+        self.ext::<Arc<crate::service::MuxEmitStats>>()
             .pending_since_ms
             .store(wall_now_ms(), Ordering::Relaxed);
         let handle = self.app_handle.clone();
-        let pending = self.mux_emit_pending.clone();
+        let pending = self.ext::<crate::service::MuxEmitPending>().0.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
         let agent_registry = self.agent_registry.clone();
-        let stats = self.mux_emit_stats.clone();
+        let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
         let spawned = std::thread::Builder::new()
             .name("mux-emit".into())
             .spawn(move || {
@@ -784,17 +721,23 @@ impl ServiceContext {
     /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
     pub(crate) fn emit_mux_state_changed_empty(&self) {
         self.output_stream_mux_changed();
-        self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        self.ext::<Arc<crate::service::MuxEmitStats>>()
+            .requests
+            .fetch_add(1, Ordering::Relaxed);
         self.schedule_session_persist_debounced();
         #[cfg(debug_assertions)]
-        if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
-            self.mux_emit_stats
+        if self
+            .ext::<Arc<crate::service::MuxEmitStats>>()
+            .frozen
+            .load(Ordering::Acquire)
+        {
+            self.ext::<Arc<crate::service::MuxEmitStats>>()
                 .suppressed
                 .fetch_add(1, Ordering::Relaxed);
             return;
         }
         let handle = self.app_handle.clone();
-        let stats = self.mux_emit_stats.clone();
+        let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
         std::thread::spawn(move || {
             stats.fires.fetch_add(1, Ordering::Relaxed);
             let _ = handle.emit("mux-state-changed", ());
@@ -869,12 +812,13 @@ impl ServiceContext {
     ) -> Result<std::path::PathBuf, crate::service::plan::PlanError> {
         let project_root = crate::service::plan::paths::project_root(project_path);
         let should_scan = {
-            let loaded = self.loaded_plan_projects.lock();
+            let loaded = self.ext::<crate::service::LoadedPlanProjects>().0.lock();
             !loaded.contains(&project_root)
         };
         if should_scan {
             self.plan_store.scan_project(&project_root)?;
-            self.loaded_plan_projects
+            self.ext::<crate::service::LoadedPlanProjects>()
+                .0
                 .lock()
                 .insert(project_root.clone());
             let live_team_ids = self.live_team_ids();
@@ -887,7 +831,7 @@ impl ServiceContext {
             )?;
         }
         let legacy_plans_dir = project_root.join(".codeterm").join("plans");
-        let mut watchers = self.plan_watchers.lock();
+        let mut watchers = self.ext::<crate::service::PlanWatchers>().0.lock();
         if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
             match crate::service::plan::watcher::PlanWatcher::watch_project(
                 &project_root,
@@ -906,11 +850,15 @@ impl ServiceContext {
     }
 
     pub fn plans_startup_loaded(&self) -> bool {
-        self.plan_startup_loaded.load(Ordering::Acquire)
+        self.ext::<crate::service::PlanStartupLoaded>()
+            .0
+            .load(Ordering::Acquire)
     }
 
     pub fn mark_plans_startup_loaded(&self) {
-        self.plan_startup_loaded.store(true, Ordering::Release);
+        self.ext::<crate::service::PlanStartupLoaded>()
+            .0
+            .store(true, Ordering::Release);
         self.notify_event("plans-loaded", serde_json::json!({}));
     }
 

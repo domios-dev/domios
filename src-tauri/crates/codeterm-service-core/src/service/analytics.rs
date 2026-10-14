@@ -3,6 +3,8 @@ use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Wor
 use std::sync::Arc;
 use tauri::Manager;
 
+pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);
+
 pub(crate) fn count(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
@@ -30,14 +32,22 @@ pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Optio
 }
 impl ServiceContext {
     pub(crate) fn record_product_event(&self, event: Event) {
-        if let Some(worker) = self.analytics.get() {
+        if let Some(worker) = self
+            .ext::<crate::service::analytics::AnalyticsCell>()
+            .0
+            .get()
+        {
             if worker.record_nowait(event).is_err() {
                 log::debug!("[analytics] event unavailable");
             }
         }
     }
     pub(crate) fn record_product_activity(&self) {
-        if let Some(worker) = self.analytics.get() {
+        if let Some(worker) = self
+            .ext::<crate::service::analytics::AnalyticsCell>()
+            .0
+            .get()
+        {
             if worker
                 .record_activity_nowait(|| self.mux.read().workspace_count())
                 .is_err()
@@ -67,7 +77,8 @@ impl ServiceContext {
         }
     }
     pub async fn analytics_worker(&self) -> Result<&Worker, String> {
-        self.analytics
+        self.ext::<crate::service::analytics::AnalyticsCell>()
+            .0
             .get_or_try_init(|| async {
                 let secrets = self.secrets.clone();
                 let mesh_machines = self

@@ -261,7 +261,7 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
     let cause = "restored without a live agent";
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     assert!(fixture
         .service
@@ -276,7 +276,10 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
     fixture
         .service
         .process_pty_output(&pty_id, b"OpenCode startup output");
-    assert!(!fixture.service.provider_tree_witnesses.has_seen(&key));
+    assert!(!fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .has_seen(&key));
 
     {
         let mut mux = fixture.service.mux.write();
@@ -288,11 +291,11 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
     let (sender, receiver) = std::sync::mpsc::channel();
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .report_next_observation(&key, sender);
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, live_opencode_process());
     fixture
         .service
@@ -304,23 +307,29 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
         observed.state(),
         crate::service::process_tree::ProviderTreeState::Present
     );
-    assert!(fixture.service.provider_tree_witnesses.has_seen(&key));
+    assert!(fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .has_seen(&key));
 
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, live_opencode_process());
     fixture.service.process_pty_output(
         &pty_id,
         b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07",
     );
     assert!(launch_readiness::take_published_failure(&attempt).is_none());
-    assert!(fixture.service.provider_tree_witnesses.has_seen(&key));
+    assert!(fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .has_seen(&key));
     assert_opencode_identity(&fixture, &tab_id);
 
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, live_opencode_process());
     assert!(!fixture
         .service
@@ -347,14 +356,17 @@ fn restore_relaunch_in_flight_with_unseen_provider_keeps_identity() {
     assert!(launch_readiness::attempt_is_armed(&attempt));
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
     assert!(!fixture
         .service
         .clear_tab_restored_identity_if_absent(&tab_id, "restored without a live agent"));
 
-    assert!(!fixture.service.provider_tree_witnesses.has_seen(&key));
+    assert!(!fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .has_seen(&key));
     assert_opencode_identity(&fixture, &tab_id);
     assert!(launch_readiness::take_published_failure(&attempt).is_none());
 
@@ -366,7 +378,7 @@ fn restore_relaunch_in_flight_with_unseen_provider_keeps_identity() {
     }
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     assert!(!fixture
         .service
@@ -387,7 +399,7 @@ fn restored_without_relaunch_absent_provider_keeps_identity_without_exit_marker(
     let (fixture, tab_id, pty_id, _, key) = restored_opencode_fixture_with_launch(false);
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
     assert!(!fixture
@@ -431,7 +443,7 @@ fn expired_provisional_launch_stages_keep_identity_without_exit_marker() {
 
         fixture
             .service
-            .provider_tree_witnesses
+            .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
             .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
         assert!(!fixture
             .service
@@ -453,7 +465,7 @@ fn lifecycle_identity_clear_refuses_process_tree_absence_without_exit_marker() {
 
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, live_opencode_process());
     assert!(!fixture
         .service
@@ -463,7 +475,7 @@ fn lifecycle_identity_clear_refuses_process_tree_absence_without_exit_marker() {
 
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Unknown);
     assert!(!fixture
         .service
@@ -473,7 +485,7 @@ fn lifecycle_identity_clear_refuses_process_tree_absence_without_exit_marker() {
 
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     assert!(!fixture
         .service
@@ -493,7 +505,7 @@ fn finished_marker_cannot_clear_identity_after_the_pty_child_dies() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, live_opencode_process());
     let _ = fixture
         .service
@@ -501,7 +513,7 @@ fn finished_marker_cannot_clear_identity_after_the_pty_child_dies() {
         .expect("observe the live provider tree");
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     let gone = fixture
         .service
@@ -537,7 +549,7 @@ fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     assert!(fixture
         .service
@@ -545,7 +557,7 @@ fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
         .is_some());
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     fixture.service.process_pty_output(
         &pty_id,
@@ -573,7 +585,7 @@ fn bash_finished_marker_exit_code_finalises_launch_before_provider_seen() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
     fixture.service.process_pty_output(
@@ -625,7 +637,7 @@ fn explicit_ui_clear_does_not_depend_on_process_tree_absence() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, live_opencode_process());
 
     fixture.service.set_tab_agent_type(&tab_id, None);

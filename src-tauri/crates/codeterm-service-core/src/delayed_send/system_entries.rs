@@ -70,7 +70,8 @@ pub(super) fn views_for_tab(svc: &ServiceContext, tab_id: &str) -> Vec<DelayedMe
         cfg.nudge_interval_secs,
         current_epoch_secs(),
         svc.plan_turn_counter.time_nudge_deadline(tab_id),
-        &svc.heartbeat_gate.ticks_for_tab(tab_id),
+        &svc.ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
+            .ticks_for_tab(tab_id),
         cfg.plan_reminders,
     );
     projected

@@ -424,7 +424,12 @@ pub(crate) async fn receive_pebble_webhook(
     body: Body,
 ) -> Result<Json<WebhookResponse>, WebhookRejection> {
     let store = state.svc.secrets.read().await.clone();
-    let receiver = authorize(store.as_ref(), &state.svc.webhook_registry, &headers).await?;
+    let receiver = authorize(
+        store.as_ref(),
+        state.svc.ext::<codeterm_plugin::WebhookRegistryHandle>(),
+        &headers,
+    )
+    .await?;
     let limit = payload::body_limit(audio_cap(receiver.as_ref()));
     let body = axum::body::to_bytes(body, limit).await.map_err(|error| {
         log::warn!("[pebble-webhook] request body was not read within {limit} bytes: {error}");
@@ -455,7 +460,9 @@ pub(crate) async fn receive_pebble_webhook(
                 .active;
             Some(
                 audio::transcribe(
-                    &state.svc.transcribe_registry,
+                    state
+                        .svc
+                        .ext::<Arc<crate::transcribe::TranscribeRegistry>>(),
                     &active,
                     &crate::api::web_routes::uploads_dir(),
                     audio,

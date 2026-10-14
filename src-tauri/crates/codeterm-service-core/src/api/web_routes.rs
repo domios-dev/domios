@@ -791,7 +791,9 @@ pub async fn transcribe_voice(
         &body.path,
         "voice",
         None,
-        &state.svc.transcribe_registry,
+        state
+            .svc
+            .ext::<std::sync::Arc<crate::transcribe::TranscribeRegistry>>(),
         &active,
     )
     .await;
@@ -847,7 +849,7 @@ pub async fn plugin_glance(
 ) -> Result<Json<Option<codeterm_plugin::view::GlanceView>>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     crate::commands::plugins::glance_render(
-        &state.svc.glance_registry,
+        state.svc.ext::<crate::glance::GlanceRegistryHandle>(),
         &req.plugin_id,
         req.action.as_deref(),
         req.ctx.unwrap_or(serde_json::Value::Null),
@@ -873,7 +875,7 @@ pub async fn plugin_bubble(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     crate::commands::plugins::bubble_poll(
-        &state.svc.bubble_registry,
+        state.svc.ext::<crate::bubble::BubbleRegistryHandle>(),
         &req.plugin_id,
         req.ctx.unwrap_or(serde_json::Value::Null),
     )
@@ -895,7 +897,10 @@ pub async fn repo_watch_subscribe(
     Json(req): Json<RepoWatchSubscribeReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let registry = state.svc.repo_watch.clone();
+    let registry = state
+        .svc
+        .ext::<crate::repowatch::RepoWatchRegistryHandle>()
+        .clone();
     let value = tokio::task::spawn_blocking(move || {
         crate::commands::repo_watch::subscribe(&registry, std::path::PathBuf::from(req.cwd))
     })
@@ -917,7 +922,10 @@ pub async fn repo_watch_unsubscribe(
     Json(req): Json<RepoWatchUnsubscribeReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let registry = state.svc.repo_watch.clone();
+    let registry = state
+        .svc
+        .ext::<crate::repowatch::RepoWatchRegistryHandle>()
+        .clone();
     let value = tokio::task::spawn_blocking(move || {
         crate::commands::repo_watch::unsubscribe(&registry, &req.token)
     })

@@ -328,13 +328,16 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         AgentLiveness::Live
     );
 
-    harness.service.provider_tree_witnesses.script_snapshot(
-        &key,
-        ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
-            pid: 52_519,
-            start_token: "codex-live-at-launch-write".into(),
-        }])),
-    );
+    harness
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .script_snapshot(
+            &key,
+            ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
+                pid: 52_519,
+                start_token: "codex-live-at-launch-write".into(),
+            }])),
+        );
     assert_eq!(
         harness
             .service
@@ -343,13 +346,16 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
             .state(),
         crate::service::process_tree::ProviderTreeState::Present
     );
-    harness.service.provider_tree_witnesses.script_snapshot(
-        &key,
-        ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
-            pid: 52_520,
-            start_token: "codex-live-at-finished-marker".into(),
-        }])),
-    );
+    harness
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .script_snapshot(
+            &key,
+            ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
+                pid: 52_520,
+                start_token: "codex-live-at-finished-marker".into(),
+            }])),
+        );
     harness.service.process_pty_output(
         "pty-planner",
         b"\x1b]633;E;;nonce-current\x07\x1b]633;D\x07",
@@ -383,7 +389,7 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .is_some());
     harness
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     harness.service.process_pty_output(
         "pty-planner",

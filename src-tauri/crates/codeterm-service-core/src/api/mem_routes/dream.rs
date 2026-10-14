@@ -66,12 +66,17 @@ pub async fn mem_dream(
 
     let mut reports = Vec::new();
     for kind in &phases {
-        let report = state.svc.mem_supervisor.run(*kind).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("{}: {}", kind.as_arg(), e),
-            )
-        })?;
+        let report = state
+            .svc
+            .ext::<std::sync::Arc<crate::mem::supervisor::Supervisor>>()
+            .run(*kind)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{}: {}", kind.as_arg(), e),
+                )
+            })?;
         state
             .svc
             .record_product_feature(codeterm_analytics::Feature::DreamingRun);

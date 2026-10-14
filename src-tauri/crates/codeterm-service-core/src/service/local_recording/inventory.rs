@@ -22,7 +22,7 @@ impl ServiceContext {
             return Err("local_recording_grant_required".into());
         }
         let trigger = self
-            .local_recording_registry
+            .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .declaration(plugin_id)
             .ok_or("local_recording_not_registered")?;
         let inputs = platform::input_devices(&trigger)?;
