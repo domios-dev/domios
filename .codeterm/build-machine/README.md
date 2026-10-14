@@ -9,7 +9,7 @@ platform caller and tests, verifies downloaded draft artifact signatures, then p
 
 | Runner | Machine | Workflow | Builds |
 |--------|---------|----------|--------|
-| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-builder.yml` | independent macOS `x64`/`arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
+| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-macos-build.yml` + `release-linux-arm64.yml` | independent macOS `x64`/`arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
 | **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release.yml` → `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
 | **`linux-build`** | ubunta, Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native; also plugin publication and release preparation |
 | **`linux-ci`** | ubunta and BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs and the PR lint workflows | test pool only: either idle runner takes the job; never packaging or signing |
@@ -306,4 +306,4 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

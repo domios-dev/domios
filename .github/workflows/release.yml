@@ -188,9 +188,8 @@ jobs:
     name: macOS
     needs: prepare
     if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
-    uses: ./.github/workflows/release-builder.yml
+    uses: ./.github/workflows/release-macos-build.yml
     with:
-      platform: macos
       tag: ${{ needs.prepare.outputs.tag }}
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
@@ -201,9 +200,8 @@ jobs:
     name: Linux arm64
     needs: prepare
     if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
-    uses: ./.github/workflows/release-builder.yml
+    uses: ./.github/workflows/release-linux-arm64.yml
     with:
-      platform: linux-arm64
       tag: ${{ needs.prepare.outputs.tag }}
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
