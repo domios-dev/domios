@@ -21,8 +21,8 @@ use crate::storage::{
     Storage, StorageConfig, StoredSentinel,
 };
 
-mod coherence;
 mod cleanup;
+mod coherence;
 mod decision_detail;
 mod graph_fields;
 mod pipeline_journal;
