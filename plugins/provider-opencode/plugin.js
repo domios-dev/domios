@@ -351,6 +351,11 @@ function fileDiffFromEdit(edit) {
   };
 }
 
+// packages/chat-core/src/domios.ts
+var DOMIOS_PASTED_MARKER = "pasted by Domios";
+var PASTED_MARKER_TAIL = `
+${DOMIOS_PASTED_MARKER}`;
+
 // packages/chat-core/src/shellLexer.ts
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
 
