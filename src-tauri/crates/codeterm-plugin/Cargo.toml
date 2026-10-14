@@ -46,3 +46,6 @@ sha2 = "0.10"
 axum = { version = "0.8", features = ["json"] }
 tempfile = "3"
 tokio = { version = "1", features = ["full"] }
+
+[lints]
+workspace = true
