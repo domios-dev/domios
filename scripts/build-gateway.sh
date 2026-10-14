@@ -85,6 +85,26 @@ ct_gateway_identity_alive() {
   [ -n "$actual" ] && [ "$actual" = "$expected" ]
 }
 
+ct_gateway_owner_gone() {
+  local pid="$1" expected="$2" actual
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  if [ "$(ct_gateway_pid_namespace)" = proc ]; then
+    [ -d "/proc/$pid" ] || return 0
+    actual="$(ct_gateway_process_start_token "$pid" 2>/dev/null || true)"
+    [ -n "$actual" ] && [ -n "$expected" ] && [ "$actual" != "$expected" ]
+  else
+    node --input-type=module -e '
+      const { nativeIdentity } = await import(process.argv[1]);
+      const actual = nativeIdentity(process.argv[2]);
+      process.exit(actual.state === "gone" || (actual.state === "present" && process.argv[3] && actual.token !== process.argv[3]) ? 0 : 1);
+    ' "$(ct_gateway_script_url)" "$pid" "$expected"
+  fi
+}
+
+ct_gateway_script_url() {
+  node -e 'process.stdout.write(require("node:url").pathToFileURL(process.argv[1]).href)' "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-guard.mjs"
+}
+
 ct_gateway_process_command() {
   local pid="$1"
   if [ "$(ct_gateway_pid_namespace)" = proc ]; then
@@ -232,7 +252,7 @@ ct_gateway_reap_stale_owner_locked() {
   [ -d "$lock" ] || return 0
   pid="$(cat "$lock/pid" 2>/dev/null || true)"
   start_token="$(cat "$lock/start_token" 2>/dev/null || true)"
-  if ! ct_gateway_identity_alive "$pid" "$start_token"; then
+  if ct_gateway_owner_gone "$pid" "$start_token"; then
     job="$(cat "$lock/job_id" 2>/dev/null || true)"
     ct_gateway_record_owner_lost "$dir" "$job" "$pid" running || return $?
     rm -rf "$lock"
@@ -245,7 +265,7 @@ ct_gateway_reap_stale_queue_locked() {
     [ -d "$ticket" ] || continue
     pid="$(cat "$ticket/pid" 2>/dev/null || true)"
     start_token="$(cat "$ticket/start_token" 2>/dev/null || true)"
-    ct_gateway_identity_alive "$pid" "$start_token" && continue
+    ct_gateway_owner_gone "$pid" "$start_token" || continue
     job="$(cat "$ticket/job_id" 2>/dev/null || true)"
     ct_gateway_record_owner_lost "$dir" "$job" "$pid" queued || return $?
     rm -rf "$ticket"
@@ -309,6 +329,7 @@ ct_gateway_on_signal() {
 ct_gateway_metadata_abort() {
   echo "[build-gateway] metadata write failed before compilation: $2 (job=$CT_BUILD_JOB_ID)" >&2
   CT_GATEWAY_ACTIVE=0
+  if [ "${CT_GATEWAY_QUEUE_CREATED:-0}" = 1 ]; then rm -rf "$1/queue/$CT_BUILD_QUEUE_KEY"; CT_GATEWAY_QUEUE_CREATED=0; fi
   ct_gateway_mutex_release "$1" || true
   return 74
 }
@@ -351,8 +372,10 @@ ct_gateway_acquire() {
     echo "Build gateway job id already exists: $CT_BUILD_JOB_ID" >&2
     return 2
   fi
+  CT_GATEWAY_QUEUE_CREATED=0
   : > "$log" &&
   mkdir "$dir/queue/$CT_BUILD_QUEUE_KEY" &&
+  CT_GATEWAY_QUEUE_CREATED=1 &&
   printf '%s\n' "$$" > "$dir/queue/$CT_BUILD_QUEUE_KEY/pid" &&
   printf '%s\n' "$CT_GATEWAY_PROCESS_START" > "$dir/queue/$CT_BUILD_QUEUE_KEY/start_token" &&
   printf '%s\n' "$CT_BUILD_JOB_ID" > "$dir/queue/$CT_BUILD_QUEUE_KEY/job_id" || { ct_gateway_metadata_abort "$dir" "queue ticket"; return $?; }
@@ -367,6 +390,7 @@ ct_gateway_acquire() {
     --source-sha "$source_sha" --queue-key "$CT_BUILD_QUEUE_KEY" --queued-at "$queued_at" \
     --log-path "$log" --crates "${CT_BUILD_CRATES:-}" --touched-files-count "${CT_BUILD_TOUCHED_FILES_COUNT:-}" || { ct_gateway_metadata_abort "$dir" "queued job record"; return $?; }
   ct_gateway_mutex_release "$dir" || return $?
+  CT_GATEWAY_QUEUE_CREATED=0
   CT_GATEWAY_ACTIVE=1
 
   while :; do
