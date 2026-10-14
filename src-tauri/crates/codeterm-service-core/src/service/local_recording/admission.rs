@@ -7,7 +7,7 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub(crate) enum LocalRecordingCommitOutcome {
+pub enum LocalRecordingCommitOutcome {
     Tracked { status: ChatSendStatus },
     PreHandoffFailure { message: String },
     PossibleHandoff { message: String },

@@ -6,7 +6,7 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CaptureClipDescriptor {
+pub struct CaptureClipDescriptor {
     pub(crate) handle: String,
     pub(crate) path: String,
 }

@@ -10,9 +10,8 @@ pub mod bubble;
 pub mod chatbackend;
 pub mod chatpipeline;
 pub mod chatpreprocessor;
-mod clipboard_files;
-mod command_registration;
-mod commands;
+pub mod clipboard_files;
+pub mod commands;
 mod commands_mesh;
 mod config;
 mod crash;
@@ -99,8 +98,12 @@ pub fn register_socket() {
 
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run(
+    context: tauri::Context<crate::app_runtime::Runtime>,
+    register_commands: fn(
+        tauri::Builder<crate::app_runtime::Runtime>,
+    ) -> tauri::Builder<crate::app_runtime::Runtime>,
+) {
     // Never automatic: only an explicit `repair-user-path` argv reaches it.
     startup::run_user_path_repair_if_invoked();
 
@@ -195,7 +198,7 @@ pub fn run() {
         .manage(states.keepawake.clone())
         .manage(states.resize_owner.clone())
         .manage(states.rest_api.clone());
-    command_registration::register_commands(builder)
+    register_commands(builder)
         .setup(move |app| {
             {
                 let api_config = states.config.lock().api.clone();
@@ -405,7 +408,7 @@ pub fn run() {
                         .map(|(id, _)| *id),
                 );
                 #[cfg(debug_assertions)]
-                let workspace_root = Some(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")));
+                let workspace_root = Some(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../..")));
                 #[cfg(not(debug_assertions))]
                 let workspace_root: Option<std::path::PathBuf> = None;
                 let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
@@ -564,7 +567,7 @@ pub fn run() {
             );
 
             let user_last_activity = crate::user_last_activity::UserLastActivity::new();
-            states.mesh.lock().build_hash = env!("BUILD_HASH").to_string();
+            states.mesh.lock().build_hash = codeterm_build_info::BUILD_HASH.to_string();
             states.mesh.lock().last_activity = Arc::new(
                 crate::mesh::UserLastActivityProvider(user_last_activity.clone()),
             );
@@ -989,9 +992,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(startup::handle_window_event)
-        .build(startup::frontend_shell::application_context(
-            tauri::generate_context!(),
-        ))
+        .build(startup::frontend_shell::application_context(context))
         .expect("error while building tauri application")
         .run(|_app, _event| {
             #[cfg(target_os = "macos")]
@@ -1019,7 +1020,7 @@ pub fn run() {
 }
 
 #[cfg(test)]
-#[path = "../vendor/tauri-runtime-wry/src/owner_thread.rs"]
+#[path = "../../../vendor/tauri-runtime-wry/src/owner_thread.rs"]
 mod windows_rc_ownership_regression;
 
 #[cfg(test)]
