@@ -845,5 +845,5 @@ jobs:
     with:
       source_ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       report_name: ${{ format('rust-warnings-tests-{0}-report', inputs.phase || 'all') }}
-      cancel_release_on_failure: ${{ inputs.cancel_release_on_failure }}
+      cancel_release_on_failure: ${{ inputs.cancel_release_on_failure == true }}
       artifacts: ${{ needs.changed.outputs.heavy == 'true' && (inputs.phase == 'fast' && '["rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]' || inputs.phase == 'long' && '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc"]' || '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]') || '[]' }}
