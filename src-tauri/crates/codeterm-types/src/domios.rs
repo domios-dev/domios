@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 pub const DOMIOS_CLOSE_TAG: &str = "</domios>";
-pub const DOMIOS_TYPED_INSTRUCTION: &str = "Handle the message above.";
+pub const DOMIOS_LEGACY_TYPED_INSTRUCTION: &str = "Handle the message above.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomiosFrame {
@@ -64,6 +64,13 @@ pub fn parse_message(text: &str) -> Option<ParsedDomiosMessage> {
     })
 }
 
+pub fn with_legacy_typed_instruction(message: &str) -> Option<String> {
+    let body = message.strip_suffix(DOMIOS_CLOSE_TAG)?;
+    Some(format!(
+        "{body} <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>{DOMIOS_CLOSE_TAG}"
+    ))
+}
+
 pub fn strip_typed_suffix(content: &str) -> &str {
     let mut body = content;
     while let Some(prefix) = body.strip_suffix("</tip>") {
@@ -74,7 +81,7 @@ pub fn strip_typed_suffix(content: &str) -> &str {
             .strip_suffix(' ')
             .unwrap_or(&prefix[..start]);
     }
-    let instruction = format!(" {DOMIOS_TYPED_INSTRUCTION}");
+    let instruction = format!(" {DOMIOS_LEGACY_TYPED_INSTRUCTION}");
     if let Some(stripped) = body.strip_suffix(&instruction) {
         body = stripped;
     }
@@ -261,7 +268,7 @@ mod tests {
     fn strip_typed_reply_and_instruction_without_changing_the_body() {
         let body = "opaque routed body";
         let suffix = format!(
-            " [to reply, run: codeterm send \"YOUR REPLY\" --tab abc12345] {DOMIOS_TYPED_INSTRUCTION}"
+            " [to reply, run: codeterm send \"YOUR REPLY\" --tab abc12345] {DOMIOS_LEGACY_TYPED_INSTRUCTION}"
         );
         let frame = DomiosFrame {
             opening_tag: build_opening_tag(&[("from", "tab"), ("tab", "abc12345")]),
@@ -270,5 +277,17 @@ mod tests {
         };
         let parsed = parse_message(&frame.to_message()).expect("routed frame parses");
         assert_eq!(parsed.body, body);
+    }
+
+    #[test]
+    fn legacy_typed_form_round_trips_to_the_same_body() {
+        let message = "<domios from=\"tab\" tab=\"abc12345\">opaque body [hint]</domios>";
+        let legacy = with_legacy_typed_instruction(message).unwrap();
+        assert_ne!(legacy, message);
+        assert_eq!(
+            parse_message(&legacy).unwrap().body,
+            parse_message(message).unwrap().body
+        );
+        assert!(with_legacy_typed_instruction("unframed").is_none());
     }
 }

@@ -4,7 +4,7 @@
  */
 
 import { detectChatPrefix, labelFor, splitChatPrefixedMessages } from "./chatPrefixes";
-import { DOMIOS_TYPED_INSTRUCTION, formatAttachmentMarker } from "@codeterm/chat-core";
+import { DOMIOS_LEGACY_TYPED_INSTRUCTION, formatAttachmentMarker } from "@codeterm/chat-core";
 
 let passed = 0;
 let failed = 0;
@@ -30,7 +30,7 @@ console.log("detectChatPrefix");
 {
   const routed =
     '<domios from="tab" label="Main" tab="12e450b4">Hey [to reply, run: codeterm send "YOUR REPLY" --tab 12e450b4] ' +
-    `${DOMIOS_TYPED_INSTRUCTION}</domios>`;
+    `${DOMIOS_LEGACY_TYPED_INSTRUCTION}</domios>`;
   eq(detectChatPrefix(routed)?.body, "Hey", "typed route instruction and reply hint stay hidden");
 }
 

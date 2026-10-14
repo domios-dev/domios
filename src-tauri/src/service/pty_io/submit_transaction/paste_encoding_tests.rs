@@ -73,11 +73,7 @@ fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
 fn routed_tags_are_typed_around_a_bracketed_body_only() {
     let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
     let body = "line one\nline two";
-    let suffix = format!(
-        " [reply hint] {}{}",
-        codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
-        codeterm_types::domios::DOMIOS_CLOSE_TAG
-    );
+    let suffix = format!(" [reply hint]{}", codeterm_types::domios::DOMIOS_CLOSE_TAG);
     let encoded = encode_paste_frame(
         body,
         Some(open),

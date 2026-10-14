@@ -14,7 +14,7 @@ python .agents/skills/prompt-evaluator/runner.py \
 
 ## Pass
 
-The report shows all four cases passing for all three samples and the runner
+The report shows all six cases passing for all three samples and the runner
 exits zero.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
