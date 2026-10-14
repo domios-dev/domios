@@ -358,7 +358,7 @@ ct_cache_retention() {
   mkdir -p "$retention_dir" || return 74
   ct_gateway_mutex_acquire "$retention_dir" || return $?
   CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
-    node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "$(pwd -P)" "${2:-}" || result=$?
+    node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" || result=$?
   ct_gateway_mutex_release "$retention_dir" || result=$?
   return "$result"
 }

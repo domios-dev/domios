@@ -67,4 +67,15 @@ printf 'warning: `codeterm-util` (lib) generated 1 warning (1 duplicate)\n' | ./
 summary="$(printf '%s\n' "$warning_log" | ./build.sh check-queue-probe summary | grep -Ev '^MSVC env')"
 [ "$(printf '%s\n' "$summary" | tail -n 1)" = 'check: warnings=4 crates_with_warnings=3' ] || { echo "check summary wrong: $summary" >&2; exit 1; }
 [ "$(printf '' | ./build.sh check-queue-probe summary | grep -Ev '^MSVC env')" = 'check: warnings=0 crates_with_warnings=0' ] || { echo "clean check summary wrong" >&2; exit 1; }
+
+# The stable X: path shares cargo intermediates across worktrees; only gateway-held jobs may map it.
+awk '
+  /^[a-z_]+\(\) \{/ { fn = $1; gated = 0 }
+  /^  *enter_build_gateway / { gated = 1 }
+  /enter_stable_build_path/ && !/^enter_stable_build_path\(\)/ && !/^ *#/ && fn != "enter_build_gateway()" && !gated {
+    printf "enter_stable_build_path outside the build gateway in %s (line %d)\n", fn, NR; bad = 1
+  }
+  END { exit bad }
+' build.sh || exit 1
+
 echo "check-queue helpers: PASS"
