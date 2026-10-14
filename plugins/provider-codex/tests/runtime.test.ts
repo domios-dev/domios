@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentRuntime, RuntimeContext, Operation, RuntimeAction, RpcReply, RuntimeFrame, RuntimeStep, AgentEvent, JsonValue, RuntimePlan, OperationResult, StdioAgentRuntimeCapability } from "@codeterm/plugin-sdk";
 import { collectHistory } from "./runtimeHistoryHost";
 import { notificationMethods } from "../src/runtimeProtocol";
+import { agentActivityOf, buildAgentTree } from "../../../packages/chat-core/src/agentActivity";
 
 interface Fixture {
   schemaVersion: 1;
@@ -765,3 +766,41 @@ check("all historical tool image shapes retain byte markers without inline paylo
   assert.equal(step.history.items.length,3);
 });
 console.log(`runtime history image and snapshot regressions: ${count} checks passed`);
+check("captured spawn metadata reaches the shared Chat model",()=> {
+  const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
+  const {events} = replay(fixture);
+  const rows = events.flatMap(event=>event.kind === "chatItem" ? [event.item] : []);
+  const records = rows.flatMap(row=> {
+    const activity = agentActivityOf(row as unknown as NormalizedChatMessage);
+    return activity ? [activity] : [];
+  });
+  const tree = buildAgentTree(records);
+  assert.equal(tree.agents.length,2);
+  assert.deepEqual(tree.agents.map(agent=>[agent.model,agent.reasoningEffort,agent.ordinal,agent.state]),[
+    ["gpt-5.6-luna","medium",1,"completed"],["gpt-5.6-luna","medium",1,"completed"],
+  ]);
+  assert.equal(tree.agents[0].description,"Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.");
+  assert.ok(tree.agents[0].result?.startsWith("`package.json` summary:"));
+});
+check("activity updates a spawn receiver without losing its identity or metadata",()=> {
+  const spawn:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"parent-turn",item:{id:"spawn",type:"collabAgentToolCall",tool:"spawnAgent",status:"completed",receiverThreadIds:["child-a","child-b"],prompt:"Inspect inputs",model:"fixture-model",reasoningEffort:"high",agentsStates:{"child-a":{status:"pendingInit"},"child-b":{status:"pendingInit"}}}}};
+  const started=hooks.runtimeReduce(ctx,null,[spawn]);
+  const saved=plain(started.state);
+  const activity:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"later-parent-turn",item:{id:"finished",type:"subAgentActivity",agentThreadId:"child-b",agentPath:"/root/inspect",kind:"completed"}}};
+  const finished=hooks.runtimeReduce(ctx,started.state,[activity]);
+  assert.deepEqual(plain(started.state),saved,"Reduction does not mutate its input state");
+  assert.equal(finished.events.length,1);
+  const event=finished.events[0];assert.equal(event.kind,"chatItem");if(event.kind !== "chatItem")return;
+  assert.equal(event.item.id,"spawn:child-b");assert.equal(event.item.seq,2);
+  assert.equal(event.item.toolFlowId,"parent-turn");
+  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect"});
+  const late={...activity,params:{...activity.params as Record<string,JsonValue>,item:{id:"late-start",type:"subAgentActivity",agentThreadId:"child-b",kind:"started"}}} satisfies RuntimeFrame;
+  const lateEvent=hooks.runtimeReduce(ctx,finished.state,[late]).events[0];
+  if(lateEvent.kind !== "chatItem")throw new Error("Expected receiver update");
+  assert.equal((lateEvent.item.toolInput as Record<string,unknown>).agent_state,"completed");
+  const descendant:RuntimeFrame={kind:"notification",method:"turn/started",params:{threadId:"child-b",turn:{id:"child-turn"}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,finished.state,[descendant]).events),[{kind:"turnState",threadId:"child-b",turnId:"child-turn",parentThreadId:ctx.threadId,state:"working"}]);
+  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,epoch:ctx.epoch+1},finished.state,[descendant]).events),[]);
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,finished.state,[{...activity,params:{...activity.params as Record<string,JsonValue>,threadId:"foreign"}}]).events),[]);
+});
+console.log(`runtime subagent regressions: ${count} checks passed`);

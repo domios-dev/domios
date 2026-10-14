@@ -1,12 +1,13 @@
 import type { RuntimeContext, JsonValue, RuntimeFrame, RuntimeReduction, AgentEvent, ChatMsg, TokenUsage } from "@codeterm/plugin-sdk";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
-import { json, runtimeItem, runtimeItems } from "./runtimeMessages";
+import { json, runtimeItem } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
 import { loginCompleted } from "./runtimeLogin";
 import { notificationAuth } from "./runtimeAuth";
 import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
 import { codexReportedSettings } from "./runtimeSettings";
+import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
 
 interface ReduceState {
   epoch: number;
@@ -24,6 +25,7 @@ interface ReduceState {
   childCompleted?:string[];
   rateLimitSnapshot?:Record<string,unknown>;
   reasoning?:Record<string,{summary:string[]; content:string[]}>;
+  agents?:RuntimeAgents;
 }
 function initial(ctx: RuntimeContext, raw: JsonValue): ReduceState {
   const state = object(raw);
@@ -31,6 +33,7 @@ function initial(ctx: RuntimeContext, raw: JsonValue): ReduceState {
     const restored=JSON.parse(JSON.stringify(state)) as ReduceState;
     restored.items=Object.assign(Object.create(null),restored.items);
     if(restored.parents) restored.parents=Object.assign(Object.create(null),restored.parents);
+    if(restored.agents) restored.agents.rows=Object.assign(Object.create(null),restored.agents.rows);
     return restored;
   }
   return {epoch:ctx.epoch,bindingNonce:ctx.bindingNonce,threadId:ctx.threadId,seq:0,items:Object.create(null),completed:[],compacted:[],evidenced:[],activeTurnId:ctx.activeTurnId};
@@ -77,7 +80,7 @@ function stamp(state: ReduceState, row: ChatMsg, params: Record<string,unknown>)
   if (previous?.timestamp) row.timestamp = previous.timestamp;
   else if (typeof ms === "number" && Number.isFinite(ms)) row.timestamp = new Date(ms).toISOString();
   const turnId = text(params.turnId) ?? text(object(params.turn).id);
-  if (turnId) row.toolFlowId = turnId;
+  if (turnId && !row.toolFlowId) row.toolFlowId = turnId;
   state.items[row.id] = row;
   return row;
 }
@@ -236,6 +239,14 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       default: {
         let row:ChatMsg | undefined;
         const rawItem = object(params.item);
+        if (frame.method === "item/started" || frame.method === "item/completed") {
+          state.agents ??= {rows:Object.create(null),ordinal:0};
+          const agents = reduceRuntimeAgents(state.agents,state.items,state.parents!,threadId,rawItem,state.seq+1);
+          if (agents) {
+            for (const activity of agents) events.push({kind:"chatItem",threadId,item:stamp(state,activity,params)});
+            continue;
+          }
+        }
         if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
           const itemId = text(rawItem.id);
           state.questions ??= [];
@@ -259,8 +270,6 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
           row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.join("\n") || parts.content.join("\n"),collapsed:true},params);
-        } else if ((frame.method === "item/started" || frame.method === "item/completed") && rawItem.type === "collabAgentToolCall" && list(rawItem.receiverThreadIds).length) {
-          for (const activity of runtimeItems(rawItem,state.seq+1)) events.push({kind:"chatItem",threadId,item:stamp(state,activity,params)});
         } else row = mapItem(state,frame.method,params);
         if (row) events.push({kind:"chatItem",threadId,item:row});
         if (frame.method === "item/started" || frame.method === "item/completed") {
