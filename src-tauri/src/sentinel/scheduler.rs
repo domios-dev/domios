@@ -69,6 +69,12 @@ impl Handle {
         self.store.lock().cancel_tab_owned_runs(tab_id)
     }
 
+    pub(crate) fn remove_worker_watchers(&self, tab_id: &str) -> Result<(), String> {
+        let result = super::cleanup::remove_owned(&self.store, tab_id);
+        self.notify();
+        result
+    }
+
     pub fn notify(&self) {
         if let Some(app) = &self.app {
             emit_changes(&self.store, app);
@@ -284,6 +290,9 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                             log::error!("[blueprint] schedule persistence failed: {error}");
                         }
                     }
+                }
+                if let Err(error) = super::cleanup::remove_terminal(&store) {
+                    log::error!("[blueprint] terminal watcher cleanup failed: {error}");
                 }
             }
             emit_changes(&store, &svc.app_handle);

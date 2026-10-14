@@ -1,3 +1,4 @@
+use codeterm_types::local_recording::LocalRecordingTrigger;
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SelectedInputEvent {
@@ -18,7 +19,7 @@ pub(crate) enum InputUnavailable {
     Error,
 }
 
-use codeterm_plugin::local_recording::{LocalRecordingTrigger, SelectedDevices};
+use codeterm_plugin::local_recording::SelectedDevices;
 use std::sync::Arc;
 
 pub(crate) use codeterm_plugin::local_recording::RecordingInputDevice;
@@ -297,11 +298,7 @@ fn macos_teardown(mut native: macos::MacTeardown) -> SubscriptionTeardown {
     })
 }
 
-// Other platforms compile the portable descriptor logic for tests only; native-only items stay unused.
-#[cfg(any(target_os = "macos", test))]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-#[path = "platform/macos.rs"]
-pub(crate) mod macos;
+#[cfg(target_os = "macos")]
+use codeterm_input_macos as macos;
 #[cfg(windows)]
-#[path = "platform/windows.rs"]
-pub(crate) mod windows;
+use codeterm_input_windows as windows;

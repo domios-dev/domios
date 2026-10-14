@@ -221,9 +221,17 @@ pub struct ModelSwitchTranscript {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SwitchConfirmationPromptKind {
+    SwitchConfirmation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchCommand {
     pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation_prompt_kind: Option<SwitchConfirmationPromptKind>,
     #[serde(default)]
     pub confirmation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

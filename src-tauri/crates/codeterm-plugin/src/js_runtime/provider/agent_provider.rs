@@ -438,6 +438,14 @@ impl AgentProvider for JsProvider {
         self.try_call::<Option<String>>("launchOnboardingSafeChoice", &[json!(screen)])?
     }
 
+    fn parse_switch_confirmation_prompt(
+        &self,
+        screen: &str,
+        selection: &str,
+    ) -> Option<PendingPrompt> {
+        self.switch_confirmation_prompt_from_js(screen, selection)
+    }
+
     fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
         self.live_prompt_response_from_js(option_index, screen)
     }

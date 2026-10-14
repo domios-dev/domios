@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "captured": {
+    "cliVersion": "0.156.1",
+    "model": "gpt-6-luna",
+    "scenario": "subagent_v2"
+  },
+  "context": {
+    "epoch": 1,
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "cwd": "/work/project",
+    "hostVersion": "1.14.8",
+    "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "receiptMs": 0,
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "subAgentActivity",
+            "id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+            "kind": "started",
+            "agentThreadId": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agentPath": "/root/say_hello"
+          },
+          "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+          "turnId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1",
+          "startedAtMs": 1790296678247
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 9,
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "subAgentActivity",
+            "id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+            "kind": "started",
+            "agentThreadId": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agentPath": "/root/say_hello"
+          },
+          "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+          "turnId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1",
+          "completedAtMs": 1790296678247
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 2194,
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+            "tool": "wait",
+            "status": "inProgress",
+            "senderThreadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+            "receiverThreadIds": [],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {}
+          },
+          "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+          "turnId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1",
+          "startedAtMs": 1790296680441
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 3417,
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "subAgentActivity",
+            "id": "subagent-completed-01a0d5ff-5f66-70b2-b95d-b1332881e91d",
+            "kind": "completed",
+            "agentThreadId": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agentPath": "/root/say_hello"
+          },
+          "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+          "turnId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1",
+          "startedAtMs": 1790296681663
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 3420,
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "subAgentActivity",
+            "id": "subagent-completed-01a0d5ff-5f66-70b2-b95d-b1332881e91d",
+            "kind": "completed",
+            "agentThreadId": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agentPath": "/root/say_hello"
+          },
+          "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+          "turnId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1",
+          "completedAtMs": 1790296681663
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 3424,
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+            "tool": "wait",
+            "status": "completed",
+            "senderThreadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+            "receiverThreadIds": [],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {}
+          },
+          "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+          "turnId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1",
+          "completedAtMs": 1790296681667
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [],
+    "events": [
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+        "item": {
+          "id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "toolInput": {
+            "agent_id": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agent_state": "started",
+            "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+            "agent_path": "/root/say_hello",
+            "agent_ordinal": 1
+          },
+          "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "collapsed": true,
+          "timestamp": "2026-09-25T00:37:58.247Z",
+          "toolFlowId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+        "item": {
+          "id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "toolInput": {
+            "agent_id": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agent_state": "started",
+            "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+            "agent_path": "/root/say_hello",
+            "agent_ordinal": 1
+          },
+          "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "collapsed": true,
+          "timestamp": "2026-09-25T00:37:58.247Z",
+          "toolFlowId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+        "item": {
+          "id": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "generic",
+          "toolName": "wait",
+          "toolId": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+          "toolInput": {
+            "type": "collabAgentToolCall",
+            "id": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+            "tool": "wait",
+            "status": "inProgress",
+            "senderThreadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+            "receiverThreadIds": [],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {}
+          },
+          "collapsed": true,
+          "timestamp": "2026-09-25T00:38:00.441Z",
+          "toolFlowId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+        "item": {
+          "id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "toolInput": {
+            "agent_id": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agent_state": "completed",
+            "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+            "agent_path": "/root/say_hello",
+            "agent_ordinal": 1
+          },
+          "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "collapsed": true,
+          "timestamp": "2026-09-25T00:37:58.247Z",
+          "toolFlowId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+        "item": {
+          "id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "toolInput": {
+            "agent_id": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+            "agent_state": "completed",
+            "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+            "agent_path": "/root/say_hello",
+            "agent_ordinal": 1
+          },
+          "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
+          "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
+          "collapsed": true,
+          "timestamp": "2026-09-25T00:37:58.247Z",
+          "toolFlowId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+        "item": {
+          "id": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "generic",
+          "toolName": "wait",
+          "toolId": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+          "toolInput": {
+            "type": "collabAgentToolCall",
+            "id": "call_90ICrpbuqsWj4Q3wJB3q10HO",
+            "tool": "wait",
+            "status": "completed",
+            "senderThreadId": "01a0d5ff-49e8-7741-9ca7-b12aa375019a",
+            "receiverThreadIds": [],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {}
+          },
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T00:38:00.441Z",
+          "toolFlowId": "01a0d5ff-4b00-7641-bba1-06faa0ef23f1"
+        }
+      }
+    ]
+  }
+}

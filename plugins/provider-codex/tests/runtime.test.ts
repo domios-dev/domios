@@ -4,8 +4,10 @@ import type { NormalizedChatMessage } from "../../../packages/chat-core/src/type
 import fs from "node:fs";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import type { AgentRuntime, RuntimeContext, Operation, RuntimeAction, RpcReply, RuntimeFrame, RuntimeStep, AgentEvent, JsonValue, RuntimePlan, StdioAgentRuntimeCapability } from "@codeterm/plugin-sdk";
+import type { AgentRuntime, RuntimeContext, Operation, RuntimeAction, RpcReply, RuntimeFrame, RuntimeStep, AgentEvent, JsonValue, RuntimePlan, OperationResult, StdioAgentRuntimeCapability } from "@codeterm/plugin-sdk";
+import { collectHistory } from "./runtimeHistoryHost";
 import { notificationMethods } from "../src/runtimeProtocol";
+import { agentActivityOf, buildAgentTree } from "../../../packages/chat-core/src/agentActivity";
 
 interface Fixture {
   schemaVersion: 1;
@@ -24,6 +26,17 @@ const sandbox = vm.createContext({module:{exports:{}},exports:{},host:new Proxy(
 sandbox.exports = sandbox.module.exports;
 vm.runInContext(fs.readFileSync(new URL("../plugin.js",import.meta.url),"utf8"),sandbox);
 const hooks = sandbox.module.exports.default as AgentRuntime;
+const reduce = hooks.runtimeReduce.bind(hooks);
+hooks.runtimeReduce = (...args) => {
+  const result = reduce(...args);
+  const serialized = JSON.stringify(result, (key, value: unknown) => {
+    assert.notEqual(value, undefined, `runtimeReduce returned undefined at ${key}`);
+    assert.ok(!["function", "symbol", "bigint"].includes(typeof value), `runtimeReduce returned non-JSON at ${key}`);
+    if (typeof value === "number") assert.ok(Number.isFinite(value), `runtimeReduce returned non-finite number at ${key}`);
+    return value;
+  });
+  return JSON.parse(serialized);
+};
 const plain = <T>(value:T): T => JSON.parse(JSON.stringify(value));
 let count = 0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ runtime ${name}`);}
@@ -34,6 +47,7 @@ function allowed(op:Operation, action:RuntimeAction) {
   assert.ok(descriptor.agentRuntime.requestMethods[op.kind]?.includes(call.method),`${op.kind}: ${call.method}`);
 }
 function replay(fixture:Fixture) {
+  const chunks = new Map<number,Extract<RuntimeStep,{kind:"complete"}>["result"][]>();
   const plans = new Map<number,RuntimePlan>();
   const ready = new Set<number>();
   const counts = new Map<number,number>();
@@ -69,7 +83,9 @@ function replay(fixture:Fixture) {
     assert.ok(plan,"Reply follows outbound action");
     const count=(counts.get(record.operation) ?? 0)+1;
     counts.set(record.operation,count);assert.ok(count <= 32,"Operation step bound");
-    const step = hooks.runtimeResponse(ctx,entry.operation,plan.state,record.reply);
+    let step = hooks.runtimeResponse(ctx,entry.operation,plan.state,record.reply);
+    if (step.kind === "continue" && step.history) chunks.set(record.operation,[...(chunks.get(record.operation) ?? []),step.history]);
+    if (step.kind === "complete" && step.result.kind === "historyPage") step = {...step,result:collectHistory([...(chunks.get(record.operation) ?? []),step.result])};
     if (step.kind === "continue") {
       if (entry.operation.kind === "submitTurn") {assert.equal(step.beforeAcceptance,true);assert.equal(record.reply.kind,"error");}
       plans.set(record.operation,step.plan);ready.add(record.operation);
@@ -262,7 +278,7 @@ check("initialize guards handshake before publishing observed auth",()=> {
 check("auth refresh and account updates retain unknown state honestly",()=> {
   const operation:Operation={kind:"control",action:"auth",value:null};const plan=hooks.runtimePlan(ctx,operation);
   assert.deepEqual(plain(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"},events:[{kind:"auth",state:"unknown"}]});
-  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:undefined},null,[{kind:"notification",method:"account/updated",params:{authMode:"chatgpt"}}]).events),[{kind:"auth",state:"signedIn"}]);
+  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:undefined},null,[{kind:"notification",method:"account/updated",params:{authMode:"chatgpt"}}]).events),[{kind:"auth",state:"signedIn",billingMode:"subscription"}]);
 });
 check("retry errors remain nonterminal with classified source metadata",()=> {
   const events=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"error",params:{threadId:ctx.threadId!,turnId:"turn-a",willRetry:true,error:{message:"Retrying",codexErrorInfo:{httpConnectionFailed:{httpStatusCode:503}}}}}]).events;
@@ -317,9 +333,10 @@ check("history questions survive item pagination and require exact later native 
     assert.equal(step.kind,"continue");if(step.kind !== "continue")throw new Error("Missing items plan");
     step=hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value:{data:[{item:question}],nextCursor:"next-item-page"}});
     assert.equal(step.kind,"continue");if(step.kind !== "continue")throw new Error("Missing item continuation");
+    const chunk=step.history!;
     step=hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value:{data:[{item:answerItem}]}});
     assert.ok(step.kind === "complete" && step.result.kind === "historyPage");
-    return step.result;
+    return collectHistory([chunk,step.result]);
   }
   const envelope={itemId:"history-question",answers:[{questionId:"q1",values:["native"]}]};
   const item={id:"answer",type:"userMessage",content:[{type:"text",text:JSON.stringify(envelope)}]};
@@ -424,6 +441,9 @@ check("initialize negotiates experimental history before planning item paginatio
   if(step.kind !== "continue")throw new Error("Expected account read");
   plan=plain(step.plan);assert.equal(plan.action.kind,"request");
   step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{account:{type:"chatgpt"}}});
+  assert.equal(step.kind,"continue");
+  if(step.kind !== "continue") throw new Error("Expected current limits read");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{rateLimits:{}}});
   assert.equal(step.kind,"complete");
   const history:Operation={kind:"readHistory",threadId:ctx.threadId!};
   plan=plain(hooks.runtimePlan(ctx,history));
@@ -446,7 +466,7 @@ check("unsupported item pagination uses bound snapshot history without delivery 
   if(step.kind !== "continue")throw new Error("Expected goal reconciliation");
   const complete=plain(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported goal"}}));
   if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history snapshot");
-  assert.deepEqual(complete.result.items.map(item=>item.id),["user","assistant"]);
+  assert.deepEqual(collectHistory([step.history!,complete.result]).items.map(item=>item.id),["user","assistant"]);
   assert.equal(complete.events,undefined);
   for(const value of [{thread:{id:"foreign",turns:[]}},{thread:{id:ctx.threadId!}},{thread:{id:ctx.threadId!,turns:[{id:"turn"}]}}])
     assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"success",value}).kind,"refused");
@@ -641,3 +661,184 @@ check("login completion is generic and API key is absent from continuation state
 });
 
 console.log(`runtime login regressions: ${count} checks passed`);
+
+check("large history streams bounded states across turns and item pages",()=> {
+  const operation:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  let plan=hooks.runtimePlan(ctx,operation);
+  let step=hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{data:[{id:"long-turn",status:"inProgress",startedAt:1,ignored:"x".repeat(300000)}]}});
+  const chunks:OperationResult[]=[];
+  for(let index=0;index<80;index++) {
+    if(step.kind !== "continue")throw new Error("Expected history continuation");
+    plan=step.plan;
+    assert.ok(Buffer.byteLength(JSON.stringify(plan.state)) < 1024,"Only bounded pagination metadata is retained");
+    for(const key of ["items","openItems","questions"]) assert.equal(key in (plan.state as Record<string,JsonValue>),false);
+    step=hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{data:[{item:{id:`long-${index}`,type:"agentMessage",text:"x".repeat(8192)}}],...(index<79 ? {nextCursor:`cursor-${index}`} : {})}});
+    if(step.kind === "continue" && step.history)chunks.push(step.history);
+  }
+  if(step.kind !== "continue")throw new Error("Expected optional goal probe");
+  assert.ok(Buffer.byteLength(JSON.stringify(step.plan.state)) < 1024);
+  step=hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}});
+  if(step.kind !== "complete")throw new Error("History did not finish");
+  chunks.push(step.result);
+  const history=collectHistory(chunks);
+  assert.equal(history.items.length,80);assert.equal(history.openItems.length,80);
+  assert.equal(history.items.at(-1)?.seq,80);
+  assert.equal(history.items.reduce((bytes,item)=>bytes+item.content.length,0),655360);
+  console.log("    overflow oracle: accumulated transcript 655360 bytes; every continuation state <1024 bytes");
+});
+console.log(`runtime bounded history regressions: ${count} checks passed`);
+check("turn metadata and cursors have a fixed worst-case state bound",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const plan=hooks.runtimePlan(ctx,op);
+  const turns=Array.from({length:8},(_,index)=>({id:"\u0001".repeat(4095)+index,status:"inProgress",startedAt:1,items:[{text:"x".repeat(300000)}]}));
+  const cursor="\u0002".repeat(4096);
+  let step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:turns,nextCursor:cursor}});
+  if(step.kind !== "continue")throw new Error("Expected item request");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data:[],nextCursor:cursor}});
+  if(step.kind !== "continue")throw new Error("Expected next page");
+  assert.ok(Buffer.byteLength(JSON.stringify(step.plan.state)) < 256*1024);
+  for(const data of [[...turns,turns[0]],[{id:"x".repeat(4097)}]]) {
+    assert.equal(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data}}).kind,"refused");
+  }
+});
+console.log(`runtime metadata bound regressions: ${count} checks passed`);
+
+check("multi-MiB history emits bounded hook outputs and explicit attachment markers",()=> {
+  const sizes=JSON.parse(fs.readFileSync(new URL("./fixtures/history-bounds.json",import.meta.url),"utf8"));
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const data=[
+    {item:{id:"image",type:"userMessage",content:[{type:"image",url:`data:image/png;base64,${"A".repeat(sizes.imageBytes)}`}]}},
+    {item:{id:"tool",type:"commandExecution",command:"cat",aggregatedOutput:"x".repeat(sizes.toolBytes),status:"completed"}},
+    ...Array.from({length:98},(_,index)=>({item:{id:`item-${index}`,type:"agentMessage",text:"\u0001雪🙂".repeat(2000)}})),
+  ];
+  let step=hooks.runtimeResponse(ctx,op,hooks.runtimePlan(ctx,op).state,{kind:"success",value:{data:[{id:"turn",status:"inProgress",startedAt:1}]}});
+  const chunks:OperationResult[]=[];
+  let outputs=0;
+  while(step.kind === "continue" && step.plan.action.kind === "request" && step.plan.action.call.method === "thread/items/list") {
+    assert.ok(++outputs <= 100,"History makes bounded progress");
+    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data}});
+    const wire=JSON.stringify(step);
+    assert.ok(Buffer.byteLength(wire) < sizes.chunkBytes,"Entire hook output stays below 1 MiB");
+    assert.ok(!wire.includes("data:image/"));
+    if(step.kind === "continue" && step.history)chunks.push(step.history);
+  }
+  assert.ok(outputs > 1,"A provider item page splits by serialized bytes");
+  if(step.kind !== "continue")throw new Error("Expected goal probe");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}});
+  if(step.kind !== "complete")throw new Error("Expected completed history");
+  assert.ok(Buffer.byteLength(JSON.stringify(step)) < sizes.chunkBytes);
+  const history=collectHistory([...chunks,step.result]);
+  assert.equal(history.items.length,100);
+  assert.equal(new Set(history.items.map(item=>item.id)).size,100);
+  assert.equal(history.items.at(-1)?.seq,100);
+  assert.equal(history.openItems.length,99);
+  assert.ok(history.items[0].content.includes(`[image omitted: ${sizes.imageBytes+22} bytes]`));
+  assert.equal(history.items[0].attachments?.[0].data,undefined);
+  assert.equal(history.items[0].attachments?.[0].url,undefined);
+  assert.ok(String(history.items[1].toolResult).includes(`[content truncated: ${sizes.toolBytes} bytes total]`));
+  assert.ok(history.items.slice(2).every(item=>item.content === "\u0001雪🙂".repeat(2000)));
+});
+console.log(`runtime byte budget regressions: ${count} checks passed`);
+
+check("snapshot fallback splits by bytes without losing turns or rows",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const first=hooks.runtimePlan(ctx,op);
+  let step=hooks.runtimeResponse(ctx,op,first.state,{kind:"error",error:{code:-32601,message:"unsupported"}});
+  const turns=Array.from({length:3},(_,turn)=>({id:`turn-${turn}`,status:"completed",items:Array.from({length:30},(_,index)=>({id:`${turn}-${index}`,type:"agentMessage",text:"x".repeat(16000)}))}));
+  const chunks:OperationResult[]=[];
+  let reads=0;
+  while(step.kind === "continue" && step.plan.action.kind === "request" && step.plan.action.call.method === "thread/read") {
+    assert.ok(++reads < 100);
+    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread:{id:op.threadId,source:"cli",turns}}});
+    assert.ok(Buffer.byteLength(JSON.stringify(step)) < 1024*1024);
+    if(step.kind === "continue" && step.history)chunks.push(step.history);
+  }
+  assert.ok(reads > 1);
+  if(step.kind !== "continue")throw new Error("Expected goal");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{goal:null}});
+  if(step.kind !== "complete")throw new Error("Expected completion");
+  const history=collectHistory([...chunks,step.result]);
+  assert.deepEqual(history.items.map(item=>item.id),turns.flatMap(turn=>turn.items.map(item=>item.id)));
+  assert.ok(history.items.every(item=>item.content.length === 16000));
+});
+check("all historical tool image shapes retain byte markers without inline payloads",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const first=hooks.runtimePlan(ctx,op);
+  let step=hooks.runtimeResponse(ctx,op,first.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}]}});
+  if(step.kind !== "continue")throw new Error("Expected items");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data:[
+    {id:"mcp",type:"mcpToolCall",tool:"image",arguments:{},result:{content:[{type:"image",mimeType:"image/png",data:"A".repeat(100)}]}},
+    {id:"generated",type:"imageGeneration",result:"B".repeat(200)},
+    {id:"embedded",type:"functionCallOutput",output:`before data:image/png;base64,${"C".repeat(300)} after`},
+  ]}});
+  if(step.kind !== "continue" || !step.history)throw new Error("Expected history chunk");
+  const wire=JSON.stringify(step);
+  assert.ok(!wire.includes("data:image/"));
+  assert.ok(wire.includes("[image omitted: 100 bytes]"));
+  assert.ok(wire.includes("[image omitted: 200 bytes]"));
+  assert.ok(wire.includes("[image omitted: 322 bytes]"));
+  assert.equal(step.history.items.length,3);
+});
+console.log(`runtime history image and snapshot regressions: ${count} checks passed`);
+check("captured spawn metadata reaches the shared Chat model",()=> {
+  const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
+  const {events} = replay(fixture);
+  const rows = events.flatMap(event=>event.kind === "chatItem" ? [event.item] : []);
+  const records = rows.flatMap(row=> {
+    const activity = agentActivityOf(row as unknown as NormalizedChatMessage);
+    return activity ? [activity] : [];
+  });
+  const tree = buildAgentTree(records);
+  assert.equal(tree.agents.length,2);
+  assert.deepEqual(tree.agents.map(agent=>[agent.model,agent.reasoningEffort,agent.ordinal,agent.state]),[
+    ["gpt-5.6-luna","medium",1,"completed"],["gpt-5.6-luna","medium",1,"completed"],
+  ]);
+  assert.equal(tree.agents[0].description,"Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.");
+  assert.ok(tree.agents[0].result?.startsWith("`package.json` summary:"));
+});
+check("activity updates a spawn receiver without losing its identity or metadata",()=> {
+  const spawn:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"parent-turn",item:{id:"spawn",type:"collabAgentToolCall",tool:"spawnAgent",status:"completed",receiverThreadIds:["child-a","child-b"],prompt:"Inspect inputs",model:"fixture-model",reasoningEffort:"high",agentsStates:{"child-a":{status:"pendingInit"},"child-b":{status:"pendingInit"}}}}};
+  const started=hooks.runtimeReduce(ctx,null,[spawn]);
+  const saved=plain(started.state);
+  const activity:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"later-parent-turn",item:{id:"finished",type:"subAgentActivity",agentThreadId:"child-b",agentPath:"/root/inspect",kind:"completed"}}};
+  const finished=hooks.runtimeReduce(ctx,started.state,[activity]);
+  assert.deepEqual(plain(started.state),saved,"Reduction does not mutate its input state");
+  assert.equal(finished.events.length,1);
+  const event=finished.events[0];assert.equal(event.kind,"chatItem");if(event.kind !== "chatItem")return;
+  assert.equal(event.item.id,"spawn:child-b");assert.equal(event.item.seq,2);
+  assert.equal(event.item.toolFlowId,"parent-turn");
+  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect"});
+  const late={...activity,params:{...activity.params as Record<string,JsonValue>,item:{id:"late-start",type:"subAgentActivity",agentThreadId:"child-b",kind:"started"}}} satisfies RuntimeFrame;
+  const lateEvent=hooks.runtimeReduce(ctx,finished.state,[late]).events[0];
+  if(lateEvent.kind !== "chatItem")throw new Error("Expected receiver update");
+  assert.equal((lateEvent.item.toolInput as Record<string,unknown>).agent_state,"completed");
+  const descendant:RuntimeFrame={kind:"notification",method:"turn/started",params:{threadId:"child-b",turn:{id:"child-turn"}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,finished.state,[descendant]).events),[{kind:"turnState",threadId:"child-b",turnId:"child-turn",parentThreadId:ctx.threadId,state:"working"}]);
+  assert.deepEqual(plain(hooks.runtimeReduce({...ctx,epoch:ctx.epoch+1},finished.state,[descendant]).events),[]);
+  assert.deepEqual(plain(hooks.runtimeReduce(ctx,finished.state,[{...activity,params:{...activity.params as Record<string,JsonValue>,threadId:"foreign"}}]).events),[]);
+});
+console.log(`runtime subagent regressions: ${count} checks passed`);
+
+check("subscription initialization reads the recorded current limits",()=> {
+  const operation:Operation = {kind:"initialize"};
+  const step = hooks.runtimeResponse(ctx,operation,{stage:"initializeAccount"},{kind:"success",value:{account:{type:"chatgpt"}}});
+  assert.equal(step.kind,"continue");
+  if(step.kind !== "continue") return;
+  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{}}});
+  const value = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-rate-limits-read.json",import.meta.url),"utf8"));
+  const done = hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value});
+  assert.equal(done.kind,"complete");
+  if(done.kind !== "complete") return;
+  assert.equal(done.events?.[1].kind,"rateLimits");
+  assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}).kind,"complete");
+});
+check("API-key auth publishes session billing without requesting subscription limits",()=> {
+  const step = hooks.runtimeResponse(ctx,{kind:"initialize"},{stage:"initializeAccount"},{kind:"success",value:{account:{type:"apiKey"}}});
+  assert.deepEqual(plain(step),{kind:"complete",result:{kind:"initialized"},events:[{kind:"auth",state:"signedIn",billingMode:"api"}]});
+  const params = {threadId:ctx.threadId!,tokenUsage:{total:{inputTokens:100,outputTokens:20,cachedInputTokens:30,costUsd:0.002}}};
+  const result = hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/tokenUsage/updated",params}]);
+  assert.deepEqual(plain(result.events),[{kind:"usage",threadId:ctx.threadId,usage:{input_tokens:100,output_tokens:20,cache_read_tokens:30,cost_micros:2000}}]);
+  assert.equal(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/tokenUsage/updated",params:{...params,threadId:"foreign"}}]).events.length,0);
+});
+
+console.log(`runtime usage regressions: ${count} checks passed`);

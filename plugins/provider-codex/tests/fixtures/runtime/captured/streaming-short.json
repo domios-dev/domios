@@ -206,6 +206,35 @@
     },
     {
       "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/rateLimits/read",
+          "params": {}
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "rateLimits": {
+            "limitId": "codex",
+            "primary": {
+              "usedPercent": 40,
+              "windowDurationMins": 10080,
+              "resetsAt": 1792472484
+            },
+            "secondary": null
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
       "operation": 1,
       "action": {
         "kind": "request",
@@ -15416,7 +15445,19 @@
           "events": [
             {
               "kind": "auth",
-              "state": "signedIn"
+              "state": "signedIn",
+              "billingMode": "subscription"
+            },
+            {
+              "kind": "rateLimits",
+              "rateLimits": [
+                {
+                  "window": "primary",
+                  "usedPercent": 40,
+                  "resetsAt": 1792472484000,
+                  "windowMinutes": 10080
+                }
+              ]
             }
           ]
         }
@@ -15452,7 +15493,19 @@
     "events": [
       {
         "kind": "auth",
-        "state": "signedIn"
+        "state": "signedIn",
+        "billingMode": "subscription"
+      },
+      {
+        "kind": "rateLimits",
+        "rateLimits": [
+          {
+            "window": "primary",
+            "usedPercent": 40,
+            "resetsAt": 1792472484000,
+            "windowMinutes": 10080
+          }
+        ]
       },
       {
         "kind": "turnState",

@@ -534,7 +534,14 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         let timeout = deadline.saturating_duration_since(Instant::now());
         let callback = self.payload_queued.clone();
         let trace = self.trace.clone();
+        self.svc.replace_switch_confirmation(self.pty_id, None);
+        let switch_confirmation = self
+            .svc
+            .prepare_switch_confirmation(self.pty_id, text, None);
         let on_enqueued = move || {
+            if let Some(confirmation) = switch_confirmation {
+                confirmation.start();
+            }
             if let Some(trace) = trace {
                 trace.written();
             }

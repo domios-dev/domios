@@ -262,6 +262,8 @@
         "/api/tabs/tab/chat-send/admissions"
       ]
     ],
+    "chat_send_dismissals": [["GET", "/api/tabs/tab/chat-send/dismissals"]],
+    "chat_send_delete": [["POST", "/api/tabs/tab/chat-send/dismissals"]],
     "chat_send_status": [
       [
         "GET",

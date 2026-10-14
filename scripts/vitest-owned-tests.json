@@ -158,6 +158,7 @@
   "src/components/Terminal/chatMountedWindow.test.ts",
   "src/components/Terminal/chatAnchorModel.test.ts",
   "src/components/Terminal/useMountedChatWindow.test.tsx",
+  "src/components/Terminal/useChatScroll.tail.test.tsx",
   "packages/chat-ui/src/highlightBudget.test.ts",
   "packages/chat-ui/src/ChatHighlightBudget.test.tsx",
   "src/lib/daemonBootstrap.test.ts",
@@ -206,5 +207,8 @@
   "src/lib/agentRuntimeQuestions.test.ts",
   "src/components/Terminal/RuntimeQuestionCard.test.tsx",
   "src/lib/modelSwitchFailure.test.ts",
-  "src/components/Terminal/RuntimeLoginActions.test.tsx"
+  "src/components/Terminal/RuntimeLoginActions.test.tsx",
+  "src/components/Terminal/chatTime.wiring.test.tsx",
+  "src/components/Terminal/ChatSendDelete.test.tsx",
+  "packages/chat-ui/src/MessageBubble.routing-tips.test.tsx"
 ]

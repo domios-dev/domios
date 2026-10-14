@@ -17,7 +17,7 @@ const builds = ["macos", "linux-arm64", "linux-x86_64", "windows"];
 const dependencies = job => [job.needs].flat();
 
 const fastJobs = ["plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
-const longJobs = ["rust-archives", "rust-shards", "rust-platform", "rust-coverage"];
+const longJobs = ["rust-archives", "rust-shards", "rust-platform", "rust-input-platform", "rust-coverage"];
 
 test("fast checks gate every build while Rust archives queue independently", () => {
   const gate = release.jobs["quick-checks"];

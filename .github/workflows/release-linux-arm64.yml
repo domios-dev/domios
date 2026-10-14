@@ -100,11 +100,16 @@ jobs:
           rm -rf "$ART"
           mkdir -p "$ART"
           git bundle create "$ART/source.bundle" HEAD
+          source scripts/cache-policy.sh
+          ct_sccache_storage
+          test "$CT_SCCACHE_STORAGE" = shared
+          docker run --rm --pull=never --platform linux/arm64 codeterm-build-linux-arm64 sccache --version
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- docker run --rm --pull=never --platform linux/arm64 \
             -v "$ART:/work" -v "$PWD/.codeterm/build-machine/scripts/build-linux.sh:/build-linux.sh:ro" \
             -e DOMIOS_FIREBASE_API_KEY -e DOMIOS_FIREBASE_PROJECT_ID -e DOMIOS_FIREBASE_APP_ID \
             -e DOMIOS_ACCOUNT_REDEEM_URL -e DOMIOS_BILLING_FUNCTIONS_URL \
             -e DOMIOS_AMPLITUDE_API_KEY_TEST -e DOMIOS_AMPLITUDE_API_KEY_PROD \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner \
             -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 \
             -e CARGO_TARGET_DIR=/src/src-tauri/target -e CODETERM_RELEASE_FEATURES=embeddings \
             codeterm-build-linux-arm64 bash /build-linux.sh source deb,appimage

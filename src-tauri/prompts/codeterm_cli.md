@@ -15,7 +15,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 - INTERACTIVE DISCOVERY STAYS HUMAN-READABLE. Use plain `codeterm tab list` for the complete local workspace → Team/Plan → Tab map, including empty workspaces, and preserve `(self)`; pass `--workspace <id>` when one workspace's scoped tree is intended. Inspect one selected tab with `codeterm tab inspect <id>`; add `--lifecycle` only for its journal telemetry. Never request whole-list JSON merely to orient yourself; it is an automation contract.
 - `codeterm tab release-ownership` frees a local tab from stale remote control.
 - TAB IDENTITY: a tab title is one word with no whitespace. Put activity prose in `description`, using `--description` when spawning an agent or `codeterm tab describe` for an existing tab.
-- ROUTING: Follow the host-supplied return hint (see `codeterm docs ROUTING`): agent senders use its command; shell senders get a reply in your own chat/output.
+- ROUTING: Follow the host-supplied return hint inside `<tip>…</tip>` (see `codeterm docs ROUTING`): agent senders use its command; shell senders get a reply in your own chat/output.
 - WORKSPACE INHERITANCE IS AUTOMATIC. `tab new`, `agent spawn`, and `cron create` land in YOUR workspace — the one that owns your tab — never in the workspace the user happens to have selected in the UI. Pass `--workspace <id>` only to place work in a different workspace on purpose.
 - UTILITY SHELL PURPOSE: `tab new --purpose build|dev|qa|deploy|logs|db|shell` labels the shell in the sidebar (default `shell`). Use build for builds, dev for servers, qa for checks, deploy for releases, logs for tails, db for database consoles. Purpose survives `tab restart` and desk restore. Running/idle and last exit come only from shell command marks; no evidence stays unknown.
 - LINUX TOOLING: when a task needs Linux tooling or reproduces a Linux-only failure, open a utility shell with `tab new --shell wsl:<distro>` (`tab new --list-shells` lists options); agents themselves run natively.
@@ -45,7 +45,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Servers, watchers | `tab new --purpose dev --cmd "..."`; replace it with `tab restart --tab ID --cmd "..."` | — |
 | Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
 | Becoming an Orchestrator | Tab menu Make Orchestrator, or `--role Orchestrator` | `docs ORCHESTRATION` |
-| Plans, specs, tasks | `plan --help`, `spec --help`, `task --help` | `docs PLAN-EDITING` |
+| Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; `plan lanes <plan> --clean` previews cleanup, `--confirm` executes, `--fetch` refreshes refs | `docs PLAN-EDITING` |
 | Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
 | Scheduled jobs (fresh agent per run) | `cron create --help`; a short meaningful name is required | `docs CONFIG` |
 | Watch CI, builds, files, agents and act | `blueprint recipe`, then `--dry-run` | `docs BLUEPRINTS` |

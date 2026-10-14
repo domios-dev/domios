@@ -95,7 +95,7 @@ test('Mac jobs provision secret material before building and always clean up', (
   for (const path of ['scripts/check-release-credentials-mac.sh', 'scripts/release-macos-x86_64.sh', '.agents/skills/github-release/scripts/build-mac.sh', '.agents/skills/github-release/scripts/pack-mac-updater.sh', '.agents/skills/github-release/scripts/notarize-dmg.sh']) {
     assert.doesNotMatch(read(path), /\.tauri\/codeterm\.key|login\.keychain|--password/);
   }
-  assert.match(read('scripts/check-release-credentials-mac.sh'), /find-identity -v -p codesigning "\$RELEASE_KEYCHAIN"/);
+  assert.match(read('scripts/check-release-credentials-mac.sh'), /release-signing-material\.py check-identity/);
   assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
 });
 
@@ -106,4 +106,42 @@ test('platform builds wait only for fast checks while Rust tests queue earlier',
   assert.equal(release.jobs.tests.needs, 'prepare');
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
+});
+
+
+test('native release processes share a job wrapper and verify before compiling', () => {
+  for (const name of ['release-macos-build', 'release-linux', 'release-windows']) {
+    const job = workflow(name).jobs.build;
+    assert.equal(job.env.RUSTC_WRAPPER, 'sccache');
+    const commands = job.steps.map(step => step.run || '');
+    const verify = commands.findIndex(command => /build\.(?:sh|ps1) cache-verify/.test(command));
+    const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-inputs/.test(command));
+    assert.ok(verify >= 0 && compile > verify, name);
+    const stats = job.steps.at(-1);
+    assert.equal(stats.if, 'always()');
+    assert.match(stats.run, /build\.(?:sh|ps1) cache-stats/);
+    if (name === 'release-windows') {
+      assert.equal(stats.shell, 'pwsh');
+      assert.ok(job.steps.every(step => step.shell !== 'bash'));
+    }
+  }
+});
+
+test('Windows archive invokes the owning build forwarder without a bash shell', () => {
+  const steps = Object.values(workflow('tests').jobs).flatMap(job => job.steps || []);
+  const archive = steps.find(step => step.run?.includes('build.ps1 ci-archives'));
+  assert.ok(archive);
+  assert.equal(archive.shell, 'pwsh');
+  assert.equal(archive.if, "runner.os == 'Windows'");
+  const unixArchive = steps.find(step => step.run === 'bash build.sh ci-archives');
+  assert.equal(unixArchive.if, "runner.os != 'Windows'");
+});
+
+test('Docker forwards credential names and captures its own server counters', () => {
+  const command = linuxArm64.jobs.build.steps.find(step => step.run?.includes('docker run --rm --pull=never --platform linux/arm64 \\')).run;
+  assert.match(command, /-e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY/);
+  assert.doesNotMatch(command, /-e AWS_ACCESS_KEY_ID=|--env-file/);
+  const script = readFileSync(new URL('../../.codeterm/build-machine/scripts/build-linux.sh', import.meta.url), 'utf8');
+  assert.match(script, /CODETERM_SCCACHE_VERIFY_ONLY=0 ct_configure_sccache/);
+  assert.match(script, /trap 'ct_sccache_stats' EXIT/);
 });

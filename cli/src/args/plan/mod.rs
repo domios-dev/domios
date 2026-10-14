@@ -90,6 +90,15 @@ pub enum PlanAction {
         /// Only show stale lanes (dead tab / report-overdue / uncleaned)
         #[arg(long)]
         stale: bool,
+        /// Preview cleanup of merged, clean, unoccupied terminal/review lanes
+        #[arg(long, conflicts_with = "stale")]
+        clean: bool,
+        /// Execute cleanup instead of previewing it
+        #[arg(long, requires = "clean")]
+        confirm: bool,
+        /// Fetch remote refs before assessing lanes (otherwise dry run is offline)
+        #[arg(long, requires = "clean")]
+        fetch: bool,
     },
     /// Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
     LaneRemove {

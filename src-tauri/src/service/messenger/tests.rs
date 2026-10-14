@@ -308,7 +308,7 @@ fn delivery_local_agent_recipient_gets_complete_frame() {
     );
     assert_eq!(
         p.as_deref(),
-        Some("<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" model=\"opus\">hello [to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]</domios>")
+        Some("<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" model=\"opus\">hello <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]</tip></domios>")
     );
 }
 
@@ -348,7 +348,7 @@ fn delivery_mesh_agent_recipient_gets_peer_qualified_frame() {
     );
     assert_eq!(
         p.as_deref(),
-        Some("<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\" model=\"sonnet\" mesh=\"BLACKSTAR\">hello [to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]</domios>")
+        Some("<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\" model=\"sonnet\" mesh=\"BLACKSTAR\">hello <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]</tip></domios>")
     );
 }
 
@@ -660,4 +660,20 @@ fn relay_metadata_preserves_sender_and_hop_count() {
     assert_eq!(parsed.attr("tab"), Some("abcdef12"));
     assert_eq!(parsed.attr("relay_hops"), Some("3"));
     assert_eq!(parsed.body, "opaque answer");
+}
+
+#[test]
+fn routed_hint_is_an_agent_only_tip_for_local_mesh_and_shell_senders() {
+    for messenger in [
+        Messenger::message("Sender", "abc12345"),
+        Messenger::message("Sender", "abc12345").mesh(Some("peer".into())),
+        Messenger::message("Sender", "abc12345").from_agent(Some(false)),
+    ] {
+        let frame = messenger.routed_frame("opaque body");
+        let hint = messenger.reply_hint().unwrap();
+        assert_eq!(frame.suffix, format!(" <tip>{hint}</tip>"));
+        let parsed = codeterm_types::domios::parse_message(&frame.to_message()).unwrap();
+        assert_eq!(parsed.body, frame.body);
+        assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
+    }
 }

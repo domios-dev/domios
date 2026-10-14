@@ -41,6 +41,16 @@ const normal = parseMarker('<domios from="tab" label="clean" tab="abc12345">ok</
 eq(normal?.kind, "tab", "parseMarker keeps no-leading-space case");
 eq(normal?.payload, "ok", "parseMarker keeps payload unchanged");
 
+for (const attrs of ['from="system" context="assigned-task"', 'from=system context=assigned-task']) {
+  const parsed = parseMarker(`<domios ${attrs}>opaque body</domios>`);
+  eq(parsed?.kind, "system", "starter frame projects sender header");
+  eq(parsed?.attrs.context, "assigned-task", "starter frame retains context");
+  eq(parsed?.payload, "opaque body", "starter frame hides envelope tags");
+}
+for (const attrs of ['from=', 'from=system context=two words', 'from=system from=tab']) {
+  eq(parseDomiosMessage(`<domios ${attrs}>opaque body</domios>`), null, "malformed attributes stay content");
+}
+
 const bracketedPaste = parseMarker(
   '\x1b[200~<domios from="tab" label="main" tab="bda0e267">hello</domios>\x1b[201~',
 );

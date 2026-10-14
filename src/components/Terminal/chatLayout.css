@@ -2,12 +2,22 @@
   min-width: 0;
 }
 .ct-chat-surface {
-  padding-left: 5.5rem;
+  padding-left: var(--ct-chat-content-inset, 1.25rem);
+  padding-right: var(--ct-chat-composer-inset, 1.25rem);
   overflow-x: hidden;
+  overflow-y: auto;
   overflow-wrap: anywhere;
 }
+.ct-chat-surface .ct-chat-message-row { max-width: none; }
+.ct-chat-surface .ct-chat-message-time--left { right: calc(100% + 8px); }
+.ct-chat-time-measure { visibility: hidden; width: max-content; }
+.ct-chat-surface[data-time-gutter="false"] .ct-chat-message-time { display: none; }
 :where(.ct-chat-surface) :where(div, pre, blockquote, button, a, figure, details, header) {
   min-width: 0;
+}
+/* Nested message scrollports must hand vertical movement back to the transcript at their edges. */
+.ct-chat-surface * {
+  overscroll-behavior-y: auto !important;
 }
 .ct-chat-surface :is(.ct-user-bubble, .ct-card__body, .ct-chat-message-row--agent .ct-chat-message-column > div, [data-testid="chat-tool-inline"]) {
   overflow-x: auto;

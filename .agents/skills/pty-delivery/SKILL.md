@@ -94,9 +94,10 @@ Claimed or uncertain records remain held and are never replayed.
 
 - The serialized states are `held`, `written`, `submit_unconfirmed`, `delivered`,
   and `failed`. Transport uncertainty is `submit_unconfirmed` with no user-facing
-  error. A user send resolves to `failed` only when its queued, never-written
-  launch has ended. Programmatic sends may also fail on a proven pre-write
-  refusal.
+  error. A queued, never-written user send resolves to `failed` when its launch
+  ends or reports degradation before first readiness. Persist queue removal before
+  publishing Retry; late readiness cannot replay that settled original.
+  Programmatic sends may also fail on a proven pre-write refusal.
 - `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
@@ -143,7 +144,10 @@ Claimed or uncertain records remain held and are never replayed.
   unconfirmed input, queued while held, normal when delivered, and a quiet
   not-delivered mark with Retry for proven refusal or failed never-written input.
   Retry reuses the bubble with a fresh correlation token and transaction; it never
-  replays uncertain or written input. Provider echoes reconcile into that bubble.
+  replays uncertain or written input. Delete cancels queued input under the same durable
+  lock as claim; a claimed send can only be dismissed. Durable dismissal receipts
+  hide the bubble across restart and later evidence without replay. Delivered
+  bubbles have no Delete. Provider echoes reconcile into that bubble.
 
 ## Hard don'ts
 
@@ -169,4 +173,4 @@ Claimed or uncertain records remain held and are never replayed.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -164,3 +164,110 @@ fn a_worker_and_a_draft_planner_are_refused() {
     let params = caller(&owner, LIVE_SESSION, NONCE);
     assert!(authorized_orchestrator_actor(&fixture.service, &plan.id, Some(&params)).is_ok());
 }
+
+#[test]
+fn acceptance_removes_only_the_assigned_workers_completion_watches() {
+    use tauri::Manager;
+    let (fixture, plan_id, owner) = fixture(Some(LIVE_SESSION), true);
+    let workspace = fixture
+        .service
+        .mux
+        .read()
+        .find_workspace_for_tab(&owner)
+        .unwrap();
+    let team = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&owner)
+        .unwrap()
+        .team_id
+        .clone();
+    let worker = {
+        let mut mux = fixture.service.mux.write();
+        let worker = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&worker).unwrap();
+        tab.team_id = team;
+        tab.cwd = Some(fixture.temp.path().display().to_string());
+        mux.get_tab_mut(&owner).unwrap().cwd = Some(fixture.temp.path().display().to_string());
+        worker
+    };
+    let handle = crate::sentinel::scheduler::fixture_handle(
+        crate::sentinel::store::Store::new(
+            fixture.temp.path().join("sentinels.json"),
+            crate::cron::clock::MockClock::starting_at(1000),
+        ),
+        fixture.service.app_handle.clone(),
+    );
+    fixture.service.app_handle.manage(handle.clone());
+    let creator = fixture.service.sentinel_caller(&worker, None).unwrap();
+    let create = |until: Option<&str>| {
+        serde_json::from_value(json!({
+            "name":"completion-watch", "probe":"status", "question":"Ready?", "buckets":["done"],
+            "every":"10s", "matches":{"done":"done"}, "until":until
+        }))
+        .unwrap()
+    };
+    let completion = fixture
+        .service
+        .sentinel_create(&creator, create(Some("done")))
+        .unwrap();
+    let recurring = fixture
+        .service
+        .sentinel_create(&creator, create(None))
+        .unwrap();
+    let owner_caller = fixture
+        .service
+        .sentinel_caller(&owner, Some(NONCE))
+        .unwrap();
+    assert_eq!(
+        fixture.service.sentinel_list(&owner_caller).unwrap().len(),
+        2
+    );
+    let store = &fixture.service.plan_store;
+    let task_id = store
+        .add_task(
+            &plan_id,
+            crate::service::plan::NewTask {
+                name: "watch result".into(),
+                acceptance_criteria: vec!["complete".into()],
+                test_plan: Some("verify persisted result".into()),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&plan_id, &task_id, &worker, None, 3)
+        .unwrap();
+    let mut plan = store.get(&plan_id).unwrap();
+    plan.tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .status = crate::plan::TaskStatus::InReview;
+    store.save(&mut plan, 4).unwrap();
+    let params = Some(
+        json!({"plan_id":plan_id,"task_id":task_id,"note":"verified",
+        "caller_tab_id":owner,"session_id":LIVE_SESSION,"session_binding_nonce":NONCE}),
+    );
+    let svc = std::sync::Arc::new(fixture.service.clone());
+    super::dispatch(
+        "plan.review.accept",
+        &params,
+        &fixture.service.app_handle,
+        &svc,
+    )
+    .unwrap();
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status,
+        crate::plan::TaskStatus::Done
+    );
+    assert!(handle.store.lock().get(&completion.id).is_none());
+    assert!(handle.store.lock().get(&recurring.id).is_some());
+    let persisted: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixture.temp.path().join("sentinels.json")).unwrap())
+            .unwrap();
+    assert_eq!(persisted.as_array().unwrap().len(), 1);
+    assert_eq!(persisted[0]["id"], recurring.id);
+}

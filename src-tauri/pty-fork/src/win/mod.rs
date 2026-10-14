@@ -3,11 +3,9 @@ use anyhow::Context as _;
 use std::io::{Error as IoError, Result as IoResult};
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use winapi::shared::minwindef::DWORD;
-use winapi::um::jobapi2::TerminateJobObject;
 use winapi::um::processthreadsapi::*;
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
@@ -23,7 +21,7 @@ use filedescriptor::OwnedHandle;
 pub struct WinChild {
     proc: Mutex<OwnedHandle>,
     job: OwnedHandle,
-    tree_termination_requested: Arc<AtomicBool>,
+    termination: Arc<job_exit::Termination>,
 }
 
 impl WinChild {
@@ -31,7 +29,7 @@ impl WinChild {
         Self {
             proc: Mutex::new(proc),
             job,
-            tree_termination_requested: Arc::new(AtomicBool::new(false)),
+            termination: Arc::new(job_exit::Termination::default()),
         }
     }
 
@@ -47,9 +45,7 @@ impl WinChild {
             winapi::shared::winerror::WAIT_TIMEOUT => return Ok(None),
             _ => return Err(IoError::last_os_error()),
         }
-        if self.tree_termination_requested.load(Ordering::Acquire)
-            && !job_exit::is_empty(&self.job)?
-        {
+        if !self.termination.is_complete(&self.job)? {
             return Ok(None);
         }
         let mut status: DWORD = 0;
@@ -60,17 +56,7 @@ impl WinChild {
     }
 
     fn do_kill(&mut self) -> IoResult<()> {
-        let res = unsafe { TerminateJobObject(self.job.as_raw_handle() as _, 1) };
-        let err = IoError::last_os_error();
-        if res != 0 {
-            self.tree_termination_requested
-                .store(true, Ordering::Release);
-            Ok(())
-        } else {
-            let proc = self.proc.lock().unwrap().try_clone().unwrap();
-            unsafe { TerminateProcess(proc.as_raw_handle() as _, 1) };
-            Err(err)
-        }
+        self.termination.kill(&self.job, &self.proc.lock().unwrap())
     }
 }
 
@@ -85,7 +71,7 @@ impl ChildKiller for WinChild {
         Box::new(WinChildKiller {
             proc,
             job,
-            tree_termination_requested: self.tree_termination_requested.clone(),
+            termination: self.termination.clone(),
         })
     }
 }
@@ -94,21 +80,12 @@ impl ChildKiller for WinChild {
 pub struct WinChildKiller {
     proc: OwnedHandle,
     job: OwnedHandle,
-    tree_termination_requested: Arc<AtomicBool>,
+    termination: Arc<job_exit::Termination>,
 }
 
 impl ChildKiller for WinChildKiller {
     fn kill(&mut self) -> IoResult<()> {
-        let res = unsafe { TerminateJobObject(self.job.as_raw_handle() as _, 1) };
-        let err = IoError::last_os_error();
-        if res != 0 {
-            self.tree_termination_requested
-                .store(true, Ordering::Release);
-            Ok(())
-        } else {
-            unsafe { TerminateProcess(self.proc.as_raw_handle() as _, 1) };
-            Err(err)
-        }
+        self.termination.kill(&self.job, &self.proc)
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
@@ -117,7 +94,7 @@ impl ChildKiller for WinChildKiller {
         Box::new(WinChildKiller {
             proc,
             job,
-            tree_termination_requested: self.tree_termination_requested.clone(),
+            termination: self.termination.clone(),
         })
     }
 }
@@ -151,10 +128,8 @@ impl Child for WinChild {
             if WaitForSingleObject(proc.as_raw_handle() as _, INFINITE) != WAIT_OBJECT_0 {
                 return Err(IoError::last_os_error());
             }
-            if self.tree_termination_requested.load(Ordering::Acquire) {
-                job_exit::wait(&self.job)?;
-            }
         }
+        self.termination.wait(&self.job)?;
         let mut status: DWORD = 0;
         let res = unsafe { GetExitCodeProcess(proc.as_raw_handle() as _, &mut status) };
         if res != 0 {
@@ -192,7 +167,7 @@ impl std::future::Future for WinChild {
 
                 let owned = self.proc.lock().unwrap().try_clone()?;
                 let job = self.job.try_clone()?;
-                let tree_termination_requested = self.tree_termination_requested.clone();
+                let termination = self.termination.clone();
                 let handle = WaiterHandle(owned.as_raw_handle(), owned);
 
                 let waker = cx.waker().clone();
@@ -200,9 +175,7 @@ impl std::future::Future for WinChild {
                     unsafe {
                         WaitForSingleObject(handle.0 as _, INFINITE);
                     }
-                    if tree_termination_requested.load(Ordering::Acquire) {
-                        let _ = job_exit::wait(&job);
-                    }
+                    let _ = termination.wait(&job);
                     drop(handle.1);
                     waker.wake();
                 });

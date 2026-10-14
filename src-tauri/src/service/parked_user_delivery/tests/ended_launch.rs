@@ -339,3 +339,43 @@ fn previous_launch_never_written_head_is_settled_before_restored_send_flushes() 
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn degraded_stage_wakes_held_owner_and_late_ready_does_not_replay() {
+    let (fixture, tab) = queue_fixture(true, None);
+    let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "degraded-first");
+    let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "degraded-second");
+    fixture.service.emit_boot_stage(
+        &tab,
+        codeterm_types::pty::BootStage::SpawnFailed,
+        Some("injected launch failure"),
+    );
+    await_owner_idle(&fixture, &tab);
+    for accepted in [&first, &second] {
+        let status = fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap();
+        assert_eq!(status.state, ChatSendState::Failed);
+        assert_eq!(
+            status.error.as_deref(),
+            Some("launch_degraded_before_write")
+        );
+    }
+    let writes = Arc::new(AtomicUsize::new(0));
+    let count = writes.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }),
+    );
+    mark_ready(&fixture, &tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
+    assert!(reopened.queued(&tab).unwrap().is_empty());
+    assert_eq!(reopened.receipts(&tab).unwrap().len(), 2);
+}

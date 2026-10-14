@@ -40,11 +40,16 @@ impl JsProvider {
         let ctx = ctx.clone();
         let op = op.clone();
         let state = state.clone();
-        let reply = reply.clone();
+        let mut reply = reply.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
         tokio::task::spawn_blocking(move || {
             validate_runtime_operation(&ctx, &op)?;
             validate_runtime_state(&state)?;
+            if matches!(op, RuntimeOperation::ReadHistory { .. }) {
+                if let RpcReply::Success { value } = &mut reply {
+                    sanitize_history_input(value);
+                }
+            }
             validate_runtime_reply(&reply)?;
             let step = super::super::vm::call_runtime_hook(
                 &vm,

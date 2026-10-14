@@ -322,6 +322,7 @@ export interface AgentProvider {
   updatePromptSafeChoice?(prompt: ParsedPrompt): string | null;
   updatePromptAvailability?(screen: string): { currentVersion: string; latestVersion: string } | null;
   parsePrompt?(text: string): ParsedPrompt | null;
+  parseSwitchConfirmationPrompt?(screen: string, selection: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
   /** Further usage logs owned by this exact session file (e.g. sub-agent transcripts beside it). */

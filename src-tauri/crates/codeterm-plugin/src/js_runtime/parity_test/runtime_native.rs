@@ -156,10 +156,27 @@ impl AgentProvider for NativeRuntime {
                     },
                     _ => RuntimeResult::Done,
                 };
-                RuntimeStep::Complete {
-                    result,
-                    events: None,
-                    notification: None,
+                if value["more"] == true && matches!(op, RuntimeOperation::ReadHistory { .. }) {
+                    RuntimeStep::Continue {
+                        history: Some(result),
+                        plan: RuntimePlan {
+                            action: RuntimeAction::Request {
+                                call: RpcCall {
+                                    method: op.kind().into(),
+                                    params: json!(op),
+                                    target: None,
+                                },
+                            },
+                            state: Value::Null,
+                        },
+                        before_acceptance: false,
+                    }
+                } else {
+                    RuntimeStep::Complete {
+                        result,
+                        events: None,
+                        notification: None,
+                    }
                 }
             }
         };
@@ -186,6 +203,12 @@ impl AgentProvider for NativeRuntime {
                 RuntimeFrame::Request { params, .. }
                 | RuntimeFrame::Notification { params, .. } => params,
             };
+            if let Some(event) = params.get("usageEvent") {
+                events.push(serde_json::from_value(event.clone()).map_err(|error| {
+                    RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, error.to_string())
+                })?);
+                continue;
+            }
             let item: ChatMsg = serde_json::from_value(params.clone()).map_err(|e| {
                 RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, e.to_string())
             })?;

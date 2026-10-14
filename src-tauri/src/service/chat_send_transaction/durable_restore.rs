@@ -126,12 +126,19 @@ impl ChatSendLedger {
                 .owned
                 .get(&receipt.send_id)
                 .is_some_and(|(_, active)| *active);
-            if receipt_ends_held_status(&current.state, active, receipt.state) {
+            if current.state == ChatSendState::Written && receipt.state == ReceiptState::Uncertain {
+                if let Some(status) = state.by_id.get_mut(&receipt.send_id) {
+                    status.state = ChatSendState::Unknown;
+                    status.error = None;
+                    status.pending_reason = None;
+                }
+                state.written_deadlines.remove(&receipt.send_id);
+            } else if receipt_ends_held_status(&current.state, active, receipt.state) {
                 let Some(status) = state.by_id.get_mut(&receipt.send_id) else {
                     return;
                 };
                 status.state = ChatSendState::Failed;
-                status.error = Some("launch_ended_before_write".into());
+                status.error = Some(receipt_failure_reason(receipt.state).into());
                 status.pending_reason = None;
                 state.owned.remove(&receipt.send_id);
                 state.held_before_readiness_by_id.remove(&receipt.send_id);
@@ -143,9 +150,9 @@ impl ChatSendLedger {
             return;
         }
         let (send_state, error) = match receipt.state {
-            ReceiptState::Failed => (
+            ReceiptState::Failed | ReceiptState::Degraded => (
                 ChatSendState::Failed,
-                Some("launch_ended_before_write".into()),
+                Some(receipt_failure_reason(receipt.state).into()),
             ),
             ReceiptState::Uncertain => (ChatSendState::Unknown, None),
             ReceiptState::Delivered => (ChatSendState::Sent, None),
@@ -192,8 +199,17 @@ impl ChatSendLedger {
     }
 }
 
+fn receipt_failure_reason(receipt: ReceiptState) -> &'static str {
+    match receipt {
+        ReceiptState::Degraded => "launch_degraded_before_write",
+        _ => "launch_ended_before_write",
+    }
+}
+
 fn receipt_ends_held_status(current: &ChatSendState, active: bool, receipt: ReceiptState) -> bool {
-    *current == ChatSendState::Pending && !active && receipt == ReceiptState::Failed
+    *current == ChatSendState::Pending
+        && !active
+        && matches!(receipt, ReceiptState::Failed | ReceiptState::Degraded)
 }
 
 #[cfg(test)]

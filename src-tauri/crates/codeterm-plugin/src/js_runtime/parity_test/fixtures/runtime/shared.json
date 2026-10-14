@@ -448,6 +448,66 @@
         },
         "state": null
       }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "readHistory",
+        "threadId": "thread-a"
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "items": [],
+          "more": true
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "readHistory",
+            "params": {
+              "kind": "readHistory",
+              "threadId": "thread-a"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "continue",
+        "plan": {
+          "action": {
+            "kind": "request",
+            "call": {
+              "method": "readHistory",
+              "params": {
+                "kind": "readHistory",
+                "threadId": "thread-a"
+              }
+            }
+          },
+          "state": null
+        },
+        "history": {
+          "kind": "historyPage",
+          "threadId": "thread-a",
+          "items": [],
+          "openItems": []
+        },
+        "beforeAcceptance": false
+      }
     }
   ],
   "reductions": [
@@ -509,6 +569,55 @@
               "type": "assistant",
               "content": "second",
               "seq": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "threadId": "thread-a",
+        "settings": {},
+        "providerSettings": {}
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "usage",
+              "threadId": "thread-a",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "cache_read_tokens": 30,
+                "cost_micros": 20000
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 1
+        },
+        "events": [
+          {
+            "kind": "usage",
+            "threadId": "thread-a",
+            "usage": {
+              "input_tokens": 100,
+              "output_tokens": 20,
+              "cache_read_tokens": 30,
+              "cost_micros": 20000
             }
           }
         ]

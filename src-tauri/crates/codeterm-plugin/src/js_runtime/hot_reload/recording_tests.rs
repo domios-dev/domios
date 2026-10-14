@@ -1,8 +1,7 @@
 use super::tests::{set_mtime, test_caps, write, TestRegistrar};
 use super::*;
-use crate::local_recording::{
-    LocalInputSubscription, LocalRecordingTrigger, SelectedDevices, SubscriptionTeardown,
-};
+use crate::local_recording::{LocalInputSubscription, SelectedDevices, SubscriptionTeardown};
+use codeterm_types::local_recording::LocalRecordingTrigger;
 use std::sync::atomic::Ordering;
 
 fn manifest(id: &str) -> String {
