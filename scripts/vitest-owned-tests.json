@@ -158,6 +158,7 @@
   "src/components/Terminal/chatMountedWindow.test.ts",
   "src/components/Terminal/chatAnchorModel.test.ts",
   "src/components/Terminal/useMountedChatWindow.test.tsx",
+  "src/components/Terminal/useChatScroll.tail.test.tsx",
   "packages/chat-ui/src/highlightBudget.test.ts",
   "packages/chat-ui/src/ChatHighlightBudget.test.tsx",
   "src/lib/daemonBootstrap.test.ts",

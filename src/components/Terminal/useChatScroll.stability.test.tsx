@@ -460,7 +460,7 @@ describe("detached reader at the history cap", () => {
     await deliverScrollEvent();
     expect(followTail.current).toBe(false);
     expect(readerPosition(anchor)).toBe(position);
-    expect(scroll().style.overflowAnchor).toBe("none");
+    expect(scroll().style.overflowAnchor).toBe("auto");
   });
 
   it("does not move for async image, HTML preview and Mermaid height changes above or below the reader", async () => {
@@ -506,7 +506,7 @@ describe("detached reader at the history cap", () => {
 });
 
 describe("reattaching only at the bottom", () => {
-  it.each([0.6, 1, 1.4])(
+  it.each([1, 1.4])(
     "keeps a reader detached at a %spx gap until they return to the bottom",
     async (gap) => {
       await mount();

@@ -24,8 +24,7 @@ import {
   type ChatContentAnchor,
 } from "./chatScrollAnchor";
 
-import { chatLayoutScrollTarget, chatScrollWriteTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
-import { useChatPaintRepair } from "./useChatPaintRepair";
+import { chatLayoutScrollTarget, chatOverflowAnchor, chatScrollWriteTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatRevealIndex } from "./chatAnchorModel";
 import { useChatScrollGesture } from "./useChatScrollGesture";
@@ -156,7 +155,7 @@ export function useChatScroll({
   const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
     const changed = modeRef.current !== mode;
     modeRef.current = mode;
-    if (el.style.overflowAnchor !== "none") el.style.overflowAnchor = "none";
+    if (el.style.overflowAnchor !== chatOverflowAnchor(mode)) el.style.overflowAnchor = chatOverflowAnchor(mode);
     contentAnchorRef.current = mode === "detached" ? captureChatContentAnchor(el) : null;
     if (followTailRef) followTailRef.current = mode === "pinned";
     if (changed) {
@@ -247,8 +246,6 @@ export function useChatScroll({
     updateScrollDown(el);
   }, [active, loading, holdContentAnchor, persist, recordGestureScroll, setMode, updateScrollDown, userScrollingRef, writeScrollTop]);
 
-  useChatPaintRepair(scrollRef, active && !loading, sessionKey, handleContentLayout);
-
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
     if (!el) return false;
@@ -276,12 +273,12 @@ export function useChatScroll({
     }
     for (const child of children) {
       if (observed.has(child)) continue;
-      observer.observe(child);
+      observer.observe(child, { box: "border-box" });
       observed.add(child);
     }
   }, []);
 
-  // Content boxes are observed too: async image, iframe and diagram growth never re-renders the list.
+  // Geometry outside React commits reaches the writer only here: scroller box, content border box (insets) and rows.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || !active || typeof ResizeObserver === "undefined") return;
@@ -310,7 +307,7 @@ export function useChatScroll({
     const el = scrollRef.current;
     if (!active) { restoredKeyRef.current = ""; return; }
     if (!el || el.clientHeight === 0 || loading || messageCount === 0 || userScrollingRef.current) return;
-    if (el.style.overflowAnchor !== "none") el.style.overflowAnchor = "none";
+    if (el.style.overflowAnchor !== chatOverflowAnchor(modeRef.current)) el.style.overflowAnchor = chatOverflowAnchor(modeRef.current);
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {
       restoredKeyRef.current = sessionKey;
