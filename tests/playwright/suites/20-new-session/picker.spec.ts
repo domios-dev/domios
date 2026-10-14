@@ -168,6 +168,8 @@ async function clickOption(page: Page, testId: string, value: string): Promise<v
  * it instead of assuming the default provider happens to be installed here.
  */
 async function settleOnUsableModel(page: Page, providerTestId: string, modelTestId: string): Promise<void> {
+  // The provider catalogue (list_agent_providers) lands after mount; an empty value means not loaded yet.
+  await expect(dropdown(page, providerTestId), `${providerTestId} preselects a provider`).not.toHaveAttribute("data-value", "", { timeout: 15_000 });
   const tried = new Set<string>();
   await expect
     .poll(
@@ -459,6 +461,8 @@ test.describe("new-session picker", () => {
     // The old spec CLICKED the pair card here, which masked whether pair is the
     // unpersisted default at all. defaultNewSessionChoice returns mode "pair".
     await expect(page.locator('[data-testid="picker-mode-orchestration"]')).toHaveAttribute("data-selected", "true");
+    // After the reload the provider catalogue resolves asynchronously; wait for it before reading.
+    await expect(dropdown(page, "picker-provider-orchestrator"), "an unpersisted picker must preselect a provider").not.toHaveAttribute("data-value", "", { timeout: 15_000 });
 
     const orchProvider = await dropdown(page, "picker-provider-orchestrator").getAttribute("data-value");
     const plannerProvider = await dropdown(page, "picker-provider-planner").getAttribute("data-value");
