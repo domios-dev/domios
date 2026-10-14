@@ -47,11 +47,12 @@ export function stampToolLifecycle(row: RuntimeItem, previous: RuntimeItem | und
   const raw = params.item as Record<string,unknown> | undefined;
   const suppliedStart = params.startedAtMs;
   const suppliedEnd = params.completedAtMs;
-  row.toolStartedAtMs = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : undefined);
+  const started = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : undefined);
+  if (started === undefined) delete row.toolStartedAtMs; else row.toolStartedAtMs = started;
   row.toolStatus = previous?.toolStatus ?? "running";
   if (method === "item/completed") {
     row.toolStatus = raw?.status === "interrupted" ? "interrupted" : row.toolError ? "failed" : "completed";
-    row.toolCompletedAtMs = typeof suppliedEnd === "number" ? suppliedEnd : undefined;
+    if (typeof suppliedEnd === "number") row.toolCompletedAtMs = suppliedEnd; else delete row.toolCompletedAtMs;
   }
   return row;
 }

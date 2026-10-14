@@ -804,11 +804,14 @@ function stampToolLifecycle(row2, previous, method, params) {
   const raw = params.item;
   const suppliedStart = params.startedAtMs;
   const suppliedEnd = params.completedAtMs;
-  row2.toolStartedAtMs = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : void 0);
+  const started = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : void 0);
+  if (started === void 0) delete row2.toolStartedAtMs;
+  else row2.toolStartedAtMs = started;
   row2.toolStatus = previous?.toolStatus ?? "running";
   if (method === "item/completed") {
     row2.toolStatus = raw?.status === "interrupted" ? "interrupted" : row2.toolError ? "failed" : "completed";
-    row2.toolCompletedAtMs = typeof suppliedEnd === "number" ? suppliedEnd : void 0;
+    if (typeof suppliedEnd === "number") row2.toolCompletedAtMs = suppliedEnd;
+    else delete row2.toolCompletedAtMs;
   }
   return row2;
 }
