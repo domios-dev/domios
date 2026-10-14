@@ -1863,6 +1863,9 @@ CodeTerm build commands
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
   check-queue [sha]           Warm incremental cargo check (all targets) of a lane SHA in the per-machine check worktree
+  runner-pause MACHINE        Park MACHINE-* GitHub runners (labels -> paused; unique labels lent to a same-OS runner)
+  runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
+  runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
@@ -2018,6 +2021,15 @@ EOF
     ;;
   check-queue)
     check_queue_run "${@:2}"
+    ;;
+  runner-pause)
+    node scripts/runner-toggle.mjs pause "${2:?runner-pause requires a machine, e.g. BLACKSTAR}"
+    ;;
+  runner-resume)
+    node scripts/runner-toggle.mjs resume "${2:?runner-resume requires a machine, e.g. BLACKSTAR}"
+    ;;
+  runner-status)
+    node scripts/runner-toggle.mjs status
     ;;
   check-queue-probe)
     case "${2:-}" in
