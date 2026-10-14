@@ -172,6 +172,9 @@ pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &crate::app_runtime::
 }
 
 pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::Storage) {
+    let _ = super::command::START_TRACE.set(|id| {
+        crate::flow_trace::record(id, "blueprint.started", "", "", "command", None);
+    });
     let mut handle = Handle {
         store: Arc::new(Mutex::new(Store::with_storage(storage, clock))),
         inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),
@@ -535,7 +538,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             Path::new(&lease.job.cwd),
             remaining,
             &handle.probe_owner,
-            &probe::environment::Environment::current_instance(svc.configuration().api),
+            &super::probe_env::current_instance(svc.configuration().api),
         )
     };
     let output = resolve_probe_result(
