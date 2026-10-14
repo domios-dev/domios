@@ -163,8 +163,16 @@
           },
           "toolArgs": "python check.py",
           "collapsed": true,
-          "toolFlowId": "turn-a"
+          "toolFlowId": "turn-a",
+          "toolStatus": "running"
         }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working",
+        "statusLine": "Running python check.py"
       },
       {
         "kind": "chatItem",
@@ -190,8 +198,16 @@
           "collapsed": true,
           "toolFlowId": "turn-a",
           "toolResult": "Stopped",
-          "toolInterrupted": true
+          "toolInterrupted": true,
+          "toolStatus": "interrupted"
         }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working",
+        "statusLine": ""
       },
       {
         "kind": "turnState",
