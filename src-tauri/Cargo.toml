@@ -50,6 +50,7 @@ dev-updater-allowlocal = ["codeterm-service-core/dev-updater-allowlocal"]
 fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 
 [dev-dependencies]
+codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false, features = ["test-support"] }
 vt100 = "0.16"
 
 [build-dependencies]

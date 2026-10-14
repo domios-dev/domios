@@ -208,8 +208,8 @@ pub(crate) use task_lane_guard::{
 pub(crate) use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
 mod persistence_roundtrip_tests;
-#[cfg(test)]
-pub(crate) mod test_fixture;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 #[cfg(test)]
 mod tests;
 pub mod tokens;
@@ -309,7 +309,7 @@ pub(crate) use extensions::Extensions;
 #[derive(Clone)]
 pub struct ServiceContext {
     pub(crate) lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub mux: MuxState,
