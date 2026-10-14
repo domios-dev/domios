@@ -1086,7 +1086,7 @@ impl ServiceContext {
 /// A chat backend has no interactive turn to paste a task into, so the launch
 /// brief has to travel in its session config instead. Keyed off the same
 /// spawnable predicate the routing seam uses, so the two cannot disagree.
-pub(crate) fn move_chatbackend_task_to_system_prompt(
+pub fn move_chatbackend_task_to_system_prompt(
     chatbackends: &crate::chatbackend::ChatBackendRegistry,
     agent: &str,
     params: &mut SpawnAgentParams,

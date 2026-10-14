@@ -13,7 +13,7 @@ fn resolved_worker_launch_effort(
     identity.resolved.clone()
 }
 
-pub(crate) fn planned_task_title(task: &Task) -> Option<String> {
+pub fn planned_task_title(task: &Task) -> Option<String> {
     crate::service::plan::worker_identity::task_executor_name(task)
         .ok()
         .flatten()

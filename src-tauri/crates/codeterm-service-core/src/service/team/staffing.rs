@@ -35,9 +35,9 @@ impl TeamCartographerAttachLocks {
 
 pub(crate) type TeamOrchestratorAttachLocks = TeamCartographerAttachLocks;
 
-pub(crate) struct CartographerAttachLocks(pub(crate) TeamCartographerAttachLocks);
+pub struct CartographerAttachLocks(pub(crate) TeamCartographerAttachLocks);
 
-pub(crate) struct OrchestratorAttachLocks(pub(crate) TeamOrchestratorAttachLocks);
+pub struct OrchestratorAttachLocks(pub(crate) TeamOrchestratorAttachLocks);
 
 /// Every refusal leaves the same trace: the Team, the role that was asked for,
 /// the code, and the cause behind it.
@@ -48,7 +48,7 @@ fn refuse(team_id: &str, role: &str, code: &'static str, cause: impl Into<String
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AddTeamMemberParams {
+pub struct AddTeamMemberParams {
     pub provider: String,
     pub role: String,
     pub title: Option<String>,
@@ -105,7 +105,7 @@ pub(crate) struct PlanTakeover {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct AddTeamMemberResult {
+pub struct AddTeamMemberResult {
     pub tab_id: String,
     pub team: Team,
     pub role_type: String,

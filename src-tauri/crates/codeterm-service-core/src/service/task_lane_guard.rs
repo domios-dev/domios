@@ -9,12 +9,12 @@ use super::ServiceContext;
 use crate::plan::{ExecutionIntent, Plan, Task, WorkerPlacement};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum UnsafeMutatingLane {
+pub enum UnsafeMutatingLane {
     Canonical { canonical: String },
     ForeignLane { worktree: String, owner: String },
 }
 
-pub(crate) fn canonical_path_of(plan: &Plan) -> &str {
+pub fn canonical_path_of(plan: &Plan) -> &str {
     if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.as_str()
     } else {
@@ -40,7 +40,7 @@ fn foreign_lane_owner<'a>(plan: &'a Plan, task_id: &str, worktree: &str) -> Opti
 }
 
 /// `None` means the checkout is this task's own isolated lane.
-pub(crate) fn classify_mutating_lane(
+pub fn classify_mutating_lane(
     plan: &Plan,
     task_id: &str,
     resolved_worktree: &str,
@@ -91,7 +91,7 @@ fn dispatch_remedy(plan_id: &str, task_id: &str) -> String {
 
 /// Hard stop for a task-bound mutating spawn, decided from values alone so the
 /// same verdict is reachable without a live service.
-pub(crate) fn refuse_unsafe_task_bound_mutating_lane(
+pub fn refuse_unsafe_task_bound_mutating_lane(
     plan: &Plan,
     task: &Task,
     intent: Option<&ExecutionIntent>,

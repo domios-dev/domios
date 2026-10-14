@@ -3,7 +3,7 @@ use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
-pub(crate) fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
+pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
     if role.is_none() {
         crate::agent::provider::StarterPrompt::NoStarter
     } else {
