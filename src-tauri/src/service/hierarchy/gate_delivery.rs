@@ -92,3 +92,4 @@ pub(super) fn planner_owner_for_gate<'a>(
         .then_some(plan.owner.tab_id.as_deref())
         .flatten()
 }
+const _SPLIT_METRIC_PROBE: u8 = 0;

@@ -116,3 +116,4 @@ impl ServiceContext {
         self.restart_live_agent(snap, force, grace_secs, None, RestartMode::Standard)
     }
 }
+const _SPLIT_METRIC_PROBE: u8 = 0;
