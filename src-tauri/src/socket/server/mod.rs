@@ -113,13 +113,7 @@ struct JsonRpcResponse {
     after_response: Option<PostResponseAction>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct JsonRpcError {
-    pub(crate) code: i32,
-    pub(crate) message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<serde_json::Value>,
-}
+pub(crate) use crate::rpc_bridge::RpcError as JsonRpcError;
 
 impl JsonRpcResponse {
     fn success(id: Option<serde_json::Value>, result: serde_json::Value) -> Self {
@@ -223,7 +217,10 @@ impl SocketServer {
             .create_sync()
             .map_err(|e| format!("Failed to create socket listener: {}", e))?;
 
-        log::info!("Socket server listening at {}", crate::paths::socket_display_path());
+        log::info!(
+            "Socket server listening at {}",
+            crate::paths::socket_display_path()
+        );
 
         codeterm_util::named_thread::spawn("socket-listener", move || {
             for conn in listener.incoming() {
