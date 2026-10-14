@@ -183,6 +183,19 @@ pub(crate) fn prepare_runtime_identity(
     }
 }
 
+// A Manager identity is recomposed from its role and Plan; appending the saved
+// launch identity would repeat the role manual and overflow the desk leaf bound.
+fn saved_identity(tab: &crate::multiplexer::types::Tab) -> Option<String> {
+    let resolved = codeterm_types::agent::restore_role(
+        tab.role.map(AgentRole::label),
+        tab.role_profile.as_deref(),
+    );
+    if resolved.is_some_and(|resolved| resolved.role == AgentRole::Manager) {
+        return None;
+    }
+    tab.restorable_launch.identity_instructions.clone()
+}
+
 pub(crate) fn ensure_tab_runtime_prompt(
     service: &crate::service::ServiceContext,
     tab_id: &str,
@@ -211,9 +224,7 @@ pub(crate) fn ensure_tab_runtime_prompt(
             .as_ref()
             .and_then(|binding| binding.plan_id.clone()),
         cwd: tab.cwd.clone(),
-        system_prompt: current
-            .map(str::to_string)
-            .or_else(|| tab.restorable_launch.identity_instructions.clone()),
+        system_prompt: current.map(str::to_string).or_else(|| saved_identity(&tab)),
         ..Default::default()
     };
     if params.plan_id.is_none() {
