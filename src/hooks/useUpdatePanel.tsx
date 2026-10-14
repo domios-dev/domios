@@ -5,6 +5,7 @@ import { availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpd
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { useUpdate } from "./useUpdate";
+import { classifyUpdateStatus } from "../lib/updateStatusModel";
 
 const EMPTY: UpdateAvailabilitySnapshot = { items: [], errors: {} };
 
@@ -27,6 +28,7 @@ function useUpdatePanelController() {
   const running = useRef(false);
   const offer = useSyncExternalStore(subscribeFrontendUpdateOffer, frontendUpdateOffer, () => null);
   const items = panelItems(snapshot.items);
+  const status = classifyUpdateStatus(snapshot);
 
   const refresh = useCallback(async (force = false) => {
     try {
@@ -62,7 +64,7 @@ function useUpdatePanelController() {
   }, []);
 
   const hostVersion = snapshot.items.find(item => item.kind === "app")?.installed;
-  const nextStep = ready && intent && !error && Object.keys(snapshot.errors).length === 0 && hostVersion
+  const nextStep = ready && intent && !error && Object.keys(status.errors).length === 0 && hostVersion
     ? nextUpdateStep(intent, hostVersion, items) : null;
   const stepKind = nextStep?.kind === "interface" && !offer ? "waitForApp" : nextStep?.kind;
   const pluginId = nextStep?.kind === "plugin" ? nextStep.id : null;
@@ -95,7 +97,7 @@ function useUpdatePanelController() {
     setError(null);
     try {
       const fresh = await refresh(true);
-      if (Object.keys(fresh.errors).length > 0) throw new Error("Some update sources could not be checked");
+      if (Object.keys(classifyUpdateStatus(fresh).errors).length > 0) throw new Error("Some update sources could not be checked");
       const next = availabilityIntent(fresh.items);
       running.current = false;
       save(next);
@@ -125,13 +127,13 @@ function useUpdatePanelController() {
     setError(null);
     try {
       const fresh = await refresh(true);
-      if (Object.keys(fresh.errors).length > 0) return;
+      if (Object.keys(classifyUpdateStatus(fresh).errors).length > 0) return;
       const host = fresh.items.find(item => item.kind === "app")?.installed;
       if (intent?.stage === "app" && host !== intent.appTarget) await app.applyUpdate();
     } catch (failure) { setError(String(failure)); }
   };
 
-  return { snapshot, items, busy: starting || intent !== null || app.installing, error: error ?? app.error ?? Object.values(snapshot.errors)[0] ?? null,
+  return { snapshot, items, information: status.information, busy: starting || intent !== null || app.installing, error: error ?? app.error ?? Object.values(status.errors)[0] ?? null,
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
 }
 
