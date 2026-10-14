@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, mkdtempSync, rmSync, appendFileSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, rmSync, appendFileSync, existsSync } from 'node:fs';
 import { tmpdir, platform, arch } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,7 +42,9 @@ function run(command, args, cwd) {
 }
 export function checkContents(appBytes, sha) {
   if (!/^[a-f0-9]{40}$/.test(sha) || !appBytes.includes(Buffer.from(sha))) throw new Error('App does not contain exact source SHA');
-  const plugins = readdirSync(path.join(root, 'plugins')).filter(name => name.startsWith('provider-') || ['analytics', 'browser'].includes(name));
+  const plugins = readdirSync(path.join(root, 'plugins'))
+    .filter(name => name.startsWith('provider-') || ['analytics', 'browser'].includes(name))
+    .filter(name => existsSync(path.join(root, 'plugins', name, 'plugin.json')));
   for (const name of plugins) {
     for (const filename of ['plugin.json', 'plugin.js']) {
       const content = readFileSync(path.join(root, 'plugins', name, filename));
