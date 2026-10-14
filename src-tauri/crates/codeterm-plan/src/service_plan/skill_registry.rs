@@ -6,11 +6,6 @@ use crate::plan::Plan;
 pub const PLAN_SKILL_REGISTRY_POINTER: &str =
     "Plan skills registry: `codeterm plan skill list` to browse, `codeterm plan skill show <slug>` to read one — never inline skill bodies.";
 
-// Cap the skill summaries rendered into the single-line heartbeat block.
-const REGISTRY_LINE_MAX_SLUGS: usize = 8;
-const REGISTRY_LINE_MAX_SLUG_CHARS: usize = 32;
-const REGISTRY_LINE_MAX_PURPOSE_CHARS: usize = 56;
-
 // `pub`, not `pub(super)`: the app crate's heartbeat-delivery tests assert
 // against this structured summary directly rather than parsing rendered text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,56 +47,6 @@ pub fn list_plan_skill_summaries(plan: &Plan) -> Vec<PlanSkillRegistrySummary> {
             purpose: (!entry.purpose.is_empty()).then_some(entry.purpose),
         })
         .collect()
-}
-
-fn truncate_chars(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
-        return value.to_string();
-    }
-    let mut truncated = value
-        .chars()
-        .take(max_chars.saturating_sub(1))
-        .collect::<String>();
-    truncated.push('…');
-    truncated
-}
-
-/// Fill the pinned `PLAN_SKILLS_REGISTRY_LINE` template — single source of the
-/// wording lives in `prompts.rs`; here we only substitute count + summary region.
-pub(super) fn render_plan_skills_registry_line(
-    count: usize,
-    skills: &[PlanSkillRegistrySummary],
-) -> String {
-    let list = if count == 0 {
-        "none yet".to_string()
-    } else if skills.is_empty() {
-        "skill metadata unavailable".to_string()
-    } else {
-        let shown_count = skills.len().min(REGISTRY_LINE_MAX_SLUGS);
-        let mut shown = skills
-            .iter()
-            .take(REGISTRY_LINE_MAX_SLUGS)
-            .map(|skill| {
-                let slug = truncate_chars(skill.slug.trim(), REGISTRY_LINE_MAX_SLUG_CHARS);
-                let purpose = skill
-                    .purpose
-                    .as_deref()
-                    .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
-                    .filter(|value| !value.is_empty())
-                    .map(|value| truncate_chars(&value, REGISTRY_LINE_MAX_PURPOSE_CHARS))
-                    .unwrap_or_else(|| "description unavailable".to_string());
-                format!("{slug}: {purpose}")
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        if count > shown_count {
-            shown.push_str(&format!("; … +{} more", count - shown_count));
-        }
-        shown
-    };
-    super::prompts_plan::PLAN_SKILLS_REGISTRY_LINE
-        .replace("{n}", &count.to_string())
-        .replace("{slug1}, {slug2}, …", &list)
 }
 
 pub fn render_plan_skill_registry_line(plan_id: &str, count: usize) -> String {
@@ -204,60 +149,5 @@ mod tests {
             Some(expected.as_path())
         );
         assert!(!expected.starts_with(project.path()));
-    }
-
-    #[test]
-    fn registry_line_zero_is_stable() {
-        assert_eq!(
-            render_plan_skills_registry_line(0, &[]),
-            "Plan skills (0): none yet — codeterm plan skill show <slug> | new | edit."
-        );
-    }
-
-    #[test]
-    fn registry_line_lists_one_skill_with_its_persisted_purpose() {
-        let skills = vec![PlanSkillRegistrySummary {
-            slug: "seed-fixtures".to_string(),
-            purpose: Some("Seed deterministic fixtures.".to_string()),
-        }];
-        assert_eq!(
-            render_plan_skills_registry_line(skills.len(), &skills),
-            "Plan skills (1): seed-fixtures: Seed deterministic fixtures. — codeterm plan skill show <slug> | new | edit."
-        );
-    }
-
-    #[test]
-    fn registry_line_lists_multiple_skills_and_marks_missing_descriptions() {
-        let skills = vec![
-            PlanSkillRegistrySummary {
-                slug: "run-eval".to_string(),
-                purpose: Some("Compare prompt variants.".to_string()),
-            },
-            PlanSkillRegistrySummary {
-                slug: "seed-fixtures".to_string(),
-                purpose: None,
-            },
-        ];
-        assert_eq!(
-            render_plan_skills_registry_line(skills.len(), &skills),
-            "Plan skills (2): run-eval: Compare prompt variants.; seed-fixtures: description unavailable — codeterm plan skill show <slug> | new | edit."
-        );
-    }
-
-    #[test]
-    fn registry_line_truncates_descriptions_and_skill_count_deterministically() {
-        let skills: Vec<PlanSkillRegistrySummary> = (0..10)
-            .map(|i| PlanSkillRegistrySummary {
-                slug: format!("skill-{i}"),
-                purpose: Some("x".repeat(100)),
-            })
-            .collect();
-        let line = render_plan_skills_registry_line(skills.len(), &skills);
-        assert!(line.starts_with("Plan skills (10): skill-0: "));
-        assert!(line.contains("…; skill-7: "));
-        assert!(line.contains("; … +2 more — codeterm plan skill show <slug> | new | edit."));
-        assert!(!line.contains("skill-8:"));
-        assert!(!line.contains('\n'));
-        assert!(line.chars().count() < 800);
     }
 }

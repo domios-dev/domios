@@ -1,4 +1,6 @@
 pub(crate) mod access_policy;
+pub mod account_routes;
+pub mod analytics_routes;
 pub mod auth;
 pub mod automation_graph_routes;
 pub mod blueprint_portable_routes;
@@ -6,6 +8,7 @@ pub mod blueprint_portable_routes;
 mod cors_diagnostics;
 pub mod events;
 pub mod routes;
+mod runtime_login;
 
 pub mod agent_done_routes;
 pub mod agent_fork_routes;

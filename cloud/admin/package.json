@@ -1,0 +1,35 @@
+{
+  "name": "domios-admin",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "engines": { "node": "22.x" },
+  "scripts": {
+    "dev": "next dev --experimental-https",
+    "build": "next build",
+    "start": "next start",
+    "check": "next typegen && tsc --noEmit",
+    "test": "npm run test:diagnostics && node test/run-emulators.mjs",
+    "test:unit": "npm run test:diagnostics && vitest run test/domain.test.ts test/routes.test.ts test/local.test.ts test/actions.test.ts test/users.test.ts test/detail.test.ts",
+    "test:diagnostics": "node --experimental-strip-types --test test/diagnostics.test.mjs",
+    "set-admin": "tsx scripts/set-admin.ts"
+  },
+  "dependencies": {
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "firebase": "^12.0.0",
+    "firebase-admin": "^13.0.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "firebase-tools": "^15.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

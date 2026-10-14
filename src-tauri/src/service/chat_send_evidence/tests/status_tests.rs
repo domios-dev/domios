@@ -97,10 +97,6 @@ fn state_of(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn detached_jsonl_turn_reconciles_only_past_the_captured_service_anchor() {
     let (fixture, tab_id) = service_fixture("windowed");
     let root = fixture.temp.path().join("jsonl-evidence");
@@ -120,10 +116,6 @@ fn detached_jsonl_turn_reconciles_only_past_the_captured_service_anchor() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn missing_jsonl_store_mints_only_a_live_absence_witness() {
     let (fixture, tab_id) = service_fixture("windowed");
     let root = fixture.temp.path().join("missing-jsonl-evidence");
@@ -138,10 +130,6 @@ fn missing_jsonl_store_mints_only_a_live_absence_witness() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn fresh_trace_without_delivery_anchor_registers_before_materialization() {
     let (fixture, tab_id) = service_fixture("windowed");
     let root = fixture.temp.path().join("fresh-trace-source");
@@ -168,10 +156,6 @@ fn fresh_trace_without_delivery_anchor_registers_before_materialization() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unbound_tab_never_adopts_a_foreign_structured_session_as_its_anchor() {
     let (fixture, tab_id) = service_fixture("structured-store");
     let provider = StructuredStoreProvider::new();
@@ -185,10 +169,6 @@ fn unbound_tab_never_adopts_a_foreign_structured_session_as_its_anchor() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn detached_structured_turn_reconciles_only_past_the_captured_service_anchor() {
     let (fixture, tab_id) = service_fixture("structured-store");
     let provider = StructuredStoreProvider::new();
@@ -206,6 +186,43 @@ fn detached_structured_turn_reconciles_only_past_the_captured_service_anchor() {
     append_structured_user_row(&provider, "session-structured", "detached structured turn");
     fixture.service.reconcile_chat_send_evidence(&tab_id);
     assert_eq!(state_of(&fixture, &send), ChatSendState::Sent);
+}
+
+#[test]
+fn late_own_jsonl_turn_upgrades_submit_unconfirmed_once() {
+    let fx = Fixture::new();
+    let payload = "opaque late payload";
+    fx.append_user_turn("sess-a", payload);
+    let send = fx
+        .ledger
+        .try_start("tab-1", payload, Some(fx.anchor_now("sess-a")))
+        .unwrap();
+    fx.ledger
+        .finish(
+            &send.send_id,
+            Err("submit_unconfirmed: exact turn has not arrived".into()),
+        )
+        .unwrap();
+    fx.append_user_turn("sess-other", payload);
+    // Containment of the whole payload is evidence; a truncated payload is not.
+    fx.append_user_turn("sess-a", "opaque late");
+
+    assert!(fx.scan("tab-1").is_empty());
+    assert_eq!(
+        fx.ledger.status(&send.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
+
+    fx.append_user_turn("sess-a", payload);
+    let confirmed = fx.scan("tab-1");
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, send.send_id);
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+    assert!(fx.scan("tab-1").is_empty());
+    assert_eq!(
+        fx.ledger.status(&send.send_id).unwrap().state,
+        ChatSendState::Sent
+    );
 }
 
 #[test]

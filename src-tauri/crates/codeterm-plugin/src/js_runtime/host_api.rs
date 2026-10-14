@@ -335,6 +335,22 @@ impl PluginSandbox {
         self.analytics_allowed
     }
 
+    pub(super) fn lifecycle_permission_allowed(&self, permission: &str) -> bool {
+        if let Some(host) = permission.strip_prefix("network:") {
+            return self.can_reach(host);
+        }
+        match permission {
+            "local_recording" => self.local_recording_allowed,
+            "project_write" => !self.project_write_roots.is_empty(),
+            "manage_workspaces" => self.manage_workspaces_allowed,
+            "spawn_agents" => self.spawn_agents_allowed,
+            "agent_commands" => self.agent_commands_allowed,
+            "secrets" => self.secrets_allowed,
+            "graph_events" => self.graph_events_allowed,
+            _ => false,
+        }
+    }
+
     pub(super) fn graph_events_allowed(&self) -> bool {
         self.graph_events_allowed
     }

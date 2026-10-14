@@ -57,6 +57,8 @@ mod spawn_tab_identity;
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
     #[serde(default)]
+    pub timeout: Option<String>,
+    #[serde(default)]
     pub shell: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
@@ -89,6 +91,20 @@ pub struct SpawnTabSpec {
     #[serde(default)]
     pub eager: bool,
     pub command: TabCommand,
+    #[serde(skip)]
+    pub(crate) chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ChatBackendLaunchMetadata {
+    pub(crate) agent: AgentSpawnSpec,
+    pub(crate) params: super::SpawnAgentParams,
+    pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RuntimeOwnerLinkage {
+    CronRun { job_id: String, run_id: String },
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -238,6 +254,20 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        if !matches!(&spec.command, TabCommand::Shell) {
+            self.validate_request_cwd(
+                spec.workspace_id.as_deref(),
+                spec.parent_tab_id
+                    .as_deref()
+                    .or(spec.creator_tab_id.as_deref()),
+                spec.cwd.as_deref(),
+            )?;
+        }
+        if let TabCommand::Agent(agent) = &spec.command {
+            if super::agent_runtime::engine::requested(self, &agent.provider) {
+                spec.route_agent_to_chatbackend()?;
+            }
+        }
         spawn_tab_identity::prepare_tab_identity(&mut spec)?;
         match (&spec.visibility, &spec.command) {
             (TabVisibility::Visible, TabCommand::Agent(_)) => {
@@ -246,13 +276,14 @@ impl ServiceContext {
             (TabVisibility::Hidden, TabCommand::Agent(_)) => self.spawn_hidden_agent_impl(spec),
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
-            (TabVisibility::Visible, TabCommand::ChatBackend { .. }) => {
+            (_, TabCommand::ChatBackend { .. }) => {
                 super::permission_policy::configured_full_access_for(&self.app_handle)?;
-                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
-            }
-            (TabVisibility::Hidden, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access_for(&self.app_handle)?;
-                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
+                let result = self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change);
+                if let Some(ready_tx) = ready_tx {
+                    let readiness = result.as_ref().map(|_| ()).map_err(Clone::clone);
+                    let _ = ready_tx.send(readiness);
+                }
+                result
             }
         }
     }
@@ -272,7 +303,7 @@ impl ServiceContext {
             ServiceContext::parse_role(role_str)?;
         }
 
-        let default_provider = crate::config::default_agent_provider();
+        let default_provider = self.configuration().general_agent.agent_provider;
         let model_selection = resolve_agent_model_selection(
             &self.agent_registry,
             (!agent.provider.trim().is_empty()).then_some(agent.provider.as_str()),
@@ -299,6 +330,7 @@ impl ServiceContext {
             log::warn!("[spawn] {}", warning);
         }
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
+            &self.configuration(),
             &self.agent_registry,
             &agent_cmd,
             requested_model,
@@ -743,6 +775,7 @@ impl ServiceContext {
         )
         .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
+            &self.configuration(),
             &self.agent_registry,
             &agent.provider,
             agent.model.clone(),
@@ -853,7 +886,7 @@ impl ServiceContext {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         }
 
-        let mut env_vars: HashMap<String, String> = HashMap::new();
+        let mut env_vars = self.tab_env(&tab_id);
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
         let agent_pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);
@@ -870,7 +903,7 @@ impl ServiceContext {
             "CODETERM_SOCKET_PATH".into(),
             crate::socket::server::socket_display_path(),
         );
-        let api_cfg = crate::config::load_config().api;
+        let api_cfg = self.configuration().api;
         let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
         env_vars.insert("CODETERM_API_URL".into(), api_url);
         env_vars.insert("CODETERM_API_PORT".into(), api_port);
@@ -943,7 +976,7 @@ impl ServiceContext {
         }
         // later (after the cron registry links tab→run).
         if let Some(ref worker_id) = agent.worker_id {
-            let mem_cfg = crate::config::memory_config();
+            let mem_cfg = self.configuration().memory;
             let intent = self
                 .workers
                 .get(worker_id)

@@ -574,10 +574,6 @@ fn tab_scoped_retry_noops_while_launch_is_in_progress() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn general_agent_existing_live_authenticated_binding_seals_agent_ready() {
     let _serial = super::launch_lock::TEST_SERIAL.lock();
     let provider_id = "existing-agent-fixture";
@@ -615,6 +611,7 @@ fn general_agent_existing_live_authenticated_binding_seals_agent_ready() {
         .process(pty_id, format!("{provider_id} is running").as_bytes());
     let mut app_config = crate::config::schema::AppConfig::default();
     app_config.general_agent.agent_provider = provider_id.into();
+    app_config.agent.full_access = Some(false);
     let config: crate::config::ConfigState = Arc::new(Mutex::new(app_config));
 
     super::start_general_agent(
@@ -678,10 +675,6 @@ fn tab_scoped_retry_claim_is_single_owner() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
     use crate::service::launch_readiness::{LaunchAttempt, LaunchExitProof};
     use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot};

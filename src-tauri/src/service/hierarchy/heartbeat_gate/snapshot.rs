@@ -5,6 +5,19 @@ use crate::plan::{Plan, Task, TaskExecutionAttempt, TaskStatus};
 use crate::service::ServiceContext;
 use codeterm_plan::service_plan::state::task_projection;
 
+pub(super) fn situational_learning_catalog(plan: &Plan) -> BTreeMap<String, String> {
+    plan.heartbeat
+        .learnings
+        .iter()
+        .rev()
+        .filter(|learning| {
+            learning.tag.as_deref() != Some("owner") && !learning.text.trim().is_empty()
+        })
+        .take(12)
+        .map(|learning| (learning.id.clone(), scrubbed(&learning.text)))
+        .collect()
+}
+
 fn encoded(value: &impl Serialize) -> String {
     crate::service::supporter::criteria_hash(&serde_json::to_vec(value).unwrap_or_default())
 }
@@ -170,15 +183,7 @@ pub(crate) fn collect(
         plan_id: plan.id.clone(),
         projection: projection.clone(),
         delta,
-        learnings: plan
-            .heartbeat
-            .learnings
-            .iter()
-            .rev()
-            .filter(|l| !l.text.trim().is_empty())
-            .take(12)
-            .map(|l| (l.id.clone(), scrubbed(&l.text)))
-            .collect(),
+        learnings: situational_learning_catalog(plan),
         ..Default::default()
     };
     (snapshot.context, snapshot.truncated) = delta_context(plan, &snapshot.delta);
@@ -448,30 +453,39 @@ fn collect_worker(
             .find(|option| Some(&option.value) == safe_choice.as_ref())
             .map(|option| option.label.clone())
     });
-    worker.process = match &tab.backing {
-        TabBacking::ChatBackend {
-            plugin_id,
-            session_id,
-        } => {
-            if svc.chatbackend_registry.get(plugin_id).is_some()
-                && tab.agent_session_id.as_deref() == Some(session_id)
-            {
-                "present"
-            } else {
-                "unknown"
-            }
-        }
-        TabBacking::Pty => tab
-            .pty_id
-            .as_deref()
-            .and_then(|pty| svc.observe_provider_process_tree(tab_id, pty))
-            .map(|tree| match tree.state() {
-                crate::service::process_tree::ProviderTreeState::Present => "present",
-                crate::service::process_tree::ProviderTreeState::Unknown => "unknown",
-                _ => "absent",
+    worker.process = if crate::service::agent_runtime::requested_for_tab(svc, &tab.id) {
+        crate::service::agent_runtime::engine::for_tab(&tab.id)
+            .filter(|session| {
+                crate::service::agent_runtime::engine::validate_binding(svc, session).is_ok()
             })
-            .unwrap_or("unknown"),
-        TabBacking::Surface(_) => "absent",
+            .map(|session| runtime_process(&session.state.lock().phase))
+            .unwrap_or("unknown")
+    } else {
+        match &tab.backing {
+            TabBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            } => {
+                if svc.chatbackend_registry.get(plugin_id).is_some()
+                    && tab.agent_session_id.as_deref() == Some(session_id)
+                {
+                    "present"
+                } else {
+                    "unknown"
+                }
+            }
+            TabBacking::Pty => tab
+                .pty_id
+                .as_deref()
+                .and_then(|pty| svc.observe_provider_process_tree(tab_id, pty))
+                .map(|tree| match tree.state() {
+                    crate::service::process_tree::ProviderTreeState::Present => "present",
+                    crate::service::process_tree::ProviderTreeState::Unknown => "unknown",
+                    _ => "absent",
+                })
+                .unwrap_or("unknown"),
+            TabBacking::Surface(_) => "absent",
+        }
     }
     .into();
     if worker.session_key.is_none() {
@@ -539,6 +553,17 @@ fn own_session_turns(
     }
     let previous = previous.filter(|w| w.session_key == session_key(tab));
     let cursor = previous.and_then(|w| w.turn_cursor.as_deref());
+    if crate::service::agent_runtime::requested_for_tab(svc, &tab.id) {
+        let Some(session) =
+            crate::service::agent_runtime::engine::for_tab(&tab.id).filter(|session| {
+                crate::service::agent_runtime::engine::validate_binding(svc, session).is_ok()
+            })
+        else {
+            return (Vec::new(), cursor.map(str::to_string), true);
+        };
+        let messages = session.cache.lock().snapshot();
+        return appended_messages(messages, cursor);
+    }
     match &tab.backing {
         TabBacking::ChatBackend {
             plugin_id,
@@ -547,18 +572,7 @@ fn own_session_turns(
             let path =
                 crate::service::tab_chat::chatbackend_history::session_path(plugin_id, session_id);
             match bounded_host_history(&path) {
-                Ok(messages) => {
-                    let last = messages.last().map(|m| m.id.clone());
-                    let start = cursor
-                        .and_then(|id| messages.iter().position(|m| m.id == id))
-                        .map(|i| i + 1)
-                        .unwrap_or(0);
-                    (
-                        messages.into_iter().skip(start).collect(),
-                        last.or_else(|| cursor.map(str::to_string)),
-                        false,
-                    )
-                }
+                Ok(messages) => appended_messages(messages, cursor),
                 Err(_) => (Vec::new(), cursor.map(str::to_string), true),
             }
         }
@@ -609,6 +623,33 @@ fn own_session_turns(
                 .unwrap_or((Vec::new(), None, true))
         }
     }
+}
+
+pub(super) fn runtime_process(
+    phase: &crate::service::agent_runtime::model::RuntimePhase,
+) -> &'static str {
+    use crate::service::agent_runtime::model::RuntimePhase;
+    match phase {
+        RuntimePhase::Ready => "present",
+        RuntimePhase::Unloaded { .. } | RuntimePhase::Degraded { .. } => "absent",
+        RuntimePhase::Loading => "unknown",
+    }
+}
+
+pub(super) fn appended_messages(
+    messages: Vec<ChatMsg>,
+    cursor: Option<&str>,
+) -> (Vec<ChatMsg>, Option<String>, bool) {
+    let last = messages.last().map(|message| message.id.clone());
+    let start = cursor
+        .and_then(|id| messages.iter().position(|message| message.id == id))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    (
+        messages.into_iter().skip(start).collect(),
+        last.or_else(|| cursor.map(str::to_string)),
+        false,
+    )
 }
 
 fn lane_commits(task: &Task, attempt: &TaskExecutionAttempt) -> Result<Vec<String>, String> {

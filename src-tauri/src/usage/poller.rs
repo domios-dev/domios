@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use codeterm_usage::UsageSample;
 use parking_lot::Mutex;
 
 use super::probe::UsageProbe;
@@ -21,6 +22,25 @@ const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
 /// 10-50 min backoff. This floor keeps a reset that never lands a fresh future
 /// timer from hammering the provider every tick.
 const RESET_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(120);
+
+fn usage_sample(snapshot: &UsageSnapshot) -> UsageSample {
+    UsageSample {
+        provider: snapshot.provider.clone(),
+        billing_mode: snapshot.billing_mode,
+        limits_reported: snapshot.limits_reported,
+        account_id: snapshot.account_id.clone(),
+        captured_at_ms: snapshot.captured_at_ms,
+        session_pct: snapshot.session_pct,
+        session_resets_at_ms: snapshot.session_resets_at_ms,
+        weekly_pct: snapshot.weekly_pct,
+        weekly_resets_at_ms: snapshot.weekly_resets_at_ms,
+        spend_cents: snapshot.spend_cents,
+        spend_limit_cents: snapshot.spend_limit_cents,
+        spend_remaining_cents: snapshot.spend_remaining_cents,
+        spend_resets_at_ms: snapshot.spend_resets_at_ms,
+        raw_text: snapshot.raw_text.clone(),
+    }
+}
 
 /// Classify a probe failure. A confined plugin that was denied a capability is
 /// its own kind: nothing upstream is broken, the provider simply cannot reach
@@ -131,7 +151,7 @@ impl UsagePoller {
     }
 
     pub fn refresh_now(&self, provider: &str, account_id: Option<String>) {
-        if !crate::config::usage_tracking_enabled(provider) {
+        if !crate::config::usage_tracking_enabled_from(&self.inner.svc.configuration(), provider) {
             log::info!(
                 "[usage.poller] manual refresh skipped — tracking disabled for provider {}",
                 provider
@@ -318,7 +338,7 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                 Some(Ok(UsageParseOutcome::Parsed(mut snap))) => {
                     snap.account_id = key.account_id.clone();
                     snap.provider = key.provider.clone();
-                    match inner.store.insert_snapshot(&snap) {
+                    match inner.store.insert_snapshot(&usage_sample(&snap)) {
                         Ok(id) => {
                             crate::usage::projection::invalidate_cache(
                                 &key.provider,
@@ -520,7 +540,7 @@ fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
                 .with_provider(id, |p| p.usage_parser().is_some())
                 .unwrap_or(false)
         })
-        .filter(|id| crate::config::usage_tracking_enabled(id))
+        .filter(|id| crate::config::usage_tracking_enabled_from(&svc.configuration(), id))
         .collect()
 }
 
@@ -584,6 +604,56 @@ mod tests {
         snap.weekly_pct = weekly;
         snap.spend_remaining_cents = spend;
         snap
+    }
+
+    #[test]
+    fn provider_snapshot_mapping_persists_every_meter_and_reset() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::usage::UsageStore::open(data_dir.path()).unwrap();
+        let snapshot = UsageSnapshot {
+            provider: "fixture".into(),
+            billing_mode: codeterm_types::usage::BillingMode::Subscription,
+            limits_reported: true,
+            account_id: Some("account-a".into()),
+            captured_at_ms: 1_783_601_000_000,
+            session_pct: Some(12.5),
+            session_resets_at_ms: Some(1_783_609_680_000),
+            weekly_pct: Some(27.5),
+            weekly_resets_at_ms: Some(1_784_139_960_000),
+            spend_cents: Some(1743.5),
+            spend_limit_cents: Some(2000.0),
+            spend_remaining_cents: Some(256.5),
+            spend_resets_at_ms: Some(1_785_542_400_000),
+            raw_text: "provider fixture".into(),
+        };
+        let sample = super::usage_sample(&snapshot);
+        assert_eq!(sample.raw_text, snapshot.raw_text);
+        let id = store.insert_snapshot(&sample).unwrap();
+        drop(store);
+        let reopened = crate::usage::UsageStore::open(data_dir.path()).unwrap();
+        let row = reopened
+            .get_latest("fixture", Some("account-a"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.id, id);
+        assert!(row.parsed_ok);
+        assert_eq!(row.provider, snapshot.provider);
+        assert_eq!(row.account_id, snapshot.account_id);
+        assert_eq!(row.captured_at, snapshot.captured_at_ms);
+        assert_eq!(row.billing_mode, snapshot.billing_mode);
+        assert_eq!(row.limits_reported, snapshot.limits_reported);
+        assert_eq!(row.session_pct, snapshot.session_pct);
+        assert_eq!(row.session_resets_at, snapshot.session_resets_at_ms);
+        assert_eq!(row.weekly_pct, snapshot.weekly_pct);
+        assert_eq!(row.weekly_resets_at, snapshot.weekly_resets_at_ms);
+        assert_eq!(row.spend_cents, snapshot.spend_cents);
+        assert_eq!(row.spend_limit_cents, snapshot.spend_limit_cents);
+        assert_eq!(row.spend_remaining_cents, snapshot.spend_remaining_cents);
+        assert_eq!(row.spend_resets_at, snapshot.spend_resets_at_ms);
+        assert!(reopened
+            .get_latest("fixture", Some("account-b"))
+            .unwrap()
+            .is_none());
     }
 
     #[test]

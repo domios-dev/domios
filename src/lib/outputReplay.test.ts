@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { planOutputReplay, TerminalOutputReplay } from "./outputReplay";
 
 const frame = (bytes: number[], offset: number, boot = "boot", ptyId = "pty") => ({
@@ -6,6 +6,41 @@ const frame = (bytes: number[], offset: number, boot = "boot", ptyId = "pty") =>
 });
 
 describe("terminal output attach replay", () => {
+  it("commits a gap before reporting it and suppresses repeats across sink reattachment", () => {
+    const replay = new TerminalOutputReplay(), terminal = {};
+    const gaps: number[] = [];
+    replay.resync(terminal, "tab", "boot", "pty", 100, () => {
+      expect(replay.offset(terminal, "tab", "boot", "pty")).toBe(100);
+      gaps.push(100);
+      replay.resync(terminal, "tab", "boot", "pty", 100, () => gaps.push(100));
+    });
+    replay.resync(terminal, "tab", "boot", "pty", 100, () => gaps.push(100));
+    const bytes: number[] = [];
+    replay.deliver(terminal, "tab", frame([1, 2], 102), chunk => bytes.push(...chunk));
+    replay.resync(terminal, "tab", "boot", "pty", 100, () => gaps.push(100));
+    replay.resync(terminal, "tab", "boot", "pty", 200, () => gaps.push(200));
+    expect(gaps).toEqual([100, 200]);
+    expect(bytes).toEqual([1, 2]);
+  });
+
+  it("reports independent gaps for new terminals, boots and PTYs", () => {
+    const replay = new TerminalOutputReplay(), terminal = {};
+    const gap = vi.fn();
+    replay.resync(terminal, "tab", "boot", "pty", 100, gap);
+    replay.resync({}, "tab", "boot", "pty", 100, gap);
+    replay.resync(terminal, "tab", "next", "pty", 100, gap);
+    replay.resync(terminal, "tab", "next", "replacement", 100, gap);
+    expect(gap).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not consume a gap whose marker enqueue fails", () => {
+    const replay = new TerminalOutputReplay(), terminal = {};
+    expect(() => replay.resync(terminal, "tab", "boot", "pty", 100, () => { throw new Error("detached"); })).toThrow("detached");
+    expect(replay.offset(terminal, "tab", "boot", "pty")).toBe(0);
+    const gap = vi.fn();
+    replay.resync(terminal, "tab", "boot", "pty", 100, gap);
+    expect(gap).toHaveBeenCalledTimes(1);
+  });
   it("delivers exact bytes once to a retained terminal after duplicate and overlapping replay", () => {
     const replay = new TerminalOutputReplay();
     const terminal = {};

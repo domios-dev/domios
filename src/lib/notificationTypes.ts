@@ -16,6 +16,7 @@ export type CallerNotificationAction =
   | Extract<NotificationAction, { type: "answer" }>;
 
 export interface NotificationPromptIdentity {
+  request_id?: string | null;
   kind: "provider" | "directory_trust" | "structured" | "manual_update";
   options: Array<{ label: string; value: string }>;
 }
@@ -31,7 +32,6 @@ export interface NotificationAnswer {
 }
 
 export interface Notification {
-  blueprint_run?: import("./blueprintRun").BlueprintRunPopup;
   lifetime_ms?: number;
   ephemeral?: boolean;
   update_only?: boolean;
@@ -62,6 +62,8 @@ export interface Notification {
   actions?: NotificationAction[];
   /** Present when the notification offers a choice */
   answer?: NotificationAnswer;
+  answer_pending?: boolean;
+  answer_error?: string;
   resolved?: boolean;
   /** Sender hint; the host still caps every toast lifetime. */
   sticky?: boolean;

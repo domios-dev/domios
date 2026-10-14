@@ -361,7 +361,8 @@ pub async fn resume_session_api(
     ))?;
 
     let permission_bypass_authorization =
-        crate::service::permission_policy::configured_permission_bypass(
+        crate::service::permission_policy::configured_permission_bypass_for(
+            &state.svc.app_handle,
             &state.svc.agent_registry,
             &meta.provider,
         )

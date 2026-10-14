@@ -12,7 +12,7 @@ impl StructuredUserTurn {
     }
 }
 
-pub(super) fn structured_user_turns(
+pub(super) fn structured_evidence_records(
     registry: &AgentRegistry,
     anchor: &SendEvidenceAnchor,
 ) -> Option<Vec<StructuredUserTurn>> {
@@ -35,7 +35,6 @@ pub(super) fn structured_user_turns(
             );
             chat.messages
                 .into_iter()
-                .filter(|message| message.kind == "user")
                 .map(|message| StructuredUserTurn {
                     id: (!message.id.is_empty()).then_some(message.id),
                     content: message.content,
@@ -44,7 +43,7 @@ pub(super) fn structured_user_turns(
         })
 }
 
-pub(crate) fn window_user_turns(
+pub(crate) fn window_evidence_records(
     registry: &AgentRegistry,
     anchor: &SendEvidenceAnchor,
 ) -> Vec<String> {
@@ -69,22 +68,47 @@ pub(crate) fn window_user_turns(
                     delta
                         .messages
                         .iter()
-                        .enumerate()
-                        .flat_map(|(index, rich)| {
-                            crate::service::tab_chat::rich_to_chat_msgs(rich, index)
-                        })
-                        .filter(|message| message.kind == "user")
-                        .map(|message| message.content)
+                        .flat_map(rich_evidence_segments)
                         .collect()
                 })
                 .unwrap_or_default()
         }
-        EvidenceWindow::Structured { .. } => structured_user_turns(registry, anchor)
+        EvidenceWindow::Structured { .. } => structured_evidence_records(registry, anchor)
             .unwrap_or_default()
             .into_iter()
             .map(|turn| turn.content)
             .collect(),
     }
+}
+
+pub(crate) fn window_user_turns(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+) -> Vec<String> {
+    registry
+        .with_provider(&anchor.provider_id, |provider| match &anchor.window {
+            EvidenceWindow::Jsonl { transcript_offset } => provider
+                .session_jsonl_path(&anchor.cwd, &anchor.session_id)
+                .filter(|path| path.exists())
+                .map(|path| {
+                    provider
+                        .parse_session_delta(&path, *transcript_offset)
+                        .messages
+                        .iter()
+                        .filter(|rich| rich.role == "user")
+                        .flat_map(rich_evidence_segments)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            EvidenceWindow::Structured { cursor } => provider
+                .read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
+                .messages
+                .into_iter()
+                .filter(|message| message.kind == "user")
+                .map(|message| message.content)
+                .collect(),
+        })
+        .unwrap_or_default()
 }
 
 pub(crate) fn window_has_foreign_user_turn(
@@ -131,4 +155,40 @@ pub(crate) fn window_has_foreign_user_turn(
         return Err("the command transcript window exceeds its classification limit".into());
     }
     source.has_foreign_user_turn(&bytes)
+}
+
+fn text_segments(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::String(text) => vec![text.clone()],
+        serde_json::Value::Array(blocks) => blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+            .filter_map(|block| {
+                block
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+pub(super) fn rich_evidence_segments(rich: &crate::agent::chat_types::RichMessage) -> Vec<String> {
+    rich.blocks
+        .iter()
+        .flat_map(|block| match block.kind.as_str() {
+            "text" => block
+                .data
+                .get("text")
+                .map(text_segments)
+                .unwrap_or_default(),
+            "tool_result" => block
+                .data
+                .get("content")
+                .map(text_segments)
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        })
+        .collect()
 }

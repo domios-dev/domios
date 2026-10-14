@@ -13,7 +13,8 @@ pub use model_identity::{
     SessionModelIdentity,
 };
 pub use restorable_launch::{
-    ReasoningEffortIdentity, RestorableLaunchParameters, RestorableWorkerTurn, WorkerRestartState,
+    ReasoningEffortIdentity, RestorableLaunchParameters, RestorableRuntimeLaunchOptions,
+    RestorableWorkerTurn, WorkerRestartState,
 };
 pub use turn_resume::{
     observe_turn, request_continue, request_continue_for_restored_start, request_continue_from,
@@ -32,6 +33,8 @@ pub struct Workspace {
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    #[serde(default)]
+    pub cwd_missing: bool,
     /// Directory the daemon created for this workspace; host provenance, never wire input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provisioned_cwd: Option<String>,
@@ -623,6 +626,12 @@ pub struct Tab {
     pub agent_requested_model: Option<String>,
     #[serde(default)]
     pub structured_control_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_runtime_state: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_runtime_config: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_runtime_questions: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub structured_runtime_mode: Option<String>,
     /// Model accepted by provider catalog resolution and passed to launch args.

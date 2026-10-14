@@ -336,16 +336,16 @@ async fn start(
             .read()
             .get_tab(tab)
             .and_then(|tab| tab.restorable_launch.structured_runtime_mode.clone())
-            .and_then(|mode| serde_json::from_value::<super::model::RuntimeMode>(json!(mode)).ok())
+            .and_then(|mode| serde_json::from_value::<crate::service::agent_runtime::model::RuntimeMode>(json!(mode)).ok())
             .unwrap_or(if spawn.full_access {
-                super::model::RuntimeMode::FullAccess
+                crate::service::agent_runtime::model::RuntimeMode::FullAccess
             } else {
-                super::model::RuntimeMode::AutoAcceptEdits
+                crate::service::agent_runtime::model::RuntimeMode::AutoAcceptEdits
             });
         let mut params = super::thread_start::parameters(&spawn, runtime_mode);
         let resume = spawn
             .resume
-            .filter(|_| crate::config::resume_sessions_enabled(&spawn.provider));
+            .filter(|_| crate::config::provider_config_from(&svc.configuration(), &spawn.provider).resume_sessions.unwrap_or(true));
         let response = if let Some(thread) = resume.as_deref() {
             params["threadId"] = json!(thread);
             params["excludeTurns"] = json!(true);
@@ -382,10 +382,7 @@ async fn start(
             .map_err(|error| error.to_string())?
             .port();
         let sidecar = Arc::new(Sidecar {
-            normalizer: Mutex::new(super::normalize::Normalizer::from_history(
-                &thread,
-                history.messages,
-            )),
+            normalizer: Mutex::new(history.normalizer(&thread)),
             auth: Mutex::new(auth),
             controls: Mutex::new(super::model::TurnControls {
                 model: spawn.model.clone(),

@@ -3,7 +3,6 @@ use codeterm_mem::dream_status::ExecutionEnd;
 use codeterm_mem::workers::{make_info, WorkerStatus};
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn extraction_hard_deadline_finalizes_without_restart() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = format!("deadline-{}", uuid::Uuid::new_v4());
@@ -42,7 +41,6 @@ fn extraction_hard_deadline_finalizes_without_restart() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn memory_process_exit_records_failure_and_releases_run() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = format!("exit-{}", uuid::Uuid::new_v4());

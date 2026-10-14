@@ -138,6 +138,15 @@ pub(crate) async fn agent_restart_handler(
             Json(serde_json::json!({"reason":"background_work_running","running_items":items,"error":"restart refused while background work is running"})),
         ).into_response(),
         Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::RuntimeProviderHandoffUnsupported,
+        )) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "reason": "runtime_provider_handoff_unsupported",
+                "error": "Provider handoff into or out of an agent runtime is not supported; restart with the same provider",
+            })),
+        ).into_response(),
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
             crate::service::agent_restart::AgentRestartError::BadRequest(message),
         )) => (
             StatusCode::BAD_REQUEST,

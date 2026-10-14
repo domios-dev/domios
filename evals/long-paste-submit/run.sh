@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
+source "$ROOT/evals/_lib/bench.sh"
+bench_require python3 curl mktemp mkfifo
 source "$ROOT/evals/_lib/lib.sh"
 
 PAYLOAD_SIZES="${PAYLOAD_SIZES:-4096 16384 36435 65536}"
@@ -22,6 +24,7 @@ LONG_TOKEN="SIZE_${LONG_PAYLOAD_CHARS}_${RUN_ID}"
 WORKSPACE_ID=""
 CREATED_TABS=()
 GATE_ACTIVE=0
+GATE_PID=""
 GATE_CONNECTED=0
 SPAWN_TAB=""
 SPAWN_PTY=""
@@ -57,19 +60,21 @@ print(value)
 }
 
 release_gate() {
-  if [ "$GATE_ACTIVE" -ne 1 ]; then
-    return
-  fi
+  if [ "$GATE_ACTIVE" -ne 1 ]; then return; fi
+  local status=0 event=""
   if [ "$GATE_CONNECTED" -eq 1 ]; then
-    python3 "$BENCH/gate.py" release "$GATE_PORT" "$EVENT_TIMEOUT" 2>/dev/null || true
-    read -r _ <&"${GATEPROC[0]}" 2>/dev/null || true
+    python3 "$BENCH/gate.py" release "$GATE_PORT" "$EVENT_TIMEOUT" || status=$?
+    read -r event <&8 || status=1
+    [ "$event" = RELEASED ] || status=1
   else
-    kill "$GATEPROC_PID" 2>/dev/null || true
+    kill "$GATE_PID" 2>/dev/null || true
   fi
-  wait "$GATEPROC_PID" 2>/dev/null || true
+  wait "$GATE_PID" || status=$?
+  exec 8<&-
   GATE_ACTIVE=0
   GATE_CONNECTED=0
   GATE_PORT=""
+  return "$status"
 }
 
 cleanup() {
@@ -80,14 +85,14 @@ cleanup() {
   done
   [ -z "$WORKSPACE_ID" ] || dc workspace close "$WORKSPACE_ID" --force >/dev/null 2>&1
 }
-trap cleanup EXIT INT TERM
+
 
 status_json() {
   dev_get "/api/tabs/$1/status"
 }
 
 status_value() {
-  status_json "$1" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))'
+  status_json "$1" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("status", "")).lower())'
 }
 
 capture_screen() {
@@ -102,16 +107,16 @@ wait_for_tui() {
   local log_offset status
   log_offset="$(wc -c <"$LOG_FILE")"
   status="$(status_value "$tab")"
-  if [ "$status" != "Idle" ]; then
+  if [ "$status" != "idle" ]; then
     python3 "$BENCH/wait_log.py" "$LOG_FILE" "$log_offset" \
-      "\\[idle-poll\\].* Idle \\(tab=$tab\\)" "$EVENT_TIMEOUT" \
+      "(?i)\\[idle-poll\\].* Idle \\(tab=$tab\\)" "$EVENT_TIMEOUT" \
       >"$case_dir/status-idle-event.txt" 2>"$case_dir/status-idle-event.err"
     status="$(status_value "$tab")"
   fi
   status_json "$tab" >"$case_dir/status-ready.json"
-  if [ "$status" != "Idle" ]; then
+  if [ "$status" != "idle" ]; then
     capture_screen "$tab" >"$case_dir/screen-ready-mismatch.txt" || true
-    echo "FAIL: tab $tab reached bracketed-paste mode but settled status=$status, wanted Idle" >&2
+    echo "FAIL: tab $tab reached bracketed-paste mode but settled status=$status, wanted idle" >&2
     return 1
   fi
 }
@@ -153,10 +158,11 @@ agent_python() {
 
 start_gate() {
   local tab="$1" case_dir="$2" port event command
-  coproc GATEPROC { python3 "$BENCH/gate.py" server "$EVENT_TIMEOUT"; }
+  bench_stream_start python3 "$BENCH/gate.py" server "$EVENT_TIMEOUT"
+  GATE_PID=$BENCH_STREAM_PID
   GATE_ACTIVE=1
   GATE_CONNECTED=0
-  if ! read -r port <&"${GATEPROC[0]}"; then
+  if ! read -r port <&8; then
     echo "FAIL: gate server did not publish a port" >&2
     return 1
   fi
@@ -166,7 +172,7 @@ start_gate() {
     "$command" >"$case_dir/gate-task.txt"
   dc send --tab "$tab" --require-agent --from-file "$case_dir/gate-task.txt" --actions enter --json \
     >"$case_dir/gate-send.json" 2>"$case_dir/gate-send.err"
-  if ! read -r event <&"${GATEPROC[0]}"; then
+  if ! read -r event <&8; then
     echo "FAIL: Codex did not connect to the gate within ${EVENT_TIMEOUT}s" >&2
     return 1
   fi
@@ -178,7 +184,7 @@ start_gate() {
   GATE_CONNECTED=1
   GATE_PORT="$port"
   status_json "$tab" >"$case_dir/status-mid-turn.json"
-  if [ "$(status_value "$tab")" != "Working" ]; then
+  if [ "$(status_value "$tab")" != "working" ]; then
     capture_screen "$tab" >"$case_dir/screen-mid-turn-mismatch.txt" || true
     echo "FAIL: gate connected but tab $tab is not Working" >&2
     return 1
@@ -307,6 +313,15 @@ finish_capture() {
     >"$case_dir/sequence.txt"
 }
 
+assert_case() {
+  local tab="$1" case_dir="$2"
+  shift 2
+  dc tab chat --tab "$tab" --json >"$case_dir/assert-transcript.json"
+  dev_get "/api/tabs/$tab/chat-send" >"$case_dir/assert-ledger.json"
+  python3 "$BENCH/assert_outcome.py" "$case_dir" "$@"
+  bench_assertion
+}
+
 print_case() {
   local label="$1" case_dir="$2"
   echo "=== $label ==="
@@ -387,6 +402,7 @@ run_case() {
     observe_idle_outcome "$tab" "$pty" "$case_dir" "$send_id" "$log_offset"
   fi
   finish_capture "$tab" "$pty" "$log_offset" "$case_dir" "$(wc -c <"$payload")"
+  assert_case "$tab" "$case_dir" "$send_id" "$payload"
   print_case "$label" "$case_dir"
   dc tab close --tab "$tab" >/dev/null
 }
@@ -426,6 +442,7 @@ run_recovery_case() {
     "$case_dir/transcript-after-turn-end.json" "$LONG_TOKEN" "$RECOVERY_TOKEN" \
     >"$case_dir/transcript-after-turn-summary.txt"
   finish_capture "$tab" "$pty" "$log_offset" "$case_dir" "$LONG_PAYLOAD_CHARS"
+  assert_case "$tab" "$case_dir" "$first_send_id" "$LONG_PAYLOAD" "$second_send_id" "$RECOVERY_PAYLOAD"
   print_case "$label" "$case_dir"
   echo "second send result:"
   cat "$case_dir/second-send.exit"
@@ -437,10 +454,11 @@ run_recovery_case() {
 health="$(dev_get /api/health)"
 build="$(printf '%s' "$health" | json_value build)"
 head="$(git rev-parse HEAD)"
-case "$head" in
-  "$build"*) ;;
-  *) echo "FAIL: dev build $build is not this checkout's HEAD $head" >&2; exit 1 ;;
-esac
+# Bench-only commits on top of the build are fine; any product source drift is not.
+if ! git merge-base --is-ancestor "$build" "$head" 2>/dev/null \
+  || ! git diff --quiet "$build" "$head" -- . ':(exclude)evals'; then
+  echo "FAIL: dev build $build differs from this checkout's product source at $head" >&2; exit 1
+fi
 [ -f "$LOG_FILE" ] || { echo "FAIL: dev log not found: $LOG_FILE" >&2; exit 1; }
 
 dc identify --json >"$OUT_DIR/dev-identify.json"
@@ -467,4 +485,5 @@ for size in $PAYLOAD_SIZES; do
     "SIZE_${size}_${RUN_ID}"
 done
 run_recovery_case
+bench_complete
 echo "COMPLETE: observations are under $OUT_DIR"

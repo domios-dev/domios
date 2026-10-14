@@ -53,6 +53,11 @@
   --sidebar-disclosure-transition: 160ms ease;
 }
 
+/* Overscroll is not inherited; include nested scrollports and inline containment rules. */
+* {
+  overscroll-behavior: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -3032,16 +3037,6 @@ button,
 .ct-chat-surface {
   container-name: ct-chat-surface;
   container-type: inline-size;
-}
-
-.ct-chat-message-time--hidden-when-narrow {
-  display: none;
-}
-
-@container ct-chat-surface (min-width: 68rem) {
-  .ct-chat-message-time--hidden-when-narrow {
-    display: block;
-  }
 }
 
 .ct-chat-message-time {

@@ -1,6 +1,7 @@
 use super::*;
 use crate::session::lifecycle::{
     CommittedAuthority, LifecycleCheckpoint, LifecycleEntry, LifecycleEpoch, LifecycleKey,
+    TabLifecycleJournal,
 };
 
 fn key(tab_id: &str) -> LifecycleKey {
@@ -458,7 +459,6 @@ fn in_place_readiness_is_the_relaunch_reaching_agent_ready() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn plain_shell_without_a_live_pty_is_refused_before_acceptance() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

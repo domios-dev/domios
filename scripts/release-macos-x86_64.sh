@@ -60,8 +60,9 @@ change_install_name_if_present() {
 
 # 1. Fetch ONNX Runtime 1.23.2 Intel mac dylib (once)
 if [ ! -f "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VER}.dylib" ]; then
-  curl -sL -o "$ONNX_TGZ" \
+  curl --fail --location --max-time 120 -o "$ONNX_TGZ" \
     "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VER}/onnxruntime-osx-x86_64-${ONNX_VER}.tgz"
+  echo "d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6  $ONNX_TGZ" | shasum -a 256 -c -
   tar -xzf "$ONNX_TGZ" -C /tmp/
 fi
 

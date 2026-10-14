@@ -49,6 +49,7 @@ pub(super) fn parse_screen_prompt(screen: &str) -> Option<PendingPrompt> {
         .collect();
 
     Some(PendingPrompt {
+        request_id: None,
         question,
         options: rows
             .into_iter()
@@ -191,6 +192,7 @@ pub(super) fn parse_interactive_events(msg: &RichMessage) -> Vec<InteractiveElem
                 .filter_map(|o| {
                     let label = o.get("label").and_then(|v| v.as_str())?.to_string();
                     Some(InteractiveOption {
+                        value: None,
                         label,
                         description: o
                             .get("description")

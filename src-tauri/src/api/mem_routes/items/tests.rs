@@ -173,6 +173,7 @@ fn bump_on_get_is_safe_when_row_missing() {
 #[test]
 fn wake_up_budget_below_l0_floor_does_not_underflow() {
     let opts = wake_up_options_from_params(
+        4321,
         &WakeUpParams {
             budget: Some(10),
             l0_only: None,
@@ -190,6 +191,7 @@ fn wake_up_budget_below_l0_floor_does_not_underflow() {
 #[test]
 fn wake_up_no_l0_uses_full_budget_for_l1() {
     let opts = wake_up_options_from_params(
+        4321,
         &WakeUpParams {
             budget: Some(10),
             l0_only: None,
@@ -209,6 +211,7 @@ fn wake_up_no_l0_uses_full_budget_for_l1() {
 #[test]
 fn wake_up_large_budget_caps_l0_share() {
     let opts = wake_up_options_from_params(
+        4321,
         &WakeUpParams {
             budget: Some(2_000),
             l0_only: None,
@@ -224,8 +227,9 @@ fn wake_up_large_budget_caps_l0_share() {
 }
 
 #[test]
-fn wake_up_no_budget_uses_config_default() {
+fn wake_up_no_budget_uses_injected_config_default() {
     let opts = wake_up_options_from_params(
+        4321,
         &WakeUpParams {
             budget: None,
             l0_only: None,
@@ -235,15 +239,13 @@ fn wake_up_no_budget_uses_config_default() {
         },
         None,
     );
-    assert_eq!(
-        opts.l1_budget_tokens,
-        crate::config::schema::MemoryConfig::default().l1_budget_tokens
-    );
+    assert_eq!(opts.l1_budget_tokens, 4321);
 }
 
 #[test]
 fn wake_up_workspace_param_propagates_to_options() {
     let opts = wake_up_options_from_params(
+        4321,
         &WakeUpParams {
             budget: None,
             l0_only: None,
@@ -259,6 +261,7 @@ fn wake_up_workspace_param_propagates_to_options() {
 #[test]
 fn wake_up_inherits_calling_tab_workspace_when_not_overridden() {
     let opts = wake_up_options_from_params(
+        4321,
         &WakeUpParams {
             budget: None,
             l0_only: None,

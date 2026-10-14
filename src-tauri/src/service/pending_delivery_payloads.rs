@@ -40,6 +40,8 @@ pub(crate) struct PendingDeliveryPayloadStore {
     sink: Arc<dyn LogPayloadEventSink>,
     pub(crate) user_sends: Arc<user_sends::UserSendStore>,
     pub(crate) agent_deliveries: Arc<agent_deliveries::AgentDeliveryStore>,
+    pub(crate) readiness_events:
+        Arc<super::output_feed::delivery_readiness::DeliveryReadinessEvents>,
 }
 
 pub(crate) trait LogPayloadEventSink: Send + Sync {
@@ -89,6 +91,7 @@ impl PendingDeliveryPayloadStore {
                     },
                 )?),
                 agent_deliveries: Arc::new(agent_deliveries::AgentDeliveryStore::open(data_dir)),
+                readiness_events: Arc::default(),
             };
         fs::create_dir_all(&store.dir).map_err(|error| store.io("store", error))?;
         store.restrict_dir_permissions()?;

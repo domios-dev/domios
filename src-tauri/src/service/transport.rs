@@ -97,6 +97,7 @@ impl AgentTransport for PtyTransport {
         ctx: &TransportLaunchCtx<'_>,
     ) -> Result<Option<String>, String> {
         let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &svc.configuration(),
             &svc.agent_registry,
             ctx.provider_id,
             ctx.model.map(str::to_string),
@@ -220,6 +221,13 @@ impl AgentTransport for ChatTransport {
         } else {
             ctx.config.clone()
         };
+        if let Some(obj) = config.as_object_mut() {
+            if let Some(effort) = ctx.reasoning_effort {
+                obj.entry("effort")
+                    .or_insert_with(|| serde_json::json!(effort));
+            }
+            obj.insert("fullAccess".into(), serde_json::json!(ctx.skip_permissions));
+        }
         if let (Some(model), Some(obj)) = (ctx.model, config.as_object_mut()) {
             obj.entry("model")
                 .or_insert_with(|| serde_json::Value::String(model.to_string()));
@@ -259,7 +267,7 @@ impl ServiceContext {
         ui: bool,
     ) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
-            crate::config::default_agent_provider()
+            self.configuration().general_agent.agent_provider
         } else {
             params.agent_id.clone()
         };
@@ -327,6 +335,7 @@ impl ServiceContext {
         params: &AtomicSpawnParams,
     ) -> Result<(), String> {
         let launch_model = crate::service::spawn::resolve_fresh_agent_model(
+            &self.configuration(),
             &self.agent_registry,
             provider,
             params.model.clone(),
@@ -361,6 +370,7 @@ impl ServiceContext {
         ui: bool,
     ) -> Result<AtomicSpawn, String> {
         let (ws_id, ws_cwd) = self.resolve_spawn_workspace(params.workspace_id.clone())?;
+        self.validate_request_cwd(Some(&ws_id), None, params.cwd.as_deref())?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
 
         let tab_id = {
@@ -388,11 +398,13 @@ impl ServiceContext {
         if ui {
             super::supporter_notify::record_ui_origin(&tab_id);
         }
-        let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
-            &self.agent_registry,
-            provider,
-        )?
-        .is_some();
+        let permission_bypass =
+            crate::service::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
+                &self.agent_registry,
+                provider,
+            )?
+            .is_some();
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             tab.auto_approve = permission_bypass;
         }
@@ -472,8 +484,10 @@ impl ServiceContext {
                 },
             ),
             || {
-                self.rollback_provisional_tab(&ws_id, &tab_id);
-                let _ = self.revoke_agent_pad(&tab_id);
+                if !super::agent_runtime::engine::requested(self, provider) {
+                    self.rollback_provisional_tab(&ws_id, &tab_id);
+                    let _ = self.revoke_agent_pad(&tab_id);
+                }
                 self.emit_state_changed();
             },
         )?;

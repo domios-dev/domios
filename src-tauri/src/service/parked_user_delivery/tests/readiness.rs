@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding() {
     let (fixture, tab) = queue_fixture(true, None);
     {
@@ -59,10 +55,6 @@ fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn agent_ready_snapshot_without_its_transition_does_not_release_user_sends() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
@@ -78,10 +70,6 @@ fn agent_ready_snapshot_without_its_transition_does_not_release_user_sends() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn agent_ready_transition_latches_the_current_pty_generation() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
@@ -100,10 +88,6 @@ fn agent_ready_transition_latches_the_current_pty_generation() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn readiness_latches_for_the_current_pty_generation() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
@@ -155,6 +139,7 @@ fn readiness_latches_for_the_current_pty_generation() {
         "submit_unconfirmed"
     );
     fixture._app.unlisten(listener);
+    await_owner_idle(&fixture, &tab);
     assert_eq!(
         fixture
             .service

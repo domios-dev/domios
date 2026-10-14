@@ -21,7 +21,7 @@ export function UpdateProgressLayer() {
   const { upsertToast } = useMultiplexer();
   const { status, latestVersion, error, toastOpen, blocking, dismissUpdateToast, applyUpdate } = update;
   useEffect(() => {
-    if (!toastOpen || blocking) return;
+    if (!toastOpen || blocking || status !== "error") return;
     const copy = STATUS_COPY[status];
     const notice = updateNotice({ ...copy, latestVersion, error, failed: status === "error" });
     upsertToast({ id: "app-update", tab_id: null, workspace_id: null, ...notice,

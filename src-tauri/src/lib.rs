@@ -1,7 +1,8 @@
 pub mod agent;
 pub mod agent_commands;
 mod api;
-pub mod attachments;
+pub mod app_runtime;
+pub use codeterm_util::attachments;
 mod autostart;
 pub mod bridge;
 pub mod bridge_host;
@@ -143,7 +144,7 @@ pub fn run() {
     commands::seed_bundled_skills();
     commands::mirror_skills_to_providers();
 
-    let mut builder = tauri::Builder::default()
+    let mut builder = crate::app_runtime::builder()
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
@@ -172,6 +173,7 @@ pub fn run() {
     }
 
     let builder = builder
+        .plugin(tauri_plugin_deep_link::init())
         .manage(states.storage.clone())
         .manage(states.config.clone())
         .manage(states.pty.clone())
@@ -603,6 +605,13 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
+                #[cfg(test)]
+                ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
+                workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
+                account: Arc::new(tokio::sync::OnceCell::new()),
+                billing: Arc::new(tokio::sync::OnceCell::new()),
+                analytics: Arc::new(tokio::sync::OnceCell::new()),
                 agent_pad_data_dir: crate::paths::data_dir(),
                 launch_task_files: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 mux: states.mux.clone(),
@@ -676,6 +685,7 @@ pub fn run() {
                 webhook_registry: webhook_registry.clone(),
                 local_recording_registry: cap_registries.local_recording.clone(),
                 local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
+                local_recording_selections: Arc::new(crate::service::local_recording::RecordingSelectionStore::open(crate::paths::data_dir().join("local-recording-selections.json"))),
                 local_recording_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(crate::paths::data_dir().join("local-recording-targets.json"))),
                 tab_menu_registry: tab_menu_registry.clone(),
                 surface_registry,
@@ -712,6 +722,14 @@ pub fn run() {
             };
             crate::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
+            {
+                let service = service_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    if service.analytics_worker().await.is_err() {
+                        log::debug!("[analytics] initialization unavailable");
+                    }
+                });
+            }
             service_state.plan_store.bind_task_key_port(Arc::new(
                 crate::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
                     service_state.mux.clone(),
@@ -756,7 +774,15 @@ pub fn run() {
                 }
                 let _ = chatbackend_registry.start_discovery();
             }
+            crate::service::agent_runtime::restore::all(&service_state);
             app.manage(service_state.clone());
+            crate::service::account::register_deep_links(&app_handle, service_state.clone())?;
+            {
+                let service = service_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = service.refresh_billing(codeterm_billing::RefreshEvent::SignIn).await;
+                });
+            }
             startup::model_catalogue::reconcile_defaults(&service_state);
             let lane_watch_service = service_state.clone();
             tauri::async_runtime::spawn_blocking(move || {

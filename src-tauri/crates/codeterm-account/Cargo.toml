@@ -1,0 +1,16 @@
+[package]
+name = "codeterm-account"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+base64 = "0.22"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros", "rt", "test-util"] }
+url = "2"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

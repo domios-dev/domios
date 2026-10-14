@@ -14,6 +14,12 @@ pub async fn spawn_pty_core(
     predicted_id: Option<String>,
     tab_id: Option<String>,
 ) -> Result<String, String> {
+    if let Some(id) = tab_id.as_deref() {
+        if crate::service::agent_runtime::requested_for_tab(svc, id) {
+            crate::service::agent_runtime::restore::tab(svc, id)?;
+            return Err("This agent uses Chat; terminal launch is unavailable".into());
+        }
+    }
     let mut pty_claim = match tab_id.clone() {
         Some(id) => Some(svc.pty_ownership.acquire_async(id).await?),
         None => None,
@@ -173,7 +179,10 @@ pub async fn spawn_pty_core(
         crate::service::mark_tab_agent_launch_started(mux_state, pid);
         let stored_agent_type = restore.provider_id;
         let restored_session_id = restore.session_id;
-        let resume_enabled = crate::config::resume_sessions_enabled(&stored_agent_type);
+        let resume_enabled =
+            crate::config::provider_config_from(&svc.configuration(), &stored_agent_type)
+                .resume_sessions
+                .unwrap_or(true);
         log::debug!(
             "[restore-resume-target] tab={} provider={} saved_session={:?} resume_enabled={} cwd={:?}",
             pid, stored_agent_type, restored_session_id, resume_enabled, restore.cwd

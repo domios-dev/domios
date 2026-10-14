@@ -3,7 +3,6 @@ use crate::multiplexer::{state::MultiplexerState, types::PendingModelSwitchObser
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn next_turn_first_own_record_settles_match_or_failure() {
     for actual in [None, Some("vendor/target"), Some("vendor/old")] {
         let (mut mux, tab_id) = MultiplexerState::new();

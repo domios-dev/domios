@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 fn pending_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "Choose an option".into(),
         options: vec![
             PromptOption {
@@ -93,7 +94,6 @@ fn has_input_events(cast: PathBuf) -> bool {
         .any(|event| event.get(1).and_then(serde_json::Value::as_str) == Some("i"))
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
 #[test]
 fn detected_prompt_stays_respondable_without_notification() {
     let screen =
@@ -199,7 +199,6 @@ fn detected_prompt_stays_respondable_without_notification() {
     let _ = fixture.service.pty.lock().kill(&pty_id);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
 #[test]
 fn tab_respond_answers_trust_prompt_in_pair_tabs() {
     let screen =
@@ -242,7 +241,6 @@ fn tab_respond_answers_trust_prompt_in_pair_tabs() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn respond_prompt_rejects_invalid_options_before_pty_access() {
     let (fixture, tab_id) = fixture_with_pending_prompt();
     for value in ["3", "two"] {
@@ -268,7 +266,6 @@ fn respond_prompt_rejects_invalid_options_before_pty_access() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn respond_prompt_rejects_multi_select_options_before_pty_access() {
     let (fixture, tab_id) = fixture_with_pending_prompt();
     fixture
@@ -288,7 +285,6 @@ fn respond_prompt_rejects_multi_select_options_before_pty_access() {
     );
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
 #[tokio::test]
 async fn respond_prompt_reports_not_on_screen_instead_of_ok() {
     let (fixture, tab_id, pty_id) = fixture_with_screen("");
@@ -319,7 +315,6 @@ async fn respond_prompt_reports_not_on_screen_instead_of_ok() {
         .is_some());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
 #[test]
 fn respond_prompt_rejects_transcript_menu_after_live_screen_clears() {
     let screen = "opaque-question?\r\n❯ 1. opaque-first\r\n  2. opaque-second\r\nEnter to confirm · Esc to cancel";
@@ -365,4 +360,31 @@ async fn respond_prompt_outcome_maps_not_on_screen_to_conflict() {
     let invalid =
         crate::api::agent_routes::respond_prompt_response(RespondPromptOutcome::InvalidOption);
     assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn expired_runtime_identity_never_enters_the_legacy_pty_route() {
+    let (fixture, tab_id) = fixture_with_pending_prompt();
+    let mut prompt = pending_prompt();
+    prompt.request_id = Some("[2,\"nonce\",7]".into());
+    let identity = codeterm_types::pty::PromptIdentity::new(
+        codeterm_types::pty::PromptKind::Structured,
+        &prompt,
+    );
+    assert_eq!(
+        fixture
+            .service
+            .respond_prompt_with_identity(&tab_id, "1", &identity)
+            .unwrap(),
+        RespondPromptOutcome::StalePrompt
+    );
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .is_some());
 }

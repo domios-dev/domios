@@ -1,9 +1,11 @@
 use super::*;
+use crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH;
 
 #[test]
 fn tab_new_purpose_mesh_json_field() {
     let command = crate::Commands::Tab {
         action: crate::TabAction::New {
+            timeout: None,
             shell: None,
             list_shells: false,
             purpose: "build".into(),
@@ -51,4 +53,31 @@ fn tab_new_shell_profile_mesh_wire_and_list_read_only_route() {
     let (method, route, body) = cli_command_to_api(&parsed.command);
     assert_eq!((method.as_str(), route.as_str()), ("GET", "/api/shells"));
     assert!(body.is_none());
+}
+
+#[test]
+fn utility_timeouts_refuse_mesh_without_a_local_owner() {
+    use clap::Parser;
+    for argv in [
+        vec!["codeterm", "tab", "new", "--timeout", "30s"],
+        vec![
+            "codeterm",
+            "tab",
+            "timeout",
+            "--tab",
+            "shell",
+            "--timeout",
+            "30s",
+        ],
+    ] {
+        let command = crate::Cli::try_parse_from(argv).unwrap().command;
+        let (method, reason, body) = cli_command_to_api(&command);
+        assert_eq!(method, UNSUPPORTED_OVER_MESH);
+        assert!(reason.contains("local owning agent"));
+        assert!(body.is_none());
+        assert!(matches!(
+            crate::transport::transport_for(&command).api_verdict,
+            crate::transport::ApiVerdict::Unsupported(_)
+        ));
+    }
 }

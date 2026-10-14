@@ -1,6 +1,8 @@
+import { messageRowParts } from "@codeterm/chat-core";
 import type { NormalizedChatMessage as ChatMessage, TimelineItem } from "@codeterm/chat-core";
 import {
   detectChatPrefix,
+  foldHeaderFrames,
   splitChatPrefixedMessages,
   stripPastedContentTags,
   type ChatOrigin,
@@ -17,14 +19,27 @@ export interface EnrichedChatEntry {
 export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 
 function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
-  const splitPrefixes = splitChatPrefixedMessages(raw.content);
-  if (splitPrefixes && splitPrefixes.length > 1) {
+  const partPrefixes = (raw.messageParts ? messageRowParts(raw.messageParts) : undefined)?.map((part): { body: string; origin?: ChatOrigin; correlationId?: string } => ({
+    ...(part.kind === "frame" ? detectChatPrefix(part.content) ?? { body: part.content } : { body: stripPastedContentTags(part.content) }),
+    correlationId: part.correlationId,
+  }));
+  const splitPrefixes: Array<{ body: string; origin?: ChatOrigin; correlationId?: string }> | null | undefined =
+    (partPrefixes && foldHeaderFrames(partPrefixes)) ?? splitChatPrefixedMessages(raw.content);
+  if (splitPrefixes && (splitPrefixes.length > 1 || raw.messageParts)) {
     return splitPrefixes.map((prefix, index) => {
-      const msg = { ...raw, id: `${raw.id}-prefix-${index}`, content: prefix.body };
+      const msg = {
+        ...raw, id: `${raw.id}-prefix-${index}`, content: prefix.body,
+        messageParts: undefined,
+        inboundKind: prefix.origin ? raw.inboundKind : undefined,
+        attachments: index === 0 ? raw.attachments : undefined, fromLabel: undefined,
+        fromTab: undefined, fromModel: undefined, fromMesh: undefined,
+        fromPurpose: undefined, fromContext: undefined, fromPlugin: undefined,
+        correlationId: prefix.correlationId,
+      };
       return { msg, item: { kind: "message" as const, message: msg }, origin: prefix.origin };
     });
   }
-  const prefix = detectChatPrefix(raw.content);
+  const prefix = splitPrefixes?.length === 1 ? splitPrefixes[0] : detectChatPrefix(raw.content);
   const content = prefix?.body ?? stripPastedContentTags(raw.content);
   const m = content === raw.content ? raw : { ...raw, content };
   const item =

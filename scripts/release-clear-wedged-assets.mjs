@@ -12,7 +12,9 @@
 // Requires GH_TOKEN or GITHUB_TOKEN. Exits 0 when there is nothing to clear,
 // and never fails the build for a missing release — it is a pre-clean, not a gate.
 
-const [repo, tag] = process.argv.slice(2);
+import { ownsReleaseAsset } from "./release-asset-scope.mjs";
+
+const [repo, tag, scope] = process.argv.slice(2);
 if (!repo || !tag) {
   console.error("usage: release-clear-wedged-assets.mjs <owner/repo> <tag>");
   process.exit(2);
@@ -59,8 +61,9 @@ if (!release) {
   process.exit(0);
 }
 
+
 const assets = await api(`/repos/${repo}/releases/${release.id}/assets?per_page=100`);
-const wedged = assets.filter((asset) => asset.state !== "uploaded");
+const wedged = assets.filter((asset) => asset.state !== "uploaded" && (!scope || ownsReleaseAsset(asset.name, scope)));
 if (wedged.length === 0) {
   console.log(`${repo} ${tag}: no wedged assets`);
   process.exit(0);

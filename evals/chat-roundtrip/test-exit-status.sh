@@ -29,7 +29,7 @@ assert_summary() {
 run_direct() {
   local failures="$1" expected_status="$2" expected_summary="$3"
   local log="$TMP_DIR/direct-$failures.log" status
-  bash "$RUN" --verdict-only "$failures" >"$log" 2>&1
+  bash "$RUN" --verdict-only "$failures" 1 >"$log" 2>&1
   status=$?
   assert_status "direct failures=$failures" "$status" "$expected_status"
   assert_summary "direct failures=$failures" "$log" "$expected_summary"
@@ -38,7 +38,7 @@ run_direct() {
 run_canonical_capture() {
   local failures="$1" expected_status="$2" expected_summary="$3"
   local log="$TMP_DIR/captured-$failures.log" status
-  bash -o pipefail -c 'bash "$1" --verdict-only "$2" 2>&1 | tee "$3"' \
+  bash -o pipefail -c 'bash "$1" --verdict-only "$2" 1 2>&1 | tee "$3"' \
     _ "$RUN" "$failures" "$log"
   status=$?
   assert_status "captured failures=$failures" "$status" "$expected_status"
@@ -70,7 +70,7 @@ run_powershell_capture() {
     exit 1
   fi
   env PATH="$no_bash_path" "$powershell" -NoProfile -NonInteractive -File "$CHECKED_RUN" \
-    -LogPath "$log" -VerdictOnly "$failures"
+    -LogPath "$log" -VerdictOnly "$failures" -AssertionCount 1
   status=$?
   assert_status "PowerShell no-PATH-bash failures=$failures" "$status" "$expected_status"
   assert_summary "PowerShell no-PATH-bash failures=$failures" "$ROOT/$log" "$expected_summary"
@@ -82,3 +82,6 @@ run_canonical_capture 1 1 "[messaging-core] 1 assertion(s) FAILED"
 run_canonical_capture 0 0 "[messaging-core] ALL PASS"
 run_powershell_capture 1 1 "[messaging-core] 1 assertion(s) FAILED"
 run_powershell_capture 0 0 "[messaging-core] ALL PASS"
+
+bash "$RUN" --verdict-only 0 0 >"$TMP_DIR/empty.log" 2>&1
+assert_status "zero executed assertions" "$?" 1

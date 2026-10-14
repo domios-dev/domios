@@ -1,6 +1,6 @@
 use crate::agent;
 
-pub(crate) fn forward_changes(app: &tauri::AppHandle) {
+pub(crate) fn forward_changes(app: &crate::app_runtime::AppHandle) {
     let mut changes = agent::model_catalog::subscribe_changes();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {

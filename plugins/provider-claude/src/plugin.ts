@@ -1,3 +1,4 @@
+import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
 import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
@@ -375,14 +376,16 @@ const plugin: PluginModule = {
       for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
     // Keep large worker prompts out of shell parsing and argv on every platform.
-    if (p.task) {
-      const visiblePath = writeTaskTempFile(p.task);
+    {
+      const visiblePath = writeClaudeLaunchPrompt(p.task || "");
+      if (!visiblePath) return "";
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      const prompt = starterPrompt(p.starterPrompt, p.starterPromptText);
+      const prompt = p.task ? starterPrompt(p.starterPrompt, p.starterPromptText) : undefined;
       if (prompt) {
         parts.push("--");
-        parts.push(host.shell.quoteFor(prompt, host.platform()));
+        const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
+        parts.push(host.shell.quoteFor(framed, host.platform()));
       }
     }
     return parts.join(" ");
@@ -406,12 +409,11 @@ const plugin: PluginModule = {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
     const systemPrompt = p.systemPrompt;
-    if (systemPrompt && systemPrompt.trim()) {
-      const visiblePath = writeTaskTempFile(systemPrompt);
-      if (visiblePath) {
-        parts.push("--append-system-prompt-file");
-        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      }
+    {
+      const visiblePath = writeClaudeLaunchPrompt(systemPrompt || "");
+      if (!visiblePath) return null;
+      parts.push("--append-system-prompt-file");
+      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
     }
     return parts.join(" ");
   },
@@ -1162,22 +1164,6 @@ function quoteArg(arg: string): string {
   return /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform());
 }
 
-// Task-file helpers: write to host temp files with provider-specific suffixes.
-// Windows adds a UTF-8 BOM so PowerShell parses task bodies correctly.
-function writeTaskTempFile(task: string): string | null {
-  const suffix = ".ct-task-" + randomShortHex(8);
-  const win = host.platform() === "windows";
-  // PowerShell reads UTF-8 reliably only with BOM; prepend it for Windows task files.
-  const body = win ? "﻿" + task : task;
-  return host.fs.writeTempFile(body, suffix);
-}
-
-function randomShortHex(len: number): string {
-  const hex = "0123456789abcdef";
-  let out = "";
-  for (let i = 0; i < len; i++) out += hex.charAt((Math.random() * 16) | 0);
-  return out;
-}
 
 function resumeBase(sessionId: string, skipPermissions?: boolean): string {
     const win = host.platform() === "windows";

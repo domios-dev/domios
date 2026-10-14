@@ -1,3 +1,4 @@
+import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect, useId, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { KebabGlyph } from "../shared/RowMenuButton";
@@ -30,7 +31,9 @@ export function PluginDetailHeader({
 }) {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const action = primaryAction(entry);
+  const updates = useOptionalUpdatePanel();
+  const updateAvailable = updates ? updates.pluginHasUpdate(entry.id) : entry.updateAvailable;
+  const action = primaryAction({ ...entry, updateAvailable });
   const anyBusy = busy?.endsWith(`:${entry.id}`) ?? false;
   const isBusy = (kind: HeaderActionKind) => busy === `${kind}:${entry.id}`;
   const removable = canUninstall(entry);
@@ -68,6 +71,7 @@ export function PluginDetailHeader({
             >
               {entry.displayName}
             </h2>
+            {updateAvailable && <Chip variant="accent">Update</Chip>}
             {action.kind === "none" && (
               <span title={action.reason} className="flex-none" data-testid="extensions-plugin-origin">
                 <Chip variant="muted">{action.label}</Chip>

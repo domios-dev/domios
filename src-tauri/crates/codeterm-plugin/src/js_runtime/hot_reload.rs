@@ -159,7 +159,7 @@ impl CapabilityRegistries {
                 )),
             );
         }
-        if caps.chat_backend.enabled() {
+        if caps.chat_backend.enabled() && caps.agent_runtime.is_none() {
             self.chatbackend.register(
                 id.clone(),
                 Arc::new(super::JsChatBackend::from_manifest(vm.clone(), manifest)),
@@ -286,6 +286,17 @@ pub fn refresh_installed_plugins(ids: &[String]) -> Result<(), String> {
         .get()
         .ok_or("Plugin watcher is not ready")?
         .refresh_installed(ids)
+}
+
+pub fn notify_permission_changed(
+    plugin_id: &str,
+    event: &crate::plugin_lifecycle::PermissionChangedEvent,
+) -> Result<bool, String> {
+    let watcher = WATCHER.get().ok_or("Plugin watcher is not ready")?;
+    let Some(vm) = watcher.existing_vm(plugin_id) else {
+        return Ok(false);
+    };
+    crate::plugin_lifecycle::deliver_permission_changed(vm.as_ref(), plugin_id, event)
 }
 
 pub fn pending_reload_ids() -> Vec<String> {

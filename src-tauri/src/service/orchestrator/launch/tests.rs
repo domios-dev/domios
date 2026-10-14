@@ -62,7 +62,6 @@ fn delivery_fixture() -> (
 include!("tests/restored_input_readiness.rs");
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn has_startup_task_turn_reflects_the_actual_launch_command() {
     use crate::agent::provider::{
         AgentProvider, StarterPrompt, SystemPromptDelivery, TaskDelivery,
@@ -139,10 +138,6 @@ fn has_startup_task_turn_reflects_the_actual_launch_command() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
     use crate::agent::test_provider::MockProvider;
 
@@ -241,7 +236,6 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn owner_prompt_cleared_on_lazy_session_launch_moves_to_agent_ready_without_first_turn() {
     use crate::agent::provider::ProviderReadinessStrategy;
     use crate::agent::test_provider::MockProvider;
@@ -318,7 +312,6 @@ fn owner_prompt_cleared_on_lazy_session_launch_moves_to_agent_ready_without_firs
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
     use crate::agent::provider::StarterPrompt;
     use crate::agent::test_provider::MockProvider;
@@ -353,7 +346,6 @@ fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn codex_orchestrator_waits_for_owner_trust_then_lazy_readiness() {
     use crate::agent::provider::{StarterPrompt, TaskDelivery};
     use crate::agent::test_provider::MockProvider;
@@ -946,6 +938,11 @@ fn reapply_class_resume_carries_the_composed_prompt_exactly_once() {
         .trim()
         .trim_matches(['\'', '"']);
     let delivered = std::fs::read_to_string(path).expect("prompt file the resume command names");
+    assert!(delivered
+        .trim_start_matches('\u{feff}')
+        .starts_with(RESUME_COMPOSED_PROMPT));
+    let rule = crate::plugin::agent_claude::launch_prompt_rule().unwrap();
+    assert_eq!(delivered.matches(rule.as_str()).count(), 1);
     assert_eq!(delivered.matches(RESUME_COMPOSED_PROMPT).count(), 1);
 }
 
@@ -1025,6 +1022,7 @@ fn free_form_unknown_model_is_preserved_in_launch_command() {
         ..Default::default()
     };
     let resolved_model = crate::service::spawn::resolve_fresh_agent_model(
+        &crate::config::schema::AppConfig::default(),
         &registry,
         provider_id,
         Some(requested_model.into()),

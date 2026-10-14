@@ -13,10 +13,11 @@
 
 pub(crate) mod binding_wait;
 pub mod blocker;
+pub(crate) mod capability_hints;
 mod first_run;
 mod fresh_session;
 pub mod identity;
-mod instructions;
+pub(crate) mod instructions;
 mod launch_files;
 pub(crate) mod launch_lock;
 mod lifecycle;

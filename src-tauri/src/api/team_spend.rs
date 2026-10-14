@@ -525,7 +525,9 @@ fn usage_rows(svc: &ServiceContext, range: SpendRange) -> Result<Vec<UsageSnapsh
             .agent_registry
             .with_provider(&provider, |registered| registered.usage_parser().is_some())
             .unwrap_or(false);
-        if !reports_usage || !crate::config::usage_tracking_enabled(&provider) {
+        if !reports_usage
+            || !crate::config::usage_tracking_enabled_from(&svc.configuration(), &provider)
+        {
             continue;
         }
         rows.extend(

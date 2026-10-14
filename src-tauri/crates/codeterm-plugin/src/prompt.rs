@@ -343,6 +343,7 @@ where
 /// Build a PendingPrompt from parsed (question, options) tuple.
 pub fn build_prompt(question: String, opts: Vec<(String, String)>) -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question,
         options: opts
             .into_iter()
@@ -379,6 +380,7 @@ mod tests {
 
     fn make_prompt(q: &str, opts: &[(&str, &str)]) -> PendingPrompt {
         PendingPrompt {
+            request_id: None,
             question: q.to_string(),
             options: opts
                 .iter()

@@ -8,8 +8,8 @@ pub(crate) struct Environment {
 }
 
 impl Environment {
-    pub(crate) fn current_instance() -> Self {
-        let instance = crate::service::instance_env::InstanceEnv::resolve();
+    pub(crate) fn current_instance(api: crate::config::schema::ApiConfig) -> Self {
+        let instance = crate::service::instance_env::InstanceEnv::from_api_config(api);
         let cli = crate::service::instance_env::instance_cli_binary_path();
         let inherited = std::env::var_os("PATH");
         let path = probe_path(

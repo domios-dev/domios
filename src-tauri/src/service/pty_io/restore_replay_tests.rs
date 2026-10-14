@@ -4,7 +4,6 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
     DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord,
 };
-use crate::service::boot_stage::BootStage;
 use codeterm_util::lock_hold::TimedRwLock;
 use std::sync::Arc;
 
@@ -82,8 +81,8 @@ fn restored_launch_input_filters_uncertain_turn_from_recording_sink() {
 }
 
 #[test]
-fn restored_pending_input_refuses_launch_and_preserves_record() {
-    let pending = PendingDeliveryRecord::new(
+fn restored_pending_input_resumes_agent_without_replaying_record() {
+    let mut pending = PendingDeliveryRecord::new(
         "missing-body".into(),
         PendingDeliveryChannel::InteractiveInput,
     );
@@ -103,10 +102,12 @@ fn restored_pending_input_refuses_launch_and_preserves_record() {
         false,
         super::lifecycle::restore_payload::resolve_restored_payload,
         |stage, _, _| events.lock().push(stage),
-        |_, _| panic!("retained user turn must not reach launch submit")
+        |_, payload| assert!(payload.is_none())
     )
-    .is_err());
-    assert_eq!(events.lock().as_slice(), [BootStage::SpawnFailed]);
+    .unwrap()
+    .is_some());
+    assert!(events.lock().is_empty());
+    pending.mark_unconfirmed();
     assert_eq!(
         mux.read()
             .get_tab(&tab_id)

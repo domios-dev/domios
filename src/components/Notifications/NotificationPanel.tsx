@@ -6,8 +6,6 @@ import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
-import { requestOpenJob } from "../Jobs/openJobEvent";
-import { RunPath } from "../Automation/RunPath";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 
 interface NotificationPanelProps {
@@ -184,15 +182,9 @@ export function NotificationPanel({
                     Show Tab
                   </button>
                 )}
-                {notif.blueprint_run && <>
-                  <RunPath run={notif.blueprint_run.run} />
-                  <button type="button" className="mt-1.5 text-xs text-[var(--ct-accent)]" onClick={(event) => {
-                    event.stopPropagation();
-                    const data = notif.blueprint_run!;
-                    requestOpenJob({ workspaceId: data.workspaceId, target: { teamId: data.teamId, scenarioId: data.scenarioId, runId: data.run.key } });
-                  }}>Open run</button>
-                </>}
                 {notif.local_actions?.map((action) => <button key={action.label} type="button" className="mt-1.5 mr-2 text-xs text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); void action.run(); }}>{action.label}</button>)}
+                {notif.answer_pending && <div role="status">Sending answer…</div>}
+                {notif.answer_error && <div role="alert">{notif.answer_error}</div>}
                 {notif.resolved ? (
                   <div
                     data-testid="notification-resolved"
@@ -200,7 +192,7 @@ export function NotificationPanel({
                   >
                     Resolved in tab.
                   </div>
-                ) : notif.answer?.answered ? (
+                ) : notif.answer?.answered && !notif.answer_error && !notif.answer_pending ? (
                   isAnswerUndelivered(notif.answer) ? (
                     <div
                       data-testid="notification-answer-undelivered"
@@ -232,6 +224,7 @@ export function NotificationPanel({
                         <button
                           type="button"
                           key={`${action.label}-${index}`}
+                          disabled={notif.answer_pending || (notif.answer?.answered != null && notif.answer.answered !== action.label)}
                           className={
                             (action.type === "answer" || action.type === "respond_prompt_option") && index === 0
                               ? "rounded border border-[var(--ct-accent)] px-2 py-1 text-[10px] text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"

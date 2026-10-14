@@ -746,11 +746,6 @@ fn retrospective_nudge_reaches_the_wrapup_with_its_plan_substituted() {
 }
 
 #[test]
-fn plan_skills_registry_line_keeps_its_count_slot() {
-    assert!(PLAN_SKILLS_REGISTRY_LINE.contains("{n}"));
-}
-
-#[test]
 fn every_prompt_md_has_a_loader() {
     // Any file in the directory that is NOT in this set is an orphan — it is compiled into the binary by nobody and misleads future editors.
     let loaded: std::collections::HashSet<&str> = [

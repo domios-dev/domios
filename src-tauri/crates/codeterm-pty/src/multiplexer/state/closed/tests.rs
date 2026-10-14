@@ -328,14 +328,24 @@ fn reopen_cascade_group_preserves_each_tab_mode() {
 
 #[test]
 fn history_is_bounded_at_cap() {
+    let cap = 3;
     let (mut state, _root) = MultiplexerState::new();
+    state.attach_closed_store(ClosedTabsStore::in_memory_with_caps(cap, CLOSED_GROUP_CAP));
     let wsid = ws_id(&state);
-    for _ in 0..(RECENTLY_CLOSED_CAP + 5) {
+    let mut closed = Vec::new();
+    for _ in 0..(cap + 2) {
         let tab_id = state.create_tab(&wsid).unwrap();
         state.close_tab(&tab_id).unwrap();
+        closed.push(tab_id);
     }
-    let list = state.list_recently_closed(&wsid);
-    assert_eq!(list.len(), RECENTLY_CLOSED_CAP, "history bounded at cap");
+    assert_eq!(state.closed_store.count_for_workspace(&wsid), cap);
+    let ids: Vec<_> = state
+        .list_recently_closed(&wsid)
+        .into_iter()
+        .map(|tab| tab.tab_id)
+        .collect();
+    let expected: Vec<_> = closed.into_iter().rev().take(cap).collect();
+    assert_eq!(ids, expected);
 }
 
 #[test]

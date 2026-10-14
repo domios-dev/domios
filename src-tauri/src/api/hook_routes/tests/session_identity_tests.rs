@@ -12,10 +12,6 @@ fn service_fixture_with_sessions(
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn reported_session_rejects_wrong_provider_for_locked_tab() {
     let (fixture, tab_id) = service_fixture_with_sessions(vec![
         ("claude", vec!["sid-a", "sid-b", "ses_shared"]),
@@ -73,10 +69,6 @@ fn reported_session_rejects_wrong_provider_for_locked_tab() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn reported_session_binds_sid_owned_by_provider() {
     let (fixture, tab_id) = service_fixture_with_sessions(vec![("claude", vec!["claude-real"])]);
     fixture
@@ -113,10 +105,6 @@ fn reported_session_binds_sid_owned_by_provider() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
     let (fixture, tab_id) = service_fixture_with_sessions(vec![("claude", vec![])]);
     {
@@ -160,10 +148,6 @@ fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
 /// latched at `spawn_failed` whose agent then authenticates its own launch must
 /// not keep reporting a failed spawn, and no message to the tab is involved.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn a_nonce_verified_binding_retires_a_latched_spawn_failure() {
     let (fixture, tab_id) = service_fixture_with_sessions(vec![("claude", vec![])]);
     {
@@ -201,10 +185,6 @@ fn a_nonce_verified_binding_retires_a_latched_spawn_failure() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn unchanged_acknowledged_hook_report_still_marks_relaunch_live() {
     let (fixture, tab_id) = service_fixture_with_sessions(vec![("claude", vec!["sid-a"])]);
     let pty_id = "pty-relaunch";
@@ -268,10 +248,6 @@ fn unchanged_acknowledged_hook_report_still_marks_relaunch_live() {
 /// The over-correction guard: a report that cannot prove the launch leaves the
 /// failure exactly where it was.
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn an_unproven_report_leaves_a_spawn_failure_latched() {
     let (fixture, tab_id) = service_fixture_with_sessions(vec![("claude", vec![])]);
     {
@@ -299,10 +275,6 @@ fn an_unproven_report_leaves_a_spawn_failure_latched() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
     use crate::service::parked_user_delivery::tests::{queue_fixture, UserSubmitBoundary};
     let (fixture, tab_id) = queue_fixture(false, None);
@@ -393,10 +365,6 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn stale_nonce_ack_does_not_release_and_rebound_launch_expires_queued_user_owner() {
     use crate::service::parked_user_delivery::tests::{
         await_owner_idle, queue_fixture, UserSubmitBoundary,

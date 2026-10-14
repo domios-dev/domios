@@ -331,6 +331,7 @@ impl ServiceContext {
         };
         staged.settle(&handle.store)?;
         handle.notify();
+        self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         Ok(job)
     }
 

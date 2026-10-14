@@ -1,13 +1,11 @@
-use crate::config::load_config;
+mod inventory;
+
 use crate::plan::{Plan, TaskStatus};
 use crate::service::plan::digest_rules::{evaluate_digest_rules, plan_digest_counters};
 use crate::service::plan::usage_digest::{
     needs_refresh, usage_digest_lines, UsageDigestRow, FRESHNESS_MS,
 };
 use crate::service::ServiceContext;
-
-const CLEANUP_SOFT_LIMIT: usize = 5;
-const CLEANUP_CRITICAL_LIMIT: usize = 10;
 
 #[derive(Default)]
 struct HeartbeatSelection<'a> {
@@ -169,75 +167,22 @@ pub(crate) fn deliver_exact_role_target(
 
 fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
     let mut out = Vec::new();
-    out.extend(crate::service::cartographer::digest_lines(plan));
+    out.extend(crate::service::cartographer::digest_lines(
+        plan,
+        svc.configuration().orchestration.map.enabled,
+    ));
     out.extend(queue_pressure_lines(svc, plan, tab_id));
-    out.extend(cleanup_pressure_lines(svc, tab_id));
     out.extend(usage_lines(svc));
     out.truncate(8);
     out
 }
 
-fn cleanup_pressure_lines(svc: &ServiceContext, tab_id: Option<&str>) -> Vec<String> {
-    let Some(tab_id) = tab_id.filter(|id| !id.trim().is_empty()) else {
-        return Vec::new();
-    };
-    let (worker_count, cwd) = {
-        let mux = svc.mux.read();
-        let worker_count = mux.get_children_ids(tab_id).len();
-        let cwd = mux.get_tab(tab_id).and_then(|tab| tab.cwd.clone());
-        (worker_count, cwd)
-    };
-    let mut lines = Vec::new();
-    if let Some(line) = cleanup_pressure_line("Worker", worker_count, "close inactive worker tabs")
-    {
-        lines.push(line);
-    }
-    if let Some(worktree_count) = cwd.as_deref().and_then(count_repo_worktrees) {
-        if let Some(line) =
-            cleanup_pressure_line("Worktree", worktree_count, "remove ancestry-merged lanes")
-        {
-            lines.push(line);
-        }
-    }
-    lines
-}
-
-fn cleanup_pressure_line(kind: &str, count: usize, action: &str) -> Option<String> {
-    if count > CLEANUP_CRITICAL_LIMIT {
-        return Some(format!(
-            "CRITICAL {kind} pressure: {count} active; {action} before dispatching more"
-        ));
-    }
-    (count > CLEANUP_SOFT_LIMIT).then(|| {
-        format!(
-            "{kind} pressure: {count} active; parallel work may be valid, but {action} if lanes are idle"
-        )
-    })
-}
-
-fn count_repo_worktrees(cwd: &str) -> Option<usize> {
-    let cwd = std::path::Path::new(cwd);
-    let git_dir = cwd
-        .ancestors()
-        .map(|dir| dir.join(".git"))
-        .find(|git| git.is_dir())?;
-    let linked = git_dir.join("worktrees");
-    let linked_count = match std::fs::read_dir(linked) {
-        Ok(entries) => entries
-            .filter_map(Result::ok)
-            .filter(|entry| entry.path().is_dir())
-            .count(),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(_) => return None,
-    };
-    Some(linked_count + 1)
-}
-
 fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
-    let cfg = load_config().orchestration.digests;
+    let cfg = svc.configuration().orchestration.digests;
     let now_ms = now_epoch_ms();
     let stalled = count_stalled_lanes(plan, now_ms);
-    let counters = plan_digest_counters(plan, now_ms, stalled);
+    let mut counters = plan_digest_counters(plan, now_ms, stalled);
+    inventory::populate(svc, plan, &mut counters);
     let fired = evaluate_digest_rules(&cfg, &counters);
     let Some(tab_id) = tab_id.filter(|id| !id.trim().is_empty()) else {
         return fired.into_iter().map(|(_, line)| line).collect();
@@ -262,7 +207,7 @@ fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>)
 }
 
 fn usage_lines(svc: &ServiceContext) -> Vec<String> {
-    let cfg = load_config().usage;
+    let cfg = svc.configuration().usage;
     if !cfg.enabled || !cfg.heartbeat {
         return Vec::new();
     }
@@ -284,7 +229,9 @@ fn usage_rows(svc: &ServiceContext, now_ms: i64, freshness_ms: i64) -> Vec<Usage
             .agent_registry
             .with_provider(&provider_id, |p| p.usage_parser().is_some())
             .unwrap_or(false);
-        if !capable || !crate::config::usage_tracking_enabled(&provider_id) {
+        if !capable
+            || !crate::config::usage_tracking_enabled_from(&svc.configuration(), &provider_id)
+        {
             continue;
         }
         let latest = svc
@@ -332,20 +279,7 @@ fn now_epoch_secs() -> u64 {
 mod tests {
     use std::cell::RefCell;
 
-    use super::{cleanup_pressure_line, deliver_exact_role_target};
-
-    #[test]
-    fn cleanup_pressure_thresholds_are_soft_then_critical() {
-        assert_eq!(cleanup_pressure_line("Worker", 5, "clean"), None);
-        assert_eq!(
-            cleanup_pressure_line("Worker", 6, "clean").as_deref(),
-            Some("Worker pressure: 6 active; parallel work may be valid, but clean if lanes are idle")
-        );
-        assert_eq!(
-            cleanup_pressure_line("Worker", 11, "clean").as_deref(),
-            Some("CRITICAL Worker pressure: 11 active; clean before dispatching more")
-        );
-    }
+    use super::deliver_exact_role_target;
 
     #[test]
     fn owner_undeliverable_heartbeat_never_reaches_planner() {

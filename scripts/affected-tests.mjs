@@ -7,13 +7,22 @@ import { discoverTests, selectRelatedTests } from "./run-ts-unit-tests.mjs";
 const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scopeAliases = new Map([
   ["codeterm", "app"],
+  ["codeterm-agent-detect", "agent-detect"],
+  ["codeterm-analytics", "analytics"],
+  ["codeterm-notification-core", "notification-core"],
+  ["codeterm-account", "account"],
+  ["codeterm-billing", "billing"],
   ["codeterm-cli", "cli"],
   ["codeterm-plan", "plan"],
+  ["codeterm-repowatch", "repowatch"],
   ["codeterm-frontend-bundle", "frontend-bundle"],
   ["codeterm-pty", "pty"],
   ["codeterm-plugin", "plugin"],
   ["codeterm-plugins", "plugins"],
   ["codeterm-types", "types"],
+  ["codeterm-util", "util"],
+  ["codeterm-browser", "browser"],
+  ["codeterm-usage", "usage"],
   ["codeterm-mem", "mem"],
   ["codeterm-mesh", "mesh"],
 ]);

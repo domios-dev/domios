@@ -2,17 +2,17 @@ use serde_json::{json, Value};
 
 use crate::multiplexer::types::Tab;
 
-use super::journal::{checkpoints, JournalLoad, TabLifecycleJournal, TailStatus};
+use super::journal::{checkpoints, JournalLoad, TailStatus};
 use super::record::{JournalRecord, LifecycleEpoch};
 
 /// Read-only journal telemetry for one live tab: lineage, ordered transitions,
 /// surviving checkpoint, and journal-tail health. Never a restore input.
-pub fn inspect_tab_lifecycle(tab: &Tab) -> Value {
+pub fn inspect_tab_lifecycle(tab: &Tab, journal: &JournalLoad) -> Value {
     inspect_lineage(
         &tab.id,
         tab.lifecycle_epoch.map(LifecycleEpoch),
         tab.lifecycle_operation_id.as_deref(),
-        &TabLifecycleJournal::shared().load(),
+        journal,
     )
 }
 

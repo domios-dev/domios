@@ -1,3 +1,4 @@
+import { messageRowParts } from "@codeterm/chat-core";
 //! Recognises codeterm's own message-injection prefixes and claude's
 //! slash-command XML wrappers inside user chat content. Lets the UI
 //! render them as typed bubbles (cross-tab / Telegram / plugin / Pebble / mesh
@@ -10,6 +11,7 @@ import {
   buildDomiosMessage,
   DOMIOS_CLOSE_TAG,
   parseDomiosMessage,
+  parseMessageParts,
   parseMarker,
   systemOriginLabel,
 } from "@codeterm/chat-core";
@@ -149,19 +151,27 @@ function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch 
   return null;
 }
 
-export function splitChatPrefixedMessages(content: string): PrefixMatch[] | null {
-  const matches: PrefixMatch[] = [];
-  let remaining = content;
-  while (remaining.startsWith("<domios")) {
-    const close = remaining.indexOf(DOMIOS_CLOSE_TAG);
-    if (close < 0) break;
-    const end = close + DOMIOS_CLOSE_TAG.length;
-    const match = detectTransportPrefix(remaining.slice(0, end));
-    if (!match) break;
-    matches.push(match);
-    remaining = remaining.slice(end);
+export function splitChatPrefixedMessages(content: string): Array<{ origin?: ChatOrigin; body: string }> | null {
+  const parts = messageRowParts(parseMessageParts(content));
+  if (!parts.some((part) => part.kind === "frame")) return null;
+  return foldHeaderFrames(parts.map((part) => {
+    const prefix = part.kind === "frame" ? detectTransportPrefix(part.content) : null;
+    return prefix ?? { body: part.content };
+  }));
+}
+
+// A header-only frame (empty body) owns the plain text after it, the way sentinel notices are written.
+export function foldHeaderFrames<T extends { origin?: ChatOrigin; body: string }>(prefixes: readonly T[]): T[] {
+  const folded: T[] = [];
+  for (const prefix of prefixes) {
+    const previous = folded[folded.length - 1];
+    if (previous?.origin && !previous.body.trim() && !prefix.origin) {
+      folded[folded.length - 1] = { ...previous, body: prefix.body };
+      continue;
+    }
+    folded.push(prefix);
   }
-  return matches.length > 0 ? matches : null;
+  return folded;
 }
 
 function collectSlashCommands(content: string): PrefixMatch | null {

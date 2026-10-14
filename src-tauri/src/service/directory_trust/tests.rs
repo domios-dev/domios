@@ -11,6 +11,7 @@ use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
 fn trust_prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "directory trust question".into(),
         options: vec![
             PromptOption {
@@ -144,7 +145,6 @@ fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn trust_responder_never_writes_on_a_non_trust_dialog() {
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
         "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
@@ -322,7 +322,6 @@ fn shared_trust_cache_is_exact_path_scoped_and_invalidated_on_carry() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
     let (mut mux, tab_id) = agent_tab(None, false);
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -357,7 +356,6 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn untrusted_shared_lookup_stores_one_owner_prompt_and_notifies_once() {
     let folder = tempfile::tempdir().expect("owner checkout");
     let cwd = folder.path().to_string_lossy().into_owned();
@@ -367,6 +365,7 @@ fn untrusted_shared_lookup_stores_one_owner_prompt_and_notifies_once() {
     tab.pty_id = Some("pty-owner-trust".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
+        request_id: None,
         question: "owner-trust-question-1".into(),
         options: vec![
             PromptOption {
@@ -595,7 +594,6 @@ fn deterministic_and_model_trust_responders_racing_claim_once() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn fresh_team_directory_trust_answers_one_transaction_under_race() {
     let (mut mux, tab_id) = state_with_tab(Some("/repo/fresh-team"), None);
     let tab = mux.get_tab_mut(&tab_id).expect("team tab");
@@ -660,7 +658,6 @@ fn fresh_team_directory_trust_answers_one_transaction_under_race() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn observed_trust_clear_resolves_only_the_current_launch_binding() {
     let trust_screen = include_str!(
         "../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"
@@ -693,7 +690,6 @@ fn observed_trust_clear_resolves_only_the_current_launch_binding() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn refused_team_folder_trust_prompt_notifies_owner_once_with_tab_identity() {
     let (mut mux, tab_id) = state_with_tab(Some("/repo/fresh-team"), None);
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -745,7 +741,6 @@ fn refused_team_folder_trust_prompt_notifies_owner_once_with_tab_identity() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-provisioned-trust".into());
@@ -775,7 +770,6 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn trust_trusted_dir_by_provenance_auto_answers_no_notification() {
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-untrusted-repo".into());
@@ -851,7 +845,6 @@ fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answered() {
     use codeterm_types::agent::roles::AgentRole;
 
@@ -956,6 +949,7 @@ fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answ
 #[test]
 fn trust_dialogs_never_reach_the_legacy_yes_responder() {
     let trust_prompt = PendingPrompt {
+        request_id: None,
         question: "Quick safety check: Is this a project you created or one you trust?".into(),
         options: vec![
             PromptOption {
@@ -1026,6 +1020,7 @@ fn cwd_provenance_refusal_keeps_trust_prompt_out_of_both_auto_responders() {
     assert!(!directory_trust_check_applies(tab));
 
     let trust_prompt = PendingPrompt {
+        request_id: None,
         question: "Should this folder's guidance be loaded?".into(),
         options: vec![
             PromptOption {

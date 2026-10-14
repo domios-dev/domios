@@ -128,6 +128,7 @@ impl ServiceContext {
         super::background_work_watch::cancel(tab_id);
         crate::flow_trace::cancel_tab(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
+        super::agent_runtime::engine::stop(tab_id);
         self.deferred_session_bindings.clear(tab_id);
 
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
@@ -314,6 +315,9 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
+        if let Err(error) = self.cancel_utility_timeout(&canonical_tab_id) {
+            log::error!("[utility-timeout] closed shell deadline cleanup failed: {error}");
+        }
         crate::service::prompt_resolution::clear_tab_prompt(None);
         crate::service::launch_readiness::owner_prompt_cleared(&canonical_tab_id);
         if let (Some(provider_id), Some(session_id)) =
@@ -326,6 +330,7 @@ impl ServiceContext {
         }
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.forget_utility_command(&canonical_tab_id);
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
@@ -642,37 +647,26 @@ impl ServiceContext {
         if queued.is_empty() {
             return;
         }
-        let pty_id = match self.resolve_pty_id(tab_id) {
-            Ok(id) => id,
-            Err(e) => {
-                log::warn!(
-                    "[bridge] cannot replay {} queued for tab={}: {}",
-                    queued.len(),
-                    tab_id,
-                    e,
-                );
-                for msg in queued {
-                    crate::bridge::inbound_buffer::push(tab_id, msg);
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        let new_type = new_type.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            log::debug!(
+                "[bridge] admitting {} buffered messages tab={} provider={}",
+                queued.len(),
+                tab_id,
+                new_type
+            );
+            let mut messages = queued.into_iter();
+            while let Some(message) = messages.next() {
+                if let Err(error) = service.start_chat_send(&tab_id, message.clone(), None, None) {
+                    log::warn!("[bridge] buffered message admission held tab={tab_id}: {error}");
+                    crate::bridge::inbound_buffer::push(&tab_id, message);
+                    for remaining in messages {
+                        crate::bridge::inbound_buffer::push(&tab_id, remaining);
+                    }
+                    break;
                 }
-                return;
-            }
-        };
-        log::info!(
-            "[bridge] replayed {} queued messages to tab={} after agent_type transition None -> Some({:?})",
-            queued.len(), tab_id, new_type,
-        );
-        let pty = self.pty.clone();
-        std::thread::spawn(move || {
-            for msg in queued {
-                let paste = format!("\x1b[200~{}\x1b[201~", msg);
-                if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
-                    log::warn!("[bridge] replay write failed for pty={}: {}", pty_id, e);
-                    return;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = pty.lock().write(&pty_id, b"\r");
-                std::thread::sleep(std::time::Duration::from_millis(2000));
-                let _ = pty.lock().write(&pty_id, b"\r");
             }
         });
     }
@@ -734,6 +728,11 @@ impl ServiceContext {
         value: &str,
         expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Result<RespondPromptOutcome, String> {
+        if let Some(result) =
+            super::agent_runtime::prompt_answers::respond(self, tab_id, value, expected_identity)
+        {
+            return result;
+        }
         if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
             self,
             tab_id,
@@ -973,10 +972,6 @@ mod launch_artifact_close_tests {
     use std::sync::Arc;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn closing_a_codex_tab_releases_its_own_profile() {
         let (mut mux, tab_id) = MultiplexerState::new();
         mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("codex".into());

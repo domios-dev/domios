@@ -1,0 +1,14 @@
+[
+  {
+    "source": "https://github.com/firebase/firebaseui-web",
+    "name": "google.svg",
+    "sha256": "cbe9772630b9b72daf7c14eab28c6c86f88e07da9cb08487544e022e385ede1f",
+    "url": "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+  },
+  {
+    "source": "derived from https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/facebook.svg",
+    "name": "facebook-badge.svg",
+    "sha256": "4bf62221659dfcfa6ceda830e5b461c40f15db753d5399f0509919814321db2f",
+    "note": "same glyph path filled with Facebook brand blue #1877F2 over a white base"
+  }
+]

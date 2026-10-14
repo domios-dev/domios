@@ -39,6 +39,8 @@ export type {
   AnalyticsRefusal,
   HostReceiverTarget,
   HostLocalRecording,
+  RecordingDeviceSelection,
+  RecordingInputDevice,
   LocalRecordingStatus,
   LocalRecordingRefusal,
   HostSurface,
@@ -51,3 +53,6 @@ export type { ChatMsg } from "./gen/ChatMsg";
 export { recordedTextDiff, recordedPatchDiff, type RecordedFileDiff } from "./fileDiffs";
 
 export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';
+
+export * from "./agentRuntime";
+export type { ChatAttachment } from "./gen/ChatAttachment";

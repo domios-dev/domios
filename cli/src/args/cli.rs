@@ -65,6 +65,16 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Sign in, inspect identity or sign out on this machine
+    Account {
+        #[command(subcommand)]
+        action: super::account::AccountAction,
+    },
+    /// Manage local opt-in product analytics
+    Analytics {
+        #[command(subcommand)]
+        action: super::analytics::AnalyticsAction,
+    },
     /// Read this instance's DEV flow trace without contacting the daemon
     Trace {
         #[command(subcommand)]

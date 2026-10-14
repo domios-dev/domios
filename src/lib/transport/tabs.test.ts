@@ -17,6 +17,9 @@ function fixture(responses: unknown[] = [{}]) {
 }
 
 const simple = [
+  ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
+  ["agent_runtime_login", "POST", "/api/tabs/tab/agent/runtime/login"],
+  ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
   ["chat_send_admissions", "POST", "/api/tabs/tab/chat-send/admissions"],
   ["mux_get_state", "GET", "/api/mux/state"],
   ["session_binding_state", "GET", "/api/tabs/tab/session/binding-state"],
@@ -24,6 +27,7 @@ const simple = [
   ["mux_set_active_workspace", "POST", "/api/workspaces/ws/focus"],
   ["mux_create_workspace", "POST", "/api/workspaces"],
   ["mux_close_workspace", "POST", "/api/workspaces/ws/close"],
+  ["mux_set_workspace_cwd", "POST", "/api/workspaces/ws/cwd"],
   ["mux_rename_workspace", "POST", "/api/workspaces/ws/rename"],
   ["shell_profiles", "GET", "/api/shells?refresh=false"],
   ["mux_create_tab", "POST", "/api/workspaces/ws/tabs"],
@@ -65,7 +69,7 @@ const simple = [
   ["write_pty_launch_command", "POST", "/api/pty/pty/launch-command"],
 ] as const;
 
-const args = { tabId: "tab", workspaceId: "ws", parentTabId: "parent", groupId: "group", ptyId: "pty", clientId: "client", callerTabId: "caller" };
+const args = { tabId: "tab", itemId: "question", workspaceId: "ws", parentTabId: "parent", groupId: "group", ptyId: "pty", clientId: "client", callerTabId: "caller" };
 
 describe("tab command HTTP contract", () => {
   it.each(simple)("%s resolves to %s %s with caller routing", async (name, method, path) => {
@@ -73,6 +77,21 @@ describe("tab command HTTP contract", () => {
     await transport[name](args);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ method, path, opts: { callerTabId: "caller" } });
+  });
+
+  it("preserves captured prompt identity and native value on the existing response route", async () => {
+    const { transport, calls } = fixture();
+    const identity = { kind: "structured", options: [{ label: "display", value: "native" }], request_id: "opaque" };
+    await transport.mux_respond_prompt({ tabId: "owned", value: "native", identity });
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/prompt/respond", body: { tabId: "owned", value: "native", identity } });
+  });
+
+  it("keeps runtime question answers on their item-scoped ledger route", async () => {
+    const receipt = { send_id: "receipt", state: "written" };
+    const { transport, calls } = fixture([receipt]);
+    const answers = [{ questionId: "q", values: ["native-value"], text: "free text" }];
+    expect(await transport.agent_runtime_answer_question({ tabId: "owned", itemId: "item/a", answers })).toBe(receipt);
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/agent/runtime/questions/item%2Fa/answer", body: { answers } });
   });
 
   it("maps cwd, chat, session and resize bodies without replaying a payload", async () => {

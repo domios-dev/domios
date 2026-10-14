@@ -190,3 +190,7 @@ export { parseLocalArtifactDirective, localArtifactTextParts } from "./localArti
 export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";
 
 export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";
+
+export { messageRowParts, parseMessageParts, splitExactSendTexts, projectMessageParts, projectTranscriptParts, type MessagePart, type ExactSendText } from "./messageParts";
+
+export { emptyQuestionSelection, questionOptionValue, selectQuestionOption, selectQuestionFreeText, questionAnswerSelection, questionAnswerText } from "./questionSelection";

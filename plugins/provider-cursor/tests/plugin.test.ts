@@ -4,6 +4,8 @@
  */
 
 import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -304,12 +306,12 @@ console.log("\n--- detectSessionId (identity-bound: refuse when ambiguous) ---\n
     },
   }));
   eq(p.detectSessionId("/proj"), null, "2+ viable candidates → refuse (null), never newest-for-cwd");
-  // Excluding the sibling collapses the set to one → that unique candidate binds.
-  eq(p.detectSessionId("/proj", s2), s1, "with the sibling excluded exactly one candidate → bind it");
+  // A sole cwd candidate still carries no launch ownership.
+  eq(p.detectSessionId("/proj", s2), null, "excluding a sibling cannot establish launch ownership");
   eq(p.detectSessionId("/proj", [s1, s2]), null, "all excluded → no candidate → null");
 }
 
-console.log("\n--- detectSessionId: empty UUID dir alongside real session binds the real one ---\n");
+console.log("\n--- detectSessionId: empty UUID dir alongside real session has no launch ownership ---\n");
 {
   const sep = "/";
   const chatsDir = "/home/u/.cursor/chats/HASH";
@@ -335,8 +337,76 @@ console.log("\n--- detectSessionId: empty UUID dir alongside real session binds 
       readJson: () => ({ updatedAtMs: 999999 }),
     },
   }));
-  eq(p.detectSessionId("/proj"), s1, "empty UUID dir + real session → bind the real one (not refused)");
+  eq(p.detectSessionId("/proj"), null, "one real cwd session still cannot prove this tab owns it");
   eq(p.detectSessionId("/proj", s1), null, "real session excluded → empty dir not a candidate → null");
+}
+
+console.log("\n--- launch-owned session fixtures ---\n");
+{
+  const fixture = JSON.parse(readFixture("launch-sessions.json"));
+  for (const platform of ["macos", "linux", "windows"]) {
+    const records = new Map([fixture.own, fixture.sibling].map(record => [
+      `/tmp/home/.cursor/projects/.codeterm-launches/${record.launchMarker}.json`, record,
+    ]));
+    const reads: string[] = [];
+    const p = loadCursorWithHost(baseHost({
+      platform: () => platform,
+      md5: (cwd: string) => cwd.replaceAll("\\", "/") === fixture.cwd ? "HASH" : "FOREIGN",
+      fs: {
+        ...baseHost({}).fs,
+        readJson: (file: string) => { reads.push(file); return records.get(file) || null; },
+        readDir: () => { throw new Error("launch detection must never scan cwd candidates"); },
+        fileExists: (file: string) => [fixture.own, fixture.sibling].some(record =>
+          file.replaceAll("\\", "/") === `/tmp/home/.cursor/chats/HASH/${record.sessionId}/store.db`),
+      },
+    }));
+    for (const record of [fixture.own, fixture.sibling]) {
+      eq(p.detectLaunchSession({ cwd: fixture.cwd, launchMarker: record.launchMarker, processes: [] }),
+        { sessionId: record.sessionId, source: "launch_marker" }, `${platform}: exact own marker binds its session`);
+    }
+    eq(reads.length, 2, `${platform}: one keyed read per launch, no newest-session discovery`);
+    eq(p.detectLaunchSession({ cwd: "/foreign/project", launchMarker: fixture.own.launchMarker }), null,
+      `${platform}: own marker without a session in this cwd is rejected`);
+    eq(p.detectLaunchSession({ cwd: fixture.cwd, launchMarker: fixture.missingMarker }), null,
+      `${platform}: absent own record never borrows sibling`);
+    records.set(`/tmp/home/.cursor/projects/.codeterm-launches/${fixture.own.launchMarker}.json`, fixture.sibling);
+    eq(p.detectLaunchSession({ cwd: fixture.cwd, launchMarker: fixture.own.launchMarker }), null,
+      `${platform}: stale marker record rejected`);
+    for (const marker of [null, "../escape", ""]) {
+      eq(p.detectLaunchSession({ cwd: fixture.cwd, launchMarker: marker }), null, `${platform}: invalid marker refused`);
+    }
+    records.set(`/tmp/home/.cursor/projects/.codeterm-launches/${fixture.own.launchMarker}.json`,
+      { ...fixture.own, sessionId: "../foreign" });
+    eq(p.detectLaunchSession({ cwd: fixture.cwd, launchMarker: fixture.own.launchMarker }), null,
+      `${platform}: malformed session ID rejected`);
+  }
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-launch-fixture-"));
+  try {
+    const p = loadCursorWithHost(baseHost({
+      homeDir: () => temporary,
+      shell: { ...baseHost({}).shell, quoteFor: (v: string) => `'${v.replaceAll("'", "'\\''")}'` },
+      fs: {
+        ...baseHost({}).fs,
+        readJson: (file: string) => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null,
+        fileExists: (file: string) => file.endsWith(`/${fixture.own.sessionId}/store.db`),
+      },
+    }));
+    const command = p.buildLaunchCommand({ launchMarker: fixture.own.launchMarker, task: "opaque '$HOME' `false`" });
+    const fake = `cursor-agent() { if [ "$1" = create-chat ]; then printf '%s\\n' '${fixture.own.sessionId}'; else printf '%s\\n' "$@"; fi; }; `;
+    const result = spawnSync("bash", ["-c", fake + command], { encoding: "utf8" });
+    eq(result.status, 0, "generated POSIX launch executes successfully");
+    eq(result.stdout.trim().split("\n"), ["--resume", fixture.own.sessionId, "opaque '$HOME' `false`"],
+      "provider-returned session ID and exact task reach resume command");
+    eq(p.detectLaunchSession({ cwd: fixture.cwd, launchMarker: fixture.own.launchMarker }),
+      { sessionId: fixture.own.sessionId, source: "launch_marker" }, "executed launch record proves exact session");
+    fs.unlinkSync(`${temporary}/.cursor/projects/.codeterm-launches/${fixture.own.launchMarker}.json`);
+    for (const creation of ["return 7", "printf garbage", "printf '11111111-1111-4111-8111-11111111111Z'"]) {
+      const failedLaunch = spawnSync("bash", ["-c", `cursor-agent() { ${creation}; }; ` + command], { encoding: "utf8" });
+      assert(failedLaunch.status !== 0, "failed or malformed creation fails closed");
+      eq(p.detectLaunchSession({ cwd: fixture.cwd, launchMarker: fixture.own.launchMarker }), null,
+        "failed creation cannot establish a binding");
+    }
+  } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
 
 console.log("\n--- discoverModels (live --list-models, manifest fallback) ---\n");

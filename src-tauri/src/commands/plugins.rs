@@ -1,6 +1,7 @@
 mod action;
 mod cli;
 mod diff_cache;
+mod permissions;
 mod snapshot;
 mod view;
 

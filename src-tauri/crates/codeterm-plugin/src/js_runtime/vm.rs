@@ -1,5 +1,8 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
+mod runtime_hook;
+pub(crate) use runtime_hook::call_runtime_hook;
+
 use std::path::Path;
 
 use parking_lot::Mutex;
@@ -21,6 +24,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     if (s === null || s === undefined) return null;
     try { return JSON.parse(s); } catch (_) { return null; }
   }
+  // The SDK declares readFile as string | null; the native binding yields undefined.
+  var nativeReadFile = host.readFile;
+  host.readFile = function (p) { var s = nativeReadFile(p); return s === undefined ? null : s; };
   host.fs = {
     readFile:      host.readFile,
     readFileHead:  host.readFileHead,
@@ -104,6 +110,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     clear: function () { return parseJson(host.receiverTargetClear()); },
   };
   host.localRecording = {
+    listInputDevices: function () { return parseJson(host.localRecordingInputs()); },
+    selectDevices: function (devices) { return parseJson(host.localRecordingSelect(JSON.stringify(devices))); },
+    savedSelection: function () { return parseJson(host.localRecordingSavedSelection()); },
     statusReport: function () { return parseJson(host.receiverStatusReport()); },
     status: function () { return parseJson(host.localRecordingStatus()); },
     setEnabled: function (enabled) { return parseJson(host.localRecordingSetEnabled(enabled === true)); },
@@ -292,6 +301,7 @@ pub const ASYNC_JOB_TIMEOUT_ERROR: &str = "plugin async job exceeded its bounded
 /// `Arc<PluginVm>`.
 pub struct PluginVm {
     inner: Mutex<Inner>,
+    runtime_inner: Mutex<Option<Inner>>,
     /// Outside `inner` on purpose. Nothing here needs the context, so reading it
     /// must not queue behind a slow call; and `host.exec` jobs are keyed by this
     /// identity, so awaiting one must not read it through the lock it releases.
@@ -426,6 +436,7 @@ impl PluginVm {
         })?;
 
         Ok(Self {
+            runtime_inner: Mutex::new(None),
             inner: Mutex::new(Inner {
                 _ctx: ctx,
                 _rt: rt,
@@ -466,6 +477,10 @@ impl PluginVm {
     /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
     pub fn agent_commands_allowed(&self) -> bool {
         self.sandbox.agent_commands_allowed()
+    }
+
+    pub(super) fn lifecycle_permission_allowed(&self, permission: &str) -> bool {
+        self.sandbox.lifecycle_permission_allowed(permission)
     }
 
     pub fn graph_events_allowed(&self) -> bool {
@@ -533,6 +548,8 @@ impl PluginVm {
         inner._ctx = ctx;
         inner._rt = rt;
         inner.bundle_source = new_source;
+        drop(inner);
+        *self.runtime_inner.lock() = None;
         Ok(())
     }
 }

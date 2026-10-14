@@ -25,19 +25,20 @@ jobs:
   validate:
     name: publish and verify all platform manifests
     runs-on: [self-hosted, linux-build]
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
       SOURCE_REPO: ${{ github.repository }}
       MIRROR_REPO: rollacode/codeterm-releases
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
@@ -59,9 +60,11 @@ jobs:
             || { echo "::error::invalid release tag '$tag'"; exit 1; }
           version="${tag#v}"
           source_sha=$(git rev-parse "$INPUT_SOURCE_SHA^{commit}")
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Stamp the source release tag after all gates succeed
         env:
@@ -161,6 +164,28 @@ jobs:
             gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" \
               --repo "$MIRROR_REPO" --clobber
           fi
+
+      - name: Verify draft artifact signatures before publication
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          PUBLISH_MIRROR: ${{ inputs.mirror }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/draft-integrity"
+          rm -rf "$directory"
+          mkdir -p "$directory"
+          repo="$SOURCE_REPO"
+          if [ "$PUBLISH_MIRROR" = true ]; then repo="$MIRROR_REPO"; export GH_TOKEN="$MIRROR_TOKEN"; fi
+          for manifest in "$MANIFEST" latest-deb.json; do
+            jq -r '.platforms[].url | split("/")[-1]' "$manifest" | while IFS= read -r asset; do
+              gh release download "$TAG" --repo "$repo" --pattern "$asset" --dir "$directory" --clobber
+            done
+            node scripts/verify-updater-manifest.mjs --manifest "$manifest" --local "$directory" --require-version "$VER"
+          done
 
       - name: Mark source and public releases published
         if: inputs.mirror

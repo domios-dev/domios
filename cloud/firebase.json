@@ -1,0 +1,21 @@
+{
+  "functions": [{"source":"functions","codebase":"accounts","runtime":"nodejs22","predeploy":["npm --prefix \"$RESOURCE_DIR\" run build"]}],
+  "firestore": {"rules":"firestore.rules"},
+  "hosting": {
+    "public":"hosting", "ignore":["firebase.json","**/.*","**/node_modules/**","**/*.ts","**/*.example.json"],
+    "headers":[{"source":"/signin/**","headers":[
+      {"key":"Cache-Control","value":"no-store"},
+      {"key":"Referrer-Policy","value":"no-referrer"},
+      {"key":"X-Content-Type-Options","value":"nosniff"},
+      {"key":"Content-Security-Policy","value":"default-src 'self'; script-src 'self' https://www.google.com https://www.gstatic.com https://www.recaptcha.net; frame-src https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net; connect-src 'self' https://*.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}
+    ]}]
+  },
+  "emulators": {
+    "auth":{"host":"127.0.0.1","port":19099},
+    "firestore":{"host":"127.0.0.1","port":18080},
+    "functions":{"host":"127.0.0.1","port":15001},
+    "hub":{"host":"127.0.0.1","port":14400},
+    "logging":{"host":"127.0.0.1","port":14500},
+    "ui":{"enabled":false}, "singleProjectMode":true
+  }
+}

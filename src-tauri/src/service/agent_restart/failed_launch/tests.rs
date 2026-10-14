@@ -26,7 +26,6 @@ fn ordinary_exited_shell_is_not_a_failed_launch() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn failed_launch_without_a_pty_prepares_a_fresh_restart() {
     for provider in ["fixture-plain", "fixture-structured", "fixture-tool-less"] {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();

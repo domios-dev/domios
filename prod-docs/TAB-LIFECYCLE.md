@@ -4,6 +4,17 @@ Domios keeps one append-only journal of every authoritative tab lifecycle transi
 
 **When Storage is available, tab restore is unconditional.** Whatever tabs were open at shutdown come back. A claimed PTY session re-establishes its provider only from its own provider session record; without unique ownership the restored tab remains a shell. Journal state — missing, mismatched, truncated, or absent — does not change that decision.
 
+## Utility shell deadlines
+
+Give test, QA and build shells a deadline (`30s`, `10m`, `2h`, at most 365 days); leave servers without one. Only the creating agent sets it; mesh requests are refused.
+
+```bash
+codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
+codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
+```
+
+A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status (shell, purpose, command, elapsed). Deadlines survive restart; an unrestorable shell is reported lost. REST: `POST /api/tabs` takes `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
+
 ## Storage authority and recovery
 
 The instance's desk is owned by one Storage authority in `storage/state.db` beneath its data directory. Storage opens before restore; an open, import, or archive-verification failure leaves desk state unavailable and prevents a default-empty desk from replacing it. The typed importer preserves recognized source files under `storage/legacy-originals/`.
@@ -220,4 +231,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 47 -->
+<!-- revision: 49 -->

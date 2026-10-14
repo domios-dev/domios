@@ -29,7 +29,7 @@ use super::runtime::{
     SurfaceRuntime, SurfaceRuntimeFactory,
 };
 use crate::service::browser::process::CloseOutcome;
-use crate::service::browser::profile::{sanitize_profile_name, ProfileLayout};
+use crate::service::browser::profile::{owner_profile, sanitize_profile_name, ProfileLayout};
 use crate::service::browser::viewport::ViewportRequest;
 use crate::service::browser::{BrowserHost, BrowserHostConfig, OpenOptions, PageChannel};
 
@@ -53,10 +53,16 @@ impl BrowserRuntimeFactory {
 }
 
 impl SurfaceRuntimeFactory for BrowserRuntimeFactory {
-    fn create(&self, owner_name: &str, resume: Option<SurfaceResume>) -> Arc<dyn SurfaceRuntime> {
+    fn create(
+        &self,
+        owner_name: &str,
+        owner_scope: &str,
+        resume: Option<SurfaceResume>,
+    ) -> Arc<dyn SurfaceRuntime> {
         Arc::new(BrowserRuntime::new(
             BrowserHostConfig::under_data_dir(&self.data_dir),
             owner_name,
+            owner_scope,
             self.swept.clone(),
             resume.unwrap_or_default(),
         ))
@@ -91,6 +97,7 @@ impl BrowserRuntime {
     fn new(
         config: BrowserHostConfig,
         owner: &str,
+        owner_scope: &str,
         swept: Arc<tokio::sync::OnceCell<()>>,
         resume: SurfaceResume,
     ) -> Self {
@@ -101,6 +108,10 @@ impl BrowserRuntime {
                 .as_deref()
                 .and_then(resume::resumable_profile),
         };
+        log::debug!(
+            "[browser] owner scope {owner_scope}, default profile {}",
+            owner_profile(owner_scope)
+        );
         let shared = PageShared::new(owner);
         shared.seed_resume(resume.clone());
         Self {
@@ -108,7 +119,7 @@ impl BrowserRuntime {
             host: BrowserHost::new(config),
             swept,
             shared,
-            profile_request: Mutex::new(String::new()),
+            profile_request: Mutex::new(owner_profile(owner_scope)),
             resume_profile: tokio::sync::Mutex::new(resume.profile),
             resume_url: Mutex::new(resume.url),
             grabs: Mutex::new(GrabStore::default()),
@@ -127,9 +138,9 @@ impl BrowserRuntime {
         match resume::restored_profile(&wanted, &available) {
             Some(name) => *self.profile_request.lock() = name,
             None => {
-                self.shared.remember_profile(CLEAN_PROFILE);
+                self.shared.remember_profile(&self.profile_request.lock());
                 self.shared.notice(SurfaceNotice::info(format!(
-                    "Profile {wanted} no longer exists; reopened with a clean profile."
+                    "Profile {wanted} no longer exists; reopened with the owner profile."
                 )));
             }
         }
@@ -194,9 +205,9 @@ impl BrowserRuntime {
     }
 
     async fn dispatch_input(&self, page: &PageChannel, input: &InputArgs) -> Result<(), String> {
-        for (method, params) in input_commands(input)? {
-            self.send(page, method, params).await?;
-        }
+        page.send_batch(input_commands(input)?)
+            .await
+            .map_err(cdp_error)?;
         Ok(())
     }
 

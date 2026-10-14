@@ -101,7 +101,7 @@ interface UpdateContextValue {
   installing: boolean;
   setChannel: (next: UpdateChannel) => Promise<void>;
   refresh: (force?: boolean, opts?: { silent?: boolean }) => Promise<void>;
-  applyUpdate: () => Promise<InstallResponse | null>;
+  applyUpdate: (opts?: { failureSurface: "inline" | "toast" }) => Promise<InstallResponse | null>;
   dismissUpdateToast: () => void;
   error: string | null;
 }
@@ -248,17 +248,13 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [downloadTotalBytes, setDownloadTotalBytes] = useState<number | null>(null);
   const installingRef = useRef(false);
-  const toastOpenRef = useRef(false);
+  const userInstallRef = useRef(false);
   const activeInstallPhaseRef = useRef(false);
   const installCallReturnedRef = useRef(false);
 
   useEffect(() => {
     installingRef.current = installing;
   }, [installing]);
-
-  useEffect(() => {
-    toastOpenRef.current = toastOpen;
-  }, [toastOpen]);
 
   const handleInfo = useCallback((next: UpdateInfo) => {
     setInfo(next);
@@ -330,12 +326,10 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const shouldAdopt =
         opts?.adopt === true &&
         (next.phase === "downloading" || next.phase === "applying" || next.phase === "success");
-      const nextInstalling =
-        installingRef.current || shouldAdopt || (observation.activePhaseObserved && toastOpenRef.current);
+      const nextInstalling = installingRef.current || shouldAdopt;
 
       if (shouldAdopt) {
         installingRef.current = true;
-        toastOpenRef.current = true;
       }
 
       if (observation.keepVisible && installingRef.current) {
@@ -363,7 +357,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (shouldAdopt) {
         setInstalling(true);
-        setToastOpen(true);
       }
 
       if (next.phase === "error") {
@@ -374,7 +367,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         setError(message);
         setStatus("error");
         setInstalling(false);
-        setToastOpen(true);
+        setToastOpen(userInstallRef.current);
+        userInstallRef.current = false;
         return;
       }
 
@@ -389,7 +383,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "idle" && installingRef.current && observation.finished) {
         installingRef.current = false;
-        toastOpenRef.current = false;
+        userInstallRef.current = false;
         activeInstallPhaseRef.current = false;
         installCallReturnedRef.current = false;
         setInstalling(false);
@@ -411,35 +405,37 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     [applyRuntimeStatus],
   );
 
-  const applyUpdate = useCallback(async (): Promise<InstallResponse | null> => {
+  const applyUpdate = useCallback(async (opts?: { failureSurface: "inline" | "toast" }): Promise<InstallResponse | null> => {
     if (installingRef.current) return { status: "already_in_flight" };
     installingRef.current = true;
-    toastOpenRef.current = true;
+    userInstallRef.current = opts?.failureSurface !== "inline";
     activeInstallPhaseRef.current = false;
     installCallReturnedRef.current = false;
     setInstalling(true);
-    setToastOpen(true);
+    setToastOpen(false);
     setStatus("checking");
     setPhase("checking");
     setProgress((prev) => Math.max(prev, 8));
     setError(null);
     try {
       const response = normalizeInstallResponse(await installAppUpdate());
+      if (response.status === "already_in_flight") userInstallRef.current = false;
       if (response.status !== "already_in_flight") installCallReturnedRef.current = true;
+      if (response.status !== "already_in_flight") await fetchRuntimeStatus();
       return response;
     } catch (e) {
       installingRef.current = false;
       activeInstallPhaseRef.current = false;
       installCallReturnedRef.current = true;
-      toastOpenRef.current = true;
+      setToastOpen(userInstallRef.current);
+      userInstallRef.current = false;
       setError(e instanceof Error ? e.message : String(e));
       setStatus("error");
       setPhase("error");
       setInstalling(false);
-      setToastOpen(true);
       return null;
     }
-  }, []);
+  }, [fetchRuntimeStatus]);
 
   const dismissUpdateToast = useCallback(() => {
     if (status === "applying" || status === "restarting") return;
@@ -449,38 +445,22 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh(false, { silent: true });
     void fetchChannel();
-    void fetchRuntimeStatus({ adopt: true }).catch(() => {});
-
-    const interval = setInterval(() => void refresh(false, { silent: true }), 30 * 60 * 1000);
-    return () => clearInterval(interval);
   }, [fetchChannel, fetchRuntimeStatus, refresh]);
 
   useEffect(() => {
-    if (!installing) return;
     let cancelled = false;
-    const poll = async () => {
-      try {
-        const next = await fetchRuntimeStatus();
-        if (!cancelled && next?.phase === "idle") {
-          await refresh(true, { silent: true });
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-        setStatus("error");
-        setPhase("error");
-        setInstalling(false);
-        setToastOpen(true);
+    let stop: (() => void) | null = null;
+    void listen<unknown>("update-status-changed", event => {
+      if (!cancelled && isRuntimeStatus(event.payload)) applyRuntimeStatus(event.payload, { adopt: true });
+    }).then(unlisten => {
+      if (cancelled) unlisten();
+      else {
+        stop = unlisten;
+        void fetchRuntimeStatus({ adopt: true }).catch(() => {});
       }
-    };
-
-    void poll();
-    const interval = setInterval(() => void poll(), 750);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [fetchRuntimeStatus, installing, refresh]);
+    }).catch(() => {});
+    return () => { cancelled = true; stop?.(); };
+  }, [applyRuntimeStatus, fetchRuntimeStatus]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;

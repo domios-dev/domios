@@ -2,6 +2,7 @@
 
 mod launch;
 mod readiness;
+mod runtime_launch;
 
 use super::launch_files::general_agent_env_vars;
 use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
@@ -215,7 +216,7 @@ pub fn start_general_agent(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    _app: &tauri::AppHandle,
+    _app: &crate::app_runtime::AppHandle,
 ) {
     let Some(_launch_guard) = launch_lock::LaunchGuard::acquire() else {
         log::info!("[general-agent] Start skipped; another launch owns the agent");
@@ -223,15 +224,21 @@ pub fn start_general_agent(
     };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
-    let resume_sessions_enabled = crate::config::resume_sessions_enabled(provider_name);
-    let permission_bypass =
-        match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
-            Ok(value) => value,
-            Err(error) => {
-                log::warn!("[general-agent] Start blocked: {error}");
-                return;
-            }
-        };
+    let resume_sessions_enabled =
+        crate::config::provider_config_from(&config.lock(), provider_name)
+            .resume_sessions
+            .unwrap_or(true);
+    let permission_bypass = match general_agent_permission_bypass(
+        &svc.agent_registry,
+        provider_name,
+        config.lock().agent.full_access,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!("[general-agent] Start blocked: {error}");
+            return;
+        }
+    };
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
     // Regenerate AGENT.md in a background thread.
@@ -239,12 +246,25 @@ pub fn start_general_agent(
     {
         let mem = svc.mem.clone();
         let provider_owned = provider_name.clone();
+        let capability_hints = general_config.capability_hints;
         std::thread::spawn(move || {
-            instructions::generate_instructions(&provider_owned, Some(&mem));
+            instructions::generate_instructions(capability_hints, &provider_owned, Some(&mem));
         });
     }
 
     let general_cwd = general_dir().to_string_lossy().to_string();
+
+    if crate::service::agent_runtime::engine::requested(svc, provider_name) {
+        runtime_launch::start_main(
+            svc,
+            mux,
+            config,
+            provider_name,
+            permission_bypass,
+            resume_sessions_enabled,
+        );
+        return;
+    }
 
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
@@ -316,6 +336,7 @@ pub fn start_general_agent(
                     }
                 }
             } else {
+                crate::service::agent_runtime::engine::stop(&pid);
                 log::info!(
                     "[general-agent] Provider mismatch: running={}, wanted={} — restarting",
                     current_agent,
@@ -511,7 +532,7 @@ pub fn restart_general_agent(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
 ) {
     restart_general_agent_with_force(svc, mux, pty, screen_state, config, app, false);
 }
@@ -522,7 +543,7 @@ pub(crate) fn restart_general_agent_with_force(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     force: bool,
 ) {
     log::info!("[general-agent] Manual restart requested");
@@ -540,7 +561,7 @@ pub(crate) fn restart_general_agent_fresh_after_exit(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
 ) -> Result<(), String> {
     state::require_fresh_session()?;
     restart_general_agent_inner(svc, mux, pty, screen_state, config, app, false);
@@ -553,10 +574,21 @@ fn restart_general_agent_inner(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     force: bool,
 ) {
     if !super::restart_guard::permit(svc, mux, force) {
+        return;
+    }
+    let runtime_tab = {
+        let m = mux.read();
+        m.resolve_tab_id(GENERAL_ALIAS)
+    };
+    if let Some(tab_id) =
+        runtime_tab.filter(|tab| crate::service::agent_runtime::requested_for_tab(svc, tab))
+    {
+        crate::service::agent_runtime::engine::stop(&tab_id);
+        start_general_agent(svc, mux, pty, screen_state, config, app);
         return;
     }
     let mut stale_pty_id = None;
@@ -596,9 +628,11 @@ fn restart_general_agent_inner(
     // start_general_agent). Same rationale as the lifecycle::start_general_agent path: do not block restart on mem.wake_up().
     {
         let mem = svc.mem.clone();
-        let provider_name = config.lock().general_agent.agent_provider.clone();
+        let general = config.lock().general_agent.clone();
+        let provider_name = general.agent_provider;
+        let capability_hints = general.capability_hints;
         std::thread::spawn(move || {
-            instructions::generate_instructions(&provider_name, Some(&mem));
+            instructions::generate_instructions(capability_hints, &provider_name, Some(&mem));
         });
     }
 
@@ -612,7 +646,7 @@ pub fn restart_general_agent_tab(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
 ) -> Result<(), String> {
     if validate_general_agent_tab_retry(tab_id, mux)? {
         restart_general_agent(svc, mux, pty, screen_state, config, app);
@@ -739,9 +773,17 @@ fn terminate_pty_before_relaunch(
 fn general_agent_permission_bypass(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
+    choice: Option<bool>,
 ) -> Result<bool, String> {
-    crate::service::permission_policy::configured_permission_bypass(registry, provider)
-        .map(|authorization| authorization.is_some())
+    let full_access = crate::service::permission_policy::require_full_access_choice(choice)?;
+    Ok(
+        crate::service::permission_policy::authorize_permission_bypass(
+            registry,
+            provider,
+            full_access,
+        )
+        .is_some(),
+    )
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {

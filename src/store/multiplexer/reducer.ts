@@ -1,3 +1,4 @@
+import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
 import { admitBellNotification } from "../../lib/notificationAdmission";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
 import { reconcilePageSelection } from "./pageSelection";
@@ -39,6 +40,7 @@ export type Action =
   | { type: "MARK_READ"; id: string }
   | { type: "UPDATE_NOTIFICATION_SUMMARY"; id: string; title: string; body: string }
   | { type: "RESOLVE_NOTIFICATION"; id: string }
+  | { type: "UPDATE_NOTIFICATION_ANSWER"; id: string; update: AnswerUpdate }
   | { type: "ANSWER_NOTIFICATION"; id: string; answered: string; delivered: boolean }
   | { type: "MARK_ALL_READ" }
   | { type: "DELETE_NOTIFICATION"; id: string }
@@ -519,17 +521,9 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "ADD_NOTIFICATION": {
       const notifications = admitBellNotification(state.notifications, action.notification, "agent_notification");
       if (notifications === state.notifications) return state;
-      const replaceById = <T extends { id: string }>(list: T[], next: T): T[] => {
-        const index = list.findIndex((entry) => entry.id === next.id);
-        if (index === -1) return [...list, next];
-        const updated = [...list];
-        updated[index] = next;
-        return updated;
-      };
       return {
         ...state,
         notifications,
-        toasts: capToasts(replaceById(state.toasts, action.notification)),
       };
     }
 
@@ -552,22 +546,13 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return { ...state, toasts, notifications };
     }
 
-    // The one-answer invariant lives in the store; this only reflects what the
-    // daemon recorded, so a second tap can never overwrite it here either.
+    case "UPDATE_NOTIFICATION_ANSWER":
     case "ANSWER_NOTIFICATION": {
-      // The label is written once; whether it reached the tab may still change,
-      // because a standing answer the envelope path refused can be carried later.
-      const withAnswer = (entry: Notification): Notification =>
-        entry.id !== action.id || !entry.answer
-          ? entry
-          : {
-              ...entry,
-              answer: {
-                ...entry.answer,
-                answered: entry.answer.answered ?? action.answered,
-                delivered: action.delivered,
-              },
-            };
+      const update: AnswerUpdate = action.type === "ANSWER_NOTIFICATION"
+        ? { answered: action.answered, delivered: action.delivered }
+        : action.update;
+      const withAnswer = (entry: Notification): Notification => entry.id === action.id
+        ? updateNotificationAnswer(entry, update) : entry;
       return {
         ...state,
         notifications: state.notifications.map(withAnswer),

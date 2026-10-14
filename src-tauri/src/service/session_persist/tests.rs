@@ -660,7 +660,6 @@ fn desk_delta_authorized_reduction_applies_a_workspace_close() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
     let (mut mux, lazy_agent_tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&lazy_agent_tab_id)

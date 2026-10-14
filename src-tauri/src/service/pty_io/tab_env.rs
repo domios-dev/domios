@@ -42,6 +42,12 @@ pub(crate) fn compose_launch_env(
     env_vars.insert("CODETERM_SOCKET_PATH".into(), instance.socket_path.clone());
     env_vars.insert("CODETERM_API_URL".into(), instance.api_url.clone());
     env_vars.insert("CODETERM_API_PORT".into(), instance.api_port.clone());
+    if let Some(path) = &instance.cli_path {
+        env_vars.insert(
+            "CODETERM_CLI_PATH".into(),
+            path.to_string_lossy().into_owned(),
+        );
+    }
     if let Some(ref token) = instance.api_token {
         env_vars.insert("CODETERM_API_TOKEN".into(), token.clone());
     }
@@ -160,10 +166,29 @@ impl ServiceContext {
             .map(|pad| pad.env_value());
         let session_binding_nonce = self.ensure_session_binding_nonce(tab_id);
         let shell_nonce = self.ensure_shell_integration_nonce(tab_id);
-        let identity = {
+        let (identity, binding_task) = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
-                .map(tab_identity_env)
+                .map(|tab| {
+                    let task = tab
+                        .task_binding
+                        .as_ref()
+                        .map(|binding| {
+                            let mut task = HashMap::new();
+                            for (key, value) in [
+                                ("CODETERM_PLAN_ID", &binding.plan_id),
+                                ("CODETERM_TASK_ID", &binding.task_id),
+                                ("CODETERM_ATTEMPT_ID", &binding.attempt_id),
+                            ] {
+                                if let Some(value) = value {
+                                    task.insert(key.into(), value.clone());
+                                }
+                            }
+                            task
+                        })
+                        .unwrap_or_default();
+                    (tab_identity_env(tab), task)
+                })
                 .unwrap_or_default()
         };
         TabLaunchEnv {
@@ -172,13 +197,17 @@ impl ServiceContext {
             session_binding_nonce,
             shell_nonce,
             identity,
-            task: tab_task_env(&self.plan_store, tab_id),
+            task: {
+                let mut task = binding_task;
+                task.extend(tab_task_env(&self.plan_store, tab_id));
+                task
+            },
         }
     }
 
     pub(crate) fn tab_env(&self, tab_id: &str) -> HashMap<String, String> {
         let mut env = compose_launch_env(
-            &InstanceEnv::resolve(),
+            &InstanceEnv::from_api_config(self.configuration().api),
             Some(&self.tab_launch_env(tab_id)),
             LaunchSurface::Service,
         );
@@ -191,7 +220,7 @@ impl ServiceContext {
     pub(crate) fn frontend_pty_env(&self, tab_id: Option<&str>) -> HashMap<String, String> {
         let tab = tab_id.map(|tab_id| self.tab_launch_env(tab_id));
         let mut env = compose_launch_env(
-            &InstanceEnv::resolve(),
+            &InstanceEnv::from_api_config(self.configuration().api),
             tab.as_ref(),
             LaunchSurface::Frontend,
         );

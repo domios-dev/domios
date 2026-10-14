@@ -356,7 +356,7 @@ impl CronStore {
             enabled,
             agent: params
                 .agent
-                .unwrap_or_else(crate::config::default_agent_provider),
+                .unwrap_or_else(|| self.default_agent_provider.clone()),
             model: params.model,
             reasoning_effort,
             task: params.task,

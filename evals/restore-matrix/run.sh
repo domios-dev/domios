@@ -6,6 +6,8 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$REPO_ROOT/evals/_lib/bench.sh"
+bench_require python3 node curl
 source "$REPO_ROOT/evals/_lib/lib.sh"
 
 RM_ALLOW_DEFAULT_DEV="${RM_ALLOW_DEFAULT_DEV:-0}"
@@ -17,8 +19,10 @@ if [ -z "$RM_INSTANCE" ]; then
   RM_PW_TARGET=dev
 fi
 export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=$RM_CDP_PORT"
-export VITE_CODETERM_TEST=1
-export CODETERM_TEST_CLOCK=1
+[ "${VITE_CODETERM_TEST:-}" = 1 ] && [ "${CODETERM_TEST_CLOCK:-}" = 1 ] || {
+  echo "FAIL start DEV with VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 before recording provenance" >&2
+  exit 7
+}
 
 # Tunables (env-overridable so the matrix can be debugged one provider/tab at a
 # time and capped in wall-time). Three tabs/provider proves same-provider
@@ -55,7 +59,7 @@ cleanup() {
     echo "== keeping workspace for forensics: $WORKSPACE_NAME id=${WORKSPACE_ID:-unknown} manifest=$MANIFEST"
   fi
 }
-trap cleanup EXIT
+
 
 write_manifest() {
   local phase="$1"
@@ -554,7 +558,7 @@ spawn_all_slots() {
     ) &
     pids+=("$!")
   done < "$SLOTS_TSV"
-  for pid in "${pids[@]}"; do
+  for pid in ${pids[@]+"${pids[@]}"}; do
     wait "$pid" || true
   done
   merge_slots
@@ -573,7 +577,7 @@ send_all_markers() {
       pids+=("$!")
     fi
   done < "$SLOTS_TSV"
-  for pid in "${pids[@]}"; do
+  for pid in ${pids[@]+"${pids[@]}"}; do
     wait "$pid" || true
   done
   merge_slots
@@ -737,17 +741,18 @@ save_response=$(dev_post /api/session/save) || { echo "FAIL session save request
 echo "== hard restart dev with Playwright/CDP env"
 (
   cd "$REPO_ROOT" || exit 1
-  dev_kill_hard
   dev_run env WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" \
     VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev-prebuilt --wait
 ) || exit 1
 
 echo "== API post-restore assertions"
 refresh_post_sids_and_assert_api || exit 1
+bench_assertion
 write_manifest post-api
 
 echo "== post-restore /chat isolation assertions"
 assert_post_chat_isolation || exit 1
+bench_assertion
 
 echo "== Playwright UI-visible marker oracle"
 if ! (
@@ -765,3 +770,4 @@ print_slot_table
 awk -F '\t' '$8 != "1" {printf "PASS provider=%s slot=%s tab=%s requested_model=%s booted_model=%s marker=%s sid_before=%s sid_after=%s\n", $1,$2,$4,$3,($10?$10:"unknown"),$5,($6?$6:"none"),($7?$7:"none")}' "$SLOTS_TSV"
 awk -F '\t' '$8 == "1" {printf "SKIP provider=%s slot=%s requested_model=%s booted_model=%s reason=%s\n", $1,$2,$3,($10?$10:"unknown"),$9}' "$SLOTS_TSV"
 SUCCESS=1
+bench_complete

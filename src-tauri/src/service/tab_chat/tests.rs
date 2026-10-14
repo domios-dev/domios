@@ -498,3 +498,32 @@ fn provider_status_row_normalizes_to_status() {
     assert_eq!(msgs[0].system_subtype.as_deref(), Some("task_notification"));
     assert_eq!(msgs[0].seq, 10);
 }
+
+#[test]
+fn thinking_projection_preserves_complete_text_in_snapshot_and_live_rows() {
+    let full = format!(
+        "Headline\n{}\ncomplete tail 🧠",
+        "reasoning 🧠 ".repeat(100)
+    );
+    for field in ["thinking", "text"] {
+        for text in [full.as_str(), "A complete summary…"] {
+            let rich = RichMessage {
+                role: "assistant".into(),
+                blocks: vec![MessageBlock {
+                    kind: "thinking".into(),
+                    data: json!({field: text}),
+                }],
+                ..Default::default()
+            };
+            for rows in [
+                rich_to_chat_msgs(&rich, 0),
+                rich_to_chat_msgs_live(&rich, 0),
+            ] {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].kind, "thinking");
+                assert_eq!(rows[0].content, text);
+                assert!(rows[0].collapsed);
+            }
+        }
+    }
+}

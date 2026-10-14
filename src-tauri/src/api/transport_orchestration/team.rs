@@ -75,8 +75,10 @@ pub(super) async fn pair(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, RouteError> {
-    let (headers, body) = attributed_body(&state, headers, body)?;
+) -> Result<Json<Value>, crate::api::agent_routes::SpawnRejection> {
+    let (headers, body) = attributed_body(&state, headers, body).map_err(|(status, message)| {
+        crate::api::agent_routes::SpawnRejection::new(status, "bad_request", message)
+    })?;
     super::super::agent_routes::create_orchestration_pair(State(state), headers, Json(body)).await
 }
 

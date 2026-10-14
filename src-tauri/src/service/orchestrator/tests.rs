@@ -611,7 +611,10 @@ fn test_build_claude_task_temp_file_created() {
             );
         }
         let content = std::fs::read_to_string(path).expect("temp file should exist");
-        assert_eq!(content, task, "temp file should contain the task verbatim");
+        assert!(content.starts_with(task));
+        assert_eq!(content.matches(task).count(), 1);
+        let rule = crate::plugin::agent_claude::launch_prompt_rule().unwrap();
+        assert_eq!(content.matches(rule.as_str()).count(), 1);
         std::fs::remove_file(path).expect("temp task file should be removable");
         assert!(!std::path::Path::new(path).exists());
     }

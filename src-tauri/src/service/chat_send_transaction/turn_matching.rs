@@ -1,11 +1,44 @@
-/// The shape a delivered payload takes when it reappears as a session user
-/// turn: control bytes stripped by the send path, surrounding whitespace
-/// trimmed by TUI/transcript rendering.
 pub(crate) fn normalize_turn_evidence_with(
     text: &str,
     normalization: crate::agent::provider::TurnEvidenceNormalization,
 ) -> String {
     normalization.normalize(&crate::service::pty_io::sanitize_agent_prompt_input(text))
+}
+
+pub(crate) fn normalize_written_payload(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .trim()
+        .to_string()
+}
+
+pub(crate) fn contains_written_payload(record: &str, payload: &str) -> bool {
+    written_payload_match_end(record, payload, Default::default(), 0).is_some()
+}
+
+pub(crate) fn written_payload_match_end(
+    record: &str,
+    payload: &str,
+    normalization: crate::agent::provider::TurnEvidenceNormalization,
+    offset: usize,
+) -> Option<usize> {
+    let canonical_record = normalize_written_payload(record);
+    let canonical_payload = normalize_written_payload(payload);
+    let (record, payload) = if normalization == Default::default() {
+        (canonical_record, canonical_payload)
+    } else {
+        (
+            normalization.normalize(&canonical_record),
+            normalization.normalize(&canonical_payload),
+        )
+    };
+    if payload.is_empty() {
+        return None;
+    }
+    record
+        .get(offset..)?
+        .find(&payload)
+        .map(|start| offset + start + payload.len())
 }
 
 pub(super) fn matching_turn_send_ids(
@@ -16,44 +49,21 @@ pub(super) fn matching_turn_send_ids(
         crate::agent::provider::TurnEvidenceNormalization,
     )],
 ) -> Vec<String> {
-    for start in 0..candidates.len() {
-        let normalization = candidates[start].2;
-        let evidence = normalize_turn_evidence_with(turn_text, normalization);
-        let mut matched = Vec::new();
-        let mut offset = 0;
-        for (send_id, expected, candidate_normalization) in candidates.iter().skip(start) {
-            if *candidate_normalization != normalization || expected.is_empty() {
-                break;
-            }
-            if !matched.is_empty() {
-                while let Some(character) = evidence
-                    .get(offset..)
-                    .and_then(|remaining| remaining.chars().next())
-                {
-                    if !character.is_whitespace() {
-                        break;
-                    }
-                    offset += character.len_utf8();
-                }
-            }
-            if !evidence
-                .get(offset..)
-                .is_some_and(|remaining| remaining.starts_with(expected.as_str()))
-            {
-                break;
-            }
-            offset += expected.len();
-            matched.push(send_id.clone());
-            if matched.len() >= 2 && evidence.get(offset..).is_some_and(str::is_empty) {
-                return matched;
-            }
-        }
-    }
+    let mut offset = 0;
+    let mut scope = None;
+    let mut matched = Vec::new();
     for (send_id, expected, normalization) in candidates {
-        let evidence = normalize_turn_evidence_with(turn_text, *normalization);
-        if !evidence.is_empty() && evidence.as_str() == expected.as_str() {
-            return vec![send_id.clone()];
+        if scope.is_some_and(|scope| scope != *normalization) {
+            continue;
+        }
+        if let Some(end) = written_payload_match_end(turn_text, expected, *normalization, offset) {
+            offset = end;
+            scope = Some(*normalization);
+            matched.push(send_id.clone());
         }
     }
-    Vec::new()
+    matched
 }
+
+#[cfg(test)]
+mod tests;

@@ -169,15 +169,24 @@ impl codeterm_mem::worker_agent::BackgroundModelPort for CatalogBackgroundModelP
 }
 
 pub(crate) fn resolve_fresh_agent_model(
+    config: &crate::config::schema::AppConfig,
     registry: &AgentRegistry,
     provider_id: &str,
     requested: Option<String>,
     resume_session_id: Option<&str>,
 ) -> Option<String> {
-    resolve_fresh_agent_model_with_notice(registry, provider_id, requested, resume_session_id).model
+    resolve_fresh_agent_model_with_notice(
+        config,
+        registry,
+        provider_id,
+        requested,
+        resume_session_id,
+    )
+    .model
 }
 
 pub(crate) fn resolve_fresh_agent_model_with_notice(
+    config: &crate::config::schema::AppConfig,
     registry: &AgentRegistry,
     provider_id: &str,
     requested: Option<String>,
@@ -285,10 +294,10 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
             warning,
         };
     }
-    if let Some(resolution) = resolve_authoritative_live_default(registry, provider_id) {
+    if let Some(resolution) = resolve_authoritative_live_default(config, registry, provider_id) {
         return resolution;
     }
-    if let Some(model) = crate::config::provider_config(provider_id)
+    if let Some(model) = crate::config::provider_config_from(config, provider_id)
         .default_model
         .and_then(non_empty_model)
     {
@@ -408,6 +417,7 @@ fn restored_model_fallback_warning(
 }
 
 fn resolve_authoritative_live_default(
+    config: &crate::config::schema::AppConfig,
     registry: &AgentRegistry,
     provider_id: &str,
 ) -> Option<FreshAgentModelResolution> {
@@ -417,7 +427,7 @@ fn resolve_authoritative_live_default(
     {
         return None;
     }
-    let configured_default = crate::config::provider_config(provider_id)
+    let configured_default = crate::config::provider_config_from(config, provider_id)
         .default_model
         .and_then(non_empty_model);
     let provider_default = registry

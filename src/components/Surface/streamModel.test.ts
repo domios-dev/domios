@@ -186,3 +186,9 @@ for (const [deltaMode, expectedY] of wheelCases) {
 assert.deepEqual([...decodeBase64(btoa("\x00\xffAB"))], [0, 255, 65, 66]);
 
 console.log("✓ streamModel tests green");
+assert.deepEqual(canvasToPage(410, 320,
+  { left: 10, top: 20, width: 800, height: 600 },
+  { x: 0, y: 75, width: 400, height: 150 },
+  { deviceWidth: 1280, deviceHeight: 480, pageScaleFactor: 2 },
+  { width: 400, height: 300 }),
+{ x: 320, y: 120 }, "CSS scaling maps through the layout letterbox before page scale, independently of DPR");

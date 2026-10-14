@@ -117,6 +117,18 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Sign in to the tab's runtime provider without a terminal
+    Login {
+        #[arg(long, value_name = "TAB")]
+        tab: String,
+        #[arg(long, conflicts_with_all = ["api_key_stdin", "cancel"])]
+        device: bool,
+        /// Read the API key from stdin; never supply credentials in argv
+        #[arg(long, conflicts_with = "cancel")]
+        api_key_stdin: bool,
+        #[arg(long)]
+        cancel: bool,
+    },
     /// Read completed turns from a tool-less agent's exact bound session
     Turns {
         #[arg(long, value_name = "TAB")]

@@ -25,6 +25,7 @@ pub(crate) enum MissingSpawnCapability {
     /// `CODETERM_WORKER_ID` in the launch env — the only handle
     /// `codeterm mem worker report` accepts.
     WorkerIdentityHandoff,
+    RuntimeLaunchArguments,
 }
 
 impl MissingSpawnCapability {
@@ -32,6 +33,7 @@ impl MissingSpawnCapability {
         match self {
             Self::PtyAgentRuntime => "pty_agent_runtime",
             Self::WorkerIdentityHandoff => "worker_identity_handoff",
+            Self::RuntimeLaunchArguments => "runtime_launch_arguments",
         }
     }
 }
@@ -44,6 +46,9 @@ impl fmt::Display for MissingSpawnCapability {
             ),
             Self::WorkerIdentityHandoff => f.write_str(
                 "this spawn issues a worker id the agent must report back with, and the routed runtime carries no worker identity",
+            ),
+            Self::RuntimeLaunchArguments => f.write_str(
+                "the runtime uses its declared command; use model, effort and mode settings instead of extra CLI arguments",
             ),
         }
     }
@@ -147,12 +152,30 @@ pub(crate) fn classify_unavailable_agent_provider(
     }
 }
 
+pub(crate) fn validate_runtime_launch_arguments(
+    requested: &str,
+    args: &[String],
+) -> Result<(), SpawnRejection> {
+    if args.is_empty() {
+        Ok(())
+    } else {
+        Err(SpawnRejection::CapabilityUnavailable {
+            requested: requested.into(),
+            missing: MissingSpawnCapability::RuntimeLaunchArguments,
+        })
+    }
+}
+
 impl SpawnTabSpec {
     /// The PTY-agent launch fields, or `None` once the registry routed this
     /// spawn to a runtime that starts no agent process to stamp them onto.
     pub(crate) fn agent_launch_mut(&mut self) -> Option<&mut AgentSpawnSpec> {
         match &mut self.command {
             TabCommand::Agent(agent) => Some(agent),
+            TabCommand::ChatBackend { .. } => self
+                .chatbackend_launch
+                .as_mut()
+                .map(|launch| &mut launch.agent),
             _ => None,
         }
     }

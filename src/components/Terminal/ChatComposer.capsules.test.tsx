@@ -194,7 +194,7 @@ it("copying a composer selection with capsules writes their tags in the plain an
 });
 
 it("a selection copied from a sent bubble pastes back as inline capsules", async () => {
-  const sent = `посмотри ${formatAttachmentMarker(SHOT_1, "image", "image1")} как и ${formatAttachmentMarker(TEXT_FILE, "text", "text1 · 702 lines")} ура`;
+  const sent = `inspect ${formatAttachmentMarker("/tmp/first-selection.txt", "text", "text2")} and ${formatAttachmentMarker(TEXT_FILE, "text", "text1 · 702 lines")} please`;
   const bubbleHost = document.createElement("div");
   document.body.append(bubbleHost);
   const bubbleRoot = createRoot(bubbleHost);
@@ -209,10 +209,10 @@ it("a selection copied from a sent bubble pastes back as inline capsules", async
   window.getSelection()!.removeAllRanges();
   await act(async () => bubbleRoot.unmount());
   bubbleHost.remove();
-  expect(written["text/plain"]).toBe("посмотри image1 как и text1 · 702 lines ура");
+  expect(written["text/plain"]).toBe("inspect text2 and text1 · 702 lines please");
 
   const { textarea, calls } = await renderComposer("capsule-bubble-paste");
   await paste(textarea, written);
-  expect(textarea.value).toBe(`посмотри ${capsuleToken("image1")} как и ${capsuleToken("text1 · 702 lines")} ура`);
+  expect(textarea.value).toBe(`inspect ${capsuleToken("text2")} and ${capsuleToken("text1 · 702 lines")} please`);
   expect(await sendAndRead(textarea, calls)).toEqual([sent]);
 });

@@ -2,8 +2,8 @@
 //! manual trigger for the daemon-side S1..S5 refresh cycle. The CLI twin is
 //! `codeterm orchestrator refresh`.
 
+use crate::app_runtime::AppHandle;
 use serde_json::{json, Value};
-use tauri::AppHandle;
 
 use crate::service::{RefreshOutcome, RefreshRequest, RefreshTrigger, ServiceState};
 
@@ -28,7 +28,12 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| invalid("plan_id required"))?
                 .to_string();
-            let req = RefreshRequest::from_config(tab_id, plan_id, RefreshTrigger::Manual);
+            let req = RefreshRequest::from_config(
+                &svc.configuration(),
+                tab_id,
+                plan_id,
+                RefreshTrigger::Manual,
+            );
             let outcome = svc.orchestrator_refresh(req);
             let status = match outcome {
                 RefreshOutcome::Started => "started",

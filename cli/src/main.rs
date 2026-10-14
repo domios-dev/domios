@@ -557,6 +557,8 @@ fn main_impl() {
         // plugin is handled before socket connect (filesystem-local)
         Commands::Plugin { .. } => unreachable!(),
 
+        Commands::Account { .. } => unreachable!(),
+        Commands::Analytics { .. } => unreachable!(),
         Commands::Supporter { .. } => unreachable!(),
 
         Commands::Mesh { action } => {

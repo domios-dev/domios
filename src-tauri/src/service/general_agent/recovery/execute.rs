@@ -57,6 +57,9 @@ pub(crate) fn recover(
     verdict: &ShadowVerdict,
     ticket: Option<&crate::service::supporter_tab_state::coordinator::ActionTicket>,
 ) -> bool {
+    if crate::service::agent_runtime::requested_for_tab(service, tab_id) {
+        return true;
+    }
     let label = Label::parse(&verdict.label);
     let (count, confidence) = agreement(
         tab_id,
@@ -127,7 +130,7 @@ pub(crate) fn recover(
         }
         return false;
     }
-    let config = crate::config::load_config();
+    let config = service.configuration();
     let restart_episode = super::super::recovery_episode::store().snapshot();
     let pty_live = current
         .pty_id

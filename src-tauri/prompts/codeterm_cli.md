@@ -59,6 +59,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Plugins, provider CLIs | `plugin list` / `install` / `update`, `agent cli status <provider>` | `docs API-CLI` |
 | Plugin app tabs (surfaces) | `surface list`, `surface open <plugin>:<surface>`, `surface close --tab <ID>`; surfaces take no `send` | `docs SURFACES` |
 | Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
+| Account sign-in and identity | `account login|status|logout` (local machine; hosted sign-in opens the system browser) | `codeterm docs CONFIG` |
 | Updates | `update check`, `update install --auto` | — |
 | Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
 | Services registry | `service --help` | `docs MESH` |
@@ -86,3 +87,13 @@ Use `codeterm mem taxonomy` for area counts and `codeterm mem area merge <from> 
 Paths: use forward slashes; the CLI normalizes them on every OS.
 
 Blueprints use deterministic patterns by default; unmatched output remains `other` without a model call. Use `--model-classification` without patterns only when model judgment is wanted. Blueprint terminal adapters: `codeterm blueprint create --observe tab:<id> --output-settled 300 --session` watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.
+
+Opt-in product analytics is local: `codeterm analytics status`, `codeterm analytics enable`, and `codeterm analytics disable`. Disabling clears queued events and identifiers.
+
+Account and subscriptions: `codeterm account plan` shows cached entitlements and a stale marker; `codeterm account upgrade pro` opens checkout; `codeterm account portal` opens subscription management. See `codeterm docs ACCOUNT`.
+
+Utility shell lifetimes: `tab new --timeout 10m` for tests, QA and builds; leave unset for servers. Reset or extend from now with `tab timeout --tab <ID> --timeout 20m`; disable with `--timeout none`. Only the creating agent can change the lifetime. See `codeterm docs TAB-LIFECYCLE`.
+
+Relocate a workspace after its folder moves: `codeterm workspace set-cwd <workspace-id> <absolute-folder>`. This preserves its identity and reports any paths it could not rebase.
+
+Repair a moved Plan project without its old folder: `codeterm plan set-project <plan> <path>`. It validates the target host folder and preserves Plan, task, Team and attempt identities.

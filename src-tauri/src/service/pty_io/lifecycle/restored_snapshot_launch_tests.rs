@@ -11,7 +11,6 @@ use codeterm_util::lock_hold::TimedRwLock;
 use std::sync::Arc;
 
 #[test]
-#[cfg_attr(not(windows), ignore = "mock Tauri fixture requires desktop runtime")]
 fn restored_structured_prompt_server_is_registered_by_the_shared_launch_builder() {
     let (state, tab_id) = MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(state);
@@ -325,6 +324,7 @@ fn launch_parameters() -> RestorableLaunchParameters {
         agent_name: Some("restore-agent".into()),
         identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: false,
+        runtime_launch_options: None,
         structured_runtime_mode: None,
     }
 }

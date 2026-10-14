@@ -86,6 +86,8 @@ const fn pre_socket_unsupported(reason: &'static str) -> Transport {
 
 pub(crate) fn transport_for(command: &Commands) -> Transport {
     match command {
+        Commands::Account { .. } => pre_socket_unsupported("account is local-only; run on the owning machine"),
+        Commands::Analytics { .. } => pre_socket_unsupported("analytics is local-only; run on the owning machine"),
         Commands::Trace { .. } => pre_socket_unsupported("trace files are local-only; run on the owning instance"),
         Commands::Identify => socket_rest(),
         Commands::ModelProvider { .. } => socket_unsupported(
@@ -124,6 +126,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Persona { .. } => socket_unsupported(
             "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
         ),
+        Commands::Tab { action: crate::TabAction::Timeout { .. } }
+        | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>
+            socket_unsupported("utility shell timeouts require a local owning agent"),
         Commands::Tab { .. } => socket_rest(),
         Commands::SendText { .. } => socket_rest(),
         Commands::Delayed { .. } => socket_rest(),

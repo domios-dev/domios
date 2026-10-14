@@ -17,20 +17,27 @@ struct Shell {
 }
 
 #[test]
-fn codex_rpc_registry_preserves_structured_control() {
+fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
+    use crate::agent::provider::AgentProvider;
     let agents = Arc::new(AgentRegistry::new());
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../plugins/provider-codex/plugin.json");
-    agents.register_provider(Box::new(
-        codeterm_plugin::js_runtime::load_one(&manifest).unwrap(),
-    ));
+    let provider = codeterm_plugin::js_runtime::load_one(&manifest).unwrap();
+    let runtime = provider
+        .agent_runtime()
+        .expect("Bundled runtime capability");
+    let structured_control = provider.structured_control();
+    let provider_id = provider.id().to_owned();
+    agents.register_provider(Box::new(provider));
     let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
     let descriptors = registry.describe_all();
+    assert_eq!(descriptors[0].agent_runtime.as_ref(), Some(&runtime));
+    assert_eq!(descriptors[0].structured_control, structured_control);
+    assert_eq!(descriptors[0].transport, ProviderTransport::ChatBackend);
     assert_eq!(
-        descriptors[0].structured_control.as_ref().unwrap().protocol,
-        "codex-app-server"
+        registry.transport_of(&provider_id),
+        Some(ProviderTransport::ChatBackend)
     );
-    assert_eq!(descriptors[0].transport, ProviderTransport::Pty);
 }
 
 impl ChatBackendProvider for Shell {
@@ -218,4 +225,47 @@ fn chat_backend_cli_status_requires_no_binary_or_installer() {
     assert_eq!(status.installer, None);
     assert_eq!(status.updater, None);
     assert!(registry.cli_status("missing", "linux").is_err());
+}
+
+#[test]
+fn runtime_capability_selects_chat_transport_and_retains_cli_controls() {
+    use crate::agent::provider::AgentProvider;
+    let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
+        "id":"runtime-fixture", "version":"1.0.0", "displayName":"Runtime fixture", "cliBinary":"fixture-cli",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":["serve"]},
+                "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
+        "permissions":{"subprocess":{"allow":["fixture-cli"]}}, "installer":{"macos":"install fixture-cli"}
+    }).to_string()).unwrap();
+    let vm = Arc::new(
+        codeterm_plugin::js_runtime::PluginVm::from_source(
+            "runtime-fixture",
+            "module.exports={}".into(),
+        )
+        .unwrap(),
+    );
+    let provider = codeterm_plugin::js_runtime::JsProvider::new(manifest, vm);
+    assert_eq!(
+        provider.describe().transport,
+        ProviderTransport::ChatBackend
+    );
+    assert!(provider.describe().agent_runtime.is_some());
+    let agents = Arc::new(AgentRegistry::new());
+    agents.register_provider(Box::new(provider));
+    let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
+    assert_eq!(
+        registry.transport_of("runtime-fixture"),
+        Some(ProviderTransport::ChatBackend)
+    );
+    assert!(registry.is_spawnable_chat_backend("runtime-fixture"));
+    assert_eq!(
+        registry.describe_all()[0].cli_binary.as_deref(),
+        Some("fixture-cli")
+    );
+    assert!(
+        registry
+            .cli_status("runtime-fixture", "macos")
+            .unwrap()
+            .required
+    );
 }

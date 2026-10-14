@@ -3,6 +3,7 @@ import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import { clearTranscriptWindows } from "./transcriptStore";
 
 function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
@@ -229,6 +230,7 @@ async function mount(server: FakeChatServer): Promise<Mounted> {
 async function main(): Promise<void> {
   setupHookDom();
   await mountThenBind();
+  clearTranscriptWindows();
   const server = new FakeChatServer();
   const app = await mount(server);
   const { fireResync } = await import("../../lib/resync");
@@ -278,7 +280,7 @@ async function main(): Promise<void> {
   }));
   await app.render("sid-live", "nonce-live", true);
   assert(app.attachmentState() === "attached", "bounded snapshot did not attach Chat");
-  assert(app.messageIds().join(",") === "history", "pre-existing transcript did not render once");
+  assert(app.messageIds().join(",") === "history", `pre-existing transcript did not render once (${app.messageIds()})`);
   assert(Number(server.subscribers.size) === 1, "visible Chat did not own exactly one subscription");
 
   const startsBeforeDeltas = server.starts.length;

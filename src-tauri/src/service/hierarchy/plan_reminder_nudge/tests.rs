@@ -76,68 +76,6 @@ pub(super) fn task(id: &str, status: TaskStatus, tab_id: Option<&str>) -> Task {
     }
 }
 
-fn aged_item(t: &Task, age_ms: u64) -> crate::plan::reconcile::AgedOpenTask {
-    let projection_plan = plan("projection", "orch", PlanMode::Execution, vec![t.clone()]);
-    let projection = task_projection(&projection_plan, &projection_plan.tasks[0]);
-    crate::plan::reconcile::AgedOpenTask {
-        task_id: t.id.clone(),
-        name: t.name.clone(),
-        status: t.status.clone(),
-        presentation: projection.presentation,
-        dependency_waits: projection.dependency_waits,
-        age_ms,
-    }
-}
-
-#[test]
-fn queued_qa_task_is_not_reported_unjudged() {
-    let mut t = task("t_queued", TaskStatus::InReview, None);
-    t.review_stage = crate::plan::ReviewStage::Qa;
-    t.qa_state = Some(crate::plan::QaState::Queued);
-    t.status_label = Some("blocked: reviewer host unavailable overnight".into());
-    let item = aged_item(&t, 3 * 3_600_000);
-
-    let text = aged_task_status_text(&item, Some(&t));
-
-    assert_eq!(
-        text,
-        "queued for QA: blocked: reviewer host unavailable overnight"
-    );
-    assert!(
-        !text.contains("InReview"),
-        "must not read as generically unjudged in_review: {text}"
-    );
-}
-
-#[test]
-fn queued_qa_task_without_label_degrades_honestly() {
-    let mut t = task("t_queued", TaskStatus::InReview, None);
-    t.review_stage = crate::plan::ReviewStage::Qa;
-    t.qa_state = Some(crate::plan::QaState::Queued);
-    let item = aged_item(&t, 3 * 3_600_000);
-
-    assert_eq!(aged_task_status_text(&item, Some(&t)), "queued for QA");
-}
-
-#[test]
-fn plain_aged_in_review_task_keeps_its_status_text() {
-    let t = task("t_plain", TaskStatus::InReview, None);
-    let item = aged_item(&t, 3 * 3_600_000);
-
-    assert_eq!(aged_task_status_text(&item, Some(&t)), "in review");
-}
-
-#[test]
-fn running_qa_task_is_not_presented_as_queued() {
-    let mut t = task("t_running", TaskStatus::InReview, None);
-    t.review_stage = crate::plan::ReviewStage::Qa;
-    t.qa_state = Some(crate::plan::QaState::Running);
-    t.status_label = Some("irrelevant while running".into());
-    let item = aged_item(&t, 3 * 3_600_000);
-
-    assert_eq!(aged_task_status_text(&item, Some(&t)), "in review");
-}
-
 const AGED_NOW_MS: u64 = crate::plan::reconcile::PENDING_UNSTAFFED_STALE_MS + 10;
 
 fn dependency_fixture() -> Plan {
@@ -205,24 +143,9 @@ fn dependency_waiting_pending_is_not_stale_unstaffed_or_aged() {
         projection.dependency_waits[0].status,
         Some(TaskStatus::InProgress)
     );
-    let waiting_item = crate::plan::reconcile::AgedOpenTask {
-        task_id: waiting.id.clone(),
-        name: waiting.name.clone(),
-        status: waiting.status.clone(),
-        presentation: projection.presentation,
-        dependency_waits: projection.dependency_waits,
-        age_ms: AGED_NOW_MS,
-    };
-    assert_eq!(
-        aged_task_status_text(&waiting_item, Some(waiting)),
-        "waiting on dependencies: dep_active (in_progress)"
-    );
 
     assert!(!is_aged(&plan, &waiting.id));
     assert!(!has_stale_unstaffed_drift(&plan, &waiting.id));
-    assert!(!aged_task_callout_text(&plan, AGED_NOW_MS)
-        .unwrap()
-        .contains(&waiting.id));
 }
 
 #[test]
@@ -239,18 +162,6 @@ fn missing_dependency_remains_waiting_and_is_not_stale_actionable() {
     assert!(projection.dependency_waits[0].missing);
     assert_eq!(projection.dependency_waits[0].status, None);
 
-    let waiting_item = crate::plan::reconcile::AgedOpenTask {
-        task_id: missing.id.clone(),
-        name: missing.name.clone(),
-        status: missing.status.clone(),
-        presentation: projection.presentation,
-        dependency_waits: projection.dependency_waits,
-        age_ms: AGED_NOW_MS,
-    };
-    assert_eq!(
-        aged_task_status_text(&waiting_item, Some(missing)),
-        "waiting on dependencies: dep_missing (missing)"
-    );
     assert!(!is_aged(&plan, &missing.id));
     assert!(!has_stale_unstaffed_drift(&plan, &missing.id));
     let waiting_key = reminder_key(&plan);
@@ -308,9 +219,6 @@ fn dependency_free_aged_pending_remains_stale_unstaffed() {
     );
     assert!(is_aged(&plan, &actionable.id));
     assert!(has_stale_unstaffed_drift(&plan, &actionable.id));
-    let callout = aged_task_callout_text(&plan, AGED_NOW_MS).unwrap();
-    assert_eq!(callout.matches("pending_free").count(), 1);
-    assert!(callout.contains("actionable pending"));
 }
 
 #[test]
@@ -318,9 +226,6 @@ fn dependency_completion_changes_reminder_state_key_without_status_change() {
     let mut plan = dependency_fixture();
     let before = reminder_key(&plan);
     assert_eq!(before, reminder_key(&plan));
-    assert!(!aged_task_callout_text(&plan, AGED_NOW_MS)
-        .unwrap()
-        .contains("pending_waiting"));
 
     plan.tasks
         .iter_mut()
@@ -336,9 +241,6 @@ fn dependency_completion_changes_reminder_state_key_without_status_change() {
     let after = reminder_key(&plan);
     assert_ne!(before, after);
     assert_eq!(after, reminder_key(&plan));
-    assert!(aged_task_callout_text(&plan, AGED_NOW_MS)
-        .unwrap()
-        .contains("pending_waiting"));
 }
 
 fn owner_plan(tab_id: &str) -> Plan {
@@ -885,7 +787,7 @@ fn plan_reminder_suppression_does_not_acknowledge_delivery() {
 }
 
 #[test]
-fn review_hold_note_skips_aged_callout_and_stale_review() {
+fn review_hold_note_skips_stale_review_and_actionable_projection() {
     let mut held = task("held", TaskStatus::InReview, None);
     held.status_changed_at = 1;
     held.review_evidence.push(crate::plan::ReviewEvidence {
@@ -898,7 +800,6 @@ fn review_hold_note_skips_aged_callout_and_stale_review() {
         distinct_oracle: false,
     });
     let plan = plan("review-held", "orch", PlanMode::Execution, vec![held]);
-    assert!(aged_task_callout_text(&plan, AGED_NOW_MS).is_none());
     let drift = crate::plan::reconcile::detect_plan_drift(
         &plan,
         &crate::plan::reconcile::ReconcileConfig::new(AGED_NOW_MS),

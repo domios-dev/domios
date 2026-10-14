@@ -1,5 +1,8 @@
 import { Heading, Image, Link, MousePointerClick, TextCursorInput, Type, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { classifyComposerDevice, composerEnterIntent } from "../Terminal/composerKeyboard";
+import { beginComposition, createCompositionGate, endComposition, isImeKeyEvent } from "../Terminal/composerComposition";
 import { trapDialogTab } from "../shared/dialogFocusTrap";
 import { AttachmentChip } from "../Terminal/ComposerBubbles";
 import { ComposerActions } from "../Terminal/ComposerActions";
@@ -74,6 +77,12 @@ export function PointAndAsk({
   const [draft, setDraft] = useState("");
   const [transcribing, setTranscribing] = useState(false);
   const pathId = useId();
+  const touchMode = useTouchOptimizedUi();
+  const composerDevice = classifyComposerDevice({
+    userAgent: navigator.userAgent, platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints, touchOptimizedUi: touchMode,
+  });
+  const compositionGate = useRef(createCompositionGate()).current;
   const busy = sending || transcribing;
   const hasText = draft.trim().length > 0;
   const latest = useRef({ draft, onCancel });
@@ -163,10 +172,17 @@ export function PointAndAsk({
           readOnly={busy}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+            if (isImeKeyEvent(compositionGate, event.nativeEvent.isComposing, event.nativeEvent.keyCode)) return;
+            if (composerEnterIntent(composerDevice, {
+              code: event.code, key: event.key, keyCode: event.nativeEvent.keyCode,
+              shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey,
+              altKey: event.altKey, isComposing: event.nativeEvent.isComposing,
+            }) !== "submit") return;
             event.preventDefault();
             submit();
           }}
+          onCompositionStart={() => beginComposition(compositionGate)}
+          onCompositionEnd={() => endComposition(compositionGate)}
           autoComplete="off"
           spellCheck={false}
           enterKeyHint="send"

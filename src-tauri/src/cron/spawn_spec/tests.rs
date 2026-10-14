@@ -7,6 +7,7 @@ const TASK: &str = "sweep the release lane and report";
 fn inputs(agent: &str) -> CronSpawnInputs {
     CronSpawnInputs {
         job_id: "job-7".into(),
+        run_id: "run-7".into(),
         job_name: "nightly".into(),
         agent: agent.into(),
         model: Some("some-model".into()),
@@ -37,7 +38,9 @@ fn expected_pty_spec() -> SpawnTabSpec {
         cmd: None,
         visibility: TabVisibility::Hidden,
         audience: TabAudience::UserOwnedAutomation,
+        timeout: None,
         eager: false,
+        chatbackend_launch: None,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: "pty-agent".into(),
             planned_model: None,
@@ -127,4 +130,45 @@ fn cron_spawn_spec_forwards_reasoning_effort() {
         TabCommand::Agent(agent) => assert_eq!(agent.reasoning_effort.as_deref(), Some("high")),
         other => panic!("expected the PTY agent runtime, got {other:?}"),
     }
+}
+
+#[test]
+fn runtime_cron_carries_launch_identity_and_keeps_one_initial_task() {
+    let registry =
+        crate::service::spawn_capability::test_backend::registry_with_runtime("runtime-fixture");
+    let mut args = inputs("runtime-fixture");
+    args.reasoning_effort = Some("opaque-effort".into());
+    let spec = build_cron_spawn_spec(&registry, args);
+    assert_eq!(spec.visibility, TabVisibility::Hidden);
+    let metadata = spec.chatbackend_launch.as_ref().unwrap();
+    assert_eq!(
+        metadata.owner_linkage,
+        Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun {
+            job_id: "job-7".into(),
+            run_id: "run-7".into(),
+        })
+    );
+    assert_eq!(metadata.params.team_id.as_deref(), Some("team-1"));
+    assert_eq!(
+        metadata.params.creator_tab_id.as_deref(),
+        Some("tab-creator")
+    );
+    assert_eq!(metadata.params.task.as_deref(), Some(TASK));
+    assert_eq!(
+        metadata.params.reasoning_effort.as_deref(),
+        Some("opaque-effort")
+    );
+    assert_eq!(metadata.agent.task.as_deref(), Some(TASK));
+    assert_eq!(
+        metadata.agent.report_target_tab_id.as_deref(),
+        Some("tab-report")
+    );
+    assert_eq!(metadata.agent.spawned_by.as_deref(), Some("cron:job-7"));
+    let TabCommand::ChatBackend { config, .. } = &spec.command else {
+        panic!("runtime")
+    };
+    let prompt = config["systemPrompt"].as_str().unwrap();
+    assert_eq!(prompt.matches(TASK).count(), 1);
+    assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
+    assert_eq!(config["effort"], "opaque-effort");
 }

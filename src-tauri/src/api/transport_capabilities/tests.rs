@@ -215,7 +215,6 @@ mod http {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn provider_settings_contract_owner_routes() {
         let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::empty());
         fixture.service.agent_registry.register_provider(Box::new(
@@ -333,7 +332,6 @@ mod http {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn transport_capabilities_contract_new_routes_auth_results_and_errors() {
         let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::empty());
         let state = state(&fixture);
@@ -443,7 +441,6 @@ mod http {
         );
     }
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn transport_capabilities_contract_integration_refusal_and_config_patch() {
         let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::empty());
         let state = state(&fixture);

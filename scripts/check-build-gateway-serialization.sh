@@ -80,6 +80,22 @@ wait_for_active overlap-first "$TEST_ROOT/overlap-active.json"
 start_fake overlap-second owner-b worktree-b 0.5 success named-qa
 second_pid=$STARTED_PID
 wait_for_queue "$TEST_ROOT/overlap-status.json"
+node --input-type=module - "$TEST_ROOT/overlap-second.stdout.log" <<'JS'
+import fs from 'node:fs';
+const file = process.argv[2];
+const expected = 'Build gateway queued: instance=named-qa job=overlap-second behind job=overlap-first owner=owner-a';
+await new Promise((resolve, reject) => {
+  const watcher = fs.watch(file, check);
+  const deadline = setTimeout(() => { watcher.close(); reject(new Error('queued diagnostic did not arrive')); }, 5000);
+  function check() {
+    if (!fs.readFileSync(file, 'utf8').includes(expected)) return;
+    clearTimeout(deadline);
+    watcher.close();
+    resolve();
+  }
+  check();
+});
+JS
 grep -q 'Build gateway queued: instance=named-qa job=overlap-second behind job=overlap-first owner=owner-a' \
   "$TEST_ROOT/overlap-second.stdout.log" || {
     echo "named queued job did not report its active gateway owner" >&2

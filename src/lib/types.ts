@@ -15,6 +15,7 @@ export interface Workspace {
   tabs: string[];
   active_tab_id: string | null;
   cwd: string | null;
+  cwd_missing?: boolean;
   protected?: boolean;
   /** Sibling ordinal among workspaces; the sidebar sorts by it. */
   sort_order?: number;
@@ -91,6 +92,7 @@ export interface AutoConfirmedPrompt {
 }
 
 export interface PendingPrompt {
+  request_id?: string | null;
   question: string;
   options: PromptOption[];
   sections?: PromptSection[] | null;
@@ -179,6 +181,8 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
+  agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
   pending_model_selection?: { model: string; effort: string | null } | null;
   pending_model_switch_observation?: { launched_model: string } | null;
   close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
@@ -324,6 +328,7 @@ export interface WorkspaceInfo {
   tab_count: number;
   is_active: boolean;
   cwd: string | null;
+  cwd_missing?: boolean;
   protected?: boolean;
   tab_ids: string[];
   /** Set only when create_workspace deduped by cwd instead of creating one. */
@@ -631,6 +636,7 @@ export interface ApiConfig {
 }
 
 export interface GeneralAgentConfig {
+  capability_hints?: boolean;
   enabled: boolean;
   agent_provider: string;
   auto_restart: boolean;
@@ -1095,6 +1101,7 @@ export interface ProviderDescriptor {
   /// JSONL transcript, opencode SSE bus) so pending prompts come from a handle
   /// rather than PTY scraping. Informational on the wire today.
   supports_structured_prompts?: boolean;
+  supports_prompt_answers?: boolean;
   /// Provider recognizes its own permission prompts, so per-tab auto-confirm is offered.
   supports_permission_auto_confirm?: boolean;
   /// Binary name to probe via `which` when checking installation. Optional —

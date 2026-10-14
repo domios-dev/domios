@@ -2,9 +2,9 @@ use super::{
     auth::AuthState,
     client::Client,
     lifecycle::{rpc_error, Spawn},
-    model::RuntimeMode,
     transcript::History,
 };
+use crate::service::agent_runtime::model::RuntimeMode;
 use serde_json::{json, Value};
 
 pub(super) fn parameters(spawn: &Spawn, mode: RuntimeMode) -> Value {
@@ -54,6 +54,7 @@ fn fresh_history(response: &Value) -> Result<(String, History), String> {
         History {
             messages: Vec::new(),
             active_turn: None,
+            open_items: Default::default(),
             completed_turns: Vec::new(),
             final_assistant_ids: Default::default(),
         },

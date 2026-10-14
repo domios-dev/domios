@@ -55,13 +55,6 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
     }
 }
 
-/// Pure render of `AGENT.md` content given the rendered wake-up snippet.
-/// Split out from [`generate_instructions`] so unit tests can verify the
-/// {wake_up} substitution without hitting real disk paths.
-pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> String {
-    render_agent_md_at(&general_dir(), provider_name, wake_up_section)
-}
-
 fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_section: &str) -> String {
     compose_system_prompt(&render_role_contract_at(
         dir,
@@ -146,11 +139,53 @@ fn cli_without_memory_section() -> String {
     format!("{}{}", &cli[..memory_start], &cli[platform_start..])
 }
 
-pub(super) fn render_system_prompt(
+pub(crate) fn render_system_prompt(
+    capability_hints: bool,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) -> String {
-    render_agent_md(provider_name, &render_wake_up_section(mem))
+    compose_general_prompt_at(
+        &general_dir(),
+        provider_name,
+        &render_wake_up_section(mem),
+        runtime_capability_hints(&general_dir(), capability_hints).as_deref(),
+    )
+}
+
+fn runtime_capability_hints(dir: &std::path::Path, enabled: bool) -> Option<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let first_seen = match super::state::first_seen_at(dir, now) {
+        Ok(first_seen) => first_seen,
+        Err(error) => {
+            log::warn!("[general-agent] first-seen state unavailable: {error}");
+            return None;
+        }
+    };
+    super::capability_hints::build(
+        &crate::service::plugin_prompt::capability_hints(),
+        now,
+        first_seen,
+        enabled,
+    )
+}
+
+fn compose_general_prompt_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    wake_up: &str,
+    fragment: Option<&str>,
+) -> String {
+    append_capability_hints(render_agent_md_at(dir, provider_name, wake_up), fragment)
+}
+
+fn append_capability_hints(mut prompt: String, fragment: Option<&str>) -> String {
+    if let Some(fragment) = fragment {
+        prompt.push_str(fragment);
+    }
+    prompt
 }
 
 fn compose_system_prompt(agent: &str) -> String {
@@ -161,10 +196,12 @@ fn compose_system_prompt(agent: &str) -> String {
 }
 
 fn compose_system_prompt_with_plugins(agent: &str, built_in_plugins: Option<&str>) -> String {
-    let primer = match built_in_plugins {
+    let mut primer = match built_in_plugins {
         Some(section) => format!("{}\n{section}\n", crate::prompts::AGENT_CODETERM_PRIMER),
         None => crate::prompts::AGENT_CODETERM_PRIMER.to_string(),
     };
+    primer.push_str("\n\n");
+    primer.push_str(crate::service::orchestrator::ROLE_AUTHORITY);
     format!(
         "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}\n\n{}",
         primer,
@@ -214,12 +251,19 @@ fn unmarked_contract_bounds(existing: &str) -> Option<(usize, usize)> {
     .into_iter()
     .find_map(|primer| {
         let prelude = existing[..heading].strip_suffix("\n\n---\n\n")?;
+        let prelude = without_role_authority(prelude, crate::service::orchestrator::ROLE_AUTHORITY);
         without_built_in_plugins_section(prelude)
             .strip_suffix(primer)
             .map(|notes| notes.len())
     })
     .unwrap_or(heading);
     Some((start, end))
+}
+
+fn without_role_authority<'a>(prelude: &'a str, authority: &str) -> &'a str {
+    prelude
+        .strip_suffix(&format!("\n\n{authority}"))
+        .unwrap_or(prelude)
 }
 
 fn without_built_in_plugins_section(prelude: &str) -> &str {
@@ -298,20 +342,27 @@ pub(super) fn ensure_bootstrap_instructions() -> Result<(), String> {
 }
 
 pub fn generate_instructions(
+    capability_hints: bool,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) {
     let dir = general_dir();
-    generate_instructions_at(&dir, provider_name, mem);
+    generate_instructions_at(&dir, provider_name, mem, capability_hints);
 }
 
 fn generate_instructions_at(
     dir: &std::path::Path,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
+    capability_hints: bool,
 ) {
     let wake_up_section = render_wake_up_section(mem);
-    let agent_content = render_agent_md_at(dir, provider_name, &wake_up_section);
+    let agent_content = compose_general_prompt_at(
+        dir,
+        provider_name,
+        &wake_up_section,
+        runtime_capability_hints(dir, capability_hints).as_deref(),
+    );
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
         log::error!("[general-agent] Failed to write AGENT.md: {}", e);
@@ -348,6 +399,33 @@ fn rewrite_user_file(path: &std::path::Path, render: impl FnOnce(&str) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capability_hint_fragment_reaches_general_prompt_only_in_window_and_when_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = render_agent_md_at(dir.path(), "OPAQUE_PROVIDER", "");
+        let capabilities = [super::super::capability_hints::Capability {
+            id: "OPAQUE_CAPABILITY".into(),
+            purpose: "OPAQUE_PURPOSE".into(),
+        }];
+        let fragment = super::super::capability_hints::build(&capabilities, 0, 0, true).unwrap();
+        let inside = compose_general_prompt_at(dir.path(), "OPAQUE_PROVIDER", "", Some(&fragment));
+        assert_eq!(inside, format!("{base}{fragment}"));
+        for (now, enabled) in [
+            (super::super::capability_hints::FIRST_WEEK_SECONDS, true),
+            (0, false),
+        ] {
+            let absent = super::super::capability_hints::build(&capabilities, now, 0, enabled);
+            assert_eq!(
+                compose_general_prompt_at(dir.path(), "OPAQUE_PROVIDER", "", absent.as_deref()),
+                base
+            );
+        }
+        assert_eq!(
+            append_capability_hints(base.clone(), Some("OPAQUE_FRAGMENT")),
+            format!("{base}OPAQUE_FRAGMENT")
+        );
+    }
 
     #[test]
     fn general_agent_memory_management_fragment_is_composed_once() {
@@ -442,7 +520,8 @@ mod tests {
     fn test_wake_up_section_empty_when_mem_none() {
         let section = render_wake_up_section(None);
         assert!(section.is_empty());
-        let rendered = render_agent_md("claude", &section);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "claude", &section);
         assert!(!rendered.contains("{wake_up}"));
         assert!(!rendered.contains("L0 — Identity"));
         assert!(!rendered.contains("L1 — Critical context"));
@@ -450,7 +529,8 @@ mod tests {
 
     #[test]
     fn general_agent_shared_cli_fragment_is_injected_once_without_unresolved_slot() {
-        let rendered = render_agent_md("supplied-provider", "");
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "supplied-provider", "");
         let shared = cli_without_memory_section();
         assert_eq!(rendered.matches(shared.trim()).count(), 1);
         assert!(!rendered.contains("{codeterm_cli}"));
@@ -458,7 +538,8 @@ mod tests {
 
     #[test]
     fn general_agent_receives_shared_child_pty_operation() {
-        let rendered = render_agent_md("claude", "");
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "claude", "");
         let operation = crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim();
 
         assert_eq!(rendered.matches(operation).count(), 1);
@@ -467,7 +548,8 @@ mod tests {
 
     #[test]
     fn general_system_prompt_composes_each_runtime_contract_once_without_bootstrap() {
-        let rendered = render_system_prompt("codex", None);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = compose_general_prompt_at(dir.path(), "codex", "", None);
         assert_eq!(
             rendered
                 .matches(crate::prompts::CODETERM_RULE.trim())
@@ -503,7 +585,7 @@ mod tests {
         std::fs::write(dir.join("CLAUDE.md"), "@./AGENT.md\n\nUSER_CLAUDE_NOTE\n").unwrap();
         std::fs::write(dir.join("AGENTS.md"), "USER_AGENTS_NOTE\n").unwrap();
 
-        generate_instructions_at(&dir, "codex", None);
+        generate_instructions_at(&dir, "codex", None, false);
 
         let agent = std::fs::read_to_string(dir.join("AGENT.md")).unwrap();
         let claude = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
@@ -540,7 +622,7 @@ mod tests {
         assert!(claude.contains("USER_CLAUDE_NOTE"));
         assert!(agents.contains("USER_AGENTS_NOTE"));
 
-        generate_instructions_at(&dir, "codex", None);
+        generate_instructions_at(&dir, "codex", None, false);
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert_eq!(agents.matches(GENERATED_START).count(), 1);
         assert_eq!(agents.matches("USER_AGENTS_NOTE").count(), 1);
@@ -573,7 +655,7 @@ mod tests {
         .unwrap();
 
         for _ in 0..2 {
-            generate_instructions_at(&dir, "codex", None);
+            generate_instructions_at(&dir, "codex", None, false);
             let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
             assert!(agents.starts_with(prepended_notes));
             assert!(agents.ends_with(appended_notes));
@@ -585,6 +667,18 @@ mod tests {
             assert_eq!(agents.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 1);
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn role_authority_stripping_preserves_notes_and_accepts_only_an_exact_suffix() {
+        let authority = "opaque-authority";
+        let original = format!("opaque-notes:{authority}\nopaque-primer\nopaque-plugins");
+        let current = format!("{original}\n\n{authority}");
+        assert_eq!(without_role_authority(&current, authority), original);
+        assert_eq!(without_role_authority(&original, authority), original);
+        let foreign = format!("{current}\nopaque-user-note");
+        assert_eq!(without_role_authority(&foreign, authority), foreign);
+        assert_eq!(without_role_authority(authority, authority), authority);
     }
 
     #[test]
@@ -603,6 +697,21 @@ mod tests {
     }
 
     #[test]
+    fn general_role_fragment_is_opaque_and_follows_the_shared_primer() {
+        let role = "opaque-general-role";
+        let prompt = compose_system_prompt_with_plugins(role, Some("opaque-plugin-fragment"));
+        assert_eq!(prompt.matches(role).count(), 1);
+        assert!(prompt.find(crate::prompts::AGENT_CODETERM_PRIMER.trim()) < prompt.find(role));
+        assert!(prompt.find("opaque-plugin-fragment") < prompt.find(role));
+        assert_eq!(
+            prompt
+                .matches(crate::service::orchestrator::ROLE_AUTHORITY)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn built_in_plugins_section_follows_the_primer_and_strips_with_the_contract() {
         const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
         let dir = tempfile::tempdir().unwrap();
@@ -610,10 +719,13 @@ mod tests {
         let plain = compose_system_prompt_with_plugins(&role, None);
         assert!(!plain.contains("Built-in plugins:"));
         let with = compose_system_prompt_with_plugins(&role, Some(SECTION));
-        assert!(with.starts_with(&format!(
-            "{}\n{SECTION}\n\n\n---\n\n",
-            crate::prompts::AGENT_CODETERM_PRIMER
-        )));
+        assert!(with.starts_with(crate::prompts::AGENT_CODETERM_PRIMER));
+        assert!(with.find(SECTION) < with.find(&role));
+        assert_eq!(
+            with.matches(crate::service::orchestrator::ROLE_AUTHORITY)
+                .count(),
+            1
+        );
         assert_eq!(with.replacen(&format!("\n{SECTION}\n"), "", 1), plain);
 
         let prefix = "OPAQUE_USER_PREFIX\r\n";
@@ -689,7 +801,8 @@ mod tests {
 
     #[test]
     fn general_agent_contract_preserves_memory_recall_save_graph_semantics() {
-        let rendered = render_system_prompt("codex", None);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = compose_general_prompt_at(dir.path(), "codex", "", None);
         assert_eq!(
             rendered.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
             1,
@@ -725,7 +838,7 @@ mod tests {
         let t0 = Instant::now();
         let handle = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
-            generate_instructions_at(&output_dir, "claude", Some(&mem_clone));
+            generate_instructions_at(&output_dir, "claude", Some(&mem_clone), false);
         });
         let elapsed = t0.elapsed();
         assert!(
@@ -785,7 +898,8 @@ mod tests {
             section
         );
 
-        let rendered = render_agent_md("claude", &section);
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "claude", &section);
         assert!(rendered.contains("## Live mem snapshot"));
         assert!(rendered.contains("Alice"));
         assert!(rendered.contains("never edit autogen"));

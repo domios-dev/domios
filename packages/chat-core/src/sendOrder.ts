@@ -17,6 +17,7 @@ export interface ChatSend {
   correlationId?: string;
   echo?: SendEcho;
   echoEligible?: boolean;
+  flowAtMs?: number;
 }
 
 function isUserAuthored(row: NormalizedChatMessage): boolean {

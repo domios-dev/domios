@@ -77,6 +77,9 @@ pub(super) async fn send_outbound(
                 chat_states,
             )
             .await;
+            if placed.is_some() {
+                tab.telegram_used();
+            }
             if let (Some(receipt), Some(message_id)) = (message.receipt.as_ref(), placed) {
                 tab.record_channel_placement(
                     receipt,
@@ -94,6 +97,8 @@ pub(super) async fn send_outbound(
                 send_media(client, api_base, token, chat_id, None, media_content).await
             {
                 log::error!("[bridge-outbound] media send failed: {}", error);
+            } else {
+                tab.telegram_used();
             }
         }
     }
@@ -161,6 +166,9 @@ pub(super) async fn send_for_tab(
                 },
             )
             .await;
+        if placed.is_some() {
+            tab.telegram_used();
+        }
         if let (Some(receipt), Some(message_id)) = (message.receipt.as_ref(), placed) {
             tab.record_channel_placement(
                 receipt,
@@ -189,6 +197,7 @@ pub(super) async fn send_for_tab(
         }
         return;
     }
+    tab.telegram_used();
     threads
         .after_media(tab_id, chat_id, &destination, caption(&message.content))
         .await;
@@ -225,6 +234,7 @@ pub async fn send_notification(
     let Some(message_id) = placed else {
         return false;
     };
+    tab.telegram_used();
     if let Some(receipt) = message.receipt.as_ref() {
         tab.record_channel_placement(
             receipt,

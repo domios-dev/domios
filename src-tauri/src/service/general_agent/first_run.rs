@@ -1,7 +1,7 @@
 //! First-run General Agent provider picker — tab marker + completion flow.
 
+use crate::app_runtime::AppHandle;
 use crate::multiplexer::types::TabType;
-use tauri::AppHandle;
 
 use super::workspace::{default_chat_view_for_provider, ensure_general_workspace};
 use super::{generate_instructions, start_general_agent, GENERAL_ALIAS};
@@ -185,7 +185,8 @@ pub fn complete_first_run_core(
         if let Err(error) = super::instructions::ensure_bootstrap_instructions() {
             log::error!("[general-agent] Failed to write bootstrap instructions: {error}");
         }
-        generate_instructions(&provider_owned, Some(&mem));
+        let capability_hints = config.lock().general_agent.capability_hints;
+        generate_instructions(capability_hints, &provider_owned, Some(&mem));
         start_general_agent(&svc, &mux, &pty, &screen_state, &config, &app);
     });
     Ok(())

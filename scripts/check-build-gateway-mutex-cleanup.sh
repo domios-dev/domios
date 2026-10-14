@@ -85,14 +85,14 @@ CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$STATE" \
 CODETERM_GATEWAY_FAKE_EVENTS="$EVENTS" \
 CT_BUILD_JOB_ID=mutex-contender \
 CODETERM_BUILD_WORKTREE_ID=failing-worktree \
-TEST_CARGO_BIN="$cargo_bin" TEST_RUSTC_BIN="$rustc_bin" TEST_CARGO_MARKER="$MARKER" \
+TEST_CARGO_BIN="$cargo_bin" TEST_RUSTC_BIN="$rustc_bin" TEST_CARGO_MARKER="$MARKER" TEST_COMPILER_READY="$TEST_ROOT/compiler-ready.fifo" \
 bash -c '
   set -euo pipefail
-  coproc CARGO_CHILD {
-    "$TEST_CARGO_BIN" scripts/fixtures/build-gateway-compiler-child.mjs \
-      cargo "$TEST_RUSTC_BIN" "$TEST_CARGO_MARKER"
-  }
-  read -r ready <&"${CARGO_CHILD[0]}"
+  mkfifo "$TEST_COMPILER_READY"
+  "$TEST_CARGO_BIN" scripts/fixtures/build-gateway-compiler-child.mjs \
+    cargo "$TEST_RUSTC_BIN" "$TEST_CARGO_MARKER" > "$TEST_COMPILER_READY" &
+  read -r ready < "$TEST_COMPILER_READY"
+  rm -f "$TEST_COMPILER_READY"
   echo "descendants before mutex timeout:"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     snapshot="$(ps -eo pid=,ppid=,command=)"

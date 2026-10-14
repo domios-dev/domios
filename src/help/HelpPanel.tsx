@@ -15,9 +15,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { AppConfig } from "../lib/types";
+import { CommunityLinks } from "../components/shared/CommunityLinks";
 import { getHelpContent } from "./content";
 import { HelpBlockView, type OpenSettingsTarget } from "./HelpBlockView";
 import type { HelpSectionContent, HelpSectionId } from "./types";
+import { useGuideScrollSpy } from "./useGuideScrollSpy";
 
 const SECTION_ICONS: Record<HelpSectionId, LucideIcon> = {
   overview: BookOpen,
@@ -55,6 +57,8 @@ export function HelpPanel({ config, locale = "en", initialSection, focusRequest,
     tabRef.current?.querySelector(`[data-help-section="${initialSection}"]`)?.scrollIntoView?.({ block: "start" });
     tabRef.current?.querySelector<HTMLElement>(`[data-help-section="${initialSection}"] h3`)?.focus({ preventScroll: true });
   }, [initialSection, focusRequest]);
+
+  useGuideScrollSpy(tabRef, content.sections, setActiveId);
 
   const scrollToSection = useCallback((id: HelpSectionId) => {
     setActiveId(id);
@@ -125,6 +129,7 @@ export function HelpPanel({ config, locale = "en", initialSection, focusRequest,
             </div>
           </section>
         ))}
+        <CommunityLinks />
       </div>
     </div>
   );
@@ -145,6 +150,7 @@ function HelpNavRow({
       type="button"
       data-testid="help-nav-item"
       data-help-nav={section.id}
+      aria-current={active ? "location" : undefined}
       onClick={onSelect}
       className={`flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors ${
         active

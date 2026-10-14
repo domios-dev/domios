@@ -13,7 +13,7 @@ pub enum NudgeKind {
 
 pub const WORKER_REMINDER: &str = "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress.";
 
-pub const ORCHESTRATOR_REMINDER: &str = "Plan reminder: actionable tasks: {actionable}. {parked} Dispatch, judge, unblock, or replan each actionable task. Tasks waiting on dependencies and machine-paused tasks need nothing; they advance when the dependency lands or the hold clears. Pause the plan only when the owner must decide before any task can advance. Read `codeterm docs ORCHESTRATION` if the loop is unclear.";
+pub const ORCHESTRATOR_REMINDER: &str = "Plan reminder: {actionable}. {parked}";
 
 pub const ORCHESTRATOR_STALLED_TEAM_REMINDER: &str = "Stalled team: no live Worker remains for actionable tasks: {actionable}. {parked} Dispatch, unblock, or replan actionable tasks.";
 

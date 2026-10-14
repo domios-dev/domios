@@ -1,4 +1,6 @@
+pub mod account;
 pub mod agent;
+pub mod analytics;
 pub mod blueprint;
 pub mod cli;
 pub mod cron;

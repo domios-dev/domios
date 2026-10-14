@@ -107,13 +107,15 @@ impl ServiceContext {
         }
         // An anchoring Orchestrator owns a Team; mint it now if the promotion
         // left it unbound so the first message carries a real team id.
-        let team_id = match self.mux.write().resolve_or_mint_team_for_parent(tab_id) {
-            Ok(resolution) => resolution.team_id,
+        let resolution = match self.mux.write().resolve_or_mint_team_for_parent(tab_id) {
+            Ok(resolution) => resolution,
             Err(e) => {
                 log::warn!("[orchestrator-onboard] team resolve for {tab_id} failed: {e}");
                 return;
             }
         };
+        let team_minted = resolution.minted;
+        let team_id = resolution.team_id;
         // The team above is always freshly minted; scope the existence check
         // to the project instead — codeterm-releases#56.
         let project_path = {
@@ -141,6 +143,8 @@ impl ServiceContext {
             crate::service::session_persist::SessionPersistUrgency::Prompt,
         ) {
             log::warn!("[session-persist] orchestrator onboarding submission failed: {error}");
+        } else if team_minted {
+            self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
         }
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
         // reminder — the onboarding should read as CodeTerm introducing the role.
@@ -334,6 +338,9 @@ mod tests {
             boot_stage: None,
             boot_failure_reason: None,
             provisional_launch: None,
+            agent_runtime_state: None,
+            agent_runtime_config: None,
+            agent_runtime_questions: None,
         }
     }
 

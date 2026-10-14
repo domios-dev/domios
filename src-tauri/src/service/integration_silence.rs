@@ -769,7 +769,8 @@ impl ServiceContext {
     /// Announce once per transition, from the tab that launched. Called on the
     /// launch thread: reading the provider's install report touches disk.
     pub(crate) fn announce_integration_silence(&self, _tab_id: &str, provider_id: &str) {
-        let consent_recorded = crate::config::load_config()
+        let consent_recorded = self
+            .configuration()
             .agents
             .get(provider_id)
             .and_then(|provider| {

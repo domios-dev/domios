@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn lazy_session_start_writes_first_send_without_a_session_id_then_classifies_exact_turn() {
     let (fixture, tab) = queue_fixture_with_session_mode(false, None, true);
     {
@@ -73,10 +69,6 @@ fn lazy_session_start_writes_first_send_without_a_session_id_then_classifies_exa
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "requires the shared interactive desktop ServiceContext fixture"
-)]
 fn anchorless_equal_text_requires_two_distinct_live_turn_ids() {
     let (fixture, tab) = queue_fixture(false, None);
     let first = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-a");

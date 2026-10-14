@@ -4,6 +4,9 @@ use crate::multiplexer::types::ClosedTab;
 use crate::service::ServiceContext;
 
 impl CommandPort for ServiceContext {
+    fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad {
+        self.lifecycle_journal.load()
+    }
     fn ensure_storage_available(&self) -> Result<(), String> {
         ServiceContext::ensure_storage_available(self)
     }
@@ -86,6 +89,11 @@ impl CommandPort for ServiceContext {
         activate: bool,
     ) -> Result<WorkspaceInfo, String> {
         ServiceContext::create_provisioned_workspace(self, name, activate)
+    }
+
+    fn set_workspace_cwd(&self, ws_id: &str, cwd: &str) -> Result<serde_json::Value, String> {
+        serde_json::to_value(ServiceContext::set_workspace_cwd(self, ws_id, cwd)?)
+            .map_err(|error| error.to_string())
     }
 
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String> {

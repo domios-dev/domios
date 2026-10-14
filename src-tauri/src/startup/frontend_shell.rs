@@ -1,9 +1,10 @@
+use crate::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
 
 pub(crate) fn application_context(
-    context: tauri::Context<tauri::Wry>,
-) -> tauri::Context<tauri::Wry> {
+    context: tauri::Context<crate::app_runtime::Runtime>,
+) -> tauri::Context<crate::app_runtime::Runtime> {
     #[cfg(debug_assertions)]
     {
         let mut context = context;
@@ -31,11 +32,13 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use url::Url;
 
 mod model;
-use model::{boot_failure_action, development_frontend, BootFailureAction, BootObservation};
+use model::{
+    boot_failure_action, development_frontend, external_link, BootFailureAction, BootObservation,
+};
 
 #[derive(Default)]
 struct ShellSupervisor {
@@ -149,6 +152,21 @@ fn navigation_allowed(url: &Url, origin: Option<&str>, unavailable: &Url, fallba
         })
 }
 
+fn open_external_link(url: &Url, origin: Option<&str>) {
+    let Some(url) = external_link(url, origin) else {
+        return;
+    };
+    log::debug!(
+        "[frontend-shell] opening external link: {}",
+        navigation_identity(&url)
+    );
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = crate::commands::open_url(url.into()) {
+            log::debug!("[frontend-shell] external link opener failed: {error}");
+        }
+    });
+}
+
 fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
     let mut capability: serde_json::Value =
         serde_json::from_str(include_str!("../../capabilities/default.json"))?;
@@ -159,7 +177,7 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
 }
 
 pub(crate) fn create_window(
-    app: &tauri::App,
+    app: &crate::app_runtime::App,
     config: &crate::config::schema::ApiConfig,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
     let development_frontend =
@@ -206,7 +224,12 @@ pub(crate) fn create_window(
         )?)?;
         builder = builder.initialization_script(bootstrap_script(&bootstrap)?);
     }
+    let new_window_origin = origin.clone();
     Ok(builder
+        .on_new_window(move |url, _features| {
+            open_external_link(&url, new_window_origin.as_deref());
+            tauri::webview::NewWindowResponse::Deny
+        })
         .on_page_load(|window, payload| {
             log::debug!(
                 "[frontend-shell] page load {:?}: {}",
@@ -225,6 +248,9 @@ pub(crate) fn create_window(
                 "[frontend-shell] navigation allowed={allowed}: {}",
                 navigation_identity(url)
             );
+            if !allowed {
+                open_external_link(url, origin.as_deref());
+            }
             allowed
         })
         .build()?)
@@ -317,7 +343,7 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
     });
 }
 
-async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, String> {
+async fn frontend_url(app: &crate::app_runtime::AppHandle, origin: &str) -> Result<Url, String> {
     if let Some(url) = &app.state::<ShellSupervisor>().development_frontend {
         log::debug!(
             "[frontend-shell] selecting configured development frontend: {}",
@@ -360,7 +386,7 @@ async fn frontend_url(app: &tauri::AppHandle, origin: &str) -> Result<Url, Strin
     }
 }
 
-pub(crate) fn start(app: tauri::AppHandle, control: RestApiControlState) {
+pub(crate) fn start(app: crate::app_runtime::AppHandle, control: RestApiControlState) {
     let mut status = control.subscribe_status();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -404,7 +430,7 @@ pub(crate) fn start(app: tauri::AppHandle, control: RestApiControlState) {
     });
 }
 
-pub(crate) fn retry(app: &tauri::AppHandle) {
+pub(crate) fn retry(app: &crate::app_runtime::AppHandle) {
     let control = app.state::<RestApiControlState>().inner().clone();
     let observed = control.status();
     if observed.phase != RestApiPhase::Listening {

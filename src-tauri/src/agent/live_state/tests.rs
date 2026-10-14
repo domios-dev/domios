@@ -2,10 +2,6 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restored_prompt_without_a_session_is_live_with_a_live_pty() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "pty-restored-prompt-no-session";
@@ -18,6 +14,7 @@ fn restored_prompt_without_a_session_is_live_with_a_live_pty() {
         tab.agent_session_id = None;
         tab.restored_from_snapshot = true;
         tab.pending_prompt = Some(crate::multiplexer::types::PendingPrompt {
+            request_id: None,
             question: "prompt-token".into(),
             options: Vec::new(),
             sections: None,
@@ -48,10 +45,6 @@ fn restored_prompt_without_a_session_is_live_with_a_live_pty() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
     let (mut mux, launching_tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let waiting_tab_id = mux.create_tab_record();
@@ -165,7 +158,6 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restored_tab_not_cleared_before_relaunch_outcome() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     {
@@ -208,7 +200,6 @@ fn restored_tab_not_cleared_before_relaunch_outcome() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unobserved_liveness_pane_remains_relaunchable() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     {

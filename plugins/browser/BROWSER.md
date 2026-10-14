@@ -16,7 +16,8 @@ Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` 
 
 - **Ownership.** `open` gives you your own browser. It is named `<YourName>'s Browser`, the user sees it live as a tab nested under yours, and other agents in your workspace may use it too. It closes when you close it with `close`, when your Tab closes, or when your Team closes.
 - **Profiles.**
-  - Default: a **clean profile**. No logins, nothing is saved.
+  - Default: a **persistent owner profile**. Logins and cookies survive closing the Browser tab and restarting Domios. Agent browsers use their owning tab's scope; user browsers use their workspace's scope.
+  - An explicit `open --profile clean` uses a throwaway profile.
   - A **named profile** keeps logins and cookies across restarts. It acts as the user. Use one only when the user chose it (`open --profile NAME`), and never publish, buy, delete or send messages without the user's explicit instruction.
 - **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
 - **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click @e4 --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.

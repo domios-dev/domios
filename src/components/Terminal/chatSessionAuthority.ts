@@ -57,6 +57,7 @@ export type ChatUnavailableReason = "no_transcript_source" | "authority_mismatch
 export interface ChatStartResult extends TranscriptAuthority {
   text: string;
   offset: number;
+  offset_kind?: "bytes" | "items";
   start_offset?: number;
   pending?: boolean;
   /** The provider named no transcript source for this session, so nothing is
@@ -69,6 +70,7 @@ export interface ChatStartResult extends TranscriptAuthority {
 
 export interface ChatBackfillResult extends TranscriptAuthority {
   text: string;
+  offset_kind?: "bytes" | "items";
   start_offset: number;
   end_offset: number;
   messages?: ChatMessage[];
@@ -78,6 +80,7 @@ export interface ChatMsgEvent extends TranscriptAuthority {
   tab_id: string;
   messages: ChatMessage[];
   cursor?: string;
+  offset_kind?: "bytes" | "items";
   start_offset?: number;
   offset?: number;
 }

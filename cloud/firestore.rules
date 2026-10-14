@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+    function profile() {
+      let p = request.resource.data;
+      return p.keys().hasOnly(['displayName', 'photoURL'])
+        && (!('displayName' in p) || (p.displayName is string && p.displayName.size() <= 100))
+        && (!('photoURL' in p) || (p.photoURL is string && p.photoURL.size() <= 2048));
+    }
+    match /users/{uid} {
+      allow read: if owner(uid);
+      allow create, update: if owner(uid) && profile();
+      allow delete: if owner(uid);
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

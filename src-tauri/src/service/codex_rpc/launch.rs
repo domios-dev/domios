@@ -45,7 +45,7 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
         .with_provider(provider, |provider| {
             super::capability::enabled(
                 provider.structured_control().as_ref(),
-                &crate::config::provider_config(provider.id()),
+                &crate::config::provider_config_from(&svc.configuration(), provider.id()),
             )
         })
         .unwrap_or(false)

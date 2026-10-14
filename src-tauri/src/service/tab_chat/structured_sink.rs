@@ -3,13 +3,15 @@
 //! the frontend merges them by id. Mirrored to the SSE bus so the web
 //! mirror's chat view streams too.
 
+use crate::app_runtime::AppHandle;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use tauri::Manager;
 
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::commands::MuxState;
 use crate::service::chat_send_transaction::{LiveProvenance, TurnPosition};
+use crate::session::lifecycle::TabLifecycleJournal;
 
 pub trait StructuredSink: Send + Sync {
     fn observe(&self, _tab: &str, _records: &[crate::agent::chat_types::RichMessage]) {}
@@ -55,6 +57,7 @@ pub fn emit_chat_msgs(
 }
 
 pub struct TauriStructuredSink {
+    journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,
     source_session_id: Option<String>,
@@ -87,6 +90,7 @@ impl StructuredSink for TauriStructuredSink {
             );
         }
         reconcile_current_session_turns(
+            &self.journal,
             &self.app,
             &self.mux,
             self.send_ledger.as_deref(),
@@ -119,6 +123,7 @@ impl StructuredSink for TauriStructuredSink {
 }
 
 pub(crate) fn make_sink(
+    journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,
     source_session_id: Option<String>,
@@ -126,6 +131,7 @@ pub(crate) fn make_sink(
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
 ) -> Arc<dyn StructuredSink> {
     Arc::new(TauriStructuredSink {
+        journal,
         app,
         mux,
         source_session_id,
@@ -208,6 +214,7 @@ fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
 /// the DB-backed providers use. This is what lets JSONL providers (claude,
 /// codex) and sqlite providers (opencode) share one client rendering path.
 pub struct FlattenDeltaSink {
+    journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,
     source_session_id: Option<String>,
@@ -306,6 +313,7 @@ impl FlattenDeltaSink {
             positions,
         });
         reconcile_current_session_turns(
+            &self.journal,
             &self.app,
             &self.mux,
             self.send_ledger.as_deref(),
@@ -334,6 +342,7 @@ impl FlattenDeltaSink {
 }
 
 pub(crate) fn make_flatten_sink(
+    journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,
     base_start: usize,
@@ -342,6 +351,7 @@ pub(crate) fn make_flatten_sink(
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
 ) -> Arc<dyn super::tailer::DeltaSink> {
     Arc::new(FlattenDeltaSink {
+        journal,
         app,
         mux,
         source_session_id,
@@ -352,6 +362,7 @@ pub(crate) fn make_flatten_sink(
 }
 
 fn reconcile_current_session_turns(
+    journal: &TabLifecycleJournal,
     app: &AppHandle,
     mux: &MuxState,
     ledger: Option<&crate::service::chat_send_transaction::ChatSendLedger>,
@@ -361,6 +372,15 @@ fn reconcile_current_session_turns(
     messages: &[ChatMsg],
     provenance: Option<&LiveProvenance>,
 ) {
+    note_current_session_conversation(
+        journal,
+        mux,
+        ledger,
+        tab_id,
+        source_session_id,
+        source_binding_nonce,
+        messages,
+    );
     for status in current_binding_turn_confirmations(
         mux,
         ledger,
@@ -371,6 +391,31 @@ fn reconcile_current_session_turns(
         provenance,
     ) {
         crate::api::events::emit_everywhere(app, "chat-send-status", &status);
+    }
+}
+
+fn note_current_session_conversation(
+    journal: &TabLifecycleJournal,
+    mux: &MuxState,
+    ledger: Option<&crate::service::chat_send_transaction::ChatSendLedger>,
+    tab_id: &str,
+    source_session_id: Option<&str>,
+    source_binding_nonce: Option<&str>,
+    messages: &[ChatMsg],
+) {
+    let Some(session_id) = source_session_id.filter(|_| ledger.is_some()) else {
+        return;
+    };
+    if !source_is_current_binding(mux, tab_id, session_id, source_binding_nonce)
+        || !messages.iter().any(|message| message.kind == "user")
+    {
+        return;
+    }
+    let Some(key) = mux.read().lifecycle_key(tab_id) else {
+        return;
+    };
+    if let Err(error) = journal.note_conversation_started(key, session_id) {
+        log::warn!("[conversation-evidence] Tab {tab_id}: {error}");
     }
 }
 
@@ -390,16 +435,6 @@ pub(crate) fn current_binding_turn_confirmations(
     };
     if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
         return Vec::new();
-    }
-    if messages.iter().any(|message| message.kind == "user") {
-        let key = { mux.read().lifecycle_key(tab_id) };
-        if let Some(key) = key {
-            if let Err(error) = crate::session::lifecycle::TabLifecycleJournal::shared()
-                .note_conversation_started(key, source_session_id)
-            {
-                log::warn!("[conversation-evidence] Tab {tab_id}: {error}");
-            }
-        }
     }
     crate::service::chat_send_transaction::delivered_turn_confirmations(
         ledger,
@@ -714,6 +749,7 @@ mod tests {
             binding_nonce
         };
         let sink = make_flatten_sink(
+            fixture.service.lifecycle_journal.clone(),
             fixture.service.app_handle.clone(),
             fixture.service.mux.clone(),
             0,
@@ -763,10 +799,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "requires the shared interactive desktop ServiceContext fixture"
-    )]
     fn sourced_jsonl_confirmation_traverses_tailer_flattening_and_ledger_gates() {
         assert_eq!(
             sourced_jsonl_send_state(SourcedEvidenceFault::None),
@@ -1015,5 +1047,49 @@ mod tests {
         assert_eq!(read[0].id, "reply");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn conversation_evidence_uses_injected_journal_and_exact_live_binding() {
+        let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture.service.open_lifecycle_epoch(&tab_id).unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("own-session".into());
+            tab.session_binding_nonce = Some("own-nonce".into());
+        }
+        let before = fixture.service.lifecycle_journal.load().records;
+        let messages = [ChatMsg {
+            kind: "user".into(),
+            content: "opaque-user-turn".into(),
+            ..Default::default()
+        }];
+        let observe = |session, nonce| {
+            note_current_session_conversation(
+                &fixture.service.lifecycle_journal,
+                &fixture.service.mux,
+                Some(&fixture.service.chat_send_ledger),
+                &tab_id,
+                Some(session),
+                Some(nonce),
+                &messages,
+            )
+        };
+        observe("foreign-session", "own-nonce");
+        observe("own-session", "foreign-nonce");
+        assert_eq!(fixture.service.lifecycle_journal.load().records, before);
+        observe("own-session", "own-nonce");
+        observe("own-session", "own-nonce");
+        let records = fixture.service.lifecycle_journal.load().records;
+        assert_eq!(records.len(), before.len() + 1);
+        assert!(matches!(&records.last().unwrap(),
+            crate::session::lifecycle::JournalRecord::Transition { entry }
+                if matches!(&entry.transition,
+                    crate::session::lifecycle::LifecycleTransition::ConversationStarted { session_id }
+                        if session_id == "own-session"
+                )
+        ));
     }
 }

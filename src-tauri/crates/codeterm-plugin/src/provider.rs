@@ -204,6 +204,7 @@ pub enum PathOpenKind {
 mod agent_provider;
 mod availability;
 mod capabilities;
+mod descriptor;
 mod launch_permissions;
 mod launch_session;
 mod model_group;
@@ -232,6 +233,8 @@ pub use usage_snapshot::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     #[serde(default)]
     pub supports_session_fork: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -330,6 +333,8 @@ pub struct ProviderDescriptor {
     /// structured handle first and only falls back to PTY scraping otherwise.
     #[serde(default)]
     pub supports_structured_prompts: bool,
+    #[serde(default)]
+    pub supports_prompt_answers: bool,
     /// `true` when the provider can recognize its own permission prompts.
     #[serde(default)]
     pub supports_permission_auto_confirm: bool,
@@ -379,7 +384,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 20;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 21;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

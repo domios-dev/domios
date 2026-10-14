@@ -46,6 +46,36 @@ Domios CLI — control your terminal multiplexer
 - `--json` — Output raw JSON instead of human-readable text
 - `--mesh` — Execute command on a remote mesh peer instead of locally
 
+#### `codeterm account`
+
+Sign in, inspect identity or sign out on this machine
+
+#### `codeterm account login`
+
+Sign in using the system browser and wait for completion
+
+#### `codeterm account logout`
+
+Sign out and delete the saved credential
+
+#### `codeterm account plan`
+
+Show the current plan and stale-cache marker
+
+#### `codeterm account portal`
+
+Open subscription management in the system browser
+
+#### `codeterm account status`
+
+Show the signed-in identity
+
+#### `codeterm account upgrade`
+
+Open an upgrade checkout in the system browser
+
+- `<plan_key>`
+
 #### `codeterm agent`
 
 Agent hierarchy management
@@ -111,6 +141,15 @@ Link a tab as worker under a parent
 
 - `--parent-tab` — Parent tab ID (orchestrator)
 - `--tab` — Tab ID to link (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm agent login`
+
+Sign in to the tab's runtime provider without a terminal
+
+- `--api-key-stdin` — Read the API key from stdin; never supply credentials in argv
+- `--cancel`
+- `--device`
+- `--tab`
 
 #### `codeterm agent model`
 
@@ -230,6 +269,22 @@ Read completed turns from a tool-less agent's exact bound session
 Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm analytics`
+
+Manage local opt-in product analytics
+
+#### `codeterm analytics disable`
+
+Record opt-out consent and clear queued events and identifiers
+
+#### `codeterm analytics enable`
+
+Record opt-in consent and create an installation identifier
+
+#### `codeterm analytics status`
+
+Show recorded consent, queue size and delivery counters
 
 #### `codeterm blueprint`
 
@@ -2467,6 +2522,13 @@ Update a plan section's title, body, tags, or handle
 - `--tag`
 - `--title`
 
+#### `codeterm plan set-project`
+
+Repair a plan's project folder after it moves, preserving plan and task identity
+
+- `<path>`
+- `<plan_id>`
+
 #### `codeterm plan skill`
 
 Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)
@@ -3412,6 +3474,7 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--purpose` — Utility shell purpose shown in the sidebar
 - `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
+- `--timeout` — Shell lifetime: positive duration (30s, 10m, 2h), or none
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
@@ -3477,6 +3540,13 @@ Show agent status for a tab (type, provider session, prompt)
 Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop-key sequence. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm tab timeout`
+
+Reset an owned utility shell's lifetime from now, or disable it with none
+
+- `--tab`
+- `--timeout`
 
 #### `codeterm task`
 
@@ -3740,6 +3810,13 @@ Rename a workspace
 
 - `<id>` — Workspace ID
 - `<name>` — New name
+
+#### `codeterm workspace set-cwd`
+
+Relocate a workspace to an existing absolute folder, preserving its identity
+
+- `<id>`
+- `<path>`
 
 
 <!-- cli:auto-end -->

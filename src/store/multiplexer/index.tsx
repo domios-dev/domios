@@ -1,3 +1,5 @@
+import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
+import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { teamCallerClaim } from "../../lib/teamActions";
 import {
   useCallback,
@@ -398,15 +400,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "UPDATE_NOTIFICATION_SUMMARY", ...event.payload });
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    listen<{ id: string; answered: string; delivered?: boolean }>(
+    listen<{ id: string; answered: string; delivered?: boolean; deliveryError?: string; refusal?: { reason: string; detail?: string } }>(
       "notification-answered",
       (event) => {
         if (!event.payload?.id) return;
         dispatch({
-          type: "ANSWER_NOTIFICATION",
+          type: "UPDATE_NOTIFICATION_ANSWER",
           id: event.payload.id,
-          answered: event.payload.answered,
-          delivered: event.payload.delivered === true,
+          update: { answered: event.payload.answered, delivered: event.payload.delivered === true,
+            error: event.payload.deliveryError ?? event.payload.refusal?.detail ?? event.payload.refusal?.reason },
         });
       },
     ).then((unlisten) => unlisteners.push(unlisten));
@@ -755,28 +757,20 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     guardedInvoke("mux_reorder_workspace", { orderedWorkspaceIds }).catch(() => {});
   }, [guardedInvoke]);
 
-  const notifySpawnFailure = useCallback((workspaceId: string, agentId: string, e: unknown) => {
-    const message = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
-    const providerMissing = message.includes("Provider not installed:");
-    dispatch({
-      type: "UPSERT_TOAST",
-      toast: {
-        id: uid(),
-        tab_id: null,
-        workspace_id: workspaceId,
-        title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
-        body: message,
-        severity: "Error",
-        level: "failure",
-        timestamp: Date.now(),
-        read: false,
-        sticky: providerMissing,
+  const setWorkspaceCwd = useCallback(async (workspaceId: string, cwd: string) => {
+    const result = await guardedInvoke<{ warnings: string[] }>("mux_set_workspace_cwd", { workspaceId, cwd });
+    const snapshot = await guardedInvoke<MultiplexerState>("mux_get_state");
+    applyBackendState(snapshot);
+    if (result.warnings.length > 0) dispatch({
+      type: "UPSERT_TOAST", toast: {
+        id: uid(), tab_id: null, workspace_id: workspaceId,
+        title: "Workspace folder updated", body: result.warnings.join("\n"),
+        severity: "Warning", level: "verbose", timestamp: Date.now(), read: false, sticky: true,
       },
     });
-    console.error(`Failed to spawn ${agentId} tab:`, e);
-  }, []);
+    return result;
+  }, [guardedInvoke, applyBackendState]);
 
-  // Failures self-notify; success returns the ids needed to focus the new tab.
   const spawnAgentTab = useCallback(async (
     workspaceId: string,
     agentId: string,
@@ -795,8 +789,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         applyBackendState(result.snapshot);
         return { workspaceId: result.workspace_id, tabId: result.tab_id };
       } catch (error) {
-        notifySpawnFailure(workspaceId, agentId, error);
-        return null;
+        refreshFromBackend();
+        throw error;
       } finally {
         spawnInFlight.current.delete(guardKey);
       }
@@ -821,16 +815,23 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_FOCUSED_TAB", tabId: res.tab_id });
       return { workspaceId: res.workspace_id, tabId: res.tab_id };
     } catch (e) {
-      notifySpawnFailure(workspaceId, agentId, e);
-      return null;
+      refreshFromBackend();
+      throw e;
     } finally {
       spawnInFlight.current.delete(guardKey);
     }
-  }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState, notifySpawnFailure]);
+  }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState]);
 
   // from the descriptor registry rather than hardcoding a vendor id.
   const spawnClaudeTab = useCallback(async (workspaceId: string, cwd?: string) => {
-    spawnAgentTab(workspaceId, defaultSpawnProviderId(), cwd);
+    void spawnAgentTab(workspaceId, defaultSpawnProviderId(), cwd).catch((error) => {
+      if (isWorkspaceCwdRefusal(error)) return;
+      dispatch({ type: "UPSERT_TOAST", toast: {
+        id: uid(), tab_id: null, workspace_id: workspaceId, title: "Session start failed",
+        body: spawnErrorMessage(error), severity: "Error", level: "failure",
+        timestamp: Date.now(), read: false, sticky: true,
+      } });
+    });
   }, [spawnAgentTab]);
 
   const createOrchestrationPair = useCallback(
@@ -994,22 +995,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Use the stored target tab because a second tap must not change the answer already recorded.
+  const pendingAnswers = useRef(new Set<string>());
   const answerNotification = useCallback((id: string, label: string) => {
-    void invoke<{ answered?: string; delivered?: boolean }>("answer_notification", { id, label })
-      .then((result) => {
-        if (result?.answered) {
-          dispatch({
-            type: "ANSWER_NOTIFICATION",
-            id,
-            answered: result.answered,
-            delivered: result.delivered === true,
-          });
-        }
-      })
-      .catch((err) => {
-        console.warn("Failed to record notification answer:", err);
-      });
+    void sendNotificationAnswer(
+      id, label, pendingAnswers.current,
+      stateRef.current.notifications.find((entry) => entry.id === id),
+      (answerId, answerLabel) => invoke<AnswerResult>("answer_notification", { id: answerId, label: answerLabel }),
+      (answerId, update) => dispatch({ type: "UPDATE_NOTIFICATION_ANSWER", id: answerId, update }),
+    );
   }, []);
 
   const clearNotifications = useCallback(() => {
@@ -1079,6 +1072,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       updateTabStatus,
       spawnClaudeTab,
       spawnAgentTab,
+      setWorkspaceCwd,
       createOrchestrationPair,
     }),
     [
@@ -1113,6 +1107,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       updateTabStatus,
       spawnClaudeTab,
       spawnAgentTab,
+      setWorkspaceCwd,
       createOrchestrationPair,
     ],
   );

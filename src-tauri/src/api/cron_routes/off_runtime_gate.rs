@@ -38,6 +38,9 @@ impl StorageCron {
             temp.path().join("crons"),
             MockClock::starting_at(1_700_000_000_000),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("hydrate cron storage");
         Self {

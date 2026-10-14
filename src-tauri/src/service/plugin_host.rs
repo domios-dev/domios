@@ -7,7 +7,7 @@ use crate::mem::{workers, SearchQuery};
 use crate::multiplexer::types::TabCloseReason;
 use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivityRegistry};
 use crate::secrets::secret_file::SecretFile;
-use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
+use crate::service::spawn::{SpawnTabSpec, TabVisibility};
 use crate::service::ServiceContext;
 
 // ── Progress activity id map (mirrors host_compute) ─────────────────────────
@@ -80,8 +80,7 @@ fn secret_bucket(plugin_id: &str) -> SecretFile {
     crate::secrets::plugin_secret_bucket(plugin_id)
 }
 
-fn api_cfg_base_url() -> String {
-    let cfg = crate::config::load_config().api;
+fn api_cfg_base_url(cfg: crate::config::schema::ApiConfig) -> String {
     let host = if cfg.host == "0.0.0.0" {
         "127.0.0.1".to_string()
     } else {
@@ -93,6 +92,18 @@ fn api_cfg_base_url() -> String {
 // ── PluginHostCtx impl ───────────────────────────────────────────────────────
 
 impl codeterm_plugin::PluginHostCtx for ServiceContext {
+    fn runtime_launch_authorized(
+        &self,
+        binding: &codeterm_plugin::agent_runtime::RuntimeLaunchBinding,
+    ) -> bool {
+        super::agent_runtime::authority::verifies(
+            self,
+            &binding.tab_id,
+            &binding.provider_id,
+            &binding.binding_nonce,
+        )
+    }
+
     // ── Memory ───────────────────────────────────────────────────────────
 
     fn mem_search_json(&self, opts_json: &str) -> String {
@@ -471,11 +482,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     }
 
     fn api_base_url(&self) -> String {
-        api_cfg_base_url()
+        api_cfg_base_url(self.configuration().api)
     }
 
     fn api_token(&self) -> Option<String> {
-        crate::config::load_config().api.token
+        self.configuration().api.token
     }
 
     fn model_provider_process_env(
@@ -542,6 +553,27 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         query: &codeterm_plugin::local_recording::ReceiverStatusQuery,
     ) -> String {
         super::local_recording::host_json(self.read_receiver_status_report(plugin_id, query))
+    }
+
+    fn local_recording_inputs_json(&self, plugin_id: &str) -> String {
+        super::local_recording::host_json(self.local_recording_inputs(plugin_id))
+    }
+
+    fn local_recording_select_json(
+        &self,
+        plugin_id: &str,
+        devices: codeterm_plugin::local_recording::SelectedDevices,
+    ) -> String {
+        super::local_recording::host_json(self.local_recording_select_devices(plugin_id, devices))
+    }
+
+    fn local_recording_saved_selection_json(&self, plugin_id: &str) -> String {
+        super::local_recording::host_json((|| {
+            if !self.local_recording_status(plugin_id)?.granted {
+                return Err("local_recording_grant_required".into());
+            }
+            self.local_recording_selections.get(plugin_id)
+        })())
     }
 
     fn local_recording_status_json(&self, plugin_id: &str) -> String {
@@ -670,25 +702,20 @@ fn enqueue_agent_turn(
         let worker_id_blocking = worker_id_task.clone();
         let title = format!("plugin:{intent}");
         let spawn_result = tokio::task::spawn_blocking(move || {
-            let spec = SpawnTabSpec {
-                shell: None,
-                visibility: TabVisibility::Hidden,
-                audience: crate::multiplexer::types::TabAudience::Automation,
-                title: Some(title),
-                description: None,
-                workspace_id,
-                command: TabCommand::Agent(AgentSpawnSpec {
-                    provider,
-                    planned_model: None,
-                    model: if model.is_empty() { None } else { Some(model) },
+            let spec = plugin_worker_spawn_spec(
+                crate::service::SpawnAgentParams {
+                    agent: Some(provider),
+                    model: (!model.is_empty()).then_some(model),
                     task: Some(task),
-                    worker_id: Some(worker_id_blocking.clone()),
-                    spawned_by: Some(spawned_by),
+                    title: Some(title),
+                    workspace_id,
                     resume_session_id,
+                    audience: crate::multiplexer::types::TabAudience::Automation,
                     ..Default::default()
-                }),
-                ..Default::default()
-            };
+                },
+                worker_id_blocking,
+                spawned_by,
+            );
             svc_blocking.spawn_tab(spec)
         })
         .await;
@@ -740,4 +767,49 @@ fn enqueue_agent_turn(
     });
 
     worker_id
+}
+
+fn plugin_worker_spawn_spec(
+    params: crate::service::SpawnAgentParams,
+    worker_id: String,
+    spawned_by: String,
+) -> SpawnTabSpec {
+    let mut spec = SpawnTabSpec::from_agent_params(params);
+    spec.visibility = TabVisibility::Hidden;
+    if let Some(agent) = spec.agent_launch_mut() {
+        agent.worker_id = Some(worker_id);
+        agent.spawned_by = Some(spawned_by);
+    }
+    spec
+}
+
+#[cfg(test)]
+mod worker_spawn_tests {
+    use super::*;
+
+    #[test]
+    fn plugin_worker_runtime_keeps_original_params_and_worker_identity() {
+        let params = crate::service::SpawnAgentParams {
+            agent: Some("runtime-fixture".into()),
+            model: Some("opaque-model".into()),
+            task: Some("opaque-task".into()),
+            workspace_id: Some("opaque-workspace".into()),
+            resume_session_id: Some("opaque-session".into()),
+            audience: crate::multiplexer::types::TabAudience::Automation,
+            ..Default::default()
+        };
+        let expected = params.clone();
+        let mut spec =
+            plugin_worker_spawn_spec(params, "worker-exact".into(), "plugin-exact".into());
+        spec.route_agent_to_chatbackend().unwrap();
+        assert_eq!(spec.visibility, TabVisibility::Hidden);
+        let metadata = spec.chatbackend_launch.unwrap();
+        let mut actual = metadata.params.clone();
+        let prompt = actual.system_prompt.take().unwrap();
+        assert_eq!(prompt.matches("opaque-task").count(), 1);
+        assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+        assert_eq!(metadata.agent.worker_id.as_deref(), Some("worker-exact"));
+        assert_eq!(metadata.agent.spawned_by.as_deref(), Some("plugin-exact"));
+    }
 }

@@ -6,10 +6,12 @@ use std::sync::Arc;
 use tauri::Manager;
 
 fn app_state(fixture: &ServiceFixture) -> AppState {
-    let mut config = crate::config::schema::AppConfig::default();
-    config.utility_tabs.max_per_team.build = Some(1);
-    let config = Arc::new(parking_lot::Mutex::new(config));
-    assert!(fixture._app.manage(config.clone()));
+    let config = fixture
+        ._app
+        .state::<crate::config::ConfigState>()
+        .inner()
+        .clone();
+    config.lock().utility_tabs.max_per_team.build = Some(1);
     let mut mesh = crate::mesh::MeshManager::new("utility-tabs-test".into(), 0);
     mesh.disk_persist = false;
     AppState {
@@ -43,7 +45,6 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
     let (mut mux, owner) = MultiplexerState::new();
     mux.set_orchestrator_role(&owner).unwrap();

@@ -11,6 +11,7 @@ pub trait CommandPort: Send + Sync {
     fn ensure_storage_available(&self) -> Result<(), String> {
         Ok(())
     }
+    fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad;
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
     /// The status-bearing snapshot, waiting for the state locks no later than
     /// `deadline`. `None` means a writer held them past the deadline.
@@ -50,6 +51,9 @@ pub trait CommandPort: Send + Sync {
         activate: bool,
     ) -> Result<crate::multiplexer::state::WorkspaceInfo, String>;
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String>;
+    fn set_workspace_cwd(&self, _ws_id: &str, _cwd: &str) -> Result<serde_json::Value, String> {
+        Err("Workspace relocation is unavailable".into())
+    }
     fn close_workspace_guarded(
         &self,
         caller: Option<&str>,
@@ -172,6 +176,10 @@ pub enum Command {
     },
 
     /// Rename an existing workspace.
+    WorkspaceSetCwd {
+        workspace_id: String,
+        cwd: String,
+    },
     WorkspaceRename {
         workspace_id: String,
         name: String,
@@ -365,6 +373,9 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
             activate.unwrap_or(false),
             *provision,
         ),
+        Command::WorkspaceSetCwd { workspace_id, cwd } => ctx
+            .set_workspace_cwd(workspace_id, cwd)
+            .map(CommandResult::Json),
         Command::WorkspaceRename { workspace_id, name } => {
             cmd_workspace_rename(ctx, workspace_id, name)
         }
@@ -401,6 +412,7 @@ fn is_mutating_user_command(cmd: &Command) -> bool {
             | Command::TabDescribe { .. }
             | Command::WorkspaceCreate { .. }
             | Command::WorkspaceRename { .. }
+            | Command::WorkspaceSetCwd { .. }
             | Command::WorkspaceClose { .. }
             | Command::WorkspaceReopenClosedTab { .. }
             | Command::WorkspaceReopenClosedGroup { .. }
@@ -473,7 +485,8 @@ fn cmd_tab_inspect(
             .tabs
             .get(&tab_ids[0])
             .ok_or_else(|| "requested Tab was not found".to_string())?;
-        tabs[0]["lifecycle"] = crate::session::lifecycle::inspect_tab_lifecycle(tab);
+        tabs[0]["lifecycle"] =
+            crate::session::lifecycle::inspect_tab_lifecycle(tab, &ctx.lifecycle_journal());
     }
     Ok(CommandResult::Json(serde_json::json!(tabs)))
 }

@@ -101,6 +101,7 @@ fn prompt_from_questions(questions: &[&InteractiveQuestion]) -> PendingPrompt {
             .collect()
     });
     PendingPrompt {
+        request_id: None,
         question: first.prompt.clone(),
         options,
         sections,
@@ -124,10 +125,12 @@ mod tests {
             header: Some(format!("H{idx}")),
             options: vec![
                 InteractiveOption {
+                    value: None,
                     label: "Alpha".into(),
                     description: None,
                 },
                 InteractiveOption {
+                    value: None,
                     label: "Beta".into(),
                     description: Some("the second".into()),
                 },

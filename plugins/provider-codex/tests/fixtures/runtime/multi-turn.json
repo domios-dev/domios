@@ -1,0 +1,395 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [
+      {
+        "sendId": "send-a",
+        "threadId": "thread-fixture",
+        "input": {
+          "text": "First question",
+          "attachments": []
+        }
+      },
+      {
+        "sendId": "send-b",
+        "threadId": "thread-fixture",
+        "input": {
+          "text": "Second question",
+          "attachments": []
+        }
+      }
+    ],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread-fixture",
+        "sendId": "send-a",
+        "input": {
+          "text": "First question",
+          "attachments": []
+        },
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread-fixture",
+        "sendId": "send-b",
+        "input": {
+          "text": "Second question",
+          "attachments": []
+        },
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "auto-accept-edits"
+        }
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "thread-fixture",
+            "clientUserMessageId": "send-a",
+            "input": [
+              {
+                "type": "text",
+                "text": "First question"
+              }
+            ],
+            "cwd": "/work/project",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "workspaceWrite"
+            },
+            "model": "fixture-model",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "turn-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "user-a",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "First question"
+              }
+            ],
+            "clientId": "send-a"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-a",
+          "item": {
+            "id": "assistant-a",
+            "type": "agentMessage",
+            "text": "First answer"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-a",
+            "status": "completed"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "thread-fixture",
+            "clientUserMessageId": "send-b",
+            "input": [
+              {
+                "type": "text",
+                "text": "Second question"
+              }
+            ],
+            "cwd": "/work/project",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "workspaceWrite"
+            },
+            "model": "fixture-model",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "turn-b"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-b",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-b",
+          "item": {
+            "id": "user-b",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "Second question"
+              }
+            ],
+            "clientId": "send-b"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-b",
+          "item": {
+            "id": "assistant-b",
+            "type": "agentMessage",
+            "text": "Second answer"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-b",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "thread-fixture",
+            "sendId": "send-a",
+            "turnId": "turn-a"
+          }
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "thread-fixture",
+            "sendId": "send-b",
+            "turnId": "turn-b"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "user-a",
+          "seq": 1,
+          "type": "user",
+          "content": "First question",
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "thread-fixture",
+        "sendId": "send-a",
+        "turnId": "turn-a"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "assistant-a",
+          "seq": 2,
+          "type": "assistant",
+          "content": "First answer",
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "idle"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-b",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "user-b",
+          "seq": 3,
+          "type": "user",
+          "content": "Second question",
+          "toolFlowId": "turn-b"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "thread-fixture",
+        "sendId": "send-b",
+        "turnId": "turn-b"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "assistant-b",
+          "seq": 4,
+          "type": "assistant",
+          "content": "Second answer",
+          "toolFlowId": "turn-b"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-b",
+        "state": "idle"
+      }
+    ]
+  }
+}

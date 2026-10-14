@@ -231,7 +231,7 @@ function activeTerminalChoiceBlock(screen: string): ActiveTerminalChoiceBlock | 
 function activeClarifyingPromptBlock(screen: string): ClarifyingPromptBlock | null {
   const lines = String(screen || "").split("\n");
   const choice = activeTerminalChoiceBlock(screen);
-  if (!choice || !isClarifyingConfirmFooter(lines[choice.footerIdx])) return null;
+  if (!choice) return null;
   const questions = questionsAbove(lines, choice.footerIdx);
   if (questions.length === 0) {
     const prompt = promptAboveOptions(lines, choice.footerIdx);
@@ -241,11 +241,7 @@ function activeClarifyingPromptBlock(screen: string): ClarifyingPromptBlock | nu
 }
 
 function isActiveChoiceFooter(line: string): boolean {
-  return /\b(?:press\s+)?enter\s+to\b/i.test(line);
-}
-
-function isClarifyingConfirmFooter(line: string): boolean {
-  return /\bto (?:confirm|submit|select)\b/i.test(line);
+  return /^(?:press\s+)?enter\s+\S/i.test(line.trim());
 }
 
 function lastMeaningfulLineIndex(lines: string[]): number {

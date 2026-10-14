@@ -1,0 +1,518 @@
+{
+  "context": {
+    "epoch": 1,
+    "tabId": "fixture-tab",
+    "bindingNonce": "fixture-nonce",
+    "cwd": "/fixture",
+    "hostVersion": "1.0.0",
+    "claimedSends": [],
+    "settings": {},
+    "providerSettings": {}
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "initialize",
+            "params": {
+              "kind": "initialize"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "initialized"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "opaque contract",
+        "settings": {
+          "model": "fixture-model"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "threadId": "thread-a"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "openThread",
+            "params": {
+              "kind": "openThread",
+              "instructions": "opaque contract",
+              "settings": {
+                "model": "fixture-model"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "threadLoaded",
+          "threadId": "thread-a",
+          "settings": {
+            "model": "fixture-model"
+          }
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32000,
+          "message": "fixture refusal"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "initialize",
+            "params": {
+              "kind": "initialize"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "refused",
+        "reason": {
+          "code": "provider_refused",
+          "message": "fixture refusal"
+        },
+        "beforeAcceptance": true
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "thread-a",
+        "settings": {
+          "model": "fixture-model"
+        },
+        "instructions": "fixture-instructions"
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "resumeThread",
+            "params": {
+              "kind": "resumeThread",
+              "threadId": "thread-a",
+              "settings": {
+                "model": "fixture-model"
+              },
+              "instructions": "fixture-instructions"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "threadLoaded",
+          "threadId": "thread-a",
+          "settings": {
+            "model": "fixture-model"
+          }
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "readHistory",
+        "threadId": "thread-a"
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "items": []
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "readHistory",
+            "params": {
+              "kind": "readHistory",
+              "threadId": "thread-a"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "historyPage",
+          "threadId": "thread-a",
+          "items": [],
+          "openItems": []
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread-a",
+        "sendId": "send-a",
+        "input": {
+          "text": "opaque payload",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "submitTurn",
+            "params": {
+              "kind": "submitTurn",
+              "threadId": "thread-a",
+              "sendId": "send-a",
+              "input": {
+                "text": "opaque payload",
+                "attachments": []
+              },
+              "settings": {}
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "turnAccepted",
+          "threadId": "thread-a",
+          "sendId": "send-a"
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a",
+        "activeTurnId": "turn-a",
+        "activeTurns": [
+          {
+            "threadId": "thread-a",
+            "turnId": "turn-a"
+          }
+        ]
+      },
+      "operation": {
+        "kind": "interrupt",
+        "threadId": "thread-a",
+        "activeTurnId": "turn-a"
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "interrupt",
+            "params": {
+              "kind": "interrupt",
+              "threadId": "thread-a",
+              "activeTurnId": "turn-a"
+            },
+            "target": {
+              "threadId": "thread-a",
+              "turnId": "turn-a"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "done"
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a",
+        "pendingRequest": {
+          "requestId": 7,
+          "method": "question",
+          "params": {}
+        }
+      },
+      "operation": {
+        "kind": "answer",
+        "requestId": 7,
+        "answer": {
+          "kind": "choice",
+          "values": [
+            "native-value"
+          ]
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "reply",
+          "requestId": 7,
+          "result": {
+            "kind": "success",
+            "value": {
+              "kind": "choice",
+              "values": [
+                "native-value"
+              ]
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "done"
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "control",
+        "threadId": "thread-a",
+        "action": "model",
+        "value": "selected-model"
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "threadId": "thread-a",
+              "action": "model",
+              "value": "selected-model"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "done"
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "answerQuestion",
+        "threadId": "thread-a",
+        "itemId": "question-a",
+        "answers": [
+          {
+            "questionId": "q1",
+            "values": [
+              "native-a",
+              "native-b"
+            ]
+          }
+        ]
+      },
+      "plan": {
+        "action": {
+          "kind": "questionAnswer",
+          "input": {
+            "text": "native-a\nnative-b",
+            "attachments": []
+          }
+        },
+        "state": null
+      }
+    }
+  ],
+  "reductions": [
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "threadId": "thread-a",
+        "settings": {},
+        "providerSettings": {}
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "id": "item-a",
+            "type": "assistant",
+            "content": "first",
+            "seq": 1
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "id": "item-b",
+            "type": "assistant",
+            "content": "second",
+            "seq": 2
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 2
+        },
+        "events": [
+          {
+            "kind": "chatItem",
+            "threadId": "thread-a",
+            "item": {
+              "id": "item-a",
+              "type": "assistant",
+              "content": "first",
+              "seq": 1
+            }
+          },
+          {
+            "kind": "chatItem",
+            "threadId": "thread-a",
+            "item": {
+              "id": "item-b",
+              "type": "assistant",
+              "content": "second",
+              "seq": 2
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -19,3 +19,7 @@ assert.deepEqual([...frameBytes(btoa("\x01\x02"))], [1, 2], "base64 frames decod
 assert.deepEqual([...frameBytes(new Uint8Array([3, 4]).buffer)], [3, 4], "binary frames pass through");
 
 console.log("✓ frameFeed tests green");
+const resumed: StreamFrame[] = [];
+const stopResumed = feed.subscribe((next) => resumed.push(next));
+assert.deepEqual(resumed, [frame("AQ==")], "returning viewers get the current frame without waiting for a repaint");
+stopResumed();

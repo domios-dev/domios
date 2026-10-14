@@ -908,6 +908,11 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 Some(body.to_string()),
             )
         }
+        crate::AgentAction::Login { tab, device, api_key_stdin: false, cancel } => (
+            "POST".into(), format!("/api/tabs/{}/agent/runtime/login", urlencoding::encode(tab)),
+            Some(if *cancel {serde_json::json!({"action":"cancel"})} else {serde_json::json!({"method":if *device {"device"} else {"browser"}})}.to_string()),
+        ),
+        crate::AgentAction::Login { .. } => unsupported("API keys must be entered on the provider's own machine"),
         crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
             ("GET".into(), "/api/agents/providers".into(), None)
         }

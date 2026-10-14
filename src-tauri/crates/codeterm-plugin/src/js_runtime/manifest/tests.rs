@@ -579,10 +579,15 @@ fn chat_backend_round_trips_symmetrically() {
 /// `contextOwner` existed. Byte-comparing against it is what proves the new
 /// field costs an already-shipped manifest nothing.
 fn chat_backend_serialization_before_context_owner(cap: &ChatBackendCap) -> String {
-    if cap.enabled() && (cap.spawnable() || cap.watcher() || cap.session_config()) {
+    if cap.enabled()
+        && (cap.spawnable() || cap.watcher() || cap.session_config() || cap.agent_tasks)
+    {
         let mut entries: Vec<&str> = Vec::new();
         if cap.spawnable() {
             entries.push(r#""spawnable":true"#);
+        }
+        if cap.agent_tasks {
+            entries.push(r#""agentTasks":true"#);
         }
         if cap.watcher() {
             entries.push(r#""watcher":true"#);

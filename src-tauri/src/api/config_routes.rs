@@ -248,6 +248,19 @@ pub async fn patch_config_api(
     crate::config::save_config_and_apply(&state.config, new_cfg.clone())
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
+    if new_cfg.theme.name != current_theme_name {
+        state
+            .svc
+            .record_product_feature(codeterm_analytics::Feature::ThemeChanged);
+    }
+
+    if serde_json::to_value(&cfg.plugins).ok() != serde_json::to_value(&new_cfg.plugins).ok() {
+        if let Err(error) =
+            crate::update::discovery::plugins_changed(state.svc.app_handle.clone()).await
+        {
+            log::warn!("[plugin-update] settings availability refresh failed: {error}");
+        }
+    }
     crate::agent::model_binary_watch::refresh_after_settings_change(
         &state.svc.agent_registry,
         &state.svc.chatbackend_registry,

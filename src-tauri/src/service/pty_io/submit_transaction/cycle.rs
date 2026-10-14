@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, OnceLock, Weak};
@@ -121,6 +121,7 @@ pub(super) enum CycleWait {
 #[derive(Default)]
 struct SubmitCycleState {
     next_generation: u64,
+    reservations: HashSet<u64>,
     current_generation: Option<u64>,
     waiter: Option<(u64, SyncSender<SubmitCycleSignal>)>,
     provider_exit: Option<Arc<AtomicBool>>,
@@ -146,16 +147,24 @@ impl SubmitCycle {
         self.output_generation.load(Ordering::Acquire)
     }
 
-    fn claim(&self, provider_exit: Option<Arc<AtomicBool>>) -> u64 {
+    fn reserve(&self) -> u64 {
         let mut state = self.state.lock();
         let generation = state.next_generation;
         state.next_generation = state.next_generation.wrapping_add(1).max(1);
+        state.reservations.insert(generation);
+        generation
+    }
+
+    fn activate(&self, generation: u64, provider_exit: Option<Arc<AtomicBool>>) {
+        let mut state = self.state.lock();
+        if state.current_generation == Some(generation) {
+            return;
+        }
         if let Some((_, waiter)) = state.waiter.take() {
             let _ = waiter.try_send(SubmitCycleSignal::Closed);
         }
         state.current_generation = Some(generation);
         state.provider_exit = provider_exit;
-        generation
     }
 
     fn provider_exited(&self) {
@@ -175,11 +184,12 @@ impl SubmitCycle {
     }
 
     fn is_empty(&self) -> bool {
-        self.state.lock().current_generation.is_none()
+        self.state.lock().reservations.is_empty()
     }
 
     fn finish(&self, generation: u64) {
         let mut state = self.state.lock();
+        state.reservations.remove(&generation);
         if state.current_generation == Some(generation) {
             if let Some((_, waiter)) = state.waiter.take() {
                 let _ = waiter.try_send(SubmitCycleSignal::Closed);
@@ -262,6 +272,7 @@ struct ClaimLease {
     pty_id: String,
     cycle: Arc<SubmitCycle>,
     generation: u64,
+    armed: AtomicBool,
 }
 
 impl Drop for ClaimLease {
@@ -303,7 +314,23 @@ impl SubmitCycleClaim {
     }
 
     pub(super) fn is_current(&self) -> bool {
-        self.cycle.is_current(self.generation)
+        self.command_wait().is_none()
+            && (!self._lease.armed.load(Ordering::Acquire)
+                || self.cycle.is_current(self.generation))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enqueue_test_payload(&self) {
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
+        self.payload_enqueued(sender);
+    }
+
+    pub(super) fn payload_enqueued(&self, waiter: SyncSender<SubmitCycleSignal>) {
+        if !self._lease.armed.swap(true, Ordering::AcqRel) {
+            self.cycle
+                .activate(self.generation, self.provider_exit.clone());
+            self.cycle.install_waiter(self.generation, waiter);
+        }
     }
 }
 
@@ -348,11 +375,7 @@ fn claim_cycle(
             cycle
         }
     };
-    let generation = if blocked {
-        0
-    } else {
-        cycle.claim(provider_exit.clone())
-    };
+    let generation = if blocked { 0 } else { cycle.reserve() };
     log::info!(
         "[submit-cycle] claim pty={} generation={}",
         pty_id,
@@ -368,6 +391,7 @@ fn claim_cycle(
             pty_id: pty_id.to_string(),
             cycle,
             generation,
+            armed: AtomicBool::new(false),
         }),
         provider_exit,
     }
@@ -428,7 +452,7 @@ mod tests {
         let pty_id = "structured-turn-wake";
         let claim = claim_submit_cycle(pty_id);
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        claim.cycle.install_waiter(claim.generation, sender);
+        claim.payload_enqueued(sender);
 
         wake_submit_cycle(pty_id);
 
@@ -440,7 +464,7 @@ mod tests {
         let pty_id = "idle-poll-submit-wake";
         let claim = claim_submit_cycle(pty_id);
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        claim.cycle.install_waiter(claim.generation, sender);
+        claim.payload_enqueued(sender);
 
         notify_submit_cycle_status_transition(pty_id, TabStatus::Working, TabStatus::Idle);
 
@@ -448,10 +472,15 @@ mod tests {
     }
 
     #[test]
-    fn newer_submit_claim_replaces_the_active_cycle_immediately() {
+    fn newer_payload_enqueue_replaces_the_active_cycle() {
         let pty_id = "queued-claim-deadline";
         let first = claim_submit_cycle(pty_id);
+        let (sender, _) = std::sync::mpsc::sync_channel(1);
+        first.payload_enqueued(sender);
         let second = claim_submit_cycle(pty_id);
+        assert!(first.is_current());
+        let (sender, _) = std::sync::mpsc::sync_channel(1);
+        second.payload_enqueued(sender);
 
         assert!(!first.is_current());
         assert!(second.is_current());

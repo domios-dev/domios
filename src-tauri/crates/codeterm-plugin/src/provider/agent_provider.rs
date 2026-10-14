@@ -35,6 +35,58 @@ pub trait AgentProvider: Send + Sync {
     ) -> Option<SessionObservations> {
         None
     }
+    fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
+        None
+    }
+
+    fn authorize_agent_runtime(
+        &self,
+        authority: &crate::agent_runtime::LaunchAuthority,
+    ) -> Result<PathBuf, crate::js_runtime::manifest::RuntimeManifestError> {
+        if !authority.authorizes_provider(self.id()) {
+            return Err(crate::js_runtime::manifest::RuntimeManifestError::ConsentRequired);
+        }
+        self.agent_runtime()
+            .ok_or(crate::js_runtime::manifest::RuntimeManifestError::CapabilityRequired)?
+            .resolve_executable()
+    }
+
+    async fn runtime_plan(
+        &self,
+        _ctx: &crate::agent_runtime::RuntimeContext,
+        _op: &crate::agent_runtime::RuntimeOperation,
+    ) -> Result<crate::agent_runtime::RuntimePlan, crate::agent_runtime::RuntimeFailure> {
+        Err(crate::agent_runtime::RuntimeFailure::new(
+            crate::agent_runtime::RuntimeFailureCode::Unsupported,
+            "runtimePlan is unsupported",
+        ))
+    }
+
+    async fn runtime_response(
+        &self,
+        _ctx: &crate::agent_runtime::RuntimeContext,
+        _op: &crate::agent_runtime::RuntimeOperation,
+        _state: &serde_json::Value,
+        _reply: &crate::agent_runtime::RpcReply,
+    ) -> Result<crate::agent_runtime::RuntimeStep, crate::agent_runtime::RuntimeFailure> {
+        Err(crate::agent_runtime::RuntimeFailure::new(
+            crate::agent_runtime::RuntimeFailureCode::Unsupported,
+            "runtimeResponse is unsupported",
+        ))
+    }
+
+    async fn runtime_reduce(
+        &self,
+        _ctx: &crate::agent_runtime::RuntimeContext,
+        _state: &serde_json::Value,
+        _frames: &[crate::agent_runtime::RuntimeFrame],
+    ) -> Result<crate::agent_runtime::RuntimeReduction, crate::agent_runtime::RuntimeFailure> {
+        Err(crate::agent_runtime::RuntimeFailure::new(
+            crate::agent_runtime::RuntimeFailureCode::Unsupported,
+            "runtimeReduce is unsupported",
+        ))
+    }
+
     fn structured_control(&self) -> Option<StructuredControl> {
         None
     }
@@ -1000,73 +1052,7 @@ pub trait AgentProvider: Send + Sync {
     /// serialized to JSON for REST/Socket/Tauri callers. The default
     /// impl just assembles the other metadata methods.
     fn describe(&self) -> ProviderDescriptor {
-        let platform = current_platform_tag();
-        let mut settings = self.settings_schema();
-        if self.structured_control().is_some() {
-            settings.push(SettingField::Section {
-                title: "Structured control".into(),
-                description: None,
-                fields: vec![SettingField::Toggle {
-                    key: "structured_control_enabled".into(),
-                    label: "Enable structured control".into(),
-                    default: true,
-                    description: None,
-                }],
-            });
-        }
-        if self.usage_parser().is_some() {
-            let probe_cmd = self.usage_probe_command().unwrap_or("/usage");
-            settings.push(usage_tracking_section(probe_cmd));
-        } else if self.reports_group_usage() {
-            settings.push(usage_store_tracking_section());
-        }
-        ProviderDescriptor {
-            supports_session_fork: self.fork_session_args().is_some(),
-            structured_control: self.structured_control(),
-            schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
-            cli_status: None,
-            id: self.id().to_string(),
-            catalogue_version: crate::model_catalog::current_version(self.id()),
-            display_name: self.display_name().to_string(),
-            icon_hint: self.icon_hint().map(|s| s.to_string()),
-            icon_svg: self.icon_svg().map(|s| s.to_string()),
-            icon_color: self.icon_color().map(|s| s.to_string()),
-            // Keep unavailable entries: `available` greys a model out in the
-            // picker, it must not vanish it. Matches chatbackend describe().
-            available_models: self.available_models(),
-            model_catalogue: self.model_catalogue_capability(),
-            model_groups: self.model_groups(),
-            default_model: self.default_model(),
-            reasoning_efforts: self.reasoning_efforts(),
-            default_reasoning_effort: self.default_reasoning_effort(),
-            settings_schema: settings,
-            notifications_schema: self.notifications_schema(),
-            supports_lazy_skills: self.supports_lazy_skills(),
-            has_hooks: self.has_hooks(),
-            supports_model_endpoints: self.model_provider_config().is_some(),
-            supports_permission_bypass: !self.auto_approve_flags().is_empty(),
-            cli_binary: self.cli_binary().map(|s| s.to_string()),
-            install_command: self.install_command(platform),
-            badge: self.badge().map(|s| s.to_string()),
-            update_command: self.update_command(platform),
-            model_switch: self.model_switch(),
-            fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
-            compact_command: self.compact_command().map(|s| s.to_string()),
-            integration_trust_grant: self.integration_trust_grant_capability(),
-            supports_stop: self.stop_keys().is_some(),
-            supports_chat_ui: self.supports_chat_ui(),
-            supports_structured_prompts: self.supports_structured_prompts(),
-            supports_permission_auto_confirm: self.supports_permission_auto_confirm(),
-            supports_watcher: false,
-            paste_limit_bytes: self.paste_limit_bytes(),
-            trust: self.trust(),
-            transport: ProviderTransport::Pty,
-            behavior_config: self.behavior_config(),
-            presets: Vec::new(),
-            system_prompt_delivery: self.system_prompt_delivery(),
-            context_owner: ContextOwner::Plugin,
-            availability: ProviderAvailability::default(),
-        }
+        super::descriptor::describe(self)
     }
 
     /// Behavior surface exposed for configuration. PTY agents bring their own
@@ -1089,17 +1075,11 @@ pub trait AgentProvider: Send + Sync {
         self.uses_structured_chat()
     }
 
-    /// Whether this provider, in its CURRENT interactive run mode, exposes a
-    /// STRUCTURED source for pending prompts (permission / question pickers)
-    /// instead of leaving them only as ephemeral PTY terminal UI. When true,
-    /// core builds `tab.pending_prompt` from that structured handle and only
-    /// falls back to the native attributed-grid PTY detector when the handle
-    /// yields nothing. Capability-gated — core never branches on provider id.
-    ///
-    /// Examples: claude exposes its AskUserQuestion in the parsed JSONL
-    /// transcript (`parse_interactive_events`); opencode exposes a local SSE
-    /// event bus + reply endpoints. codex app-server and cursor ACP are NOT
-    /// reachable in interactive-PTY mode, so they stay on the native detector.
+    fn supports_prompt_answers(&self) -> bool {
+        true
+    }
+
+    /// Whether this provider exposes a structured source for pending prompts.
     fn supports_structured_prompts(&self) -> bool {
         false
     }

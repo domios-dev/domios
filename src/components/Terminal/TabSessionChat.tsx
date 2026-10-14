@@ -1,3 +1,8 @@
+import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { useAgentRuntimeState } from "./useAgentRuntimeState";
+import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
+import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
@@ -41,7 +46,6 @@ import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
-import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
@@ -81,7 +85,7 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
-import { deliveryState, sendForRow } from "./chatDeliveryModel";
+import { deliveryPresentation, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSends } from "./chatSendStore";
 import { sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -90,10 +94,6 @@ import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
 import { streamingMessageId } from "./streamingMessage";
 import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
-import { HelperMomentCard } from "./HelperMomentCard";
-import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
-import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
-import { isGeneralAgent } from "../../lib/roleKind";
 
 interface Props {
   inputStatus?: ReactNode;
@@ -220,6 +220,7 @@ export function TabSessionChat({
   const tabModel = tab?.agent_session_model ?? shellSessionModel;
   const workingModelBadge = formatModelBadge(tab ? statusLineModelName(tab, shellSessionModel) : tabModel ?? "Unknown model");
   const agentSessionId = tab?.agent_session_id ?? null;
+  const runtime = useAgentRuntimeState(tabId, tab?.session_binding_nonce ?? null, tab?.agent_runtime_state, tab?.agent_runtime_questions);
   const currentPtyId = tab?.pty_id ?? null;
   const agentActivity = useTabActivity(tabId);
   const sessionBindingSurface = useSessionBindingSurface(tabId, agentSessionId);
@@ -228,7 +229,9 @@ export function TabSessionChat({
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
-  const structuredPrompts = getAgentDescriptor(tabProvider)?.supports_structured_prompts === true;
+  const descriptor = getAgentDescriptor(tabProvider);
+  const promptAnswers = descriptor?.supports_prompt_answers === true;
+  const structuredPrompts = descriptor?.supports_structured_prompts === true;
   const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
@@ -306,10 +309,15 @@ export function TabSessionChat({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
+  const runtimeUnavailable = runtime.state != null && runtime.state.state !== "loaded";
+  const runtimeDegraded = runtime.state?.state === "degraded";
+  const runtimeReplacement = runtimeDegraded
+    ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} /> : undefined;
+  const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = loading || recovering || (!hasTranscript && remoteChatReconnecting);
+  const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading || error != null;
-  const setupView = chatBodyView({
+  const setupView = runtimeUnavailable ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
     chatLoading,
     unavailable: transcriptUnavailable,
@@ -362,11 +370,9 @@ export function TabSessionChat({
   const choiceHost = useTabChoiceHost(tabId, { messages: allMessages, addOptimistic, followSentMessage, observeChatSendStatus });
   const chatBlockHost = useMemo(() => ({ ...tabBlockHost, choice: choiceHost }), [tabBlockHost, choiceHost]);
 
-  const generalAgent = isGeneralAgent(tab);
-  const willSendMessage = useCallback((text: string) => {
+  const willSendMessage = useCallback(() => {
     followSentMessage();
-    if (generalAgent) void helperMoments.observe({ kind: "user-message", text, at: Date.now() });
-  }, [followSentMessage, generalAgent]);
+  }, [followSentMessage]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
@@ -375,8 +381,7 @@ export function TabSessionChat({
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const activePrompt = pendingPrompt && (structuredPrompts || pendingPrompt.question !== answeredPromptQuestion) ? pendingPrompt : null;
-  const inlinePrompt = activePrompt;
+  const promptPart = promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion);
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
@@ -389,8 +394,9 @@ export function TabSessionChat({
       promptResponseInFlight.current = true;
       if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       try {
-        await invoke("mux_respond_prompt", { tabId, value });
+        await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt));
       } catch (error) {
+        setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
         throw error;
       } finally {
@@ -744,16 +750,12 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  const helperAnswer = useMemo(
-    () => (generalAgent ? latestAnswerText(renderedEnrichedMessages.map(({ msg }) => msg)) : null),
-    [generalAgent, renderedEnrichedMessages],
-  );
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
     && outboundReports.length === 0
     && autoConfirmations.length === 0
-    && !inlinePrompt;
+    && !promptPart;
 
   return (
     <ChatHighlightBudgetProvider>
@@ -786,7 +788,7 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      <RemovedChatPlugin error={effectiveChatBackend ? error : null} />
+      {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
       <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
@@ -855,6 +857,7 @@ export function TabSessionChat({
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const deliverySend = sendForRow(deliverySends, msg);
+          const deliveryView = deliverySend ? deliveryPresentation(deliverySend, allMessages) : undefined;
           return (
             <Fragment key={msg.id}>
             <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
@@ -870,11 +873,13 @@ export function TabSessionChat({
               handlers={messageSelection.rowHandlers}
             >
               <MessageBubble
-                message={msg}
+                message={promptAnswers ? msg : { ...msg, interactive: [] }}
                 onContentLayout={handleContentLayout}
                 streaming={msg.id === streamingId}
-                userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
-                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
+                userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
+                  ? <VoiceTranscriptionProgress /> : undefined}
+                userFooter={deliverySend && deliveryView && deliveryView !== "delivered" && deliveryView !== "settled"
+                  ? <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
@@ -884,7 +889,7 @@ export function TabSessionChat({
                 onOpenPlan={onOpenPlan}
                 resolvePlanRef={resolvePlanRef}
                 fontScale={uiFontScale}
-                onAnswerInteractive={handleAnswerInteractive}
+                onAnswerInteractive={promptAnswers ? handleAnswerInteractive : undefined}
                 answeredInteractiveIds={answeredInteractiveIds}
                 onRerunShellCommand={handleRerunShellCommand}
                 onStopReminder={handleStopReminder}
@@ -904,9 +909,22 @@ export function TabSessionChat({
           );
         })}
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
+        {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
+        {promptPart && <ChatMessageRow
+          msg={{ id: promptPart.id, type: "assistant" }}
+          ariaLabel={chatMessageAccessibleName("assistant", promptPart.prompt.question)}
+          selected={false}
+          joinNext={false}
+          selecting={false}
+          cursor={false}
+          handlers={messageSelection.rowHandlers}
+        >
+          <div data-message-part={promptPart.id}>
+            <PendingPromptCard key={promptPart.id} pendingPrompt={promptPart.prompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />
+          </div>
+        </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
-        {isActive && generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}
@@ -942,7 +960,7 @@ export function TabSessionChat({
       </div>
       <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
       {isWatcherTab && watcherSpec ? (
-        <WatcherReadOnlyBar
+        runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
           modelBubble={watcherModelBubble}
         />
@@ -953,6 +971,7 @@ export function TabSessionChat({
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
+          runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatChannelLoading}
           channelLoadingLabel={chatChannelLoadingRow(chatChannelLoading, setupView) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
@@ -979,12 +998,13 @@ export function TabSessionChat({
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {uploadStatus}
-      {!managedTabPresentation(tab?.managed).locked && <ChatComposer
+      {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
-        isActive={isActive}
+        isActive={isActive && !runtimeDegraded}
+        replacement={runtimeReplacement}
         pendingPrompt={pendingPrompt}
         attachments={attachments}
         addAttachments={addAttachments}
@@ -999,9 +1019,6 @@ export function TabSessionChat({
         observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        promptDock={inlinePrompt && (agentActivity.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
-          ? <ComposerApprovalDock key={JSON.stringify(inlinePrompt)} prompt={inlinePrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} />
-          : <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />)}
       />}
       </>
       )}

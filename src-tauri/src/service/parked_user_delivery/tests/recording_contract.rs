@@ -150,7 +150,6 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn lark_recording_contract_identity_only_baseline_allows_cancelled_capture() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
@@ -192,7 +191,6 @@ fn lark_recording_contract_identity_only_baseline_allows_cancelled_capture() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn lark_recording_contract_capture_cancel_revoke_unload_device_loss_and_deadline_deny_final_guard()
 {
     assert_invalidated_before_write(Invalidation::Cancel);
@@ -204,7 +202,6 @@ fn lark_recording_contract_capture_cancel_revoke_unload_device_loss_and_deadline
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn lark_recording_contract_registered_ticket_survives_admission_and_valid_write_retires_once() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);
@@ -252,7 +249,6 @@ fn lark_recording_contract_registered_ticket_survives_admission_and_valid_write_
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn lark_recording_contract_possible_handoff_remains_uncertain_and_never_replays() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);

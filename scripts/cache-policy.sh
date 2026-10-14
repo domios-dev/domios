@@ -73,10 +73,138 @@ ct_effective_cache_key_scope() {
   ct_abs_path "$(ct_repo_root)"
 }
 
+ct_exceptional_target_dir() {
+  case "$1" in
+    /Users/Shared/domios-ci/work/codeterm|/home/rollacode/domios-ci/work/codeterm|/home/ci/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
+      printf '%s/target-check\n' "$1"
+      ;;
+    *) printf '%s/targets/exceptional/%s\n' "$2" "$3" ;;
+  esac
+}
+
+ct_sccache_secret() (
+  if [ -n "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
+    unset CODETERM_INSTANCE CODETERM_API_PORT CODETERM_API_URL CODETERM_SOCKET_PATH CODETERM_API_TOKEN CODETERM_DATA_DIR
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_API_URL_SET:-}" = x ]; then export CODETERM_API_URL="$DEV_NOTIFY_PARENT_CODETERM_API_URL"; fi
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH_SET:-}" = x ]; then export CODETERM_SOCKET_PATH="$DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH"; fi
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_API_TOKEN_SET:-}" = x ]; then export CODETERM_API_TOKEN="$DEV_NOTIFY_PARENT_CODETERM_API_TOKEN"; fi
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_DATA_DIR_SET:-}" = x ]; then export CODETERM_DATA_DIR="$DEV_NOTIFY_PARENT_CODETERM_DATA_DIR"; fi
+  fi
+  "${DEV_NOTIFY_PARENT_CLI:-codeterm}" mem secret get --name "$1" 2>/dev/null
+)
+
+ct_sccache_storage() {
+  local trace_enabled=0 access_key secret_key
+  case "$-" in *x*) trace_enabled=1; set +x ;; esac
+  if [ "${CODETERM_SCCACHE_CREDENTIAL_SOURCE:-vault}" = runner ]; then
+    access_key="${AWS_ACCESS_KEY_ID:-}"
+    secret_key="${AWS_SECRET_ACCESS_KEY:-}"
+  else
+    access_key="$(ct_sccache_secret domios-sccache-s3-access-key)" || access_key=""
+    secret_key="$(ct_sccache_secret domios-sccache-s3-secret-key)" || secret_key=""
+  fi
+  if [ -n "$access_key" ] && [ -n "$secret_key" ]; then
+    export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"
+    unset AWS_SESSION_TOKEN
+    export SCCACHE_ENDPOINT=http://100.88.47.88:9000 SCCACHE_BUCKET=sccache
+    export SCCACHE_REGION=us-east-1 SCCACHE_S3_USE_SSL=false
+    export CT_SCCACHE_STORAGE=shared CT_SCCACHE_REASON=""
+  else
+    unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
+    export CT_SCCACHE_STORAGE=local CT_SCCACHE_REASON="shared credentials unavailable"
+  fi
+  unset access_key secret_key
+  [ "$trace_enabled" = 0 ] || set -x
+}
+
+ct_sccache_disk_dir() {
+  if [ -n "${SCCACHE_DIR:-}" ]; then
+    printf '%s\n' "$SCCACHE_DIR"
+    return
+  fi
+  case "$OSTYPE" in
+    darwin*) printf '%s/Library/Caches/Mozilla.sccache\n' "$HOME" ;;
+    msys*|cygwin*|win32) printf '%s/Mozilla/sccache/cache\n' "${LOCALAPPDATA:-$HOME/AppData/Local}" ;;
+    *) printf '%s/sccache\n' "${XDG_CACHE_HOME:-$HOME/.cache}" ;;
+  esac
+}
+
+ct_sccache_print_location() {
+  if [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
+    printf 'sccache: shared S3 cache at %s/%s\n' "$SCCACHE_ENDPOINT" "$SCCACHE_BUCKET"
+  else
+    printf 'sccache: local disk cache at %s (%s; limit %s)\n' \
+      "$(ct_sccache_disk_dir)" "${CT_SCCACHE_REASON:-shared credentials unavailable}" "$SCCACHE_CACHE_SIZE"
+  fi
+}
+
+ct_sccache_status() {
+  export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
+  ct_sccache_storage
+  ct_sccache_print_location
+  local stats location http_status
+  stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  location="$(printf '%s\n' "$stats" | sed -n '/^Cache location/p')"
+  if [ -n "$location" ]; then
+    printf 'running server: %s\n' "$location"
+  else
+    printf 'running server: cache location unavailable\n'
+  fi
+  http_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
+    http://100.88.47.88:9000/minio/health/live 2>/dev/null)" || http_status="unreachable"
+  printf 'shared endpoint health: %s\n' "$http_status"
+  if [ "${1:-}" = verify ]; then
+    if [ "$CT_SCCACHE_STORAGE" != shared ] ||
+        ! ct_sccache_storage_matches "$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"; then
+      echo "[cache-policy] ERROR: shared S3 cache is not configured and running; provision it while idle" >&2
+      return 2
+    fi
+  fi
+}
+
+ct_sccache_verify() {
+  ct_sccache_status verify
+}
+
+ct_sccache_storage_matches() {
+  if [ "$CT_SCCACHE_STORAGE" = shared ]; then
+    case "$1" in
+      "s3, name: $SCCACHE_BUCKET, prefix: "*) return 0 ;;
+      *) return 1 ;;
+    esac
+  else
+    case "$1" in
+      'Local disk:'*|'s3, name: '*) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+}
+
+ct_sccache_restart() {
+  if command -v pgrep >/dev/null 2>&1 && { pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; }; then
+    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+    return 75
+  fi
+  if command -v cygpath >/dev/null 2>&1 &&
+      powershell.exe -NoProfile -NonInteractive -Command 'if (Get-Process cargo,rustc -ErrorAction SilentlyContinue) { exit 0 }; exit 1' >/dev/null 2>&1; then
+    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+    return 75
+  fi
+  sccache --stop-server >/dev/null 2>&1 || true
+  if ! sccache --start-server >/dev/null 2>&1; then
+    echo "[cache-policy] ERROR: sccache server failed to start with $CT_SCCACHE_STORAGE storage" >&2
+    return 2
+  fi
+}
+
 ct_configure_sccache() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
-  [ "${CODETERM_USE_SCCACHE:-1}" = "0" ] && return 0
+  if [ "${CODETERM_USE_SCCACHE:-1}" = 0 ] && [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" != 1 ]; then return 0; fi
   command -v sccache >/dev/null 2>&1 || {
+    if [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" = 1 ]; then
+      echo "[cache-policy] ERROR: shared cache verification requires sccache" >&2
+      return 2
+    fi
     echo "[cache-policy] sccache unavailable; building without RUSTC_WRAPPER"
     return 0
   }
@@ -89,8 +217,28 @@ ct_configure_sccache() {
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
   echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
   echo "[cache-policy] $(sccache --version)"
-  sccache --start-server >/dev/null 2>&1 || true
-  sccache --show-stats 2>/dev/null | sed -n '/Cache location/,$p' || true
+  if [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" = 1 ]; then
+    ct_sccache_verify
+    return $?
+  fi
+  local stats location
+  stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
+  ct_sccache_storage
+  if [ "$CT_SCCACHE_STORAGE" = local ] && [[ "$location" == 's3, name: '* ]]; then
+    local running_bucket="${location#s3, name: }"
+    running_bucket="${running_bucket%%, prefix:*}"
+    printf 'sccache: shared S3 cache at http://100.88.47.88:9000/%s (using running server credentials)\n' "$running_bucket"
+  else
+    ct_sccache_print_location
+  fi
+  if ct_sccache_storage_matches "$location"; then
+    echo "[cache-policy] reusing running sccache server"
+  else
+    ct_sccache_restart || return $?
+    stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  fi
+  printf '%s\n' "$stats" | sed -n '/Cache location/,$p'
 }
 
 ct_require_prestarted_sccache() {

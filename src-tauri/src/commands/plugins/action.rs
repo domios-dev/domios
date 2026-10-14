@@ -48,6 +48,11 @@ pub struct PluginManagerAction {
     pub channel: Option<String>,
     pub url: Option<String>,
     pub name: Option<String>,
+    pub permission: Option<String>,
+    #[serde(default)]
+    pub permission_source: codeterm_plugin::plugin_lifecycle::PermissionChangeSource,
+    #[serde(default)]
+    pub allowed: bool,
     #[serde(default)]
     pub allow_hosts: Vec<String>,
     #[serde(default)]
@@ -137,6 +142,21 @@ pub(crate) fn run_action(
     action: PluginManagerAction,
     svc: &ServiceContext,
 ) -> Result<Value, String> {
+    if action.kind == "permission" {
+        let output = super::permissions::permission_action(
+            action
+                .plugin_id
+                .as_deref()
+                .ok_or("permission requires pluginId")?,
+            action
+                .permission
+                .as_deref()
+                .ok_or("permission requires permission")?,
+            action.allowed,
+            action.permission_source,
+        )?;
+        return build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()));
+    }
     if action.kind == "remove-channel" {
         let channel = action
             .channel
@@ -164,6 +184,22 @@ pub(crate) fn run_action(
             remove_channel_plugins(channel, action.force)?;
         }
         let output = run_plugin_cli(&args)?;
+        if action.kind == "refresh-channel"
+            && action
+                .channel
+                .as_deref()
+                .is_none_or(|c| c == "codeterm-core")
+        {
+            if let Err(error) = codeterm_plugins::sync_core_cached(codeterm_plugins::PluginCtx {
+                data_root: crate::paths::data_dir(),
+                version: Some(env!("CARGO_PKG_VERSION").into()),
+            }) {
+                log::warn!("[plugin-update] silent core sync failed: {error}");
+            }
+        }
+        if action.kind == "install" {
+            svc.record_product_feature(codeterm_analytics::Feature::PluginInstalled);
+        }
         if action.kind == "remove" {
             let plugin_id = action
                 .plugin_id
@@ -176,7 +212,9 @@ pub(crate) fn run_action(
         if action_refreshes_catalog(&action.kind) {
             super::snapshot::refresh_channel_diff_now();
         }
-        build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))
+        let snapshot = build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))?;
+        crate::update::discovery::publish_plugin_snapshot(&svc.app_handle, &snapshot);
+        Ok(snapshot)
     })();
 
     let finished = svc
@@ -479,6 +517,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -517,6 +558,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -536,6 +580,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: vec!["api.example.test".into()],
@@ -564,6 +611,9 @@ mod tests {
             channel: None,
             url: None,
             name: Some("demo".into()),
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -580,6 +630,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -622,6 +675,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -640,6 +696,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -656,6 +715,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -672,6 +734,9 @@ mod tests {
             channel: None,
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -691,6 +756,9 @@ mod tests {
             channel: None,
             url: Some("https://example.test/channel.json".into()),
             name: Some("demo".into()),
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),
@@ -707,6 +775,9 @@ mod tests {
             channel: Some("demo".into()),
             url: None,
             name: None,
+            permission: None,
+            permission_source: Default::default(),
+            allowed: false,
             force: false,
             remove_data: false,
             allow_hosts: Vec::new(),

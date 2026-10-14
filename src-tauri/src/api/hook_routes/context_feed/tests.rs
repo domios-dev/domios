@@ -53,16 +53,16 @@ fn claude_signals_compaction_resets_context_and_preserves_known_window_and_cost(
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
 fn claude_context_feed_is_off_by_default_and_rejects_foreign_session() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    let config: crate::config::ConfigState = std::sync::Arc::new(parking_lot::Mutex::new(
-        crate::config::schema::AppConfig::default(),
-    ));
-    assert!(fixture._app.manage(config.clone()));
+    let config = fixture
+        ._app
+        .state::<crate::config::ConfigState>()
+        .inner()
+        .clone();
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&tab_id).unwrap();

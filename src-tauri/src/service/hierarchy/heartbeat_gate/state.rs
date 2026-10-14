@@ -65,6 +65,7 @@ struct Entry {
     slots: BTreeMap<ReminderKind, Slot>,
     last_soft_class: Option<String>,
     last_soft_delivery: Option<u64>,
+    cadence_anchor: Option<u64>,
     in_flight: bool,
     telemetry: Telemetry,
 }
@@ -196,6 +197,47 @@ impl Gate {
         result
     }
 
+    /// Whether the Owner floor is due; the first observation of a scope only anchors it.
+    pub(crate) fn cadence_due(&self, key: &str, now: u64, interval: u64) -> bool {
+        let mut entries = self.entries.lock();
+        let Some(entry) = self.entry(&mut entries, key) else {
+            return false;
+        };
+        match entry.cadence_anchor {
+            Some(anchor) => now.saturating_sub(anchor) >= interval,
+            None => {
+                entry.cadence_anchor = Some(now);
+                false
+            }
+        }
+    }
+
+    /// Stores the floor verdict as the kind's slot so the ordinary attempt and
+    /// stale-observation checks apply; the floor restarts whether or not it lands.
+    pub(crate) fn decide_cadence(
+        &self,
+        key: &str,
+        snapshot: &Snapshot,
+        now: u64,
+    ) -> Option<Decision> {
+        let decision = cadence(snapshot);
+        let mut entries = self.entries.lock();
+        let entry = self.entry(&mut entries, key)?;
+        entry.cadence_anchor = Some(now);
+        entry.admission.judged(now);
+        entry.slots.insert(
+            snapshot.scope.kind,
+            Slot {
+                identity: snapshot.hash(),
+                state: snapshot.state_hash(),
+                hard: snapshot.hard.clone(),
+                decision: decision.clone(),
+                attempted: false,
+            },
+        );
+        Some(decision)
+    }
+
     #[cfg(test)]
     pub(crate) fn decide(
         &self,
@@ -315,6 +357,7 @@ impl Gate {
             return;
         };
         entry.baseline.projection = Some(snapshot.projection.clone());
+        entry.cadence_anchor = Some(now);
         if snapshot.hard.is_empty() {
             entry.last_soft_class = Some(decision.soft_class());
             entry.last_soft_delivery = Some(now);

@@ -5,17 +5,18 @@ pub(crate) struct InstanceEnv {
     pub api_url: String,
     pub api_port: String,
     pub api_token: Option<String>,
+    pub cli_path: Option<PathBuf>,
 }
 
 impl InstanceEnv {
-    pub(crate) fn resolve() -> Self {
-        let api = crate::config::load_config().api;
+    pub(crate) fn from_api_config(api: crate::config::schema::ApiConfig) -> Self {
         let (api_url, api_port) = crate::config::api_callback_url(&api);
         Self {
             socket_path: crate::socket::server::socket_display_path(),
             api_url,
             api_port,
             api_token: api.token,
+            cli_path: instance_cli_binary_path(),
         }
     }
 }
