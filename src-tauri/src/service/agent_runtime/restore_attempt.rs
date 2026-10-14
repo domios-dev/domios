@@ -1,3 +1,4 @@
+use super::plan_warning::PlanBindingFailure;
 use crate::{multiplexer::types::TaskBinding, plan::TaskExecutionAttempt, service::ServiceContext};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -54,7 +55,10 @@ fn resolve_open_attempt<'a>(
 }
 
 impl ServiceContext {
-    pub(crate) fn restore_runtime_attempt_binding(&self, tab_id: &str) -> Result<(), String> {
+    pub(crate) fn restore_runtime_attempt_binding(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), PlanBindingFailure> {
         let target = self
             .mux
             .read()
@@ -76,17 +80,16 @@ impl ServiceContext {
             return Ok(());
         };
         let detail = self.plan_store.show_task(task).ok_or_else(|| {
-            AttemptResolutionRefusal::Missing {
+            PlanBindingFailure::bookkeeping(AttemptResolutionRefusal::Missing {
                 task: task.into(),
                 candidates: vec![],
-            }
-            .to_string()
+            })
         })?;
         if detail.plan_id != plan {
             return Err("Runtime restored task plan changed".into());
         }
         let attempt = resolve_open_attempt(task, tab_id, &detail.task.execution_attempts)
-            .map_err(|reason| reason.to_string())?;
+            .map_err(|reason| PlanBindingFailure::from(reason.to_string()))?;
         let mut mux = self.mux.write();
         let current = mux.get_tab_mut(tab_id).ok_or("Runtime tab disappeared")?;
         let resolved = TaskBinding {

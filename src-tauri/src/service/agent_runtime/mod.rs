@@ -15,6 +15,7 @@ pub mod login;
 pub mod model;
 #[cfg(any(unix, test))]
 mod ownership;
+pub(crate) mod plan_warning;
 pub(crate) mod process;
 pub(crate) mod projections;
 pub(crate) mod prompt_answers;

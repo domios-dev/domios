@@ -122,22 +122,22 @@ impl ServiceContext {
                 if let Err(reason) =
                     self.restore_caller_binding(tab_id, outcome.session_id.as_deref())
                 {
-                    let failure = agent_runtime::model::RuntimeFailure::Refused(reason.to_string());
-                    let epoch = session.state.lock().epoch;
-                    session.state.lock().degrade(epoch, &failure);
-                    session
-                        .thread_loaded
-                        .store(false, std::sync::atomic::Ordering::Release);
-                    agent_runtime::engine::publish(self, tab_id, &session);
-                    self.emit_state_changed();
-                    outcome.agent_ready = false;
-                    return Err(RestartAttemptError::Failed {
-                        outcome,
-                        reason: failure.to_string(),
-                        timed_out: false,
-                    });
+                    let failure = match reason {
+                        crate::service::restored_binding::RestoreBindingError::RebindFailed(
+                            reason,
+                        ) => agent_runtime::plan_warning::PlanBindingFailure::bookkeeping(reason),
+                        reason => agent_runtime::plan_warning::PlanBindingFailure::from(
+                            reason.to_string(),
+                        ),
+                    };
+                    self.warn_runtime_plan_binding(
+                        tab_id,
+                        agent_runtime::plan_warning::PlanBindingWarningStage::RestartCallerRestoration,
+                        &failure,
+                    );
+                } else {
+                    outcome.binding_restored = true;
                 }
-                outcome.binding_restored = true;
                 self.schedule_session_persist_debounced();
                 self.emit_state_changed();
                 Ok(outcome)
