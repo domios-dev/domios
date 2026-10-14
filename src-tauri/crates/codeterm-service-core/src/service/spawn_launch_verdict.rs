@@ -12,12 +12,12 @@ mod tests;
 
 /// Bounded below the 30 s forward deadline of a relayed or loopback-HTTP caller,
 /// so a live launch still in progress is never reported as a transport failure.
-pub(crate) const SPAWN_LAUNCH_VERDICT_DEADLINE: Duration = Duration::from_secs(20);
+pub const SPAWN_LAUNCH_VERDICT_DEADLINE: Duration = Duration::from_secs(20);
 const OUTPUT_TAIL_LINES: usize = 20;
 const OUTPUT_TAIL_BYTES: usize = 2048;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SpawnLaunchVerdict {
+pub enum SpawnLaunchVerdict {
     Ready,
     /// The provider is alive but not ready yet: an owner prompt, a provisional
     /// stage, or a launch still in progress at the deadline. Never a success claim.
@@ -64,7 +64,7 @@ impl SpawnLaunchVerdict {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SpawnLaunchFailure {
+pub struct SpawnLaunchFailure {
     pub tab_id: String,
     pub reason: String,
     pub output_tail: Option<String>,

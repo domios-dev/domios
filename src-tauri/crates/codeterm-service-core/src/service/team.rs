@@ -11,7 +11,7 @@ pub(crate) mod close;
 mod close_busy;
 mod storage_teardown;
 #[cfg(test)]
-pub(crate) use close::close_team_with_state_change;
+pub use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
 pub use close::TeamCloseResult;
@@ -20,7 +20,7 @@ use close::{
 };
 
 #[derive(Debug)]
-pub(crate) enum TeamPlanError {
+pub enum TeamPlanError {
     Team(String),
     Plan(PlanError),
 }
@@ -28,7 +28,7 @@ pub(crate) enum TeamPlanError {
 /// Who is asking to mutate a Team. Headerless REST callers need a confirmed
 /// target echo; Tauri and local socket callers carry their own local identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TeamMutationCaller {
+pub enum TeamMutationCaller {
     AgentTab(String),
     AuthenticatedMeshPeer(String),
     Human,
@@ -736,7 +736,7 @@ pub(crate) fn rename_team_core(
     mux.rename_team(team_id, name)
 }
 
-pub(crate) fn rename_team_with_state_change(
+pub fn rename_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
     team_id: &str,
@@ -1142,12 +1142,16 @@ pub(crate) use membership::{
 };
 
 mod staffing;
+pub(crate) use staffing::commit_team_member_spawn;
+pub(crate) use staffing::prepare_team_member_spawn;
 #[cfg(test)]
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
-pub(crate) use staffing::{
-    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, team_member_brief,
-    AddTeamMemberParams, AddTeamMemberResult, CartographerAttachLocks, OrchestratorAttachLocks,
-};
+pub(crate) use staffing::take_over_team_plan;
+pub(crate) use staffing::team_member_brief;
+pub(crate) use staffing::AddTeamMemberParams;
+pub use staffing::AddTeamMemberResult;
+pub(crate) use staffing::CartographerAttachLocks;
+pub(crate) use staffing::OrchestratorAttachLocks;
 
 #[cfg(test)]
 mod general_agent_guard_tests;

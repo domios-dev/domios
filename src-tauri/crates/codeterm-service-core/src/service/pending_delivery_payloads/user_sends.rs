@@ -11,9 +11,10 @@ use std::sync::Arc;
 mod admission_evidence;
 mod admission_tokens;
 pub(crate) mod dismissal;
+pub use dismissal::UserSendDismissal;
 mod runtime_capture;
 mod runtime_observers;
-pub(crate) use admission_evidence::UserAdmissionEvidence;
+pub use admission_evidence::UserAdmissionEvidence;
 use runtime_observers::RuntimeAdmission;
 pub(crate) mod continuity;
 mod handoff;
@@ -44,7 +45,7 @@ pub(crate) struct UserSendAuthority {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum UserSendState {
+pub enum UserSendState {
     Queued,
     Claimed,
     Uncertain,
@@ -252,7 +253,7 @@ impl UserSendStore {
         *self.tab(tab_id).admission_wake.lock() = Some(wake);
     }
 
-    pub(crate) fn admit(
+    pub fn admit(
         &self,
         reservation: &UserReservation,
         original: &str,
@@ -441,7 +442,7 @@ impl UserSendStore {
         Ok(record)
     }
 
-    pub(crate) fn records(&self, tab_id: &str) -> Result<Vec<UserSendRecord>, String> {
+    pub fn records(&self, tab_id: &str) -> Result<Vec<UserSendRecord>, String> {
         let tab = self.tab(tab_id);
         let mut data = tab.data.lock();
         Ok(self.load(&tab, &mut data)?.index.records.clone())
@@ -550,7 +551,7 @@ impl UserSendStore {
                 .any(|ordinal| *ordinal <= record.reservation)
     }
 
-    pub(crate) fn claim<'a>(
+    pub fn claim<'a>(
         &self,
         record: &UserSendRecord,
         session: impl Into<Option<&'a str>>,
@@ -605,7 +606,7 @@ impl UserSendStore {
         self.finish_handoff(record, proven_zero_write)
     }
 
-    pub(crate) fn complete(&self, record: &UserSendRecord) -> Result<bool, String> {
+    pub fn complete(&self, record: &UserSendRecord) -> Result<bool, String> {
         let tab = self.tab(&record.authority.tab_id);
         if tab.revoked.load(Ordering::Acquire)
             || tab.failed.load(Ordering::Acquire)
@@ -666,7 +667,7 @@ impl UserSendStore {
     }
 
     #[cfg(test)]
-    pub(crate) fn original(&self, tab_id: &str, send_id: &str) -> Result<String, String> {
+    pub fn original(&self, tab_id: &str, send_id: &str) -> Result<String, String> {
         let record = self
             .records(tab_id)?
             .into_iter()

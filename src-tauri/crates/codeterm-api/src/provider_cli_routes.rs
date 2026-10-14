@@ -13,7 +13,7 @@ pub(crate) async fn status(
     check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_owned()))?;
     let registry = state.svc.provider_registry.clone();
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::provider_cli::provider_cli_status(
+        codeterm_service_core::service::provider_cli_provider_cli_status(
             &registry,
             &provider,
             codeterm_service_core::agent::provider::current_platform_tag(),

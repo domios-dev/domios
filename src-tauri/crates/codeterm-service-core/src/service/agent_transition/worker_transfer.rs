@@ -23,7 +23,7 @@ pub(crate) struct WorkerTransferOutcome {
 }
 
 impl ServiceContext {
-    pub(crate) fn task_bound_worker_transfer_candidate(
+    pub fn task_bound_worker_transfer_candidate(
         &self,
         worker_tab_id: &str,
         destination_manager_tab_id: &str,
@@ -49,7 +49,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn transfer_task_bound_worker(
+    pub fn transfer_task_bound_worker(
         &self,
         caller: &AuthenticatedPlanCaller,
         worker_tab_id: &str,

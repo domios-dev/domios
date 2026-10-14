@@ -16,13 +16,13 @@ pub(crate) enum ExecCompletion {
 }
 
 impl ExecCompletion {
-    pub(crate) fn exit_code(self) -> Option<i32> {
+    pub fn exit_code(self) -> Option<i32> {
         match self {
             Self::CommandFinished { exit_code } | Self::ShellExited { exit_code } => exit_code,
         }
     }
 
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::CommandFinished { .. } => "command_finished",
             Self::ShellExited { .. } => "shell_exited",
@@ -35,14 +35,14 @@ type Waiters = HashMap<String, Vec<(u64, oneshot::Sender<ExecCompletion>)>>;
 static WAITERS: LazyLock<Mutex<Waiters>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_WAITER: AtomicU64 = AtomicU64::new(1);
 
-pub(crate) struct ExecWaiter {
+pub struct ExecWaiter {
     pty_id: String,
     id: u64,
     rx: oneshot::Receiver<ExecCompletion>,
 }
 
 impl ExecWaiter {
-    pub(crate) fn register(pty_id: &str) -> Self {
+    pub fn register(pty_id: &str) -> Self {
         let id = NEXT_WAITER.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         WAITERS
@@ -81,7 +81,7 @@ impl Drop for ExecWaiter {
     }
 }
 
-pub(crate) fn publish(pty_id: &str, completion: ExecCompletion) {
+pub fn publish(pty_id: &str, completion: ExecCompletion) {
     let waiting = WAITERS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

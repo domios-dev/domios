@@ -206,7 +206,7 @@ pub fn connected_crons(
 }
 
 impl ServiceContext {
-    pub(crate) fn automation_graph_snapshot(
+    pub fn automation_graph_snapshot(
         &self,
         workspace: &str,
         team: Option<&str>,
@@ -247,10 +247,7 @@ impl ServiceContext {
         Ok(snapshot)
     }
 
-    pub(crate) fn automation_graph_workspace_snapshot(
-        &self,
-        workspace: &str,
-    ) -> Result<Snapshot, String> {
+    pub fn automation_graph_workspace_snapshot(&self, workspace: &str) -> Result<Snapshot, String> {
         let handle = self
             .app_handle
             .try_state::<Handle>()
@@ -367,7 +364,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn automation_graph_stop_host(
+    pub fn automation_graph_stop_host(
         &self,
         workspace: &str,
         team: Option<&str>,
@@ -386,7 +383,7 @@ impl ServiceContext {
         result
     }
 
-    pub(crate) fn automation_graph_delete_host(
+    pub fn automation_graph_delete_host(
         &self,
         workspace: &str,
         team: Option<&str>,
@@ -405,7 +402,7 @@ impl ServiceContext {
         result
     }
 
-    pub(crate) fn automation_graph_stop_tab(
+    pub fn automation_graph_stop_tab(
         &self,
         workspace: &str,
         team: Option<&str>,

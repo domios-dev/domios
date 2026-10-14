@@ -50,7 +50,7 @@ pub(crate) fn running(svc: &ServiceContext, tab_id: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub(crate) fn apply(
+pub fn apply(
     svc: &ServiceContext,
     tab_id: &str,
     session: &str,

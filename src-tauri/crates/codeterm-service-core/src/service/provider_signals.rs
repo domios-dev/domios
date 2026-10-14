@@ -266,7 +266,7 @@ fn observe_records(
     }
 }
 
-pub(crate) fn apply_structured(
+pub fn apply_structured(
     svc: &ServiceContext,
     tab: &str,
     session: &str,

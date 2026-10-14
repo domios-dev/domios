@@ -41,10 +41,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn open_surface(
-        &self,
-        request: SurfaceOpenRequest,
-    ) -> Result<SurfaceTabRow, SurfaceError> {
+    pub fn open_surface(&self, request: SurfaceOpenRequest) -> Result<SurfaceTabRow, SurfaceError> {
         let target = parse_surface_target(&request.target)?;
         let surface = resolve_surface_decl(&target, &self.plugin_surface_facts(&target.plugin_id))?;
         crate::service::tab::validate_tab_title(&surface.title).map_err(SurfaceError::Placement)?;
@@ -64,7 +61,7 @@ impl ServiceContext {
         Ok(row)
     }
 
-    pub(crate) fn list_surfaces(&self) -> SurfaceList {
+    pub fn list_surfaces(&self) -> SurfaceList {
         let mut declared = Vec::new();
         let runtimes = self
             .ext::<std::sync::Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
@@ -101,7 +98,7 @@ impl ServiceContext {
         SurfaceList { declared, open }
     }
 
-    pub(crate) fn close_surface(
+    pub fn close_surface(
         &self,
         caller_tab_id: Option<&str>,
         tab_id: &str,

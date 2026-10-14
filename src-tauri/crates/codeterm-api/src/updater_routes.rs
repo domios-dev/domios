@@ -29,7 +29,7 @@ pub async fn check_update(
 
     if super::auth::is_local_caller(&state, &headers) {
         if let Some(axum::Extension(bundles)) = bundles {
-            codeterm_service_core::startup::frontend_bundles::check(bundles);
+            codeterm_service_core::startup::frontend_bundles_check(bundles);
         }
     }
     let force = q.force.unwrap_or(false);
@@ -358,7 +358,7 @@ pub async fn install_update(
         }))),
         None => {
             let url = info.download_url.as_deref().unwrap_or(&info.release_url);
-            let _ = codeterm_service_core::service::open_url::open_url(url.to_string());
+            let _ = codeterm_service_core::service::open_url_open_url(url.to_string());
             Ok(Json(serde_json::json!({
                 "status": "browser_opened",
                 "url": url,

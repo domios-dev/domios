@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use super::ServiceContext;
 
-pub(crate) fn tab_has_live_agent(tab: &crate::multiplexer::types::Tab) -> bool {
+pub fn tab_has_live_agent(tab: &crate::multiplexer::types::Tab) -> bool {
     let delivery_target = tab.chat_view
         && match &tab.backing {
             crate::multiplexer::types::TabBacking::ChatBackend {

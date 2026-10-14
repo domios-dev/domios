@@ -1,8 +1,10 @@
 use serde::Deserialize;
 
-pub(crate) use codeterm_mem::curation::calibration::{
-    archive, calibration_log_query, run_calibration_sweep, run_nightly_calibration, stale,
-};
+pub use codeterm_mem::curation::calibration::archive;
+pub use codeterm_mem::curation::calibration::calibration_log_query;
+pub use codeterm_mem::curation::calibration::run_calibration_sweep;
+pub use codeterm_mem::curation::calibration::run_nightly_calibration;
+pub use codeterm_mem::curation::calibration::stale;
 
 #[derive(Deserialize)]
 pub struct SweepParams {

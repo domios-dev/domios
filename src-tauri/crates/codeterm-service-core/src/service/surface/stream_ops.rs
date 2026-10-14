@@ -73,14 +73,14 @@ pub(crate) fn stream_binding(
 
 /// Who drove a `/call`: the surface's own view, or an agent tab (`X-CodeTerm-Tab-Id`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CallOrigin {
+pub enum CallOrigin {
     View,
     Agent,
 }
 
 /// A refusal is the request's fault (4xx); a failure is the runtime's answer (`{ error }`).
 #[derive(Debug)]
-pub(crate) enum SurfaceCallFailure {
+pub enum SurfaceCallFailure {
     Refused(SurfaceError),
     Failed(String),
 }
@@ -157,7 +157,7 @@ impl ServiceContext {
     }
 }
 
-pub(crate) async fn open_surface_stream(
+pub async fn open_surface_stream(
     svc: &ServiceState,
     tab_id: &str,
     viewport: Option<ViewportRequest>,
@@ -166,7 +166,7 @@ pub(crate) async fn open_surface_stream(
     Ok(runtime.connect(viewport).await)
 }
 
-pub(crate) async fn call_surface(
+pub async fn call_surface(
     svc: &ServiceState,
     tab_id: &str,
     method: &str,

@@ -7,7 +7,7 @@ pub(crate) struct RestartAcceptance {
     pub(crate) response_complete: oneshot::Sender<()>,
 }
 
-pub(super) fn accept(
+pub fn accept(
     control: &RestApiControl,
     accepted: oneshot::Sender<Result<u64, String>>,
     response_complete: oneshot::Receiver<()>,

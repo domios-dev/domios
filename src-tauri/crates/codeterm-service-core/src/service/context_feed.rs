@@ -21,7 +21,7 @@ pub(crate) fn merge(
     Some(incoming)
 }
 
-pub(crate) fn apply(
+pub fn apply(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     session_id: &str,
@@ -31,7 +31,7 @@ pub(crate) fn apply(
     update(svc, tab_id, session_id, nonce, Some(incoming))
 }
 
-pub(crate) fn update(
+pub fn update(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     session_id: &str,

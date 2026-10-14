@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, resolve_tab, AppState};
-use codeterm_service_core::service::shell_exec::ExecWaiter;
+use codeterm_service_core::service::ExecWaiter;
 
 use super::await_pty_link;
 

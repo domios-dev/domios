@@ -33,7 +33,7 @@ pub(super) struct LoginState {
     pub login: Option<RuntimeLoginState>,
 }
 
-pub(super) fn forget(session: &Arc<Session>) {
+pub fn forget(session: &Arc<Session>) {
     let mut owners = OWNERS.lock();
     if owners
         .get(&session.provider)
@@ -176,12 +176,7 @@ pub async fn operate(
     Ok(json!({"login":login}))
 }
 
-pub(super) fn apply(
-    svc: &ServiceContext,
-    session: &Arc<Session>,
-    epoch: u64,
-    login: RuntimeLoginState,
-) {
+pub fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, login: RuntimeLoginState) {
     if matches!(
         login.status,
         RuntimeLoginStatus::Pending | RuntimeLoginStatus::Canceled

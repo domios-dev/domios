@@ -21,4 +21,5 @@ mod mission_control_tests;
 mod project_path;
 mod relink_ext;
 pub(crate) mod respawn_lane;
+pub use respawn_lane::verify_respawn_lane as respawn_lane_verify_respawn_lane;
 mod state_ext;

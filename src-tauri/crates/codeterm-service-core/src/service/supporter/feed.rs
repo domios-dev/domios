@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 
 pub(super) const MAX_ENTRIES: usize = 100;
 
-pub(super) fn entry(value: &Value) -> Option<Value> {
+pub fn entry(value: &Value) -> Option<Value> {
     let kind = match value["kind"].as_str()? {
         "rerank" => "rerank",
         "blueprint" | "sentinel" => "blueprint",

@@ -10,7 +10,7 @@ fn reminder_test_tab() -> (MultiplexerState, String) {
     (mux, tab_id)
 }
 
-pub(super) fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
+pub fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
     let mut plan = Plan::new(
         "Reminder".into(),
         "/tmp/project".into(),

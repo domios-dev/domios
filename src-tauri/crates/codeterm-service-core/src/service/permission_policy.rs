@@ -44,7 +44,7 @@ pub(crate) fn require_full_access_choice(choice: Option<bool>) -> Result<bool, S
     })
 }
 
-pub(crate) fn configured_permission_bypass_for(
+pub fn configured_permission_bypass_for(
     app: &crate::app_runtime::AppHandle,
     registry: &AgentRegistry,
     provider_id: &str,

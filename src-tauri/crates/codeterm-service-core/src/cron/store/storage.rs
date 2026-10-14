@@ -600,7 +600,7 @@ impl CronStore {
 
 /// Legacy JSON applies and saves under the cron lock as before. Storage blocks off-lock
 /// for COMMIT and publishes only what committed: call it off the async runtime.
-pub(crate) fn commit<T>(
+pub fn commit<T>(
     cron: &CronState,
     mut prepare: impl FnMut(&mut CronStore) -> Result<Prepared<T>, String>,
 ) -> Result<CronCommitted<T>, CronCommitError> {

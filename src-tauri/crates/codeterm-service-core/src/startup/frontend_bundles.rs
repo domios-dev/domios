@@ -55,7 +55,7 @@ pub(crate) fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
         .unwrap_or_else(|| BUNDLED_INDEX.into())
 }
 
-pub(crate) fn check(bundles: Arc<FrontendBundles>) {
+pub fn check(bundles: Arc<FrontendBundles>) {
     tauri::async_runtime::spawn(async move {
         match tokio::task::spawn_blocking(move || bundles.check()).await {
             Ok(Ok(_)) => {}

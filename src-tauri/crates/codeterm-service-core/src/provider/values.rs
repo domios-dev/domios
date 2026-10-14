@@ -1,4 +1,4 @@
-pub(crate) fn list_agent_provider_values(
+pub fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
 ) -> Vec<serde_json::Value> {
     registry

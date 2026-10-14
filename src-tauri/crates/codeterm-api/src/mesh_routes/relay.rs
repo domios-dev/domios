@@ -434,7 +434,7 @@ pub async fn mesh_relay_to_peer(
         }
     }
     let mut relay_body = req.body;
-    codeterm_service_core::service::mesh_artifacts::transfer(
+    codeterm_service_core::service::mesh_artifacts_transfer(
         &client,
         &req.method,
         &req.path,

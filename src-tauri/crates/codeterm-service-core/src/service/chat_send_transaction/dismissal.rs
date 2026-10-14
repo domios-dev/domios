@@ -2,7 +2,7 @@ use super::*;
 use crate::service::pending_delivery_payloads::user_sends::dismissal::UserSendDismissal;
 
 impl crate::service::ServiceContext {
-    pub(crate) fn delete_chat_send(
+    pub fn delete_chat_send(
         &self,
         tab_id: &str,
         mut dismissal: UserSendDismissal,

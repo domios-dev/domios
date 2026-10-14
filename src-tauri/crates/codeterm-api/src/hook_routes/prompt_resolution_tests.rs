@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::routes::AppState;
-use codeterm_service_core::service::prompt_resolution::tests::{
+use codeterm_service_core::service::prompt_resolution_tests::{
     assert_resolved_and_new_prompt_notifies, pending_prompt_fixture,
 };
 
@@ -54,7 +54,7 @@ async fn stop_transition_resolves_the_prompt_through_hook() {
         axum::extract::State(state),
         axum::extract::Path(tab_id.clone()),
         axum::http::HeaderMap::new(),
-        codeterm_service_core::api_support::optional_json::OptionalJson(None),
+        codeterm_service_core::api_support::OptionalJson(None),
     )
     .await
     .expect("stop hook accepted");
