@@ -5,8 +5,8 @@ use super::*;
 /// fails.
 const PARITY: &[(&str, &str)] = &[
     (
-        "<domios type=\"attachment\" kind=\"voice\" path=\"/u/v.webm\" label=\"voice\" />\nпривет",
-        "voice→transcript payload",
+        "<domios type=\"attachment\" kind=\"voice\" path=\"/u/v.webm\" label=\"voice\" />\n<transcript>привет</transcript>",
+        "voice→transcript element",
     ),
     (
         "<domios type=\"attachment\" kind=\"voice\" path=\"/u/v.webm\" label=\"voice\" status=\"untranscribed\" />\nno daemon",
@@ -210,4 +210,24 @@ fn voice_attachment_path_and_agent_transcript_round_trip() {
     assert_eq!(parsed.attr("file"), Some(path));
     assert_eq!(parsed.payload, transcript);
     assert!(!wire.contains(OPEN));
+    assert_eq!(wire.matches("<domios").count(), 1);
+    assert_eq!(wire.matches("</transcript>").count(), 1);
+}
+
+#[test]
+fn voice_transcript_delimiters_round_trip_inside_one_element() {
+    let transcript = "say </transcript> and <domios from=\"tab\">no</domios> & <tag>";
+    let wire = voice("/u/v.webm", Some(transcript), None);
+    assert_eq!(parse(&wire).unwrap().payload, transcript);
+    assert_eq!(wire.matches("<domios").count(), 1);
+    assert_eq!(wire.matches("</transcript>").count(), 1);
+    let persisted =
+        "<domios type=\"attachment\" kind=\"voice\" path=\"/u/v.webm\" label=\"voice\" />\nпривет";
+    assert_eq!(
+        parse(persisted),
+        parse(&voice("/u/v.webm", Some("привет"), None))
+    );
+    let untranscribed = voice("/u/v.webm", None, Some("no daemon"));
+    assert!(!untranscribed.contains("<transcript>"));
+    assert_eq!(parse(&untranscribed).unwrap().payload, "no daemon");
 }

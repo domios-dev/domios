@@ -218,7 +218,7 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
         return Some(ParsedMarker {
             kind: "voice".into(),
             attrs,
-            payload: payload.into(),
+            payload: voice_payload(payload),
         });
     }
     let rest = normalized.strip_prefix(OPEN)?;
@@ -256,6 +256,62 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
 
 // ── Convenience constructors (one per kind) ──────────────────────────────────
 
+const TRANSCRIPT_OPEN: &str = "<transcript>";
+const TRANSCRIPT_CLOSE: &str = "</transcript>";
+
+fn escape_transcript(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
+fn unescape_transcript(value: &str) -> String {
+    let mut decoded = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(index) = rest.find('&') {
+        decoded.push_str(&rest[..index]);
+        rest = &rest[index..];
+        if let Some(tail) = rest.strip_prefix("&lt;") {
+            decoded.push('<');
+            rest = tail;
+        } else if let Some(tail) = rest.strip_prefix("&gt;") {
+            decoded.push('>');
+            rest = tail;
+        } else if let Some(tail) = rest.strip_prefix("&amp;") {
+            decoded.push('&');
+            rest = tail;
+        } else {
+            decoded.push('&');
+            rest = &rest[1..];
+        }
+    }
+    decoded.push_str(rest);
+    decoded
+}
+
+fn voice_payload(payload: &str) -> String {
+    let Some(inner) = payload.strip_prefix(TRANSCRIPT_OPEN) else {
+        return payload.to_string();
+    };
+    let Some(end) = inner.find(TRANSCRIPT_CLOSE) else {
+        return payload.to_string();
+    };
+    let tail = &inner[end + TRANSCRIPT_CLOSE.len()..];
+    if !tail.trim().is_empty() {
+        return payload.to_string();
+    }
+    unescape_transcript(&inner[..end])
+}
+
+/// Transcribed speech follows the frame in one `<transcript>` element.
+/// An untranscribed note keeps `status="untranscribed"` and no transcript element.
 pub fn voice(file: &str, transcript: Option<&str>, note: Option<&str>) -> String {
     let mut attrs = vec![
         ("type", "attachment"),
@@ -268,7 +324,12 @@ pub fn voice(file: &str, transcript: Option<&str>, note: Option<&str>) -> String
     }
     let tag = crate::domios::build_opening_tag(&attrs);
     let mut wire = format!("{} />", tag.trim_end_matches('>'));
-    if let Some(payload) = transcript.or(note).filter(|payload| !payload.is_empty()) {
+    if let Some(payload) = transcript.filter(|payload| !payload.is_empty()) {
+        wire.push('\n');
+        wire.push_str(TRANSCRIPT_OPEN);
+        wire.push_str(&escape_transcript(payload));
+        wire.push_str(TRANSCRIPT_CLOSE);
+    } else if let Some(payload) = note.filter(|payload| !payload.is_empty()) {
         wire.push('\n');
         wire.push_str(payload);
     }

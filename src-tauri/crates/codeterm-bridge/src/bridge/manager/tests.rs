@@ -404,8 +404,7 @@ async fn body_includes_transcript_and_file_uri() {
         "builtin-http",
     )
     .await;
-    // The frame, a newline, then the transcript as the payload.
-    assert_eq!(body, "<domios type=\"attachment\" kind=\"voice\" path=\"/tmp/voice.oga\" label=\"voice\" />\nпривет мир");
+    assert_eq!(body, "<domios type=\"attachment\" kind=\"voice\" path=\"/tmp/voice.oga\" label=\"voice\" />\n<transcript>привет мир</transcript>");
 
     let _ = stop.send(());
     let _ = handle.await;

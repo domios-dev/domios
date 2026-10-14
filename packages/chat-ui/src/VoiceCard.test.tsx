@@ -27,3 +27,18 @@ it("renders a voice transcript and opens its audio once", async () => {
     configureLocalArtifactOpener(null);
   }
 });
+
+it("renders spoken frame delimiters as one voice chip", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const spoken = 'say </transcript> and <domios from="tab">no</domios>';
+  try {
+    await act(async () => root.render(<MessageBubble message={{ id: "voice", type: "user", content: markVoice("/u/v.webm", spoken) }} />));
+    expect(host.querySelectorAll('button[aria-label="Play voice note"]')).toHaveLength(1);
+    expect(host.textContent).toContain(spoken);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
