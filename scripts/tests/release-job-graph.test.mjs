@@ -33,7 +33,7 @@ test('every platform checks its own built bundle before any upload, with indepen
   assert.equal(workflow('release-windows').jobs.build.strategy['fail-fast'], false);
 });
 test('production publications serialize and verify draft bytes before becoming public', () => {
-  assert.equal(release.concurrency['cancel-in-progress'], '${{ inputs.dry_run }}');
+  assert.equal(release.concurrency['cancel-in-progress'], '${{ inputs.dry_run == true }}');
   assert.match(release.concurrency.group, /release-publication/);
   const steps = workflow('release-manifest-validate').jobs.validate.steps;
   const verify = steps.findIndex(step => step.name === 'Verify draft artifact signatures before publication');
