@@ -5,8 +5,9 @@ fn switch_confirmation_prompt_native_js_parity() {
     assert!(require_plugins().is_some(), "bundled plugin is required");
     let (native, js) = pair();
     assert_eq!(native.model_switch_commands(), js.model_switch_commands());
-    let screen = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/model-switch/sonnet-confirmation.txt");
-    for frame in [screen.to_owned(), screen.replace('\n', "\r\n")] {
+    let screen = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/model-switch/sonnet-confirmation.txt")
+        .replace("\r\n", "\n");
+    for frame in [screen.clone(), screen.replace('\n', "\r\n")] {
         for selection in ["sonnet", "foreign"] {
             let expected = native.parse_switch_confirmation_prompt(&frame, selection);
             assert_eq!(

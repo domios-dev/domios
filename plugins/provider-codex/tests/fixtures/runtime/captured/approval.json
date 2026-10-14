@@ -273,6 +273,7 @@
     },
     {
       "direction": "outbound",
+      "adapterStep": true,
       "operation": 0,
       "action": {
         "kind": "request",
@@ -284,6 +285,7 @@
     },
     {
       "direction": "inbound",
+      "adapterStep": true,
       "operation": 0,
       "reply": {
         "kind": "success",
