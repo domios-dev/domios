@@ -21,6 +21,8 @@ vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typ
 } }));
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
 import { UpdateTray } from "./UpdateTray";
+import { UpdatePanelContents } from "../UpdatePanel";
+import { classifyUpdateStatus } from "../../lib/updateStatusModel";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
@@ -30,6 +32,32 @@ const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
   { id: "core", kind: "plugin", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "core_silent", reason: "silent", channel: "core" },
 ] };
 afterEach(() => { localStorage.clear(); fake.offer = null; vi.clearAllMocks(); });
+
+for (const failure of [null, "channel download failed"]) {
+  it(`wires local-ahead information and ${failure ? "a genuine failure badge" : "no failure badge"}`, async () => {
+    const ahead: UpdateAvailabilitySnapshot = { items: [{ ...snapshot.items[3], id: "codex", installed: "2.0.0", latest: "1.0.0", reason: "local_ahead" }],
+      errors: { core: `system plugin 'codex' is not installable: local_ahead${failure ? `; ${failure}` : ""}` } };
+    fake.check.mockResolvedValue(ahead);
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
+      expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
+        .toBe(classifyUpdateStatus(ahead).information[0]);
+      const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]');
+      if (failure) {
+        expect(trigger).not.toBeNull();
+        expect(host.querySelector('[role="alert"]')?.textContent).toBe(failure);
+        await act(async () => trigger!.click());
+        expect(document.querySelector('[role="dialog"][aria-label="Updates"]')).not.toBeNull();
+      } else {
+        expect(trigger).toBeNull();
+        expect(host.querySelector('[role="alert"]')).toBeNull();
+        expect([...host.querySelectorAll("button")].find(button => button.textContent === "Retry")).toBeUndefined();
+      }
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+}
 
 it("opens grouped offers and the Update all handler persists intent before installation", async () => {
   fake.check.mockResolvedValue(snapshot);
