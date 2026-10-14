@@ -399,7 +399,12 @@ fn apply(
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
     match event {
         AgentRuntimeEvent::AuthLogin { login } => super::login::apply(svc, session, epoch, login),
-        AgentRuntimeEvent::Auth { state, detail } => {
+        AgentRuntimeEvent::Auth {
+            state,
+            detail,
+            billing_mode,
+        } => {
+            super::projections::billing(svc, session, billing_mode.unwrap_or_default(), at);
             let previous = std::mem::replace(&mut *session.auth.lock(), state.clone());
             if matches!(state, RuntimeAuthState::SignedIn)
                 && matches!(previous, RuntimeAuthState::SignedOut)

@@ -245,6 +245,8 @@ export function TabTopBar({
         {usageProvider && (
           <UsageBubble
             provider={usageProvider}
+            tabId={tabId}
+            threadId={shellTab?.agent_session_id}
             trackingEnabled={!!usageVisible}
             modelId={usageModelId}
             modelGroups={usageModelGroups}

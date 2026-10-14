@@ -1,4 +1,5 @@
 export interface UsageSnapshot {
+  runtime_usage?: RuntimeUsageProjection[];
   billing_mode: "subscription" | "api" | "unknown";
   limits_reported: boolean;
   id: number;
@@ -38,4 +39,13 @@ export function classify(pct: number | null | undefined): UsageState {
   if (pct >= 85) return "danger";
   if (pct >= 60) return "warn";
   return "neutral";
+}
+
+export interface RuntimeUsageProjection {
+  captured_at?: number;
+  tab_id: string;
+  thread_id: string | null;
+  billing_mode: "subscription" | "api" | "unknown";
+  token_usage: {captured_at:number; value:{input_tokens:number;output_tokens:number;cache_read_tokens?:number;cache_write_tokens?:number;cost_micros?:number}} | null;
+  rate_limits: {captured_at:number; value:{window:string;usedPercent:number;resetsAt?:number;windowMinutes?:number}[]} | null;
 }
