@@ -312,3 +312,13 @@ jobs:
           fi
           git push origin develop
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then git push origin --delete "$BRANCH"; fi
+
+  rust-warnings:
+    needs: [prepare, tests, macos, linux-arm64, linux-x86_64, windows]
+    if: always()
+    uses: ./.github/workflows/rust-warnings-summary.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.source_sha || github.sha }}
+      report_name: rust-warnings-release-report
+      comment: true
+      artifacts: '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc","rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]'

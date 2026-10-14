@@ -1,0 +1,59 @@
+name: Rust warning summary
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+      report_name:
+        required: true
+        type: string
+      artifacts:
+        required: true
+        type: string
+      comment:
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+jobs:
+  report:
+    runs-on: [self-hosted, light]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          pattern: rust-warnings-*
+          merge-multiple: true
+          path: ci-rust-warnings
+      - name: Merge warnings and enforce ratchet
+        env:
+          WARNING_ARTIFACTS: ${{ inputs.artifacts }}
+          WARNING_SEED: ${{ inputs.comment }}
+        run: node scripts/rust-warnings-report.mjs ci-rust-warnings
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        continue-on-error: true
+        with:
+          overwrite: true
+          name: ${{ inputs.report_name }}
+          path: rust-warnings-report/*
+      - name: Comment on associated release PR
+        if: ${{ always() && inputs.comment }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WARNING_SOURCE_SHA: ${{ inputs.source_ref }}
+        run: node scripts/rust-warnings-comment.mjs rust-warnings-report/rust-warnings-report.md
