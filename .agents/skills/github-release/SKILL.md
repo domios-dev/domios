@@ -81,7 +81,7 @@ in canonical on the exact release build. Require passes for a sanitized real des
 and synthetic worst cases, with `replay-result.json` and fake-provider traces in
 the release evidence. The sequence is capture → prepare → stage through `dc` →
 restart the disposable named DEV with the target build → bounded verify. Run
-`node --test evals/upgrade-restore/model.test.mjs` for capture/fixture checks too.
+`node --test evals/upgrade-restore/model.test.mjs evals/upgrade-restore/process.test.mjs` for capture/fixture checks too.
 Missing backing, an unsupported provider, a missing receipt or any tab failing
 ready/binding/history verification blocks `git push origin release/X.Y.Z`.
 During the 1.14.7 runtime migration, keep pre-fix receipts reproducing desk leaf

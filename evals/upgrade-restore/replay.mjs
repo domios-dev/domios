@@ -1,38 +1,27 @@
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
 import {readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {requireBackings, verdict, failureReason} from './model.mjs';
+import {createHash} from 'node:crypto';
+import {requireBackings, verdict, failureReason, requireRestart} from './model.mjs';
 
-const exec = promisify(execFile);
+import {run as exec} from './process.mjs';
 const [file, expectedBuild, root, deadlineRaw = '90', mode = 'verify'] = process.argv.slice(2);
 const deadlineSeconds = Number(deadlineRaw);
 if (!file || !expectedBuild || !root || !Number.isFinite(deadlineSeconds) || deadlineSeconds <= 0 || deadlineSeconds > 120) {
   throw new Error('Usage: node replay.mjs DESK_JSON BUILD_SHA FIXTURE_ROOT [DEADLINE_SECONDS<=120]');
 }
-const document = JSON.parse(readFileSync(file, 'utf8'));
+const fixtureBytes = readFileSync(file);
+const fixtureDigest = createHash('sha256').update(fixtureBytes).digest('hex');
+const document = JSON.parse(fixtureBytes);
 const expected = requireBackings(document);
 const benchLib = fileURLToPath(new URL('../_lib/lib.sh', import.meta.url));
 const deadline = performance.now() + deadlineSeconds * 1000;
 async function dc(...args) {
   const remaining = Math.ceil(deadline - performance.now());
   if (remaining <= 0) throw new Error('bounded replay deadline elapsed');
-  const pending = exec('bash', ['-c', 'source "$1"; shift; dc "$@"', 'upgrade-restore', benchLib, ...args],
-    {timeout: remaining, killSignal: 'SIGKILL', detached: process.platform !== 'win32', maxBuffer: 32 * 1024 * 1024});
-  try {
-    const result = await pending;
-    return JSON.parse(result.stdout);
-  } catch (error) {
-    if (error.killed && pending.child.pid) {
-      if (process.platform === 'win32') {
-        await exec('taskkill', ['/PID', String(pending.child.pid), '/T', '/F'], {timeout: 5000}).catch(() => {});
-      } else {
-        try { process.kill(-pending.child.pid, 'SIGKILL'); } catch {}
-      }
-    }
-    throw error;
-  }
+  const result = await exec('bash', ['-c', 'source "$1"; shift; dc "$@"', 'upgrade-restore', benchLib, ...args],
+    {timeout: remaining, maxBuffer: 32 * 1024 * 1024});
+  return JSON.parse(result.stdout);
 }
 const identify = await dc('identify', '--json');
 if (!String(identify.connection?.instance ?? '').startsWith('upgrade-restore-')) {
@@ -40,7 +29,8 @@ if (!String(identify.connection?.instance ?? '').startsWith('upgrade-restore-'))
 }
 const health = await exec('bash', ['-c', 'source "$1"; dev_get /api/health', 'upgrade-restore', benchLib],
   {timeout: Math.max(1, Math.ceil(deadline - performance.now())), maxBuffer: 1024 * 1024});
-if (JSON.parse(health.stdout).build !== expectedBuild) throw new Error('Running build SHA differs from required replay SHA');
+const currentHealth = JSON.parse(health.stdout);
+if (currentHealth.build_sha !== expectedBuild) throw new Error('Running full build SHA differs from required replay SHA');
 const providers = await dc('agent', 'providers', '--json');
 const provider = providers.find(provider => provider.id === 'codex');
 const resolvedBinary = provider?.cli_status?.resolved_path;
@@ -54,10 +44,15 @@ if (mode === 'stage') {
   if (imported.imported_tabs !== expected.length || imported.restart_required !== true) {
     throw new Error('Import lost tabs or omitted the required restart acknowledgement');
   }
+  if (!imported.boot_id) throw new Error('Import omitted the daemon boot identity');
+  writeFileSync(join(root, 'stage-result.json'), JSON.stringify({...imported,
+    fixture_sha256: fixtureDigest, build_sha: currentHealth.build_sha}, null, 2));
   console.log(JSON.stringify(imported));
   process.exit(0);
 }
 if (mode !== 'verify') throw new Error('Unknown replay mode');
+requireRestart(JSON.parse(readFileSync(join(root, 'stage-result.json'), 'utf8')),
+  currentHealth.boot_id, fixtureDigest);
 const results = await Promise.all(expected.map(async tab => {
   try {
     if (tab.agent_type) {
@@ -90,7 +85,8 @@ for (const tab of expected.filter(tab => tab.agent_type)) {
     results.push({tab_id: tab.tab_id, ready: false, reason: 'history backing was not consumed by restored runtime'});
   }
 }
-const record = {build: expectedBuild, deadline_seconds: deadlineSeconds, tabs: results, passed: results.every(row => row.ready)};
+const record = {build: expectedBuild, boot_id: currentHealth.boot_id, fixture_sha256: fixtureDigest,
+  deadline_seconds: deadlineSeconds, tabs: results, passed: results.every(row => row.ready)};
 writeFileSync(join(root, 'replay-result.json'), JSON.stringify(record, null, 2));
 for (const row of results) console.log(`${row.ready ? 'PASS' : 'FAIL'} tab=${row.tab_id}: ${row.reason}`);
 if (!record.passed) process.exitCode = 1;

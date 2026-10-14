@@ -86,6 +86,13 @@ export function failureReason(error) {
   return error.stderr?.trim() || error.message;
 }
 
+export function requireRestart(stage, boot, digest) {
+  if (!stage?.boot_id || !boot || stage.boot_id === boot) {
+    throw new Error('Target daemon has not restarted since fixture import');
+  }
+  if (stage.fixture_sha256 !== digest) throw new Error('Fixture differs from the staged document');
+}
+
 export function verdict(expected, actual) {
   const id = expected.tab_id;
   if (!actual) return {tab_id: id, ready: false, reason: 'tab missing after restore'};

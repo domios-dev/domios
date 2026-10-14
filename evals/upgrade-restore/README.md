@@ -56,7 +56,7 @@ With that target DEV running, stage only through the dev wrapper:
 
 ```bash
 CODETERM_INSTANCE=upgrade-restore-real CODETERM_API_PORT=<dev-port> \
-  bash evals/upgrade-restore/run.sh stage /tmp/upgrade-real/desk.json <health-build-sha> /tmp/upgrade-real
+  bash evals/upgrade-restore/run.sh stage /tmp/upgrade-real/desk.json <health-build_sha-full> /tmp/upgrade-real
 ```
 
 Import refuses PROD, an unnamed DEV, or a desk owning PTYs. It imports the typed
@@ -66,7 +66,7 @@ current build loads committed storage, then require ready state and history:
 
 ```bash
 CODETERM_INSTANCE=upgrade-restore-real CODETERM_API_PORT=<dev-port> \
-  bash evals/upgrade-restore/run.sh verify /tmp/upgrade-real/desk.json <health-build-sha> /tmp/upgrade-real 90
+  bash evals/upgrade-restore/run.sh verify /tmp/upgrade-real/desk.json <health-build_sha-full> /tmp/upgrade-real 90
 ```
 
 Repeat with `upgrade-restore-worst`, its isolated port and `/tmp/upgrade-worst`.
@@ -74,7 +74,8 @@ Each verifier has one bounded failure deadline (maximum 120 seconds). It waits
 for CLI/process completion and provider runtime protocol handles, not elapsed-time
 readiness. It checks build SHA, every captured leaf's role/provider/session,
 confirmed runtime nonce, loaded runtime epoch, Worker attempt identity, visibility
-and consumed fake history. Failures name their tab and exact runtime reason,
+and consumed fake history. It also requires a changed daemon boot id and the
+SHA256 of the staged fixture, so import without restart cannot pass. Failures name their tab and exact runtime reason,
 including SizeLimit, binding incomplete, missing tab and deadline. Evidence is
 `replay-result.json` and `provider-trace.jsonl` in the prepared root.
 
@@ -90,7 +91,7 @@ outside this app startup gate.
 ## Focused checks and current limitations
 
 ```bash
-node --test evals/upgrade-restore/model.test.mjs
+node --test evals/upgrade-restore/model.test.mjs evals/upgrade-restore/process.test.mjs
 ```
 
 Canonical Rust selectors: `./build.sh test-one app api::session_exchange` and

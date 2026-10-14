@@ -219,7 +219,9 @@ pub async fn import(
         *svc.mux.write() = candidate;
         crate::service::agent_runtime::restore::all(&svc);
         svc.emit_state_changed();
-        Ok::<_, String>(json!({"imported_tabs":count,"restart_required":true}))
+        Ok::<_, String>(
+            json!({"imported_tabs":count,"restart_required":true,"boot_id":svc.events.boot_id()}),
+        )
     })
     .await
     .map_err(failure)?

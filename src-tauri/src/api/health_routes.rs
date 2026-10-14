@@ -30,6 +30,10 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
                 obj.insert("build".into(), serde_json::json!(env!("BUILD_HASH")));
                 obj.insert("build_sha".into(), serde_json::json!(env!("BUILD_SHA")));
                 obj.insert(
+                    "boot_id".into(),
+                    serde_json::json!(state.svc.events.boot_id()),
+                );
+                obj.insert(
                     "apiVersion".into(),
                     serde_json::json!(crate::frontend_bundle_api_version::API_VERSION),
                 );
