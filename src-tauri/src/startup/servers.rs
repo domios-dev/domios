@@ -330,6 +330,7 @@ pub(crate) fn start_servers(
         }
         let router = api::routes::create_router_with_frontend(api_state, bundles);
         app.manage(api::routes::LocalApiRouter(router.clone()));
+        socket::register_rpc_bridge();
         if let Err(e) = socket::server::SocketServer::start(
             states.mux.clone(),
             states.pty.clone(),
