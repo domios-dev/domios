@@ -524,14 +524,9 @@ impl ReminderHost for LiveHost<'_> {
     ) -> (Snapshot, Observation) {
         let (mut snapshot, mut observed) =
             heartbeat_gate::collect_worker_scope(plan, scope, previous);
-        snapshot.hard = previous.pending_hard.clone();
-        let (owner_messages, owner_observation) =
+        snapshot.hard = heartbeat_gate::actionable_pending(&previous.pending_hard);
+        let (_, owner_observation) =
             heartbeat_gate::collect_owner_messages(self.svc, &scope.tab_id, previous);
-        for message in owner_messages {
-            if !snapshot.hard.contains(&message) {
-                snapshot.hard.push(message);
-            }
-        }
         if let Some(owner_observation) = owner_observation {
             observed
                 .workers

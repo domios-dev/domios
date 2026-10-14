@@ -816,6 +816,15 @@ fn open_liveness_check_drops_evidence_already_held() {
 }
 
 #[test]
+fn persisted_owner_message_wakes_are_dropped_and_others_kept() {
+    let kept = super::actionable_pending(&every_hard_wake());
+    assert!(!kept
+        .iter()
+        .any(|wake| matches!(wake, HardWake::OwnerMessage(_))));
+    assert_eq!(kept.len(), every_hard_wake().len() - 1);
+}
+
+#[test]
 fn fresh_owner_messages_need_a_cursor_for_this_session() {
     use super::snapshot::{fresh_owner_messages, had_session_cursor};
 
