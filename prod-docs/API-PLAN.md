@@ -42,7 +42,7 @@ everything.
 
 `plan.task.dispatch` onto a **pre-created worktree** (`--cwd <path>`) records `lane.branch`, `lane.worktree_path` and
 `lane.base` in the same transition that emits the `dispatch_ready` block, so the stored lane equals the reported one.
-Every candidate checkout is verified against the plan's canonical project path, never against itself; collapsing those
+Lane revisions and ancestry resolve in the repository that owns the worktree, discovered from its common Git directory; an extracted repository lane can belong to a plan rooted elsewhere. Every candidate checkout is checked for safety against the plan's canonical project path, never against itself; collapsing those
 two made a resolved lane look like the canonical checkout and dropped it (codeterm#425). A readiness report is no longer
 refused with "cannot locate your lane worktree" for a task dispatched this way.
 
@@ -237,4 +237,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

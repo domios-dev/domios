@@ -708,45 +708,54 @@ pub(crate) fn verify_worker_lane(
             branch
         ));
     }
-    // A waived lane may be detached, so ancestry is measured against the commit
-    // the lane actually holds rather than a branch name that does not exist.
-    let head_ref = if branch.is_empty() {
-        git_value(worktree_path, ["rev-parse", "HEAD"])?
-    } else {
-        branch.clone()
-    };
+    let (_, common_dir) = git_checkout_paths(&worktree)
+        .ok_or_else(|| "worker lane repository identity is unavailable".to_string())?;
+    let repository = common_dir
+        .parent()
+        .and_then(Path::to_str)
+        .ok_or_else(|| "worker lane repository has no primary checkout path".to_string())?;
+    let repository = canonical_path(repository)?;
+    if !git_is_primary_checkout(&repository) {
+        return Err("worker lane repository has no verified primary checkout".into());
+    }
+    if !protection.is_waived() && worktree == repository && canonical != repository {
+        return Err("worker lane is the owning repository's primary checkout".into());
+    }
+    let repository_cwd = repository
+        .to_str()
+        .ok_or_else(|| "worker lane repository path is not UTF-8".to_string())?;
+    let head_ref = git_value(worktree_path, ["rev-parse", "--verify", "HEAD^{commit}"])?;
     let base = match expected_base
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
         Some(expected) => {
             let commit_ref = format!("{expected}^{{commit}}");
-            let resolved = git_value(canonical_cwd, ["rev-parse", "--verify", &commit_ref])?;
+            let resolved = git_value(repository_cwd, ["rev-parse", "--verify", &commit_ref])
+                .map_err(|error| format!("worker lane base '{expected}' does not resolve in owning repository '{repository_cwd}': {error}"))?;
             run_git(
-                canonical_cwd,
+                repository_cwd,
                 ["merge-base", "--is-ancestor", &resolved, &head_ref],
             )
             .map_err(|_| {
-                format!(
-                    "worker lane base '{}' is not an ancestor of '{}'",
-                    expected, head_ref
-                )
+                format!("worker lane base '{expected}' is not an ancestor of '{head_ref}'")
             })?;
             resolved
         }
-        None => git_value(canonical_cwd, ["merge-base", "HEAD", &head_ref])?,
+        None => git_value(repository_cwd, ["merge-base", "HEAD", &head_ref])?,
     };
-    let git_cwd = codeterm_paths::strip_verbatim_prefix(canonical_cwd);
-    let destination = match git_value(&git_cwd, ["symbolic-ref", "--short", "-q", "HEAD"]) {
+    let destination = match git_value(repository_cwd, ["symbolic-ref", "--short", "-q", "HEAD"]) {
         Ok(name) if !name.is_empty() => Some(name),
         Ok(_) => None,
         Err(error) => {
-            log::warn!("[worker-lane] no destination branch recorded for {git_cwd}: {error}");
+            log::warn!(
+                "[worker-lane] no destination branch recorded for {repository_cwd}: {error}"
+            );
             None
         }
     };
     Ok(WorkerLaneProvenance {
-        canonical_cwd: canonical.display().to_string(),
+        canonical_cwd: repository.display().to_string(),
         worktree_path: worktree.display().to_string(),
         branch,
         base,
