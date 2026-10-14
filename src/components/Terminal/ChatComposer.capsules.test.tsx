@@ -2,7 +2,7 @@ import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { DOMIOS_TEXT_MIME, formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
-import { configureLocalArtifactLoader, LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
+import { LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
@@ -40,7 +40,6 @@ let host: HTMLDivElement | null = null;
 
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove(); host = null;
-  configureLocalArtifactLoader(null);
   __setInvokeForTest(null); __setListenForTest(null);
   try { window.localStorage.clear(); } catch { /* storage may be unavailable */ }
 });
@@ -218,16 +217,13 @@ it("a selection copied from a sent bubble pastes back as inline capsules", async
   expect(await sendAndRead(textarea, calls)).toEqual([sent]);
 });
 
-it("uses the shared chip to preview and open a composer image", async () => {
-  const loader = vi.fn(async () => ({ data: "data:image/png;base64,cGl4ZWw=", media_type: "image/png" }));
-  configureLocalArtifactLoader(loader);
-  const { sink } = await renderComposer("capsule-open");
+it("typing after a chip appends normally over an inert mirror", async () => {
+  const { textarea, sink } = await renderComposer("capsule-typing");
+  await setValue(textarea, "see ");
   await act(async () => sink.current?.([{ path: SHOT_1, kind: "image" }]));
-  const chip = host!.querySelector<HTMLButtonElement>('button[aria-label="Open image image1"]')!;
-  expect(chip.querySelector("img")).toBeNull();
-  await act(async () => chip.focus());
-  expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
-  await act(async () => chip.click());
-  expect(document.querySelector('[role="dialog"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
-  expect(loader).toHaveBeenCalledWith(SHOT_1, "image", "capsule-open");
+  await setValue(textarea, `${textarea.value}вот тут`);
+  expect(textarea.value).toBe(`see ${capsuleToken("image1")} вот тут`);
+  expect(mirror()?.textContent).toBe(textarea.value);
+  expect(mirror()?.getAttribute("aria-hidden")).not.toBeNull();
+  expect(mirror()?.querySelectorAll("button, a, input, [tabindex]")).toHaveLength(0);
 });
