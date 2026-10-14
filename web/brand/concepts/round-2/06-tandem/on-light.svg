@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">Domios: Tandem</title>
-  <desc id="desc">Your agents have neighbors.</desc>
-  <path fill="#f6f8fa" d="M0 0H64V64H0Z"/><path fill="#0969da" fill-rule="evenodd" d="M4 56V24C4 12 10 4 20 4S36 12 36 24C36 16 40 12 48 12S60 20 60 32V60L44 52 32 60 20 48ZM12 20V32H24V20ZM40 32V44H52V32Z"/>
-</svg>
