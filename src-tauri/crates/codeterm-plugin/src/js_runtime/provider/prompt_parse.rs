@@ -60,6 +60,21 @@ pub(super) fn parsed_prompt_from_js(obj: Value) -> Option<PendingPrompt> {
 }
 
 impl super::JsProvider {
+    pub(super) fn switch_confirmation_prompt_from_js(
+        &self,
+        screen: &str,
+        selection: &str,
+    ) -> Option<PendingPrompt> {
+        if let Some(value) = self.try_call::<Option<Value>>(
+            "parseSwitchConfirmationPrompt",
+            &[serde_json::json!(screen), serde_json::json!(selection)],
+        ) {
+            return value.and_then(parsed_prompt_from_js);
+        }
+        self.native()
+            .and_then(|provider| provider.parse_switch_confirmation_prompt(screen, selection))
+    }
+
     pub(super) fn live_prompt_response_from_js(
         &self,
         option_index: usize,
