@@ -13,7 +13,6 @@
 #[cfg(test)]
 mod corruption_tests;
 mod crud;
-mod schedule;
 mod storage;
 #[cfg(test)]
 mod storage_tests;
@@ -28,7 +27,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-pub use schedule::{
+pub use codeterm_cron::schedule::{
     cap_jitter_max_ms_at, compute_backoff, compute_next_run, compute_next_run_at,
     compute_next_run_in, compute_next_run_jittered, compute_next_run_jittered_at,
     compute_next_run_jittered_in, is_stale_fire, parse_oneshot_schedule, parse_oneshot_schedule_at,
