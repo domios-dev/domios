@@ -21,3 +21,8 @@ pub mod stage_source;
 pub mod storage;
 pub mod store;
 pub mod terminal;
+
+#[cfg(test)]
+mod command_native_tests;
+#[cfg(test)]
+mod handlers_tests;

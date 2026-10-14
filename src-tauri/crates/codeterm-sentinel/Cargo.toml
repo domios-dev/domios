@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+chrono = { version = "0.4", features = ["serde"] }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-cron = { path = "../codeterm-cron" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
@@ -15,6 +16,7 @@ codeterm-util = { path = "../codeterm-util" }
 log = "0.4"
 parking_lot = "0.12"
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -29,5 +31,4 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
 
 [dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 tempfile = "3"

@@ -82,7 +82,7 @@ impl Readiness {
 
     pub fn command_after_ready(&self, command: &str) -> String {
         let exe = std::env::current_exe().unwrap();
-        let selector = "sentinel::probe::test_readiness::finite_ready_child";
+        let selector = "probe::test_readiness::finite_ready_child";
         #[cfg(unix)]
         return format!("SENTINEL_FIXTURE_READY={} {} --exact --ignored --nocapture {selector} >/dev/null 2>&1 && {{ {command}; }}", self.address, quote(&exe));
         #[cfg(windows)]
@@ -91,7 +91,7 @@ impl Readiness {
 
     pub fn output_command(&self) -> String {
         let exe = std::env::current_exe().unwrap();
-        let selector = "sentinel::probe::test_readiness::large_output_ready_child";
+        let selector = "probe::test_readiness::large_output_ready_child";
         #[cfg(unix)]
         return format!(
             "SENTINEL_FIXTURE_READY={} exec {} --exact --ignored --nocapture {selector}",
