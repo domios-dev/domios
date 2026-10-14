@@ -1149,7 +1149,7 @@ impl ServiceContext {
             attempt.tab_id,
             attempt.pty_id
         );
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app_handle,
             "agent-launch-failed",
             serde_json::json!({

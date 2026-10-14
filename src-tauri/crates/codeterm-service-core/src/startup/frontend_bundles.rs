@@ -8,7 +8,7 @@ const DISCOVERY_URL: &str = "https://github.com/rollacode/codeterm-releases/rele
 pub(crate) const BUNDLED_INDEX: &str = "/bundled/index.html";
 
 pub(crate) fn open(
-    events: &crate::api::events::EventBroadcasterState,
+    events: &codeterm_events::EventBroadcasterState,
 ) -> Option<Arc<FrontendBundles>> {
     let events = events.clone();
     let (discovery, public_key, loopback) = dev_discovery_override().unwrap_or_else(|| {

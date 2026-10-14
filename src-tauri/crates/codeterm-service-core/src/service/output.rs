@@ -639,7 +639,7 @@ impl ServiceContext {
         if let Some(event) =
             crate::service::stream_preview::step(pty_id, &tab_id, &lines, cursor_row)
         {
-            crate::api::events::emit_everywhere(&self.app_handle, "chat-stream-preview", &event);
+            codeterm_events::emit_everywhere(&self.app_handle, "chat-stream-preview", &event);
         }
 
         let status = extract_status_line(&lines);
@@ -988,7 +988,7 @@ impl ServiceContext {
                 };
                 self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
                 self.hold_boot_for_owner_prompt(tab_id);
-                crate::api::events::emit_everywhere(
+                codeterm_events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({
@@ -1021,7 +1021,7 @@ impl ServiceContext {
                     }
                     self.resolve_prompt_notifications(tab_id, &identity);
                 }
-                crate::api::events::emit_everywhere(
+                codeterm_events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({

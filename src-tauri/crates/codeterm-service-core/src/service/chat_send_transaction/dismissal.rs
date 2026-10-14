@@ -47,7 +47,7 @@ impl crate::service::ServiceContext {
             .user_sends
             .cancel_or_dismiss(tab_id, dismissal)?;
         self.wake_parked_user_send(tab_id);
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app_handle,
             "chat-send-dismissed",
             &serde_json::json!({"tab_id": tab_id, "receipt": receipt}),

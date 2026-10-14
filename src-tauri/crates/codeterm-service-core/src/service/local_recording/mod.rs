@@ -118,7 +118,7 @@ impl ServiceContext {
                 }
                 log::debug!("[local-recording] selected input unavailable: {reason:?}");
                 let status = self.local_recording_status(plugin_id)?;
-                crate::api::events::emit_everywhere(
+                codeterm_events::emit_everywhere(
                     &self.app_handle,
                     "local-recording-status",
                     status,
@@ -156,7 +156,7 @@ impl ServiceContext {
                 serde_json::json!({ "kind": "start", "capture": lease })
             }
         };
-        crate::api::events::emit_everywhere(&self.app_handle, "local-recording-capture", event);
+        codeterm_events::emit_everywhere(&self.app_handle, "local-recording-capture", event);
         Ok(())
     }
     pub(crate) fn local_recording_status(
@@ -194,7 +194,7 @@ impl ServiceContext {
             .local_recording_registry
             .set_enabled(plugin_id, enabled)
             .map_err(str::to_string)?;
-        crate::api::events::emit_everywhere(&self.app_handle, "local-recording-status", &status);
+        codeterm_events::emit_everywhere(&self.app_handle, "local-recording-status", &status);
         let completion =
             (enabled && status.granted && status.devices_selected && !status.available)
                 .then(|| self.schedule_local_recording_subscription(plugin_id.into(), adapter));
@@ -284,7 +284,7 @@ impl ServiceContext {
                 Some(service) => {
                     let result = service.local_recording_subscribe(&plugin_id, adapter).await;
                     if let Ok(status) = service.local_recording_status(&plugin_id) {
-                        crate::api::events::emit_everywhere(
+                        codeterm_events::emit_everywhere(
                             &service.app_handle,
                             "local-recording-status",
                             status,
