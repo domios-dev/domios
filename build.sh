@@ -1383,20 +1383,25 @@ check_queue_worktree() {
 }
 
 check_queue_run() {
-  local sha="" max_errors=20 touched_only=0 arg base cw files targets pkg_args=() cli=0 started status=0 out
+  local sha="" max_errors=20 touched_only=0 all=0 arg base cw files targets pkg_args=() cli=0 started status=0 out
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --max-errors) max_errors="${2:?--max-errors requires a count}"; shift ;;
       --touched-only) touched_only=1 ;;
-      -*) echo "Usage: ./build.sh check-queue [<sha>] [--max-errors N] [--touched-only]" >&2; exit 2 ;;
+      --all) all=1 ;;
+      -*) echo "Usage: ./build.sh check-queue [<sha>] [--max-errors N] [--touched-only] [--all]" >&2; exit 2 ;;
       *) sha="$arg" ;;
     esac
     shift
   done
   sha="$(git rev-parse --verify "${sha:-HEAD}^{commit}")"
   base="$(git merge-base "$sha" develop 2>/dev/null || git merge-base "$sha" origin/develop 2>/dev/null || true)"
-  if [ -n "$base" ]; then
+  if [ "$all" = 1 ]; then
+    files="$(printf 'src-tauri/src/
+cli/
+')"
+  elif [ -n "$base" ]; then
     files="$(git diff --name-only "$base" "$sha")"
   else
     files="src-tauri/src/"
@@ -1409,7 +1414,8 @@ check_queue_run() {
   while read -r kind pkg; do
     if [ "$kind" = cli ]; then cli=1; else pkg_args+=(-p "$pkg"); fi
   done <<< "$targets"
-  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
+  if [ "$all" = 1 ]; then pkg_args=(--workspace); fi
+  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$touched_only" = 0 ] && [ "$all" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
     pkg_args+=(-p codeterm)
   fi
 
@@ -1862,7 +1868,7 @@ CodeTerm build commands
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
-  check-queue [sha]           Warm incremental cargo check (all targets) of a lane SHA in the per-machine check worktree
+  check-queue [sha] [--all] Warm incremental cargo check (all targets) of a lane SHA in the per-machine check worktree
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
