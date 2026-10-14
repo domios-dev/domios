@@ -49,7 +49,7 @@ async fn default_cwd(
     headers: HeaderMap,
 ) -> Result<Json<String>, ApiError> {
     require_owner(&state, &headers)?;
-    codeterm_service_core::commands::get_default_cwd()
+    codeterm_commands::commands::get_default_cwd()
         .map(Json)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
 }
@@ -60,7 +60,7 @@ async fn shell_diagnostics(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_owner(&state, &headers)?;
     Ok(Json(
-        codeterm_service_core::commands::get_shell_diagnostics().await,
+        codeterm_commands::commands::get_shell_diagnostics().await,
     ))
 }
 
@@ -160,7 +160,7 @@ async fn webgl(
 ) -> Result<Json<()>, ApiError> {
     require_owner(&state, &headers)?;
     validate_webgl(&body)?;
-    codeterm_service_core::commands::report_webgl_status(body.state, body.detail);
+    codeterm_commands::commands::report_webgl_status(body.state, body.detail);
     Ok(Json(()))
 }
 

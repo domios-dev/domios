@@ -96,7 +96,7 @@ pub async fn save_session_api(
     });
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::update::shutdown::persist_session(&svc.app_handle, &svc)
+        codeterm_commands::update::shutdown::persist_session(&svc.app_handle, &svc)
     })
     .await
     .map_err(|error| {

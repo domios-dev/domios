@@ -30,7 +30,7 @@ pub async fn pty_spawn(
     Json(body): Json<PtySpawnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let pty_id = codeterm_service_core::commands::spawn_pty_core(
+    let pty_id = codeterm_commands::commands::spawn_pty_core(
         &state.svc,
         body.command,
         body.cwd,
@@ -132,7 +132,7 @@ pub async fn pty_write(
         );
     }
     if body.raw {
-        codeterm_service_core::commands::write_pty_string_core(&state.svc, pty_id, body.data)
+        codeterm_commands::commands::write_pty_string_core(&state.svc, pty_id, body.data)
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     } else {
         // off the async runtime.
@@ -177,7 +177,7 @@ pub async fn pty_resize(
             return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
         }
     }
-    codeterm_service_core::commands::resize_pty_core(
+    codeterm_commands::commands::resize_pty_core(
         &state.svc.pty,
         &state.svc.screen_state,
         pty_id,

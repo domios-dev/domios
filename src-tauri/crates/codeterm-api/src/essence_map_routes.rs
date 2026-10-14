@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::commands::{
+use codeterm_commands::commands::{
     read_workspace_essence_maps_core, read_workspace_essence_source_core, WorkspaceEssenceMapFile,
 };
 

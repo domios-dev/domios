@@ -19,7 +19,7 @@ pub async fn save_clipboard_image(
     Json(body): Json<SaveClipboardImageBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let path = codeterm_service_core::commands::save_clipboard_image_core(body.bytes, body.ext)
+    let path = codeterm_commands::commands::save_clipboard_image_core(body.bytes, body.ext)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "path": path })))
 }
@@ -36,7 +36,7 @@ pub async fn save_clipboard_file(
     Json(body): Json<SaveClipboardFileBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let path = codeterm_service_core::commands::save_clipboard_file_core(body.bytes, body.filename)
+    let path = codeterm_commands::commands::save_clipboard_file_core(body.bytes, body.filename)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "path": path })))
 }

@@ -6,13 +6,13 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::update::apply::{
+use codeterm_commands::update::apply::{
     check_stage_deb_update, debian_preflight_status, gate_staged_deb_async, ApplyOptions,
     ApplyResult, DebianElevationStatus, DebianStageGate,
 };
-use codeterm_service_core::update::single_flight;
-use codeterm_service_core::update::InstallMethod;
-use codeterm_service_core::update::UpdatePhase;
+use codeterm_commands::update::single_flight;
+use codeterm_commands::update::InstallMethod;
+use codeterm_commands::update::UpdatePhase;
 
 #[derive(Deserialize)]
 pub struct CheckUpdateQuery {
@@ -50,7 +50,7 @@ pub async fn check_update(
         us.clear_error();
     }
 
-    let info = match codeterm_service_core::update::checker::check_for_update(&method).await {
+    let info = match codeterm_commands::update::checker::check_for_update(&method).await {
         Ok(i) => i,
         Err(e) => {
             log::debug!("[updater] check failed: {}", e);
@@ -173,7 +173,7 @@ pub async fn install_update(
         let manifest_url = q.manifest_url.clone();
         let continue_tab = q.continue_tab.clone();
         let update_state = state.update_state.clone();
-        codeterm_service_core::update::apply::begin_apply(&update_state);
+        codeterm_commands::update::apply::begin_apply(&update_state);
         if install_method == InstallMethod::Deb {
             let opts = ApplyOptions {
                 channel,
@@ -428,7 +428,7 @@ pub async fn availability(
     let Query(q) =
         query.map_err(|error| availability_error(StatusCode::BAD_REQUEST, error.to_string()))?;
     availability_response(
-        codeterm_service_core::update::discovery::check(
+        codeterm_commands::update::discovery::check(
             &state.svc.app_handle,
             &state.update_state,
             bundles.map(|b| b.0),

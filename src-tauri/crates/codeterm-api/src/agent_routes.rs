@@ -1068,7 +1068,7 @@ pub async fn install_provider_in_tab(
     headers: HeaderMap,
     Path(provider_id): Path<String>,
     Query(query): Query<InstallProviderQuery>,
-) -> Result<Json<codeterm_service_core::commands::InstallTabResult>, (StatusCode, String)> {
+) -> Result<Json<codeterm_commands::commands::InstallTabResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || install_provider_request(&svc, provider_id, query))
@@ -1088,19 +1088,17 @@ fn install_provider_request(
     svc: &codeterm_service_core::service::ServiceState,
     provider_id: String,
     query: InstallProviderQuery,
-) -> Result<codeterm_service_core::commands::InstallTabResult, String> {
+) -> Result<codeterm_commands::commands::InstallTabResult, String> {
     match query
         .fixture_dispatch_failure
         .filter(|value| !value.is_empty())
     {
-        Some(failure) => {
-            codeterm_service_core::commands::install_provider_in_tab_with_fixture_failure(
-                svc,
-                provider_id,
-                failure,
-            )
-        }
-        None => codeterm_service_core::commands::install_provider_in_tab_core(svc, provider_id),
+        Some(failure) => codeterm_commands::commands::install_provider_in_tab_with_fixture_failure(
+            svc,
+            provider_id,
+            failure,
+        ),
+        None => codeterm_commands::commands::install_provider_in_tab_core(svc, provider_id),
     }
 }
 
@@ -1109,8 +1107,8 @@ fn install_provider_request(
     svc: &codeterm_service_core::service::ServiceState,
     provider_id: String,
     _query: InstallProviderQuery,
-) -> Result<codeterm_service_core::commands::InstallTabResult, String> {
-    codeterm_service_core::commands::install_provider_in_tab_core(svc, provider_id)
+) -> Result<codeterm_commands::commands::InstallTabResult, String> {
+    codeterm_commands::commands::install_provider_in_tab_core(svc, provider_id)
 }
 
 #[cfg(test)]

@@ -100,7 +100,7 @@ pub async fn rename_team(
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_tab_id, name| {
-        codeterm_service_core::commands::mux_commands::mux_rename_team_service_core(
+        codeterm_commands::commands::mux_commands::mux_rename_team_service_core(
             &state.svc,
             team_id,
             name,
@@ -192,7 +192,7 @@ pub async fn add_team_member(
         team_id,
         body,
         |team_id, caller_tab_id, body: AddTeamMemberBody| async {
-            codeterm_service_core::commands::mux_commands::mux_add_team_member_service_core(
+            codeterm_commands::commands::mux_commands::mux_add_team_member_service_core(
                 &state.svc,
                 team_id,
                 body.provider,

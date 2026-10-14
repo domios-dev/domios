@@ -176,12 +176,12 @@ mod http {
             cron_wake: Arc::new(std::sync::Condvar::new()),
             api_port: 0,
             update_state: Arc::new(parking_lot::Mutex::new(
-                codeterm_service_core::update::UpdateState {
-                    install_method: codeterm_service_core::update::InstallMethod::Unknown,
+                codeterm_commands::update::UpdateState {
+                    install_method: codeterm_commands::update::InstallMethod::Unknown,
                     last_check: None,
                     last_check_time: None,
-                    channel: codeterm_service_core::update::Channel::default(),
-                    phase: codeterm_service_core::update::UpdatePhase::Idle,
+                    channel: codeterm_commands::update::Channel::default(),
+                    phase: codeterm_commands::update::UpdatePhase::Idle,
                     last_error: None,
                     phase_changed_at: None,
                     downloaded_bytes: 0,
@@ -402,7 +402,7 @@ mod http {
                 }
                 "/api/system/default-cwd" => assert_eq!(
                     result,
-                    serde_json::json!(codeterm_service_core::commands::get_default_cwd().unwrap())
+                    serde_json::json!(codeterm_commands::commands::get_default_cwd().unwrap())
                 ),
                 "/api/system/shell-diagnostics" => {
                     assert_eq!(result["platform"], std::env::consts::OS)
