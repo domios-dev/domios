@@ -197,7 +197,7 @@ End-to-end ≈ 25–30 min, hands-off. Watch the single run: `gh run watch --rep
 - Mac runner toolchain: Xcode command line tools, Rust, Node and pnpm; Docker and the baked
   arm64 image for Linux arm64. Repository secrets supply all signing and notary credentials.
 
-`release-builder.yml` and macOS credential preflight call `scripts/release-signing-material.py`
+`release-macos-build.yml`, `release-linux-arm64.yml` and macOS credential preflight call `scripts/release-signing-material.py`
 before building. Each job imports `APPLE_CERTIFICATE` (base64 .p12) with
 `APPLE_CERTIFICATE_PASSWORD` into a random temporary keychain under `RUNNER_TEMP`, enables
 codesign access and adds that keychain to the search list. `APPLE_SIGNING_IDENTITY` selects
@@ -223,6 +223,10 @@ intentionally, cut the correction as a new patch version through the normal flow
 `release-manifest` needs every caller **and** `tests`; frontend publication needs its tests too.
 macOS arm64 and x64 are independent matrix jobs, as are Windows x64 and arm64: both matrices
 use `fail-fast: false`, so one architecture failure preserves the other's successful uploads.
+`macos` calls `release-macos-build.yml` once; `linux-arm64` calls `release-linux-arm64.yml`
+once. Each reusable workflow contains only its own `build` job, with no platform selector or
+skipped placeholder. The graph reads `macOS / build (arm64)`, `macOS / build (x86_64)` and
+`Linux arm64 / build`. The hosted manual fallback remains `release-macos.yml`.
 Runner variables and their existing-label defaults live in the build-machine README.
 
 For an environmental failure in the same immutable source run, list failed job IDs and rerun
@@ -1148,3 +1152,5 @@ meaningful. It then writes the exact same Markdown to both repositories.
 Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/updater-internals.md](references/updater-internals.md) — the auto-install flow
+
+<!-- revision: 1 -->

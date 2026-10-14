@@ -101,7 +101,7 @@ test("release pushes cannot skip an unchanged tree", () => {
 });
 
 test("platform builders do not push release tags before the test gate", () => {
-  for (const name of ["release-builder", "release-linux", "release-windows"]) {
+  for (const name of ["release-macos-build", "release-linux-arm64", "release-linux", "release-windows"]) {
     for (const job of Object.values(workflow(name).jobs)) {
       for (const step of job.steps) assert.doesNotMatch(step.run || "", /git push/);
     }

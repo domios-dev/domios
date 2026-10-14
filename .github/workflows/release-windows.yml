@@ -314,6 +314,7 @@ jobs:
       - name: Smoke built release bundle
         shell: pwsh
         run: |
+          $env:RELEASE_PWSH = (Get-Process -Id $PID).Path
           node scripts/release-bundle-smoke.mjs windows "src-tauri/target/$env:TARGET/release/bundle/nsis" "${{ inputs.source_ref }}" "${{ matrix.label }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
