@@ -299,6 +299,7 @@ ct_gateway_finish() {
     rc="$failure"
   elif [ -n "$outcome_override" ]; then
     state=failed
+      if [ "$outcome_override" = logging_degraded ] && [ "$rc" -eq 0 ]; then state=completed; fi
     outcome="$outcome_override"
   elif [ "${CT_GATEWAY_CANCELLED:-0}" = "1" ] || [ "$rc" -eq 130 ] || [ "$rc" -eq 143 ]; then
     state=cancelled
@@ -424,7 +425,9 @@ ct_gateway_acquire() {
       rm -rf "$dir/queue/$CT_BUILD_QUEUE_KEY"
       ct_gateway_mutex_release "$dir" || return $?
       ct_gateway_state_tool evidence-start --dir "$dir" --job-id "$CT_BUILD_JOB_ID" --scope "${CT_BUILD_GATEWAY_SCOPE:-production}" || { echo "[build-gateway] metadata write failed before compilation: start evidence (job=$CT_BUILD_JOB_ID)" >&2; CT_GATEWAY_ACTIVE=0; return 74; }
-      export CARGO_LOG="${CARGO_LOG:+$CARGO_LOG,}cargo::core::compiler::fingerprint=info"
+      local fingerprint_level=off
+      [ "${CODETERM_BUILD_FINGERPRINTS:-0}" != 1 ] || fingerprint_level=info
+      export CARGO_LOG="${CARGO_LOG:+$CARGO_LOG,}cargo::core::compiler::fingerprint=$fingerprint_level"
       return 0
     fi
     if [ "$wait_mode" = "fail-fast" ]; then

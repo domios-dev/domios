@@ -65,7 +65,7 @@ export function parseDispatchArgs(verb, argv) {
       else if (arg === '--reply-tab') opts.replyTab = value;
       else if (arg === '--sha') opts.sha = value;
       else throw new Error(`${arg} is not valid for ${verb}`);
-    } else if (arg === '--lane') opts.lane = true;
+    } else if (arg === '--lane' && verb === 'check-queue') { opts.lane = true; opts.passthrough.push(arg); }
     else if (arg === '--force') opts.force = true;
     else if (PASS_SWITCHES.has(arg) && verb === 'check-queue') opts.passthrough.push(arg);
     else if (arg === '--wait-build') continue;

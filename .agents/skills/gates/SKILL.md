@@ -22,7 +22,7 @@ Two shapes, and picking the wrong one is what costs hours.
 A per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
 compiles all test targets in both the app and CLI workspaces without running
 them. A following `test-one app` or `test-one cli` reuses those artifacts.
-It runs outside the build gateway and refuses `--wait-build`.
+It uses the shared Cargo gateway entry and accepts `--wait-build`.
 `.\build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`
 alone does not cover test-only Rust changes.
 
@@ -53,9 +53,9 @@ node --test scripts/tests/check-provider-boundary.test.mjs
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
-In a Worker lane only the isolated ones run: `tsc`, a single node test file,
-`test-one plan`, `test-one pty`, the file-size script and
-`./build.sh check-queue`. `check`, `check-tests` and `test-one app` compile the
+In a Worker lane only the isolated non-Rust checks run: `tsc`, a single node test file,
+rustfmt, the file-size and service-core-boundary scripts, then one
+`./build.sh check-queue --lane <sha>`. `check`, `check-tests` and Rust tests compile the
 app crate in the lane, a full rebuild; report them as deferred selectors for the
 Orchestrator's canonical wave batch.
 
@@ -65,18 +65,19 @@ Canonical QA always starts with `./build.sh check`; tests (`check-tests`,
 `test-one`) run only after it is green, so a name or type error costs seconds
 instead of a multi-minute test-profile rebuild.
 
-A Worker proves a committed Rust change with `./build.sh check-queue [<sha>]`
+A Worker proves a committed Rust change with `./build.sh check-queue --lane [<sha>]`
 (default: lane HEAD). It checks the SHA out in the per-machine check worktree
 (`<gateway dir>/check-worktree`, own warm `target/app` and `target/cli`, never
 canonical or a lane target), runs incremental
-`cargo clippy --all-targets --no-deps --message-format=short` with the shared
-`scripts/clippy-allow.sh` policy for the touched packages (plus `codeterm` as
-dependent unless `--touched-only`), and prints at most `--max-errors` (default
+`cargo clippy --lib --no-deps --message-format short -- -D warnings` with the shared
+`scripts/clippy-allow.sh` policy for existing touched packages, root bins only
+when root is touched and leaf test targets only for test paths or moved crates.
+Core test targets stay at the batch. It prints at most `--max-errors` (default
 20) `file:line:col: error[...]` lines with an `errors=N shown=M` total, then at
 most `--max-warnings` (default 40) warning lines, one `warnings crate=<name>
 count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
 Warnings count as errors: any rustc or clippy warning in a touched crate fails
-the run, and a Worker reports only with `errors=0` and `failing=none`.
+the run, and a Worker reports only with `errors=0` and `warnings=0`.
 `--all` lints the whole app workspace and the CLI and fails on any warning.
 `./build.sh check` ends with one `warnings crate=` line per warned crate and a
 `check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate
@@ -211,3 +212,5 @@ an incomplete run's inventory over the baseline or hand-increase an allowance.
 Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
+
+Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` with default embeddings. Root dev/default, core default and app test features must agree; divergence refuses compilation. A batch failure in a lane's files is a bounce naming the integration SHA.
