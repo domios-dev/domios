@@ -503,7 +503,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn supporter_token(&self, plugin_id: &str) -> Option<String> {
         stored_supporter_token(
             plugin_id,
-            &crate::api::mem_routes::decision::supporter_token_dir(),
+            &crate::service::supporter::registry::supporter_token_dir(),
         )
     }
 

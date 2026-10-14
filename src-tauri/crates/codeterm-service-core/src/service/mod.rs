@@ -379,7 +379,7 @@ pub struct ServiceContext {
     pub event_source_registry: Arc<codeterm_plugin::event_source::EventSourceRegistry>,
     pub graph_event_subscriptions: codeterm_plugin::graph_events::SubscriptionTable,
     /// Decision adapters for the stage-2 recall re-rank, resolved by configured id.
-    pub supporter_models: Arc<crate::api::mem_routes::decision::SupporterRegistry>,
+    pub supporter_models: Arc<crate::service::supporter::registry::SupporterRegistry>,
     /// Registry of glance-view providers (plugins with `glanceView`). Plugin
     /// bubbles render their popovers from here.
     pub glance_registry: crate::glance::GlanceRegistryHandle,

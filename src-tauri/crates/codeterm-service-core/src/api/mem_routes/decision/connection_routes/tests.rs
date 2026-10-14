@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 use codeterm_decision::{
-    DecisionAnswer, DecisionError, DecisionModelInfo, DecisionPrimitives, DecisionRequest,
+    DecisionAnswer, DecisionModel, DecisionError, DecisionModelInfo, DecisionPrimitives, DecisionRequest,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;

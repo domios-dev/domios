@@ -358,7 +358,7 @@ impl ServiceFixture {
                 codeterm_plugin::event_source::EventSourceRegistry::default(),
             ),
             graph_event_subscriptions: codeterm_plugin::graph_events::SubscriptionTable::new(),
-            supporter_models: Arc::new(crate::api::mem_routes::decision::SupporterRegistry::new()),
+            supporter_models: Arc::new(crate::service::supporter::registry::SupporterRegistry::new()),
             glance_registry: Arc::new(crate::glance::GlanceRegistry::new()),
             bubble_registry: Arc::new(crate::bubble::BubbleRegistry::new()),
             repo_watch: Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(

@@ -4,13 +4,13 @@
 mod graph;
 mod hygiene;
 
-use crate::api::mem_routes::items::{
+use crate::mem_ops::items::{
     bump_on_get, compose_appended_body, validate_update_body, wake_up_options_from_params,
     AppendBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams, TaxonomyParams,
     UpdateBody, WakeUpParams,
 };
-use crate::api::mem_routes::search::{execute_search, SearchError, SearchParams};
-use crate::api::mem_routes::{sanitize_actor, validate_item_fields};
+use crate::mem_ops::search::{execute_search, SearchError, SearchParams};
+use crate::mem_ops::{sanitize_actor, validate_item_fields};
 use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
 use crate::mem::learnings::{self, LearnKind};
 use crate::mem::store::{with_changed_by, MemKind, MemScope, MemUpdate, NewMemItem};
@@ -245,7 +245,7 @@ fn mem_save(
     emit_activity(svc, "write", vec![id.clone()]);
 
     let auto_extract_enabled = svc.configuration().memory.auto_extract;
-    if crate::api::mem_routes::items::save_schedules_extraction(
+    if crate::mem_ops::items::save_schedules_extraction(
         &outcome.outcome,
         skip_extract,
         is_auto_extracted,
@@ -399,7 +399,7 @@ fn mem_sync(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
-    let p: crate::api::mem_routes::sync::SyncParams = parse_params(params)?;
+    let p: crate::mem_ops::sync::SyncParams = parse_params(params)?;
     let result = if let Some(path) = p.path {
         crate::mem::file_sync::sync_path(&svc.mem, &path)
     } else {
@@ -440,7 +440,7 @@ fn mem_extract_pending(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
-    let p: crate::api::mem_routes::dream::ExtractPendingParams = parse_params(params)?;
+    let p: crate::mem_ops::dream::ExtractPendingParams = parse_params(params)?;
     let limit = p.limit.unwrap_or(200).clamp(1, 1000);
     let count = crate::mem::auto_extract::run_extract_pending(svc.clone(), limit);
     Ok(serde_json::json!({ "queued": count }))
@@ -484,7 +484,7 @@ fn mem_calibration_log(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
-    use crate::api::mem_routes::calibration::CalibLogParams;
+    use crate::mem_ops::calibration::CalibLogParams;
     let p: CalibLogParams = parse_params(params)?;
     let limit = p.limit.unwrap_or(50).min(500);
     let since = match p.since.as_deref() {
@@ -498,7 +498,7 @@ fn mem_calibration_log(
     let count_only = p.count.unwrap_or(false);
     svc.mem
         .with_conn(|conn| {
-            crate::api::mem_routes::calibration::calibration_log_query(
+            crate::mem_ops::calibration::calibration_log_query(
                 conn, &since, limit, count_only,
             )
         })
@@ -509,11 +509,11 @@ fn mem_calibration_sweep(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
-    use crate::api::mem_routes::calibration::SweepParams;
+    use crate::mem_ops::calibration::SweepParams;
     let p: SweepParams = parse_params(params)?;
     let force = p.force.unwrap_or(false);
     svc.mem
-        .with_conn(|conn| crate::api::mem_routes::calibration::run_calibration_sweep(conn, force))
+        .with_conn(|conn| crate::mem_ops::calibration::run_calibration_sweep(conn, force))
         .map_err(internal_error)
 }
 
