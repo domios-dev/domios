@@ -57,6 +57,7 @@ Choose the operation before running a command: shared development is `.agents/sk
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh check-tests      # compile Rust test profiles without running tests
+./build.sh check-queue [sha] # lane SHA: warm per-machine incremental cargo check, bounded errors
 ./build.sh worktree-check   # canonical-only integration compile check
 ./build.sh test-one app NAME # one focused app test (pty/cli also supported)
 ./build.sh test-one plan NAME # one focused codeterm-plan test
@@ -88,7 +89,7 @@ relaunches Domios, and resumes the calling tab. Do not manually replace the
 bundle or conclude that macOS self-install is missing because
 `./build.sh install-local` is Windows-only.
 
-`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, and the TypeScript/JS and plugin tests of what you touched; then commit, push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
+`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, the TypeScript/JS and plugin tests of what you touched, and `./build.sh check-queue` after committing Rust (the shared warm check worktree, never the lane target), fixing every returned error; then push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
 
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
