@@ -560,7 +560,7 @@ fn saturated_response() -> crate::mesh::types::RelayResponse {
 
 fn is_tab_listing(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("GET")
-        && crate::api::access_policy::request_path(path) == "/api/tabs"
+        && crate::api_support::access_policy::request_path(path) == "/api/tabs"
 }
 
 /// A logical tab send (POST `.../send`).

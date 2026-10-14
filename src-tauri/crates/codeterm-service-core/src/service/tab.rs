@@ -733,7 +733,7 @@ impl ServiceContext {
         {
             return result;
         }
-        if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
+        if let Some(result) = crate::service::permission_decision::respond_with_identity(
             self,
             tab_id,
             value,
@@ -866,7 +866,7 @@ impl ServiceContext {
         let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
-        crate::api::hook_routes::permission_decision::clear_tab(tab_id);
+        crate::service::permission_decision::clear_tab(tab_id);
         if let Some(pty_id) = resolved_pty {
             self.release_prompt_waiting(tab_id, &pty_id);
         }

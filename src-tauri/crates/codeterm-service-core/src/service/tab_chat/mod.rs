@@ -17,6 +17,7 @@ mod file_events;
 pub mod host_context;
 pub mod raw_text_sink;
 pub mod registry;
+pub mod results;
 pub(crate) mod restore_notice;
 pub mod session_window;
 pub mod store_watch;

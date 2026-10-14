@@ -16,7 +16,7 @@ use crate::pty::screen_state::ScreenState;
 use crate::session::store::SessionStore;
 use crate::session::SessionState;
 use crate::{
-    agent, keepawake, mesh, service, update, AgentTrackerState, KeepAwakeStateHandle,
+    agent, keepawake, mesh, service, AgentTrackerState, KeepAwakeStateHandle,
     MeshStateHandle, OutputBufferState, PtyState, ReportStoreState, ResizeOwnerState,
     ScreenStateHandle, UpdateStateHandle,
 };
@@ -258,15 +258,15 @@ pub(crate) fn init_states() -> AppStates {
         api_port,
     )));
 
-    let install_method = update::detect_install_method();
+    let install_method = crate::update_state::detect_install_method();
     log::info!("Install method detected: {}", install_method);
     let channel = config_state.lock().updater.channel;
-    let update_state: UpdateStateHandle = Arc::new(Mutex::new(update::UpdateState {
+    let update_state: UpdateStateHandle = Arc::new(Mutex::new(crate::update_state::UpdateState {
         install_method,
         last_check: None,
         last_check_time: None,
         channel,
-        phase: update::UpdatePhase::Idle,
+        phase: crate::update_state::UpdatePhase::Idle,
         last_error: None,
         phase_changed_at: None,
         downloaded_bytes: 0,

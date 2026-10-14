@@ -14,7 +14,8 @@ use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
 use crate::api::routes::{check_auth, AppState};
-use crate::api::snapshot_bound;
+use crate::startup::snapshot_bound;
+use crate::service::web_access::uploads_dir;
 
 pub use crate::api::web_plugin_routes::plugin_ui;
 
@@ -562,10 +563,6 @@ async fn cleanup_uploads_dir(dir: &std::path::Path) {
             total = total.saturating_sub(entry.size);
         }
     }
-}
-
-pub(crate) fn uploads_dir() -> std::path::PathBuf {
-    crate::paths::data_dir().join("uploads")
 }
 
 /// The one write path for host-owned attachments, shared by browser uploads and mesh ingest.

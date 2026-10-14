@@ -7,7 +7,7 @@ use codeterm_notification_core::contract::{
     adopt_caller_actions, answer_actions, CallerAction, NotificationAction,
 };
 
-use crate::api::notification_routes::CreateNotifBody;
+use crate::notification::vet::CreateNotifBody;
 
 /// Tauri commands are refused as caller buttons.
 const OFF_LIMITS_COMMANDS: [&str; 3] = [

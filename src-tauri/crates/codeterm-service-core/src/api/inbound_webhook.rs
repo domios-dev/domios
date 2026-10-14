@@ -19,6 +19,7 @@ use crate::plugin::{
     WebhookRegistry,
 };
 use crate::secrets::{SecretError, SecretStore};
+use crate::service::web_access::PEBBLE_WEBHOOK_SECRET;
 use crate::service::message_gateway::{
     DeliveryClass, DeliverySeam, MessageBody, MessageGateway, MessageOrigin, OutboundMessage,
 };
@@ -27,8 +28,6 @@ use crate::service::messenger::MessageEnvelope;
 mod audio;
 mod payload;
 
-pub(crate) const PEBBLE_WEBHOOK_PATH: &str = "/api/plugins/pebble/webhook";
-pub(crate) const PEBBLE_WEBHOOK_SECRET: &str = "pebble_webhook_secret";
 pub(crate) const MAX_WEBHOOK_BODY_BYTES: usize = 1024 * 1024;
 /// Granted on top of the text body only to a receiver whose capability declares audio.
 pub(crate) const MAX_WEBHOOK_AUDIO_BYTES: usize = 8 * 1024 * 1024;
@@ -457,7 +456,7 @@ pub(crate) async fn receive_pebble_webhook(
                 audio::transcribe(
                     &state.svc.transcribe_registry,
                     &active,
-                    &crate::api::web_routes::uploads_dir(),
+                    &crate::service::web_access::uploads_dir(),
                     audio,
                 )
                 .await,

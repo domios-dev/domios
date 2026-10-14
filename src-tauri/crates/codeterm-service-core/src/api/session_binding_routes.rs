@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use super::hook_routes::{finish_session_binding, SessionBindError, SessionStartClaim};
+use crate::service::hook_session_binding::{finish_session_binding, SessionBindError, SessionStartClaim};
 use super::routes::{resolve_tab, AppState};
 
 #[derive(serde::Deserialize)]
@@ -127,7 +127,7 @@ pub(crate) fn rebind_session_core(
     binding_nonce: Option<&str>,
     expected_evidence: &crate::agent::provider_identity::ProviderIdentityEvidence,
 ) -> Result<SessionStartClaim, SessionBindError> {
-    crate::api::hook_routes::bind_validated_rebind_session(
+    crate::service::hook_session_binding::bind_validated_rebind_session(
         mux,
         registry,
         tab_id,
@@ -219,7 +219,7 @@ pub(crate) async fn validate_and_commit_rebind(
             caller_tab_id,
             &evidence,
             |mux| {
-                crate::api::hook_routes::commit_materialized_rebind_session(
+                crate::service::hook_session_binding::commit_materialized_rebind_session(
                     mux,
                     tab_id,
                     &provider_id,

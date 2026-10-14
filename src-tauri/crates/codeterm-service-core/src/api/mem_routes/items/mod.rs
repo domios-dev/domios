@@ -7,7 +7,6 @@ use axum::{
 use crate::api::routes::{check_auth, AppState};
 use crate::mem::activity::now_ms;
 use crate::mem::{
-    layers::WakeUpOptions,
     learnings::{self, LearnKind},
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
 };

@@ -291,7 +291,7 @@ fn mesh_attachment_path_guard_allows_rewritten_references() {
 #[test]
 fn mesh_attachment_path_guard_covers_host_attachment_roots() {
     let roots = source_attachment_roots();
-    let uploads = crate::api::web_routes::uploads_dir();
+    let uploads = crate::service::web_access::uploads_dir();
     assert!(roots.contains(&uploads.to_string_lossy().to_string()));
     let bucket = crate::attachments::bucket_dir("chat")
         .to_string_lossy()
@@ -390,7 +390,7 @@ fn mesh_attachment_consumer_refuses_oversized_source_before_relay() {
 
 #[test]
 fn mesh_relay_attachment_requires_authenticated_peer_access() {
-    use crate::api::access_policy::check_access;
+    use crate::api_support::access_policy::check_access;
     use crate::api::auth::{is_custom_auth, PUBLIC_PATHS};
 
     for path in ["/api/tabs/t1/attachments", "/api/mesh/attachments/transfer"] {

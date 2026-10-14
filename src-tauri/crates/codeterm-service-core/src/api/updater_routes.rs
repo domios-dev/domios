@@ -151,7 +151,7 @@ pub async fn install_update(
                 from_model: tab.agent_session_model.clone(),
             }
         };
-        if let Err(e) = crate::update::post_update::stash(text, Some(sender)) {
+        if let Err(e) = crate::service::post_update::stash(text, Some(sender)) {
             log::warn!("[updater] failed to stash after_update message: {}", e);
         }
     }
@@ -358,7 +358,7 @@ pub async fn install_update(
         }))),
         None => {
             let url = info.download_url.as_deref().unwrap_or(&info.release_url);
-            let _ = crate::commands::open_url(url.to_string());
+            let _ = crate::service::open_url::open_url(url.to_string());
             Ok(Json(serde_json::json!({
                 "status": "browser_opened",
                 "url": url,
