@@ -491,7 +491,7 @@ mod tests {
     /// re-defaulted on restart and the user's choice would silently expire.
     #[test]
     fn notification_level_sound_answers_survive_the_config_read() {
-        use codeterm_notification_core::contract::NotifyLevel;
+        use codeterm_notify_types::NotifyLevel;
 
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config.toml");
