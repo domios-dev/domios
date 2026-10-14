@@ -1,6 +1,9 @@
 //! Mechanism oracles for `mem secret save-master-password`: writes no credential
 //! file, asks the backend before claiming, and never emits the credential.
 
+#[path = "../src/test_support.rs"]
+mod test_support;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -8,7 +11,7 @@ use std::process::{Command, Stdio};
 const SYNTHETIC_SECRET: &str = "synthetic-not-a-credential-0000";
 
 fn cli_src_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
+    PathBuf::from(crate::test_support::fixture_manifest_dir()).join("src")
 }
 
 /// The `save-master-password` arm alone, sliced out of the command dispatcher.

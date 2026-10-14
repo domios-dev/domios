@@ -135,7 +135,8 @@ mod tests {
     // --- Real shipped plugin: load it, prove capabilities + the host.fetch path ---
 
     fn transcriber_manifest() -> std::path::PathBuf {
-        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+        crate::test_support::fixture_manifest_dir()
+            .join("..")
             .join("plugins/transcriber/plugin.json")
     }
 

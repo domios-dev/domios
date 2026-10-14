@@ -41,5 +41,12 @@ test('only archive builders install Rust; free consumers choose their platform a
   const consumers = workflow.slice(workflow.indexOf('  rust-shards:'), workflow.indexOf('  rust-coverage:'));
   assert.doesNotMatch(consumers, /rust-toolchain|Prepare compile fixtures/);
   assert.match(consumers, /rust-archive-\$\{\{ runner.os \}\}-\$\{\{ runner.arch \}\}/);
-  assert.match(consumers, /runs-on: \[self-hosted, rust-shard\]/);
+  assert.match(consumers, /runs-on: \[self-hosted, rust-shard, macOS\]/);
+});
+
+
+test('macOS shared shards and all native consumers retain matching archive builds', () => {
+  const native = receipts();
+  const shared = Array.from({ length: 12 }, () => ({ ...native[0] }));
+  assert.match(verifyArchiveBuilds(builds(), [...native, ...shared]), /Linux-builder/);
 });

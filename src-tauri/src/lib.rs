@@ -1015,3 +1015,6 @@ pub fn run() {
 #[cfg(test)]
 #[path = "../vendor/tauri-runtime-wry/src/owner_thread.rs"]
 mod windows_rc_ownership_regression;
+
+#[cfg(test)]
+mod test_support;

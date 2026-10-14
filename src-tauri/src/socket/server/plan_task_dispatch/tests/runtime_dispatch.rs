@@ -68,7 +68,7 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
         "capabilities":{"agentProvider":true,
             "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc",
-                "command":{"binary":"node","args":[format!("{}/../tests/fixtures/agent-runtime/fake-peer.mjs",env!("CARGO_MANIFEST_DIR"))]},
+                "command":{"binary":"node","args":[format!("{}/../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},
                 "requestMethods":methods,"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();

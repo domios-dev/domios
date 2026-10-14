@@ -40,7 +40,7 @@ fn generic_paths() -> PathBuf {
     std::env::var_os("CODETERM_GENERIC_RUNTIME_FIXTURES")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            PathBuf::from(crate::test_support::fixture_manifest_dir())
                 .join("src/js_runtime/parity_test/fixtures/runtime")
         })
 }
