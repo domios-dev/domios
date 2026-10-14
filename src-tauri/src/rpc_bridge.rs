@@ -4,8 +4,11 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::app_runtime::AppHandle;
+use crate::multiplexer::commands::MuxState;
+use crate::notification::NotifState;
 use crate::plan::{PlanMode, Task, TaskExecutionAttempt, TaskLaneMetadata};
 use crate::service::{LaneProtection, ProvisionedWorkerLane, ServiceState, WorkerLaneProvenance};
+use crate::{OutputBufferState, PtyState};
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct RpcError {
@@ -57,6 +60,14 @@ pub(crate) struct RpcBridge {
         u64,
     ) -> Result<Value, RpcError>,
     pub(crate) run_dispatch_startup: fn(DispatchStartup, StartupReady),
+    pub(crate) start_server: fn(
+        MuxState,
+        PtyState,
+        NotifState,
+        AppHandle,
+        OutputBufferState,
+        ServiceState,
+    ) -> Result<(), String>,
 }
 
 static BRIDGE: OnceLock<RpcBridge> = OnceLock::new();
