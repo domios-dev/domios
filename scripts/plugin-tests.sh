@@ -50,6 +50,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/provider-helper-parity.test.ts
       plugins/provider-codex/tests/transcript-dedupe.test.ts
       plugins/provider-codex/tests/tool-fields.test.ts
+      plugins/provider-codex/tests/command-label.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/update-check.test.ts
@@ -132,6 +133,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/update-check.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-codex/tests/windows-launch.test.ts
+      plugins/provider-codex/tests/command-label.test.ts
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts

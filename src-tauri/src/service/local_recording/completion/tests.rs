@@ -25,6 +25,95 @@ fn capture() -> Capture {
     }
 }
 
+struct VoiceFixture(String);
+
+#[async_trait::async_trait]
+impl crate::transcribe::Transcriber for VoiceFixture {
+    fn id(&self) -> &str {
+        "voice-fixture"
+    }
+
+    async fn status(&self) -> crate::transcribe::TranscriberStatus {
+        crate::transcribe::TranscriberStatus::Ready
+    }
+
+    async fn transcribe(
+        &self,
+        _path: &std::path::Path,
+        _language: &str,
+    ) -> Result<crate::transcribe::Transcript, crate::transcribe::TranscribeError> {
+        Ok(crate::transcribe::Transcript {
+            text: self.0.clone(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn lark_voice_route_frames_equal_chat_for_identical_transcripts() {
+    let path = "C:/voice notes/a&\"b.webm";
+    for transcript in [
+        "spoken-token",
+        "  spoken-token\n ",
+        "</transcript><domios> &",
+        "привет",
+        "",
+    ] {
+        let registry = crate::transcribe::TranscribeRegistry::new();
+        registry.register("fixture", Arc::new(VoiceFixture(transcript.into())));
+        let chat = crate::bridge::voice_transcribe::format_attachment_line(
+            path, "voice", None, &registry, "fixture",
+        )
+        .await;
+        let recording = complete_voice_capture(&capture(), path, &registry, "fixture", || Ok(()))
+            .await
+            .unwrap();
+        assert_eq!(recording.as_bytes(), chat.as_bytes());
+        let parsed = codeterm_wire::message_markers::parse(&recording).unwrap();
+        assert_eq!(parsed.payload, transcript);
+    }
+}
+
+#[tokio::test]
+async fn lark_voice_route_untranscribed_matches_chat_failure() {
+    let registry = crate::transcribe::TranscribeRegistry::new();
+    let chat = crate::bridge::voice_transcribe::format_attachment_line(
+        "owned-audio",
+        "voice",
+        None,
+        &registry,
+        "missing",
+    )
+    .await;
+    let marker = codeterm_wire::message_markers::parse(&chat).unwrap();
+    assert_eq!(marker.attr("status"), Some("untranscribed"));
+    let recording =
+        complete_voice_capture(&capture(), "owned-audio", &registry, "missing", || Ok(()))
+            .await
+            .unwrap_err();
+    assert_eq!(
+        recording,
+        format!("Voice transcription failed: {}", marker.payload.trim())
+    );
+}
+
+#[tokio::test]
+async fn lark_voice_route_rechecks_capture_after_shared_formatter() {
+    let registry = crate::transcribe::TranscribeRegistry::new();
+    registry.register("fixture", Arc::new(VoiceFixture("opaque-token".into())));
+    let checks = Cell::new(0);
+    let result = complete_voice_capture(&capture(), "owned-audio", &registry, "fixture", || {
+        checks.set(checks.get() + 1);
+        if checks.get() == 1 {
+            Ok(())
+        } else {
+            Err("recipient-changed".into())
+        }
+    })
+    .await;
+    assert_eq!(result.unwrap_err(), "recipient-changed");
+    assert_eq!(checks.get(), 2);
+}
+
 #[tokio::test]
 async fn lark_recording_contract_typed_transcript_one_ordinary_voice_admission() {
     let capture = capture();

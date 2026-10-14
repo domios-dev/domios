@@ -74,7 +74,7 @@ impl Wake for SocketWake {
     }
 }
 
-pub(in crate::probe) struct Events {
+pub struct Events {
     reader: Descriptor,
     wake: Arc<SocketWake>,
     registration: Option<Registration>,

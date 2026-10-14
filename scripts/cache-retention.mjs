@@ -168,7 +168,7 @@ function sweepCheckout(checkout, dryRun, maxAgeDays, runner) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    if (process.env.CT_CACHE_RETENTION_LOCK_HELD !== '1') throw new Error('use build.sh gc; gateway mutex is required');
+    if (process.env.CT_CACHE_RETENTION_LOCK_HELD !== '1') throw new Error('use build.sh gc; cache retention mutex is required');
     const [operation, gateway, checkout, target] = process.argv.slice(2);
     if (operation === 'mark') mark(gateway, checkout, target);
     else if (operation === 'gc' || operation === 'auto') retain(gateway, checkout,
