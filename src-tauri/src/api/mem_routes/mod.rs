@@ -62,90 +62,17 @@ pub(crate) fn validate_item_fields(
     tags: &[String],
     importance: Option<f64>,
 ) -> Result<(), (StatusCode, String)> {
-    let t = title.trim();
-    if t.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "title must not be empty".into()));
-    }
-    if t.len() < 3 {
-        return Err((StatusCode::BAD_REQUEST, "title must be >= 3 chars".into()));
-    }
-    if t.len() > 200 {
-        return Err((StatusCode::BAD_REQUEST, "title must be <= 200 chars".into()));
-    }
-    if body.len() > 1_048_576 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("body too large: {} bytes (max 1 MB)", body.len()),
-        ));
-    }
-    if body.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "body must not be empty".into()));
-    }
-    if let Some(a) = area.as_deref() {
-        if !a.is_empty() {
-            if a.len() > 64 {
-                return Err((StatusCode::BAD_REQUEST, "area must be <= 64 chars".into()));
-            }
-            if !a
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-            {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!("area must match [a-zA-Z0-9_-]+: `{}`", a),
-                ));
-            }
-        }
-    }
-    if tags.len() > 20 {
-        return Err((StatusCode::BAD_REQUEST, "too many tags (max 20)".into()));
-    }
-    for tag in tags {
-        if tag.len() > 50 {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("tag too long (max 50): `{}`", tag),
-            ));
-        }
-    }
-    if let Some(i) = importance {
-        if !(0.0..=5.0).contains(&i) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("importance must be 0.0..=5.0, got {}", i),
-            ));
-        }
-    }
-    Ok(())
+    codeterm_mem::curation::validate_item_fields(title, body, area, tags, importance).map_err(
+        |(code, msg)| {
+            (
+                StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST),
+                msg,
+            )
+        },
+    )
 }
 
-#[cfg(test)]
-mod item_validation_tests {
-    use super::validate_item_fields;
-
-    #[test]
-    fn save_rejects_nan_importance_and_empty_body() {
-        assert!(validate_item_fields("valid title", "body", &None, &[], Some(f64::NAN)).is_err());
-        assert!(validate_item_fields("valid title", "  \n", &None, &[], None).is_err());
-    }
-}
-
-/// Reserved `changed_by` prefixes — only the server itself writes these.
-/// Any client-supplied actor matching one of these is namespaced under
-/// `user-overridden:` so it can never spoof a real worker / dreamer run
-/// (which would trip the calibration re-entry guard or pollute the audit).
-const RESERVED_CHANGED_BY_PREFIXES: &[&str] = &["worker:", "dreamer-", "dreaming:", "system:"];
-
-pub(crate) fn sanitize_actor(actor: &str) -> String {
-    if RESERVED_CHANGED_BY_PREFIXES
-        .iter()
-        .any(|p| actor.starts_with(p))
-    {
-        format!("user-overridden:{actor}")
-    } else {
-        actor.to_string()
-    }
-}
+pub(crate) use codeterm_mem::curation::sanitize_actor;
 
 /// Map incoming HTTP headers to a `changed_by` label for the history log.
 /// - `x-codeterm-worker-id` present → `worker:<intent-or-other>`
@@ -165,34 +92,6 @@ pub(super) fn changed_by_from_headers(headers: &HeaderMap) -> String {
         return sanitize_actor(actor);
     }
     "user".to_string()
-}
-
-#[cfg(test)]
-mod actor_sanitizer_tests {
-    use super::sanitize_actor;
-
-    #[test]
-    fn plain_actor_passes_through() {
-        assert_eq!(sanitize_actor("alice"), "alice");
-        assert_eq!(sanitize_actor("cli:mem-pin"), "cli:mem-pin");
-    }
-
-    #[test]
-    fn reserved_prefixes_are_wrapped() {
-        assert_eq!(
-            sanitize_actor("dreamer-calibration:promote"),
-            "user-overridden:dreamer-calibration:promote",
-        );
-        assert_eq!(sanitize_actor("worker:rem"), "user-overridden:worker:rem");
-        assert_eq!(
-            sanitize_actor("dreaming:rem"),
-            "user-overridden:dreaming:rem",
-        );
-        assert_eq!(
-            sanitize_actor("system:dreaming"),
-            "user-overridden:system:dreaming",
-        );
-    }
 }
 
 pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem_ids: Vec<String>) {

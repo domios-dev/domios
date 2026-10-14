@@ -589,37 +589,16 @@ pub(crate) fn compose_appended_body(old: &str, text: &str) -> String {
     }
 }
 
-/// Choose the body to restore from an item's history. `version` targets a
-/// specific history row id (its `new_body`, falling back to `old_body`);
-/// `None` undoes the most recent body change (latest non-null `old_body`).
 pub(crate) fn pick_restore_body(
     history: &[crate::mem::store::HistoryEntry],
     version: Option<i64>,
 ) -> Result<String, (StatusCode, String)> {
-    match version {
-        Some(v) => {
-            let entry = history.iter().find(|h| h.id == v).ok_or((
-                StatusCode::NOT_FOUND,
-                format!("history version {} not found", v),
-            ))?;
-            entry
-                .new_body
-                .clone()
-                .or_else(|| entry.old_body.clone())
-                .ok_or((
-                    StatusCode::BAD_REQUEST,
-                    format!("history row {} has no body snapshot", v),
-                ))
-        }
-        None => history
-            .iter()
-            .rev()
-            .find_map(|h| h.old_body.clone())
-            .ok_or((
-                StatusCode::BAD_REQUEST,
-                "no prior body to restore".to_string(),
-            )),
-    }
+    codeterm_mem::curation::pick_restore_body(history, version).map_err(|(code, msg)| {
+        (
+            StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST),
+            msg,
+        )
+    })
 }
 
 #[derive(Deserialize)]
