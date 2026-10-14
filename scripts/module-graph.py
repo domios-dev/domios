@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """Module dependency graph of the src-tauri crate (crate:: references, depth 1 and 2 for service/agent/api).
 
-Usage: python3 scripts/module-graph.py [--json out.json] [--md out.md]
+Usage: python3 scripts/module-graph.py [--root PATH] [--json out.json] [--md out.md] [--summary]
 """
 import collections, json, os, re, sys
 from collections import defaultdict
 
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src-tauri", "src")
+REPO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+ROOT_CANDIDATES = ("src-tauri/crates/codeterm-service-core/src", "src-tauri/src")
+
+def resolve_root(argv):
+    if "--root" in argv:
+        return argv[argv.index("--root") + 1]
+    for c in ROOT_CANDIDATES:
+        p = os.path.join(REPO, c)
+        if os.path.isdir(p):
+            return p
+    raise SystemExit("no source root found; pass --root PATH")
+
+ROOT = resolve_root(sys.argv)
 DEEP = {"service", "agent", "api"}
 
 def unit_of(rel):
