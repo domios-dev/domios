@@ -7,7 +7,7 @@ mod agent_binding;
 pub(super) mod readiness;
 
 fn compose_routed_suffix(suffix: &str) -> String {
-    format!("{suffix}{}", codeterm_types::domios::DOMIOS_CLOSE_TAG)
+    format!("{suffix}{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG)
 }
 
 struct RoutedInput {
@@ -18,7 +18,7 @@ struct RoutedInput {
 }
 
 fn prepare_routed_input(
-    frame: &codeterm_types::domios::DomiosFrame,
+    frame: &codeterm_wire::domios::DomiosFrame,
     requires_typed_instruction: bool,
 ) -> RoutedInput {
     let body = sanitize_agent_prompt_input(&frame.body);
@@ -27,7 +27,7 @@ fn prepare_routed_input(
         RoutedInput {
             body,
             typed_prefix: Some(frame.opening_tag.clone()),
-            pasted_tail: Some(codeterm_types::domios::pasted_marker_tail()),
+            pasted_tail: Some(codeterm_wire::domios::pasted_marker_tail()),
             typed_suffix: Some(suffix),
         }
     } else {
@@ -395,7 +395,7 @@ impl ServiceContext {
         expected_pty_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
-        frame: codeterm_types::domios::DomiosFrame,
+        frame: codeterm_wire::domios::DomiosFrame,
     ) -> Result<(), String> {
         let pty_claim = self.pty_ownership.acquire(tab_id);
         let result = self
@@ -493,7 +493,7 @@ impl ServiceContext {
     fn send_authenticated_delivery_with_routed_frame(
         &self,
         delivery: AuthenticatedPtyDelivery,
-        frame: codeterm_types::domios::DomiosFrame,
+        frame: codeterm_wire::domios::DomiosFrame,
     ) -> Result<(), String> {
         log::debug!("[agent-delivery] branch=send_authenticated_delivery_with_routed_frame provider={} pty={}", delivery.provider_id, delivery.pty_id);
         crate::service::codex_rpc::send::route_or_pty(

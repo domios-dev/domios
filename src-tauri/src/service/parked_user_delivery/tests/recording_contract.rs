@@ -105,7 +105,7 @@ fn assert_invalidated_before_write(invalidation: Invalidation) {
         .service
         .admit_recording_voice(
             capture.clone(),
-            codeterm_types::message_markers::voice("audio", Some("speech"), None),
+            codeterm_wire::message_markers::voice("audio", Some("speech"), None),
             "capture-client".into(),
         )
         .unwrap();
@@ -231,7 +231,7 @@ fn lark_recording_contract_registered_ticket_survives_admission_and_valid_write_
         .service
         .admit_recording_voice(
             capture,
-            codeterm_types::message_markers::voice("audio", Some("speech"), None),
+            codeterm_wire::message_markers::voice("audio", Some("speech"), None),
             "capture-client".into(),
         )
         .unwrap();
@@ -270,7 +270,7 @@ fn lark_recording_contract_possible_handoff_remains_uncertain_and_never_replays(
         .service
         .admit_recording_voice(
             capture,
-            codeterm_types::message_markers::voice("audio", Some("speech"), None),
+            codeterm_wire::message_markers::voice("audio", Some("speech"), None),
             "capture-client".into(),
         )
         .unwrap();

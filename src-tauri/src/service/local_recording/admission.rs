@@ -112,7 +112,7 @@ impl ServiceContext {
             self.local_recordings.cancel(lease);
             return LocalRecordingCommitOutcome::PreHandoffFailure { message };
         }
-        let original = codeterm_types::message_markers::voice(path_text, Some(&text), None);
+        let original = codeterm_wire::message_markers::voice(path_text, Some(&text), None);
         let svc = self.clone();
         let capture_for_send = capture.clone();
         let admission = tokio::task::spawn_blocking(move || {

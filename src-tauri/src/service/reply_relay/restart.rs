@@ -22,13 +22,13 @@ fn brief_restore_decision(
 
 fn restore_frame_and_payload(
     original: &str,
-) -> Option<(codeterm_types::domios::DomiosFrame, String)> {
-    use codeterm_types::domios::{DomiosFrame, DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
+) -> Option<(codeterm_wire::domios::DomiosFrame, String)> {
+    use codeterm_wire::domios::{DomiosFrame, DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
     let body = original.strip_suffix(DOMIOS_CLOSE_TAG)?;
     let body = body
         .strip_suffix(&format!(" <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>"))
         .unwrap_or(body);
-    let body = codeterm_types::domios::strip_plain_typed_tail(body).to_string();
+    let body = codeterm_wire::domios::strip_plain_typed_tail(body).to_string();
     let payload = format!("{body}{DOMIOS_CLOSE_TAG}");
     Some((
         DomiosFrame {
@@ -45,8 +45,8 @@ fn restore_payload_candidates(payload: &str, typed_tail: bool) -> Vec<String> {
         return vec![payload.to_string()];
     }
     [
-        codeterm_types::domios::with_pasted_marker(payload),
-        codeterm_types::domios::with_legacy_typed_instruction(payload),
+        codeterm_wire::domios::with_pasted_marker(payload),
+        codeterm_wire::domios::with_legacy_typed_instruction(payload),
     ]
     .into_iter()
     .flatten()
@@ -503,8 +503,8 @@ mod tests {
         assert_eq!(frame.to_message(), original);
         assert_eq!(payload, original);
         for tail in [
-            codeterm_types::domios::with_legacy_typed_instruction(original).unwrap(),
-            codeterm_types::domios::with_pasted_marker(original).unwrap(),
+            codeterm_wire::domios::with_legacy_typed_instruction(original).unwrap(),
+            codeterm_wire::domios::with_pasted_marker(original).unwrap(),
         ] {
             let (tail_frame, tail_payload) = restore_frame_and_payload(&tail).unwrap();
             assert_eq!(tail_frame, frame);

@@ -186,7 +186,7 @@ function moduleFilter(modulePath) {
 }
 
 function renderRustCommands(groups) {
-  const order = ["app", "plan", "pty", "plugin", "types", "cli", "mem", "mesh", "plugins", "pty-fork"];
+  const order = ["app", "plan", "pty", "plugin", "types", "wire", "cli", "mem", "mesh", "plugins", "pty-fork"];
   return [...groups.values()]
     .sort((left, right) => {
       const leftRank = order.indexOf(left.scope);
