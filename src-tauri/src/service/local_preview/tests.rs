@@ -176,3 +176,59 @@ fn uploaded_artifacts_preview_before_send_without_exposing_private_files() {
         .authorize(&image, Some(&image.canonicalize().unwrap()))
         .is_err());
 }
+
+#[test]
+fn inline_markers_authorize_exact_paths_without_routed_or_fenced_prose() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let image = root.join("inline.png");
+    std::fs::write(&image, b"image").unwrap();
+    let hidden = root.join("hidden.png");
+    let messages = vec![ChatMsg {
+        content: format!("before <domios type=\"attachment\" kind=\"image\" path=\"{}\" label=\"image1\" /> after\n<domios from=\"tab\" path=\"{}\">\n```\n<domios type=\"attachment\" path=\"{}\" />\n```", image.display(), hidden.display(), hidden.display()),
+        ..Default::default()
+    }];
+    let paths = referenced_paths(&messages, None);
+    assert_eq!(paths, [path_key(&image)].into());
+    let policy = PreviewPolicy::new(paths, &[]).unwrap();
+    assert!(read_local_preview_file_guarded(
+        image.to_str().unwrap(),
+        "image",
+        |path, canonical| policy.authorize(path, canonical)
+    )
+    .is_ok());
+    assert!(policy.authorize(&hidden, None).is_err());
+}
+
+#[test]
+fn native_attachment_buckets_preview_before_send_with_configured_denials() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let chat = root.join("codeterm-chat");
+    let images = root.join("codeterm-images");
+    for bucket in [&chat, &images] {
+        std::fs::create_dir_all(bucket).unwrap();
+    }
+    let policy = PreviewPolicy::new(Default::default(), &[])
+        .unwrap()
+        .with_uploads(&chat, &[])
+        .unwrap()
+        .with_uploads(&images, &[])
+        .unwrap();
+    for bucket in [&chat, &images] {
+        let image = bucket.join("image.png");
+        std::fs::write(&image, b"image").unwrap();
+        assert!(read_local_preview_file_guarded(
+            image.to_str().unwrap(),
+            "image",
+            |path, canonical| policy.authorize(path, canonical)
+        )
+        .is_ok());
+    }
+    let denied = PreviewPolicy::new(Default::default(), &[])
+        .unwrap()
+        .with_uploads(&chat, &[chat.clone()])
+        .unwrap();
+    assert!(denied.authorize(&chat.join("image.png"), None).is_err());
+    assert!(policy.authorize(&root.join("other.png"), None).is_err());
+}
