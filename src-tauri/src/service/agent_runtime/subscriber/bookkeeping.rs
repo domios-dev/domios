@@ -26,9 +26,7 @@ pub enum Step {
 }
 
 pub fn reset(session: &Session) {
-    session
-        .bookkeeping_failures
-        .store(0, Ordering::Relaxed);
+    session.bookkeeping_failures.store(0, Ordering::Relaxed);
 }
 
 pub async fn account(
@@ -38,10 +36,7 @@ pub async fn account(
     epoch: u64,
     reason: &str,
 ) -> Step {
-    let next = session
-        .bookkeeping_failures
-        .fetch_add(1, Ordering::Relaxed)
-        + 1;
+    let next = session.bookkeeping_failures.fetch_add(1, Ordering::Relaxed) + 1;
     emit_warning(svc, session, epoch, reason);
     if next >= CONSECUTIVE_CLOSE {
         return Step::Close(RuntimeFailure::HookFailed(

@@ -1,11 +1,11 @@
+use codeterm_plugin::agent_runtime::RpcId;
 use codeterm_plugin::agent_runtime::{
     AgentRuntimeEvent, RuntimeAuthState, RuntimeContext, RuntimeLoginState, RuntimeQuestion,
-    RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings, RuntimeTurnDetail, RuntimeTurnState,
-    TokenUsage,
+    RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings, RuntimeTurnDetail,
+    RuntimeTurnState, TokenUsage,
 };
 use codeterm_types::agent::chat_types::ChatMsg;
 use codeterm_types::pty::PendingPrompt;
-use codeterm_plugin::agent_runtime::RpcId;
 use std::collections::HashMap;
 
 pub const LIVE_ITEM_CAP: usize = 1000;
@@ -105,10 +105,7 @@ impl RuntimeMaps {
     }
 
     pub fn item_ids(&self) -> Vec<String> {
-        self.items
-            .iter()
-            .map(|item| item.item.id.clone())
-            .collect()
+        self.items.iter().map(|item| item.item.id.clone()).collect()
     }
 
     pub fn text_bytes(&self) -> usize {
@@ -228,13 +225,12 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             parent_thread_id: None,
             settings: Some(settings.clone()),
         },
-        AgentRuntimeEvent::ContextCompacted {
-            thread_id,
-            item_id,
-        } => RuntimeEvent::CompactionUpdated {
-            thread_id: thread_id.clone(),
-            item_id: item_id.clone(),
-        },
+        AgentRuntimeEvent::ContextCompacted { thread_id, item_id } => {
+            RuntimeEvent::CompactionUpdated {
+                thread_id: thread_id.clone(),
+                item_id: item_id.clone(),
+            }
+        }
     }
 }
 
@@ -306,10 +302,8 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             thread_id,
             rate_limits,
         } => {
-            maps.rate_limits.insert(
-                thread_id.clone().unwrap_or_default(),
-                rate_limits.clone(),
-            );
+            maps.rate_limits
+                .insert(thread_id.clone().unwrap_or_default(), rate_limits.clone());
         }
         RuntimeEvent::CompactionUpdated {
             thread_id, item_id, ..
@@ -402,7 +396,7 @@ fn upsert_item(maps: &mut RuntimeMaps, thread_id: &str, item: ChatMsg) {
     bound_items(&mut maps.items, LIVE_ITEM_CAP, LIVE_ITEM_BYTES);
 }
 
-pub(crate) fn bound_items(items: &mut Vec<StoredItem>, max_items: usize, max_bytes: usize) {
+fn bound_items(items: &mut Vec<StoredItem>, max_items: usize, max_bytes: usize) {
     while items.len() > max_items || text_total(items) > max_bytes {
         if let Some(index) = items.iter().position(|item| item.closed) {
             items.remove(index);

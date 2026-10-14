@@ -123,13 +123,7 @@ pub(super) async fn publish_events(
     Ok(())
 }
 
-fn apply(
-    svc: &ServiceContext,
-    session: &Arc<Session>,
-    epoch: u64,
-    at: u64,
-    event: RuntimeEvent,
-) {
+fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, event: RuntimeEvent) {
     let context = session.context.lock().clone();
     if context.epoch != epoch || engine::validate_binding(svc, session).is_err() {
         return;
@@ -137,8 +131,7 @@ fn apply(
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
     match event {
         RuntimeEvent::SessionUpdated {
-            login: Some(login),
-            ..
+            login: Some(login), ..
         } => super::super::login::apply(svc, session, epoch, login),
         RuntimeEvent::SessionUpdated {
             auth: Some(state),
@@ -146,12 +139,7 @@ fn apply(
             detail,
             ..
         } => {
-            super::super::projections::billing(
-                svc,
-                session,
-                billing_mode.unwrap_or_default(),
-                at,
-            );
+            super::super::projections::billing(svc, session, billing_mode.unwrap_or_default(), at);
             let previous = std::mem::replace(&mut *session.auth.lock(), state.clone());
             if matches!(state, RuntimeAuthState::SignedIn)
                 && matches!(previous, RuntimeAuthState::SignedOut)
@@ -330,10 +318,7 @@ fn apply(
         } if owned(&thread_id) => {
             super::super::projections::controls(svc, session, settings);
         }
-        RuntimeEvent::CompactionUpdated {
-            thread_id,
-            item_id,
-        } if owned(&thread_id) => {
+        RuntimeEvent::CompactionUpdated { thread_id, item_id } if owned(&thread_id) => {
             let _ = super::compaction::schedule(svc, session, epoch, &thread_id, &item_id);
         }
         _ => {}

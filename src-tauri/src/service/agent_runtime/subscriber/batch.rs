@@ -1,7 +1,7 @@
-use super::bookkeeping::{self, Step};
 use super::super::engine::{self, Session};
 use super::super::model::RuntimeFailure;
 use super::super::process::Process;
+use super::bookkeeping::{self, Step};
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::Arc;
@@ -18,27 +18,21 @@ pub enum Drained<T> {
     Closed { frames: Vec<T> },
 }
 
-pub fn drain_ready<T>(
-    first: Poll<T>,
-    mut poll: impl FnMut() -> Poll<T>,
-    cap: usize,
-) -> Drained<T> {
+pub fn drain_ready<T>(first: Poll<T>, mut poll: impl FnMut() -> Poll<T>, cap: usize) -> Drained<T> {
     let mut frames = Vec::new();
     let mut lagged = false;
     let mut closed = false;
     let mut stop = false;
-    let mut take = |item: Poll<T>| {
-        match item {
-            Poll::Frame(frame) => frames.push(frame),
-            Poll::Empty => stop = true,
-            Poll::Lagged => {
-                lagged = true;
-                stop = true;
-            }
-            Poll::Closed => {
-                closed = true;
-                stop = true;
-            }
+    let mut take = |item: Poll<T>| match item {
+        Poll::Frame(frame) => frames.push(frame),
+        Poll::Empty => stop = true,
+        Poll::Lagged => {
+            lagged = true;
+            stop = true;
+        }
+        Poll::Closed => {
+            closed = true;
+            stop = true;
         }
     };
     take(first);
@@ -225,5 +219,10 @@ fn notification_allowed(session: &Session, method: &str) -> bool {
         .lock()
         .as_ref()
         .and_then(|adapter| adapter.agent_runtime())
-        .is_some_and(|capability| capability.notification_methods.iter().any(|item| item == method))
+        .is_some_and(|capability| {
+            capability
+                .notification_methods
+                .iter()
+                .any(|item| item == method)
+        })
 }
