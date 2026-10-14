@@ -24,6 +24,16 @@ export function verifyCheckWorktree(directory, sha, expectedTree) {
   git(directory, ['diff-files', '--quiet', '--ignore-submodules=none']);
 }
 
+const samePath = (a, b) => {
+  const normalize = value => path.resolve(value).toLowerCase();
+  return process.platform === 'win32' ? normalize(a) === normalize(b) : path.resolve(a) === path.resolve(b);
+};
+
+export function registeredWorktree(repository, directory) {
+  return git(repository, ['worktree', 'list', '--porcelain']).split('\n')
+    .some(line => line.startsWith('worktree ') && samePath(line.slice('worktree '.length).trim(), directory));
+}
+
 const ancestors = file => {
   const out = [];
   for (let directory = path.posix.dirname(file); directory !== '.'; directory = path.posix.dirname(directory)) out.push(directory);
@@ -75,7 +85,15 @@ export async function prepareCheckWorktree({ repository, gateway, sha, jobId, be
     return resolved;
   };
   const move = (from, to) => git(repository, ['worktree', 'move', from, to]);
-  const remove = directory => git(repository, ['worktree', 'remove', '--force', directory]);
+  const remove = directory => {
+    if (fs.existsSync(path.join(directory, '.git')) && registeredWorktree(repository, directory)) {
+      git(repository, ['worktree', 'remove', '--force', directory]);
+      return;
+    }
+    // An earlier attempt unregistered it but left files; `worktree remove` would refuse forever.
+    fs.rmSync(owned(directory), { recursive: true, force: true });
+    git(repository, ['worktree', 'prune']);
+  };
   const expectedTree = git(repository, ['rev-parse', `${sha}^{tree}`]);
   if (fs.existsSync(journal)) {
     const interrupted = JSON.parse(fs.readFileSync(journal, 'utf8'));
