@@ -193,18 +193,6 @@ pub fn deliver_orchestration_preferences(ctx: &ServiceContext, tab_id: &str) {
     }
 }
 
-pub fn maybe_deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
-    let should_deliver = {
-        let mux = svc.mux.read();
-        mux.get_tab(tab_id)
-            .map(|tab| tab.anchors_team() && tab_is_agent_capable(tab))
-            .unwrap_or(false)
-    };
-    if should_deliver {
-        deliver_orchestrator_onboarding(svc, tab_id);
-    }
-}
-
 pub fn maybe_deliver_orchestrator_promotion_onboarding(
     svc: &ServiceContext,
     tab_id: &str,

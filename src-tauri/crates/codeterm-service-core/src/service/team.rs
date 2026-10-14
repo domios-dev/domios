@@ -58,40 +58,36 @@ impl TeamExt for ServiceContext {
 
     /// Refuses while a Team task is in progress or a Worker is working unless
     /// `force`; a forced close reports every killed Worker and task.
-    fn close_team(
+    async fn close_team(
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
         force: bool,
-    ) -> impl std::future::Future<Output = Result<TeamCloseResult, String>> + Send {
-        async move {
-            let caller_kind = caller.kind();
-            let workspace = self
-                .mux
-                .read()
-                .get_team(team_id)
-                .ok_or_else(|| format!("Team {team_id} not found"))?
-                .workspace_id
-                .clone();
-            let service = self.clone();
-            let capture_team = team_id.to_string();
-            let inventory = tokio::task::spawn_blocking(move || {
-                service.capture_close_inventory(&workspace, Some(&capture_team))
-            })
+    ) -> Result<TeamCloseResult, String> {
+        let caller_kind = caller.kind();
+        let workspace = self
+            .mux
+            .read()
+            .get_team(team_id)
+            .ok_or_else(|| format!("Team {team_id} not found"))?
+            .workspace_id
+            .clone();
+        let service = self.clone();
+        let capture_team = team_id.to_string();
+        let inventory = tokio::task::spawn_blocking(move || {
+            service.capture_close_inventory(&workspace, Some(&capture_team))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        let result = close_team_inner(self, team_id, caller, force).await;
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
             .await
             .map_err(|error| error.to_string())??;
-            let result = close_team_inner(self, team_id, caller, force).await;
-            let service = self.clone();
-            tokio::task::spawn_blocking(move || {
-                service.settle_close_inventory(inventory.as_deref())
-            })
-            .await
-            .map_err(|error| error.to_string())??;
-            if let Err(error) = &result {
-                log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
-            }
-            result
+        if let Err(error) = &result {
+            log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
         }
+        result
     }
 }
 
