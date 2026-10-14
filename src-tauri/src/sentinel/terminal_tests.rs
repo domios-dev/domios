@@ -1,4 +1,5 @@
 use super::terminal::*;
+use codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
 use crate::sentinel::store::Sentinel;
 use crate::sentinel::{
     machine::Route,
