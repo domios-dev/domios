@@ -16,7 +16,7 @@ import {
 import {
   buildDomiosMessage,
   buildDomiosOpeningTag,
-  DOMIOS_TYPED_INSTRUCTION,
+  DOMIOS_LEGACY_TYPED_INSTRUCTION,
   parseDomiosMessage,
 } from "./domios";
 
@@ -81,7 +81,7 @@ eq(
 const typedDomios = buildDomiosMessage(
   { from: "tab", tab: "abc12345" },
   "opaque routed body",
-  ` [to reply, run: codeterm send "YOUR REPLY" --tab abc12345] ${DOMIOS_TYPED_INSTRUCTION}`,
+  ` [to reply, run: codeterm send "YOUR REPLY" --tab abc12345] ${DOMIOS_LEGACY_TYPED_INSTRUCTION}`,
 );
 eq(
   parseDomiosMessage(typedDomios)?.body,

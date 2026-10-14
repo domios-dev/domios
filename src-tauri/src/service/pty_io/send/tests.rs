@@ -124,16 +124,11 @@ fn never_written_agent_report_survives_reopen() {
 }
 
 #[test]
-fn routed_suffix_has_a_closing_tag_for_plain_and_capable_targets() {
-    use codeterm_types::domios::{DOMIOS_CLOSE_TAG, DOMIOS_TYPED_INSTRUCTION};
-
-    let plain = super::compose_routed_suffix(" [reply]", false);
-    assert_eq!(plain, format!(" [reply]{DOMIOS_CLOSE_TAG}"));
-
-    let capable = super::compose_routed_suffix(" [reply]", true);
+fn routed_suffix_is_the_reply_hint_and_closing_tag() {
+    let suffix = super::compose_routed_suffix(" [reply]");
     assert_eq!(
-        capable,
-        format!(" [reply] <tip>{DOMIOS_TYPED_INSTRUCTION}</tip>{DOMIOS_CLOSE_TAG}")
+        suffix,
+        format!(" [reply]{}", codeterm_types::domios::DOMIOS_CLOSE_TAG)
     );
 }
 
@@ -757,12 +752,12 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
     );
     assert_eq!(
         typed.typed_suffix,
-        Some(super::compose_routed_suffix(&frame.suffix, true))
+        Some(super::compose_routed_suffix(&frame.suffix))
     );
 }
 
 #[test]
-fn routed_agent_and_report_instructions_are_tips_in_both_transport_forms() {
+fn routed_agent_and_report_hints_stay_out_of_the_body_in_both_transport_forms() {
     for messenger in [
         crate::service::messenger::Messenger::message("Sender", "abc12345"),
         crate::service::messenger::Messenger::report("Sender", "abc12345"),
@@ -775,15 +770,11 @@ fn routed_agent_and_report_instructions_are_tips_in_both_transport_forms() {
             Some(frame.opening_tag.as_str())
         );
         let suffix = input.typed_suffix.unwrap();
-        let instruction = format!(
-            "<tip>{}</tip>",
-            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION
-        );
-        assert!(suffix.contains(&instruction));
+        assert!(!suffix.contains(codeterm_types::domios::DOMIOS_LEGACY_TYPED_INSTRUCTION));
         let delivered = format!("{}{}{}", frame.opening_tag, input.body, suffix);
         let parsed = codeterm_types::domios::parse_message(&delivered).unwrap();
         assert_eq!(parsed.body, frame.body);
-        assert!(parsed.content.contains(&instruction));
+        assert!(parsed.content.contains(&frame.suffix));
         let pasted = super::prepare_routed_input(&frame, false);
         assert_eq!(pasted.body, frame.to_message());
         assert_eq!(pasted.typed_prefix, None);

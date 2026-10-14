@@ -104,11 +104,7 @@ mod tests {
         };
         let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
         let body = "routed body";
-        let suffix = format!(
-            " [reply] {}{}",
-            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
-            codeterm_types::domios::DOMIOS_CLOSE_TAG
-        );
+        let suffix = format!(" [reply]{}", codeterm_types::domios::DOMIOS_CLOSE_TAG);
         let expected = format!("{open}{body}{suffix}");
         let observed = format!(
             "{open}<pasted_content id=\"opaque\">\n{body}\n</pasted_content id=\"opaque\">{suffix}"

@@ -26,7 +26,7 @@ export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export { automationOrigin, type AutomationSource } from "./automationOrigin";
 export {
   DOMIOS_CLOSE_TAG,
-  DOMIOS_TYPED_INSTRUCTION,
+  DOMIOS_LEGACY_TYPED_INSTRUCTION,
   buildDomiosOpeningTag,
   buildDomiosMessage,
   parseDomiosMessage,
