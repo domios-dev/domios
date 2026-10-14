@@ -76,7 +76,16 @@ pub(super) fn views_for_tab(svc: &ServiceContext, tab_id: &str) -> Vec<DelayedMe
     );
     projected
         .into_iter()
-        .map(|item| super::to_view(svc, message_from_projection(item)))
+        .map(|mut item| {
+            if let Some(plan) = plans.iter().find(|plan| plan.id == item.plan_id) {
+                item.text = svc.heartbeat_body_for_popup(
+                    plan,
+                    tab_id,
+                    item.id.starts_with("system:heartbeat:worker:"),
+                );
+            }
+            super::to_view(svc, message_from_projection(item))
+        })
         .collect()
 }
 
