@@ -163,7 +163,7 @@ impl Store {
         {
             self.save()
         }
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         {
             Err("legacy Sentinel JSON writer is test-only".into())
         }
@@ -220,7 +220,7 @@ impl Backend {
             Backend::Json(_) => true,
             Backend::Sqlite(_) => false,
         }
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         {
             false
         }
@@ -398,7 +398,7 @@ impl Store {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(finish(self, Err(Failure::Failed(error))));
         }
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         let Backend::Sqlite(backend) = &mut self.backend;
         #[cfg(any(test, feature = "test-support"))]
         let backend = match &mut self.backend {
