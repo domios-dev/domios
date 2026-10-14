@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: package.json script; scripts affected-tests.mjs, ci-scope.mjs, run-plugin-tests.mjs; skill provider-authoring, testing
 # Runs every plugin-side test in the repo (TS only, via the local tsx CLI).
 # Aggregator stays tiny so each plugin can keep its own runner setup;
 # vitest migration is a follow-up.

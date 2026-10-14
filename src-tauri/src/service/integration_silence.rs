@@ -19,7 +19,7 @@ use crate::notification::dedupe::{
     provider_integration_missing_condition, ConditionTransition, MACHINE_SCOPE,
 };
 use crate::session::lifecycle::BindingSource;
-use codeterm_types::notification::NotifyLevel;
+use codeterm_notification_core::contract::NotifyLevel;
 
 #[cfg(test)]
 use super::notification::PushIntent;

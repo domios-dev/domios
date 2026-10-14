@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
-use crate::notification::{NotifyDestination, NotifyLevel};
+use codeterm_notify_types::{NotifyDestination, NotifyLevel};
 
 pub use super::dream_hygiene::DreamHygieneConfig;
 pub use super::model_defaults::ModelDefaultsConfig;

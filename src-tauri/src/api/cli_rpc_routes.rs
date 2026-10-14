@@ -128,11 +128,8 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
-    if let Some(error) = crate::socket::server::protocol::version_skew_gate(
-        crate::socket::server::protocol::client_protocol_version(request.protocol_version.as_ref()),
-        crate::socket::server::protocol::PROTOCOL_VERSION,
-        crate::socket::server::protocol::RECOVERY_COMMAND,
-    ) {
+    let bridge = crate::rpc_bridge::bridge();
+    if let Some(error) = (bridge.version_skew_gate)(request.protocol_version.as_ref()) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -157,7 +154,7 @@ pub(crate) async fn dispatch(
     let params = request.params;
     let result = tokio::task::spawn_blocking(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::socket::server::dispatch_service_rpc(&method, params, &svc)
+            (bridge.dispatch_service_rpc)(&method, params, &svc)
         }))
     })
     .await;

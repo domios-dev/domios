@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use tauri::Listener;
 
-fn declaration() -> codeterm_types::local_recording::LocalRecordingTrigger {
-    codeterm_types::local_recording::LocalRecordingTrigger {
+fn declaration() -> codeterm_local_recording::LocalRecordingTrigger {
+    codeterm_local_recording::LocalRecordingTrigger {
         vendor_id: 1,
         product_id: 2,
         usage_page: 3,
@@ -57,7 +57,7 @@ struct FakeAdapter {
 impl platform::LocalInputAdapter for FakeAdapter {
     fn subscribe(
         &self,
-        trigger: &codeterm_types::local_recording::LocalRecordingTrigger,
+        trigger: &codeterm_local_recording::LocalRecordingTrigger,
         selected: &SelectedDevices,
         generation: u64,
         _: Arc<dyn Fn(platform::SelectedInputEvent) + Send + Sync>,
@@ -529,7 +529,7 @@ fn lark_recording_contract_production_macos_adapter_requires_reviewed_element_ma
         microphone_id: "mic".into(),
     };
     let result = platform::production_adapter().subscribe(
-        &codeterm_types::local_recording::LocalRecordingTrigger {
+        &codeterm_local_recording::LocalRecordingTrigger {
             vendor_id: 1,
             product_id: 2,
             usage_page: 0x000c,

@@ -110,7 +110,7 @@ fn supporter_feed_api_redacts_untrusted_journal_fields() {
 fn supporter_spend_status_exposes_today_month_and_credit_state() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = SupporterRuntime::new(dir.path().into());
-    let price = codeterm_types::decision::DecisionPricing {
+    let price = codeterm_decision::DecisionPricing {
         display_name: "Fixture".into(),
         input_usd_per_million: 0.5,
         output_usd_per_million: 0.5,
@@ -118,9 +118,9 @@ fn supporter_spend_status_exposes_today_month_and_credit_state() {
     runtime.record_spend(
         "fixture",
         Some(&price),
-        &Ok(codeterm_types::decision::DecisionResponse {
+        &Ok(codeterm_decision::DecisionResponse {
             answers: Default::default(),
-            usage: Some(codeterm_types::decision::DecisionUsage {
+            usage: Some(codeterm_decision::DecisionUsage {
                 input_tokens: 1_000_000,
                 output_tokens: 0,
             }),

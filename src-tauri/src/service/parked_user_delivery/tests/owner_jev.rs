@@ -15,18 +15,18 @@ struct DeliveryDecisionModel {
     calls: AtomicUsize,
 }
 
-impl codeterm_types::decision::DecisionModel for DeliveryDecisionModel {
+impl codeterm_decision::DecisionModel for DeliveryDecisionModel {
     fn supports_question_batch(&self) -> bool {
         true
     }
     fn id(&self) -> &str {
         "owner-delivery-model"
     }
-    fn token_mode(&self) -> codeterm_types::decision::TokenMode {
-        codeterm_types::decision::TokenMode::None
+    fn token_mode(&self) -> codeterm_decision::TokenMode {
+        codeterm_decision::TokenMode::None
     }
-    fn primitives(&self) -> codeterm_types::decision::DecisionPrimitives {
-        codeterm_types::decision::DecisionPrimitives {
+    fn primitives(&self) -> codeterm_decision::DecisionPrimitives {
+        codeterm_decision::DecisionPrimitives {
             choice: true,
             noul: true,
             score: false,
@@ -34,19 +34,17 @@ impl codeterm_types::decision::DecisionModel for DeliveryDecisionModel {
     }
     fn decide(
         &self,
-        _: &codeterm_types::decision::DecisionRequest,
+        _: &codeterm_decision::DecisionRequest,
         _: std::time::Instant,
-    ) -> Result<codeterm_types::decision::DecisionAnswer, codeterm_types::decision::DecisionError>
-    {
-        Err(codeterm_types::decision::DecisionError::Unsupported)
+    ) -> Result<codeterm_decision::DecisionAnswer, codeterm_decision::DecisionError> {
+        Err(codeterm_decision::DecisionError::Unsupported)
     }
     fn decide_questions(
         &self,
-        request: &codeterm_types::decision::DecisionQuestionsRequest,
+        request: &codeterm_decision::DecisionQuestionsRequest,
         _: std::time::Instant,
-    ) -> Result<codeterm_types::decision::DecisionResponse, codeterm_types::decision::DecisionError>
-    {
-        use codeterm_types::decision::{
+    ) -> Result<codeterm_decision::DecisionResponse, codeterm_decision::DecisionError> {
+        use codeterm_decision::{
             DecisionAnswer, DecisionError, DecisionQuestion, DecisionResponse,
         };
         use std::collections::BTreeMap;
@@ -111,8 +109,8 @@ impl codeterm_types::decision::DecisionModel for DeliveryDecisionModel {
     }
 }
 
-fn choice_answer(choice: &str, confidence: f64) -> codeterm_types::decision::DecisionAnswer {
-    codeterm_types::decision::DecisionAnswer::Choice {
+fn choice_answer(choice: &str, confidence: f64) -> codeterm_decision::DecisionAnswer {
+    codeterm_decision::DecisionAnswer::Choice {
         choice: choice.into(),
         probabilities: std::collections::BTreeMap::from([(choice.into(), confidence)]),
         confidence: Some(confidence),

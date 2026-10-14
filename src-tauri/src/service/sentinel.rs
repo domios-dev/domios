@@ -24,13 +24,13 @@ impl SentinelCaller {
     pub(super) fn owns(&self, job: &Sentinel) -> bool {
         if let Some(pipeline) = &job.pipeline().cloned() {
             return match pipeline.owner {
-                codeterm_types::blueprint_pipeline::BlueprintOwner::Tab => {
+                codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab => {
                     job.creator_tab_id == self.tab
                         && (job.team_id == self.team
                             || (job.team_id.is_none() && self.team.is_some()))
                         && job.workspace_id == self.workspace
                 }
-                codeterm_types::blueprint_pipeline::BlueprintOwner::Team => {
+                codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team => {
                     job.team_id.is_some()
                         && job.team_id == self.team
                         && job.workspace_id == self.workspace
@@ -105,7 +105,7 @@ impl ServiceContext {
     ) -> Result<serde_json::Value, String> {
         let job = self.sentinel_show(caller, id)?;
         let input = job.input().ok_or("blueprint is not a text input stage")?;
-        if input.kind != codeterm_types::sentinel_input::MediaKind::Text
+        if input.kind != codeterm_blueprint_types::sentinel_input::MediaKind::Text
             || input.convert_to.is_some()
         {
             return Err(
@@ -952,22 +952,24 @@ mod tests {
             )
             .unwrap();
         let mut pipeline = legacy;
-        pipeline.set_pipeline(Some(codeterm_types::blueprint_pipeline::BlueprintSpec {
-            name: "owned-pipeline".into(),
-            owner: codeterm_types::blueprint_pipeline::BlueprintOwner::Team,
-            trigger: codeterm_types::blueprint_pipeline::Trigger::Schedule {
-                every: "10s".into(),
-            },
-            steps: vec![codeterm_types::blueprint_pipeline::Step {
-                name: "emit".into(),
-                input: codeterm_types::blueprint_pipeline::IoType::Text,
-                kind: codeterm_types::blueprint_pipeline::StepKind::Command {
-                    command: "printf ready".into(),
+        pipeline.set_pipeline(Some(
+            codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
+                name: "owned-pipeline".into(),
+                owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team,
+                trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule {
+                    every: "10s".into(),
                 },
-                on: Default::default(),
-            }],
-            result: Default::default(),
-        }));
+                steps: vec![codeterm_blueprint_types::blueprint_pipeline::Step {
+                    name: "emit".into(),
+                    input: codeterm_blueprint_types::blueprint_pipeline::IoType::Text,
+                    kind: codeterm_blueprint_types::blueprint_pipeline::StepKind::Command {
+                        command: "printf ready".into(),
+                    },
+                    on: Default::default(),
+                }],
+                result: Default::default(),
+            },
+        ));
         let teammate = SentinelCaller {
             tab: "teammate".into(),
             team: Some("team".into()),

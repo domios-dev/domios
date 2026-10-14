@@ -48,6 +48,7 @@ pub mod provider;
 pub mod pty;
 pub mod repowatch;
 pub mod resize_owner;
+mod rpc_bridge;
 pub mod runaway_sweeper;
 pub mod secrets;
 pub mod service;

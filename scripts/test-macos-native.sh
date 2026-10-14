@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gates.lib.sh, test-matrix.sh
 # macOS lane: native host run. macOS cannot be containerized; the host
 # IS the macOS test environment. Mirrors ./build.sh test + cli + TS tests.
 set -euo pipefail

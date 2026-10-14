@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh
 # Flags obvious direct blocking calls inside async daemon command/service code.
 #
 # Scope is intentionally conservative: async fns under src-tauri/src/commands/

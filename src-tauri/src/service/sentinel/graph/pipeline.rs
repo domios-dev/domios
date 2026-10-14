@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::blueprint_journal::{JournalMarker, JournalOutcome, JournalState};
+use codeterm_blueprint_types::blueprint_journal::{JournalMarker, JournalOutcome, JournalState};
 
 pub(super) fn project_pipeline_contract(
     snapshot: &mut Snapshot,
@@ -24,7 +24,7 @@ pub(super) fn project_pipeline_contract(
             job.pipeline().is_some_and(|spec| {
                 matches!(
                     &spec.trigger,
-                    codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                    codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
                 )
             })
         })
@@ -118,10 +118,10 @@ pub(super) fn project_pipeline_contract(
             latest["state"].as_str().unwrap_or("idle")
         };
         let (owner_kind, owner_tab) = match spec.owner {
-            codeterm_types::blueprint_pipeline::BlueprintOwner::Tab => {
+            codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab => {
                 ("tab", Some(job.creator_tab_id.as_str()))
             }
-            codeterm_types::blueprint_pipeline::BlueprintOwner::Team => ("team", None),
+            codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team => ("team", None),
         };
         let mut blueprint = json!({
             "id":job.id,"name":spec.name,
@@ -132,7 +132,7 @@ pub(super) fn project_pipeline_contract(
         });
         if matches!(
             &spec.trigger,
-            codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+            codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
         ) {
             let subscription = event_subscriptions.summary(&job.id);
             blueprint["event_subscription"] = json!({
@@ -150,7 +150,7 @@ pub(super) fn project_pipeline_contract(
 
 fn pipeline_run_view(
     job: &Sentinel,
-    spec: &codeterm_types::blueprint_pipeline::BlueprintSpec,
+    spec: &codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec,
     entries: &[&BlueprintJournalEntry],
 ) -> Value {
     let mut seen = BTreeSet::new();
@@ -230,12 +230,12 @@ fn pipeline_step_view(
     })
 }
 
-fn step_kind(kind: &codeterm_types::blueprint_pipeline::StepKind) -> &'static str {
+fn step_kind(kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind) -> &'static str {
     kind.name()
 }
 
-fn trigger_view(trigger: &codeterm_types::blueprint_pipeline::Trigger) -> Value {
-    use codeterm_types::blueprint_pipeline::Trigger;
+fn trigger_view(trigger: &codeterm_blueprint_types::blueprint_pipeline::Trigger) -> Value {
+    use codeterm_blueprint_types::blueprint_pipeline::Trigger;
     match trigger {
         Trigger::Schedule { every } => {
             json!({"type":"schedule","summary":format!("every {every}")})
@@ -250,10 +250,10 @@ fn trigger_view(trigger: &codeterm_types::blueprint_pipeline::Trigger) -> Value 
 }
 
 fn input_summary(
-    kind: codeterm_types::sentinel_input::MediaKind,
-    source: &codeterm_types::sentinel_input::DataRef,
+    kind: codeterm_blueprint_types::sentinel_input::MediaKind,
+    source: &codeterm_blueprint_types::sentinel_input::DataRef,
 ) -> String {
-    use codeterm_types::sentinel_input::DataRef;
+    use codeterm_blueprint_types::sentinel_input::DataRef;
     let (ref_type, display) = match source {
         DataRef::Text(_) => ("text", "inline text".into()),
         DataRef::File(path) => {
@@ -279,11 +279,11 @@ fn input_summary(
 }
 
 fn result_target_view(
-    target: &codeterm_types::blueprint_pipeline::ResultTarget,
-    owner: codeterm_types::blueprint_pipeline::BlueprintOwner,
+    target: &codeterm_blueprint_types::blueprint_pipeline::ResultTarget,
+    owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner,
     job: &Sentinel,
 ) -> Value {
-    use codeterm_types::blueprint_pipeline::{BlueprintOwner, ResultTarget};
+    use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, ResultTarget};
     match target {
         ResultTarget::Owner if owner == BlueprintOwner::Team => {
             json!({"kind":"team","id":job.team_id})

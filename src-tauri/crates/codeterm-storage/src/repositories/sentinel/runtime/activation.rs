@@ -5,7 +5,7 @@ use crate::repositories::sentinel::records::{
     BatchFence, Fence, MutationOutcome, SentinelCommit, SentinelId,
 };
 use crate::repositories::to_sql_u64;
-use codeterm_types::blueprint_run::Context;
+use codeterm_blueprint_types::blueprint_run::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
 type ScopeRow = (String, String, Option<String>);

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: skill build
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 eval "$(sed -n '/^ct_msvc_build_tools_base()/,/^}/p' "$ROOT/build.sh")"

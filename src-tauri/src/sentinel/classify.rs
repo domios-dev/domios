@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest,
 };
 use serde_json::json;
@@ -226,10 +226,10 @@ mod tests {
         fn model_id(&self) -> Option<String> {
             Some("actual-model".into())
         }
-        fn token_mode(&self) -> codeterm_types::decision::TokenMode {
-            codeterm_types::decision::TokenMode::None
+        fn token_mode(&self) -> codeterm_decision::TokenMode {
+            codeterm_decision::TokenMode::None
         }
-        fn primitives(&self) -> codeterm_types::decision::DecisionPrimitives {
+        fn primitives(&self) -> codeterm_decision::DecisionPrimitives {
             Default::default()
         }
         fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {

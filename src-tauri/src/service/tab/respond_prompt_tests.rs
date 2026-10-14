@@ -147,13 +147,13 @@ fn detected_prompt_stays_respondable_without_notification() {
     let actions = prompt
         .options
         .iter()
-        .map(
-            |option| codeterm_types::notification::NotificationAction::RespondPromptOption {
+        .map(|option| {
+            codeterm_notification_core::contract::NotificationAction::RespondPromptOption {
                 label: option.label.clone(),
                 value: option.value.clone(),
                 identity: identity.clone(),
-            },
-        )
+            }
+        })
         .collect();
     let existing_id = fixture.seed_prompt_notification(
         "opaque title".into(),

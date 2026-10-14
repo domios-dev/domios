@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use codeterm_types::notification::{AnswerSlot, NotificationAction};
+use crate::contract::{AnswerSlot, NotificationAction};
 use codeterm_types::pty::PromptIdentity;
 
 use super::channel_placement::ChannelPlacement;

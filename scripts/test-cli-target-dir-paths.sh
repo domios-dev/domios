@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: skill build
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

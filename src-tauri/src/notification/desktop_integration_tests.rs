@@ -1,4 +1,4 @@
-use codeterm_types::notification::NotifyLevel;
+use codeterm_notification_core::contract::NotifyLevel;
 
 /// The rename is semantic, not cosmetic: the retired wire strings are rejected
 /// at the transport boundary rather than quietly accepted.

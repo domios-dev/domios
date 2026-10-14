@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh release-preflight/verify; CI file-sizes.yml; scripts qa-gates.lib.sh, tests/check-provider-boundary.test.mjs; skill gates
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

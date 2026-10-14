@@ -20,3 +20,6 @@ tests/fixtures/plan-state/*.yaml text eol=lf
 # failed the release provenance check on a dirty tree.
 **/Cargo.toml text eol=lf
 **/Cargo.lock text eol=lf
+
+# Tauri regenerates these with LF on every check/dev run.
+src-tauri/gen/schemas/*.json text eol=lf

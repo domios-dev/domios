@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use codeterm_types::decision::{DecisionQuestionsRequest, NamedDecisionQuestion};
+use codeterm_decision::{DecisionQuestionsRequest, NamedDecisionQuestion};
 use serde_json::json;
 
 use super::*;

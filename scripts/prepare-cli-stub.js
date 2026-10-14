@@ -1,3 +1,4 @@
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; CI qualification.yml; scripts dev-prep.mjs, qa-prep.sh; skill build
 // Create an empty placeholder for the bundled CLI resource so
 // `tauri_build::build()` can validate `bundle.resources` before CI
 // lint/unit jobs build the real CLI. Release/dev prep replaces this

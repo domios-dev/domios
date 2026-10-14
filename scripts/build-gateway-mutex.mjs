@@ -1,3 +1,4 @@
+// Caller: scripts build-gateway-mutex.test.mjs, build-gateway.sh
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';

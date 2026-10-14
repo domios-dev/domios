@@ -172,7 +172,7 @@ pub(super) fn general_agent_env_vars(
     );
     env.insert(
         "CODETERM_SOCKET_PATH".to_string(),
-        crate::socket::server::socket_display_path(),
+        crate::paths::socket_display_path(),
     );
     env.insert(
         "CODETERM_MACHINE_AGENT_IDENTITY".to_string(),

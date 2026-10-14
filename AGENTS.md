@@ -49,14 +49,15 @@ When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in
 
 Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to dev and never kills prod.
 
-**One build implementation for every platform.** `build.sh` holds all build, dev, test and report logic; `build.ps1` only locates Git Bash and forwards to it (plus Windows-only glue: `-NotifyTab` forwarding and a post-`dev` WebView2 reload). A build change lands once in `build.sh`, never as a parallel PowerShell branch, and the owning skill (`.agents/skills/dev-run`, `build`, `gates`, `utility-shell-reports`) is updated in the same change. Do not write ad-hoc build, restart or report scripts: dev readiness reports through `./build.sh dev --wait --notify-tab <tab>`, and QA runs through `QA_NOTIFY_TAB=<tab> scripts/qa-report.sh`.
+**One build implementation for every platform.** `build.sh` holds all build, dev, test and report logic; `build.ps1` only locates Git Bash and forwards to it (plus `-NotifyTab` forwarding and a post-`dev` WebView2 reload). A build change lands once in `build.sh`, never as a parallel PowerShell branch, and the owning skill (`.agents/skills/dev-run`, `build`, `gates`, `utility-shell-reports`) is updated in the same change. A command that worked and will be needed again becomes a `build.sh` verb or skill recipe in the same session, or the work is not done; scratch scripts are never the record. Long verbs take `--notify-tab <tab>`; QA batches use `./build.sh qa-batch`.
 
-Choose the operation before running a command: shared development is `.agents/skills/dev-run/SKILL.md`; a local production installer for this machine is `.agents/skills/build/SKILL.md#local-production-build-and-self-install`; public publishing is `.agents/skills/github-release/SKILL.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
+Choose the operation before running a command: shared development is `.agents/skills/dev-run/SKILL.md`; a local production installer for this machine is `.agents/skills/build/SKILL.md#local-production-build-and-self-install`; public publishing is `.agents/skills/github-release/SKILL.md`. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
 
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh check-tests      # compile Rust test profiles without running tests
+./build.sh check-queue [sha] # lane SHA: warm per-machine incremental cargo check, bounded errors
 ./build.sh worktree-check   # canonical-only integration compile check
 ./build.sh test-one app NAME # one focused app test (pty/cli also supported)
 ./build.sh test-one plan NAME # one focused codeterm-plan test
@@ -84,17 +85,15 @@ codeterm update install --from-file "/path/to/CodeTerm.app" \
 ```
 
 The implementation lives in `cli/src/cmd/install.rs`. It replaces the app,
-relaunches Domios, and resumes the calling tab. Do not manually replace the
-bundle or conclude that macOS self-install is missing because
-`./build.sh install-local` is Windows-only.
+relaunches Domios, and resumes the calling tab. Never replace the bundle by hand.
 
-`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, and the TypeScript/JS and plugin tests of what you touched; then commit, push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
+`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, the TypeScript/JS and plugin tests of what you touched, and `./build.sh check-queue` after committing Rust (the shared warm check worktree, never the lane target), fixing every returned error; then push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
 
-Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
+Parallel writers use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time, so `git add -A` is safe inside a lane.
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
 
-Run builds in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --purpose build --cmd "..."`), dev servers with `--purpose dev`, and QA with `--purpose qa`, never inline in the agent's own call.
+Run builds in a Team-bound utility shell (`codeterm tab new --team <team-id> --purpose build --cmd "..."`; dev `--purpose dev`, QA `--purpose qa`), never inline in the agent's own call. Copy-paste launchers: utility-shell-reports skill.
 
 For parent-routed dev and QA reports, see [utility-shell-reports](.agents/skills/utility-shell-reports/SKILL.md).
 
@@ -112,8 +111,6 @@ On gateway acquisition, at most hourly, cache retention removes exceptional targ
 - Do not remove the tuned Cargo profiles.
 - Run Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds. Cargo compiles targets with `--no-run` before the deadline starts.
 - `TEST_CAP_SECS` overrides the execution deadline; set it to `0` to disable. A cap kills the process group, exits 124, and reports any named libtest cases still running.
-- `--ensure-time` is nightly-only and cannot stop a blocked test, so stable Rust suites rely on the process deadline.
-- Preview or reclaim stale targets with `./build.sh gc --dry-run` or `./build.sh gc` between efforts.
 
 ## Lane integration preserves ancestry
 
@@ -138,7 +135,7 @@ curl -s http://127.0.0.1:7686/api/health | jq '.build'
 
 If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is still running — restart with `./build.sh dev`. During iterative work the hash stays the same across restarts, so the real "did the restart take" signal is `./build.sh kill` (which guarantees the old process is gone) followed by a fresh `./build.sh dev`.
 
-Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
+Dev logs: `~/.codeterm-dev/logs/codeterm.log`.
 
 Full testing guide: `.agents/skills/testing/SKILL.md`; authoring contract: `prod-docs/TEST-AUTHORING.md`.
 

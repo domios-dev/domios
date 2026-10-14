@@ -8,16 +8,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use codeterm_decision::{
+    DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
+    DecisionRequest, TokenMode,
+};
 use codeterm_lib::mem::decision::{
     rerank::{run_stage, RerankCandidate, StageConfig, StageOutcome, NOUL_INSTRUCTIONS_TEMPLATE},
     token_store::TokenStore,
     typesafe::TypeSafeAdapter,
 };
 use codeterm_lib::mem::{MemManager, SearchHit, SearchQuery};
-use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
-    DecisionRequest, TokenMode,
-};
 use serde::{Deserialize, Serialize};
 
 use super::{Fixture, SessionCandidateFixture, TestCase};

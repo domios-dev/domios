@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 const MAX_NATIVE_RESERVATIONS: usize = 128;
 
-use codeterm_types::local_recording::LocalRecordingTrigger;
+use codeterm_local_recording::LocalRecordingTrigger;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]

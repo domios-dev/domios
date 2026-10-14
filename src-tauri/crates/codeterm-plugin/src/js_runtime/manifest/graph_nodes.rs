@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::converter::Conversion;
-use codeterm_types::sentinel_input::MediaKind;
+use codeterm_blueprint_types::sentinel_input::MediaKind;
 
 pub const MAX_CONVERTERS: usize = 16;
 pub const MAX_EVENT_SOURCES: usize = 16;

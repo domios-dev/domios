@@ -478,7 +478,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     // ── Socket / API ─────────────────────────────────────────────────────
 
     fn socket_display_path(&self) -> String {
-        crate::socket::server::socket_display_path()
+        crate::paths::socket_display_path()
     }
 
     fn api_base_url(&self) -> String {
@@ -550,7 +550,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn receiver_status_report_json(
         &self,
         plugin_id: &str,
-        query: &codeterm_types::local_recording::ReceiverStatusQuery,
+        query: &codeterm_local_recording::ReceiverStatusQuery,
     ) -> String {
         super::local_recording::host_json(self.read_receiver_status_report(plugin_id, query))
     }

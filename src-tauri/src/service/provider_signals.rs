@@ -1,6 +1,7 @@
 use super::ServiceContext;
 use crate::agent::tab_state::{Surface, TabState, TabStateAction, TabStateClassification};
-use codeterm_types::agent::provider_signals::{ApiErrorKind, PermissionMode, ProviderSignals};
+use codeterm_provider_signals::{ApiErrorKind, PermissionMode};
+use codeterm_types::agent::provider_signals::ProviderSignals;
 use tauri::Manager;
 
 mod incident;
@@ -201,8 +202,8 @@ fn fresh_turn_incidents(
     tab: &mut crate::multiplexer::types::Tab,
     session: &str,
     records: &[crate::agent::chat_types::RichMessage],
-) -> Vec<codeterm_types::agent::provider_signals::ProviderTurnIncident> {
-    use codeterm_types::agent::provider_signals::{admit_key, ProviderTurnIncident};
+) -> Vec<codeterm_provider_signals::ProviderTurnIncident> {
+    use codeterm_provider_signals::{admit_key, ProviderTurnIncident};
     let task = tab
         .task_binding
         .as_ref()

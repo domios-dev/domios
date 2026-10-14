@@ -1,3 +1,4 @@
+// Caller: package.json script
 /**
  * Stand up (or repair) the named Playwright dev instance and leave it running.
  * The adopt-only runners refuse to start one; this is the command they name.

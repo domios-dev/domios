@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
     DecisionQuestion, DecisionQuestionsRequest, DecisionResponse, TokenMode,
 };
@@ -156,7 +156,7 @@ impl DecisionModel for StaticModalModel {
     }
     fn decide(
         &self,
-        _: &codeterm_types::decision::DecisionRequest,
+        _: &codeterm_decision::DecisionRequest,
         _: Instant,
     ) -> Result<DecisionAnswer, DecisionError> {
         Err(DecisionError::Unsupported)

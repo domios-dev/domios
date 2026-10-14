@@ -1,5 +1,5 @@
 use crate::provider::{AuthStatus, AuthStatusProbe, SessionObservations};
-use codeterm_types::agent::provider_signals::{ApiErrorKind, PermissionMode};
+use codeterm_provider_signals::{ApiErrorKind, PermissionMode};
 use serde_json::Value;
 
 pub(super) fn probe() -> AuthStatusProbe {
