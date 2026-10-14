@@ -1,4 +1,4 @@
-export type LocalArtifactKind = "page" | "image" | "document";
+export type LocalArtifactKind = "page" | "image" | "video" | "document";
 export interface LocalArtifactDirective { kind: LocalArtifactKind; path: string; }
 export function parseLocalArtifactDirective(source: string): LocalArtifactDirective | null {
   // `@ct-` is the pre-Domios prefix that older prompts and peers still emit.

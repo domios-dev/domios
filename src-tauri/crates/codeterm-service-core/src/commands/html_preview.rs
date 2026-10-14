@@ -7,6 +7,7 @@ pub(crate) use file::{checked_path, PreviewSource};
 const HTML_PREVIEW_FILE_LIMIT: u64 = 200_000;
 const DOCUMENT_PREVIEW_FILE_LIMIT: u64 = 1_000_000;
 const IMAGE_PREVIEW_FILE_LIMIT: u64 = 10 * 1024 * 1024;
+const VIDEO_PREVIEW_FILE_LIMIT: u64 = 48 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct LocalPreviewFile {
@@ -38,10 +39,13 @@ fn media(path: &std::path::Path, kind: &str) -> Result<(&'static str, u64), Stri
         ("image", "bmp") => ("image/bmp", IMAGE_PREVIEW_FILE_LIMIT),
         ("image", "avif") => ("image/avif", IMAGE_PREVIEW_FILE_LIMIT),
         ("image", "svg") => ("image/svg+xml", IMAGE_PREVIEW_FILE_LIMIT),
+        ("video", "mp4" | "m4v") => ("video/mp4", VIDEO_PREVIEW_FILE_LIMIT),
+        ("video", "mov") => ("video/quicktime", VIDEO_PREVIEW_FILE_LIMIT),
+        ("video", "webm") => ("video/webm", VIDEO_PREVIEW_FILE_LIMIT),
         ("page", _) => return Err("HTML preview source must use .html or .htm".into()),
         ("document", _) => ("text/plain", DOCUMENT_PREVIEW_FILE_LIMIT),
-        ("image", _) => return Err("Unsupported local preview file extension".into()),
-        _ => return Err("Local preview kind must be page, image, or document".into()),
+        ("image" | "video", _) => return Err("Unsupported local preview file extension".into()),
+        _ => return Err("Local preview kind must be page, image, video, or document".into()),
     };
     Ok(result)
 }
@@ -62,7 +66,7 @@ pub(crate) fn read_local_preview_file_guarded(
     let mut source = PreviewSource::open(path, &guard)?;
     let (media_type, limit) = media(&source.path, kind)?;
     let bytes = source.read(limit)?;
-    let data = if kind == "image" {
+    let data = if kind == "image" || kind == "video" {
         format!(
             "data:{media_type};base64,{}",
             base64::engine::general_purpose::STANDARD.encode(bytes)
