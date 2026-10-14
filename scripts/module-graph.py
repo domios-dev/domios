@@ -146,6 +146,12 @@ def main():
     for c in tcomps: md.append("- " + ", ".join(sorted(c)))
     md += ["", f"Units: {len(comps)} component(s), sizes {[len(c) for c in comps]}, LOC {[sum(loc[x] for x in c) for c in comps]}.", ""]
     for c in comps: md.append("- " + ", ".join(sorted(c)))
+    if "--summary" in sys.argv:
+        big = max(comps, key=len) if comps else []
+        print(json.dumps({"tangle_units": len(big), "tangle_loc": sum(loc[x] for x in big),
+                          "top_level_in_cycle": max((len(c) for c in tcomps), default=0),
+                          "app_loc_non_test": sum(loc.values())}))
+        return
     if "--md" in sys.argv:
         open(sys.argv[sys.argv.index("--md")+1], "w", encoding="utf-8").write(chr(10).join(md) + chr(10))
     else:
