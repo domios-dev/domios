@@ -309,10 +309,6 @@ impl AgentProvider for JsProvider {
         .flatten()
     }
 
-    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
-        delivery::delivery_modal_visible(self, snapshot)
-    }
-
     fn is_output_noise(&self, text: &str) -> bool {
         self.try_call::<bool>("isOutputNoise", &[json!(text)])
             .unwrap_or(false)
