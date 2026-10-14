@@ -353,6 +353,7 @@ jobs:
       - name: Shared tests (shard ${{ matrix.shard }}/12 on ${{ runner.name }})
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
         run: node scripts/ci-rust-shards.mjs shared ${{ matrix.shard }} 12
       - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -412,6 +413,7 @@ jobs:
       - name: Platform tests (${{ matrix.os }} on ${{ runner.name }})
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
         run: node scripts/ci-rust-shards.mjs platform
       - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
