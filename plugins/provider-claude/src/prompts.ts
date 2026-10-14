@@ -103,7 +103,7 @@ export function parseNumberedOptions(text: string): ParsedOptionState[] {
     options.push({
       label,
       value: m[1],
-      highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
+      highlighted: leadingMenuCursor(m[0]),
       selected: false,
       line: text.slice(0, m.index).split("\n").length - 1,
     });
@@ -122,7 +122,7 @@ export function parseCheckboxOptions(text: string): ParsedOptionState[] {
     options.push({
       label,
       value: String(options.length + 1),
-      highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
+      highlighted: leadingMenuCursor(m[0]),
       selected: mark === "☑" || mark === "☒" || mark === "✔" || /\[[xX]\]/.test(mark),
       line: text.slice(0, m.index).split("\n").length - 1,
     });
@@ -143,7 +143,7 @@ export function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
   const options = lastNumberedOptionCluster(allOptions);
   if (options.length < 2) return null;
   const lastOption = options[options.length - 1];
-  if (lines.slice(lastOption.line + 1).some((line) => /^\s*[❯›]\s*$/.test(line))) return null;
+  if (lines.slice(lastOption.line + 1).some(composerPromptLine)) return null;
   const hasActiveFooter = lines.some((line, index) =>
     index > lastOption.line
       && index <= lastOption.line + 5
@@ -157,6 +157,18 @@ export function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
     question,
     options: options.map((opt) => [opt.label, opt.value]),
   };
+}
+
+function leadingMenuCursor(match: string): boolean {
+  return /^\s*[❯>]/.test(match);
+}
+
+function composerPromptLine(line: string): boolean {
+  const marked = /^[❯›](?:\s+([\s\S]*))?$/.exec(line.trim());
+  if (!marked) return false;
+  const body = (marked[1] || "").trim();
+  if (!body) return true;
+  return !/^(?:\d+|[A-C])[.)]\s/.test(body);
 }
 
 function lastNumberedOptionCluster(options: ParsedOptionState[]): ParsedOptionState[] {

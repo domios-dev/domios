@@ -1,0 +1,7 @@
+2. keep `cargo check -p <crate>` in the lane
+3. leave the other item
+────────────────────────────────
+❯ <domios type="attachment" kind="voice" path="voice-note-a" label="voice" />
+  transcript line
+────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)    ctrl+g to edit in Notepad
