@@ -62,7 +62,7 @@ Orchestrator's canonical wave batch.
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
 | Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
-| Compile both Rust test profiles (a full rebuild, run in canonical) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; isolated target, never the build gateway | `.agents/skills/gates/SKILL.md` |
+| Compile both Rust test profiles (a full rebuild, run in canonical) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; shared Cargo gateway | `.agents/skills/gates/SKILL.md` |
 | Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
 | Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `.agents/skills/github-release/SKILL.md` |
 
@@ -860,3 +860,5 @@ Canonical QA builds `./build.sh nextest-archive <sha>` once. The verified warm w
 
 If a completed job reports `logging_degraded`, its command exit and completed/failed state are retained; the warning names the partial log. A tee/EOF drain failure formerly overwrote successful Cargo exit 0 with wrapper exit 74. Inspect the full check log for diagnostics; run `./build.sh gateway-logging-check`. An unknown command exit or metadata publication failure still refuses readiness.
 A mutex refusal prints the state.lock owner PID, start token, job ID, publication age and queued waiter tuples. Unknown values remain unknown; age never authorizes reclamation. Capture this evidence with the job receipt before investigating contention.
+
+A Windows `EPERM` while renaming `state.lock.pending.*` to `state.lock` is a publication sharing conflict. The helper releases its publication guard, retains the same candidate, and waits for a mutex ownership event before retrying inside the existing failure deadline. Its own guard changes and unrelated file events do not drive retries. A deadline refusal removes the unpublished candidate. Run `node --test scripts/build-gateway-mutex.test.mjs`; capture the owner/waiter tuple if the bounded event wait expires, without deleting unknown shared ownership.
