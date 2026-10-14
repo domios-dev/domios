@@ -129,7 +129,7 @@ class SingleRunGraphTest(unittest.TestCase):
             self.assertIn("    needs: [prepare, quick-checks]", block)
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
-        final = caller[caller.index("  release-manifest:") :]
+        final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn(
             "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]", final
         )
@@ -249,7 +249,7 @@ class SingleRunGraphTest(unittest.TestCase):
                 self.assertIn("CARGO_INCREMENTAL: '0'", text)
                 self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
                 self.assertIn(
-                    "args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }}",
+                    '--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"',
                     text,
                 )
 
@@ -302,7 +302,7 @@ class DryRunContractTest(unittest.TestCase):
         self.assertIn("      dry_run:\n", caller)
         drafts = next(s for s in steps(caller) if s.get("name") == "Create draft releases before parallel uploads")
         self.assertIn("dry_run != 'true'", drafts.get("if", ""))
-        final = caller[caller.index("  release-manifest:") :]
+        final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn("if: needs.prepare.outputs.dry_run != 'true'", final)
         for job in ("macos:", "linux-arm64:", "linux-x86_64:", "windows:"):
             block = caller[caller.index(f"  {job}") :]

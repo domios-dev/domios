@@ -134,3 +134,30 @@ fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
 <!-- revision: 5 -->
+
+## Rust warning inventory and cleanup
+
+Every release target and test archive/clippy build uploads a `rust-warnings-<lane>-<target>.json`
+artifact. The always-running warning summary publishes per-target, per-lint and per-file tables
+in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
+for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
+on associated release PRs. JSON diagnostics include crate, location, lint, message and snippet.
+Capture/upload/comment failures do not change platform build results; new warning identities fail
+the summary ratchet. Incomplete runs are labelled and never propose a baseline update.
+
+`scripts/rust-warnings-baseline.json` starts explicitly uninitialized: do not invent counts or
+seed it from local macOS output. After the first complete real release run, copy the generated
+`rust-warnings-baseline.json` from `rust-warnings-release-report` into the repository and commit
+it on develop, citing the run URL. No workflow dispatch is needed to initialize the mechanism.
+Until that seed is committed, reports explicitly say the ratchet is awaiting initialization.
+
+The post-release cleanup task consumes the full JSON report, groups by target/file/lint, and
+fixes cfg-specific warnings on their owning platform (including Windows arm64). After a complete
+run verifies the fixes, commit its proposed baseline alongside the cleanup. Subsequent baseline
+entries/counts may only shrink relative to origin/develop; adding a replacement warning at the
+same count still fails. A test-only run preserves baseline targets it did not build. Never copy
+an incomplete run's inventory over the baseline or hand-increase an allowance.
+
+Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
+Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
+of collector verification; the next real release proves the six-platform delivery and PR comment.

@@ -23,6 +23,21 @@ export function archiveRunArgs(archive, workspace, extract, config, partition = 
     '--status-level', 'pass', '--failure-output', 'immediate-final', ...(alone ? ['--test-threads', '1'] : [])];
 }
 
+export function archiveMessages(args) {
+  let messages = '';
+  try {
+    messages = execFileSync('cargo', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+    return messages;
+  } catch (error) {
+    messages = error.stdout?.toString() || '';
+    throw error;
+  } finally {
+    if (process.env.RUST_WARNING_LOG) {
+      try { fs.appendFileSync(process.env.RUST_WARNING_LOG, messages); } catch { /* Warning capture cannot fail compilation. */ }
+    }
+  }
+}
+
 export function generatedDirectories(messages) {
   const directories = {};
   for (const line of messages.split('\n').filter(Boolean)) {
@@ -71,7 +86,7 @@ function build() {
       const include = lane === 'workspace' ? '\narchive.include = [{ path = ' + JSON.stringify('debug/' + runtime) + ', relative-to = "target", on-missing = "error" }]\n' : '\n';
       fs.writeFileSync(config, '[profile.default]\ndefault-filter = "all()"' + include);
       const archive = path.resolve('ci-rust-archives', lane + '.tar.zst');
-      const messages = execFileSync('cargo', ['nextest', 'archive', '--manifest-path', manifest, '--workspace', '--locked', ...(lane === 'workspace' ? ['--lib'] : []), '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+      const messages = archiveMessages(['nextest', 'archive', '--manifest-path', manifest, '--workspace', '--locked', ...(lane === 'workspace' ? ['--lib'] : []), '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json']);
       const generated = generatedDirectories(messages);
       if (lane === 'workspace' && !fs.statSync(path.join(metadata.target_directory, 'debug', runtime)).size) throw new Error('Runtime embed sidecar was overwritten while archiving');
       const extract = path.resolve(process.env.RUNNER_TEMP, 'rust-archive-classify', lane);
