@@ -7,6 +7,8 @@ use super::orchestrator::SpawnAgentParams;
 use super::ServiceContext;
 use crate::process_util;
 
+mod language_server_settings;
+
 fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
     role == Some("Worker")
 }
@@ -666,12 +668,20 @@ fn provision_lane_at_base(
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
         return Err(error);
     }
-    Ok(ProvisionedWorkerLane {
+    let lane = ProvisionedWorkerLane {
         canonical_cwd: project_cwd,
         cwd: lane_cwd,
         branch,
         base,
-    })
+    };
+    if let Err(error) = language_server_settings::configure(&lane.cwd) {
+        let cleanup = lane.cleanup();
+        return Err(match cleanup {
+            Ok(()) => error,
+            Err(cleanup) => format!("{error}; lane cleanup failed: {cleanup}"),
+        });
+    }
+    Ok(lane)
 }
 
 pub(crate) fn verify_worker_lane(
