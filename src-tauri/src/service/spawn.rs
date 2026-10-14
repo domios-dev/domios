@@ -901,7 +901,7 @@ impl ServiceContext {
         }
         env_vars.insert(
             "CODETERM_SOCKET_PATH".into(),
-            crate::socket::server::socket_display_path(),
+            crate::paths::socket_display_path(),
         );
         let api_cfg = self.configuration().api;
         let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
