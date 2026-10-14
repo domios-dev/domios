@@ -19,7 +19,8 @@ fn declared() -> (Arc<CommandReadiness>, String, ComposerInputState) {
         display_name: "Sonnet 5.5".into(),
         readiness: None,
     };
-    let readiness = CommandReadiness::from_declaration(&commands, &target)
+    let provider = Arc::new(crate::plugin::agent_claude::ClaudeProvider::new());
+    let readiness = CommandReadiness::from_declaration(&commands, &target, provider)
         .unwrap()
         .unwrap();
     let screen = include_str!(concat!(
