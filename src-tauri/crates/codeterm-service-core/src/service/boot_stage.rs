@@ -379,7 +379,7 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app_handle,
             "tab-boot-stage",
             boot_stage_event(tab_id, tab, stage, reason),
@@ -637,7 +637,7 @@ impl ServiceContext {
                 .collect::<Vec<_>>()
         };
         if crate::crash::lifecycle::heal_current_epoch(&healthy) {
-            crate::api::events::emit_everywhere(
+            codeterm_events::emit_everywhere(
                 &self.app_handle,
                 "recovery-state-changed",
                 crate::crash::lifecycle::recovery_state(),

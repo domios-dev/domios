@@ -313,7 +313,7 @@ fn release_owned_reservation_detaches_only_its_own_members() {
 fn normal_team_close_is_unchanged() {
     let dir = tempfile::tempdir().unwrap();
     let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let mut fixture = PairFixture::new();
     fixture
         .mux

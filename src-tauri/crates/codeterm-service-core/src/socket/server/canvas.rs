@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use super::JsonRpcError;
 
 fn emit_canvas_focus(app: &AppHandle, payload: Value) {
-    crate::api::events::emit_everywhere(app, "canvas-focus", payload);
+    codeterm_events::emit_everywhere(app, "canvas-focus", payload);
 }
 
 pub(super) fn dispatch(

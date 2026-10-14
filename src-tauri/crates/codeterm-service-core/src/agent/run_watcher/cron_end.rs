@@ -87,7 +87,7 @@ where
                 },
                 deliver,
             );
-            crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+            codeterm_events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
         },
     ))
 }

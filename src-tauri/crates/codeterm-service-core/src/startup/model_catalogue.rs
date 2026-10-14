@@ -7,15 +7,11 @@ pub(crate) fn forward_changes(app: &crate::app_runtime::AppHandle) {
         loop {
             match changes.recv().await {
                 Ok(change) => {
-                    crate::api::events::emit_everywhere(&app, "model-catalogue-changed", change)
+                    codeterm_events::emit_everywhere(&app, "model-catalogue-changed", change)
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                     for change in agent::model_catalog::version_snapshot() {
-                        crate::api::events::emit_everywhere(
-                            &app,
-                            "model-catalogue-changed",
-                            change,
-                        );
+                        codeterm_events::emit_everywhere(&app, "model-catalogue-changed", change);
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

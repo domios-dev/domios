@@ -2,8 +2,8 @@ use super::*;
 
 use super::staffing::{prepare_team_member_spawn, team_member_role};
 
-use crate::api::events::SystemEvent;
 use crate::service::EventBroadcaster;
+use codeterm_events::SystemEvent;
 
 fn isolated_plan_store() -> (tempfile::TempDir, crate::service::plan::PlanStore) {
     let dir = tempfile::tempdir().unwrap();
@@ -145,7 +145,7 @@ fn multiple_orchestrators_keep_team_membership_and_spawner_routing_separate() {
     mux.get_tab_mut(&second_orchestrator)
         .unwrap()
         .spawned_by_tab_id = Some(first_orchestrator.clone());
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     commit_team_member_spawn(
         &mut mux,
         &events,
@@ -255,7 +255,7 @@ fn close_team_removes_registry_and_members_with_one_state_change() {
         AgentRole::Worker,
         None,
     );
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let mut subscription = events.subscribe();
 
     let (closed, _, _) = close_team_with_state_change(
@@ -309,7 +309,7 @@ fn close_team_archives_and_detaches_bound_plan() {
             2,
         )
         .unwrap();
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let (_, _, changed_plan_ids) = close_team_with_state_change(
         &mut mux,
         &events,
@@ -361,7 +361,7 @@ fn close_team_staging_failure_leaves_mux_and_plan_unchanged_without_events() {
         independent,
     ];
     let before_snapshot = snapshot_without_generation(&mux);
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let mut subscription = events.subscribe();
 
     let error = close_team_with_state_change_using(
@@ -845,7 +845,7 @@ fn add_team_member_uses_existing_manager_and_team() {
     )
     .unwrap();
     let tab_id = spawn_fixture_member(&mut mux, &workspace_id, &manager, AgentRole::Worker, None);
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let result = commit_team_member_spawn(
         &mut mux,
         &events,
@@ -1005,7 +1005,7 @@ fn add_team_member_sets_exact_planner_role_and_emits_one_state_change() {
         AgentRole::Manager,
         Some("planner"),
     );
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let mut subscription = events.subscribe();
     let result = commit_team_member_spawn(
         &mut mux,
@@ -1154,7 +1154,7 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
     .unwrap();
     let tab_id = spawn_fixture_member(&mut mux, &workspace_id, &manager, AgentRole::Worker, None);
     mux.get_tab_mut(&tab_id).unwrap().team_id = None;
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let mut subscription = events.subscribe();
     assert!(commit_team_member_spawn(
         &mut mux,

@@ -101,7 +101,7 @@ fn general_agent_team_guard_refuses_the_anchoring_commit_without_binding_a_team(
         tab.team_id = None;
         candidate
     };
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
 
     let error = commit_team_member_spawn(
         &mut mux,
@@ -137,7 +137,7 @@ fn general_agent_team_guard_leaves_an_ordinary_manager_add_member_byte_identical
     let member = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&member, AgentRole::Worker, Some(&orchestrator))
         .unwrap();
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let result = commit_team_member_spawn(
         &mut mux,
         &events,

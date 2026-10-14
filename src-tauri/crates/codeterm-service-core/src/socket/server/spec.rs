@@ -25,11 +25,11 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+    codeterm_events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn emit_spec_changed(app: &AppHandle, spec_id: &str) {
-    crate::api::events::emit_everywhere(app, "spec-changed", json!({ "spec_id": spec_id }));
+    codeterm_events::emit_everywhere(app, "spec-changed", json!({ "spec_id": spec_id }));
 }
 
 fn bad_param(message: String) -> JsonRpcError {
