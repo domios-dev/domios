@@ -68,10 +68,13 @@ pub(super) fn incident(
     };
     let (title, role, role_tab, parent, plan, provider) = context;
     if transition != IncidentTransition::Enter {
-        let resolved = svc
-            .notif
-            .lock()
-            .resolve_tab_condition(tab_id, TabCondition::ProviderAccessLost);
+        let resolved = {
+            let mut store = svc.notif.lock();
+            let mut resolved =
+                store.resolve_tab_condition(tab_id, TabCondition::ProviderAccessLost);
+            resolved.extend(store.resolve_tab_condition(tab_id, TabCondition::ProviderTurnError));
+            resolved
+        };
         svc.announce_resolved(&resolved);
         log::debug!("[provider-access] recovered tab={tab_id}");
         return;
@@ -123,4 +126,97 @@ pub(super) fn incident(
             }
         });
     }
+}
+
+pub(super) fn deliver_turn(
+    svc: &ServiceContext,
+    tab_id: &str,
+    session: &str,
+    nonce: &str,
+    turn: &codeterm_types::agent::provider_signals::ProviderTurnIncident,
+) {
+    let context = {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(tab_id).filter(|tab| {
+            tab.agent_session_id.as_deref() == Some(session)
+                && tab.session_binding_nonce.as_deref() == Some(nonce)
+        }) else {
+            log::debug!("[provider-access] turn incident stale tab={tab_id}");
+            return;
+        };
+        (
+            tab.role.is_some(),
+            tab.parent_tab_id.clone(),
+            tab.task_binding
+                .as_ref()
+                .and_then(|binding| binding.plan_id.clone()),
+        )
+    };
+    let (role_tab, parent, plan) = context;
+    let task = turn.task.clone().unwrap_or_else(|| "none".into());
+    let retry = turn
+        .retry_after
+        .map(|secs| secs.to_string())
+        .unwrap_or_else(|| "none".into());
+    let body = format!(
+        "worker={} task={task} provider={} class={} retry_after={retry} turn_stopped={}",
+        turn.worker,
+        turn.provider,
+        turn.class.as_str(),
+        turn.turn_stopped,
+    );
+    let id = svc.log_system_notice(
+        "Provider turn error".into(),
+        Some(body.clone()),
+        Some("error"),
+    );
+    let retained = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(session)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+    });
+    if !retained {
+        log::debug!("[provider-access] turn incident rebound tab={tab_id}");
+        return;
+    }
+    let owner = plan
+        .and_then(|plan| svc.plan_store.get(&plan))
+        .and_then(|plan| plan.owner.tab_id);
+    let target = parent_target(role_tab, parent, owner, tab_id);
+    svc.events.publish_generic(
+        "provider-turn-error",
+        serde_json::json!({
+            "worker": turn.worker,
+            "task": turn.task,
+            "provider": turn.provider,
+            "class": turn.class.as_str(),
+            "retry_after": turn.retry_after,
+            "turn_stopped": turn.turn_stopped,
+            "notification_id": id,
+            "target": target,
+        }),
+    );
+    let Some(target) = target else {
+        return;
+    };
+    let key = turn.idempotency_key.clone();
+    let svc = svc.clone();
+    std::thread::spawn(move || {
+        let result = svc.gateway.submit(
+            &svc,
+            OutboundMessage {
+                target,
+                body: MessageBody::Text {
+                    body: format!("[provider turn error] {body}"),
+                },
+                envelope: Some(MessageEnvelope::codeterm_reminder("provider-turn-error")),
+                class: DeliveryClass::SystemNotice,
+                origin: MessageOrigin::System,
+                idempotency_key: Some(key),
+            },
+        );
+        log::debug!("[provider-access] turn incident route result={result:?}");
+        if let Err(error) = result {
+            log::warn!("[provider-access] turn incident route failed: {error:?}");
+        }
+    });
 }
