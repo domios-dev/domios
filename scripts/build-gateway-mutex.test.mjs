@@ -12,7 +12,7 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-function contender(directory, timeout = 20000) {
+function contender(directory, timeout = 20000, identityPreload = '') {
   const child = spawn(bash, ['-c', `
     source scripts/build-gateway.sh
     ct_repo_root() { printf '%s\\n' "$PWD"; }
@@ -29,7 +29,7 @@ function contender(directory, timeout = 20000) {
       echo REFUSED
       exit "$rc"
     fi
-  `, 'fixture', directory, String(timeout)], { cwd: root, env: { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'] });
+  `, 'fixture', directory, String(timeout)], { cwd: root, env: { ...process.env, ...(identityPreload ? { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(identityPreload).href}` } : {}), PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'] });
   let errors = '';
   child.stderr.on('data', chunk => errors += chunk);
   const lines = readline.createInterface({ input: child.stdout });
@@ -46,13 +46,32 @@ async function cleanup(directory, workers) {
   fs.rmSync(directory, { recursive: true, force: true });
 }
 
+function contentionIdentityFixture(directory) {
+  const filename = path.join(directory, 'identity-fixture.mjs');
+  fs.writeFileSync(filename, `
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const original = cp.spawnSync;
+    cp.spawnSync = function(command, args, ...rest) {
+      const pid = command === 'powershell.exe' && args.join(' ').match(/GetProcessById\\((\\d+)\\)/)?.[1];
+      if (!pid) return original.call(this, command, args, ...rest);
+      let present = true;
+      try { process.kill(Number(pid), 0); } catch { present = false; }
+      return { status: 0, stdout: present ? 'fixture-' + pid : 'GONE', stderr: '' };
+    };
+    syncBuiltinESMExports();
+  `);
+  return filename;
+}
+
 for (const mode of ['fresh', 'incomplete']) {
-  test(`${mode}: six concurrent Bash clients all acquire and release in turn`, { timeout: 90000 }, async () => {
+  test(`${mode}: six concurrent Bash clients with fixture identities acquire and release in turn`, { timeout: 90000 }, async () => {
     for (let round = 0; round < 3; round++) {
       const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-contention-'));
       const lock = path.join(directory, 'state.lock');
       if (mode === 'incomplete') fs.mkdirSync(lock);
-      const workers = Array.from({ length: 6 }, () => contender(directory));
+      const identityPreload = contentionIdentityFixture(directory);
+      const workers = Array.from({ length: 6 }, () => contender(directory, 20000, identityPreload));
       let initializationWatcher;
       try {
         await Promise.all(workers.map(worker => worker.ready));

@@ -14,11 +14,12 @@ export function confirmCandidates(entries, options, run = spawnSync) {
   let exitCode = 0;
   for (const entry of entries) {
     const filter = candidateFilter([entry]);
-    const result = run('bash', ['scripts/test-capped.sh', '--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo,
+    const reuse = options.archive ? ['--archive-file', options.archive, '--workspace-remap', process.cwd()] : ['--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo];
+    const result = run('bash', ['scripts/test-capped.sh', ...reuse,
       '--filter-expr', filter, '--test-threads', '1', '--status-level', 'pass',
       '--no-fail-fast', '--no-tests=fail'], {
       encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-      env: {...process.env, CARGO_TEST_CMD: 'cargo nextest run', CARGO_TEST_BUILD_CMD: ''},
+      env: {...process.env, CARGO_TEST_CMD: 'cargo nextest run', CARGO_TEST_BUILD_CMD: '', TEST_RAW_OUTPUT: '1'},
     });
     const output = (result.stdout ?? '') + (result.stderr ?? '');
     appendFileSync(options.output, output);
@@ -27,9 +28,10 @@ export function confirmCandidates(entries, options, run = spawnSync) {
     if (timings.length !== 1 || timings[0].binary !== entry.binary || timings[0].test !== entry.test) {
       throw new Error('serial measurement selected a different test');
     }
-    (options.print ?? (text => process.stdout.write(text)))(output);
+    if (result.status !== 0) (options.print ?? (text => process.stdout.write(text)))(output.split('\n').slice(-25).join('\n'));
     if (result.status !== 0) exitCode ||= result.status ?? 1;
   }
+  (options.print ?? (text => process.stdout.write(text)))(`slow-unit confirmation: selectors=${entries.length} exit=${exitCode} artifact=${options.output}\n`);
   return exitCode;
 }
 
@@ -38,7 +40,8 @@ function main() {
   if (!output || extra.length) throw new Error('usage: node scripts/confirm-slow-unit-tests.mjs CANDIDATES_JSON BINARIES_JSON CARGO_JSON ALONE_LOG');
   const document = JSON.parse(readFileSync(candidates, 'utf8'));
   if (!Array.isArray(document.entries)) throw new Error('candidate entries are required');
-  process.exitCode = confirmCandidates(document.entries, {binaries, cargo, output});
+  const reuse = binaries === '--archive-file' ? { archive: cargo } : { binaries, cargo };
+  process.exitCode = confirmCandidates(document.entries, {...reuse, output});
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

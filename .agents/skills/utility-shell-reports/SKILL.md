@@ -53,7 +53,7 @@ QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 
 ## Launcher recipes (copy-paste)
 
-`check`, `check-queue`, `check-tests`, `test-one`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
+`check`, `check-queue`, `check-tests`, `test-one`, `nextest`, `nextest-archive`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
 `--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`): one `OK` receipt on success, or one
 early-failure receipt naming the step, first error line and log path (gateway refusal 75 included), sent
 through the captured parent context. `install-local` runs rustfmt, the file-size gate and the clean-checkout check
@@ -106,6 +106,14 @@ codeterm tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scrip
 The send uses `codeterm send --tab <agent-tab-id> --from-file <body-file>`.
 Every report body is written to a file before it is sent.
 
+## Shared Git config lock before Bash
+
+If a PowerShell utility shell stops at `git config core.hooksPath` with a config
+lock error, the launcher still contains the old redundant setup write. The
+PowerShell wrapper now forwards directly; build.sh owns best-effort hook setup.
+Use the updated wrapper and retain the original failed shell receipt. No Cargo
+or gateway job ran when the old wrapper stopped before forwarding.
+
 ## Parent environment trap
 
 `build.sh` captures the parent `codeterm` path and its connection and request
@@ -154,4 +162,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 8 -->
+<!-- revision: 10 -->
