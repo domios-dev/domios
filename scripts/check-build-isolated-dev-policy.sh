@@ -8,7 +8,7 @@ cd "$ROOT"
 isolated="$(CODETERM_INSTANCE=playwright-harness CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
 grep -Fxq 'mode=isolated-named-wait' <<<"$isolated"
 grep -Eq '^target=.*/\.codeterm-dev-playwright-harness/target$' <<<"$isolated"
-grep -Fxq 'build_gateway=skipped' <<<"$isolated"
+grep -Fxq 'build_gateway=required' <<<"$isolated"
 
 canonical="$(CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
 grep -Fxq 'mode=shared' <<<"$canonical"
