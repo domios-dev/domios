@@ -27,7 +27,9 @@ use decision::{bounded_questions, cadence, classify, error_reason, suppressed};
 use decision::{questions, selected_learnings};
 pub(crate) use delivery_log::{delivery_tick, DeliveryTick, TickFact};
 pub(crate) use runtime::{journal, Supporter};
-pub(crate) use snapshot::{binding_digest, collect, collect_owner_messages, collect_worker_scope};
+pub(crate) use snapshot::{
+    actionable_pending, binding_digest, collect, collect_owner_messages, collect_worker_scope,
+};
 #[cfg(test)]
 pub(crate) use state::Telemetry;
 pub(crate) use state::{Claim, Gate, Observation};
