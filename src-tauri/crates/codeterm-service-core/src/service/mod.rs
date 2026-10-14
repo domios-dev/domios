@@ -141,6 +141,7 @@ pub mod reply_relay;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
+mod role_target;
 pub(crate) mod role_preset;
 pub(crate) mod role_profile;
 mod session_backup;
@@ -200,6 +201,7 @@ pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
+mod team_core;
 #[cfg(test)]
 pub(crate) use team::close_team_with_state_change;
 #[cfg(test)]
@@ -298,8 +300,8 @@ pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub(crate) use team::TeamMutationCaller;
-pub(crate) use team::TeamPlanError;
+pub(crate) use team_core::TeamMutationCaller;
+pub(crate) use team_core::TeamPlanError;
 pub(crate) use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
 pub(crate) use team::{CartographerAttachLocks, OrchestratorAttachLocks};
 pub(crate) use worker_identity::{

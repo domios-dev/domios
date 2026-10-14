@@ -38,7 +38,7 @@ impl crate::service::ServiceContext {
                 plan_id: plan_id.to_string(),
                 role: "owner-decision-gate".into(),
             });
-        crate::service::orchestrator_digests::deliver_exact_role_target(
+        crate::service::role_target::deliver_exact_role_target(
             "owner-decision-gate",
             plan_id,
             intended_owner,

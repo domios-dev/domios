@@ -10,7 +10,7 @@ use tauri::Manager;
 
 use super::plan::pause_operation::{open_pause_operation, PlanPauseBegin, PlanResumeBegin};
 use super::plan::{PlanError, PlanStore};
-use super::team::TeamPlanError;
+use super::team_core::TeamPlanError;
 use super::ServiceContext;
 use crate::cron::store::CronJob;
 use crate::multiplexer::state::MultiplexerState;

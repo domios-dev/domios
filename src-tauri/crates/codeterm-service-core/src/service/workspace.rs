@@ -493,7 +493,7 @@ impl ServiceContext {
                 .map(|team| team.id),
         );
         let mut team_ids: Vec<_> = team_ids.into_iter().collect();
-        team_ids.retain(|team_id| !super::team::is_remote_team(&mux, team_id));
+        team_ids.retain(|team_id| !super::team_core::is_remote_team(&mux, team_id));
         team_ids.sort();
         team_ids
     }

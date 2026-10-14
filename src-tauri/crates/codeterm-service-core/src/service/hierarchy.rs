@@ -279,7 +279,7 @@ impl ServiceContext {
             Some(crate::plan::PlannerRef::Tab { tab_id: bound, session_id: Some(session), .. })
                 if bound == tab_id && session == expected_session_id
         );
-        crate::service::orchestrator_digests::deliver_exact_role_target(
+        crate::service::role_target::deliver_exact_role_target(
             "planner",
             plan_id,
             intended_target,
