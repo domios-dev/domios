@@ -2004,6 +2004,8 @@ CodeTerm build commands
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
+  chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--out DIR] [--cdp WS]
+                              Scripted iPhone touch scroll over the mounted Chat window; fails on any visual jump
   install-local               Build and install locally (cheap fmt/size/clean gates first)
   script-guards               Run the script catalogue gate and uncalled fixture guards
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
@@ -2470,6 +2472,47 @@ EOF
         ;;
       *) echo "ERROR: lane-recover mode must be keep or merge" >&2; exit 2 ;;
     esac
+    ;;
+  chat-scroll-trace)
+    cst_webkit=0
+    cst_fix=1
+    cst_strokes=14
+    cst_out=""
+    cst_cdp="${CHAT_SCROLL_TRACE_CDP:-}"
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --webkit) cst_webkit=1 ;;
+        --fix) cst_fix="${2:-}"; shift ;;
+        --strokes) cst_strokes="${2:-}"; shift ;;
+        --out) cst_out="${2:-}"; shift ;;
+        --cdp) cst_cdp="${2:-}"; shift ;;
+        *) echo "ERROR: usage: chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--out DIR] [--cdp WS]" >&2; exit 2 ;;
+      esac
+      shift
+    done
+    case "$cst_fix" in 0|1) ;; *) echo "ERROR: --fix must be 0 or 1" >&2; exit 2 ;; esac
+    ensure_deps
+    if [ -z "$cst_cdp" ]; then
+      codeterm plugin browser status 2>/dev/null | grep -q "no browser open" && codeterm plugin browser open >/dev/null
+      cst_cdp="$(codeterm plugin browser endpoint | tail -n 1)"
+    fi
+    case "$cst_cdp" in ws://*) ;; *) echo "ERROR: no browser CDP endpoint; pass --cdp ws://..." >&2; exit 2 ;; esac
+    [ -n "$cst_out" ] || cst_out="$(mktemp -d "${TMPDIR:-/tmp}/chat-scroll-trace.XXXXXX")"
+    exec {cst_fd}< <(exec node scripts/chat-scroll-trace/serve.mjs)
+    cst_server=$!
+    trap 'kill "$cst_server" 2>/dev/null || true' EXIT
+    cst_url=""
+    # The deadline bounds a failed start; readiness is the server's own "ready" line.
+    while IFS= read -r -t 120 -u "$cst_fd" cst_line; do
+      case "$cst_line" in "ready "*) cst_url="${cst_line#ready }"; break ;; esac
+    done
+    [ -n "$cst_url" ] || { echo "ERROR: chat-scroll-trace harness server did not report ready" >&2; exit 1; }
+    cst_status=0
+    node scripts/chat-scroll-trace/trace.mjs --cdp "$cst_cdp" --url "${cst_url}?fix=${cst_fix}&webkit=${cst_webkit}" \
+      --strokes "$cst_strokes" --out "$cst_out" || cst_status=$?
+    echo "chat-scroll-trace: trace.json and screenshots in $cst_out"
+    exit "$cst_status"
     ;;
   qa-prep)
     bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
