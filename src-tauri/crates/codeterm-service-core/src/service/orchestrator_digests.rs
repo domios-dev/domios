@@ -37,8 +37,8 @@ pub(crate) fn deliver_gated_heartbeat_exact(
     plan_id: &str,
     target: &str,
     text: &str,
-    learning_ids: Option<&[String]>,
-    plain: bool,
+    _learning_ids: Option<&[String]>,
+    _plain: bool,
     mode_transition: bool,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
@@ -49,8 +49,8 @@ pub(crate) fn deliver_gated_heartbeat_exact(
         "system",
         text,
         HeartbeatSelection {
-            learning_ids,
-            plain,
+            learning_ids: None,
+            plain: true,
             mode_transition,
         },
         observer,
@@ -165,7 +165,11 @@ pub(crate) fn deliver_exact_role_target(
     result
 }
 
-fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
+pub(crate) fn collect_digest_lines(
+    svc: &ServiceContext,
+    plan: &Plan,
+    tab_id: Option<&str>,
+) -> Vec<String> {
     let mut out = Vec::new();
     out.extend(crate::service::cartographer::digest_lines(
         plan,

@@ -161,7 +161,7 @@ pub(super) fn classify(
 
 /// The Owner floor: a deterministic wake with heuristic Worker steps, so a missing,
 /// failing or denying adapter never silences a plan that still has actionable work.
-pub(super) fn cadence(snapshot: &Snapshot) -> Decision {
+pub(crate) fn cadence(snapshot: &Snapshot) -> Decision {
     let mut decision = suppressed(snapshot, "cadence", "actionable_cadence");
     decision.wake = true;
     decision.tick_label = "action_needed".into();
