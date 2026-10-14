@@ -315,7 +315,10 @@ fn readiness_deadline_fallback_rechecks_the_provider_guard() {
     assert_eq!(guard_checks, 2);
     assert_eq!(io.payload_writes.get(), 1);
     assert_eq!(io.submit_key_writes.get(), 0);
-    assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
+    assert!(matches!(
+        error,
+        InjectionError::SubmitWithheldForPrompt { .. }
+    ));
 }
 
 #[test]
@@ -481,7 +484,7 @@ fn assert_prompt_fixture_stops_recovery(
             if initial_key {
                 Ok(())
             } else {
-                recovery_dialog_guard(&provider, &snapshot, false, "same-pty")
+                recovery_dialog_guard(&provider, &snapshot, "same-pty")
             }
         },
     )
@@ -566,7 +569,7 @@ fn plain_unconfirmed_composer_keeps_its_bounded_key_schedule() {
             if initial_key {
                 Ok(())
             } else {
-                recovery_dialog_guard(&provider, &snapshot, false, "same-pty")
+                recovery_dialog_guard(&provider, &snapshot, "same-pty")
             }
         },
     )
@@ -623,7 +626,7 @@ fn recovery_stops_on_provider_modal_without_using_screen_turn_state() {
         },
     );
     assert!(matches!(
-        recovery_dialog_guard(&working, &snapshot, false, "same-pty"),
+        recovery_dialog_guard(&working, &snapshot, "same-pty"),
         Ok(())
     ));
 
@@ -636,12 +639,8 @@ fn recovery_stops_on_provider_modal_without_using_screen_turn_state() {
         },
     );
     assert!(matches!(
-        recovery_dialog_guard(&prompt, &snapshot, false, "same-pty"),
+        recovery_dialog_guard(&prompt, &snapshot, "same-pty"),
         Err(InjectionError::AgentTuiPresent { .. })
-    ));
-    assert!(matches!(
-        recovery_dialog_guard(&prompt, &snapshot, true, "same-pty"),
-        Ok(())
     ));
 }
 

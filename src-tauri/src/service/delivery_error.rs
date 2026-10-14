@@ -221,7 +221,9 @@ impl DeliveryError {
             | InjectionError::AgentInputUnavailable { .. } => Self::TabBusyRefused { tab, detail },
             InjectionError::PtyClosed { .. } => Self::PtyUnavailable { tab, detail },
             // Both fire only after the paste reached the PTY.
-            InjectionError::EchoMismatch { .. } | InjectionError::SubmitNeverConfirmed { .. } => {
+            InjectionError::EchoMismatch { .. }
+            | InjectionError::SubmitNeverConfirmed { .. }
+            | InjectionError::SubmitWithheldForPrompt { .. } => {
                 Self::SubmitUnconfirmed { tab, detail }
             }
         }

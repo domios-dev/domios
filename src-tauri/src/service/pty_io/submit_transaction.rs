@@ -27,8 +27,8 @@ use paste_encoding::{
     encode_paste_frame, encode_paste_frame_with_tail, xterm_paste, BRACKETED_PASTE_END,
     BRACKETED_PASTE_START,
 };
-use readiness::{exact_session_turn_source_available, pty_owner_guard, submit_key_readiness};
-pub(crate) use readiness::{observe_delivery_readiness, DELIVERY_MODAL_OPEN};
+use readiness::{enter_prompt_guard, exact_session_turn_source_available, pty_owner_guard};
+pub(crate) use readiness::{observe_delivery_readiness, WAITING_ON_PROMPT};
 mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
@@ -165,7 +165,7 @@ trait SubmitTransport {
         Ok(())
     }
     fn prewrite_guard(&self) -> Result<(), InjectionError> {
-        self.dialog_guard()
+        Ok(())
     }
     fn prepare_paste(&self, _text: &str, _enter: bool) {}
     fn wait_for_deferred_submit_ready(&self, deadline: Instant) -> DeferredSubmitWait {
@@ -254,6 +254,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn dialog_guard(&self) -> Result<(), InjectionError> {
+        enter_prompt_guard(self.svc, self.pty_id)
+    }
+
+    fn prewrite_guard(&self) -> Result<(), InjectionError> {
         pty_owner_guard(self.svc, self.pty_id)
     }
 
@@ -509,7 +513,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 pty_id: self.pty_id.to_string(),
             });
         }
-        self.dialog_guard()?;
+        self.prewrite_guard()?;
         let timeout = deadline.saturating_duration_since(Instant::now());
         let callback = self.payload_queued.clone();
         let trace = self.trace.clone();

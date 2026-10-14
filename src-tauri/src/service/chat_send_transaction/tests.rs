@@ -100,6 +100,44 @@ fn owner_prewrite_revalidation_keeps_pending_reason_visible() {
 }
 
 #[test]
+fn withheld_enter_keeps_the_waiting_on_prompt_reason_on_the_unconfirmed_send() {
+    let ledger = ChatSendLedger::default();
+    let pending = ledger.try_start("tab-1", "hello", None).unwrap();
+    let authority = crate::service::pending_delivery_payloads::user_sends::UserSendAuthority {
+        tab_id: "tab-1".into(),
+        pty_id: Some("pty-1".into()),
+        binding_nonce: "nonce-1".into(),
+        pty_session_generation: Some(1),
+        provider_id: "provider".into(),
+        session_id: None,
+        observed_session_id: Some("session-1".into()),
+        prelaunch: false,
+    };
+    {
+        let mut state = ledger.state.lock();
+        state
+            .owned
+            .insert(pending.send_id.clone(), (authority, true));
+        state.by_id.get_mut(&pending.send_id).unwrap().state = ChatSendState::Written;
+    }
+    ledger.note_waiting_on_prompt(&pending.send_id);
+
+    let status = ledger
+        .finish(
+            &pending.send_id,
+            Err("submit_unconfirmed: waiting_on_prompt".into()),
+        )
+        .unwrap();
+
+    assert_eq!(status.state, ChatSendState::Unknown);
+    assert_eq!(status.error, None);
+    assert_eq!(
+        status.pending_reason.as_deref(),
+        Some(crate::service::pty_io::submit_transaction::WAITING_ON_PROMPT)
+    );
+}
+
+#[test]
 fn user_submit_unconfirmed_neither_fails_nor_rewrites() {
     let ledger = ChatSendLedger::default();
     let pending = ledger.try_start("tab-1", "hi", None).unwrap();

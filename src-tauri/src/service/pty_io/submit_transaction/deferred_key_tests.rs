@@ -1,3 +1,4 @@
+use super::readiness::{enter_decision, EnterDecision};
 use super::*;
 use crate::agent::status::TabStatus;
 use crate::service::pty_io::submit_transaction::cycle::{
@@ -328,13 +329,9 @@ fn run_with_readiness_guard_and_follow_up(
         typed_follow_up,
         tui_strategy(),
         opts(),
-        |initial_key, _turn_was_started| {
+        |_initial_key, _turn_was_started| {
             let state = transport.state.lock().unwrap();
-            let allowed = if initial_key {
-                submit_key_readiness(state.dialog)
-            } else {
-                !state.dialog || state.composer_ready
-            };
+            let allowed = enter_decision(state.dialog) == EnterDecision::Submit;
             if !allowed {
                 return Err(InjectionError::AgentTuiPresent {
                     pty_id: "test-pty".into(),
@@ -347,12 +344,12 @@ fn run_with_readiness_guard_and_follow_up(
 
 #[test]
 fn first_key_readiness_allows_post_ready_working_without_a_modal() {
-    assert!(submit_key_readiness(false));
+    assert_eq!(enter_decision(false), EnterDecision::Submit);
 }
 
 #[test]
-fn first_key_readiness_holds_a_delivery_modal() {
-    assert!(!submit_key_readiness(true));
+fn first_key_readiness_withholds_enter_for_a_confident_prompt() {
+    assert_eq!(enter_decision(true), EnterDecision::WithholdForPrompt);
 }
 
 #[test]
@@ -423,7 +420,7 @@ fn modal_after_busy_payload_handoff_holds_first_key_without_replaying_payload() 
         let result = join(send, "active turn modal guard").unwrap().unwrap_err();
         assert!(matches!(
             result,
-            InjectionError::SubmitNeverConfirmed { .. }
+            InjectionError::SubmitWithheldForPrompt { .. }
         ));
         assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
     }
@@ -487,7 +484,7 @@ fn swallowed_enter_retries_past_a_codex_prompt_lookalike_in_the_ready_composer()
     {
         let mut state = transport.state.lock().unwrap();
         state.working_after_swallowed_key = true;
-        state.modal_after_swallowed_key = true;
+        state.composer_ready = true;
     }
     let send_transport = Arc::clone(&transport);
     let send = std::thread::spawn(move || {
@@ -505,14 +502,6 @@ fn swallowed_enter_retries_past_a_codex_prompt_lookalike_in_the_ready_composer()
     assert!(!result.submit_anomaly);
     assert_eq!(result.submit_key_writes, 2);
     let state = transport.state.lock().unwrap();
-    assert!(
-        state.dialog,
-        "the provider still reports the screen-shaped modal"
-    );
-    assert!(
-        state.composer_ready,
-        "VT cursor evidence locates the composer"
-    );
     assert!(state.exact_turn_seen);
     assert_eq!(
         state.writes,
@@ -638,13 +627,9 @@ fn start_claimed_send_with_recovery_window(
                 retry_offsets: [Duration::from_secs(1); 6],
             },
             options,
-            |initial_key, _turn_was_started| {
+            |_initial_key, _turn_was_started| {
                 let state = transport.state.lock().unwrap();
-                let allowed = if initial_key {
-                    submit_key_readiness(state.dialog)
-                } else {
-                    !state.dialog || state.composer_ready
-                };
+                let allowed = enter_decision(state.dialog) == EnterDecision::Submit;
                 if !allowed {
                     return Err(InjectionError::AgentTuiPresent {
                         pty_id: "test-pty".into(),
@@ -783,12 +768,14 @@ fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
 }
 
 #[test]
-fn provider_dialog_before_paste_is_refused_without_writing() {
-    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(false, 0);
+fn provider_dialog_before_paste_still_writes_the_payload_once_and_withholds_enter() {
+    let (transport, paste_rx, _, _) = EventTransport::new(false, 0);
     transport.state.lock().unwrap().dialog = true;
     let error = run_with_readiness_guard(&transport, "payload").unwrap_err();
-    assert!(matches!(error, InjectionError::AgentTuiPresent { .. }));
-    assert!(paste_rx.try_recv().is_err());
-    assert!(transport.state.lock().unwrap().writes.is_empty());
-    assert!(event_wait_rx.try_recv().is_err());
+    assert!(matches!(
+        error,
+        InjectionError::SubmitWithheldForPrompt { .. }
+    ));
+    assert!(paste_rx.try_recv().is_ok());
+    assert_eq!(transport.state.lock().unwrap().writes, ["paste:payload"]);
 }

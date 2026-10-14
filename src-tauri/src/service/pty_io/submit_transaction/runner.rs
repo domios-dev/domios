@@ -133,12 +133,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
-    if let Err(error) = transport.prewrite_guard() {
-        if matches!(error, InjectionError::AgentTuiPresent { .. }) {
-            log::info!("[submit-transaction] automatic submit stopped: provider dialog detected before paste");
-        }
-        return Err(error);
-    }
+    transport.prewrite_guard()?;
     let started = Instant::now();
     let turn_was_started = enter && transport.turn_started();
     transport.prepare_paste(text, enter);
@@ -327,6 +322,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                     }
                     Err(InjectionError::AgentTuiPresent { .. }) => {
                         log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
+                        dialog_blocked = true;
                     }
                     Err(InjectionError::AgentInputUnavailable { .. }) => {
                         match transport.dialog_guard() {
@@ -337,12 +333,18 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                             }
                             Err(InjectionError::AgentTuiPresent { .. }) => {
                                 log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
+                                dialog_blocked = true;
                             }
                             _ => {}
                         }
                     }
                     _ => {}
                 }
+            }
+            if dialog_blocked {
+                return Err(InjectionError::SubmitWithheldForPrompt {
+                    waited: started.elapsed(),
+                });
             }
             let screen_tail = transport
                 .observe()
