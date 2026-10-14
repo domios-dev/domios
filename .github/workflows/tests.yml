@@ -270,12 +270,28 @@ jobs:
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
           RUST_WARNING_LOG: ci-rust-warnings.log
+        if: runner.os != 'Windows'
         shell: bash
+        run: bash build.sh ci-archives
+      - name: Compile and archive once for Windows
+        if: runner.os == 'Windows'
+        env:
+          CI_RUNNER_ARCH: ${{ runner.arch }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+        shell: pwsh
         run: |
-          source build.sh env
-          ct_configure_sccache
-          ./build.sh cache-verify
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-rust-archives.mjs
+          & .\build.ps1 ci-archives
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Unix)
+        if: always() && runner.os != 'Windows'
+        shell: bash
+        run: bash build.sh cache-stats
       - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

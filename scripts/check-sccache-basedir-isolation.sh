@@ -12,6 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/cache-policy.sh
 source "$ROOT/scripts/cache-policy.sh"
+ct_sccache_server_live() { return 0; }
 
 fail() {
   echo "FAIL: $1" >&2
@@ -58,6 +59,7 @@ scope_for() {
     # removed `[ -n ... ] || export SCCACHE_BASEDIRS=...` lines used to do.
     export SCCACHE_BASEDIRS="$worktree"
     source "$ROOT/scripts/cache-policy.sh"
+ct_sccache_server_live() { return 0; }
     ct_reject_basedir_rewriting
     [ -z "${SCCACHE_BASEDIRS:-}" ] || fail "SCCACHE_BASEDIRS survived ct_reject_basedir_rewriting in $worktree"
     ct_effective_cache_key_scope

@@ -77,6 +77,7 @@ jobs:
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      RUSTC_WRAPPER: sccache
       TARGET: ${{ matrix.target }}
       # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
       # target so the bundled CLI/embed sidecars match the installer arch (this is
@@ -296,6 +297,12 @@ jobs:
           New-Item -ItemType File -Force "src-tauri\bundled-embed\codeterm-embed-${{ matrix.target }}.exe" | Out-Null
           New-Item -ItemType File -Force "src-tauri\bundled-cli\codeterm-${{ matrix.target }}.exe" | Out-Null
 
+      - name: Verify shared compile cache
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build release bundle inputs
         shell: pwsh
         run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-inputs
@@ -407,3 +414,10 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Windows
           target: ${{ matrix.target }}
+
+      - name: Shared compile cache statistics
+        if: always()
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
