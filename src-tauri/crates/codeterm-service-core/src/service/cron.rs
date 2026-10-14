@@ -699,7 +699,9 @@ impl ServiceContext {
             report_delivery: None,
         };
 
-        let skill_block = skill.as_deref().map(crate::commands::cron_skill_block);
+        let skill_block = skill
+            .as_deref()
+            .map(crate::cron::skill_block::cron_skill_block);
         let task_text = crate::cron::task_text::build_cron_task_text(
             &task,
             skill_block.as_deref(),

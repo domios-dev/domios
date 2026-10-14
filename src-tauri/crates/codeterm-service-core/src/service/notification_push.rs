@@ -172,7 +172,9 @@ impl ChannelHost for ServiceContext {
     /// transport answers honestly instead of looking live.
     fn service_ready(&self, service: &str) -> bool {
         codeterm_bridge::services::find(service).is_some_and(|descriptor| descriptor.outbound)
-            && self.bridge_supervisor.is_active()
+            && self
+                .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+                .is_active()
     }
 
     fn enqueue(&self, service: &str, message: OutboundMessage) -> Result<(), String> {
@@ -184,7 +186,10 @@ impl ChannelHost for ServiceContext {
                 "this build carries no outbound transport for {service}"
             ));
         }
-        if !self.bridge_supervisor.is_active() {
+        if !self
+            .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+            .is_active()
+        {
             return Err(format!("the {service} bridge is not active"));
         }
         let outbound = self.bridge_outbound.lock();

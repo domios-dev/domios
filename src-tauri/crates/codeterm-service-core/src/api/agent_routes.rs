@@ -27,7 +27,7 @@ pub(crate) use spawn_rejection::SpawnRejection;
 
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
 
-pub(crate) use super::provider_cli_routes::list_agent_provider_values;
+use crate::provider::values::list_agent_provider_values;
 
 #[derive(Deserialize)]
 pub(crate) struct SpawnAgentBody {

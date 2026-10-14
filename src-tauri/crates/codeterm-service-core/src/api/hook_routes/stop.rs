@@ -61,7 +61,7 @@ pub async fn hook_stop(
 
     // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&tab_id);
-    permission_decision::clear_tab(&tab_id);
+    crate::service::permission_decision::clear_tab(&tab_id);
     if let Some(identity) = state.svc.clear_pending_prompt(&tab_id) {
         state.svc.resolve_prompt_notifications(&tab_id, &identity);
     }

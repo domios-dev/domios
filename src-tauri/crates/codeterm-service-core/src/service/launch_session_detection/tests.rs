@@ -560,7 +560,7 @@ fn plain_pty_resume_binds_its_claimed_session_without_a_sidecar() {
             "saved-session",
         ),
     ));
-    let claim = crate::api::hook_routes::bind_detected_session(
+    let claim = crate::service::hook_session_binding::bind_detected_session(
         &mux,
         &registry,
         &id,
@@ -650,7 +650,7 @@ fn sqlite_resume_binds_only_the_claimed_session_without_a_session_file() {
     ));
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(provider));
-    let claim = crate::api::hook_routes::bind_detected_session(
+    let claim = crate::service::hook_session_binding::bind_detected_session(
         &mux,
         &registry,
         &id,

@@ -48,13 +48,11 @@ pub(crate) fn resolve_displaced_prompt(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::api::routes::AppState;
     use crate::notification::store::{Ask, NotificationProvenance, NotificationSeverity};
     use codeterm_notification_core::contract::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptKind, PromptOption};
-    use std::sync::Arc;
 
     fn prompt(label: &str, value: &str) -> PendingPrompt {
         PendingPrompt {
@@ -123,7 +121,8 @@ mod tests {
         );
     }
 
-    fn pending_prompt_fixture() -> (crate::service::test_fixture::ServiceFixture, String, String) {
+    pub(crate) fn pending_prompt_fixture(
+    ) -> (crate::service::test_fixture::ServiceFixture, String, String) {
         let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let previous = prompt("previous", "1");
@@ -191,7 +190,7 @@ mod tests {
         )));
     }
 
-    fn assert_resolved_and_new_prompt_notifies(
+    pub(crate) fn assert_resolved_and_new_prompt_notifies(
         fixture: &crate::service::test_fixture::ServiceFixture,
         tab_id: &str,
         previous_id: &str,
@@ -224,45 +223,6 @@ mod tests {
         assert_open_prompt_notification(fixture, &current_id, &identity(&current));
     }
 
-    fn app_state(fixture: &crate::service::test_fixture::ServiceFixture) -> AppState {
-        let config = crate::config::schema::AppConfig::default();
-        AppState {
-            svc: Arc::new(fixture.service.clone()),
-            cron: Arc::new(parking_lot::Mutex::new(
-                crate::cron::store::CronStore::new_with_path(
-                    fixture.temp.path().join("prompt-resolution-crons.json"),
-                ),
-            )),
-            cron_wake: Arc::new(std::sync::Condvar::new()),
-            api_port: 0,
-            update_state: Arc::new(parking_lot::Mutex::new(crate::update::UpdateState {
-                install_method: crate::update::InstallMethod::Unknown,
-                last_check: None,
-                last_check_time: None,
-                channel: config.updater.channel,
-                phase: crate::update::UpdatePhase::Idle,
-                last_error: None,
-                phase_changed_at: None,
-                downloaded_bytes: 0,
-                download_total_bytes: None,
-            })),
-            config: Arc::new(parking_lot::Mutex::new(config)),
-            mesh: Arc::new(parking_lot::Mutex::new(crate::mesh::MeshManager::new(
-                "prompt-resolution-test".into(),
-                0,
-            ))),
-            keepawake: Arc::new(parking_lot::Mutex::new(None)),
-            resize_owner: Arc::new(parking_lot::Mutex::new(
-                crate::resize_owner::ResizeOwnerRegistry::default(),
-            )),
-            rest_api: Arc::new(crate::startup::RestApiControl::new()),
-            test_clock: None,
-            events: fixture.service.events.clone(),
-            web_dist: None,
-            snapshot_bound: crate::api::snapshot_bound::SnapshotBound::default(),
-        }
-    }
-
     #[test]
     fn replacement_resolves_the_previous_prompt_only() {
         let mut store = NotificationStore::new(10);
@@ -291,23 +251,6 @@ mod tests {
             .link_pty(&tab_id, pty_id.clone());
 
         fixture.service.mark_agent_interrupted(&pty_id);
-
-        assert_resolved_and_new_prompt_notifies(&fixture, &tab_id, &previous_id);
-    }
-
-    #[tokio::test]
-    async fn stop_transition_resolves_the_prompt_through_hook() {
-        let (fixture, tab_id, previous_id) = pending_prompt_fixture();
-        let state = app_state(&fixture);
-
-        let _ = crate::api::hook_routes::hook_stop(
-            axum::extract::State(state),
-            axum::extract::Path(tab_id.clone()),
-            axum::http::HeaderMap::new(),
-            crate::api::optional_json::OptionalJson(None),
-        )
-        .await
-        .expect("stop hook accepted");
 
         assert_resolved_and_new_prompt_notifies(&fixture, &tab_id, &previous_id);
     }

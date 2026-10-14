@@ -95,7 +95,8 @@ async fn account_plan_routes_local_journey() {
     });
     assert!(fixture
         .service
-        .billing
+        .ext::<crate::service::billing::BillingCell>()
+        .0
         .set(Arc::new(codeterm_billing::Billing::new(provider.clone())))
         .is_ok());
     let state = crate::api::transport_tabs::fixture::app_state(&fixture);

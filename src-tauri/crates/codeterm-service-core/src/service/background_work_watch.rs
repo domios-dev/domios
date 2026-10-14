@@ -158,7 +158,7 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
                             .rev()
                             .find_map(|record| record.context_usage.as_ref())
                         {
-                            crate::api::hook_routes::context_feed::apply_snapshot(
+                            crate::service::context_feed::apply_snapshot(
                                 &svc,
                                 &tab,
                                 &session,

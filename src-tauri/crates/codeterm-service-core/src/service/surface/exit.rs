@@ -14,7 +14,9 @@ pub(crate) struct SurfaceShutdown(mpsc::Receiver<ShutdownReport>);
 
 /// Starts closing every live surface runtime; safe on any thread, including a runtime worker.
 pub(crate) fn begin_surface_shutdown(svc: &ServiceState) -> SurfaceShutdown {
-    let runtimes = svc.surface_runtimes.take_all();
+    let runtimes = svc
+        .ext::<std::sync::Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
+        .take_all();
     let (done, wait) = mpsc::channel();
     tauri::async_runtime::spawn(async move {
         let _ = done.send(shutdown_all(runtimes, EXIT_GRACEFUL, EXIT_LIMIT).await);

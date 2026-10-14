@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use codeterm_account::{Account, Browser, Config, CredentialStore, Error, Secret};
 use std::{sync::Arc, time::Duration};
 
+pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
+
 pub struct AccountCredentials {
     store: SecretStoreState,
     operation: Arc<tokio::sync::Mutex<()>>,
@@ -107,7 +109,7 @@ struct SystemBrowser;
 impl Browser for SystemBrowser {
     async fn open(&self, url: &url::Url) -> codeterm_account::Result<()> {
         let url = url.to_string();
-        tokio::task::spawn_blocking(move || crate::commands::open_url(url))
+        tokio::task::spawn_blocking(move || crate::service::open_url::open_url(url))
             .await
             .map_err(|_| Error::Browser)?
             .map_err(|_| Error::Browser)
@@ -116,7 +118,8 @@ impl Browser for SystemBrowser {
 impl super::ServiceContext {
     pub async fn account(&self) -> Result<Arc<Account>, String> {
         let account = self
-            .account
+            .ext::<crate::service::account::AccountCell>()
+            .0
             .get_or_try_init(|| async {
                 let value = {
                     use tauri::Manager;
