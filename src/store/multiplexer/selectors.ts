@@ -179,7 +179,11 @@ export function tabAsksEqual(a: Notification[], b: Notification[]): boolean {
       && ask.severity === other.severity
       && ask.level === other.level
       && ask.actions === other.actions
+      && ask.resolved === other.resolved
+      && ask.answer_pending === other.answer_pending
+      && ask.answer_error === other.answer_error
       && ask.answer?.answered === other.answer?.answered
+      && ask.answer?.delivered === other.answer?.delivered
       && ask.answer?.asked_from_tab === other.answer?.asked_from_tab;
   });
 }
