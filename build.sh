@@ -2304,6 +2304,7 @@ EOF
     TEST_CAP_SECS="${TEST_CAP_SECS:-3600}" scripts/test-capped.sh --manifest-path cli/Cargo.toml
     node node_modules/typescript/bin/tsc --noEmit
     bash scripts/check-file-sizes.sh --fail
+    bash scripts/check-service-core-boundary.sh
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
     bash scripts/check-script-catalog.sh

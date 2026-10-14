@@ -41,6 +41,7 @@ pub(crate) mod sentinel;
 pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;
+pub mod ports;
 pub mod process_util;
 pub mod prompts;
 pub mod provider;
