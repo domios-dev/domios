@@ -13,7 +13,7 @@ case "$host_triple" in *-windows-*) embed_ext=.exe ;; *) embed_ext= ;; esac
 make_fixture_repo() {
     local repo=$1
     mkdir -p "$repo/scripts"
-    cp "$ROOT/scripts/test-capped.sh" "$ROOT/scripts/prepare-embed-stub.js" \
+    cp "$ROOT/scripts/test-capped.sh" "$ROOT/scripts/build-gateway-output.mjs" "$ROOT/scripts/prepare-embed-stub.js" \
         "$ROOT/scripts/bundle-embed.js" "$repo/scripts/"
 }
 

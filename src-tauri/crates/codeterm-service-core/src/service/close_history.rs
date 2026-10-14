@@ -65,6 +65,16 @@ fn saved_blueprint(
     })
 }
 
+/// Restore is all-or-nothing, so every saved blueprint must parse before any effect runs.
+fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
+    for saved in &resources.blueprints {
+        saved_blueprint(saved)?;
+        serde_json::from_value::<crate::sentinel::store::Sentinel>(saved.clone())
+            .map_err(|error| format!("Saved blueprint is unreadable: {error}"))?;
+    }
+    Ok(())
+}
+
 impl ServiceContext {
     pub(crate) fn recover_close_inventories(&self) -> Result<(), String> {
         let records = self.mux.read().closed_structure_records()?;
@@ -224,6 +234,7 @@ impl ServiceContext {
         }
         let resources: Resources =
             serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
+        validate_saved_blueprints(&resources)?;
         for plan in &resources.plans {
             if self.plan_store.get(&plan.id).is_none() {
                 self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
