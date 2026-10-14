@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -97,7 +97,8 @@ export function candidateFilter(entries) {
   }).join(' | ');
 }
 
-export function checkSlowTests(timings, document, previousDocument = document, alone = [], benchmarks = []) {
+export function slowTestVerdict(timings, document, previousDocument = document, alone = [], benchmarks = []) {
+  const regressions = [];
   const errors = checkBaseline(document, previousDocument);
   const allowed = new Map(validateBaseline(document).map(entry => [identity(entry), entry.measuredSeconds]));
   const measuredAlone = new Map(alone.map(entry => [identity(entry), entry.measuredSeconds]));
@@ -112,10 +113,15 @@ export function checkSlowTests(timings, document, previousDocument = document, a
     } else if (seconds > (allowed.has(identity(candidate))
       ? regressionLimit(allowed.get(identity(candidate))) : newSlowFailureSeconds)) {
       const kind = allowed.has(identity(candidate)) ? 'slow unit regression' : 'new slow unit';
-      errors.push(`${kind}: ${candidate.binary} ${candidate.test}: parallel=${candidate.measuredSeconds}s alone=${seconds}s`);
+      regressions.push(`${kind}: ${candidate.binary} ${candidate.test}: parallel=${candidate.measuredSeconds}s alone=${seconds}s`);
     }
   }
-  return errors;
+  return { errors, regressions };
+}
+
+export function checkSlowTests(...args) {
+  const { errors, regressions } = slowTestVerdict(...args);
+  return [...errors, ...regressions];
 }
 
 export function timingWarnings(alone, document) {
@@ -132,18 +138,19 @@ export function timingWarnings(alone, document) {
 function main() {
   const args = process.argv.slice(2);
   const report = args.shift();
-  const options = { base: process.env.SLOW_UNIT_TESTS_BASE ?? 'origin/develop' };
+  const options = { base: process.env.SLOW_UNIT_TESTS_BASE ?? 'origin/develop', policy: 'enforce' };
   if (!report) throw new Error('nextest log is required');
   while (args.length) {
     const flag = args.shift();
     const value = args.shift();
-    if (!['--base', '--candidates', '--alone'].includes(flag) || !value || value.startsWith('--')) {
-      throw new Error('usage: node scripts/check-slow-unit-tests.mjs LOG [--base REF] [--candidates JSON | --alone LOG]');
+    if (!['--base', '--candidates', '--alone', '--policy'].includes(flag) || !value || value.startsWith('--')) {
+      throw new Error('usage: node scripts/check-slow-unit-tests.mjs LOG [--base REF] [--candidates JSON | --alone LOG] [--policy enforce|advisory]');
     }
     const key = flag.slice(2);
-    if (key !== 'base' && options[key]) throw new Error(`duplicate ${flag}`);
+    if (!['base', 'policy'].includes(key) && options[key]) throw new Error(`duplicate ${flag}`);
     options[key] = value;
   }
+  if (!['enforce', 'advisory'].includes(options.policy)) throw new Error('Invalid timing policy');
   if (options.candidates && options.alone) throw new Error('--candidates and --alone are mutually exclusive');
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
   const resolved = execFileSync('git', ['rev-parse', '--verify', `${options.base}^{commit}`], { cwd: root, encoding: 'utf8' }).trim();
@@ -187,8 +194,15 @@ function main() {
   }
   console.log("Unit timing rule: 1s target; new alone >1.25s fails; regression above baseline + max(20%, 0.25s) fails.");
   for (const warning of timingWarnings(alone, document)) console.log(warning);
-  const errors = checkSlowTests(timings, document, previous, alone, benchmarks);
+  const { errors, regressions } = slowTestVerdict(timings, document, previous, alone, benchmarks);
   if (errors.length) throw new Error(errors.join('\n'));
+  if (regressions.length) {
+    if (options.policy === 'enforce') throw new Error(regressions.join('\n'));
+    const warning = `::warning::Slow unit ratchet ADVISORY: ${regressions.join('; ')}`;
+    console.log(warning);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${warning}\n`);
+    return;
+  }
   console.log(`Slow unit ratchet PASS: ${timings.length} measured tests, ${candidates.length} serial confirmations, ${document.entries.length} existing slow units; baseline ${options.base}.`);
 }
 
