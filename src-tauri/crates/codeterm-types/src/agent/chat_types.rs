@@ -249,6 +249,15 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(
+        type = "\"running\" | \"completed\" | \"failed\" | \"interrupted\" | \"abandoned\" | null"
+    )]
+    pub tool_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_started_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_completed_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_interrupted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_background_task_id: Option<String>,

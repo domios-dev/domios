@@ -433,7 +433,7 @@ fn apply(
             }
         }
         AgentRuntimeEvent::ChatItem { thread_id, item } if owned(&thread_id) => {
-            let item = session.cache.lock().reconcile(item);
+            let item = session.cache.lock().reconcile_live(item, at);
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
                 &svc.app_handle,
                 &context.tab_id,
