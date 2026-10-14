@@ -7,7 +7,7 @@ import { copyCodeText } from "./copyCodeText";
 import { SyntaxHighlighter } from "./syntaxHighlighter";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { HIGHLIGHT_LINE_LIMIT, highlightSourceEligible } from "./highlightBudget";
-import { inferCodeLanguage } from "./codeLanguage";
+import { inferCodeLanguage, languageFromInfoString } from "./codeLanguage";
 import {
   ensureMermaidInitialized,
   ensureMermaidLoaded,
@@ -300,7 +300,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
 
 export function CodeBlock({
   text,
-  language = "text",
+  language: infoString = "text",
   maxHeight = CODE_BLOCK_DEFAULT_MAX_HEIGHT,
   collapsible = false,
   collapseAfterLines = 20,
@@ -317,6 +317,7 @@ export function CodeBlock({
   wrapLines?: boolean;
   showLineNumbers?: boolean;
 }) {
+  const language = languageFromInfoString(infoString);
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
   const lineCountValue = codeLines.length || 1;
