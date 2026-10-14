@@ -16,7 +16,7 @@ fn filler_preserves_utf8_utf16_and_json_escape_sizes() {
 
 #[test]
 fn keeps_binding_and_role_while_masking_prompts_and_secrets() {
-    let raw = json!({"tab_id":"tab-bound","agent_type":"codex","role":"Worker",
+    let raw = json!({"tab_id":"tab-bound","agent_type":"fixture-agent","role":"Worker",
         "task_binding":{"plan_id":"plan-bound","task_id":"task-bound","attempt_id":"attempt-bound"},
         "agent_identity":{"restorable_launch":{"identity_instructions":"private persona"},
         "agent_runtime_config":{"systemPrompt":"private prompt","api_key":"private token"}}});

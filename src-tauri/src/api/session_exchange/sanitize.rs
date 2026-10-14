@@ -1,6 +1,8 @@
 use serde_json::{Map, Value};
 
-const KEYS: &str = "version timestamp workspaces active_workspace_id teams id name tabs active_tab_id cwd provisioned_cwd protected sort_order task_keys next_sequence issued description split_tree type purpose icon utility_created_at close_restore shell_profile tab_id title title_level agent_type agent_type_locked claude_session_id agent_session_id agent_identity role role_profile team_id parent_tab_id spawned_by_tab_id report_target_tab_id report_target_mesh_peer ownership can_spawn depth chat_view auto_approve permission_auto_confirm audience agent_session_model agent_planned_model agent_requested_model agent_provider_resolved_model model_fallback model_identity_mismatch chatbackend_plugin_id chatbackend_session_id surface watcher pending_delivery orientation ratio children agent_runtime_state agent_runtime_config agent_runtime_questions session_binding_nonce reported_session_binding_nonce agent_state turn_resume boot_stage reasoning_effort restorable_launch context_epochs prior_session_bindings task_binding roleless_tracked managed lifecycle_epoch lifecycle_operation_id plan_id task_id attempt_id spawn_handle bound_at failed_provider structured_runtime_mode context_files context_skills worker_restart captured requested_model model requested_reasoning_effort resolved_reasoning_effort args agent_name identity_instructions permission_bypass_requested runtime_launch_options provider_id binding_nonce mode additional_directories network_access excluded_commands personality temp_dir settings systemPrompt effort state epoch reason active_turn_started_at_ms last_turn_duration_ms session_id start_epoch actual actual_source requested source manager_tab_id manager_name manager_closed lifecycle created_at workspace_id provider messages total seq content text thinking toolName toolInput toolResult toolUseId toolFlowId blocks data kind role status nextCursor threadId turnId items openItems index cursors turns stage questions objective goal format sanitized histories measurements snapshot prompt_bytes identity_bytes leaf_bytes history_bytes history_pages record_type page_size";
+use crate::session::store::LEAF_SESSION_ID_KEY;
+
+const KEYS: &str = "version timestamp workspaces active_workspace_id teams id name tabs active_tab_id cwd provisioned_cwd protected sort_order task_keys next_sequence issued description split_tree type purpose icon utility_created_at close_restore shell_profile tab_id title title_level agent_type agent_type_locked agent_session_id agent_identity role role_profile team_id parent_tab_id spawned_by_tab_id report_target_tab_id report_target_mesh_peer ownership can_spawn depth chat_view auto_approve permission_auto_confirm audience agent_session_model agent_planned_model agent_requested_model agent_provider_resolved_model model_fallback model_identity_mismatch chatbackend_plugin_id chatbackend_session_id surface watcher pending_delivery orientation ratio children agent_runtime_state agent_runtime_config agent_runtime_questions session_binding_nonce reported_session_binding_nonce agent_state turn_resume boot_stage reasoning_effort restorable_launch context_epochs prior_session_bindings task_binding roleless_tracked managed lifecycle_epoch lifecycle_operation_id plan_id task_id attempt_id spawn_handle bound_at failed_provider structured_runtime_mode context_files context_skills worker_restart captured requested_model model requested_reasoning_effort resolved_reasoning_effort args agent_name identity_instructions permission_bypass_requested runtime_launch_options provider_id binding_nonce mode additional_directories network_access excluded_commands personality temp_dir settings systemPrompt effort state epoch reason active_turn_started_at_ms last_turn_duration_ms session_id start_epoch actual actual_source requested source manager_tab_id manager_name manager_closed lifecycle created_at workspace_id provider messages total seq content text thinking toolName toolInput toolResult toolUseId toolFlowId blocks data kind role status nextCursor threadId turnId items openItems index cursors turns stage questions objective goal format sanitized histories measurements snapshot prompt_bytes identity_bytes leaf_bytes history_bytes history_pages record_type page_size";
 const IDS: &[&str] = &[
     "id",
     "tab_id",
@@ -15,7 +17,6 @@ const IDS: &[&str] = &[
     "executor_tab_id",
     "orchestrator_tab_id",
     "reporter_tab_id",
-    "claude_session_id",
     "agent_session_id",
     "session_id",
     "plan_id",
@@ -137,7 +138,8 @@ fn private_key(field: &str, result: &Map<String, Value>) -> Result<String, Strin
 fn walk(value: &Value, key: &str, private: bool, schema: bool) -> Result<Value, String> {
     Ok(match value {
         Value::String(text) => {
-            let preserve = !private && (IDS.contains(&key) || METADATA.contains(&key));
+            let preserve = !private
+                && (IDS.contains(&key) || key == LEAF_SESSION_ID_KEY || METADATA.contains(&key));
             Value::String(if preserve { text.clone() } else { filler(text) })
         }
         Value::Array(items) => Value::Array(
@@ -149,7 +151,12 @@ fn walk(value: &Value, key: &str, private: bool, schema: bool) -> Result<Value, 
         Value::Object(object) => {
             let mut result = Map::new();
             for (field, value) in object {
-                let known = !private && (schema || KEYS.split_whitespace().any(|key| key == field));
+                let known = !private
+                    && (schema
+                        || KEYS
+                            .split_whitespace()
+                            .chain([LEAF_SESSION_ID_KEY])
+                            .any(|key| key == field));
                 let safe_field = if known {
                     field.clone()
                 } else {
