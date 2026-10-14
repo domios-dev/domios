@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 codeterm-types = { path = "../codeterm-types" }
+parking_lot = "0.12"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading"] }

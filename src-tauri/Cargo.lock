@@ -1323,6 +1323,8 @@ name = "codeterm-input-windows"
 version = "0.1.0"
 dependencies = [
  "codeterm-types",
+ "parking_lot",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
