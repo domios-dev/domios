@@ -15,17 +15,8 @@ DMG="${1:-}"
 TMPLOG=$(mktemp -t notarize-XXXXXX.log)
 trap 'rm -f "$TMPLOG"' EXIT
 
-# Credentials come from the job env (GitHub Secrets) or the local backup file.
-# A keychain profile needs manual provisioning that a fresh runner cannot repeat.
-if [ -z "${APPLE_ID:-}" ] && [ -f "$HOME/.claude/.secrets/apple-notary.env" ]; then
-  set -a; . "$HOME/.claude/.secrets/apple-notary.env"; set +a
-fi
-NOTARY_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${APPLE_PASSWORD:-}}"
-if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ] || [ -z "$NOTARY_PASSWORD" ]; then
-  echo "ERROR: notary credentials missing (need APPLE_ID, APPLE_TEAM_ID and APPLE_APP_SPECIFIC_PASSWORD or APPLE_PASSWORD)" >&2
-  exit 1
-fi
-NOTARY_AUTH=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$NOTARY_PASSWORD")
+: "${RELEASE_KEYCHAIN:?Import the job signing keychain first}"
+NOTARY_AUTH=(--keychain-profile "${APPLE_KEYCHAIN_PROFILE:?}" --keychain "$RELEASE_KEYCHAIN")
 
 if ! xcrun notarytool submit "$DMG" "${NOTARY_AUTH[@]}" --wait \
        > "$TMPLOG" 2>&1; then
@@ -41,7 +32,7 @@ FINAL=$(grep -E '^  status:' "$TMPLOG" | tail -1 | awk '{print $2}')
 if [ "$FINAL" != "Accepted" ]; then
   echo "FAIL: Apple rejected (status=$FINAL, id=$SUBID)" >&2
   echo "--- detailed issues ---" >&2
-  xcrun notarytool log "$SUBID" --keychain-profile codeterm 2>&1 | jq '.issues // .' >&2 || cat "$TMPLOG" >&2
+  xcrun notarytool log "$SUBID" "${NOTARY_AUTH[@]}" 2>&1 | jq '.issues // .' >&2 || cat "$TMPLOG" >&2
   exit 1
 fi
 

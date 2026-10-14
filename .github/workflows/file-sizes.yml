@@ -45,4 +45,11 @@ jobs:
       - name: Check provider boundary against target baseline
         env:
           PROVIDER_BOUNDARY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/check-provider-boundary.mjs
+          RELEASE_TO_MASTER: ${{ github.base_ref == 'master' && startsWith(github.head_ref, 'release/') }}
+        run: |
+          # A release PR carries develop's already-guarded allowlist; master predates it.
+          if [ "$RELEASE_TO_MASTER" = true ]; then
+            git fetch --no-tags --depth=200 origin develop
+            PROVIDER_BOUNDARY_BASE="$(git rev-parse FETCH_HEAD)"
+          fi
+          PROVIDER_BOUNDARY_BASE="$PROVIDER_BOUNDARY_BASE" node scripts/check-provider-boundary.mjs

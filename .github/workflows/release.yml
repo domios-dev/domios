@@ -36,8 +36,8 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: ${{ inputs.dry_run && format('release-dry-run-{0}', inputs.tag || github.ref_name) || 'release-publication' }}
-  cancel-in-progress: ${{ inputs.dry_run }}
+  group: ${{ inputs.dry_run == true && format('release-dry-run-{0}', inputs.tag || github.ref_name) || 'release-publication' }}
+  cancel-in-progress: ${{ inputs.dry_run == true }}
 
 jobs:
   prepare:

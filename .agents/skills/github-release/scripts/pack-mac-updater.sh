@@ -48,8 +48,7 @@ rm -rf "$TESTDIR"
 
 # Sign with minisign. The signature file content (base64) goes inline in
 # latest.json. The .sig file itself is NOT uploaded to the release.
-KEY_B64=$(cat "$HOME/.tauri/codeterm.key" | tr -d '\n')
-TAURI_SIGNING_PRIVATE_KEY="$KEY_B64" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-  pnpm exec tauri signer sign "$OUT" >/dev/null
+: "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
+pnpm exec tauri signer sign "$OUT" >/dev/null
 
 cat "$OUT.sig" | tr -d '\n'
