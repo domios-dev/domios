@@ -204,10 +204,7 @@ pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
     let (url, port) = config::api_callback_url(&api);
     std::env::set_var("CODETERM_API_URL", &url);
     std::env::set_var("CODETERM_API_PORT", &port);
-    std::env::set_var(
-        "CODETERM_SOCKET_PATH",
-        crate::paths::socket_display_path(),
-    );
+    std::env::set_var("CODETERM_SOCKET_PATH", crate::paths::socket_display_path());
     match api.token {
         Some(ref tok) if !tok.is_empty() => std::env::set_var("CODETERM_API_TOKEN", tok),
         _ => std::env::remove_var("CODETERM_API_TOKEN"),
