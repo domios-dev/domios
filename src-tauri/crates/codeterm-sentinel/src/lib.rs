@@ -15,6 +15,7 @@ pub mod probe;
 pub mod progress;
 pub mod provenance;
 pub mod public_definition;
+mod run_binding;
 pub mod session;
 pub mod source;
 pub mod stage_source;
