@@ -78,14 +78,16 @@ impl PreparedSwitchConfirmation {
         {
             return false;
         }
-        self.source
+        let confirmed = self
+            .source
             .records(&bytes)
             .filter_map(Result::ok)
             .filter_map(|record| self.source.record_stdout(&record))
             .any(|stdout| {
                 self.confirmation
                     .is_match(crate::pty::ansi::strip_ansi(&stdout).trim())
-            })
+            });
+        confirmed
     }
 
     fn run(&self) {
