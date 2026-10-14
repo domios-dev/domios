@@ -62,6 +62,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
             .unwrap();
     let sentinel_id = sentinel.id;
     assert!(fixture._app.manage(sentinels.clone()));
+    crate::sentinel::manage_fixture_ports(&fixture._app.handle().clone(), &sentinels);
 
     let hold = storage.hold_writer().unwrap();
     hold.wait_held(DEADLINE).unwrap();

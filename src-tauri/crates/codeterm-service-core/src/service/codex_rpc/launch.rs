@@ -4,31 +4,23 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-#[derive(Clone, Default)]
-pub(crate) struct Selection {
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    pub resume: Option<String>,
-    pub extra_args: bool,
-}
+use crate::ports::transport::Selection;
 
-impl Selection {
-    pub fn spawn(
-        self,
-        provider: &str,
-        cwd: &str,
-        instructions: Option<String>,
-        full_access: bool,
-    ) -> Spawn {
-        Spawn {
-            provider: provider.into(),
-            cwd: cwd.into(),
-            instructions,
-            resume: self.resume,
-            model: self.model,
-            effort: self.effort,
-            full_access,
-        }
+pub fn spawn_from(
+    selection: Selection,
+    provider: &str,
+    cwd: &str,
+    instructions: Option<String>,
+    full_access: bool,
+) -> Spawn {
+    Spawn {
+        provider: provider.into(),
+        cwd: cwd.into(),
+        instructions,
+        resume: selection.resume,
+        model: selection.model,
+        effort: selection.effort,
+        full_access,
     }
 }
 
@@ -91,7 +83,13 @@ pub(crate) fn selection_plan(
                 .system_prompt
         })
         .flatten();
-    Some(selection.spawn(provider, cwd, instructions, params.skip_permissions))
+    Some(spawn_from(
+        selection,
+        provider,
+        cwd,
+        instructions,
+        params.skip_permissions,
+    ))
 }
 
 pub(crate) fn prepare_selection(svc: &ServiceContext, tab: &str, spawn: Spawn) -> Option<String> {
@@ -301,7 +299,7 @@ mod tests {
             );
             assert_eq!(spawn.instructions.as_deref(), task, "{origin}");
         }
-        let ui = Selection::default().spawn("provider", &workspace, None, false);
+        let ui = spawn_from(Selection::default(), "provider", &workspace, None, false);
         assert_eq!(crate::service::spawn_cwd::cwd_problem(&ui.cwd), None);
     }
 
@@ -404,7 +402,13 @@ mod selection_tests {
             resume: Some("own".into()),
             extra_args: false,
         };
-        let spawn = selection.spawn("provider", "cwd", Some("instructions".into()), true);
+        let spawn = spawn_from(
+            selection,
+            "provider",
+            "cwd",
+            Some("instructions".into()),
+            true,
+        );
         assert_eq!(spawn.model.as_deref(), Some("selected"));
         assert_eq!(spawn.effort.as_deref(), Some("effort"));
         assert_eq!(spawn.resume.as_deref(), Some("own"));

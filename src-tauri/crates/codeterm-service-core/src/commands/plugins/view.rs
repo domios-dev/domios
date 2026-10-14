@@ -88,8 +88,8 @@ async fn webhook_settings_with(
 ) -> Result<Value, String> {
     let (secret_name, path) = match kind {
         WebhookReceiverKind::Pebble => (
-            crate::api::inbound_webhook::PEBBLE_WEBHOOK_SECRET,
-            crate::api::inbound_webhook::PEBBLE_WEBHOOK_PATH,
+            crate::service::web_access::PEBBLE_WEBHOOK_SECRET,
+            crate::service::web_access::PEBBLE_WEBHOOK_PATH,
         ),
     };
     let secret = store
@@ -132,7 +132,7 @@ fn public_api_base_url(port: u16) -> String {
     if let Some(host) = codeterm_mesh::discovery::find_tailscale_ip() {
         return format_base_url("http", &host, port);
     }
-    if let Some(host) = crate::api::network_routes::local_ip_address() {
+    if let Some(host) = crate::service::web_access::local_ip_address() {
         return format_base_url("http", &host, port);
     }
     crate::config::api_callback_url(&crate::config::load_config().api).0
@@ -146,10 +146,10 @@ mod tests {
     use serde_json::Value;
 
     use super::{dispatch_view_call, format_base_url, webhook_settings_with};
-    use crate::api::inbound_webhook::{PEBBLE_WEBHOOK_PATH, PEBBLE_WEBHOOK_SECRET};
     use crate::plugin::WebhookReceiverKind;
     use crate::secrets::mock::MockStore;
     use crate::secrets::{SaveRequest, SecretStore, SecretString};
+    use crate::service::web_access::{PEBBLE_WEBHOOK_PATH, PEBBLE_WEBHOOK_SECRET};
     use crate::view_host::{ViewError, ViewProvider, ViewRegistry};
 
     #[tokio::test]

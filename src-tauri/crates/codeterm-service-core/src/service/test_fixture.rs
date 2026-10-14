@@ -493,7 +493,9 @@ impl ServiceFixture {
             bridge_outbound,
             chat_registry: crate::service::tab_chat::ChatRegistry::new(),
             secrets,
-            supporter_models: Arc::new(crate::api::mem_routes::decision::SupporterRegistry::new()),
+            supporter_models: Arc::new(
+                crate::service::supporter::registry::SupporterRegistry::new(),
+            ),
             chatbackend_registry,
             provider_registry,
             local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),

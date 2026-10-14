@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::references::path_key;
-use crate::commands::html_preview::checked_path;
+use crate::service::local_preview::html_preview::checked_path;
 
 pub(super) struct PreviewPolicy {
     references: HashSet<String>,

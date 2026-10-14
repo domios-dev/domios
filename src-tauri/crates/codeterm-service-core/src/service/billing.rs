@@ -114,7 +114,7 @@ impl ServiceContext {
         {
             return Err("Account changed while opening billing".into());
         }
-        tokio::task::spawn_blocking(move || crate::commands::open_url(url.to_string()))
+        tokio::task::spawn_blocking(move || crate::service::open_url::open_url(url.to_string()))
             .await
             .map_err(|_| "System browser unavailable")?
             .map_err(|_| "System browser unavailable")?;

@@ -3,6 +3,7 @@
 use crate::agent::provider::PasteCapability;
 use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
+use codeterm_pty::pty::ansi::sanitize_agent_prompt_input;
 
 mod agent_binding;
 pub(super) mod readiness;
@@ -324,13 +325,6 @@ pub(super) fn submit_authenticated_pty_input<T>(
     let (pty_id, provider_id) =
         authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?;
     submit(&pty_id, &provider_id, text)
-}
-
-pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
-    crate::pty::ansi::strip_ansi(text)
-        .chars()
-        .filter(|c| *c != '\0')
-        .collect()
 }
 
 impl ServiceContext {

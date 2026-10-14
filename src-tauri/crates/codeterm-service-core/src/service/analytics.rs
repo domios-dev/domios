@@ -3,6 +3,8 @@ use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Wor
 use std::sync::Arc;
 use tauri::Manager;
 
+pub(crate) mod update_confirm;
+
 pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);
 
 pub(crate) fn count(value: usize) -> u32 {
@@ -113,7 +115,7 @@ impl ServiceContext {
                         let _ = worker.record_nowait(event);
                     }
                     let _ = worker.record_activity_nowait(|| workspaces);
-                    if crate::update::analytics::confirm(
+                    if crate::service::analytics::update_confirm::confirm(
                         &crate::paths::data_dir().join("analytics-update.json"),
                         env!("CARGO_PKG_VERSION"),
                         &worker,

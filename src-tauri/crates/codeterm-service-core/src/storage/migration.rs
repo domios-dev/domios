@@ -8,12 +8,12 @@ use serde_json::{Map, Value};
 use crate::cron::store::{
     decode_legacy_cron_file, CronJob, CronRunInfo, CronRunStatus, LegacyCronError,
 };
-use crate::sentinel::storage::{legacy_import, LegacySentinelError};
 use crate::storage::{
     DecodeFailure, DecodeFailureKind, DomainImport, IgnoredKeys, ImportDomain, ImportOutcome,
     ImportRequest, LegacyDecoder, MigrationError, Storage,
 };
 use codeterm_pty::session::store::legacy_decode;
+use codeterm_sentinel::storage::{legacy_import, LegacySentinelError};
 use codeterm_storage::{
     DeskAgentSessionIdentity, DeskLayoutNode, DeskSnapshot, DeskTab, DeskTeam, DeskTeamLifecycle,
     DeskWorkspace, LiveRootImportRequest, WorkspaceId, WorkspaceRecord,

@@ -428,7 +428,7 @@ impl crate::service::ServiceContext {
         let Some(provider_id) = provider_id else {
             return text.to_string();
         };
-        let sanitized = crate::service::pty_io::sanitize_agent_prompt_input(text);
+        let sanitized = codeterm_pty::pty::ansi::sanitize_agent_prompt_input(text);
         let follow_up = self
             .agent_registry
             .with_provider(&provider_id, |provider| {

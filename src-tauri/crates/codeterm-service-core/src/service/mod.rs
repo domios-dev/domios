@@ -40,13 +40,16 @@ pub(crate) mod chat_send_transaction;
 mod close_history;
 pub(crate) mod codex_rpc;
 mod command_port_impl;
+pub(crate) mod context_feed;
 pub mod cron;
 pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
 pub(crate) mod hierarchy;
+pub(crate) mod hook_session_binding;
 pub mod inject_verify;
 pub mod input_parser;
+pub(crate) mod input_transport;
 pub(crate) mod instance_env;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
@@ -61,6 +64,7 @@ pub(crate) mod launch_readiness;
 pub(crate) mod launch_session_detection;
 pub(crate) mod local_preview;
 pub(crate) mod mesh_artifacts;
+pub(crate) mod mesh_attachment;
 pub mod message_gateway;
 pub mod messenger;
 pub(crate) mod model_defaults;
@@ -68,20 +72,25 @@ pub mod model_providers;
 pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
+pub(crate) mod open_url;
 mod orchestration_pair;
 pub(crate) mod orchestrator;
+pub(crate) mod ordered_actions;
 pub(crate) mod parked_user_delivery;
+pub mod post_update;
 pub(crate) mod process_tree;
-mod prompt_resolution;
+pub(crate) mod prompt_resolution;
 pub(crate) mod protocol_recorder;
 pub(crate) mod provider_cli;
 pub(crate) mod provider_cli_actions;
+pub(crate) mod provider_hooks;
 pub(crate) mod provider_signals;
 mod provider_signals_probe;
 pub(crate) mod provider_update;
 pub(crate) mod pty_resize;
 pub(crate) mod public_send_readiness;
 pub(crate) mod sentinel;
+pub(crate) mod skill_mirror;
 pub(crate) mod startup_turn;
 pub(crate) mod task_files;
 #[cfg(test)]
@@ -100,6 +109,7 @@ mod output_feed;
 pub(crate) mod output_stream_activity;
 pub(crate) mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
+pub(crate) mod permission_decision;
 pub(crate) mod permission_policy;
 pub(crate) mod persona;
 pub mod plan;
@@ -344,7 +354,7 @@ pub struct ServiceContext {
     /// (e.g. Bitwarden) come from `secret_registry`.
     pub secrets: crate::secrets::SecretStoreState,
     /// Decision adapters for the stage-2 recall re-rank, resolved by configured id.
-    pub supporter_models: Arc<crate::api::mem_routes::decision::SupporterRegistry>,
+    pub supporter_models: Arc<crate::service::supporter::registry::SupporterRegistry>,
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
     /// tabs route their I/O here via the `TabTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
