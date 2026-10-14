@@ -7,8 +7,8 @@ import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
 
-const googleIcon = new URL("../../../web/public/account/google.svg", import.meta.url).href;
-const facebookIcon = new URL("../../../web/public/account/facebook-badge.svg", import.meta.url).href;
+const googleIcon = new URL("../../assets/account/google.svg", import.meta.url).href;
+const facebookIcon = new URL("../../assets/account/facebook-badge.svg", import.meta.url).href;
 
 function BrandIcon({ source }: { source: string }) {
   return <img src={source} alt="" width={16} height={16} className="shrink-0" />;
