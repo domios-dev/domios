@@ -179,7 +179,18 @@ ct_sccache_status() {
 }
 
 ct_sccache_verify() {
+  ct_sccache_start_shared_if_absent
   ct_sccache_status verify
+}
+
+# Servers exit after sccache's idle timeout, so runners have none between jobs.
+# Starting only when none is live never restarts or downgrades a running server.
+ct_sccache_start_shared_if_absent() {
+  ct_sccache_server_live && return 0
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = shared ] || return 0
+  SCCACHE_IDLE_TIMEOUT=0 sccache --start-server >/dev/null 2>&1 ||
+    echo "[cache-policy] shared sccache start raced or failed; verifying the live server"
 }
 
 ct_sccache_storage_matches() {
