@@ -29,7 +29,7 @@ pub(crate) struct SessionStartClaim {
     pub(crate) changed: bool,
     pub(crate) nonce_verified: bool,
     pub(crate) nonce_already_acknowledged: bool,
-    identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
+    pub(crate) identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

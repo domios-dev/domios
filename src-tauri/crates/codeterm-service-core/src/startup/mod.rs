@@ -22,7 +22,7 @@ mod rest_api;
 pub(crate) mod restart_stdio;
 mod restore_complete;
 mod servers;
-pub(crate) mod snapshot_bound;
+pub mod snapshot_bound;
 #[cfg(test)]
 mod stall_tests;
 mod state_incidents;
