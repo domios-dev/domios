@@ -35,6 +35,7 @@ pub struct Session {
     pub gate: tokio::sync::Semaphore,
     pub(super) initialization: super::initialize::Initialization,
     pub(super) compaction: Mutex<super::subscriber::CompactionState>,
+    pub(super) abort_note: Mutex<Option<String>>,
 }
 static SESSIONS: LazyLock<Mutex<HashMap<String, Arc<Session>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -168,6 +169,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     gate: tokio::sync::Semaphore::new(1),
                     initialization: super::initialize::Initialization::default(),
                     compaction: Mutex::new(Default::default()),
+                    abort_note: Mutex::new(None),
                 })
             })
             .clone()
@@ -505,6 +507,7 @@ async fn ensure_locked(
         cursor = Some(next);
     }
     super::bootstrap::submit(svc, session, &process).await?;
+    inject_abort_note(svc, provider, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
@@ -514,6 +517,27 @@ async fn ensure_locked(
     publish(svc, tab, session);
     svc.emit_state_changed();
     Ok(())
+}
+
+async fn inject_abort_note(
+    svc: &ServiceContext,
+    provider: &str,
+    session: &Arc<Session>,
+    process: &Arc<Process>,
+    thread: &str,
+) {
+    let Some(cause) = session.abort_note.lock().take() else {
+        return;
+    };
+    let operation = RuntimeOperation::Control {
+        thread_id: Some(thread.to_string()),
+        action: "restoreContext".into(),
+        value: super::abort_provenance::abort_note_context(&cause),
+    };
+    if let Err(reason) = run(svc, provider, session, process, operation).await {
+        let tab = session.context.lock().tab_id.clone();
+        log::warn!("[agent-runtime] tab={tab} abort notice not delivered to the agent: {reason}");
+    }
 }
 
 pub(super) async fn plan(

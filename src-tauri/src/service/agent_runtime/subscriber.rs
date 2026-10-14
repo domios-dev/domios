@@ -197,6 +197,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             super::prompt_answers::clear(&svc, &expired);
             session.prompts.lock().clear();
             if unload_retaining_degradation(&mut session.state.lock(), epoch, &reason) {
+                publish_runtime_ended(&svc, &session, &expired, epoch, &reason);
                 session
                     .thread_loaded
                     .store(false, std::sync::atomic::Ordering::Release);
@@ -232,6 +233,50 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             process.stop();
         }
     });
+}
+
+fn publish_runtime_ended(
+    svc: &ServiceContext,
+    session: &Session,
+    expired: &RuntimeContext,
+    epoch: u64,
+    reason: &RuntimeFailure,
+) {
+    let now = chrono::Utc::now();
+    let snapshot = session.cache.lock().snapshot();
+    let cause = super::abort_provenance::runtime_ended_cause(reason);
+    let rows = super::abort_provenance::runtime_ended_rows(
+        &snapshot,
+        expired.active_turn_id.as_deref(),
+        epoch,
+        &cause,
+        Some(now.to_rfc3339()),
+    );
+    if rows.is_empty() {
+        return;
+    }
+    *session.abort_note.lock() = Some(cause);
+    log::warn!(
+        "[agent-runtime] tab={} thread={:?} turn={:?} turn aborted: runtime process ended: {reason}",
+        expired.tab_id,
+        expired.thread_id,
+        expired.active_turn_id
+    );
+    let at = now.timestamp_millis().max(0) as u64;
+    let rows = {
+        let mut cache = session.cache.lock();
+        rows.into_iter()
+            .map(|row| cache.reconcile_live(row, at))
+            .collect::<Vec<_>>()
+    };
+    crate::service::tab_chat::structured_sink::emit_chat_msgs(
+        &svc.app_handle,
+        &expired.tab_id,
+        &rows,
+        None,
+        expired.thread_id.as_deref(),
+        Some(&expired.binding_nonce),
+    );
 }
 
 const MAX_OUTSTANDING_REQUESTS: usize = 64;
