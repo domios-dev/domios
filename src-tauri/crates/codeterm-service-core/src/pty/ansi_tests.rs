@@ -71,7 +71,7 @@ fn scrollback_preserves_more_than_ten_thousand_lines() {
 
 #[test]
 fn zsh_partial_line_survives_real_viewport() {
-    let raw = include_str!("../../crates/codeterm-util/testdata/zsh_partial_line_120col.raw");
+    let raw = include_str!("../../../codeterm-util/testdata/zsh_partial_line_120col.raw");
     assert!(clean_terminal_output_sized(raw, 40, 120).contains("MARKER_RED_TEST"));
 }
 

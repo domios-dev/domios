@@ -795,7 +795,7 @@ fn cursorless_nonempty_structured_store_mints_no_boundary() {
 #[test]
 fn restored_structured_frame_confirms_only_exact_own_session_append() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
+        "../../../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
     ))
     .unwrap();
     let session = fixture["session_id"].as_str().unwrap();

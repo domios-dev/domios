@@ -393,7 +393,7 @@ fn swallowed_enter_retries_after_working_status_without_turn_evidence() {
 #[test]
 fn swallowed_enter_retries_past_a_codex_prompt_lookalike_in_the_ready_composer() {
     const CODEX_COMPOSER_FIXTURE: &str =
-        include_str!("../../../../../plugins/provider-codex/tests/fixtures/tab-state/recovery-dialog-lookalike.txt");
+        include_str!("../../../../../../../plugins/provider-codex/tests/fixtures/tab-state/recovery-dialog-lookalike.txt");
 
     let (transport, paste_rx, _, _) = EventTransport::new(false, 1);
     {

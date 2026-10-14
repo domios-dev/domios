@@ -26,7 +26,7 @@ fn turn_model_requires_assistant_metadata_without_losing_the_message() {
 fn completed_tool_diffs_match_plugin_fixtures_and_reject_unfinished_edits() {
     let fixtures: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../tests/fixtures/opencode-file-diffs.json"
+        "/../../../tests/fixtures/opencode-file-diffs.json"
     )))
     .unwrap();
     let provider = diff_provider();
@@ -524,7 +524,7 @@ fn v2_question_events_keep_their_session_scoped_routes() {
 
 fn diff_provider() -> crate::plugin::js_runtime::JsProvider {
     let manifest = crate::test_support::fixture_manifest_dir()
-        .join("../plugins/provider-opencode/plugin.json");
+        .join("../../../plugins/provider-opencode/plugin.json");
     crate::plugin::js_runtime::loader::load_one(&manifest).unwrap()
 }
 
@@ -533,7 +533,7 @@ fn stored_opencode_tool_parts_map_to_chat_file_diffs_through_the_plugin() {
     let provider = diff_provider();
     let fixtures: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../tests/fixtures/opencode-1.18.35-tool-parts.json"
+        "/../../../tests/fixtures/opencode-1.18.35-tool-parts.json"
     )))
     .unwrap();
     for fixture in fixtures.as_array().unwrap() {

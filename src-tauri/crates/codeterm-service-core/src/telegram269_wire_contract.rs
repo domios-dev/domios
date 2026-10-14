@@ -7,7 +7,7 @@ use std::collections::HashMap;
 mod canonical;
 use canonical::{canonicalize_jcs, require_canonical_jcs};
 
-const VECTORS: &str = include_str!("../tests/fixtures/telegram269-mobile-core-wire-v1.json");
+const VECTORS: &str = include_str!("../../../tests/fixtures/telegram269-mobile-core-wire-v1.json");
 const DAY_MS: u64 = 86_400_000;
 
 fn u32be(out: &mut Vec<u8>, value: u32) {

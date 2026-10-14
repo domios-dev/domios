@@ -529,7 +529,7 @@ fn launch_readiness_failure_needs_no_terminal_text() {
 /// self-evident in the fixture, and it reaches readiness on an event.
 #[test]
 fn launch_readiness_fixture_exposes_both_deterministic_modes() {
-    let fixture = include_str!("../../../../scripts/fixtures/agent-launch-readiness.mjs");
+    let fixture = include_str!("../../../../../../scripts/fixtures/agent-launch-readiness.mjs");
 
     for declared in [
         "exit-before-readiness",

@@ -337,8 +337,9 @@ fn provider_access_records_ignore_foreign_session_errors_and_recovery() {
 fn provider_access_fermi_fixture_enters_incident_once_and_recovers() {
     use super::incident::{incident_transition, IncidentTransition};
     use crate::agent::chat_types::RichMessage;
-    let fixture =
-        include_str!("../../../../plugins/provider-claude/tests/fixtures/access-lost/fermi.jsonl");
+    let fixture = include_str!(
+        "../../../../../../plugins/provider-claude/tests/fixtures/access-lost/fermi.jsonl"
+    );
     let mut signals = ProviderSignals::default();
     let mut entered = 0;
     let records: Vec<serde_json::Value> = fixture

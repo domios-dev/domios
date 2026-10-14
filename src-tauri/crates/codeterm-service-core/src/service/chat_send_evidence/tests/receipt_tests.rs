@@ -4,7 +4,7 @@ use super::*;
 fn glued_consumed_owner_record_is_evidence_only_after_its_send_anchor() {
     let records = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/owner-mid-turn-2.1.296.jsonl"
+        "/../../../plugins/provider-claude/tests/fixtures/owner-mid-turn-2.1.296.jsonl"
     ));
     let record = records
         .lines()

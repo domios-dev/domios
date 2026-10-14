@@ -75,7 +75,7 @@ fn provider_cursor_composer_matches_captured_bottom_region_fixture() {
     let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
     screens.resize("cursor", 120, 24);
     let text = include_str!(
-        "../../../../plugins/provider-cursor/tests/fixtures/composer-readiness/cursor-ready.txt"
+        "../../../../../../plugins/provider-cursor/tests/fixtures/composer-readiness/cursor-ready.txt"
     )
     .lines()
     .collect::<Vec<_>>()
@@ -143,14 +143,14 @@ fn codex_live_composer_fixture_is_ready(fixture: &str) -> bool {
 #[test]
 fn structural_composer_live_wait_ready_on_first_matching_frame_without_footer() {
     assert!(codex_live_composer_fixture_is_ready(include_str!(
-        "../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.154.0.txt"
+        "../../../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.154.0.txt"
     )));
 }
 
 #[test]
 fn structural_composer_live_wait_unchanged_for_footer_layout() {
     assert!(codex_live_composer_fixture_is_ready(include_str!(
-        "../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.157.1.txt"
+        "../../../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.157.1.txt"
     )));
 }
 
@@ -631,7 +631,7 @@ fn lazy_composer_readiness_requires_declared_structural_capability() {
 
 #[test]
 fn opencode_sessionless_home_frame_accepts_centered_visible_composer() {
-    let plugins = crate::test_support::fixture_manifest_dir().join("../plugins");
+    let plugins = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let provider =
         crate::plugin::js_runtime::load_one(&plugins.join("provider-opencode").join("plugin.json"))
             .expect("load bundled OpenCode provider");
@@ -802,7 +802,7 @@ fn centered_cursor_capability_does_not_change_bottom_composer_providers() {
 
 #[test]
 fn codex_update_and_folder_trust_frames_block_lazy_readiness() {
-    let plugins = crate::test_support::fixture_manifest_dir().join("../plugins");
+    let plugins = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let provider =
         crate::plugin::js_runtime::load_one(&plugins.join("provider-codex").join("plugin.json"))
             .expect("load the bundled Codex provider");

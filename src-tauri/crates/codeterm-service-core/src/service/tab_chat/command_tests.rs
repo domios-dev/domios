@@ -5,7 +5,7 @@ use crate::plugin::agent_claude::ClaudeProvider;
 fn captured() -> Vec<serde_json::Value> {
     serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
     )))
     .unwrap()
 }

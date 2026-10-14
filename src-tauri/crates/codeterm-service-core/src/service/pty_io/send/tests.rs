@@ -695,7 +695,7 @@ fn transport_failure_emits_chat_send_failed_event() {
 #[test]
 fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
     let manifest: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../plugins/provider-codex/plugin.json"
+        "../../../../../../../plugins/provider-codex/plugin.json"
     ))
     .unwrap();
     let requires_instruction = manifest["spawn"]["pasteCapability"]
@@ -726,7 +726,7 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
 #[test]
 fn restored_structured_turn_routes_one_complete_pasted_frame() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
+        "../../../../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
     ))
     .unwrap();
     let frame = codeterm_wire::domios::DomiosFrame {

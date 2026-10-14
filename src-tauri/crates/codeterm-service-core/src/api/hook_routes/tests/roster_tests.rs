@@ -307,8 +307,8 @@ fn codex_stop_report_nonce_gate_verdicts() {
 #[test]
 fn codex_stop_bundled_roster_declares_session_start_and_stop_and_registration_follows() {
     // The declared roster must resolve to the closed route set so registration cannot drift from the manifest.
-    let manifest_path =
-        crate::test_support::fixture_manifest_dir().join("../plugins/provider-codex/plugin.json");
+    let manifest_path = crate::test_support::fixture_manifest_dir()
+        .join("../../../plugins/provider-codex/plugin.json");
     let manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(manifest_path).expect("bundled manifest"))
             .expect("manifest parses");

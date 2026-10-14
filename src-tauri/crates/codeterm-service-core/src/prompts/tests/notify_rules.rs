@@ -7,7 +7,7 @@ use super::*;
 /// The seeded `codeterm` skill body is compiled into codeterm-mem, which
 /// `test-one app` cannot reach. Read the one file both crates load, so this
 /// stays a single-crate gate on the same bytes mem seeds from.
-const SEED_SKILL_CODETERM: &str = include_str!("../../../prompts/seed/skill_codeterm.md");
+const SEED_SKILL_CODETERM: &str = include_str!("../../../../../prompts/seed/skill_codeterm.md");
 
 /// The long flag the ask clause teaches, named once so the clause and the
 /// manifest are compared against the same token rather than two spellings.

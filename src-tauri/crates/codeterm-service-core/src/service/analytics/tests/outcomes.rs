@@ -222,15 +222,15 @@ async fn product_frontend_update_installed_requires_persisted_health_of_all_clie
     let root = sink.dir.path().join("frontend");
     let metadata = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../scripts/frontend-release/fixtures/frontend-manifest.json"
+        "/../../../scripts/frontend-release/fixtures/frontend-manifest.json"
     ));
     let signature = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../scripts/frontend-release/fixtures/frontend-manifest.json.minisig"
+        "/../../../scripts/frontend-release/fixtures/frontend-manifest.json.minisig"
     ));
     let archive = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../scripts/frontend-release/fixtures/frontend-v1.0.0.tar.gz"
+        "/../../../scripts/frontend-release/fixtures/frontend-v1.0.0.tar.gz"
     ));
     let key = "RWRmcm9udGVuZNEdQEUZEh9CtfmYUwGDKXT9+qbRXfdx90/9a+hv/8OA";
     let verified = manifest::verify(metadata, signature, archive, key, 2, false).unwrap();

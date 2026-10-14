@@ -84,7 +84,7 @@ pub(crate) const STILL_STARTING: &str = "still_starting";
 #[path = "supporter_tab_state/user_delivery_readiness_tests.rs"]
 mod user_delivery_readiness_tests;
 
-const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.json");
+const CRITERIA_JSON: &str = include_str!("../../../../../evals/tab-state-jev/criteria.json");
 const SPAWN_OK_LINE: &str = "spawn ok";
 
 pub(crate) fn criteria_version() -> String {

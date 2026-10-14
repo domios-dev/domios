@@ -10,7 +10,7 @@ use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 fn update_frame() -> String {
     let path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
-        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+        "../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
     );
     std::fs::read_to_string(path).expect("Codex update fixture")
 }
@@ -326,7 +326,7 @@ fn non_update_dialog_does_not_use_the_manual_update_prompt_path() {
 fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
-            .join("../plugins/provider-claude/tests/fixtures/folder-trust")
+            .join("../../../plugins/provider-claude/tests/fixtures/folder-trust")
             .join("quick-safety-yes-focused.txt"),
     )
     .expect("Claude trust fixture");
@@ -434,7 +434,7 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
 fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
-            .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+            .join("../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
     )
     .expect("Codex user directory trust fixture");
     let visible = menu_options(&screen);
@@ -498,7 +498,7 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
 fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_unchanged_screen() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
-            .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+            .join("../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
     )
     .expect("Codex user directory trust fixture");
     let prompt = PendingPrompt {

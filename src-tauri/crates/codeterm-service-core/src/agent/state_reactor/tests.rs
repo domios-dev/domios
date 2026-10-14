@@ -202,11 +202,11 @@ fn state_reactor_stores_a_detected_prompt_without_notification() {
 fn classified_terminal_dialogs_are_stored_without_notifications() {
     let dialogs = [
         (
-            include_str!("../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+            include_str!("../../../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
             ["Trust and continue", "Quit"],
         ),
         (
-            include_str!("../../../../plugins/provider-codex/tests/fixtures/directory-trust/approval-paragraph.txt"),
+            include_str!("../../../../../../plugins/provider-codex/tests/fixtures/directory-trust/approval-paragraph.txt"),
             ["Yes, apply", "No, cancel"],
         ),
     ];
@@ -431,7 +431,7 @@ fn garbage_reset_time_is_rejected() {
 #[test]
 fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
-        .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-frame-full-screen-trailing-blank-rows.txt");
+        .join("../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-frame-full-screen-trailing-blank-rows.txt");
     let screen = std::fs::read_to_string(fixture_path).expect("captured Codex folder trust frame");
     let options = screen
         .lines()
@@ -638,7 +638,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
 #[test]
 fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_output() {
     let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
-        "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
+        "../../../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
     );
     let screen =
         std::fs::read_to_string(fixture_path).expect("captured Codex command approval frame");
@@ -747,7 +747,7 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
 #[test]
 fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
     let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
-        "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
+        "../../../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
     );
     let screen =
         std::fs::read_to_string(fixture_path).expect("captured Codex command approval frame");
@@ -1044,16 +1044,16 @@ fn captured_picker_reactor_surfaces_all_choices_with_auto_confirm_enabled() {
     use crate::agent::provider::AgentProvider;
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     let manifest: PluginManifest = serde_json::from_str(include_str!(
-        "../../../../plugins/provider-codex/plugin.json"
+        "../../../../../../plugins/provider-codex/plugin.json"
     ))
     .unwrap();
     let vm = PluginVm::from_source(
         "capture",
-        include_str!("../../../../plugins/provider-codex/plugin.js").into(),
+        include_str!("../../../../../../plugins/provider-codex/plugin.js").into(),
     )
     .unwrap();
     let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
-    let screen = include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt");
+    let screen = include_str!("../../../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt");
     let prompt = provider
         .parse_prompt(screen)
         .expect("captured seven-choice picker");

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 const CAPTURED_SCREEN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../tests/fixtures/tab-respond/reasoning-submenu-0.160.0.txt"
+    "/../../../tests/fixtures/tab-respond/reasoning-submenu-0.160.0.txt"
 ));
 
 fn bundled_registry(manifest: &str, source: &str) -> AgentRegistry {
@@ -20,11 +20,11 @@ fn registry() -> AgentRegistry {
     bundled_registry(
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../plugins/provider-codex/plugin.json"
+            "/../../../plugins/provider-codex/plugin.json"
         )),
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../plugins/provider-codex/plugin.js"
+            "/../../../plugins/provider-codex/plugin.js"
         )),
     )
 }
@@ -107,23 +107,23 @@ fn changed_submenu_refuses_saved_option_identity() {
 
 const CAPTURED_TRUST_SCREEN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../tests/fixtures/tab-respond/directory-trust-matrix-1147.txt"
+    "/../../../tests/fixtures/tab-respond/directory-trust-matrix-1147.txt"
 ));
 
 const OUTSIDE_DIRECTORY_SCREEN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../tests/fixtures/tab-respond/outside-directory-permission.txt"
+    "/../../../tests/fixtures/tab-respond/outside-directory-permission.txt"
 ));
 
 fn trust_registry() -> AgentRegistry {
     bundled_registry(
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../plugins/provider-claude/plugin.json"
+            "/../../../plugins/provider-claude/plugin.json"
         )),
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../plugins/provider-claude/plugin.js"
+            "/../../../plugins/provider-claude/plugin.js"
         )),
     )
 }

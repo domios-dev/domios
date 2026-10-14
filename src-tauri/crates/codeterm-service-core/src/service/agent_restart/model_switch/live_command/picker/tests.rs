@@ -3,7 +3,7 @@ use super::*;
 fn commands() -> crate::agent::provider::ModelSwitchCommands {
     let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/plugin.json"
+        "/../../../plugins/provider-claude/plugin.json"
     )))
     .unwrap();
     serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap()
@@ -39,11 +39,11 @@ fn target() -> CommandTarget {
 
 const MODEL_SCREEN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../plugins/provider-claude/tests/fixtures/model-switch/model-picker.txt"
+    "/../../../plugins/provider-claude/tests/fixtures/model-switch/model-picker.txt"
 ));
 const EFFORT_SCREEN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../plugins/provider-claude/tests/fixtures/model-switch/effort-picker.txt"
+    "/../../../plugins/provider-claude/tests/fixtures/model-switch/effort-picker.txt"
 ));
 
 #[test]
@@ -52,7 +52,7 @@ fn captured_cached_sonnet_confirmation_uses_the_structural_provider_capability()
     let provider = crate::plugin::agent_claude::ClaudeProvider::new();
     let screen = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt"
     ));
     let prompt = provider
         .parse_switch_confirmation_prompt(screen, "sonnet")
@@ -260,7 +260,7 @@ fn direct_effort_declaration_renders_target_and_confirms_captured_stdout() {
         confirmation_pattern(&plan[0].0.confirmation, "haiku", "Haiku 5.5", plan[0].1).unwrap();
     let captured = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/effort-direct-confirmation.txt"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/effort-direct-confirmation.txt"
     ));
     assert!(captured
         .lines()

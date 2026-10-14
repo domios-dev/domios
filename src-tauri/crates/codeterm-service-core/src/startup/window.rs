@@ -4,7 +4,7 @@ use tauri::Manager;
 
 /// Set window icon and apply platform-specific styling.
 pub(crate) fn setup_window_styling(window: &crate::app_runtime::WebviewWindow) {
-    let icon_bytes = include_bytes!("../../icons/icon.png");
+    let icon_bytes = include_bytes!("../../../../icons/icon.png");
     if let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(icon_bytes)).read_info() {
         let info = reader.info().clone();
         let mut rgba = vec![0u8; reader.output_buffer_size()];
@@ -66,9 +66,9 @@ pub(crate) fn build_system_tray(
     let tray_icon = {
         // macOS: template image (white on transparent, auto-adapts to light/dark)
         #[cfg(target_os = "macos")]
-        let bytes = include_bytes!("../../icons/tray-template.png");
+        let bytes = include_bytes!("../../../../icons/tray-template.png");
         #[cfg(not(target_os = "macos"))]
-        let bytes = include_bytes!("../../icons/32x32.png");
+        let bytes = include_bytes!("../../../../icons/32x32.png");
 
         let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
             .read_info()

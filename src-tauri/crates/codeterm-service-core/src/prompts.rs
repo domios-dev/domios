@@ -14,9 +14,9 @@ pub use crate::service::plan::prompts_plan::{
 };
 
 /// Appended to Planner-profile Worker tasks.
-pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
+pub const PLANNER_SUFFIX: &str = include_str!("../../../prompts/planner_suffix.md");
 
-pub const PLANNER_DOC: &str = include_str!("../../prod-docs/PLANNER.md");
+pub const PLANNER_DOC: &str = include_str!("../../../../prod-docs/PLANNER.md");
 
 /// The executor-role member of [`PLANNER_TASK_MANDATORY_FIELDS`]. It lives in
 /// that list, not in a sentence beside it: a list member cannot be delivered
@@ -79,9 +79,9 @@ pub fn planner_task_routing_line() -> String {
 pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. `codeterm docs TEST-AUTHORING` is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
 
 /// Appended to Orchestrator tasks — no-sleep rule.
-pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
+pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../../../prompts/orchestrator_suffix.md");
 
-pub const ORCHESTRATION_DOC: &str = include_str!("../../prod-docs/ORCHESTRATION.md");
+pub const ORCHESTRATION_DOC: &str = include_str!("../../../../prod-docs/ORCHESTRATION.md");
 
 /// Fills `{roleless_draft_rejection}` in [`ORCHESTRATOR_SUFFIX`], inside the
 /// instruction where drafts are already accepted, revised, or rejected.
@@ -100,71 +100,74 @@ pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
 
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
-pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning_compaction.md");
+pub const PLANNING_COMPACTION_CONTRACT: &str =
+    include_str!("../../../prompts/planning_compaction.md");
 
 /// Team-bound creation contract shared by the two roles that can ask for a new
 /// agent, shell, or schedule. One source so neither can drift into a loose one.
-pub const TEAM_CREATION_CONTRACT: &str = include_str!("../prompts/team_creation_contract.md");
+pub const TEAM_CREATION_CONTRACT: &str = include_str!("../../../prompts/team_creation_contract.md");
 
 /// Plan and task flag corrections, delivered once to each surface that writes plan state.
-pub const PLAN_TASK_FLAGS: &str = include_str!("../prompts/plan_task_flags.md");
+pub const PLAN_TASK_FLAGS: &str = include_str!("../../../prompts/plan_task_flags.md");
 
 /// How the Orchestrator sequences work: actionability, group retrospectives, and rare plan pause.
-pub const TASK_SEQUENCING_CONTRACT: &str = include_str!("../prompts/task_sequencing_contract.md");
+pub const TASK_SEQUENCING_CONTRACT: &str =
+    include_str!("../../../prompts/task_sequencing_contract.md");
 
 /// Delivered when an existing agent tab becomes an Orchestrator.
-pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
+pub const ORCHESTRATOR_ONBOARDING: &str =
+    include_str!("../../../prompts/orchestrator_onboarding.md");
 
 /// Contextual bootstrap for Team-staffed managers. Rendered by the shared
 /// role-identity builder before launch delivery chooses a provider channel.
-pub const MANAGER_BOOTSTRAP_TEMPLATE: &str = include_str!("../prompts/manager_bootstrap.md");
+pub const MANAGER_BOOTSTRAP_TEMPLATE: &str = include_str!("../../../prompts/manager_bootstrap.md");
 
 /// Appended to cron tasks when creator_tab_id is set.
-pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md");
+pub const CRON_REPORT_HINT: &str = include_str!("../../../prompts/cron_report_hint.md");
 
 /// Appended to every cron task — completion instruction. `{}` is replaced with run_id.
-pub const CRON_COMPLETE_SUFFIX: &str = include_str!("../prompts/cron_complete_suffix.md");
+pub const CRON_COMPLETE_SUFFIX: &str = include_str!("../../../prompts/cron_complete_suffix.md");
 
 /// Appended to a cron task when the job declares `--skill <slug>` and the
 /// skill folder was found. Placeholders: `{skill_slug}`, `{skill_path}`.
-pub const CRON_SKILL_HINT: &str = include_str!("../prompts/cron_skill_hint.md");
+pub const CRON_SKILL_HINT: &str = include_str!("../../../prompts/cron_skill_hint.md");
 
 /// Appended to a cron task when the job declares `--skill <slug>` but the
 /// skill folder is missing. Placeholders: `{skill_slug}`, `{skill_path}`.
-pub const CRON_SKILL_MISSING: &str = include_str!("../prompts/cron_skill_missing.md");
+pub const CRON_SKILL_MISSING: &str = include_str!("../../../prompts/cron_skill_missing.md");
 
 /// CodeTerm rule installed to ~/.claude/rules/codeterm.md.
-pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
+pub const CODETERM_RULE: &str = include_str!("../../../prompts/codeterm_rule.md");
 
 /// Mem bridge rule payload installed per provider via `install_bridge_rule`.
-pub const BRIDGE_MEM: &str = include_str!("../prompts/bridge_mem.md");
+pub const BRIDGE_MEM: &str = include_str!("../../../prompts/bridge_mem.md");
 
-pub const MEM_MANAGEMENT: &str = include_str!("../prompts/mem_management.md");
+pub const MEM_MANAGEMENT: &str = include_str!("../../../prompts/mem_management.md");
 
 /// General Agent CLAUDE.md template (uses format!() placeholders).
-pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.md");
+pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../../../prompts/general_agent.md");
 
 /// Shared CodeTerm CLI reference — role-neutral. Injected into both the GA
 /// prompt (via {codeterm_cli} placeholder) and the codeterm skill SKILL.md.
 /// Single source of truth so command syntax stays in sync.
-pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
+pub const CODETERM_CLI: &str = include_str!("../../../prompts/codeterm_cli.md");
 
 /// Read-act-verify procedure injected once into the General Agent prompt.
 pub const INTERACTIVE_CHILD_PTY_OPERATION: &str =
-    include_str!("../prompts/interactive_child_pty.md");
+    include_str!("../../../prompts/interactive_child_pty.md");
 pub const INTERACTIVE_CHILD_PTY_CAPABILITY_ID: &str = "interactive_child_pty";
 
 /// Compact CodeTerm control contract prepended to non-General agent launches.
 pub const AGENT_CODETERM_PRIMER: &str = concat!(
-    include_str!("../prompts/agent_codeterm_primer.md"),
+    include_str!("../../../prompts/agent_codeterm_primer.md"),
     "\n",
-    include_str!("../prompts/plugin_discovery_rule.md"),
+    include_str!("../../../prompts/plugin_discovery_rule.md"),
 );
 
-pub const UTILITY_TAB_GUIDANCE: &str = include_str!("../prompts/utility_tab_guidance.md");
+pub const UTILITY_TAB_GUIDANCE: &str = include_str!("../../../prompts/utility_tab_guidance.md");
 
 /// Capability-based pointer from an external-service action to installed plugin verbs.
-pub const PLUGIN_DISCOVERY_RULE: &str = include_str!("../prompts/plugin_discovery_rule.md");
+pub const PLUGIN_DISCOVERY_RULE: &str = include_str!("../../../prompts/plugin_discovery_rule.md");
 
 /// The load-bearing half of the notify restriction: rare, and only for the two
 /// cases the primer names. Pinned here so a rewrite that softens the escalation
@@ -200,21 +203,23 @@ pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces un
 
 /// Standalone Manager contract for project-specific normative essences.
 /// It carries its own bounded authority and canonical verification discipline.
-pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../prompts/cartographer_suffix.md");
+pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../../../prompts/cartographer_suffix.md");
 
 /// Compact control context placed after a Worker's task-owned identity.
-pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codeterm_context.md");
+pub const WORKER_CODETERM_CONTEXT: &str =
+    include_str!("../../../prompts/worker_codeterm_context.md");
 
 /// Shared rich-rendering capability included in every CodeTerm agent contract.
-pub const RICH_RENDERING_GUIDANCE: &str = include_str!("../prompts/rich_rendering_guidance.md");
+pub const RICH_RENDERING_GUIDANCE: &str =
+    include_str!("../../../prompts/rich_rendering_guidance.md");
 
 /// AgentPad contract — single source. Every surface that provisions a pad must
 /// deliver this; the pad only exists for CodeTerm-spawned agent tabs.
-pub const AGENT_PAD_RULE: &str = include_str!("../prompts/agent_pad_rule.md");
+pub const AGENT_PAD_RULE: &str = include_str!("../../../prompts/agent_pad_rule.md");
 
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
-    include_str!("../prompts/bootstrap_instructions.md");
+    include_str!("../../../prompts/bootstrap_instructions.md");
 
 /// Wrapper applied to every headless memory worker task. Placeholders: `{intent}`, `{worker_id}`, `{task}`.
 pub use crate::mem::prompts::WORKER_TASK_PREAMBLE;
@@ -223,7 +228,7 @@ pub use crate::mem::prompts::WORKER_TASK_PREAMBLE;
 /// workers they own their whole prompt and act through plugin verbs, so they
 /// must NOT inherit the graph-worker identity. Placeholder: `{task}`.
 pub const PLUGIN_AGENT_TASK_PREAMBLE: &str =
-    include_str!("../prompts/plugin_agent_task_preamble.md");
+    include_str!("../../../prompts/plugin_agent_task_preamble.md");
 
 /// Auto-extraction prompt for the haiku graph worker. Placeholders: `{id}`, `{title}`, `{body}`.
 pub use crate::mem::prompts::MEM_EXTRACTION;
@@ -402,4 +407,4 @@ pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 34_100;
 #[cfg(test)]
 mod tests;
 
-pub const TOOL_LESS: &str = include_str!("../prompts/tool_less.md");
+pub const TOOL_LESS: &str = include_str!("../../../prompts/tool_less.md");

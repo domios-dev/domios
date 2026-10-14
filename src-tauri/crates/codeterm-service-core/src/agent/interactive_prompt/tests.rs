@@ -89,7 +89,7 @@ fn registry_applies_classifier_to_both_prompt_surfaces() {
 fn bundled_provider() -> JsProvider {
     let mut manifest: PluginManifest = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-codex/plugin.json"
+        "/../../../plugins/provider-codex/plugin.json"
     )))
     .unwrap();
     manifest.id = "prompt-fixture".into();
@@ -97,7 +97,7 @@ fn bundled_provider() -> JsProvider {
         "prompt-fixture",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../plugins/provider-codex/plugin.js"
+            "/../../../plugins/provider-codex/plugin.js"
         ))
         .into(),
     )
@@ -166,7 +166,7 @@ fn captured_followup_menu_reaches_pending_prompt_but_numbered_echo_does_not() {
     let provider = bundled_provider();
     let screen = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-codex/tests/fixtures/tab-state/reasoning-submenu-0.160.0.txt"
+        "/../../../plugins/provider-codex/tests/fixtures/tab-state/reasoning-submenu-0.160.0.txt"
     ));
     let (prompt, kind) = parse_live_prompt(&provider, screen).expect("live follow-up menu");
     assert_eq!(kind, PromptKind::Provider);
@@ -188,14 +188,14 @@ fn captured_followup_menu_reaches_pending_prompt_but_numbered_echo_does_not() {
     assert_eq!(detector.active_prompt("worker").unwrap().options.len(), 5);
     let echo = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-codex/tests/fixtures/tab-state/echoed-numbered-message.txt"
+        "/../../../plugins/provider-codex/tests/fixtures/tab-state/echoed-numbered-message.txt"
     ));
     assert!(parse_live_prompt(&provider, echo).is_none());
 }
 
 #[test]
 fn retained_model_pickers_reach_live_pending_prompt_with_structural_evidence() {
-    let root = crate::test_support::fixture_manifest_dir().join("..");
+    let root = crate::test_support::fixture_manifest_dir().join("../../..");
     for (provider_id, fixture, count) in [
         ("claude", "model-picker-r3", 5),
         ("codex", "model-picker-r3", 7),
@@ -255,8 +255,8 @@ fn retained_model_pickers_reach_live_pending_prompt_with_structural_evidence() {
 fn captured_msg07_model_picker_replays_parser_structure_and_prompt_detector() {
     let provider = bundled_provider();
     for screen in [
-        include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-after-trigger.txt"),
-        include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt"),
+        include_str!("../../../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-after-trigger.txt"),
+        include_str!("../../../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt"),
     ] {
         let rewritten = screen.replace("Select Model and Effort", "Opaque heading")
             .replace("enter select · esc back", "enter accept · esc dismiss");

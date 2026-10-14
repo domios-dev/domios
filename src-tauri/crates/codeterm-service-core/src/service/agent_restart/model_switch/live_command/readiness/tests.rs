@@ -3,7 +3,7 @@ use super::*;
 fn declared() -> (Arc<CommandReadiness>, String, ComposerInputState) {
     let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/plugin.json"
+        "/../../../plugins/provider-claude/plugin.json"
     )))
     .unwrap();
     let commands =
@@ -25,7 +25,7 @@ fn declared() -> (Arc<CommandReadiness>, String, ComposerInputState) {
         .unwrap();
     let screen = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/confirmed-ready-frame.txt"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/confirmed-ready-frame.txt"
     ))
     .to_owned();
     let row = screen.lines().position(|row| row.trim() == "❯").unwrap() as u16;
@@ -73,8 +73,8 @@ fn declared_dialog_blocks_empty_composer_and_inverse_caret_can_prove_readiness()
     input.inverse_caret_row = Some(input.cursor_row);
     assert!(readiness.matches(&screen, &input));
     for dialog in [
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins/provider-claude/tests/fixtures/model-switch/model-picker.txt")),
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../plugins/provider-claude/tests/fixtures/model-switch/model-picker.txt")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt")),
     ] {
         assert!(!readiness.matches(&format!("{}\n{}", screen, dialog), &input));
     }
@@ -85,7 +85,7 @@ fn accepted_stop_failure_frame_has_ready_empty_input_despite_working_projection(
     let (readiness, _, mut input) = declared();
     let screen = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/accepted-stop-ready-frame.txt"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/accepted-stop-ready-frame.txt"
     ));
     input.cursor_row = screen.lines().position(|row| row.trim() == "❯").unwrap() as u16;
     input.rows = screen.lines().count() as u16;

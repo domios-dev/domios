@@ -304,10 +304,10 @@ fn restarted_recorder_resumes_from_the_persisted_cursor_instead_of_reingesting()
 }
 
 const SUBAGENT_PARENT_FIXTURE: &str = include_str!(
-    "../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b.jsonl"
+    "../../../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b.jsonl"
 );
 const SIDECHAIN_FIXTURE: &str = include_str!(
-    "../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b/subagents/agent-af66d7d8e4a99a6bb.jsonl"
+    "../../../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b/subagents/agent-af66d7d8e4a99a6bb.jsonl"
 );
 
 /// A sub-agent transcript is its own usage source: each file keeps its own cursor, both

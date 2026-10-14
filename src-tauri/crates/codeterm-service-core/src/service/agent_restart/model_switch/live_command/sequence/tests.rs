@@ -108,7 +108,7 @@ fn deadline_and_closed_event_stream_do_not_claim_idle() {
 
 fn declared_transcript() -> ModelSwitchTranscript {
     let manifest: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../../../plugins/provider-claude/plugin.json"
+        "../../../../../../../../../plugins/provider-claude/plugin.json"
     ))
     .unwrap();
     serde_json::from_value(manifest["commands"]["modelSwitchCommands"]["transcript"].clone())
@@ -118,7 +118,7 @@ fn declared_transcript() -> ModelSwitchTranscript {
 fn command_records() -> String {
     let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/command-transcript.json"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/command-transcript.json"
     )))
     .unwrap();
     cases
@@ -133,7 +133,7 @@ fn command_records() -> String {
 fn captured_model_and_effort_records_need_no_idle_delay_when_idle_is_observed() {
     let records: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
     )))
     .unwrap();
     let bytes = records

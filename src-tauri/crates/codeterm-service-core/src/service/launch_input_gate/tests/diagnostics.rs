@@ -146,7 +146,7 @@ fn diagnostic_superseded_attempt_never_claims_evaluated_readiness() {
 #[test]
 fn diagnostic_onboarding_deadline_records_unknown_unevaluated_predicates() {
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
-    let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let screen = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     assert!(
         provider.launch_onboarding_response(screen).is_some(),
         "onboarding precondition must be recognized"

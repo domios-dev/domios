@@ -9,7 +9,7 @@ pub(crate) fn application_context(
     {
         let mut context = context;
         if context.config().build.dev_url.is_some() {
-            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist");
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../dist");
             match assets::DevelopmentAssets::load(&root) {
                 Ok(assets) => {
                     context.set_assets(Box::new(assets));
@@ -169,7 +169,7 @@ fn open_external_link(url: &Url, origin: Option<&str>) {
 
 fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
     let mut capability: serde_json::Value =
-        serde_json::from_str(include_str!("../../capabilities/default.json"))?;
+        serde_json::from_str(include_str!("../../../../capabilities/default.json"))?;
     capability["identifier"] = serde_json::json!("daemon-shell");
     capability["local"] = serde_json::json!(false);
     capability["remote"] = serde_json::json!({ "urls": [format!("{origin}/*")] });

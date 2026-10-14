@@ -7,7 +7,8 @@ use axum::{
 };
 use tower::ServiceExt;
 
-const SNAPSHOT: &str = include_str!("../../../../tests/fixtures/update-availability/snapshot.json");
+const SNAPSHOT: &str =
+    include_str!("../../../../../../tests/fixtures/update-availability/snapshot.json");
 
 #[tokio::test]
 async fn availability_json_contract_preserves_prerelease_and_escaped_errors() {

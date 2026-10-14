@@ -35,7 +35,7 @@ const TARGETS: [&str; 5] = [
 
 fn plugins_root() -> PathBuf {
     crate::test_support::fixture_manifest_dir()
-        .join("..")
+        .join("../../..")
         .join("plugins")
 }
 

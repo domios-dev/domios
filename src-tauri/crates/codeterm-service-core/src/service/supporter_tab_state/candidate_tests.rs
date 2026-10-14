@@ -910,16 +910,16 @@ fn captured_picker_supporter_admission_uses_modal_shape_without_permission_categ
     use crate::agent::provider::AgentProvider;
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     let manifest: PluginManifest = serde_json::from_str(include_str!(
-        "../../../../plugins/provider-codex/plugin.json"
+        "../../../../../../plugins/provider-codex/plugin.json"
     ))
     .unwrap();
     let vm = PluginVm::from_source(
         "capture",
-        include_str!("../../../../plugins/provider-codex/plugin.js").into(),
+        include_str!("../../../../../../plugins/provider-codex/plugin.js").into(),
     )
     .unwrap();
     let provider = JsProvider::new(manifest, Arc::new(vm));
-    let screen = include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt");
+    let screen = include_str!("../../../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt");
     let prompt = provider
         .parse_prompt(screen)
         .expect("captured seven-choice picker");
