@@ -535,7 +535,7 @@ function ChatComposerImpl({
           />
         );
       })()}
-      <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
+      <div className="mb-2 flex flex-wrap items-center gap-1 pl-8 empty:hidden">
       <ComposerContextMeter tabId={tabId} />
       <ProviderCapabilityBadge tabId={tabId} />
       </div>

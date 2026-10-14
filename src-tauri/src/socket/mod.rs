@@ -18,5 +18,6 @@ pub(crate) fn register_rpc_bridge() {
         recover_remote_attempts: remote_recovery::recover_remote_attempts,
         respawn_remote: remote_recovery::respawn_remote,
         run_dispatch_startup: |startup, ready_rx| startup.run(ready_rx),
+        start_server: server::SocketServer::start,
     });
 }

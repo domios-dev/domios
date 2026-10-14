@@ -8,7 +8,7 @@ const RECENT: &str = "datetime('now','-10 days')";
 
 fn open_test_conn() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
-    crate::mem::store::init_schema(&conn).unwrap();
+    crate::store::init_schema(&conn).unwrap();
     conn
 }
 

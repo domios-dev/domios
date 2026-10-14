@@ -44,7 +44,7 @@ ct_gateway_now() {
 }
 
 ct_gateway_state_tool() {
-  node "$(ct_repo_root)/scripts/build-gateway-state.mjs" "$@"
+  node "${CT_BUILD_GATEWAY_STATE_SCRIPT:-$(ct_repo_root)/scripts/build-gateway-state.mjs}" "$@"
 }
 
 # Liveness gets one pid namespace: an MSYS pid under Git Bash is not a Windows
@@ -257,6 +257,7 @@ ct_gateway_finish() {
   CT_GATEWAY_ACTIVE=0
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
+  ct_gateway_state_tool evidence-end --dir "$dir" --job-id "$CT_BUILD_JOB_ID" || echo '[build-history] evidence capture failed' >&2
   ct_gateway_mutex_acquire "$dir" || return $?
   rm -rf "$dir/queue/${CT_BUILD_QUEUE_KEY:-missing}"
   if [ -n "$outcome_override" ]; then
@@ -301,6 +302,7 @@ ct_gateway_on_signal() {
 ct_gateway_acquire() {
   local command="$1" dir lock wait_mode deadline first owner job log queued_at source_sha worktree owner_command
   local blocker_job blocker_command blocker_owner blocker_record queued_notice=0
+  CT_BUILD_GATEWAY_STATE_SCRIPT="$(ct_repo_root)/scripts/build-gateway-state.mjs"
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
   wait_mode="${CODETERM_BUILD_GATEWAY_MODE:-queue}"
@@ -322,7 +324,7 @@ ct_gateway_acquire() {
   owner="${CODETERM_BUILD_OWNER_ID:-${CODETERM_TAB_ID:-pid-$$}}"
   job="${command%% *}"
   queued_at="$(ct_gateway_now)"
-  source_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+  source_sha="${CT_BUILD_SOURCE_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
   worktree="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
   owner_command="$(ct_gateway_process_command "$$" 2>/dev/null || true)"
   export CT_BUILD_JOB_ID CT_BUILD_QUEUE_KEY CT_GATEWAY_PROCESS_START
@@ -350,7 +352,7 @@ ct_gateway_acquire() {
     --owner-process-command "$owner_command" \
     --worktree "$recorded_worktree" \
     --source-sha "$source_sha" --queue-key "$CT_BUILD_QUEUE_KEY" --queued-at "$queued_at" \
-    --log-path "$log"
+    --log-path "$log" --crates "${CT_BUILD_CRATES:-}" --touched-files-count "${CT_BUILD_TOUCHED_FILES_COUNT:-}"
   ct_gateway_mutex_release "$dir"
   CT_GATEWAY_ACTIVE=1
 
@@ -374,6 +376,8 @@ ct_gateway_acquire() {
       ct_gateway_update_job running "" "" "$(ct_gateway_now)" ""
       rm -rf "$dir/queue/$CT_BUILD_QUEUE_KEY"
       ct_gateway_mutex_release "$dir"
+      ct_gateway_state_tool evidence-start --dir "$dir" --job-id "$CT_BUILD_JOB_ID" --scope "${CT_BUILD_GATEWAY_SCOPE:-production}" || echo '[build-history] evidence capture failed' >&2
+      export CARGO_LOG="${CARGO_LOG:+$CARGO_LOG,}cargo::core::compiler::fingerprint=info"
       return 0
     fi
     if [ "$wait_mode" = "fail-fast" ]; then

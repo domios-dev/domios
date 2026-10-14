@@ -284,9 +284,7 @@ impl super::super::ServiceContext {
                     .status(&head.send_id)
                     .and_then(|status| status.pending_reason)
                     .unwrap_or_else(|| "payload_not_written".into());
-                if capture_send
-                    && reason != crate::service::pty_io::submit_transaction::DELIVERY_MODAL_OPEN
-                {
+                if capture_send {
                     store.discard_queued_from_ended_launch(&head)?;
                     self.local_recordings.retire_write_ticket(&head.send_id);
                     continue;

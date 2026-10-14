@@ -925,16 +925,6 @@ impl super::ServiceContext {
                 .map(|_| ())
         })
         .map_err(|error| match error {
-            super::inject_verify::InjectionError::AgentTuiPresent { .. } => {
-                self.pending_user_send(
-                    record,
-                    super::pty_io::submit_transaction::DELIVERY_MODAL_OPEN,
-                );
-                DeliveryError::TabBusyRefused {
-                    tab: tab_id.into(),
-                    detail: super::pty_io::submit_transaction::DELIVERY_MODAL_OPEN.into(),
-                }
-            }
             error => DeliveryError::from_injection(tab_id, error),
         })
     }

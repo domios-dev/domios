@@ -1,6 +1,6 @@
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
-import { runtimeBannerView } from "../../lib/agentRuntimeState";
+import { runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
@@ -316,7 +316,7 @@ export function TabSessionChat({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
-  const runtimeUnavailable = runtimeBannerView(runtime.state) !== null;
+  const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null;
   const runtimeReplacement = runtimeUnavailable
     ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} /> : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
@@ -986,7 +986,7 @@ export function TabSessionChat({
       ) : (
       <>
       <div ref={setContextSlot} className="ct-ctx-slot" />
-      <div className="ct-composer-status w-full">
+      <div className="ct-composer-status w-full" style={{ paddingInlineStart: "calc(var(--ct-composer-gutter-x) + 2rem)" }}>
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}

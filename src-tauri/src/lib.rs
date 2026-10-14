@@ -93,6 +93,10 @@ pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
+pub fn register_socket() {
+    socket::register_rpc_bridge();
+}
+
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
