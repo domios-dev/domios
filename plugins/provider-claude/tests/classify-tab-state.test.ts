@@ -200,6 +200,7 @@ for (const [name, state] of Object.entries({
   "completed-numbered-answer-dev67.txt": "working",
   "diff-and-shell.txt": "working",
   "normal-idle-numbered-history.txt": "working",
+  "filled-composer-numbered-history.txt": "working",
   "normal-working.txt": "working",
   "prose-limit-mention.txt": "unknown",
   "rate-limit-menu.txt": "rate_limited",
@@ -283,6 +284,22 @@ for (const screen of [
   `${modelPicker}\nCurrent output continues`,
 ]) {
   assert(classify(plugin, screen)?.state !== "clarifying_question", "inactive menu is not extracted as a live choice");
+}
+
+console.log("\n--- filled composer under angle-bracket history is not a live menu ---\n");
+{
+  const parked = fixture("filled-composer-numbered-history.txt");
+  eq(plugin.parsePrompt(parked), null, "a > inside numbered history does not arm a dialog over a filled composer");
+  eq(classify(plugin, parked)?.state, "working", "that composer stays working");
+  const glued = `${parked}\n\n<domios type="attachment" kind="voice" path="voice-note-b" label="voice" />\nsecond transcript`;
+  eq(plugin.parsePrompt(glued), null, "a second frame still in the composer is not a dialog");
+  const live = "Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Tab to amend";
+  assert(plugin.parsePrompt(live), "a live menu with no composer still parses");
+  eq(
+    plugin.parsePrompt(`${live}\n❯ <domios type="attachment" kind="voice" path="voice-note-a" label="voice" />`),
+    null,
+    "a filled composer below a menu is the input prompt",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
