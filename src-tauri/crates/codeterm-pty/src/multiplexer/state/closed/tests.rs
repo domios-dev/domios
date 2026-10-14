@@ -729,8 +729,9 @@ fn single_close_still_works_alongside_groups() {
     assert!(!view[0].orphaned);
 }
 
-const CODETERM_INITIATED: [TabCloseReason; 6] = [
+const CODETERM_INITIATED: [TabCloseReason; 7] = [
     TabCloseReason::Watchdog,
+    TabCloseReason::UtilityTimeout,
     TabCloseReason::PtyExit,
     TabCloseReason::SpawnRollback,
     TabCloseReason::AgentRunEnded,
@@ -745,6 +746,7 @@ fn every_close_reason_carries_a_distinct_attribution_label() {
         TabCloseReason::PolicyWorker,
         TabCloseReason::PolicyStartup,
         TabCloseReason::Watchdog,
+        TabCloseReason::UtilityTimeout,
         TabCloseReason::PtyExit,
         TabCloseReason::SpawnRollback,
         TabCloseReason::AgentRunEnded,

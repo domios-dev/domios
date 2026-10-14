@@ -13,6 +13,8 @@ Open build shells with `--purpose build` and foreground servers with `--purpose 
 
 Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Normal command completion adds no message.
 
+Shell restart preserves the original deadline. Reset it before another build if that build needs a fresh lifetime. `codeterm tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
+
 With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
 failure receipt on the first Cargo compile error, nextest/Vitest failure,
 Node `not ok`, or non-zero exit (including gateway refusal 75 and cap 124).

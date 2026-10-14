@@ -4,6 +4,9 @@ use crate::multiplexer::types::ClosedTab;
 use crate::service::ServiceContext;
 
 impl CommandPort for ServiceContext {
+    fn utility_deadline(&self, tab_id: &str) -> Option<serde_json::Value> {
+        self.utility_deadline_snapshot(tab_id)
+    }
     fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad {
         self.lifecycle_journal.load()
     }
