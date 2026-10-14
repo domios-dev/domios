@@ -550,3 +550,68 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     rmSync(h.dir, { recursive: true, force: true });
   }
 });
+
+function writeFakeCargo(dir, body) {
+  const cargo = path.join(dir, "parent-bin", "cargo");
+  writeFileSync(cargo, "#!/usr/bin/env bash\n" + body + "\n", { mode: 0o755 });
+  chmodSync(cargo, 0o755);
+}
+
+test("build_notify_tab_success_sends_one_ok_receipt", () => {
+  const h = makeHarness();
+  try {
+    writeFakeCargo(h.dir, "exit 0");
+    const result = runBash([buildPath, "fmt-check", "--notify-tab", "agent-tab"], h.env);
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "agent-tab"]);
+    assert.match(sent[0].body, /^OK label=fmt-check/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_notify_tab_failure_names_step_first_error_and_log", () => {
+  const h = makeHarness();
+  try {
+    writeFakeCargo(h.dir, "echo 'Diff in src/foo.rs:1:'; exit 1");
+    const started = Date.now();
+    const result = runBash([buildPath, "install-local", "--notify-tab", "agent-tab"], h.env);
+    assert.equal(result.status, 1);
+    assert.ok(Date.now() - started < 30000, "format gate must fail before any gateway work");
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].body, /EARLY FAILURE label=install-local step=install-local/);
+    assert.match(sent[0].body, /First failure: Diff in src\/foo\.rs/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-install-local/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_notify_tab_reports_gateway_busy_and_env_equivalent", () => {
+  const h = makeHarness();
+  try {
+    writeFakeCargo(h.dir, "exit 75");
+    const result = runBash([buildPath, "fmt-check"], { ...h.env, BUILD_NOTIFY_TAB: "env-tab" });
+    assert.equal(result.status, 75);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "env-tab"]);
+    assert.match(sent[0].body, /gateway refused \(exit 75\)/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_notify_tab_requires_a_value", () => {
+  const h = makeHarness();
+  try {
+    const result = runBash([buildPath, "check", "--notify-tab"], h.env);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /non-empty tab id/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});

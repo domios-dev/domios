@@ -234,6 +234,7 @@ report_failure_line() {
   local line="$1"
   line="$(printf '%s' "$line" | sed $'s/\\033\\[[0-9;]*[mK]//g')"
   [[ "$line" =~ error\[E[0-9]+\] ]] ||
+    [[ "$line" =~ ^(ERROR|Diff[[:space:]]in)[:[:space:]] ]] ||
     [[ "$line" == *"error: could not compile"* ]] ||
     [[ "$line" =~ (^|[[:space:]])FAIL[[:space:]] ]] ||
     [[ "$line" =~ ^[[:space:]]*not[[:space:]]ok[[:space:]] ]] ||
@@ -297,7 +298,7 @@ report_run_stream() {
     0) return 0 ;;
     75) reason="gateway refused (exit 75)" ;;
     124) reason="timeout cap (exit 124)" ;;
-    *) reason="step exited non-zero (exit $rc)" ;;
+    *) reason="step exited non-zero (exit $rc): $(grep -v '^[[:space:]]*$' "$log" 2>/dev/null | tail -n 1)" ;;
   esac
   report_alert_once "$marker" "$tab" "$label" "$step" "$reason" "$log" || true
   return "$rc"
