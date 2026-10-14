@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 function git(directory, args) {
-  const result = spawnSync('git', ['-C', directory, ...args], { encoding: 'utf8', timeout: 120000, windowsHide: true });
+  const result = spawnSync('git', ['-C', directory, ...args], { encoding: 'utf8', timeout: 120000, maxBuffer: 64 * 1024 * 1024, windowsHide: true });
   if (result.status !== 0) throw new Error(`check-worktree git ${args[0]} failed (${result.status}): ${result.stderr || result.error?.message}`);
   return result.stdout.trim();
 }
@@ -22,6 +22,42 @@ export function verifyCheckWorktree(directory, sha, expectedTree) {
     }
   }
   git(directory, ['diff-files', '--quiet', '--ignore-submodules=none']);
+}
+
+const ancestors = file => {
+  const out = [];
+  for (let directory = path.posix.dirname(file); directory !== '.'; directory = path.posix.dirname(directory)) out.push(directory);
+  return out;
+};
+
+// Cargo freshness is mtime-based, so a fresh checkout would mark every unchanged crate stale.
+export function carryUnchangedMtimes(repository, from, to, sha) {
+  let fromSha;
+  try {
+    fromSha = git(from, ['rev-parse', 'HEAD']);
+    git(from, ['update-index', '-q', '--refresh']);
+    verifyCheckWorktree(from, fromSha, git(repository, ['rev-parse', `${fromSha}^{tree}`]));
+  } catch { return 0; }
+  const changed = new Set(git(repository, ['diff', '--no-renames', '--name-only', '-z', fromSha, sha]).split('\0').filter(Boolean));
+  const touchedDirectories = new Set([...changed].flatMap(ancestors));
+  const directories = new Set();
+  let carried = 0;
+  const carry = relative => {
+    const source = path.join(from, relative);
+    if (!fs.existsSync(source)) return;
+    const { atime, mtime } = fs.statSync(source);
+    fs.utimesSync(path.join(to, relative), atime, mtime);
+    carried += 1;
+  };
+  for (const file of git(to, ['ls-files', '-z']).split('\0').filter(Boolean)) {
+    ancestors(file).forEach(directory => directories.add(directory));
+    if (!changed.has(file) && fs.lstatSync(path.join(to, file)).isFile()) carry(file);
+  }
+  [...directories].filter(directory => !touchedDirectories.has(directory))
+    .sort((a, b) => b.split('/').length - a.split('/').length)
+    .forEach(carry);
+  git(to, ['update-index', '-q', '--refresh']);
+  return carried;
 }
 
 export async function prepareCheckWorktree({ repository, gateway, sha, jobId, beforePublish = async () => {} }) {
@@ -67,6 +103,7 @@ export async function prepareCheckWorktree({ repository, gateway, sha, jobId, be
   if (fs.existsSync(staging) || fs.existsSync(previous)) throw new Error('check-worktree transaction paths already exist; Cargo refused');
   git(repository, ['worktree', 'add', '--quiet', '--detach', staging, sha]);
   verifyCheckWorktree(staging, sha, expectedTree);
+  if (fs.existsSync(path.join(current, '.git'))) carryUnchangedMtimes(repository, current, staging, sha);
   await beforePublish(staging);
   verifyCheckWorktree(staging, sha, expectedTree);
   const temporaryJournal = `${journal}.${jobId}`;
