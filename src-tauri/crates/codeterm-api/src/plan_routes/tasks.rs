@@ -1,0 +1,1167 @@
+use axum::{
+    extract::{Path, State as AxumState},
+    http::HeaderMap,
+    Json,
+};
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::routes::{check_auth, AppState};
+use codeterm_service_core::multiplexer::commands::MuxState;
+use codeterm_service_core::plan::{
+    AgentRef, IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
+};
+use codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest;
+use codeterm_service_core::service::plan::{NewTask, TaskLaneUpdate};
+use codeterm_service_core::service::{
+    persist_attempt_executor_identity_for_mux, respawn_title_provenance,
+};
+
+use super::{
+    authorize_draft_structure_mutation_http, authorize_execution_action_http, emit_plan_changed,
+    epoch_ms, optional_string_field, plan_authority_err, plan_err, text_err, PlanRouteResult,
+};
+
+mod block_authority;
+use block_authority::{verify_task_mutation_owner, TaskMutationKind};
+
+fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
+    state.svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        (tab.role == Some(codeterm_service_core::multiplexer::types::AgentRole::Manager)
+            && tab.role_profile.as_deref() == Some("planner"))
+        .then_some("planner")
+    })
+}
+
+fn record_respawn_attempt_and_persist_identity(
+    state: &AppState,
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    draft: &codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft,
+    title: &str,
+    now_ms: u64,
+) -> Result<
+    codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+    codeterm_service_core::service::plan::PlanError,
+> {
+    let created = record_respawn_attempt_and_persist_identity_for(
+        &state.svc.plan_store,
+        &state.svc.mux,
+        planner_role_for_tab(state, tab_id).or(Some("worker")),
+        plan_id,
+        task_id,
+        tab_id,
+        draft,
+        title,
+        now_ms,
+    )?;
+    state.svc.persist_current_attempt_session_model(tab_id);
+    Ok(created)
+}
+
+fn record_respawn_attempt_and_persist_identity_for(
+    store: &codeterm_service_core::service::plan::PlanStore,
+    mux: &MuxState,
+    executor_role: Option<&str>,
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    draft: &codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft,
+    title: &str,
+    now_ms: u64,
+) -> Result<
+    codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+    codeterm_service_core::service::plan::PlanError,
+> {
+    let created = store.record_task_respawn_attempt(
+        plan_id,
+        task_id,
+        tab_id,
+        draft,
+        executor_role,
+        now_ms,
+    )?;
+    persist_attempt_executor_identity_for_mux(store, mux, plan_id, task_id, tab_id, title, now_ms)?;
+    Ok(created)
+}
+
+fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
+    let Some(lane) = body.get("lane") else {
+        return Ok(None);
+    };
+    let mut update = TaskLaneUpdate::default();
+    update.tab_id = lane.get("tab_id").map(|v| v.as_str().map(str::to_string));
+    update.workspace_id = lane
+        .get("workspace_id")
+        .map(|v| v.as_str().map(str::to_string));
+    update.workspace_name = lane
+        .get("workspace_name")
+        .map(|v| v.as_str().map(str::to_string));
+    update.worktree_path = lane
+        .get("worktree_path")
+        .map(|v| v.as_str().map(str::to_string));
+    update.branch = lane.get("branch").map(|v| v.as_str().map(str::to_string));
+    update.base = lane.get("base").map(|v| v.as_str().map(str::to_string));
+    update.destination = lane
+        .get("destination")
+        .map(|v| v.as_str().map(str::to_string));
+    update.cleanup_status = lane
+        .get("cleanup_status")
+        .map(|v| v.as_str().map(str::to_string));
+    if let Some(hints) = lane.get("cleanup_hints") {
+        update.cleanup_hints = Some(
+            serde_json::from_value(hints.clone())
+                .map_err(|e| format!("invalid cleanup_hints: {e}"))?,
+        );
+    }
+    Ok((!update.is_empty()).then_some(update))
+}
+
+fn push_hints(value: &mut Value, hints: Vec<String>) {
+    let hints: Vec<String> = hints
+        .into_iter()
+        .filter(|hint| !hint.trim().is_empty())
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    value["_hints"] = serde_json::json!(hints);
+}
+
+fn optional_string_vec_field(
+    body: &Value,
+    key: &str,
+    alias: &str,
+) -> Result<Option<Vec<String>>, String> {
+    let field = body.get(key).or_else(|| body.get(alias));
+    let Some(field) = field else {
+        return Ok(None);
+    };
+    if field.is_null() {
+        return Ok(Some(Vec::new()));
+    }
+    serde_json::from_value(field.clone())
+        .map(Some)
+        .map_err(|e| format!("invalid {key}: {e}"))
+}
+
+#[cfg(test)]
+mod dependency_field_tests {
+    use super::optional_string_vec_field;
+    use serde_json::json;
+
+    #[test]
+    fn omitted_dependency_field_is_none() {
+        assert_eq!(
+            optional_string_vec_field(&json!({}), "depends_on", "dependency_task_ids").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn dependency_field_empty_or_null_clears() {
+        assert_eq!(
+            optional_string_vec_field(
+                &json!({ "depends_on": [] }),
+                "depends_on",
+                "dependency_task_ids"
+            )
+            .unwrap(),
+            Some(Vec::new())
+        );
+        assert_eq!(
+            optional_string_vec_field(
+                &json!({ "depends_on": null }),
+                "depends_on",
+                "dependency_task_ids"
+            )
+            .unwrap(),
+            Some(Vec::new())
+        );
+    }
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct TaskAddBody {
+    #[serde(default)]
+    files: codeterm_service_core::plan::TaskFiles,
+    name: String,
+    #[serde(rename = "type", default)]
+    kind: String,
+    #[serde(default)]
+    sections: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    why: Option<String>,
+    #[serde(default)]
+    acceptance_criteria: Vec<String>,
+    #[serde(default)]
+    external_refs: Vec<String>,
+    #[serde(default)]
+    test_plan: Option<String>,
+    #[serde(default)]
+    qa_plan: Option<String>,
+    #[serde(default)]
+    correctness: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    role_guidance: Option<String>,
+    #[serde(default)]
+    executor_role: Option<String>,
+    #[serde(default)]
+    personality: Option<String>,
+    #[serde(default)]
+    personality_provenance: Option<IdentityProvenance>,
+    #[serde(default)]
+    competition: Option<TaskCompetitionMetadata>,
+    #[serde(default)]
+    intent: Option<String>,
+    #[serde(default)]
+    execution_intent: codeterm_service_core::plan::TaskExecutionIntent,
+    #[serde(default)]
+    parent: Option<String>,
+    #[serde(default, alias = "dependency_task_ids")]
+    depends_on: Vec<String>,
+    #[serde(default)]
+    assign_tab: Option<String>,
+    #[serde(default)]
+    lane: TaskLaneMetadata,
+    #[serde(default)]
+    group: Option<String>,
+    #[serde(default)]
+    priority: Option<codeterm_service_core::plan::TaskPriority>,
+    #[serde(default)]
+    handle: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+pub async fn task_add(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<TaskAddBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let author = authorize_draft_structure_mutation_http(
+        &state.svc,
+        &id,
+        crate::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
+    let execution_fields = serde_json::json!({
+        "assign_tab": body.assign_tab.clone(),
+        "executor_role": body.executor_role.clone(),
+        "role_guidance": body.role_guidance.clone(),
+        "personality": body.personality.clone(),
+        "personality_provenance": body.personality_provenance.clone(),
+        "competition": body.competition.clone(),
+        "lane": if body.lane == TaskLaneMetadata::default() {
+            serde_json::Value::Null
+        } else {
+            serde_json::to_value(&body.lane).unwrap_or_default()
+        },
+    });
+    codeterm_service_core::service::ensure_planner_task_fields_are_structural(
+        &author,
+        &execution_fields,
+    )
+    .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    let requested_sections = body
+        .sections
+        .as_deref()
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|x| !x.is_empty())
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    let section_ids = state
+        .svc
+        .plan_store
+        .resolve_task_section_ids(&id, &requested_sections)
+        .map_err(plan_err)?;
+    let kind = if body.kind.is_empty() {
+        "implement".to_string()
+    } else {
+        body.kind.clone()
+    };
+    let has_sections = !section_ids.is_empty();
+    let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
+    let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
+    let has_criteria = body
+        .acceptance_criteria
+        .iter()
+        .any(|s| !s.trim().is_empty());
+    let has_test_plan = body
+        .test_plan
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_correctness = body
+        .correctness
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+    let external_refs = body.external_refs.clone();
+    let tid = state
+        .svc
+        .plan_store
+        .add_task_with_external_refs(
+            &id,
+            NewTask {
+                files: body.files,
+                name: body.name,
+                kind,
+                section_ids,
+                model: body.model,
+                model_rationale: body.why,
+                acceptance_criteria: body.acceptance_criteria,
+                test_plan: body.test_plan,
+                qa_plan: body.qa_plan,
+                correctness: body.correctness,
+                body: body.body.unwrap_or_default(),
+                role_guidance: body.role_guidance,
+                executor_role: body.executor_role,
+                personality: body.personality,
+                personality_provenance: body.personality_provenance,
+                competition: body.competition,
+                intent: body.intent,
+                execution_intent: body.execution_intent,
+                parent_task_id: body.parent,
+                depends_on: body.depends_on,
+                assigned_tab_id: body.assign_tab,
+                lane: body.lane,
+                group: body.group,
+                priority: body.priority,
+                handle: body.handle,
+                tags: body.tags,
+            },
+            &external_refs,
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "task_id": tid.clone(),
+        "key": state.svc.plan_store.task_display_key(&id, &tid),
+        "_hints": codeterm_service_core::service::plan::hints::task_create_hints(
+            &id,
+            &tid,
+            has_sections,
+            has_model,
+            has_why,
+            has_criteria,
+            has_test_plan,
+            has_correctness
+        )
+    })))
+}
+
+pub async fn task_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let mutation = if body.get("status").and_then(Value::as_str) == Some("blocked") {
+        let has_reason = body
+            .get("status_label")
+            .and_then(Value::as_str)
+            .is_some_and(|label| !label.trim().is_empty());
+        if !has_reason {
+            return Err(text_err(
+                axum::http::StatusCode::BAD_REQUEST,
+                "blocked status requires a new status label with its reason and trigger",
+            ));
+        }
+        TaskMutationKind::BlockDecision
+    } else {
+        TaskMutationKind::Recovery
+    };
+    let status_label = body.get("status_label").and_then(Value::as_str);
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, mutation, status_label).await?;
+    let service = state.svc.clone();
+    tokio::task::spawn_blocking(move || task_update_core(&service, &headers, &id, &tid, body))
+        .await
+        .map_err(|error| {
+            text_err(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("task update worker failed: {error}"),
+            )
+        })?
+}
+
+fn task_update_core(
+    service: &codeterm_service_core::service::ServiceState,
+    headers: &HeaderMap,
+    id: &str,
+    tid: &str,
+    body: Value,
+) -> PlanRouteResult {
+    codeterm_service_core::plan::task_update_fields::validate_task_update_fields(
+        &body,
+        codeterm_service_core::plan::task_update_fields::TaskUpdateSeam::Rest,
+    )
+    .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
+    let author = service
+        .authorize_draft_structure_mutation_typed(
+            id,
+            &crate::tab_routes::authenticated_plan_caller(headers),
+        )
+        .map_err(plan_authority_err)?;
+    codeterm_service_core::service::ensure_planner_task_fields_are_structural(&author, &body)
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    if body.get("status").and_then(Value::as_str) == Some("pending") {
+        (codeterm_service_core::ports::socket::bridge().recover_remote_attempts)(
+            service,
+            id,
+            tid,
+            epoch_ms(),
+            true,
+        )
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.message))?;
+    }
+    let files = body
+        .get("files")
+        .map(|value| {
+            serde_json::from_value::<codeterm_service_core::plan::TaskFiles>(value.clone())
+                .map_err(|e| e.to_string())
+                .and_then(codeterm_service_core::plan::TaskFiles::validated)
+        })
+        .transpose()
+        .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e))?;
+    if let Some(files) = files {
+        service
+            .plan_store
+            .update_task_files(id, tid, files, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    let section_ids = if body.get("sections").is_some() {
+        let requested_sections = body
+            .get("sections")
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                s.split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Some(
+            service
+                .plan_store
+                .resolve_task_section_ids(id, &requested_sections)
+                .map_err(plan_err)?,
+        )
+    } else {
+        None
+    };
+    let tags: Vec<String> = body
+        .get("tags")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let lane = lane_update_field(&body)
+        .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+    let lane = codeterm_service_core::service::lane_removal::clear_vanished_lane_on_cleanup_done(
+        &service.plan_store,
+        id,
+        tid,
+        lane,
+    )
+    .map_err(|error| match error {
+        codeterm_service_core::service::lane_removal::CleanupStatusDoneError::Refused(message) => {
+            text_err(axum::http::StatusCode::CONFLICT, message)
+        }
+        codeterm_service_core::service::lane_removal::CleanupStatusDoneError::Verification(
+            message,
+        ) => text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, message),
+    })?;
+    let depends_on = optional_string_vec_field(&body, "depends_on", "dependency_task_ids")
+        .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+    // The edit panel submits the whole array, so this surface is Replace-only.
+    let acceptance_criteria = body.get("acceptance_criteria").map(|_| {
+        let items: Vec<String> = body
+            .get("acceptance_criteria")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default();
+        codeterm_service_core::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(items)
+    });
+    let external_refs = body
+        .get("external_refs")
+        .map(|value| serde_json::from_value::<Vec<String>>(value.clone()))
+        .transpose()
+        .map_err(|error| {
+            text_err(
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("invalid external_refs: expected an array of reference strings: {error}"),
+            )
+        })?
+        .unwrap_or_default();
+    codeterm_service_core::service::plan::external_refs::canonicalize_external_refs(&external_refs)
+        .map_err(plan_err)?;
+    let test_plan = optional_string_field(&body, "test_plan");
+    let qa_plan = optional_string_field(&body, "qa_plan");
+    let correctness = optional_string_field(&body, "correctness");
+    service
+        .plan_store
+        .update_task_with_lane(
+            id,
+            tid,
+            body.get("name").and_then(|v| v.as_str()),
+            body.get("type")
+                .or_else(|| body.get("kind"))
+                .and_then(|v| v.as_str()),
+            optional_string_field(&body, "model"),
+            optional_string_field(&body, "why"),
+            body.get("status").and_then(|v| v.as_str()),
+            optional_string_field(&body, "status_label"),
+            body.get("priority").and_then(|v| v.as_str()),
+            body.get("body").and_then(|v| v.as_str()),
+            optional_string_field(&body, "intent"),
+            optional_string_field(&body, "executor_role"),
+            section_ids,
+            body.get("parent_task_id")
+                .or_else(|| body.get("parent"))
+                .map(|v| v.as_str()),
+            optional_string_field(&body, "group"),
+            &tags,
+            body.get("primary").and_then(|v| v.as_str()),
+            body.get("handle").and_then(|v| v.as_str()),
+            lane,
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
+    if let Some(depends_on) = depends_on {
+        service
+            .plan_store
+            .update_task_dependencies(id, tid, depends_on, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    if acceptance_criteria.is_some()
+        || test_plan.is_some()
+        || qa_plan.is_some()
+        || correctness.is_some()
+    {
+        service
+            .plan_store
+            .update_task_quality(
+                id,
+                tid,
+                acceptance_criteria,
+                test_plan,
+                qa_plan,
+                correctness,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
+    if body.get("role_guidance").is_some() {
+        service
+            .plan_store
+            .update_task_role_guidance(
+                id,
+                tid,
+                optional_string_field(&body, "role_guidance"),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
+    if body.get("personality").is_some() || body.get("personality_provenance").is_some() {
+        let provenance = body
+            .get("personality_provenance")
+            .cloned()
+            .map(|value| {
+                serde_json::from_value(value)
+                    .map_err(|e| format!("invalid personality_provenance: {e}"))
+            })
+            .transpose()
+            .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+        service
+            .plan_store
+            .update_task_personality(
+                id,
+                tid,
+                optional_string_field(&body, "personality"),
+                provenance,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
+    if let Some(value) = body.get("competition") {
+        let update = serde_json::from_value(value.clone())
+            .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+        service
+            .plan_store
+            .update_task_competition(id, tid, update, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    if !external_refs.is_empty() {
+        service
+            .plan_store
+            .add_task_external_refs(id, tid, &external_refs, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    // (orchestrator) directly, so a separate `agent report` isn't needed.
+    if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
+        let by_tab = headers
+            .get("X-CodeTerm-Tab-Id")
+            .and_then(|v| v.to_str().ok());
+        let intent = body
+            .get("intent")
+            .and_then(|v| v.as_str())
+            .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
+        service.notify_owner_task_in_review(id, tid, by_tab, intent);
+    }
+    crate::events::emit_everywhere(
+        &service.app_handle,
+        "plan-changed",
+        serde_json::json!({ "plan_id": id }),
+    );
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct TaskCloseBody {
+    #[serde(default)]
+    result: Option<String>,
+    #[serde(default)]
+    from: Option<OrchestratorRef>,
+}
+
+pub async fn task_close(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<TaskCloseBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Recovery,
+        None,
+    )
+    .await?;
+    let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
+    let owner_epoch = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .map(|detail| detail.task.interruption.owner_epoch)
+        .unwrap_or(0);
+    if owner_epoch > 0 {
+        let authority = rest_task_mutation_authority(&headers)?;
+        let mux = state.svc.mux.read();
+        if !mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+                && tab.reported_session_binding_nonce.as_deref()
+                    == Some(&authority.session_binding_nonce)
+        }) {
+            return Err(text_err(
+                axum::http::StatusCode::CONFLICT,
+                "task mutation caller rebound",
+            ));
+        }
+        state
+            .svc
+            .plan_store
+            .close_task_authorized(
+                &id,
+                &tid,
+                body.result.as_deref(),
+                from,
+                &authority,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        drop(mux);
+    } else {
+        state
+            .svc
+            .plan_store
+            .close_task(&id, &tid, body.result.as_deref(), from, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    emit_plan_changed(&state, &id);
+    let mut resp = serde_json::json!({ "ok": true });
+    if let Some(plan) = state.svc.plan_store.get(&id) {
+        let cleanup = codeterm_service_core::service::plan::cleanup_debt::detect_plan_cleanup_debt(
+            &plan,
+            |tab| state.svc.tab_probe(tab).exists,
+        );
+        let hints = codeterm_service_core::service::plan::cleanup_debt::cleanup_debt_hints(
+            &cleanup
+                .into_iter()
+                .filter(|item| item.task_id == tid)
+                .collect::<Vec<_>>(),
+        );
+        push_hints(&mut resp, hints);
+    }
+    Ok(Json(resp))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TaskAssignBody {
+    tab: String,
+    #[serde(default)]
+    peer: Option<String>,
+}
+
+pub async fn task_assign(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<TaskAssignBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_execution_action_http(
+        &state.svc,
+        &id,
+        crate::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Recovery,
+        None,
+    )
+    .await?;
+    let owner_epoch = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .map(|detail| detail.task.interruption.owner_epoch)
+        .unwrap_or(0);
+    let authority = if owner_epoch > 0 {
+        Some(rest_task_mutation_authority(&headers)?)
+    } else {
+        None
+    };
+    let assignment = {
+        let mux = state.svc.mux.read();
+        codeterm_service_core::service::task_assignment::prepare_existing_task_assignment(
+            &mux,
+            &body.tab,
+            body.peer.as_deref(),
+            authority.as_ref(),
+        )
+    }
+    .map_err(plan_err)?;
+    codeterm_service_core::service::task_assignment::persist_existing_task_assignment(
+        &state.svc.plan_store,
+        assignment,
+        &id,
+        &tid,
+        &body.tab,
+        body.peer.as_deref(),
+        authority.as_ref(),
+        epoch_ms(),
+    )
+    .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn task_attempts(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let attempts = state
+        .svc
+        .plan_store
+        .list_task_attempts(&id, &tid)
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::json!({
+        "plan_id": id,
+        "task_id": tid,
+        "attempts": attempts
+    })))
+}
+
+pub async fn task_attempt_show(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid, attempt_id)): Path<(String, String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let attempt = state
+        .svc
+        .plan_store
+        .show_task_attempt(&id, &tid, &attempt_id)
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::json!({
+        "plan_id": id,
+        "task_id": tid,
+        "attempt": attempt
+    })))
+}
+
+fn rest_task_mutation_authority(
+    headers: &HeaderMap,
+) -> Result<
+    codeterm_service_core::service::plan::interruption::TaskMutationAuthority,
+    (axum::http::StatusCode, Json<Value>),
+> {
+    let required = |name: &'static str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                text_err(
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    format!("missing {name}"),
+                )
+            })
+    };
+    Ok(
+        codeterm_service_core::service::plan::interruption::TaskMutationAuthority {
+            tab_id: required("X-CodeTerm-Tab-Id")?,
+            session_id: required("X-CodeTerm-Session-Id")?,
+            session_binding_nonce: required("X-CodeTerm-Session-Binding-Nonce")?,
+            owner_epoch: headers
+                .get("X-CodeTerm-Owner-Epoch")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or_else(|| {
+                    text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch")
+                })?,
+        },
+    )
+}
+
+pub async fn task_adopt_checkpoint(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let tab_id = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::BAD_REQUEST, "missing Worker tab id"))?;
+    let session_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::CONFLICT,
+                "adoption caller has no authenticated session",
+            )
+        })?;
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .filter(|detail| detail.plan_id == id)
+        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?;
+    let (owner_epoch, attempt_id) = state
+        .svc
+        .adopt_worker_checkpoint(&detail.task.id, tab_id, &session_id, epoch_ms())
+        .await
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "attempt_id": attempt_id,
+        "owner_epoch": owner_epoch,
+        "tab_id": tab_id,
+        "session_id": session_id,
+        "state": "awaiting_worker_ack"
+    })))
+}
+
+const RESPAWN_ATTEMPT_FLAG: &str = "--attempt";
+
+// `plan task respawn` requires the source attempt, so a hint without it names a
+// command the CLI rejects.
+fn respawn_spawn_command(plan_id: &str, task_id: &str, source_attempt_id: &str) -> String {
+    format!(
+        "codeterm plan task respawn {plan_id} {task_id} {RESPAWN_ATTEMPT_FLAG} {source_attempt_id}"
+    )
+}
+
+pub async fn task_respawn(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<TaskRespawnRequest>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_execution_action_http(
+        &state.svc,
+        &id,
+        crate::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Recovery,
+        None,
+    )
+    .await?;
+    let plan = state
+        .svc
+        .plan_store
+        .get(&id)
+        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::NotFound))?;
+    let original_task = codeterm_service_core::plan::task_key::find_task(&plan.tasks, &tid)
+        .cloned()
+        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?;
+    if let Some(source) = original_task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == body.attempt_id && attempt.mesh_peer.is_some())
+        .cloned()
+    {
+        let caller = crate::tab_routes::authenticated_plan_caller(&headers);
+        let mut params = serde_json::to_value(&body)
+            .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error.to_string()))?;
+        params["plan_id"] = serde_json::json!(id);
+        params["task_id"] = serde_json::json!(tid);
+        params["caller_tab_id"] = serde_json::json!(caller.tab_id);
+        params["session_id"] = serde_json::json!(caller.session_id);
+        params["session_binding_nonce"] = serde_json::json!(caller.binding_nonce);
+        let service = state.svc.clone();
+        return tokio::task::spawn_blocking(move || {
+            (codeterm_service_core::ports::socket::bridge().respawn_remote)(
+                &Some(params),
+                &service.app_handle,
+                &service,
+                &id,
+                &tid,
+                &source,
+                epoch_ms(),
+            )
+            .map(Json)
+            .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.message))
+        })
+        .await
+        .map_err(|error| {
+            text_err(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                error.to_string(),
+            )
+        })?;
+    }
+    if matches!(
+        original_task.status,
+        codeterm_service_core::plan::TaskStatus::Pending
+            | codeterm_service_core::plan::TaskStatus::Blocked
+    ) {
+        codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(
+            &plan,
+            &original_task,
+        )
+        .map_err(plan_err)?;
+    }
+    let original_plan_mode = plan.mode.clone();
+    let mut draft = state
+        .svc
+        .plan_store
+        .build_task_respawn_draft(&id, &tid, body)
+        .map_err(plan_err)?;
+    let parent_tab_id = draft
+        .parent_tab_id
+        .clone()
+        .or_else(|| plan.owner.tab_id.clone())
+        .filter(|parent| !parent.trim().is_empty())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::BAD_REQUEST,
+                "respawn requires a parent Orchestrator tab",
+            )
+        })?;
+    draft.parent_tab_id = Some(parent_tab_id.clone());
+    let lane_for_commit = original_task.lane.clone();
+    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
+        plan.project_path.clone()
+    } else {
+        plan.canonical_project_path.clone()
+    };
+    let lane_protection = codeterm_service_core::service::LaneProtection::for_dispatch_intent(
+        &original_task.interruption.execution_intent,
+    );
+    let verify_draft = draft.clone();
+    let verify_canonical_cwd = canonical_cwd.clone();
+    let verify_task = original_task.clone();
+    let provenance = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::plan::respawn_lane::verify_respawn_lane(
+            &verify_canonical_cwd,
+            &verify_task,
+            &verify_draft,
+        )
+    })
+    .await
+    .map_err(|error| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("respawn lane verification task failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        text_err(
+            axum::http::StatusCode::CONFLICT,
+            format!("respawn lane verification failed: {error}"),
+        )
+    })?;
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let spawn = state
+        .svc
+        .spawn_agent(
+            codeterm_service_core::service::SpawnAgentParams {
+                agent: Some(draft.provider.clone()),
+                cwd: Some(draft.cwd.clone()),
+                title: draft.title.clone(),
+                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
+                role: Some("Worker".into()),
+                parent_tab_id: draft.parent_tab_id.clone(),
+                task: Some(draft.task_prompt.clone()),
+                workspace_id: draft.workspace_id.clone(),
+                spawned_by_tab_id: draft.parent_tab_id.clone(),
+                model: draft.model.clone(),
+                planned_model: draft.planned_model.clone(),
+                planned_reasoning_effort: draft.reasoning_effort.clone(),
+                reasoning_effort: draft.reasoning_effort.clone(),
+                task_launch_authority: Some(codeterm_service_core::service::TaskLaunchAuthority {
+                    plan_id: draft.plan_id.clone(),
+                    task_id: draft.task_id.clone(),
+                    attempt_id: draft.attempt_id.clone(),
+                    lane_base: original_task.lane.base.clone(),
+                }),
+                ..Default::default()
+            },
+            Some(ready_tx),
+        )
+        .await
+        .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    draft.provider = spawn.agent.clone();
+    draft.model = spawn.provider_resolved_model.clone();
+    draft.reasoning_effort = state
+        .svc
+        .resolved_worker_launch_effort_for_tab(&spawn.tab_id);
+    let created = record_respawn_attempt_and_persist_identity(
+        &state,
+        &id,
+        &tid,
+        &spawn.tab_id,
+        &draft,
+        &spawn.title,
+        epoch_ms(),
+    );
+    let created = match created {
+        Ok(created) => created,
+        Err(error) => {
+            if let Err(close_error) = state.svc.close_tab_async(&spawn.tab_id).await {
+                return Err(text_err(
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(
+                        "respawn attempt persistence failed: {error}; spawned tab compensation failed: {close_error}"
+                    ),
+                ));
+            }
+            return Err(plan_err(error));
+        }
+    };
+    let parent_tab_id = created
+        .attempt
+        .orchestrator_tab_id
+        .as_deref()
+        .or(created.attempt.parent_tab_id.as_deref())
+        .unwrap_or(&parent_tab_id)
+        .to_string();
+    let startup = codeterm_service_core::ports::socket::DispatchStartup {
+        app: state.svc.app_handle.clone(),
+        svc: state.svc.clone(),
+        plan_id: id.clone(),
+        task_id: tid.clone(),
+        tab_id: spawn.tab_id.clone(),
+        startup_attempt_id: spawn.pty_id.clone(),
+        attempt_id: created.attempt.id.clone(),
+        parent_tab_id,
+        worker_title: spawn.title.clone(),
+        original_task,
+        original_plan_mode,
+        lane_for_commit,
+        canonical_project_path: canonical_cwd,
+        provenance,
+        provisioned_lane: None,
+        lane_protection,
+        spawn_command: respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
+    };
+    std::thread::spawn(move || {
+        (codeterm_service_core::ports::socket::bridge().run_dispatch_startup)(startup, ready_rx)
+    });
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "tab_id": spawn.tab_id,
+        "spawn": spawn,
+        "attempt": created.attempt,
+        "state": "awaiting_dispatch_ready",
+        "readiness": {
+            "ready": false,
+            "awaiting_event": "dispatch_ready",
+        },
+        "draft": draft
+    })))
+}
+
+pub async fn task_rm(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Ordinary,
+        None,
+    )
+    .await?;
+    authorize_draft_structure_mutation_http(
+        &state.svc,
+        &id,
+        crate::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
+    state
+        .svc
+        .plan_store
+        .rm_task(&id, &tid, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[cfg(test)]
+pub(super) mod tests;

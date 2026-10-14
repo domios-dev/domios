@@ -229,7 +229,7 @@ impl ServiceContext {
         };
         if screen_changed {
             if let Some(ref pid) = tab_id {
-                self.usage_activity.mark(pid);
+                self.ext::<crate::usage::TabActivity>().mark(pid);
             }
         }
         let current_status = self.agent_tracker.lock().get_status(pty_id);

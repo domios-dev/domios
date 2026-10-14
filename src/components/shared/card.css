@@ -16,16 +16,41 @@
 }
 
 .ct-user-bubble {
+  padding: var(--ct-bubble-pad-y) var(--ct-bubble-pad-x);
   border: 1px solid color-mix(in srgb, var(--ct-fg) 10%, transparent);
-  border-radius: 18px 18px 6px 18px;
+  border-radius: var(--ct-bubble-radius) var(--ct-bubble-radius) var(--ct-bubble-tail-radius) var(--ct-bubble-radius);
   background: color-mix(in srgb, var(--ct-accent) 5%, var(--ct-surface));
   color: var(--ct-fg);
 }
 
 .ct-user-bubble--relayed {
   border-color: color-mix(in srgb, var(--ct-fg) 9%, transparent);
-  border-radius: 18px 18px 18px 6px;
+  border-radius: var(--ct-bubble-radius) var(--ct-bubble-radius) var(--ct-bubble-radius) var(--ct-bubble-tail-radius);
   background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
+}
+
+.ct-bubble-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--ct-bubble-gap);
+}
+
+.ct-bubble-attachments--captioned {
+  margin-bottom: var(--ct-bubble-gap);
+}
+
+.ct-bubble-chip {
+  display: inline-flex;
+  box-sizing: border-box;
+  height: var(--ct-bubble-chip-height);
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 10px;
+  border-radius: max(var(--ct-radius-md), calc(var(--ct-bubble-radius) - var(--ct-bubble-pad-y)));
 }
 
 .ct-card--quiet {

@@ -481,7 +481,7 @@ fn plain_shell_without_a_live_pty_is_refused_before_acceptance() {
     assert!(
         fixture
             .service
-            .restart_tracker
+            .ext::<crate::service::agent_restart::RestartTracker>()
             .lock()
             .last_restart
             .get(&tab_id)

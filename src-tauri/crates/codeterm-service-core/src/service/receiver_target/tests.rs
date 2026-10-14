@@ -177,20 +177,25 @@ pub(super) fn scene() -> Scene {
     let fixture = ServiceFixture::new(mux);
     let service = &fixture.service;
     let receiver: Arc<dyn WebhookReceiver> = Arc::new(SilentReceiver);
-    service.webhook_registry.register(RECEIVER, receiver);
-    service.tab_menu_registry.register(
-        RECEIVER,
-        Arc::new(vec![TabMenuItem {
-            id: ITEM.into(),
-            label: LABEL.into(),
-            action: TabMenuAction::ReceiverTarget,
-            icon: None,
-            icon_svg: Some(
-                "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into(),
-            ),
-            icon_color: Some("#d97757".into()),
-        }]),
-    );
+    service
+        .ext::<codeterm_plugin::WebhookRegistryHandle>()
+        .register(RECEIVER, receiver);
+    service
+        .ext::<codeterm_plugin::tab_menu::TabMenuRegistryHandle>()
+        .register(
+            RECEIVER,
+            Arc::new(vec![TabMenuItem {
+                id: ITEM.into(),
+                label: LABEL.into(),
+                action: TabMenuAction::ReceiverTarget,
+                icon: None,
+                icon_svg: Some(
+                    "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>"
+                        .into(),
+                ),
+                icon_color: Some("#d97757".into()),
+            }]),
+        );
     let workspace = service
         .mux
         .write()
@@ -235,7 +240,11 @@ fn pebble_receiver_target_service_refuses_foreign_plugins_tabs_and_items() {
         Err(ReceiverTargetError::TabNotFound)
     );
     assert_eq!(service.receiver_target(RECEIVER).unwrap().tab_id, None);
-    assert!(service.receiver_targets.bindings().is_empty());
+    assert!(service
+        .ext::<crate::service::receiver_target::ReceiverTargets>()
+        .0
+        .bindings()
+        .is_empty());
 }
 
 #[test]
@@ -304,7 +313,11 @@ fn pebble_receiver_target_restart_close_and_absent_tab_fall_back() {
         "the view and the router observe the same liveness"
     );
 
-    service.receiver_targets.set(RECEIVER, "tab-gone").unwrap();
+    service
+        .ext::<crate::service::receiver_target::ReceiverTargets>()
+        .0
+        .set(RECEIVER, "tab-gone")
+        .unwrap();
     let stale = service.receiver_target(RECEIVER).unwrap();
     assert_eq!(stale.tab_id.as_deref(), Some("tab-gone"));
     assert!(!stale.live);
@@ -313,10 +326,19 @@ fn pebble_receiver_target_restart_close_and_absent_tab_fall_back() {
     service.set_receiver_target(RECEIVER, &scene.tab).unwrap();
     service.forget_receiver_targets_for_tab(&scene.other);
     assert_eq!(
-        service.receiver_targets.get(RECEIVER),
+        service
+            .ext::<crate::service::receiver_target::ReceiverTargets>()
+            .0
+            .get(RECEIVER),
         Some(scene.tab.clone())
     );
     service.forget_receiver_targets_for_tab(&scene.tab);
-    assert_eq!(service.receiver_targets.get(RECEIVER), None);
+    assert_eq!(
+        service
+            .ext::<crate::service::receiver_target::ReceiverTargets>()
+            .0
+            .get(RECEIVER),
+        None
+    );
     assert_eq!(service.live_receiver_target(RECEIVER), None);
 }

@@ -118,7 +118,8 @@ impl ServiceContext {
         };
         let path = std::path::Path::new(cwd);
         if self
-            .loaded_plan_projects
+            .ext::<crate::service::LoadedPlanProjects>()
+            .0
             .lock()
             .iter()
             .any(|root| path.starts_with(root))
@@ -560,11 +561,11 @@ impl ServiceContext {
         }
         // After the members are gone, never before: a Team that still holds a
         // live tab is left untouched.
-        if let Some(blueprints) = self
+        if let Some(ports) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            if let Err(error) = blueprints.remove_workspace(id) {
+            if let Err(error) = ports.cleanup.remove_workspace(id) {
                 cleanup_errors.push(format!("Blueprints: {error}"));
             }
         }

@@ -48,7 +48,7 @@ pub(super) fn dispatch(params: &Option<Value>, app: &AppHandle) -> Result<Value,
     let request = request
         .body(Body::from(body))
         .map_err(|error| invalid(error.to_string()))?;
-    let router = app.state::<crate::api::routes::LocalApiRouter>().0.clone();
+    let router = app.state::<crate::ports::rest::LocalApiRouter>().0.clone();
     tauri::async_runtime::block_on(async move {
         let response = router
             .oneshot(request)
