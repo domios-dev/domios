@@ -560,3 +560,110 @@ async fn runtime_large_history_streams_bounded_quickjs_state() {
     assert_eq!(items.len(), 80);
     assert_eq!(items.last().unwrap().seq, 80);
 }
+
+#[tokio::test]
+async fn runtime_multi_mib_history_is_bounded_before_and_after_quickjs() {
+    let inputs = paths()
+        .into_iter()
+        .find(|input| input.manifest.parent().unwrap().file_name().unwrap() == "provider-codex")
+        .unwrap();
+    let provider = load_provider(&inputs.manifest, &inputs.declaration);
+    let fixture: Fixture =
+        serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
+            .unwrap();
+    let sizes: Value = serde_json::from_str(include_str!(
+        "../../../../../../plugins/provider-codex/tests/fixtures/history-bounds.json"
+    ))
+    .unwrap();
+    let context = fixture.context;
+    let op = RuntimeOperation::ReadHistory {
+        thread_id: context.thread_id.clone().unwrap(),
+        cursor: None,
+    };
+    let plan = provider.runtime_plan(&context, &op).await.unwrap();
+    let mut step = provider
+        .runtime_response(
+            &context,
+            &op,
+            &plan.state,
+            &RpcReply::Success {
+                value: json!({"data":[{"id":"turn","status":"inProgress","startedAt":1}]}),
+            },
+        )
+        .await
+        .unwrap();
+    let mut data = vec![
+        json!({"item":{"id":"image","type":"userMessage","content":[{"type":"image","url":format!("data:image/png;base64,{}","A".repeat(sizes["imageBytes"].as_u64().unwrap() as usize))}]}}),
+        json!({"item":{"id":"tool","type":"commandExecution","command":"cat","aggregatedOutput":"x".repeat(sizes["toolBytes"].as_u64().unwrap() as usize),"status":"completed"}}),
+    ];
+    data.extend((0..98).map(|index| json!({"item":{"id":format!("item-{index}"),"type":"agentMessage","text":"\u{0001}雪🙂".repeat(2000)}})));
+    let mut history = RuntimeHistory::default();
+    let mut outputs = 0;
+    loop {
+        let RuntimeStep::Continue { plan, .. } = step else {
+            panic!("expected history continuation")
+        };
+        let RuntimeAction::Request { call } = &plan.action else {
+            panic!("expected request")
+        };
+        if call.method != "thread/items/list" {
+            step = provider
+                .runtime_response(
+                    &context,
+                    &op,
+                    &plan.state,
+                    &RpcReply::Error {
+                        error: RpcFailure {
+                            code: -32601,
+                            message: "unsupported".into(),
+                            data: None,
+                        },
+                    },
+                )
+                .await
+                .unwrap();
+            break;
+        }
+        outputs += 1;
+        assert!(outputs <= 100);
+        step = provider
+            .runtime_response(
+                &context,
+                &op,
+                &plan.state,
+                &RpcReply::Success {
+                    value: json!({"data":data}),
+                },
+            )
+            .await
+            .unwrap();
+        let wire = serde_json::to_vec(&step).unwrap();
+        assert!(wire.len() < sizes["chunkBytes"].as_u64().unwrap() as usize);
+        validate_runtime_size(&step, MAX_RUNTIME_VALUE_BYTES).unwrap();
+        assert!(!String::from_utf8(wire).unwrap().contains("data:image/"));
+        if let RuntimeStep::Continue {
+            history: Some(chunk),
+            ..
+        } = &step
+        {
+            history.append(chunk.clone());
+        }
+    }
+    assert!(outputs > 1);
+    let RuntimeStep::Complete { result, .. } = step else {
+        panic!("expected completed history")
+    };
+    history.append(result);
+    let RuntimeResult::HistoryPage {
+        items, open_items, ..
+    } = history.finish(context.thread_id.unwrap(), None)
+    else {
+        panic!("expected page")
+    };
+    assert_eq!(items.len(), 100);
+    assert_eq!(open_items.len(), 99);
+    assert_eq!(items.last().unwrap().seq, 100);
+    let wire = serde_json::to_string(&items).unwrap();
+    assert!(wire.contains("[image omitted: 6291478 bytes]"));
+    assert!(wire.contains("[content truncated: 5242880 bytes total]"));
+}

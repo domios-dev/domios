@@ -3,6 +3,7 @@ import type {
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
 } from "@codeterm/plugin-sdk";
 import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
+import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem, boundHistoryRows } from "./runtimeHistoryBounds";
 import { json, runtimeItems } from "./runtimeMessages";
 import { loginPlan, loginResponse } from "./runtimeLogin";
 import { accountAuth } from "./runtimeAuth";
@@ -150,16 +151,18 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
     if (!userThread(value,op.threadId)) return refused("History snapshot thread identity unverified");
     const turns = object(value.thread).turns;
     if (!Array.isArray(turns)) return refused("Missing history snapshot turns");
-    let collected = {...state,items:[],openItems:[],questions:[]};
-    for (const raw of turns) {
+    let collected: Record<string,unknown> = {...state,items:[],openItems:[],questions:[]};
+    for (const raw of turns.slice(Number(state.snapshotTurn ?? 0))) {
       const turn = object(raw);
       if (!text(turn.id) || !Array.isArray(turn.items)) return refused("Missing history snapshot turn items");
-      collected = collectHistoryItems(op,collected,turn,turn.items) as typeof collected;
+      collected = collectHistoryItems(op,collected,turn,turn.items);
+      if (collected.offset != null) return streamHistory(op,continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},
+        {...collected,stage:"snapshot",snapshotTurn:turns.indexOf(raw)})),collected);
     }
     return historyGoal(op,collected);
   }
   if (state.stage === "goal") {
-    const objective = text(object(value.goal).objective);
+    const objective = text(object(sanitizeHistory(object(value.goal))).objective);
     if (objective) state.items = [...list(state.items),{id:"thread:goal",seq:Number(state.seq)+1,type:"custom",content:"",sessionIntent:{goal:objective}}];
     return historyComplete(op,state);
   }
@@ -180,6 +183,7 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
   const turn = turns[Number(state.index)];
   if (!turn || !text(turn.id)) return refused("Missing history turn id");
   const mapped = collectHistoryItems(op,{...state,items:[],openItems:[],questions:[]},turn,value.data);
+  if (mapped.offset != null) return streamHistory(op,historyItems(op,mapped,text(state.cursor)),mapped);
   const next = text(value.nextCursor);
   if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
   const collected = {...mapped};
@@ -193,26 +197,33 @@ function collectHistoryItems(op: Extract<Operation,{kind:"readHistory"}>, state:
   const openItems = list(state.openItems) as OpenItem[];
   let seq = Number(state.seq);
   let questions = list(state.questions) as RuntimeHistoryQuestion[];
-  for (const entry of entries) {
-    const record = object(entry); const rawItem = record.item ?? record;
-    questions = reconcileHistoryQuestions(op.threadId,rawItem,questions);
-    const rows = runtimeItems(rawItem,seq+1);
-    seq += rows.length;
-    for (const row of rows) {
-    row.toolFlowId = String(turn.id);
+  let bytes = serializedBytes({items,openItems,questions});
+  for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
+    const record = object(entries[index]); const rawItem = historyItem(record.item ?? record);
+    const nextQuestions = reconcileHistoryQuestions(op.threadId,rawItem,questions);
+    const rows = boundHistoryRows(runtimeItems(rawItem,seq+1));
     const timestamp = record.startedAtMs ?? record.completedAtMs;
-    if (typeof timestamp === "number" && Number.isFinite(timestamp)) row.timestamp = new Date(timestamp).toISOString();
-    items.push(row);
-    if (turn.status === "inProgress" && turn.startedAt != null && record.completedAtMs == null
-      && !["completed","failed","interrupted","declined"].includes(String(object(rawItem).status))) openItems.push({turnId:String(turn.id),item:row});
+    for (const row of rows) {
+      row.toolFlowId = String(turn.id);
+      if (typeof timestamp === "number" && Number.isFinite(timestamp)) row.timestamp = new Date(timestamp).toISOString();
     }
+    const active = turn.status === "inProgress" && turn.startedAt != null && record.completedAtMs == null
+      && !["completed","failed","interrupted","declined"].includes(String(object(rawItem).status));
+    const opened = active ? rows.map(item=>({turnId:String(turn.id),item})) : [];
+    const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
+    if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return {...state,items,openItems,seq,questions,offset:index};
+    bytes += rowBytes;
+    questions = nextQuestions;
+    seq += rows.length;
+    items.push(...rows);
+    openItems.push(...opened);
   }
-  return {...state,items,openItems,seq,questions};
+  return {...state,items,openItems,seq,questions,offset:null};
 }
 function historyItems(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, cursor?: string): RuntimeStep {
   const turn = object(list(state.turns)[Number(state.index)]);
   if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list",{threadId:op.threadId,turnId:turn.id,sortDirection:"asc",limit:100,cursor},state));
+  return continuation(request("thread/items/list",{threadId:op.threadId,turnId:turn.id,sortDirection:"asc",limit:100,cursor},{...state,cursor:cursor ?? null}));
 }
 function historyGoal(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>): RuntimeStep {
   if (text(state.nextCursor)) return historyComplete(op,state);
