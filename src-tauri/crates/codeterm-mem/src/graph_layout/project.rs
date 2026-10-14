@@ -4,7 +4,9 @@ use std::collections::HashMap;
 #[cfg(feature = "embeddings")]
 use std::collections::HashSet;
 
-use super::cache::{LayoutCache, Position};
+use super::cache::LayoutCache;
+#[cfg(feature = "embeddings")]
+use super::cache::Position;
 use super::placement;
 
 /// Load primary-chunk vectors (skip `*_chunk_N`). Returns (id, vec) pairs.

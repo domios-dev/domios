@@ -34,7 +34,7 @@ pub(crate) struct HiddenLaunch {
     pub(crate) launch_session_id: Option<String>,
     pub(crate) task: Option<String>,
     pub(crate) model_args: Vec<String>,
-    pub(crate) selection: super::codex_rpc::launch::Selection,
+    pub(crate) selection: crate::ports::transport::Selection,
     pub(crate) role: Option<String>,
     pub(crate) role_profile: Option<String>,
     pub(crate) pty_input_task: Option<String>,

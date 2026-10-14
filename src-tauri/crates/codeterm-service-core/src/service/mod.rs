@@ -70,6 +70,7 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 mod orchestration_pair;
 pub(crate) mod orchestrator;
+pub(crate) mod ordered_actions;
 pub(crate) mod parked_user_delivery;
 pub(crate) mod process_tree;
 mod prompt_resolution;

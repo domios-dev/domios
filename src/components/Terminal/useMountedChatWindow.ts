@@ -103,7 +103,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
         && shouldAbsorbChatShift({ nativeAnchoring, pinned: false, userScrolling: userScrollingRef?.current ?? false });
       const top = absorb ? mountedRowTops(el).rows.find((row) => row.id === anchor.id)?.top ?? null : null;
       const next = chatSpacerAfterLayout({ base, drift: driftRef.current, shift: chatAnchorShift(anchor, top), absorb,
-        viewportHeight: el.clientHeight });
+        viewportHeight: el.clientHeight, scrollTop: el.scrollTop });
       driftRef.current = next.drift;
       scrollBy = next.scrollBy;
     }

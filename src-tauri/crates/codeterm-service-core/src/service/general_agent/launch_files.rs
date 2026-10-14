@@ -18,7 +18,7 @@ pub(super) fn plan(
         provider,
         cwd,
         params,
-        codex_rpc::launch::Selection {
+        crate::ports::transport::Selection {
             resume: resume.map(str::to_owned),
             extra_args: params.args.as_ref().is_some_and(|args| !args.is_empty()),
             ..Default::default()
@@ -34,7 +34,7 @@ pub(super) fn command(
     params: &mut AgentLaunchParams,
     resume: Option<&str>,
 ) -> Option<String> {
-    let selection = codex_rpc::launch::Selection {
+    let selection = crate::ports::transport::Selection {
         resume: resume.map(str::to_owned),
         extra_args: params.args.as_ref().is_some_and(|args| !args.is_empty()),
         ..Default::default()
@@ -48,7 +48,7 @@ pub(super) fn command_with_selection(
     provider: &str,
     cwd: &str,
     params: &mut AgentLaunchParams,
-    selection: codex_rpc::launch::Selection,
+    selection: crate::ports::transport::Selection,
 ) -> Option<String> {
     let resume = selection.resume.clone();
     if let Some(session) = resume.as_deref() {

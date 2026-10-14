@@ -66,12 +66,18 @@ try {
     if (Date.now() >= deadline) throw new Error(publisher.identityUnavailable
       ? 'Gateway publication helper identity unavailable; no ownership published. Retry-safe after process lookup recovers (exit 75).'
       : 'Timed out acquiring build gateway state mutex.');
+    let inspectedOwner = '';
+    let inspectedToken = '';
+    let inspectedGone = false;
     if (operation === 'acquire') {
       const observed = fingerprint();
       const owner = read('pid');
       const token = read('start_token');
       // Checking a live metadata owner must not block its release behind the publication guard.
       if (owner && token && alive(owner, token)) { await changed(observed); continue; }
+      inspectedOwner = owner;
+      inspectedToken = token;
+      inspectedGone = Boolean(owner && token && gone(owner, token));
     }
     const publicationSnapshot = fingerprint();
     if (!publisher.acquire()) {
@@ -90,8 +96,9 @@ try {
       } else {
         const owner = read('pid');
         const token = read('start_token');
+        if (owner !== inspectedOwner || token !== inspectedToken) continue;
         // Publication and reclamation share this guard so stale observations cannot remove a new owner.
-        if (owner && token && gone(owner, token)) fs.rmSync(mutex, { recursive: true });
+        if (inspectedGone) fs.rmSync(mutex, { recursive: true });
         if (!fs.existsSync(mutex)) {
           fs.renameSync(candidate, mutex);
           candidate = undefined;

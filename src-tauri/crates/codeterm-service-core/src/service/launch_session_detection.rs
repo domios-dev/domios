@@ -582,7 +582,7 @@ pub(crate) fn marked_launch_command_for_tab(
     tab_id: &str,
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
-    selection: super::codex_rpc::launch::Selection,
+    selection: crate::ports::transport::Selection,
 ) -> Option<String> {
     if let Some(command) =
         super::codex_rpc::launch::selection_plan(svc, tab_id, provider_id, cwd, params, selection)

@@ -33,7 +33,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  check|check-tests|test-one|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  check|check-queue|check-tests|test-one|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -360,7 +360,12 @@ run_nextest_scope() {
   local filter_args=()
 
   case "$scope" in
-    app|codeterm|service-core|codeterm-service-core) package="codeterm-service-core"; targets+=(--lib --no-default-features) ;;
+    app|codeterm|service-core|codeterm-service-core)
+      configure_app_test_cargo nextest
+      manifest="$CT_APP_TEST_MANIFEST"
+      package="$CT_APP_TEST_PACKAGE"
+      targets+=("${CT_APP_TEST_TARGET_ARGS[@]}")
+      ;;
     shell) package="codeterm"; targets+=(--lib --test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets+=(--lib) ;;
     paths|codeterm-paths) package="codeterm-paths"; targets+=(--lib) ;;
@@ -1487,6 +1492,18 @@ check_warning_summary() {
   '
 }
 
+configure_app_test_cargo() {
+  CT_APP_TEST_MANIFEST=src-tauri/Cargo.toml
+  CT_APP_TEST_PACKAGE=codeterm-service-core
+  CT_APP_TEST_TARGET_ARGS=(--lib)
+  case "${1:?app test configuration requires a runner}" in
+    nextest) CT_APP_TEST_TARGET_ARGS+=(--no-default-features) ;;
+    test-one) ;;
+    *) echo "Unknown app test runner: $1" >&2; return 2 ;;
+  esac
+  CT_APP_TEST_ARGS=(--manifest-path "$CT_APP_TEST_MANIFEST" -p "$CT_APP_TEST_PACKAGE" "${CT_APP_TEST_TARGET_ARGS[@]}")
+}
+
 configure_dev_cargo() {
   CT_DEV_CARGO_PROFILE=dev
   CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" src-tauri/Cargo.toml)"
@@ -1572,8 +1589,19 @@ check_queue_run() {
       --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" >> "$out" 2>&1 || status=$?
   fi
   configure_dev_cargo
+  local dev_status=0
   CODETERM_DEV=1 CODETERM_WEB_DIST="$cw/dist" CARGO_TARGET_DIR="$cw/target/app" \
-    cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short >> "$out" 2>&1 || status=$?
+    cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short >> "$out" 2>&1 || dev_status=$?
+  [ "$dev_status" = 0 ] || status="$dev_status"
+  echo "check-queue: dev-lib args=${CT_DEV_CHECK_ARGS[*]} exit=$dev_status" | tee -a "$out"
+  local test_runner test_status
+  for test_runner in nextest test-one; do
+    configure_app_test_cargo "$test_runner"
+    test_status=0
+    CARGO_TARGET_DIR="$cw/target/app" cargo check "${CT_APP_TEST_ARGS[@]}" --profile test --tests --message-format=short >> "$out" 2>&1 || test_status=$?
+    [ "$test_status" = 0 ] || status="$test_status"
+    echo "check-queue: app-test scope=$test_runner args=${CT_APP_TEST_ARGS[*]} --profile test --tests exit=$test_status" | tee -a "$out"
+  done
   grep 'cargo::core::compiler::fingerprint' "$out" || true
   check_queue_errors "$max_errors" "$status" < "$out"
   check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
@@ -2033,6 +2061,8 @@ CodeTerm build commands
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
+  chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--out DIR] [--cdp WS]
+                              Scripted iPhone touch scroll over the mounted Chat window; fails on any visual jump
   install-local               Build and install locally (cheap fmt/size/clean gates first)
   script-guards               Run the script catalogue gate and uncalled fixture guards
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
@@ -2277,7 +2307,8 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib "$test_filter"
+        configure_app_test_cargo test-one
+        scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"
         ;;
       shell)
         prepare_dev_frontend_dist "$(pwd -P)"
@@ -2512,6 +2543,47 @@ EOF
         ;;
       *) echo "ERROR: lane-recover mode must be keep or merge" >&2; exit 2 ;;
     esac
+    ;;
+  chat-scroll-trace)
+    cst_webkit=0
+    cst_fix=1
+    cst_strokes=14
+    cst_out=""
+    cst_cdp="${CHAT_SCROLL_TRACE_CDP:-}"
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --webkit) cst_webkit=1 ;;
+        --fix) cst_fix="${2:-}"; shift ;;
+        --strokes) cst_strokes="${2:-}"; shift ;;
+        --out) cst_out="${2:-}"; shift ;;
+        --cdp) cst_cdp="${2:-}"; shift ;;
+        *) echo "ERROR: usage: chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--out DIR] [--cdp WS]" >&2; exit 2 ;;
+      esac
+      shift
+    done
+    case "$cst_fix" in 0|1) ;; *) echo "ERROR: --fix must be 0 or 1" >&2; exit 2 ;; esac
+    ensure_deps
+    if [ -z "$cst_cdp" ]; then
+      codeterm plugin browser status 2>/dev/null | grep -q "no browser open" && codeterm plugin browser open >/dev/null
+      cst_cdp="$(codeterm plugin browser endpoint | tail -n 1)"
+    fi
+    case "$cst_cdp" in ws://*) ;; *) echo "ERROR: no browser CDP endpoint; pass --cdp ws://..." >&2; exit 2 ;; esac
+    [ -n "$cst_out" ] || cst_out="$(mktemp -d "${TMPDIR:-/tmp}/chat-scroll-trace.XXXXXX")"
+    exec {cst_fd}< <(exec node scripts/chat-scroll-trace/serve.mjs)
+    cst_server=$!
+    trap 'kill "$cst_server" 2>/dev/null || true' EXIT
+    cst_url=""
+    # The deadline bounds a failed start; readiness is the server's own "ready" line.
+    while IFS= read -r -t 120 -u "$cst_fd" cst_line; do
+      case "$cst_line" in "ready "*) cst_url="${cst_line#ready }"; break ;; esac
+    done
+    [ -n "$cst_url" ] || { echo "ERROR: chat-scroll-trace harness server did not report ready" >&2; exit 1; }
+    cst_status=0
+    node scripts/chat-scroll-trace/trace.mjs --cdp "$cst_cdp" --url "${cst_url}?fix=${cst_fix}&webkit=${cst_webkit}" \
+      --strokes "$cst_strokes" --out "$cst_out" || cst_status=$?
+    echo "chat-scroll-trace: trace.json and screenshots in $cst_out"
+    exit "$cst_status"
     ;;
   qa-prep)
     bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
