@@ -10,7 +10,7 @@ export interface AgentBlockSources {
   plans: ValueFeed<readonly Plan[]>;
   providerName(agentType: string): string | null;
   selectTab(workspaceId: string, tabId: string): Promise<void> | void;
-  interrupt(args: { ptyId: string; tabId?: string }): Promise<unknown>;
+  interrupt(args: { ptyId?: string; tabId: string }): Promise<unknown>;
 }
 
 /** Agent cards read the mux snapshot and plans; Open focuses the tab and Stop interrupts its turn. */
