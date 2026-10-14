@@ -95,7 +95,7 @@ test('Mac jobs provision secret material before building and always clean up', (
   for (const path of ['scripts/check-release-credentials-mac.sh', 'scripts/release-macos-x86_64.sh', '.agents/skills/github-release/scripts/build-mac.sh', '.agents/skills/github-release/scripts/pack-mac-updater.sh', '.agents/skills/github-release/scripts/notarize-dmg.sh']) {
     assert.doesNotMatch(read(path), /\.tauri\/codeterm\.key|login\.keychain|--password/);
   }
-  assert.match(read('scripts/check-release-credentials-mac.sh'), /find-identity -v -p codesigning "\$RELEASE_KEYCHAIN"/);
+  assert.match(read('scripts/check-release-credentials-mac.sh'), /release-signing-material\.py check-identity/);
   assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
 });
 
