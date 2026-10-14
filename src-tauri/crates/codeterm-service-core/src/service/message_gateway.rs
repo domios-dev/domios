@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 
 use super::messenger::{Delivery, MessageEnvelope, Messenger};
 use super::ordered_actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
-use crate::ports::transport::SendBatchItem;
+use crate::ports::transport::{Input, SendBatchItem};
 
 /// Default bound for the idempotency cache (entries, no persistence).
 pub const IDEMPOTENCY_CAPACITY: usize = 512;
@@ -207,12 +207,11 @@ impl DeliverySeam for super::ServiceContext {
     }
 
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
-        self.send_text_detached(tab, text);
-        Ok(())
+        self.deliver(tab, Input::TextDetached(text))
     }
 
     fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
-        self.send_text_batch(tab, batch)
+        self.deliver(tab, Input::Batch(batch))
     }
 
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
@@ -222,12 +221,12 @@ impl DeliverySeam for super::ServiceContext {
             &ordered,
             |body, enter| {
                 if enter {
-                    self.send_text(tab, body)
+                    self.deliver(tab, Input::Text(body))
                 } else {
-                    self.insert_text(tab, body)
+                    self.deliver(tab, Input::Insert(body))
                 }
             },
-            |bytes| self.write_raw(tab, bytes),
+            |bytes| self.deliver(tab, Input::Raw(bytes)),
             await_action_deadline,
         )
     }
