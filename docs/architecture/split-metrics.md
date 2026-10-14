@@ -30,7 +30,7 @@ Crates that recompile when one file of the area changes: the area's own crate pl
 
 ## Timing baseline (M0, single quiet-gateway batch)
 
-Batch on 2026-10-14, develop a6672cbe1 merged, no other job on the gateway (checked via `build-history`), probe line `const _SPLIT_METRIC_PROBE: u8 = 0;` appended to one non-test file in each of the ten hot areas in one scratch commit (0948c28b5), reverted in the next commit; nothing probe-related reached develop. Times are the gateway job durations from `build-history --json` (started to ended, includes the cargo build and the run); `wall=` is the figure `check-queue` printed.
+Batch on 2026-10-14, develop a6672cbe1 merged, no other job on the gateway (checked via `build-history`), a one-line private-const probe appended to one non-test file in each of the ten hot areas in one scratch commit (0948c28b5), reverted in the next commit; nothing probe-related reached develop. Times are the gateway job durations from `build-history --json` (started to ended, includes the cargo build and the run); `wall=` is the figure `check-queue` printed.
 
 check-queue of the probe commit, run twice back to back (`errors=0 warnings=0`):
 
