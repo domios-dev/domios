@@ -20,7 +20,7 @@ description: >-
 
 1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). The nightly schedule runs the full matrix on `develop`.
 2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
-3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. The full test matrix (`tests.yml` via `workflow_call`, every platform) and every bundle build run in parallel from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
+3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate every bundle build; Rust archives queue independently at preparation completion, then builds queue after the fast gate and overlap Rust tests from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
 4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
 5. **One branch, one version.** After publication a further change needs `release/X.Y.(Z+1)`.
 
@@ -81,8 +81,8 @@ If a plugin check reports "Vitest failed to access its internal state", its Vite
 ## ⚡ Default release path: a push to release/X.Y.Z (automated, self-hosted CI)
 
 Each push of `release/X.Y.Z` by `rollacode` starts one `.github/workflows/release.yml` run. It prepares draft
-releases, then runs the full test matrix and four reusable platform callers in parallel: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
-builds x86_64 Linux. A final `release-manifest` job needs all four callers and tests, merges their updater
+releases, then queues Rust archives and parallel quick checks together; after the fast gate it queues four reusable platform callers: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
+builds x86_64 Linux. Builds depend only on fast checks and take any matching free runner while Rust tests continue. A final `release-manifest` job needs all four callers and both test stages, merges their updater
 fragments, publishes the signed public manifests, marks the releases, verifies served bytes, and
 closes eligible public issues. The platform workflows are reusable pieces and do not start their
 own tag runs. Each platform job clears incomplete upload slots before building, so a failed platform
@@ -174,8 +174,7 @@ git push origin --delete "release/$VER"
 
 A fix found after publication is a new patch release through the normal flow.
 
-A push to `release/X.Y.Z` creates one Actions run. After release preparation, its macOS, arm64 Linux,
-x86_64 Linux, and Windows build jobs run in parallel. The Mac job signs and notarizes macOS
+A push to `release/X.Y.Z` creates one Actions run. After source preparation, Rust archives queue alongside parallel fast checks. Platform builds queue after the fast gate and overlap ongoing Rust archives, shards and native tests. The Mac job signs and notarizes macOS
 artifacts; Linux jobs package AppImage and Debian assets; Windows builds the NSIS installers. The
 final `release-manifest` job runs only after all platform jobs succeed. It merges every updater
 fragment, uploads `latest.json` and the Debian manifest to both repositories, publishes the
@@ -219,8 +218,30 @@ intentionally, cut the correction as a new patch version through the normal flow
 
 ### Artifact graph and granular reruns
 
-`prepare` fans out to `tests`, `macos`, `linux-arm64`, `linux-x86_64`, and `windows`.
-`release-manifest` needs every caller **and** `tests`; frontend publication needs its tests too.
+`prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, fmt, clippy,
+TS unit/Vitest/static/generated-type checks, release/plugin contracts and plugin bundles/tests.
+Every check depends only on tree/scope discovery; clippy does not wait for fmt.
+No Rust archive, shard, native test or coverage job belongs to this gate.
+
+`tests` (`tests.yml`, `phase: long`) needs only `prepare` and queues Rust archives
+at preparation completion, independently of `quick-checks`. Shards and native tests
+queue when the archives finish; the coverage summary requires their receipts.
+Every platform build needs only `prepare` and `quick-checks`: it queues after the fast
+gate and takes any matching idle runner, without waiting for an archive to finish.
+The test jobs get an earlier queue position on shared runners. GitHub queue order is
+best effort, not strict priority; the live overlap map lives in the build-machine README.
+Workflow concurrency includes phase so the fast and long calls cannot supersede each other.
+
+A failing test/gate job requests cancellation of this caller run through the Actions API
+using `GITHUB_TOKEN` with `actions: write`. Rust cancellation runs before receipt uploads,
+so a failed archive or test stops queued and running builds without waiting for sibling
+jobs or the coverage summary. Cancellation also stops remaining tests. The switch is
+explicitly enabled only by release callers; standalone PR/nightly tests retain their
+existing execution. Setup and receipt failures also trigger cancellation.
+`release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
+needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
+Dry runs with tests use the same graph; `dry_run_tests: false` explicitly skips both
+stages for bundle diagnostics.
 macOS arm64 and x64 are independent matrix jobs, as are Windows x64 and arm64: both matrices
 use `fail-fast: false`, so one architecture failure preserves the other's successful uploads.
 `macos` calls `release-macos-build.yml` once; `linux-arm64` calls `release-linux-arm64.yml`
@@ -1063,7 +1084,7 @@ prints the normalized set in the check summary. This metadata is deliberately no
 closing keyword, so merging private source cannot close a public issue prematurely.
 
 The single `release.yml` run has four parallel reusable platform callers and a final
-`release-manifest` job whose `needs` includes all four and tests. That final job rebuilds `latest.json` and
+`release-manifest` job whose `needs` includes all four, fast checks and Rust tests. That final job rebuilds `latest.json` and
 the Debian manifest from every uploaded updater fragment, uploads both manifests to the source
 release and public mirror, publishes the releases, and verifies the public served bytes. Only a
 successful verification proceeds to resolve commits and associated private PRs in the release
