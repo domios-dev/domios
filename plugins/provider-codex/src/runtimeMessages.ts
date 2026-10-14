@@ -1,4 +1,5 @@
 import { canonicalJson } from "./canonicalJson";
+import { commandLabel } from "./commandLabel";
 import type { ChatMsg } from "@codeterm/plugin-sdk";
 import { object, text, list } from "./runtimeProtocol";
 import { runtimeFileDiffs } from "./runtimeDiffs";
@@ -67,8 +68,8 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
       return {...row, type:"system", systemSubtype:String(item.type), content:item.type === "hookPrompt"
         ? list(item.fragments).map(object).map(p => p.text ?? "").join("\n") : String(item.review ?? "")};
     case "commandExecution":
-      row.toolKind = "command"; row.toolSummary = String(item.command ?? "");
-      row.toolDetail = row.toolSummary;
+      row.toolKind = "command"; row.toolDetail = String(item.command ?? "");
+      row.toolSummary = commandLabel(item.command) || row.toolDetail;
       if (typeof item.aggregatedOutput === "string") row.toolResult = item.aggregatedOutput;
       else if (previous?.toolResult !== undefined) row.toolResult = previous.toolResult;
       if (typeof item.exitCode === "number") row.toolExitCode = item.exitCode;
@@ -124,7 +125,7 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
     default: return undefined;
   }
   row.toolId = id; row.toolName ??= String(item.type); row.toolInput ??= item;
-  if (row.toolSummary !== undefined) row.toolArgs = row.toolSummary;
+  if (row.toolSummary !== undefined) row.toolArgs = row.toolKind === "command" ? row.toolDetail : row.toolSummary;
   row.collapsed = true;
   if (typeof item.durationMs === "number") row.toolDurationMs = item.durationMs;
   if (row.toolError == null) {
