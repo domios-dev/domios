@@ -117,7 +117,7 @@ impl FileIndexStorage {
     }
 
     pub fn default_path() -> PathBuf {
-        crate::paths::data_dir()
+        codeterm_paths::data_dir()
             .join("secrets")
             .join("local-index.json")
     }

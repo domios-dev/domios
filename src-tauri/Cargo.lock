@@ -1118,6 +1118,7 @@ dependencies = [
  "codeterm-plugins",
  "codeterm-pty",
  "codeterm-repowatch",
+ "codeterm-secrets",
  "codeterm-storage",
  "codeterm-types",
  "codeterm-usage",
@@ -1569,6 +1570,24 @@ dependencies = [
  "serde",
  "tempfile",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-secrets"
+version = "1.6.2"
+dependencies = [
+ "async-trait",
+ "codeterm-config",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
