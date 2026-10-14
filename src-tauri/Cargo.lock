@@ -1104,10 +1104,13 @@ dependencies = [
  "codeterm-blueprint-types",
  "codeterm-bridge",
  "codeterm-browser",
+ "codeterm-config",
  "codeterm-decision",
+ "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-input-macos",
  "codeterm-input-windows",
+ "codeterm-keepawake",
  "codeterm-local-recording",
  "codeterm-mem",
  "codeterm-mem-store",
@@ -1120,6 +1123,7 @@ dependencies = [
  "codeterm-provider-signals",
  "codeterm-pty",
  "codeterm-repowatch",
+ "codeterm-secrets",
  "codeterm-storage",
  "codeterm-types",
  "codeterm-usage",
@@ -1309,11 +1313,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-config"
+version = "1.6.2"
+dependencies = [
+ "codeterm-mesh",
+ "codeterm-paths",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
 name = "codeterm-decision"
 version = "1.6.2"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "codeterm-events"
+version = "1.6.2"
+dependencies = [
+ "codeterm-plugin",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1349,6 +1384,21 @@ dependencies = [
  "codeterm-types",
  "parking_lot",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-keepawake"
+version = "1.6.2"
+dependencies = [
+ "codeterm-events",
+ "codeterm-paths",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
 ]
 
 [[package]]
@@ -1589,6 +1639,24 @@ dependencies = [
  "serde",
  "tempfile",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-secrets"
+version = "1.6.2"
+dependencies = [
+ "async-trait",
+ "codeterm-config",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
