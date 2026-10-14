@@ -472,6 +472,44 @@ fn general_agent_is_not_misclassified_as_a_pair_creation_leaf() {
     assert!(is_pair_creation_leaf(mux.get_tab(&manager).unwrap()));
 }
 
+#[test]
+fn owner_pair_reservation_ignores_selected_leaf_while_agent_creation_is_refused() {
+    use crate::multiplexer::types::AgentRole;
+
+    for role in [AgentRole::Manager, AgentRole::Worker] {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let selected = mux.create_tab(&workspace_id).unwrap();
+        let tab = mux.get_tab_mut(&selected).unwrap();
+        tab.role = Some(role);
+        tab.agent_type = Some("provider".into());
+        mux.set_active_tab(&workspace_id, &selected).unwrap();
+        mux.set_focused_tab(&selected).unwrap();
+
+        let refusal = validate_pair_creator(&mux, Some(&selected), false).unwrap_err();
+        assert!(refusal.contains("--acknowledge-leaf"));
+        validate_pair_creator(&mux, None, false).unwrap();
+        let reserved = reserve_pair_tabs(
+            &mut mux,
+            &workspace_id,
+            None,
+            false,
+            &CorrectiveShape::default(),
+        )
+        .unwrap();
+
+        assert!(mux.get_team(&reserved.team.id).is_some());
+        for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+            assert_eq!(
+                mux.get_tab(tab_id).unwrap().team_id.as_deref(),
+                Some(reserved.team.id.as_str())
+            );
+            assert_ne!(tab_id, &selected);
+        }
+        assert_eq!(mux.get_tab(&selected).unwrap().role, Some(role));
+    }
+}
+
 // ── codeterm#400: leaf pair-creation gate ───────────────────────
 
 #[test]
