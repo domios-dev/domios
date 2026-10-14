@@ -158,7 +158,7 @@ impl Events {
         timeout: Duration,
         observe_cancel: bool,
     ) -> Result<ParentEvent, String> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.waiting(super::WaitPhase::Parent);
         let parent = self
             .parent

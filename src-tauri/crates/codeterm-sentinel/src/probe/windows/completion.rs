@@ -150,7 +150,7 @@ impl WindowsRun {
             .process
             .raw()
             .ok_or_else(|| "probe pending process handle missing".to_string())?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(events) = &self.events {
             use super::super::cancellation::WaitPhase;
             if self.stdout.eof
@@ -286,7 +286,7 @@ impl WindowsRun {
         let mut key = 0usize;
         let mut overlapped = null_mut();
         let millis = timeout.map(timeout_ms).unwrap_or(u32::MAX);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(events) = &self.events {
             use super::super::cancellation::WaitPhase;
             events.waiting(WaitPhase::WindowsCapture {
@@ -308,7 +308,7 @@ impl WindowsRun {
             Some(unsafe { GetLastError() })
         };
         if !succeeded && overlapped.is_null() {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             self.trace_native("GetQueuedCompletionStatus", None, None, event_error);
             if event_error == Some(WAIT_TIMEOUT) {
                 return Ok(false);

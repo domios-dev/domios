@@ -9,12 +9,12 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
-use super::super::handlers::{Handler, Status};
-use super::super::machine::{Route, Verdict};
-use super::super::probe;
-use super::super::provenance::{Classification, Scope};
-use super::super::store::{Create, Lease, Owner, Sentinel, Store};
-use super::{codec, commit, legacy_import};
+use super::handlers::{Handler, Status};
+use super::machine::{Route, Verdict};
+use super::probe;
+use super::provenance::{Classification, Scope};
+use super::store::{Create, Lease, Owner, Sentinel, Store};
+use super::storage::{codec, commit, legacy_import};
 use codeterm_cron::clock::MockClock;
 use codeterm_storage::{
     Completion, DefinitionProvenance, DefinitionUpdate, Fence, MutationOutcome, StageRuntime,
@@ -161,7 +161,7 @@ fn run(
     bucket: &str,
     mut effect: impl FnMut(&Sentinel, &str, &Handler) -> Result<Status, String>,
 ) {
-    super::super::scheduler::advance(
+    super::scheduler::advance(
         store,
         lease,
         &output(text),
@@ -179,7 +179,7 @@ fn run(
 /// Accepts one transition for a lease and returns the evaluated job that owns it.
 fn accept(store: &Mutex<Store>, lease: &Lease) -> (Sentinel, String) {
     let mut job = lease.job.clone();
-    let outcome = super::super::machine::evaluate(
+    let outcome = super::machine::evaluate(
         &mut job.machine,
         b"done",
         &job.buckets,
@@ -242,7 +242,7 @@ fn storage_sentinel_import_roundtrip_conserves_definition_runtime_and_results() 
     for (workspace, team) in [("workspace", Some("team")), ("workspace", None)] {
         assert_eq!(
             store.lock().committed_revision(workspace, team),
-            Some(super::super::graph::scope_revision(&original, workspace, team).as_str()),
+            Some(super::graph::scope_revision(&original, workspace, team).as_str()),
         );
     }
     let history = done(
@@ -282,7 +282,7 @@ fn storage_sentinel_reopen_never_replays_claims_or_rearms_stopped_work() {
         ["sentinel_root"],
         "paused and stopped stages are never leased"
     );
-    super::super::scheduler::advance(
+    super::scheduler::advance(
         &store,
         &leases[0],
         &output("done"),
@@ -597,7 +597,7 @@ fn storage_sentinel_crash_after_claim_never_reclassifies_or_replays() {
         json!({"done":[{"id":"attempt","type":"notify","parameters":{}}]}),
     );
     let lease = due(&store).remove(0);
-    super::super::scheduler::advance(
+    super::scheduler::advance(
         &store,
         &lease,
         &output("done"),
@@ -609,7 +609,7 @@ fn storage_sentinel_crash_after_claim_never_reclassifies_or_replays() {
         },
         |_, _, _, _| panic!("journal refusal prevents the effect"),
         |_, _, stage| {
-            if matches!(stage, super::super::provenance::Stage::RouteClaim) {
+            if matches!(stage, super::provenance::Stage::RouteClaim) {
                 Err(std::io::Error::other("interrupted after durable claim"))
             } else {
                 Ok(())
@@ -623,7 +623,7 @@ fn storage_sentinel_crash_after_claim_never_reclassifies_or_replays() {
     let storage = open(root.path());
     let restored = typed(&storage, &clock);
     let lease = due(&restored).remove(0);
-    super::super::scheduler::advance(
+    super::scheduler::advance(
         &restored,
         &lease,
         &output("done"),

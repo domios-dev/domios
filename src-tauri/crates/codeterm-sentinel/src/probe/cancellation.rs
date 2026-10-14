@@ -19,12 +19,12 @@ type ReadinessHook = Arc<dyn Fn() -> Result<super::process::Deadlines, String> +
 #[derive(Default)]
 struct State {
     cancelled: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     readiness: Option<ReadinessHook>,
     wake: Option<Weak<dyn Wake>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     wait_observer: Option<std::sync::mpsc::Sender<WaitPhase>>,
-    #[cfg(all(test, windows))]
+    #[cfg(all(any(test, feature = "test-support"), windows))]
     fixture_argv: Option<Arc<[String]>>,
 }
 
@@ -35,7 +35,7 @@ pub struct Cancellation {
 }
 
 impl Cancellation {
-    #[cfg(all(test, windows))]
+    #[cfg(all(any(test, feature = "test-support"), windows))]
     pub fn for_windows_fixture(argv: Vec<String>) -> Self {
         Self {
             state: Arc::new(Mutex::new(State {

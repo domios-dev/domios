@@ -1,10 +1,8 @@
 //! Sentinel persistence: the legacy JSON file until the cutover, or typed Storage selected
 //! only by `Store::with_storage`, staged under the lock and committed with no lock held.
 
-mod codec;
-mod ops;
-#[cfg(test)]
-mod tests;
+pub mod codec;
+pub mod ops;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 #[cfg(any(test, feature = "test-support"))]
@@ -37,7 +35,7 @@ pub type Finish<T> =
 /// Why the store refuses all work; never reported as an empty or idle inventory.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LoadFailure {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     UnsupportedFormat,
     LoadFailed,
     PersistenceFailed,
@@ -67,7 +65,7 @@ impl LoadFailure {
 
     pub fn message(self) -> String {
         let (code, detail) = match self {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Self::UnsupportedFormat => ("blueprint_store_unsupported_format", ""),
             Self::LoadFailed => ("blueprint_store_load_failed", ""),
             Self::PersistenceFailed => ("blueprint_store_persistence_failed", ""),
@@ -161,7 +159,7 @@ impl Store {
     }
 
     pub fn save_legacy(&mut self) -> Result<(), String> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         {
             self.save()
         }
@@ -194,7 +192,7 @@ impl Store {
 }
 
 pub enum Backend {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Json(StateFile),
     Sqlite(SqliteBackend),
 }
@@ -202,7 +200,7 @@ pub enum Backend {
 impl Backend {
     pub fn sqlite(&self) -> Option<&SqliteBackend> {
         match self {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => None,
             Backend::Sqlite(sqlite) => Some(sqlite),
         }
@@ -210,14 +208,14 @@ impl Backend {
 
     pub fn sqlite_mut(&mut self) -> Option<&mut SqliteBackend> {
         match self {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => None,
             Backend::Sqlite(sqlite) => Some(sqlite),
         }
     }
 
     pub fn is_json(&self) -> bool {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         match self {
             Backend::Json(_) => true,
             Backend::Sqlite(_) => false,
@@ -229,7 +227,7 @@ impl Backend {
     }
 
     pub fn held(&self) -> bool {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         {
             if let Backend::Json(file) = self {
                 return file.held().is_some();
@@ -376,7 +374,7 @@ impl Store {
         match &self.backend {
             Backend::Sqlite(backend) if backend.inflight == 0 => Ok(()),
             Backend::Sqlite(_) => Err("sentinel storage has unsettled commits".into()),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => Err(GUARD_FREE_REQUIRED.into()),
         }
     }
@@ -402,10 +400,10 @@ impl Store {
         }
         #[cfg(not(test))]
         let Backend::Sqlite(backend) = &mut self.backend;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let backend = match &mut self.backend {
             Backend::Sqlite(backend) => backend,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => return Staged::ready(Err(GUARD_FREE_REQUIRED.into())),
         };
         let completion = build(&backend.repo);
@@ -659,7 +657,7 @@ pub fn committed_scope(
         let leases = store.live_leases();
         match &store.backend {
             Backend::Sqlite(backend) => (backend.repo.clone(), leases),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => {
                 let jobs = store
                     .list()
@@ -691,7 +689,7 @@ pub fn committed_workspace(
         let leases = store.live_leases();
         match &store.backend {
             Backend::Sqlite(backend) => (backend.repo.clone(), leases),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => {
                 let jobs = store
                     .list()

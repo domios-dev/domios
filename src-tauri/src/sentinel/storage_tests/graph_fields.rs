@@ -4,9 +4,9 @@
 use std::collections::BTreeSet;
 
 use super::*;
-use crate::amend::{Amendment, MAX_AMENDMENTS};
-use crate::machine::SafeKind;
-use crate::source::TabBinding;
+use crate::sentinel::amend::{Amendment, MAX_AMENDMENTS};
+use crate::sentinel::machine::SafeKind;
+use crate::sentinel::source::TabBinding;
 use codeterm_storage::{SentinelId, StorageError, MAX_SENTINEL_LINEAGE};
 
 /// Every graph field at once: cron-run source with a bound run, prompt answers, `other`
@@ -260,7 +260,7 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     job.on_other.clear();
     job.escalation_timeout_ms = None;
     job.routes = std::collections::BTreeMap::from([("trust".into(), vec![])]);
-    crate::store::validate(vec![job.clone()]).expect("valid terminal session fixture");
+    crate::sentinel::store::validate(vec![job.clone()]).expect("valid terminal session fixture");
     let inserted = commit(&store, |store| store.stage_insert(job.clone())).unwrap();
     assert_eq!(inserted.terminal().cloned(), job.terminal().cloned());
     for index in 0..3 {
@@ -271,7 +271,7 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
                 .stage_accept_transition(&live, "trust", &format!("exchange-{index}"));
         assert!(staged.settle(&store).unwrap());
     }
-    crate::store::validate(vec![codec::decode(&stored(&storage, &job.id))])
+    crate::sentinel::store::validate(vec![codec::decode(&stored(&storage, &job.id))])
         .expect("persisted terminal session remains valid beyond the ordinary budget");
     drop(store);
     close(storage);
@@ -382,7 +382,7 @@ fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_
     let decoded = codec::decode(&stored(&storage, &job.id));
     assert_eq!(decoded.definition_version, head);
     assert_eq!(decoded.amendments.len(), MAX_AMENDMENTS);
-    crate::store::validate(vec![decoded]).expect("the decoded window is a valid stage");
+    crate::sentinel::store::validate(vec![decoded]).expect("the decoded window is a valid stage");
     close(storage);
 }
 

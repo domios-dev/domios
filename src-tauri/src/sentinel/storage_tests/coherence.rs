@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use super::*;
 use crate::cron::store::{CronRunInfo, CronRunStatus, CronStore};
 use codeterm_pty::multiplexer::state::MultiplexerState;
-use crate::graph;
+use crate::sentinel::graph;
 use crate::service::sentinel::graph::connected_crons;
 use codeterm_storage::{ScheduleUpdate, SentinelId};
 
