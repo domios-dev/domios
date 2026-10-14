@@ -7,6 +7,7 @@ import { canStopJob, jobStateLabel, tabJobKey, type MergedJob, type TabJob } fro
 import { requestOpenJob } from "../Jobs/openJobEvent";
 import { openTabJob, useTabJobs } from "../Jobs/useTabJobs";
 import { formatScheduledTime, type DelayedMessage } from "./delayedSend";
+import { isSystemDelayedMessage } from "./systemHeartbeatProjection";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 
@@ -184,22 +185,25 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
     crons: () => <>{[...cronChips].sort((a, b) => Number(b.state === "waiting on you") - Number(a.state === "waiting on you")).map(jobBubble)}</>,
     delayed: () => (
       <>
-        {[...delayed].sort((a, b) => Number(a.state === "stashed") - Number(b.state === "stashed")).map((message) => (
+        {[...delayed].sort((a, b) => Number(a.state === "stashed") - Number(b.state === "stashed")).map((message) => {
+          const system = isSystemDelayedMessage(message);
+          return (
           <ContextBubble
             key={message.id}
             tone={delayedTone(message)}
-            label={`Edit ${message.state === "stashed" ? "stashed" : "delayed"} message: ${message.text}`}
+            label={system ? `System heartbeat: ${message.text}` : `Edit ${message.state === "stashed" ? "stashed" : "delayed"} message: ${message.text}`}
             onOpen={() => onEditDelayed(message)}
-            dismissLabel="Cancel delayed message"
-            dismissTitle="Cancel"
-            onDismiss={() => onDeleteDelayed(message.id)}
+            dismissLabel={system ? undefined : "Cancel delayed message"}
+            dismissTitle={system ? undefined : "Cancel"}
+            onDismiss={system ? undefined : () => onDeleteDelayed(message.id)}
           >
             {message.state === "stashed"
               ? <InfinityIcon size={13} aria-label="Stashed, sends only when you schedule it" className="ct-ctx-bubble__stash" />
               : <span className="ct-ctx-bubble__meta">{delayedWhen(message)}</span>}
             <span className="ct-ctx-bubble__title ct-ctx-bubble__title--text">{message.text}</span>
           </ContextBubble>
-        ))}
+          );
+        })}
         <button type="button" className="ct-ctx-bubble ct-ctx-bubble--add" onMouseDown={keepComposerFocus} onClick={onScheduleDelayed}>
           <Plus size={11} aria-hidden="true" />Schedule
         </button>

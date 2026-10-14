@@ -28,6 +28,9 @@ fn reminder_envelope_carries_creator_metadata() {
         team_id: None,
         last_tick_unconfirmed: false,
         last_tick_send_sequence: 0,
+        origin: MessageOrigin::User,
+        reason: None,
+        ticks: Vec::new(),
     };
     let envelope = reminder_envelope(&msg);
     assert_eq!(
@@ -612,4 +615,71 @@ fn malformed_record_is_preserved_before_the_next_save() {
     let copies = queue_file(&path).corrupt_copies();
     assert_eq!(fs::read_to_string(&copies[0]).unwrap(), fixture);
     assert_eq!(DelayedSendQueue::open(path).unwrap().list(None).len(), 1);
+}
+
+#[test]
+fn system_entry_refusal_does_not_change_user_messages() {
+    let (_dir, queue) = queue();
+    let msg = queue
+        .enqueue(
+            "tab-a".into(),
+            None,
+            None,
+            "hello".into(),
+            Some(100),
+            ReminderCreator::default(),
+        )
+        .unwrap();
+    assert!(queue
+        .update(
+            "system:heartbeat:pl:tab",
+            Some("rewrite".into()),
+            None,
+            None
+        )
+        .is_err());
+    assert!(queue.delete("system:heartbeat:pl:tab").is_err());
+    assert!(queue.claim_now("system:heartbeat:worker:tab").is_err());
+    let listed = queue.list(None);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, msg.id);
+    assert_eq!(listed[0].text, "hello");
+    let updated = queue
+        .update(&msg.id, Some("next".into()), None, None)
+        .unwrap();
+    assert_eq!(updated.text, "next");
+    queue.delete(&msg.id).unwrap();
+    assert!(queue.list(None).is_empty());
+}
+
+#[test]
+fn system_projection_is_a_view_not_a_queue_row() {
+    use crate::service::hierarchy::plan_reminder_nudge::{ProjectedHeartbeat, ProjectedTick};
+
+    let reason = "sent because tasks task_a are still in progress in plan pl";
+    let message = super::system_entries::message_from_projection(ProjectedHeartbeat {
+        id: "system:heartbeat:pl:tab".into(),
+        tab_id: "tab".into(),
+        plan_id: "pl".into(),
+        text: "body".into(),
+        cadence_ms: 60_000,
+        next_due_ms: 120_000,
+        reason: reason.into(),
+        ticks: vec![ProjectedTick {
+            at_ms: 50_000,
+            outcome: "sent".into(),
+            spinal_verdict: "processed".into(),
+            spinal_reason: "delivered".into(),
+        }],
+    });
+    assert_eq!(message.origin, MessageOrigin::System);
+    assert_eq!(message.scheduled_at_ms, 120_000);
+    assert_eq!(message.recurrence.unwrap().every_ms, 60_000);
+    assert_eq!(message.reason.as_deref(), Some(reason));
+    assert_eq!(message.ticks[0].at_ms, 50_000);
+    assert_eq!(message.ticks[0].outcome, "sent");
+    let value = serde_json::to_value(&message).unwrap();
+    assert_eq!(value["origin"], "system");
+    assert_eq!(value["ticks"][0]["atMs"], 50_000);
+    assert_eq!(value["ticks"][0]["spinalVerdict"], "processed");
 }
