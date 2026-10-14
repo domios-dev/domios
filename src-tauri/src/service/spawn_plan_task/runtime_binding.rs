@@ -22,6 +22,7 @@ impl ServiceContext {
         thread: &str,
         nonce: &str,
     ) -> Result<(), String> {
+        self.restore_runtime_attempt_binding(tab_id)?;
         self.bind_planner_session(tab_id);
         if self.finalize_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
             return Ok(());
@@ -327,6 +328,136 @@ mod tests {
             crate::plan::TaskStatus::InProgress
         );
     }
+    #[test]
+    fn restored_worker_finalizes_plan_task_only_binding_onto_acknowledged_open_attempt() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace = mux.create_workspace("fixture".into(), None);
+        let tab_id = mux.create_tab(&workspace.id).unwrap();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("runtime-fixture".into());
+        tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+        tab.agent_session_id = Some("own-thread".into());
+        tab.session_binding_nonce = Some("new-nonce".into());
+        tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+            plugin_id: "runtime-fixture".into(),
+            session_id: "own-thread".into(),
+        };
+        let mut fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let (store, plan, task) = store_with_task(fixture.temp.path());
+        fixture.service.plan_store = std::sync::Arc::new(store);
+        let mut params = SpawnAgentParams {
+            agent: Some("runtime-fixture".into()),
+            role: Some("Worker".into()),
+            plan_id: Some(plan.clone()),
+            plan_task: Some(task.clone()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            ..Default::default()
+        };
+        fixture
+            .service
+            .prepare_worker_plan_task_spawn(&mut params)
+            .unwrap();
+        fixture
+            .service
+            .prepare_runtime_worker_binding(&params, &tab_id)
+            .unwrap();
+        let attempt_id = params
+            .task_launch_authority
+            .as_ref()
+            .unwrap()
+            .attempt_id
+            .clone();
+        fixture
+            .service
+            .plan_store
+            .finish_task_dispatch(
+                &plan,
+                &task,
+                &tab_id,
+                &attempt_id,
+                "own-thread",
+                "old-nonce",
+                fixture
+                    .service
+                    .plan_store
+                    .show_task(&task)
+                    .unwrap()
+                    .task
+                    .lane,
+                10,
+            )
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .acknowledge_task_attempt(&plan, &task, &tab_id, &attempt_id, 11)
+            .unwrap();
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .task_binding
+            .as_mut()
+            .unwrap()
+            .attempt_id = None;
+        let snapshot = fixture.service.mux.read().to_session_snapshot();
+        *fixture.service.mux.write() =
+            crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+        fixture
+            .service
+            .finalize_runtime_worker_session(&tab_id, "own-thread", "new-nonce")
+            .unwrap();
+        let binding = fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .task_binding
+            .clone()
+            .unwrap();
+        assert_eq!(binding.attempt_id.as_deref(), Some(attempt_id.as_str()));
+        let detail = fixture.service.plan_store.show_task(&task).unwrap();
+        assert_eq!(detail.task.execution_attempts.len(), 1);
+        let attempt = &detail.task.execution_attempts[0];
+        assert_eq!(attempt.id, attempt_id);
+        assert_eq!(attempt.session_id.as_deref(), Some("own-thread"));
+        assert_eq!(attempt.session_binding_nonce.as_deref(), Some("new-nonce"));
+        assert_eq!(attempt.acknowledged_at, Some(11));
+        assert_eq!(detail.task.status, crate::plan::TaskStatus::InProgress);
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .task_binding
+            .as_mut()
+            .unwrap()
+            .attempt_id = None;
+        assert!(fixture
+            .service
+            .authorize_runtime_restart_binding(&tab_id, "runtime-fixture", "new-nonce", false,)
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .task_binding
+                .as_ref()
+                .unwrap()
+                .attempt_id
+                .as_deref(),
+            Some(attempt_id.as_str())
+        );
+    }
+
     #[test]
     fn prepared_dispatch_brief_is_not_rewritten_when_gates_are_carried_to_runtime() {
         let dir = tempfile::tempdir().unwrap();
