@@ -53,7 +53,7 @@ QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 
 ## Launcher recipes (copy-paste)
 
-`check`, `check-queue`, `check-tests`, `test-one`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
+`check`, `check-queue`, `check-tests`, `test-one`, `nextest`, `nextest-archive`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
 `--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`): one `OK` receipt on success, or one
 early-failure receipt naming the step, first error line and log path (gateway refusal 75 included), sent
 through the captured parent context. `install-local` runs rustfmt, the file-size gate and the clean-checkout check
@@ -162,4 +162,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
