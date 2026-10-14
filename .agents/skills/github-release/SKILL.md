@@ -199,8 +199,13 @@ End-to-end ≈ 25–30 min, hands-off. Watch the single run: `gh run watch --rep
 `release-macos-build.yml`, `release-linux-arm64.yml` and macOS credential preflight call `scripts/release-signing-material.py`
 before building. Each job imports `APPLE_CERTIFICATE` (base64 .p12) with
 `APPLE_CERTIFICATE_PASSWORD` into a random temporary keychain under `RUNNER_TEMP`, enables
-codesign access and adds that keychain to the search list. `APPLE_SIGNING_IDENTITY` selects
-that identity explicitly. `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_PASSWORD` provision and validate
+codesign access and adds that keychain to the search list. The checked-in, SHA-256-pinned
+Apple Developer ID G1/G2 intermediates are imported there too; the job never relies on a
+cached intermediate in the login keychain. `APPLE_SIGNING_IDENTITY` accepts the certificate's
+full name or SHA-1 fingerprint. Setup checks the imported private-key identity against
+`APPLE_TEAM_ID`, requires that macOS validates it for codesigning, and exports its canonical
+fingerprint for Tauri/codesign. A stale selector, missing private key, or invalid chain fails
+before the build with a distinct diagnostic. `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_PASSWORD` provision and validate
 a notary profile in that same keychain through interactive stdin; secret values never enter
 process arguments or logs. `TAURI_SIGNING_PRIVATE_KEY` is written to a mode-0600 temporary
 file exposed as `TAURI_SIGNING_PRIVATE_KEY_PATH`, and `TAURI_KEY_PASSWORD` reaches Tauri through `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.

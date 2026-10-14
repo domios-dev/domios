@@ -177,8 +177,11 @@ Mac release runners need Xcode command line tools, Rust, Node and pnpm; Linux ar
 needs Docker and the baked arm64 image. Signing state comes from repository secrets, not
 machine provisioning. Every macOS matrix job and the Mac-hosted Linux arm64 job imports
 `APPLE_CERTIFICATE` with `APPLE_CERTIFICATE_PASSWORD` into its own `RUNNER_TEMP` keychain,
-configures codesign access, and validates the Apple notary credentials there. Existing identities
-in other keychains remain untouched. `APPLE_SIGNING_IDENTITY` selects the imported identity.
+imports the pinned public Apple Developer ID intermediates, configures codesign access,
+and validates the Apple notary credentials there. Existing identities
+in other keychains remain untouched. `APPLE_SIGNING_IDENTITY` matches the imported identity
+by full name or fingerprint; setup verifies the team and valid certificate chain, then
+exports the fingerprint for Tauri and codesign.
 `TAURI_SIGNING_PRIVATE_KEY` is written to a mode-0600 job file; `TAURI_KEY_PASSWORD` is passed
 through the signer environment. An `always()` step removes the keychain, its search-list entry,
 and the updater key, including after failures. Credential preflight uses the same setup.
