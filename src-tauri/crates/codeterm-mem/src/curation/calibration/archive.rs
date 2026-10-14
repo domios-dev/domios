@@ -3,12 +3,12 @@
 
 use rusqlite::{params, Connection};
 
-use crate::mem::store::{history_log, with_changed_by, HistorySnapshot};
+use crate::store::{history_log, with_changed_by, HistorySnapshot};
 
-pub(crate) const ARCHIVED_KIND: &str = "archived";
-pub(crate) const RESTORE_CHANGE_TYPE: &str = "restore";
+pub const ARCHIVED_KIND: &str = "archived";
+pub const RESTORE_CHANGE_TYPE: &str = "restore";
 
-pub(crate) fn archive_item(
+pub fn archive_item(
     conn: &Connection,
     id: &str,
     prev_kind: &str,
@@ -39,7 +39,7 @@ pub(crate) fn archive_item(
     })
 }
 
-pub(crate) fn unarchive_item(
+pub fn unarchive_item(
     conn: &Connection,
     id: &str,
     kind: &str,

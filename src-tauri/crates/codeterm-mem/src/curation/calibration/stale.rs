@@ -1,21 +1,15 @@
 //! Staleness archive on the calibration sweep: an item untouched for a year,
 //! directly or through its graph neighbourhood, is archived, never deleted.
 
-use axum::{
-    extract::{Query, State as AxumState},
-    http::{HeaderMap, StatusCode},
-    Json,
-};
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 use super::archive::archive_item;
-use crate::api::routes::{check_auth, AppState};
-use crate::config::schema::DreamHygieneConfig;
+use codeterm_types::config::DreamHygieneConfig;
 
-pub(crate) const STALE_ACTOR: &str = "dreamer-calibration:stale";
-pub(crate) const STALE_AGE_DAYS: i64 = 365;
+pub const STALE_ACTOR: &str = "dreamer-calibration:stale";
+pub const STALE_AGE_DAYS: i64 = 365;
 const MAX_DRY_RUN_LIMIT: usize = 1000;
 
 // ?1 is the cutoff as a Julian day; an unparseable timestamp never reads as stale.
@@ -46,13 +40,13 @@ const STALE_PREDICATE: &str = "
         WHERE r.to_id = m.id AND r.valid_to IS NULL AND julianday(e.updated_at) >= ?1)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StaleMode {
+pub enum StaleMode {
     DryRun,
     Apply,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct StaleSelection {
+pub struct StaleSelection {
     pub id: String,
     pub kind: String,
     pub importance: f64,
@@ -62,12 +56,12 @@ pub(crate) struct StaleSelection {
     pub reason: String,
 }
 
-pub(crate) fn julian_day(at: DateTime<Utc>) -> f64 {
+pub fn julian_day(at: DateTime<Utc>) -> f64 {
     at.timestamp_millis() as f64 / 86_400_000.0 + 2_440_587.5
 }
 
 /// Nightly caps count from the start of the current UTC day.
-pub(crate) fn utc_day_start(now: DateTime<Utc>) -> DateTime<Utc> {
+pub fn utc_day_start(now: DateTime<Utc>) -> DateTime<Utc> {
     now.date_naive()
         .and_hms_opt(0, 0, 0)
         .map(|d| d.and_utc())
@@ -80,7 +74,7 @@ fn stale_cutoff(now: DateTime<Utc>) -> DateTime<Utc> {
 
 /// Single-item probe of [`STALE_PREDICATE`], the one definition of stale.
 #[cfg(test)]
-pub(crate) fn is_stale(conn: &Connection, id: &str, now: DateTime<Utc>) -> Result<bool, String> {
+pub fn is_stale(conn: &Connection, id: &str, now: DateTime<Utc>) -> Result<bool, String> {
     let sql =
         format!("SELECT EXISTS(SELECT 1 FROM mem_items m WHERE m.id = ?2 AND {STALE_PREDICATE})");
     conn.query_row(&sql, params![julian_day(stale_cutoff(now)), id], |r| {
@@ -148,7 +142,7 @@ fn archived_today(conn: &Connection, now: DateTime<Utc>) -> Result<i64, String> 
 
 /// Selects by [`STALE_PREDICATE`] up to the night's remaining cap. A dry run
 /// lists ids and reasons and writes nothing; an apply needs the config gate.
-pub(crate) fn run_stale_archive(
+pub fn run_stale_archive(
     conn: &Connection,
     cfg: &DreamHygieneConfig,
     now: DateTime<Utc>,
@@ -222,7 +216,7 @@ pub struct StaleParams {
 }
 
 /// Shared by the HTTP and socket transports; read config before taking the mem lock.
-pub(crate) fn stale_from_params(
+pub fn stale_from_params(
     conn: &Connection,
     p: &StaleParams,
     hygiene: &DreamHygieneConfig,
@@ -233,24 +227,6 @@ pub(crate) fn stale_from_params(
         StaleMode::Apply
     };
     run_stale_archive(conn, hygiene, Utc::now(), mode, p.limit)
-}
-
-pub async fn mem_calibration_stale(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(p): Query<StaleParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let svc = state.svc.clone();
-    let hygiene = svc.configuration().memory.dream_hygiene;
-    tokio::task::spawn_blocking(move || {
-        svc.mem
-            .with_conn(|conn| stale_from_params(conn, &p, &hygiene))
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))?
-    .map(Json)
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 #[cfg(test)]
