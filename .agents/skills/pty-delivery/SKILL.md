@@ -94,9 +94,10 @@ Claimed or uncertain records remain held and are never replayed.
 
 - The serialized states are `held`, `written`, `submit_unconfirmed`, `delivered`,
   and `failed`. Transport uncertainty is `submit_unconfirmed` with no user-facing
-  error. A user send resolves to `failed` only when its queued, never-written
-  launch has ended. Programmatic sends may also fail on a proven pre-write
-  refusal.
+  error. A queued, never-written user send resolves to `failed` when its launch
+  ends or reports degradation before first readiness. Persist queue removal before
+  publishing Retry; late readiness cannot replay that settled original.
+  Programmatic sends may also fail on a proven pre-write refusal.
 - `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
