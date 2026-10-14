@@ -35,27 +35,8 @@ impl Messenger {
             .as_ref()
             .map(codeterm_wire::domios::DomiosFrame::to_message)
             .unwrap_or(body);
-        let evidence = svc.chat_send_anchor(to_tab);
-        let turn_text = svc.chat_send_turn_evidence(to_tab, &text);
-        let pending = svc.chat_send_ledger.try_start_scoped_with_normalization(
-            to_tab,
-            &turn_text,
-            evidence.anchor,
-            evidence.live_binding,
-            evidence.turn_normalization,
-        )?;
-        let pending = svc
-            .chat_send_ledger
-            .attach_system_send(
-                &pending.send_id,
-                &text,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-            )
-            .expect("a new continuation remains in the ledger");
-        crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &pending);
+        let pending = svc.attach_system_send(to_tab, &text)?;
+        codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", &pending);
         let result = (|| {
             if let Some(frame) = routed_frame {
                 svc.send_to_authenticated_agent_session_pinned_routed(
@@ -80,7 +61,7 @@ impl Messenger {
             .chat_send_ledger
             .finish(&pending.send_id, result.clone())
         {
-            crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+            codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
         }
         result?;
         Ok(Delivery::Pty { text })

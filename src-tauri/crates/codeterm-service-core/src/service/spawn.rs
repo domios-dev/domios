@@ -1040,7 +1040,7 @@ impl ServiceContext {
                 provider,
                 launch_session_id,
                 task: task_for_thread,
-                selection: super::codex_rpc::launch::Selection {
+                selection: crate::ports::transport::Selection {
                     model: launch_model.clone(),
                     effort: agent.reasoning_effort.clone(),
                     resume: agent.resume_session_id.clone(),

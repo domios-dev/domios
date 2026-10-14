@@ -85,7 +85,7 @@ fn fresh_general_model_policy_preserves_structured_launch_selection() {
         args: Some(vec!["--model".into(), "configured-model".into()]),
         ..Default::default()
     };
-    let selection = codex_rpc::launch::Selection {
+    let selection = crate::ports::transport::Selection {
         model: Some("configured-model".into()),
         ..Default::default()
     };
