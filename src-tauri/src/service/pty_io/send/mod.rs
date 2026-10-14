@@ -6,21 +6,14 @@ use crate::service::ServiceContext;
 mod agent_binding;
 pub(super) mod readiness;
 
-fn compose_routed_suffix(suffix: &str, pasted_body: bool) -> String {
-    let marker = if pasted_body {
-        codeterm_types::domios::typed_pasted_marker()
-    } else {
-        String::new()
-    };
-    format!(
-        "{suffix}{marker}{}",
-        codeterm_types::domios::DOMIOS_CLOSE_TAG
-    )
+fn compose_routed_suffix(suffix: &str) -> String {
+    format!("{suffix}{}", codeterm_types::domios::DOMIOS_CLOSE_TAG)
 }
 
 struct RoutedInput {
     body: String,
     typed_prefix: Option<String>,
+    pasted_tail: Option<String>,
     typed_suffix: Option<String>,
 }
 
@@ -29,17 +22,19 @@ fn prepare_routed_input(
     requires_typed_instruction: bool,
 ) -> RoutedInput {
     let body = sanitize_agent_prompt_input(&frame.body);
-    let suffix = compose_routed_suffix(&frame.suffix, requires_typed_instruction);
+    let suffix = compose_routed_suffix(&frame.suffix);
     if requires_typed_instruction {
         RoutedInput {
             body,
             typed_prefix: Some(frame.opening_tag.clone()),
+            pasted_tail: Some(codeterm_types::domios::pasted_marker_tail()),
             typed_suffix: Some(suffix),
         }
     } else {
         RoutedInput {
             body: format!("{}{body}{suffix}", frame.opening_tag),
             typed_prefix: None,
+            pasted_tail: None,
             typed_suffix: None,
         }
     }
@@ -536,6 +531,7 @@ impl ServiceContext {
                     &delivery.pty_id,
                     &body,
                     input.typed_prefix.as_deref(),
+                    input.pasted_tail.as_deref(),
                     input.typed_suffix.as_deref(),
                     true,
                     b"\r",

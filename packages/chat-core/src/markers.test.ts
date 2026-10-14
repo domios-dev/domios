@@ -17,7 +17,7 @@ import {
   buildDomiosMessage,
   buildDomiosOpeningTag,
   DOMIOS_LEGACY_TYPED_INSTRUCTION,
-  DOMIOS_PASTED_MARKER,
+  PASTED_MARKER_TAIL,
   LEGACY_CHAT_FOLLOW_UPS,
   stripPlainTypedTail,
   parseDomiosMessage,
@@ -92,11 +92,18 @@ eq(
   "typed instruction is stripped from the routed message body",
 );
 eq(
-  parseDomiosMessage(buildDomiosMessage({ from: "tab", tab: "abc12345" }, "opaque routed body", ` ${DOMIOS_PASTED_MARKER}`))?.body,
+  parseDomiosMessage(buildDomiosMessage({ from: "tab", tab: "abc12345" }, "opaque routed body", PASTED_MARKER_TAIL))?.body,
   "opaque routed body",
   "pasted marker is stripped from the routed message body",
 );
-for (const tail of [` ${DOMIOS_PASTED_MARKER}`, ...LEGACY_CHAT_FOLLOW_UPS]) {
+eq(
+  parseDomiosMessage(
+    buildDomiosMessage({ from: "tab", tab: "abc12345" }, `opaque routed body${PASTED_MARKER_TAIL}`, " [to reply, run: codeterm send \"X\"]"),
+  )?.body,
+  "opaque routed body",
+  "marker before the reply hint is stripped from the routed message body",
+);
+for (const tail of [PASTED_MARKER_TAIL,...LEGACY_CHAT_FOLLOW_UPS]) {
   eq(stripPlainTypedTail(`plain message${tail}`), "plain message", "typed chat tail is stripped");
 }
 eq(stripPlainTypedTail("plain message"), "plain message", "untailed chat text is unchanged");

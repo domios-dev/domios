@@ -124,16 +124,11 @@ fn never_written_agent_report_survives_reopen() {
 }
 
 #[test]
-fn routed_suffix_types_the_pasted_marker_only_after_a_pasted_body() {
+fn routed_suffix_is_the_reply_hint_and_closing_tag() {
     let close = codeterm_types::domios::DOMIOS_CLOSE_TAG;
-    let marker = codeterm_types::domios::typed_pasted_marker();
     assert_eq!(
-        super::compose_routed_suffix(" [reply]", false),
+        super::compose_routed_suffix(" [reply]"),
         format!(" [reply]{close}")
-    );
-    assert_eq!(
-        super::compose_routed_suffix(" [reply]", true),
-        format!(" [reply]{marker}{close}")
     );
 }
 
@@ -721,6 +716,7 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
     let input = super::prepare_routed_input(&frame, requires_instruction);
     assert_eq!(input.body, frame.to_message());
     assert_eq!(input.typed_prefix, None);
+    assert_eq!(input.pasted_tail, None);
     assert_eq!(input.typed_suffix, None);
     let parsed = codeterm_types::domios::parse_message(&input.body).unwrap();
     assert_eq!(parsed.attr("tab"), Some("abc12345"));
@@ -747,6 +743,7 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
     let input = super::prepare_routed_input(&frame, false);
     assert_eq!(input.body, expected);
     assert_eq!(input.typed_prefix, None);
+    assert_eq!(input.pasted_tail, None);
     assert_eq!(input.typed_suffix, None);
 
     let typed = super::prepare_routed_input(&frame, true);
@@ -757,7 +754,11 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
     );
     assert_eq!(
         typed.typed_suffix,
-        Some(super::compose_routed_suffix(&frame.suffix, true))
+        Some(super::compose_routed_suffix(&frame.suffix))
+    );
+    assert_eq!(
+        typed.pasted_tail,
+        Some(codeterm_types::domios::pasted_marker_tail())
     );
 }
 
@@ -776,14 +777,15 @@ fn routed_agent_and_report_hints_stay_out_of_the_body_in_both_transport_forms() 
         );
         let suffix = input.typed_suffix.unwrap();
         assert!(!suffix.contains("<tip>"));
-        assert!(suffix.contains(codeterm_types::domios::DOMIOS_PASTED_MARKER));
-        let delivered = format!("{}{}{}", frame.opening_tag, input.body, suffix);
+        let tail = input.pasted_tail.unwrap();
+        let delivered = format!("{}{}{}{}", frame.opening_tag, input.body, tail, suffix);
         let parsed = codeterm_types::domios::parse_message(&delivered).unwrap();
         assert_eq!(parsed.body, frame.body);
         assert!(parsed.content.contains(&frame.suffix));
         let pasted = super::prepare_routed_input(&frame, false);
         assert_eq!(pasted.body, frame.to_message());
         assert_eq!(pasted.typed_prefix, None);
+        assert_eq!(pasted.pasted_tail, None);
         assert_eq!(pasted.typed_suffix, None);
     }
 }

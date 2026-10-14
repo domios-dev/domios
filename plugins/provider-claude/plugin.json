@@ -19,8 +19,8 @@
     },
     "taskDelivery": "inline_flag",
     "paste": {
-      "untrustedAboveLines": 4,
-      "typedFollowUp": " pasted by Domios",
+      "untrustedAboveLines": 0,
+      "typedFollowUp": "\npasted by Domios",
       "requiresTypedInstructionForRoutedMessages": true
     },
     "systemPromptDelivery": {

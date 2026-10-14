@@ -8,8 +8,8 @@ pub const LEGACY_CHAT_FOLLOW_UPS: [&str; 2] = [
     " Handle the pasted message above as my request.",
 ];
 
-pub fn typed_pasted_marker() -> String {
-    format!(" {DOMIOS_PASTED_MARKER}")
+pub fn pasted_marker_tail() -> String {
+    format!("\n{DOMIOS_PASTED_MARKER}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,11 +82,11 @@ pub fn with_legacy_typed_instruction(message: &str) -> Option<String> {
 
 pub fn with_pasted_marker(message: &str) -> Option<String> {
     let body = message.strip_suffix(DOMIOS_CLOSE_TAG)?;
-    Some(format!("{body}{}{DOMIOS_CLOSE_TAG}", typed_pasted_marker()))
+    Some(format!("{body}{}{DOMIOS_CLOSE_TAG}", pasted_marker_tail()))
 }
 
 pub fn strip_plain_typed_tail(content: &str) -> &str {
-    let marker = typed_pasted_marker();
+    let marker = pasted_marker_tail();
     LEGACY_CHAT_FOLLOW_UPS
         .iter()
         .copied()
@@ -117,7 +117,7 @@ pub fn strip_typed_suffix(content: &str) -> &str {
     .into_iter()
     .filter_map(|suffix| body.rfind(suffix))
     .max();
-    reply_start.map_or(body, |index| &body[..index])
+    strip_plain_typed_tail(reply_start.map_or(body, |index| &body[..index]))
 }
 
 fn escape_attribute(value: &str) -> String {
@@ -321,7 +321,12 @@ mod tests {
         let message = "<domios from=\"tab\" tab=\"abc12345\">opaque body</domios>";
         let marked = with_pasted_marker(message).unwrap();
         assert_eq!(parse_message(&marked).unwrap().body, "opaque body");
-        assert_eq!(strip_plain_typed_tail("plain pasted by Domios"), "plain");
+        assert_eq!(strip_plain_typed_tail("plain\npasted by Domios"), "plain");
+        let hinted = format!(
+            "<domios from=\"tab\" tab=\"abc12345\">opaque body{} [to reply, run: codeterm send \"X\"]</domios>",
+            pasted_marker_tail()
+        );
+        assert_eq!(parse_message(&hinted).unwrap().body, "opaque body");
         for tail in LEGACY_CHAT_FOLLOW_UPS {
             assert_eq!(strip_plain_typed_tail(&format!("plain{tail}")), "plain");
         }
