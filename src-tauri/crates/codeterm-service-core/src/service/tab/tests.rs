@@ -217,7 +217,7 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
     assert!(restored.get_tab(&tab_id).unwrap().ownership.is_none());
 
     let path = format!("/api/tabs/{tab_id}/send");
-    assert!(!crate::api::access_policy::peer_access_allowed(
+    assert!(!crate::api_support::access_policy::peer_access_allowed(
         &crate::mesh::types::AccessLevel::AgentIsolated,
         "peer-eight",
         &axum::http::Method::POST,

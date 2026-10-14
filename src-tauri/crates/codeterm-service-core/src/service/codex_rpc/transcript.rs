@@ -205,13 +205,13 @@ pub fn start(
     svc: &ServiceContext,
     tab: &str,
     subscription: String,
-) -> Result<crate::commands::ChatStartResult, String> {
+) -> Result<crate::service::tab_chat::results::ChatStartResult, String> {
     let (messages, thread, nonce) = snapshot(svc, tab)?;
     let total = messages.len();
     let start = total.saturating_sub(200);
-    Ok(crate::commands::ChatStartResult {
+    Ok(crate::service::tab_chat::results::ChatStartResult {
         text: String::new(),
-        offset_kind: crate::commands::ChatOffsetKind::Items,
+        offset_kind: crate::service::tab_chat::results::ChatOffsetKind::Items,
         start_offset: start as u64,
         offset: total as u64,
         pending: false,
@@ -228,13 +228,13 @@ pub fn backfill(
     svc: &ServiceContext,
     tab: &str,
     before: u64,
-) -> Result<crate::commands::ChatBackfillResult, String> {
+) -> Result<crate::service::tab_chat::results::ChatBackfillResult, String> {
     let (messages, thread, nonce) = snapshot(svc, tab)?;
     let end = (before as usize).min(messages.len());
     let start = end.saturating_sub(200);
-    Ok(crate::commands::ChatBackfillResult {
+    Ok(crate::service::tab_chat::results::ChatBackfillResult {
         text: String::new(),
-        offset_kind: crate::commands::ChatOffsetKind::Items,
+        offset_kind: crate::service::tab_chat::results::ChatOffsetKind::Items,
         start_offset: start as u64,
         end_offset: end as u64,
         messages: messages.into_iter().skip(start).take(end - start).collect(),

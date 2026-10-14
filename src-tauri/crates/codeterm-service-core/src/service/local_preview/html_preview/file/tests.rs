@@ -24,7 +24,8 @@ fn rejects_traversal_network_device_and_ads_paths() {
 #[test]
 fn reads_are_bounded_even_when_the_open_file_grows() {
     let temp = tempfile::tempdir().unwrap();
-    let path = crate::commands::html_preview::preview_test_root(temp.path()).join("grow.txt");
+    let path = crate::service::local_preview::html_preview::preview_test_root(temp.path())
+        .join("grow.txt");
     std::fs::write(&path, b"small").unwrap();
     let mut source = PreviewSource::open(path.to_str().unwrap(), &|_, _| Ok(())).unwrap();
     File::options()
@@ -39,7 +40,7 @@ fn reads_are_bounded_even_when_the_open_file_grows() {
 #[test]
 fn refuses_hardlink_aliases() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let original = root.join("original.txt");
     let alias = root.join("alias.txt");
     std::fs::write(&original, "opaque").unwrap();
@@ -50,7 +51,7 @@ fn refuses_hardlink_aliases() {
 #[test]
 fn opened_handle_cannot_be_redirected_by_replacing_the_path() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let path = root.join("read.txt");
     std::fs::write(&path, "original").unwrap();
     let mut source = PreviewSource::open(path.to_str().unwrap(), &|_, _| Ok(())).unwrap();
@@ -68,7 +69,7 @@ fn opened_handle_cannot_be_redirected_by_replacing_the_path() {
 #[test]
 fn refuses_symlink_file_and_ancestor_escapes() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     std::fs::create_dir(root.join("target")).unwrap();
     std::fs::write(root.join("target/read.txt"), "opaque").unwrap();
     std::os::unix::fs::symlink(root.join("target"), root.join("alias")).unwrap();
@@ -81,7 +82,8 @@ fn refuses_symlink_file_and_ancestor_escapes() {
 #[test]
 fn guard_refuses_before_canonicalization_or_file_access() {
     let temp = tempfile::tempdir().unwrap();
-    let path = crate::commands::html_preview::preview_test_root(temp.path()).join("missing.txt");
+    let path = crate::service::local_preview::html_preview::preview_test_root(temp.path())
+        .join("missing.txt");
     let error = PreviewSource::open(path.to_str().unwrap(), &|_, canonical| {
         assert!(canonical.is_none());
         Err("reference refusal".into())

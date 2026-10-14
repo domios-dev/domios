@@ -4,7 +4,7 @@ use codeterm_notification_core::contract::NotifyLevel;
 /// at the transport boundary rather than quietly accepted.
 #[test]
 fn notify_level_wire_parse_rejects_the_retired_names() {
-    use crate::api::notification_routes::parse_push_intent;
+    use crate::notification::vet::parse_push_intent;
 
     for level in NotifyLevel::ALL {
         let intent = parse_push_intent(Some(level.as_str()), None)
@@ -34,7 +34,7 @@ mod no_inference {
     const SINK: &str = "_send_os_notification";
 
     /// System and automation events may not reach the desktop sink.
-    const SINK_CALLERS: [&str; 2] = ["api/os_notify.rs", "service/notification.rs"];
+    const SINK_CALLERS: [&str; 2] = ["notification/os_notify.rs", "service/notification.rs"];
 
     const EXPLICIT_CREATORS: [&str; 3] = [
         "api/notification_routes.rs",

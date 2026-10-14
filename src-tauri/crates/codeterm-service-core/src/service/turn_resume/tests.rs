@@ -165,12 +165,12 @@ fn pending_after_update_is_armed_and_sent_once_instead_of_the_owed_prompt() {
         from_agent: Some(true),
         from_model: None,
     };
-    let message = crate::update::post_update::PendingMessage {
+    let message = crate::service::post_update::PendingMessage {
         text: "opaque-after-update".into(),
         sender: Some(sender.clone()),
     };
     std::fs::write(&path, serde_json::to_vec(&message).unwrap()).unwrap();
-    let pending = crate::update::post_update::pending_at(&path).expect("stashed request");
+    let pending = crate::service::post_update::pending_at(&path).expect("stashed request");
 
     let (mut state, tab_id) = agent_tab(TimelineState::Working);
     assert!(set_state(&mut state, &tab_id, TimelineState::Working));

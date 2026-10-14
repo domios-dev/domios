@@ -134,7 +134,7 @@ impl CommandPort for ServiceContext {
     }
 
     fn list_agent_providers(&self) -> Vec<serde_json::Value> {
-        crate::api::agent_routes::list_agent_provider_values(&self.provider_registry)
+        crate::provider::values::list_agent_provider_values(&self.provider_registry)
     }
 }
 
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn gui_launch_keeps_authenticated_tabs_responsive() {
-        use crate::api::access_policy::check_access;
+        use crate::api_support::access_policy::check_access;
         use crate::mesh::types::AccessLevel;
         use axum::http::Method;
 

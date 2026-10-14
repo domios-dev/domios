@@ -1,13 +1,7 @@
 use codeterm_plugins::{AvailabilityItem, PluginCtx, UpdateKind};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AvailabilitySnapshot {
-    pub items: Vec<AvailabilityItem>,
-    pub errors: BTreeMap<String, String>,
-}
+use crate::update_state::AvailabilitySnapshot;
 
 static LAST: parking_lot::Mutex<Option<AvailabilitySnapshot>> = parking_lot::Mutex::new(None);
 
