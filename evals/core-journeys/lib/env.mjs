@@ -5,13 +5,20 @@ import { fileURLToPath } from "node:url";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const runner = join(root, "evals/core-journeys/run.sh");
 const PROD_PORT = 7685;
+const SHARED_DEV_PORT = 7686;
+
+export function assertIsolated({ instance, port }) {
+  if (!String(instance ?? "").trim()) throw new Error("Refused: CODETERM_INSTANCE is unset; core journeys run only on a named isolated instance");
+  if (port === PROD_PORT) throw new Error("Refused: port 7685 is production");
+  if (port === SHARED_DEV_PORT) throw new Error("Refused: port 7686 is the shared DEV instance; use a named instance with its own port");
+}
 
 export function target(env = process.env) {
   const port = Number(env.CODETERM_API_PORT);
   if (!env.CODETERM_DEV_DATA_DIR || !Number.isInteger(port)) {
     throw new Error("Run through evals/core-journeys/run.sh, which composes the DEV connection with dev_run");
   }
-  if (port === PROD_PORT) throw new Error("Refused: port 7685 is production");
+  assertIsolated({ instance: env.CODETERM_INSTANCE, port });
   return {
     port, instance: env.CODETERM_INSTANCE || "", dataDir: env.CODETERM_DEV_DATA_DIR,
     url: `http://127.0.0.1:${port}`, token: env.CODETERM_API_TOKEN,
