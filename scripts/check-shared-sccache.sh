@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cache-policy.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+export CT_BUILD_GATEWAY_SCOPE=fixture CT_BUILD_GATEWAY_FIXTURE_DIR="$WORK/gateway"
 
 codeterm() {
   [ "$1 $2 $3" = 'mem secret get' ] || return 2

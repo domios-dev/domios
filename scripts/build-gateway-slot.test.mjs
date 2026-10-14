@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import readline from 'node:readline';
 import test from 'node:test';
@@ -42,7 +42,8 @@ function client(directory, id) {
     read -r release
     ct_gateway_finish 0
   `, 'fixture', directory, id], { cwd: root, env: { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'] });
-  let errors = '';
+  let errors = '', output = '';
+  child.stdout.on('data', chunk => output += chunk);
   let markQueued;
   const queued = new Promise(resolve => markQueued = resolve);
   child.stderr.on('data', chunk => { errors += chunk; if (errors.includes('Build gateway queued:')) markQueued(); });
@@ -50,28 +51,40 @@ function client(directory, id) {
   const ready = new Promise(resolve => lines.once('line', resolve));
   const running = new Promise(resolve => lines.on('line', line => { if (line === 'RUNNING') resolve(); }));
   const exited = once(child, 'exit').then(([code]) => ({ code, errors }));
-  return { id, child, ready, running, queued, exited, get errors() { return errors; } };
+  return { id, child, ready, running, queued, exited, get errors() { return errors; }, get output() { return output; } };
 }
 
 test('four parallel check-queue gateway clients finish in ticket order with metadata mutex free during slot wait', { timeout: 120000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-clients-'));
   fs.mkdirSync(path.join(directory, 'queue'));
   fs.mkdirSync(path.join(directory, 'jobs'));
+  const observers = [];
+  let phase = 'startup';
+  let lastStatus;
   const status = async () => {
     const observer = spawn(bash, ['-c', 'source scripts/build-gateway.sh; ct_repo_root() { printf "%s\\n" "$PWD"; }; ct_gateway_set_fixture_dir "$1"; ct_gateway_status', 'fixture', directory], { cwd: root, env: { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, stdio: ['ignore', 'pipe', 'pipe'] });
+    observers.push(observer);
     let output = '', errors = '';
     observer.stdout.on('data', chunk => output += chunk);
     observer.stderr.on('data', chunk => errors += chunk);
     const [code] = await once(observer, 'exit');
     assert.equal(code, 0, errors);
-    return JSON.parse(output);
+    lastStatus = JSON.parse(output);
+    return lastStatus;
   };
   const clients = Array.from({ length: 4 }, (_, index) => client(directory, `client-${index}`));
+  let deadline;
+  const failed = new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error(`Fixture event deadline at ${phase}`)), 100000); });
   try {
+    await Promise.race([failed, (async () => {
+    phase = 'client readiness';
     await Promise.all(clients.map(c => c.ready));
     for (const c of clients) c.child.stdin.write('start\n');
+    phase = 'first running receipt';
     const first = await Promise.race(clients.map(async c => { await c.running; return c; }));
+    phase = 'three queued receipts';
     await Promise.all(clients.filter(c => c !== first).map(c => c.queued));
+    phase = 'queue status';
     const records = await status();
     assert.equal(records.active.job_id, first.id);
     assert.equal(records.queue.length, 3);
@@ -79,20 +92,31 @@ test('four parallel check-queue gateway clients finish in ticket order with meta
     await observe(directory, () => !fs.existsSync(path.join(directory, 'state.lock')));
     assert.equal(fs.existsSync(path.join(directory, 'state.lock')), false);
     for (const id of order) {
+      phase = `running receipt ${id}`;
       const current = clients.find(c => c.id === id);
       await current.running;
+      phase = `running status ${id}`;
       assert.equal((await status()).active.job_id, id);
+      phase = `completion ${id}`;
       current.child.stdin.end('release\n');
       const result = await current.exited;
       assert.equal(result.code, 0, result.errors);
       assert.doesNotMatch(result.errors, /EPERM|Timed out|owner_lost/);
     }
-    assert.ok((await status()).recent.every(j => j.state === 'completed' && j.exit_code === 0 && j.outcome === 'success'));
+    phase = 'final status';
+    const final = await status();
+    assert.equal(final.recent.length, 4);
+    assert.ok(final.recent.every(j => j.state === 'completed' && j.exit_code === 0 && j.outcome === 'success'));
     assert.equal(fs.existsSync(path.join(directory, 'lock')), false);
+    })()]);
   } catch (error) {
-    throw new Error(`${error.message}\n${JSON.stringify(await status())}\n${clients.map(c => `${c.id}: exit=${c.child.exitCode} ${c.errors}`).join('\n')}`);
+    throw new Error(`${error.message}\n${JSON.stringify(lastStatus)}\n${clients.map(c => `${c.id}: exit=${c.child.exitCode} stdout=${c.output} stderr=${c.errors}`).join('\n')}`);
   } finally {
-    for (const c of clients) if (c.child.exitCode === null) c.child.kill('SIGKILL');
+    clearTimeout(deadline);
+    for (const child of [...clients.map(c => c.child), ...observers]) if (child.exitCode === null && child.signalCode === null) {
+      if (process.platform === 'win32') spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      else child.kill('SIGKILL');
+    }
     await Promise.all(clients.map(c => c.exited));
     fs.rmSync(directory, { recursive: true, force: true });
   }

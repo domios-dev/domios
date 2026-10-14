@@ -84,3 +84,36 @@ test('gateway status skips a partial JSON record and keeps a valid job', () => {
     assert.deepEqual(JSON.parse(result.stdout).recent.map(j => j.job_id), ['valid']);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('dead queued owner is reaped without removing the live caller ticket', { timeout: 30000 }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-queued-owner-'));
+  const result = spawnSync(bash, ['-c', `
+    set -e
+    source scripts/build-gateway.sh
+    ct_gateway_set_fixture_dir "$1"
+    mkdir -p "$1/jobs" "$1/queue"
+    ct_gateway_mutex_acquire "$1"
+    live_token="$(ct_gateway_process_start_token "$$")"
+    for job in dead live; do
+      if [ "$job" = dead ]; then pid=99999999; token=gone; else pid=$$; token="$live_token"; fi
+      mkdir "$1/queue/$job"
+      printf '%s\\n' "$pid" > "$1/queue/$job/pid"
+      printf '%s\\n' "$token" > "$1/queue/$job/start_token"
+      printf '%s\\n' "$job" > "$1/queue/$job/job_id"
+      ct_gateway_state_tool create --dir "$1" --job-id "$job" --job check-queue --command fixture \
+        --owner "$job" --owner-pid "$pid" --owner-start-token "$token" --queue-key "$job" --queued-at fixture
+    done
+    ct_gateway_reap_stale_queue_locked "$1"
+    ct_gateway_state_tool status --dir "$1"
+    ct_gateway_mutex_release "$1"
+  `, 'fixture', directory], { cwd: root, env, encoding: 'utf8', timeout: 25000 });
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    const status = JSON.parse(result.stdout);
+    assert.deepEqual(status.queue.map(j => j.job_id), ['live']);
+    assert.equal(status.recent[0].job_id, 'dead');
+    assert.equal(status.recent[0].outcome, 'owner_lost');
+    assert.equal(fs.existsSync(path.join(directory, 'queue', 'dead')), false);
+    assert.equal(fs.existsSync(path.join(directory, 'queue', 'live')), true);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});

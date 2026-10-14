@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Caller: docs architecture module-graph.md and split-roadmap.md (manual generation)
 """Module dependency graph of the src-tauri crate (crate:: references, depth 1 and 2 for service/agent/api).
 
 Usage: python3 scripts/module-graph.py [--json out.json] [--md out.md]
