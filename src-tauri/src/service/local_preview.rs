@@ -47,8 +47,12 @@ fn tab_policy(
     if let Some(home) = dirs::home_dir() {
         denied.push(home.join(".ssh"));
     }
-    PreviewPolicy::new(references, &denied)?
-        .with_uploads(&crate::api::web_routes::uploads_dir(), &configured)
+    let mut policy = PreviewPolicy::new(references, &denied)?
+        .with_uploads(&crate::api::web_routes::uploads_dir(), &configured)?;
+    for bucket in ["chat", "images", "files"] {
+        policy = policy.with_uploads(&crate::attachments::bucket_dir(bucket), &configured)?;
+    }
+    Ok(policy)
 }
 
 pub(crate) fn read(
