@@ -117,6 +117,9 @@ impl AgentProvider for JsProvider {
     fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
         self.manifest.cli_compatibility.clone()
     }
+    fn worker_lane_settings(&self) -> Vec<crate::provider::WorkerLaneSetting> {
+        self.manifest.worker_lane_settings.clone()
+    }
 
     fn id(&self) -> &str {
         &self.manifest.id

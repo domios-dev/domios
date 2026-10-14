@@ -5,6 +5,7 @@ use wait_timeout::ChildExt;
 
 use super::orchestrator::SpawnAgentParams;
 use super::ServiceContext;
+use crate::agent::provider::WorkerLaneSetting;
 use crate::process_util;
 
 mod language_server_settings;
@@ -172,7 +173,7 @@ impl ServiceContext {
             return Ok(None);
         }
 
-        let lane = provision_lane(&cwd, lane_label)?;
+        let lane = provision_lane(&cwd, lane_label, &self.worker_lane_settings())?;
         params.cwd = Some(lane.cwd.clone());
         params.provisioned_cwd = Some(lane.cwd.clone());
         Ok(Some(lane))
@@ -199,6 +200,15 @@ impl ServiceContext {
             .map(|workspace| (workspace.id.clone(), workspace.name.clone()))
     }
 
+    /// Lane settings every registered provider declares; core never names a provider here.
+    pub(crate) fn worker_lane_settings(&self) -> Vec<WorkerLaneSetting> {
+        self.agent_registry
+            .all_provider_arcs()
+            .iter()
+            .flat_map(|provider| provider.worker_lane_settings())
+            .collect()
+    }
+
     pub(crate) fn worker_spawn_workspace_cwd(&self, params: &SpawnAgentParams) -> Option<String> {
         self.resolve_worker_spawn_workspace_cwd(params)
     }
@@ -212,7 +222,7 @@ impl ServiceContext {
         base_checkout: &str,
         lane_label: &str,
     ) -> Result<ProvisionedWorkerLane, String> {
-        let lane = provision_lane(base_checkout, lane_label)?;
+        let lane = provision_lane(base_checkout, lane_label, &self.worker_lane_settings())?;
         params.cwd = Some(lane.cwd.clone());
         params.provisioned_cwd = Some(lane.cwd.clone());
         Ok(lane)
@@ -242,16 +252,18 @@ impl ServiceContext {
 pub(crate) fn provision_isolated_lane(
     canonical_cwd: &str,
     lane_label: &str,
+    lane_settings: &[WorkerLaneSetting],
 ) -> Result<ProvisionedWorkerLane, String> {
-    provision_lane(canonical_cwd, lane_label)
+    provision_lane(canonical_cwd, lane_label, lane_settings)
 }
 
 pub(crate) fn provision_isolated_lane_at_base(
     canonical_cwd: &str,
     lane_label: &str,
     base: &str,
+    lane_settings: &[WorkerLaneSetting],
 ) -> Result<ProvisionedWorkerLane, String> {
-    provision_lane_at_base(canonical_cwd, lane_label, base)
+    provision_lane_at_base(canonical_cwd, lane_label, base, lane_settings)
 }
 
 pub(crate) fn legacy_repository_identity(cwd: &str) -> Result<String, String> {
@@ -611,16 +623,21 @@ fn sanitized_legacy_remote_identity(remote: &str) -> Option<String> {
     Some(remote.to_string())
 }
 
-fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWorkerLane, String> {
+fn provision_lane(
+    project_cwd: &str,
+    lane_label: &str,
+    lane_settings: &[WorkerLaneSetting],
+) -> Result<ProvisionedWorkerLane, String> {
     let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
     let base = git_value(&project_cwd, ["rev-parse", "HEAD"])?;
-    provision_lane_at_base(&project_cwd, lane_label, &base)
+    provision_lane_at_base(&project_cwd, lane_label, &base, lane_settings)
 }
 
 fn provision_lane_at_base(
     project_cwd: &str,
     lane_label: &str,
     requested_base: &str,
+    lane_settings: &[WorkerLaneSetting],
 ) -> Result<ProvisionedWorkerLane, String> {
     let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
     let project = Path::new(&project_cwd);
@@ -674,7 +691,7 @@ fn provision_lane_at_base(
         branch,
         base,
     };
-    if let Err(error) = language_server_settings::configure(&lane.cwd) {
+    if let Err(error) = language_server_settings::configure(&lane.cwd, lane_settings) {
         let cleanup = lane.cleanup();
         return Err(match cleanup {
             Ok(()) => error,
@@ -778,7 +795,16 @@ pub(crate) fn provision_lane_for_test(
     project_cwd: &str,
     lane_label: &str,
 ) -> Result<ProvisionedWorkerLane, String> {
-    provision_lane(project_cwd, lane_label)
+    provision_lane(project_cwd, lane_label, &[])
+}
+
+#[cfg(test)]
+pub(crate) fn provision_lane_with_settings_for_test(
+    project_cwd: &str,
+    lane_label: &str,
+    lane_settings: &[WorkerLaneSetting],
+) -> Result<ProvisionedWorkerLane, String> {
+    provision_lane(project_cwd, lane_label, lane_settings)
 }
 
 fn lane_slug(value: &str) -> String {

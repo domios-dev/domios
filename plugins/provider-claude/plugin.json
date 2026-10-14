@@ -256,5 +256,15 @@
     "modelMinimumCli": {
       "fable": "2.1.258"
     }
-  }
+  },
+  "workerLaneSettings": [
+    {
+      "path": ".claude/settings.json",
+      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+    }
+  ]
 }
