@@ -14,7 +14,7 @@ export interface MountedChatWindow {
 
 export function chatRowOffsets(heights: readonly number[]): number[] {
   const offsets = [0];
-  for (const height of heights) offsets.push(offsets[offsets.length - 1] + (Number.isFinite(height) && height > 0 ? height : CHAT_ROW_ESTIMATE));
+  for (const height of heights) offsets.push(offsets[offsets.length - 1] + (Number.isFinite(height) && height >= 0 ? height : CHAT_ROW_ESTIMATE));
   return offsets;
 }
 

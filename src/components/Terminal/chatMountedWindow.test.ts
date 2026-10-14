@@ -29,8 +29,8 @@ describe("measured chat mounting", () => {
     expect(mountedChatWindow({ heights: [100, 300, 50], scrollTop: 100, viewportHeight: 200, active: false }))
       .toEqual({ start: 0, end: 0, top: 0, bottom: 450, total: 450 });
   });
-  it("uses complete row heights including rails and estimates invalid measurements", () => {
-    expect(chatRowOffsets([100, 450, 200, 0, NaN])).toEqual([0, 100, 550, 750, 870, 990]);
+  it("uses complete row heights including rails, keeps empty rows at zero and estimates invalid measurements", () => {
+    expect(chatRowOffsets([100, 450, 200, 0, -1, NaN])).toEqual([0, 100, 550, 750, 750, 870, 990]);
     const window = mountedChatWindow({ heights: [100, 450, 200, 80], scrollTop: 400, viewportHeight: 100 });
     expect(window.start).toBe(1);
     expect(window.top).toBe(100);
