@@ -13,7 +13,7 @@ export interface TabActivity {
   status: TabStatus;
   state: AgentState["state"];
   subtype?: TabAgentState["subtype"];
-  phase: "thinking" | "streaming" | "work";
+  phase: "thinking" | "streaming" | "compacting" | "work";
   active: boolean;
   canStop: boolean;
   quiet: boolean;
@@ -26,6 +26,8 @@ const questionLabels: Record<NonNullable<TabAgentState["subtype"]>, string> = {
   auth: "Sign in to continue", rate_limit: "Rate limited", update: "Update available",
   error: "Needs attention", unknown: "Waiting for input",
 };
+
+const idleOutcomeLabels: Record<string, string> = { interrupted: "Interrupted", failed: "Turn failed" };
 
 const startingStages = new Set<Tab["boot_stage"]>([
   "pty_starting", "pty_spawned", "reader_ready", "shell_ready", "agent_launching",
@@ -58,12 +60,14 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
-  const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
+  const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming" || live?.phase === "compacting") ? live.phase : "work";
   const question = kind === "waiting-on-user" ? tab?.pending_prompt?.question?.trim() : null;
   const label = question || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
     : (matchingLive ? live?.status_line?.trim() : null)
       || (kind === "failed" ? "Launch failed" : kind === "starting" ? "Starting…"
-        : kind === "working" ? "Working" : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
+        : kind === "working" ? phase === "compacting" ? "Compacting" : "Working"
+          : kind === "idle" && matchingLive && live?.phase && idleOutcomeLabels[live.phase] ? idleOutcomeLabels[live.phase]
+          : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));
   return {
     kind, label, state, subtype, phase, quiet, launching,

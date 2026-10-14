@@ -274,8 +274,9 @@
       {
         "kind": "turnState",
         "threadId": "thread-fixture",
-        "turnId": "turn-a",
-        "state": "needs_input"
+        "state": "needs_input",
+        "detail": "awaitingApproval",
+        "turnId": "turn-a"
       },
       {
         "kind": "promptResolved",
@@ -309,8 +310,9 @@
       {
         "kind": "turnState",
         "threadId": "thread-fixture",
-        "turnId": "turn-a",
-        "state": "needs_input"
+        "state": "needs_input",
+        "detail": "awaitingInput",
+        "turnId": "turn-a"
       },
       {
         "kind": "promptResolved",

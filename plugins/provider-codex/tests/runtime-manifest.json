@@ -70,8 +70,10 @@
       "item/plan/delta",
       "item/reasoning/textDelta",
       "item/reasoning/summaryTextDelta",
+      "item/reasoning/summaryPartAdded",
       "item/commandExecution/outputDelta",
       "item/fileChange/outputDelta",
+      "item/fileChange/patchUpdated",
       "item/mcpToolCall/progress",
       "serverRequest/resolved",
       "error"
