@@ -248,10 +248,16 @@ class SingleRunGraphTest(unittest.TestCase):
                 self.assertIn("CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target", text)
                 self.assertIn("CARGO_INCREMENTAL: '0'", text)
                 self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
-                self.assertIn(
-                    '--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"',
-                    text,
+                build = next(
+                    step for step in steps(text)
+                    if "pnpm tauri build" in step.get("run", "")
                 )
+                if name == "release-windows.yml":
+                    self.assertEqual(build.get("shell"), "pwsh")
+                    arguments = "--target $env:TARGET --features $env:CODETERM_RELEASE_FEATURES"
+                else:
+                    arguments = '--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"'
+                self.assertIn(arguments, build["run"])
 
     def test_platform_specific_packaging_and_macos_notarization_stay_with_the_owner(self):
         linux = read("release-linux.yml")
