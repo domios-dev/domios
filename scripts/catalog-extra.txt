@@ -2,6 +2,7 @@
 aiderrun | manual: aider lane runtime harness, see aiderrun/RECIPE.md
 bench-chat-stream.md | doc for bench-chat-stream.mjs (bench)
 blocking-in-async-allowlist.txt | scripts check-blocking-in-async.sh
+chat-scroll-trace | build.sh chat-scroll-trace; skill dev-testing
 certificates | scripts release-signing-material.py, tests/release_signing_material_test.py
 ci-test-classifier | scripts ci-rust-archives.mjs
 comment-length-allowlist.txt | CI comment-length.yml; scripts check-comment-length.sh

@@ -38,14 +38,17 @@ export function shouldFoldChatSpacerDrift(base: number, drift: number, viewportH
 /**
  * Resolves one layout pass: the spacer absorbs an owned shift, or folds back to `base` with the scroll delta that keeps
  * the anchor still. The fold decides on the unclamped drift so a shift larger than the spacer never leaks to the screen.
+ * A fold that would scroll above zero mid-gesture keeps the remainder as space above the first row until the gesture ends.
  */
-export function chatSpacerAfterLayout({ base, drift, shift, absorb, viewportHeight }: {
-  base: number; drift: number; shift: number; absorb: boolean; viewportHeight: number;
+export function chatSpacerAfterLayout({ base, drift, shift, absorb, viewportHeight, scrollTop }: {
+  base: number; drift: number; shift: number; absorb: boolean; viewportHeight: number; scrollTop: number;
 }): { drift: number; scrollBy: number } {
   const owned = absorb && Number.isFinite(shift) ? shift : 0;
   const wanted = drift - owned;
   if (shouldFoldChatSpacerDrift(base, wanted, viewportHeight)) {
-    return { drift: 0, scrollBy: chatSpacerHeight(base, 0) - chatSpacerHeight(base, drift) + owned };
+    const scrollBy = chatSpacerHeight(base, 0) - chatSpacerHeight(base, drift) + owned;
+    const overshoot = -(scrollTop + scrollBy);
+    return absorb && overshoot > 0 ? { drift: overshoot, scrollBy: 0 - scrollTop } : { drift: 0, scrollBy };
   }
   return { drift: chatSpacerDriftAfterShift(drift, base, owned), scrollBy: 0 };
 }
