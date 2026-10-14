@@ -77,17 +77,10 @@ struct StoredItem {
     closed: bool,
 }
 
-#[derive(Clone, Debug, Default)]
-struct TurnSnap {
-    state: Option<RuntimeTurnState>,
-    parent_thread_id: Option<String>,
-}
-
 #[derive(Default)]
 pub struct RuntimeMaps {
     epoch: u64,
     items: Vec<StoredItem>,
-    turns: HashMap<(String, String), TurnSnap>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
     evidence: HashMap<String, (String, String)>,
@@ -104,10 +97,12 @@ impl RuntimeMaps {
         };
     }
 
+    #[cfg(test)]
     pub fn item_ids(&self) -> Vec<String> {
         self.items.iter().map(|item| item.item.id.clone()).collect()
     }
 
+    #[cfg(test)]
     pub fn text_bytes(&self) -> usize {
         self.items.iter().map(|item| text_bytes(&item.item)).sum()
     }
@@ -252,22 +247,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             maps.threads
                 .insert(thread_id.clone(), parent_thread_id.clone());
         }
-        RuntimeEvent::TurnUpdated {
-            thread_id,
-            turn_id,
-            state,
-            parent_thread_id,
-            ..
-        } => {
-            let key = (thread_id.clone(), turn_id.clone().unwrap_or_default());
-            maps.turns.insert(
-                key,
-                TurnSnap {
-                    state: Some(state.clone()),
-                    parent_thread_id: parent_thread_id.clone(),
-                },
-            );
-        }
+        RuntimeEvent::TurnUpdated { .. } => {}
         RuntimeEvent::ItemUpdated { thread_id, item } => {
             upsert_item(maps, thread_id, item.clone());
         }

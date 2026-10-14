@@ -399,6 +399,7 @@ pub fn accepts_turn_transition(
         || current == incoming
 }
 
+#[cfg(test)]
 pub fn observe_turn(
     context: &mut codeterm_plugin::agent_runtime::RuntimeContext,
     event: &codeterm_plugin::agent_runtime::AgentRuntimeEvent,
