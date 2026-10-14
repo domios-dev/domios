@@ -3,9 +3,10 @@ import { runtimeBannerView, type AgentRuntimeState } from "../../lib/agentRuntim
 import { ChatStatusBanner } from "./ChatSetupState";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 
-export function AgentRuntimeBanner({ state, onRetry, tabId }: { tabId?:string; state: AgentRuntimeState | null; onRetry: () => void }) {
-  if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) return <ChatStatusBanner
-    title="Sign-in required" reason={null} action={<div className="flex items-center gap-2"><RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} /><button type="button" disabled={state.login?.status === "pending"} onClick={onRetry}>Check sign-in</button></div>} />;
+export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null }) {
+  if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) {
+    return <RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} iconSvg={iconSvg} onCheck={onRetry} />;
+  }
   const view = runtimeBannerView(state);
   if (!view) return null;
   return <ChatStatusBanner title={view.loading ? "Recovering agent runtime" : "Agent runtime unavailable"}
