@@ -82,7 +82,7 @@ function decodeAttribute(value: string): string | null {
 }
 
 function stripTypedSuffix(content: string): string {
-  let body = content;
+  let body = content.replace(/ ?<tip>[\s\S]*?<\/tip>/g, "");
   const instruction = ` ${DOMIOS_TYPED_INSTRUCTION}`;
   if (body.endsWith(instruction)) body = body.slice(0, -instruction.length);
   const replyStarts = [" [to reply, run: codeterm send ", " [sender is a shell; reply here]"];

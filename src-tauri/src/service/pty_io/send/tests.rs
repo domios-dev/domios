@@ -133,7 +133,7 @@ fn routed_suffix_has_a_closing_tag_for_plain_and_capable_targets() {
     let capable = super::compose_routed_suffix(" [reply]", true);
     assert_eq!(
         capable,
-        format!(" [reply] {DOMIOS_TYPED_INSTRUCTION}{DOMIOS_CLOSE_TAG}")
+        format!(" [reply] <tip>{DOMIOS_TYPED_INSTRUCTION}</tip>{DOMIOS_CLOSE_TAG}")
     );
 }
 
@@ -759,4 +759,34 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
         typed.typed_suffix,
         Some(super::compose_routed_suffix(&frame.suffix, true))
     );
+}
+
+#[test]
+fn routed_agent_and_report_instructions_are_tips_in_both_transport_forms() {
+    for messenger in [
+        crate::service::messenger::Messenger::message("Sender", "abc12345"),
+        crate::service::messenger::Messenger::report("Sender", "abc12345"),
+    ] {
+        let frame = messenger.routed_frame("opaque body");
+        let input = super::prepare_routed_input(&frame, true);
+        assert_eq!(input.body, frame.body);
+        assert_eq!(
+            input.typed_prefix.as_deref(),
+            Some(frame.opening_tag.as_str())
+        );
+        let suffix = input.typed_suffix.unwrap();
+        let instruction = format!(
+            "<tip>{}</tip>",
+            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION
+        );
+        assert!(suffix.contains(&instruction));
+        let delivered = format!("{}{}{}", frame.opening_tag, input.body, suffix);
+        let parsed = codeterm_types::domios::parse_message(&delivered).unwrap();
+        assert_eq!(parsed.body, frame.body);
+        assert!(parsed.content.contains(&instruction));
+        let pasted = super::prepare_routed_input(&frame, false);
+        assert_eq!(pasted.body, frame.to_message());
+        assert_eq!(pasted.typed_prefix, None);
+        assert_eq!(pasted.typed_suffix, None);
+    }
 }

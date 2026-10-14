@@ -208,5 +208,6 @@
   "src/lib/modelSwitchFailure.test.ts",
   "src/components/Terminal/RuntimeLoginActions.test.tsx",
   "src/components/Terminal/chatTime.wiring.test.tsx",
-  "src/components/Terminal/ChatSendDelete.test.tsx"
+  "src/components/Terminal/ChatSendDelete.test.tsx",
+  "packages/chat-ui/src/MessageBubble.routing-tips.test.tsx"
 ]
