@@ -755,9 +755,7 @@ impl ServiceContext {
             enqueued,
         )
         .and_then(|result| require_submission_result(result, require_provider_turn))
-        .map_err(|error| match error {
-            error => DeliveryError::from_injection(delivery_target, error),
-        })
+        .map_err(|error| DeliveryError::from_injection(delivery_target, error))
     }
 
     fn resolve_tab_and_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {

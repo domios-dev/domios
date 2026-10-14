@@ -9,6 +9,12 @@ members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", 
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
+[workspace.lints.rust]
+warnings = "deny"
+
+[lints]
+workspace = true
+
 [dependencies]
 codeterm-agent-detect = { path = "crates/codeterm-agent-detect" }
 codeterm-notification-core = { path = "crates/codeterm-notification-core" }

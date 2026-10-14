@@ -1209,11 +1209,9 @@ on associated release PRs. JSON diagnostics include crate, location, lint, messa
 Capture/upload/comment failures do not change platform build results; new warning identities fail
 the summary ratchet. Incomplete runs are labelled and never propose a baseline update.
 
-`scripts/rust-warnings-baseline.json` starts explicitly uninitialized: do not invent counts or
-seed it from local macOS output. After the first complete real release run, copy the generated
-`rust-warnings-baseline.json` from `rust-warnings-release-report` into the repository and commit
-it on develop, citing the run URL. No workflow dispatch is needed to initialize the mechanism.
-Until that seed is committed, reports explicitly say the ratchet is awaiting initialization.
+`scripts/rust-warnings-baseline.json` is initialized at zero: every crate denies `warnings`
+through Cargo `[lints]`, so any warning identity a run reports is new and fails the ratchet.
+Fix the warning at its root on the owning platform; never add a baseline entry.
 
 The post-release cleanup task consumes the full JSON report, groups by target/file/lint, and
 fixes cfg-specific warnings on their owning platform (including Windows arm64). After a complete

@@ -428,7 +428,7 @@ fn shutdown_callback(handle: &Handle) -> impl FnOnce() + Send + 'static {
 #[cfg(test)]
 pub(super) fn fixture_shutdown(
     handle: &Handle,
-    latch: &crate::crash::shutdown::ShutdownLatch,
+    latch: &codeterm_shutdown::ShutdownLatch,
 ) -> crate::crash::shutdown::ShutdownSubscription {
     latch.subscribe(shutdown_callback(handle)).unwrap()
 }

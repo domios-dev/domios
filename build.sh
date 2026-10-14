@@ -1380,6 +1380,53 @@ check_queue_errors() {
   '
 }
 
+# Reads cargo --message-format=short output on stdin; prints at most $1 unique
+# warnings, one "warnings crate=<name> count=<n>" line per warned crate and a
+# summary. Exits 1 when a crate named in $2 (space-separated; "*" = any) warned.
+check_queue_warnings() {
+  awk -v max="$1" -v touched=" $2 " '
+    function add(name, n) {
+      if (!(name in counts)) order[++crates] = name
+      counts[name] += n
+    }
+    /^[^ ].*:[0-9]+:[0-9]+: warning:/ {
+      if (!($0 in seen)) {
+        seen[$0] = 1
+        total++
+        if (total <= max) print
+      }
+      next
+    }
+    /^(warning|error): (could not compile )?`[^`]+`.*([0-9]+ warnings? emitted|generated [0-9]+ warnings?)/ {
+      match($0, /`[^`]+`/)
+      name = substr($0, RSTART + 1, RLENGTH - 2)
+      if (match($0, /generated [0-9]+/)) n = substr($0, RSTART + 10, RLENGTH - 10) + 0
+      else { match($0, /[0-9]+ warnings? emitted/); n = substr($0, RSTART, RLENGTH) + 0 }
+      if (match($0, /\([0-9]+ duplicates?\)/)) n -= substr($0, RSTART + 1, RLENGTH - 1) + 0
+      add(name, n)
+    }
+    END {
+      failing = ""
+      for (i = 1; i <= crates; i++) {
+        name = order[i]
+        if (counts[name] <= 0) continue
+        printf "warnings crate=%s count=%d\n", name, counts[name]
+        if (touched == " * " || index(touched, " " name " ")) failing = failing (failing ? "," : "") name
+      }
+      printf "warnings=%d shown=%d failing=%s\n", total, (total < max ? total : max), (failing ? failing : "none")
+      exit (failing ? 1 : 0)
+    }
+  '
+}
+
+# Reads cargo output in any format; prints one count line per warned crate and a total.
+check_warning_summary() {
+  check_queue_warnings 0 "" | awk '
+    /^warnings crate=/ { print; split($3, kv, "="); total += kv[2]; crates++ }
+    END { printf "check: warnings=%d crates_with_warnings=%d\n", total, crates }
+  '
+}
+
 check_queue_worktree() {
   local dir
   dir="$(ct_gateway_dir)/check-worktree"
@@ -1390,35 +1437,48 @@ check_queue_worktree() {
 }
 
 check_queue_run() {
-  local sha="" max_errors=20 touched_only=0 arg base cw files targets pkg_args=() cli=0 started status=0 out
+  local sha="" max_errors=20 max_warnings=40 touched_only=0 all=0 arg base cw files targets pkg_args=() cli=0 started status=0 out touched=""
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --max-errors) max_errors="${2:?--max-errors requires a count}"; shift ;;
+      --max-warnings) max_warnings="${2:?--max-warnings requires a count}"; shift ;;
       --touched-only) touched_only=1 ;;
-      -*) echo "Usage: ./build.sh check-queue [<sha>] [--max-errors N] [--touched-only]" >&2; exit 2 ;;
+      --all) all=1 ;;
+      -*) echo "Usage: ./build.sh check-queue [<sha>] [--max-errors N] [--max-warnings N] [--touched-only] [--all]" >&2; exit 2 ;;
       *) sha="$arg" ;;
     esac
     shift
   done
   sha="$(git rev-parse --verify "${sha:-HEAD}^{commit}")"
   base="$(git merge-base "$sha" develop 2>/dev/null || git merge-base "$sha" origin/develop 2>/dev/null || true)"
-  if [ -n "$base" ]; then
+  if [ "$all" = 1 ]; then
+    files=""
+    targets="all"
+  elif [ -n "$base" ]; then
     files="$(git diff --name-only "$base" "$sha")"
+    targets="$(printf '%s\n' "$files" | check_queue_targets)"
   else
     files="src-tauri/src/"
+    targets="$(printf '%s\n' "$files" | check_queue_targets)"
   fi
-  targets="$(printf '%s\n' "$files" | check_queue_targets)"
   if [ -z "$targets" ]; then
     echo "check-queue: no Rust changes between ${base:-?} and $sha; nothing to check"
     return 0
   fi
-  while read -r kind pkg; do
-    if [ "$kind" = cli ]; then cli=1; else pkg_args+=(-p "$pkg"); fi
-  done <<< "$targets"
-  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
+  if [ "$all" = 1 ]; then
+    pkg_args=(--workspace)
+    cli=1
+    touched="*"
+  else
+    while read -r kind pkg; do
+      if [ "$kind" = cli ]; then cli=1; touched="${touched:-} codeterm-cli"; else pkg_args+=(-p "$pkg"); touched="${touched:-} $pkg"; fi
+    done <<< "$targets"
+  fi
+  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$all" = 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
     pkg_args+=(-p codeterm)
   fi
+  source scripts/clippy-allow.sh
 
   CT_BUILD_SOURCE_SHA="$sha"
   CT_BUILD_CRATES="$(printf '%s\n' "${pkg_args[@]}" | sed '/^-p$/d')"
@@ -1437,15 +1497,16 @@ check_queue_run() {
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check.log"
   : > "$out"
   if [ "${#pkg_args[@]}" -gt 0 ]; then
-    CARGO_TARGET_DIR="$cw/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
-      "${pkg_args[@]}" --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+    CARGO_TARGET_DIR="$cw/target/app" cargo clippy --manifest-path src-tauri/Cargo.toml \
+      "${pkg_args[@]}" --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" >> "$out" 2>&1 || status=$?
   fi
   if [ "$cli" = 1 ]; then
-    CARGO_TARGET_DIR="$cw/target/cli" cargo check --manifest-path cli/Cargo.toml \
-      --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+    CARGO_TARGET_DIR="$cw/target/cli" cargo clippy --manifest-path cli/Cargo.toml \
+      --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" >> "$out" 2>&1 || status=$?
   fi
   grep 'cargo::core::compiler::fingerprint' "$out" || true
   check_queue_errors "$max_errors" "$status" < "$out"
+  check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
   echo "check-queue: sha=$sha packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
 }
@@ -2034,7 +2095,11 @@ EOF
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ct_configure_sccache
-    cargo check --manifest-path src-tauri/Cargo.toml
+    check_log="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.cargo-check.log"
+    cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee "$check_log"
+    check_status="${PIPESTATUS[0]}"
+    check_warning_summary < "$check_log"
+    exit "$check_status"
     ;;
   check-queue)
     check_queue_run "${@:2}"
@@ -2052,6 +2117,8 @@ EOF
     case "${2:-}" in
       targets) check_queue_targets ;;
       errors) check_queue_errors "${3:?errors requires a max}" "${4:-0}" ;;
+      warnings) check_queue_warnings "${3:?warnings requires a max}" "${4:-}" ;;
+      summary) check_warning_summary ;;
       *) echo "Unknown check-queue probe: ${2:-}" >&2; exit 2 ;;
     esac
     ;;
