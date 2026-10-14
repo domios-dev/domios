@@ -4,9 +4,11 @@
 //! provider's plugin manifest for the same band the live path excludes. An
 //! unresolvable provider directory is an error here too — never a zero.
 
-use codeterm_lib::agent::classify_input::{StatusBarRows, StatusBarRowsError, StatusBarRowsSource};
-use codeterm_lib::agent::provider::AgentProvider;
-use codeterm_lib::plugin::js_runtime::load_one;
+use codeterm_service_core::agent::classify_input::{
+    StatusBarRows, StatusBarRowsError, StatusBarRowsSource,
+};
+use codeterm_service_core::agent::provider::AgentProvider;
+use codeterm_service_core::plugin::js_runtime::load_one;
 
 pub struct PluginManifestRows;
 

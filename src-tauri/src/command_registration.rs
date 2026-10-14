@@ -1,8 +1,6 @@
-use crate::{clipboard_files, commands};
+use codeterm_service_core::{app_runtime::Runtime, clipboard_files, commands};
 
-pub(crate) fn register_commands(
-    builder: tauri::Builder<crate::app_runtime::Runtime>,
-) -> tauri::Builder<crate::app_runtime::Runtime> {
+pub(crate) fn register_commands(builder: tauri::Builder<Runtime>) -> tauri::Builder<Runtime> {
     builder.invoke_handler(tauri::generate_handler![
         commands::get_windows_build_number,
         commands::materialize_dropped_files,
