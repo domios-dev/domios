@@ -9,6 +9,7 @@ mod catalog;
 mod commands;
 mod context;
 mod core;
+mod filled_composer;
 mod folder_trust;
 mod launch_permissions;
 mod launch_session;
