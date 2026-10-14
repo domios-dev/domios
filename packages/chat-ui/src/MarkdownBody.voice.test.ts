@@ -11,4 +11,8 @@ for (const [legacy, wire, expected] of [
   assert.equal(parsed?.transcript, expected);
   assert.equal(parsed?.fileUrl, "/u/v.webm");
 }
-console.log("voice card parser: 2 parity cases passed");
+const persisted = '<domios type="attachment" kind="voice" path="/u/v.webm" label="voice" />\nspoken token';
+assert.deepEqual(parseVoiceMessage(persisted), parseVoiceMessage(markVoice("/u/v.webm", "spoken token")));
+const delimited = 'say </transcript> and <domios from="tab">no</domios>';
+assert.equal(parseVoiceMessage(markVoice("/u/v.webm", delimited))?.transcript, delimited);
+console.log("voice card parser: 4 parity cases passed");
