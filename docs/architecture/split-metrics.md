@@ -5,8 +5,28 @@ One row per merged split, regenerated with `python3 scripts/split-metrics.py` (c
 | date | develop SHA | crates | `pub use codeterm_*` shim lines | cross-crate path-dep edges | tangle units / non-test lines | app crate lines (incl. tests) |
 |---|---|---:|---:|---:|---|---:|
 | 2026-10-14 | 3d82935ad (develop ee2f09e99 merged) | 36 | 135 | 119 | 142 / 239,150 | 486,526 |
+| 2026-10-14 | 0e24a11da (M0: root-aware scripts, hot-path table) | 36 | 136 | 119 | 142 / 239,051 | 486,456 |
+
+M0: the core is still the whole app crate (`codeterm`, `src-tauri/src`); no hot area lives in its own crate yet. Both scripts take `--root PATH` and default to `src-tauri/crates/codeterm-service-core/src` when it exists, else `src-tauri/src`.
 
 Earlier points from the roadmap: before R1 the app was 515,682 lines with a 162-unit / 266,148-line tangle; after R1-R4b 507,534 and 142 / 253,706.
+
+## Largest crate on the hot path
+
+Crates that recompile when one file of the area changes: the area's own crate plus every workspace crate depending on it, transitively (`cargo metadata --offline`; `python3 scripts/split-metrics.py --hot-path`). Every hot area is inside the app crate and nothing depends on it, so the largest crate is the app crate for all ten.
+
+| hot area | own crate | crates rebuilt (own + transitive dependents) | largest crate on hot path | lines (incl. tests) |
+|---|---|---:|---|---:|
+| service/codex_rpc | codeterm | 1 | codeterm | 488,336 |
+| service/pty_io | codeterm | 1 | codeterm | 488,336 |
+| service/orchestrator | codeterm | 1 | codeterm | 488,336 |
+| service/hierarchy | codeterm | 1 | codeterm | 488,336 |
+| service/agent_restart | codeterm | 1 | codeterm | 488,336 |
+| service/supporter_tab_state | codeterm | 1 | codeterm | 488,336 |
+| api/mem_routes | codeterm | 1 | codeterm | 488,336 |
+| api/hook_routes | codeterm | 1 | codeterm | 488,336 |
+| socket/server | codeterm | 1 | codeterm | 488,336 |
+| sentinel | codeterm | 1 | codeterm | 488,336 |
 
 ## Timing baseline (partial, not yet reliable)
 
@@ -18,6 +38,8 @@ Earlier points from the roadmap: before R1 the app was 515,682 lines with a 162-
 | wire (codeterm-wire) | `domios.rs` | 10 | 45 |
 
 Reading: the shared check worktree is switched by every lane, so run 1 is dominated by what the previous job left behind (10 s to 162 s for similar edits). Only back-to-back runs on a quiet gateway are comparable; the 45-46 s figure is the realistic warm cost of an edit in either crate today, and it is nearly the same for a leaf crate (wire) and for the hottest split crate (sentinel) because the app crate, which depends on both, is re-checked in full each time. Config, the app core, codex_rpc, pty_io, orchestrator, api/mem_routes, socket/server and the `test-one` times are not measured: the runs were stopped when the gateway was handed back for its fix. They are to be taken in one uninterrupted batch once the gateway is declared fixed.
+
+M0 batch attempt (2026-10-14, quiet gateway, probes on 10 files at 0e24a11da): not usable. `check-queue --wait-build` failed in `codeterm-sentinel` on the unmodified base (`probe/windows.rs:231` and `probe/capture.rs:237`, private type `cancellation::windows::Events` in a `pub` signature), so cargo never reached the app crate; the walls of 16 s and 5 s measure that early failure, not an edit. No timing is recorded until develop checks clean.
 
 Largest crate on the hot edit path: `codeterm-plugin` (72k lines, 849 touches in 90 days), then `codeterm-plan` (63k) and `codeterm-pty` (30k). The app crate (486k lines) is on every path.
 
