@@ -18,7 +18,7 @@ trap cleanup EXIT
 expect_log() {
   local pattern="$1" source="${2:-}" body
   if [ -n "$source" ]; then body="$(cat "$source")"; else body="$(cat)"; source="stdin"; fi
-  grep -q "$pattern" <<< "$body" && return 0
+  grep -Fq "$pattern" <<< "$body" && return 0
   echo "guard assertion failed: expected '$pattern' in $source; contents:" >&2
   printf '%s
 ' "$body" >&2
@@ -156,7 +156,8 @@ expect_log 'ct_configure_sccache' <<< "$cargo_entry_flow"
 
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
 expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
-expect_log 'scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib "$test_filter"' <<< "$test_one_flow"
+expect_log 'configure_app_test_cargo test-one' <<< "$test_one_flow"
+expect_log 'scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"' <<< "$test_one_flow"
 expect_log 'cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
 
 nextest_flow="$(sed -n '/^  nextest)/,/^  verify)/p' build.sh)"
