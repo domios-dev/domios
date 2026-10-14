@@ -1882,7 +1882,7 @@ Long operations (check, check-tests, test-one, test, verify, build, install-loca
 accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
-  cache-verify                Verify shared S3 configuration and running server without changes
+  cache-verify                Verify shared S3 storage; start the S3 server only when none is live
   cache-stats                 Show counters only from a live sccache server
   gateway-status              Show the machine build owner
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
