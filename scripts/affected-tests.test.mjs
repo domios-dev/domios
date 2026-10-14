@@ -117,3 +117,9 @@ test("maps bundle crate changes to its supported scope and reverse dependents", 
   assert.match(output, /\.\/build\.sh nextest frontend-bundle 'rdeps\(codeterm-frontend-bundle\)'/);
   assert.match(output, /Cost: 1 codeterm-frontend-bundle compile/);
 });
+
+test("a Rust fixture under scripts/tests/fixtures selects no Rust compile", async (t) => {
+  const fixture = await makeDiffFixture(t, "scripts/tests/fixtures/rust-test-inventory/scan/src-tauri/src/lib.rs");
+  const output = mapFixture(fixture.directory, fixture.base);
+  assert.doesNotMatch(output, /check-tests|Rust compile fallback|build\.sh nextest/);
+});

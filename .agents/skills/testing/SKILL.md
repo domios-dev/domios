@@ -96,6 +96,12 @@ script tests run through `node scripts/test-catalogue.mjs run --entry <id>`
 
 Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
 
+A change that moves Rust tests between modules or crates proves no test was
+lost without compiling: `node scripts/rust-test-inventory.mjs gate --base <ref>`
+statically scans the merge-base and HEAD from git objects and exits 1 on a lost
+or renamed key; crate moves pass. A deliberate rename is listed in a reviewed map,
+`docs/architecture/test-renames/<task>.txt` (`old_key -> new_key` per line),
+passed with `--renames`; a map line that hides nothing fails too.
 
 Nextest keeps normal suite parallelism. A parallel timing above one second is a
 candidate when new or above its recorded alone allowance. The gate reruns only

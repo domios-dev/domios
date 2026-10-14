@@ -3,16 +3,25 @@
 // Static Rust test inventory, resolved the way rustc resolves modules; never runs cargo.
 //
 // Scan: node scripts/rust-test-inventory.mjs [--root <repo>] [--out <file>]
-//   {"tests": [{"crate", "module_path", "test_name"}], "warnings": [{"kind", "crate", "file", "line", "message"}]}
+//   {"tests": [{"crate", "module_path", "test_name", "cfg"?}], "warnings": [{"kind", "crate", "file", "line", "message"}]}
 //   tests are sorted by crate, module_path, test_name; module_path is "" at a target root and uses "::".
 //   A test appears once per test binary that compiles it. Warning kinds: macro-body, nested-item,
 //   unreachable-file, cfg-gated (+ module_path, cfg), unknown-test-attr, unresolved-module, unresolved-include, parse-error, target-skipped.
 //
-// Diff: node scripts/rust-test-inventory.mjs diff <before> <after>
+// Diff: node scripts/rust-test-inventory.mjs diff [--target-os windows|macos|linux] [--renames <map>] <before> <after>
 //   Each side is a static inventory or `cargo nextest list --message-format json`. Keys are module_path::test_name,
 //   counted per binary. Exit 1 when a key loses a copy (lost or renamed); a crate change is "moved" and passes.
 //   New keys are "added", or "nextest-only" when a static before is compared with a nextest after. Exit 2 on bad input.
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+//   --target-os drops static keys whose cfg gate is false on that OS (a single-OS nextest list never compiles them).
+//   A key that gains or loses one leading module segment (an app module becoming a crate root) is "moved", not lost.
+//   --renames reads a reviewed map, one "old_key -> new_key" per line: a listed lost key whose new key is present passes
+//   as "renamed (reviewed)"; a line whose old key is not lost or whose new key is absent fails.
+//
+// Gate: node scripts/rust-test-inventory.mjs gate --base <ref> [--root <repo>] [--renames <map>]
+//   Statically scans the merge-base of <ref> and HEAD and scans HEAD, both read from git objects, and diffs them.
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -466,8 +475,8 @@ export function scanCrate(crate, root, fs = nodeFs) {
     };
     for (const t of items.tests) {
       const module_path = segsOf(t.inline).join("::");
-      tests.push({ crate: crate.name, module_path, test_name: t.name });
       const gates = [...new Set([...cfgs, ...t.cfgs])];
+      tests.push({ crate: crate.name, module_path, test_name: t.name, ...(gates.length ? { cfg: gates.join(" && ") } : {}) });
       if (gates.length) {
         const key = `${module_path}\u0000${gates.join(" && ")}`;
         const g = gated.get(key) ?? { file, line: t.line, module_path, cfg: gates.join(" && "), count: 0 };
@@ -549,6 +558,18 @@ export function formatInventory(inv) {
 }
 
 export const testKey = (t) => (t.module_path ? `${t.module_path}::${t.test_name}` : t.test_name);
+export function splitTestName(name) {
+  const cut = name.lastIndexOf("::");
+  return { module_path: cut < 0 ? "" : name.slice(0, cut), test_name: cut < 0 ? name : name.slice(cut + 2) };
+}
+
+// A crate split turns app module F into a crate root, so one key may gain or lose exactly one leading segment.
+// Crate names play no part; only a unique candidate matches.
+export function facadeMatch(key, candidates) {
+  const tail = (k) => (k.includes("::") ? k.slice(k.indexOf("::") + 2) : null);
+  const hits = [...new Set(candidates)].filter((c) => c !== key && (tail(c) === key || tail(key) === c));
+  return hits.length === 1 ? hits[0] : null;
+}
 const isStaticTest = (t) => t && typeof t.crate === "string" && typeof t.module_path === "string" && typeof t.test_name === "string";
 
 export function loadInventory(json) {
@@ -559,8 +580,7 @@ export function loadInventory(json) {
       const crate = suite["package-name"] ?? id.split("::")[0];
       const cases = Array.isArray(suite.testcases) ? suite.testcases.map((c) => (typeof c === "string" ? c : c.name)) : Object.keys(suite.testcases ?? {});
       for (const name of cases) {
-        const cut = name.lastIndexOf("::");
-        tests.push({ crate, module_path: cut < 0 ? "" : name.slice(0, cut), test_name: cut < 0 ? name : name.slice(cut + 2) });
+        tests.push({ crate, ...splitTestName(name) });
       }
     }
     return { format: "nextest", tests, warnings: [] };
@@ -583,7 +603,101 @@ const multisetMinus = (xs, ys) => {
 };
 const uniq = (xs) => [...new Set(xs)];
 
-export function diffInventories(before, after) {
+const TARGETS = {
+  linux: { target_os: "linux", target_family: "unix" },
+  macos: { target_os: "macos", target_family: "unix" },
+  windows: { target_os: "windows", target_family: "windows" },
+};
+export const TARGET_OSES = Object.keys(TARGETS);
+
+// Three-valued: true or false where the target decides the gate, null where it does not (features, debug_assertions).
+export function evalCfg(expr, os) {
+  const target = TARGETS[os];
+  if (!target) throw new Error(`unknown target os: ${os}`);
+  const toks = expr.match(/"(?:[^"\\]|\\.)*"|[A-Za-z_][A-Za-z0-9_]*|[(),=]|&&/g) ?? [];
+  let i = 0;
+  const all = (xs) => (xs.includes(false) ? false : xs.includes(null) ? null : true);
+  const any = (xs) => (xs.includes(true) ? true : xs.includes(null) ? null : false);
+  const args = () => {
+    const xs = [];
+    if (toks[i++] !== "(") throw new Error("expected (");
+    while (i < toks.length && toks[i] !== ")") {
+      xs.push(pred());
+      if (toks[i] === ",") i++;
+    }
+    if (toks[i++] !== ")") throw new Error("expected )");
+    return xs;
+  };
+  const pred = () => {
+    const name = toks[i++];
+    if (name === "all") return all(args());
+    if (name === "any") return any(args());
+    if (name === "not") {
+      const [x] = args();
+      return x === null ? null : !x;
+    }
+    if (toks[i] === "=") {
+      const value = JSON.parse(toks[i + 1]);
+      i += 2;
+      return name in target ? target[name] === value : null;
+    }
+    if (name === "test") return true;
+    if (name === "unix" || name === "windows") return target.target_family === name;
+    return null;
+  };
+  try {
+    const parts = [pred()];
+    while (toks[i] === "&&") {
+      i++;
+      parts.push(pred());
+    }
+    return i === toks.length ? all(parts) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Exact per-test cfg when the scan recorded it; otherwise a per-module allowance from cfg-gated warnings.
+export function restrictToTarget(inv, os) {
+  if (inv.format !== "static") return { inv, dropped: [], allowance: new Map() };
+  if (inv.tests.some((t) => typeof t.cfg === "string")) {
+    const keep = [];
+    const dropped = [];
+    for (const t of inv.tests) (typeof t.cfg === "string" && evalCfg(t.cfg, os) === false ? dropped : keep).push(t);
+    return { inv: { ...inv, tests: keep }, dropped, allowance: new Map() };
+  }
+  const allowance = new Map();
+  for (const w of inv.warnings ?? []) {
+    if (w.kind !== "cfg-gated" || w.module_path === undefined || evalCfg(w.cfg, os) !== false) continue;
+    const key = `${w.crate}\u0000${w.module_path}`;
+    allowance.set(key, (allowance.get(key) ?? 0) + Number(/^(\d+) test/.exec(w.message)?.[1] ?? 0));
+  }
+  return { inv, dropped: [], allowance };
+}
+
+// A reviewed rename map: one "old_key -> new_key" per line; blank lines and # comments are ignored.
+export function parseRenames(text) {
+  const renames = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/#.*/, "").trim();
+    if (!line) return;
+    const m = /^(\S+)\s*->\s*(\S+)$/.exec(line);
+    if (!m) throw new Error(`rename map line ${i + 1} is not "old_key -> new_key": ${raw}`);
+    renames.push({ from: m[1], to: m[2], line: i + 1 });
+  });
+  return renames;
+}
+
+export function diffInventories(before, after, { targetOs, renames } = {}) {
+  let targetDropped = [];
+  let allowance = new Map();
+  if (targetOs) {
+    const b = restrictToTarget(before, targetOs);
+    const a = restrictToTarget(after, targetOs);
+    [before, after] = [b.inv, a.inv];
+    targetDropped = [...b.dropped, ...a.dropped].map((t) => ({ key: testKey(t), crates: [t.crate], count: 1 }));
+    allowance = b.allowance;
+  }
   const group = (inv) => {
     const m = new Map();
     for (const t of inv.tests) {
@@ -610,6 +724,45 @@ export function diffInventories(before, after) {
     if (ac.length > bc.length) gain(key, fresh, ac.length - bc.length);
   }
   for (const [key, ac] of a) if (!b.has(key)) gain(key, ac, ac.length);
+  for (const l of [...lost]) {
+    const gains = [...added, ...nextestOnly];
+    const match = facadeMatch(l.key, gains.map((x) => x.key));
+    if (!match) continue;
+    const g = gains.find((x) => x.key === match);
+    const take = Math.min(l.count, g.count);
+    moved.push({ key: l.key, from: l.crates, to: g.crates, as: match });
+    l.count -= take;
+    g.count -= take;
+    if (!l.count) lost.splice(lost.indexOf(l), 1);
+    if (!g.count) for (const xs of [added, nextestOnly]) if (xs.includes(g)) xs.splice(xs.indexOf(g), 1);
+  }
+  for (const l of allowance.size ? [...lost] : []) {
+    const cut = l.key.lastIndexOf("::");
+    const mod = cut < 0 ? "" : l.key.slice(0, cut);
+    for (const crate of l.crates) {
+      const k = `${crate}\u0000${mod}`;
+      const take = Math.min(allowance.get(k) ?? 0, l.count);
+      if (!take) continue;
+      allowance.set(k, allowance.get(k) - take);
+      l.count -= take;
+      targetDropped.push({ key: l.key, crates: [crate], count: take });
+    }
+    if (l.count === 0) lost.splice(lost.indexOf(l), 1);
+  }
+  const renamed = [];
+  const renameErrors = [];
+  for (const r of renames ?? []) {
+    const l = lost.find((x) => x.key === r.from);
+    if (!l) renameErrors.push(`${r.from} -> ${r.to} (line ${r.line}): ${r.from} is not lost`);
+    else if (!a.has(r.to)) renameErrors.push(`${r.from} -> ${r.to} (line ${r.line}): ${r.to} is not in the after inventory`);
+    if (!l || !a.has(r.to)) continue;
+    lost.splice(lost.indexOf(l), 1);
+    renamed.push({ key: r.from, to: r.to, crates: l.crates });
+    for (const xs of [added, nextestOnly]) {
+      const g = xs.find((x) => x.key === r.to);
+      if (g) xs.splice(xs.indexOf(g), 1);
+    }
+  }
   const gated = before.warnings?.filter((w) => w.kind === "cfg-gated" && w.module_path !== undefined) ?? [];
   for (const l of lost) {
     const cut = l.key.lastIndexOf("::");
@@ -625,7 +778,9 @@ export function diffInventories(before, after) {
     moved: moved.sort(byKey),
     added: added.sort(byKey),
     nextestOnly: nextestOnly.sort(byKey),
-    ok: lost.length === 0,
+    ...(targetOs ? { targetOs, targetDropped: targetDropped.sort(byKey) } : {}),
+    ...(renames ? { renamed: renamed.sort(byKey), renameErrors } : {}),
+    ok: lost.length === 0 && renameErrors.length === 0,
   };
 }
 
@@ -641,9 +796,18 @@ export function formatDiff(d) {
     const notes = [l.of > 1 ? `${l.count} of ${l.of} binaries lost it` : "",l.candidates.length ? `rename candidates: ${l.candidates.join(", ")}` : "", l.cfg.length ? `module is cfg-gated: ${l.cfg.join("; ")}` : ""].filter(Boolean);
     return `${l.key}  [${l.crates.join(", ")}]${notes.length ? "  (" + notes.join("; ") + ")" : ""}`;
   });
-  section("MOVED", d.moved, (m) => `${m.key}  ${m.from.join(", ")} -> ${m.to.join(", ")}`);
+  section("MOVED", d.moved, (m) => `${m.key}  ${m.from.join(", ")} -> ${m.to.join(", ")}${m.as ? ` as ${m.as}` : ""}`);
   section("ADDED", d.added, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
   section("NEXTEST-ONLY (not failing)", d.nextestOnly, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
+  if (d.targetOs) {
+    out.splice(2, 0, `target-os: ${d.targetOs}  dropped as foreign-gated: ${d.targetDropped.reduce((n, x) => n + x.count, 0)}`);
+    section(`TARGET-OS DROPPED (not compiled on ${d.targetOs})`, d.targetDropped, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
+  }
+  if (d.renamed) {
+    out.splice(2, 0, `renamed (reviewed): ${d.renamed.length}  rename map errors: ${d.renameErrors.length}`);
+    section("RENAMED (reviewed)", d.renamed, (x) => `${x.key} -> ${x.to}  [${x.crates.join(", ")}]`);
+    section("RENAME MAP ERRORS (fails)", d.renameErrors, (x) => x);
+  }
   out.push(d.ok ? "result: PASS" : "result: FAIL");
   return out.join("\n") + "\n";
 }
@@ -664,20 +828,63 @@ function argValue(args, flag) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+const RUST_PATHSPECS = [":(glob)src-tauri/**/*.rs", ":(glob)src-tauri/**/Cargo.toml", ":(glob)cli/**/*.rs", ":(glob)cli/**/Cargo.toml"];
+
+// Extracts a commit's Rust sources into a temp dir from git objects; the working tree is never touched.
+export function scanCommit(repo, rev) {
+  const dir = mkdtempSync(path.join(tmpdir(), "rti-gate-"));
+  try {
+    const archive = spawnSync("git", ["-C", repo, "-c", "core.autocrlf=false", "archive", "--format=tar", rev, "--", ...RUST_PATHSPECS], { maxBuffer: 1 << 30 });
+    if (archive.status !== 0) throw new Error(`git archive ${rev} failed: ${archive.stderr}`);
+    const tar = spawnSync("tar", ["-x", "-f", "-"], { cwd: dir, input: archive.stdout, maxBuffer: 1 << 26 });
+    if (tar.status !== 0) throw new Error(`tar failed: ${tar.stderr}`);
+    return loadInventory(scanWorkspace(dir));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export function gateDiff(repo, base, options = {}) {
+  const git = (...args) => {
+    const r = spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.trim()}`);
+    return r.stdout.trim();
+  };
+  const mergeBase = git("merge-base", base, "HEAD");
+  const head = git("rev-parse", "HEAD");
+  return { mergeBase, head, diff: diffInventories(scanCommit(repo, mergeBase), scanCommit(repo, head), options) };
+}
+
 function main(args) {
-  if (args[0] === "diff") {
-    if (args.length !== 3) {
-      process.stderr.write("usage: node scripts/rust-test-inventory.mjs diff <before.json> <after.json>\n");
+  if (args[0] === "gate" || args[0] === "diff") {
+    const flags = new Set(["--base", "--root", "--target-os", "--renames"]);
+    const positional = args.slice(1).filter((a, i, xs) => !flags.has(a) && !flags.has(xs[i - 1]));
+    const targetOs = argValue(args, "--target-os");
+    const renamesFile = argValue(args, "--renames");
+    const gate = args[0] === "gate";
+    const usage = gate
+      ? "gate --base <ref> [--root <repo>] [--renames <map>]"
+      : `diff [--target-os ${TARGET_OSES.join("|")}] [--renames <map>] <before.json> <after.json>`;
+    if ((gate ? !argValue(args, "--base") || positional.length : positional.length !== 2) || (args.includes("--target-os") && !TARGET_OSES.includes(targetOs))) {
+      process.stderr.write(`usage: node scripts/rust-test-inventory.mjs ${usage}\n`);
       return 2;
     }
     let d;
+    let header = "";
     try {
-      d = diffInventories(readInventoryFile(args[1]), readInventoryFile(args[2]));
+      const renames = renamesFile ? parseRenames(readFileSync(renamesFile, "utf8")) : undefined;
+      if (gate) {
+        const r = gateDiff(argValue(args, "--root") ?? process.cwd(), argValue(args, "--base"), { renames });
+        header = `gate: merge-base ${r.mergeBase.slice(0, 12)} -> HEAD ${r.head.slice(0, 12)}\n`;
+        d = r.diff;
+      } else {
+        d = diffInventories(readInventoryFile(positional[0]), readInventoryFile(positional[1]), { targetOs, renames });
+      }
     } catch (err) {
-      process.stderr.write(`rust-test-inventory diff: ${err.message}\n`);
+      process.stderr.write(`rust-test-inventory ${args[0]}: ${err.message}\n`);
       return 2;
     }
-    process.stdout.write(formatDiff(d));
+    process.stdout.write(header + formatDiff(d));
     return d.ok ? 0 : 1;
   }
   const root = argValue(args, "--root") ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
