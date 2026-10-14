@@ -6,7 +6,14 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
-struct Adapter;
+#[derive(Default)]
+pub(super) struct Probe {
+    pub reduces: Mutex<Vec<Vec<RuntimeFrame>>>,
+    pub fail_next: std::sync::atomic::AtomicU32,
+    pub reduce_failures: std::sync::atomic::AtomicU32,
+}
+
+struct Adapter(Arc<Probe>);
 
 #[async_trait::async_trait]
 impl AgentProvider for Adapter {
@@ -55,10 +62,11 @@ impl AgentProvider for Adapter {
             },
             inherited_environment_exclusions: Vec::new(),
             login: None,
-            request_methods: std::collections::BTreeMap::from([(
-                "control".into(),
-                vec!["fixture/restore".into()],
-            )]),
+            request_methods: std::collections::BTreeMap::from([
+                ("control".into(), vec!["fixture/restore".into()]),
+                ("resumeThread".into(), vec!["thread/resume".into()]),
+                ("readHistory".into(), vec!["thread/read".into()]),
+            ]),
             notification_methods: vec!["fixture/compacted".into()],
         })
     }
@@ -67,16 +75,21 @@ impl AgentProvider for Adapter {
         _: &RuntimeContext,
         operation: &RuntimeOperation,
     ) -> Result<RuntimePlan, codeterm_plugin::agent_runtime::RuntimeFailure> {
-        let RuntimeOperation::Control { action, value, .. } = operation else {
-            panic!("unexpected operation")
+        let (method, params) = match operation {
+            RuntimeOperation::Control { action, value, .. } => {
+                assert_eq!(action, "restoreContext");
+                ("fixture/restore", value.clone())
+            }
+            RuntimeOperation::ResumeThread { .. } => ("thread/resume", json!({})),
+            RuntimeOperation::ReadHistory { .. } => ("thread/read", json!({})),
+            _ => panic!("unexpected operation"),
         };
-        assert_eq!(action, "restoreContext");
         Ok(RuntimePlan {
             action: RuntimeAction::Request {
                 call: RpcCall {
                     target: None,
-                    method: "fixture/restore".into(),
-                    params: value.clone(),
+                    method: method.into(),
+                    params,
                 },
             },
             state: Value::Null,
@@ -85,13 +98,30 @@ impl AgentProvider for Adapter {
     async fn runtime_response(
         &self,
         _: &RuntimeContext,
-        _: &RuntimeOperation,
+        operation: &RuntimeOperation,
         _: &Value,
         reply: &RpcReply,
     ) -> Result<RuntimeStep, codeterm_plugin::agent_runtime::RuntimeFailure> {
         Ok(match reply {
             RpcReply::Success { .. } => RuntimeStep::Complete {
-                result: RuntimeResult::Done,
+                result: match operation {
+                    RuntimeOperation::ResumeThread {
+                        thread_id,
+                        settings,
+                        ..
+                    } => RuntimeResult::ThreadLoaded {
+                        thread_id: thread_id.clone(),
+                        settings: settings.clone(),
+                    },
+                    RuntimeOperation::ReadHistory { thread_id, .. } => RuntimeResult::HistoryPage {
+                        thread_id: thread_id.clone(),
+                        items: Vec::new(),
+                        next_cursor: None,
+                        open_items: Vec::new(),
+                        questions: None,
+                    },
+                    _ => RuntimeResult::Done,
+                },
                 events: None,
                 notification: None,
             },
@@ -108,8 +138,21 @@ impl AgentProvider for Adapter {
         &self,
         _: &RuntimeContext,
         _: &Value,
-        _: &[RuntimeFrame],
+        frames: &[RuntimeFrame],
     ) -> Result<RuntimeReduction, codeterm_plugin::agent_runtime::RuntimeFailure> {
+        use std::sync::atomic::Ordering;
+        self.0.reduces.lock().push(frames.to_vec());
+        let armed = self
+            .0
+            .fail_next
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+        if armed.is_ok() {
+            self.0.reduce_failures.fetch_add(1, Ordering::SeqCst);
+            return Err(codeterm_plugin::agent_runtime::RuntimeFailure::new(
+                RuntimeFailureCode::ProviderRefused,
+                "fixture reduce failure",
+            ));
+        }
         Ok(RuntimeReduction {
             state: Value::Null,
             events: Vec::new(),
@@ -121,6 +164,7 @@ pub(super) struct Scene {
     pub fixture: ServiceFixture,
     pub session: Arc<Session>,
     pub peer: BufReader<DuplexStream>,
+    pub probe: Arc<Probe>,
 }
 
 pub(super) fn scene() -> Scene {
@@ -140,11 +184,12 @@ pub(super) fn scene() -> Scene {
                 .into(),
         );
     }
+    let probe = Arc::new(Probe::default());
     let fixture = ServiceFixture::new(mux);
     fixture
         .service
         .agent_registry
-        .register_provider(Box::new(Adapter));
+        .register_provider(Box::new(Adapter(probe.clone())));
     let adapter = fixture
         .service
         .agent_registry
@@ -179,6 +224,8 @@ pub(super) fn scene() -> Scene {
         auth: Mutex::new(RuntimeAuthState::Unknown),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
         hook_state: Mutex::new(Value::Null),
+        maps: Mutex::new(super::super::events::RuntimeMaps::default()),
+        bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
         process: Mutex::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
@@ -193,6 +240,7 @@ pub(super) fn scene() -> Scene {
         fixture,
         session,
         peer: BufReader::new(peer),
+        probe,
     }
 }
 

@@ -199,3 +199,39 @@ async fn multi_mib_history_frames_fit_but_transport_remains_bounded() {
         Err(RuntimeFailure::InvalidFrame(_))
     ));
 }
+
+#[tokio::test]
+async fn parallel_tool_output_burst_stays_inside_the_event_queue() {
+    const BURST: usize = 6000;
+    let (host, mut peer) = tokio::io::duplex(65536);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    let mut events = client.subscribe();
+    let mut ended = client.ended();
+    let mut burst = String::new();
+    for index in 0..BURST {
+        let tool = index % 3;
+        burst.push_str(&format!(
+            "{{\"method\":\"fixture/delta\",\"params\":{{\"tool\":{tool},\"seq\":{index}}}}}\n"
+        ));
+    }
+    let produce = async {
+        peer.write_all(burst.as_bytes()).await.unwrap();
+        drop(peer);
+    };
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let (_, changed) = tokio::join!(produce, ended.changed());
+        changed.unwrap();
+    })
+    .await
+    .unwrap();
+    let mut seen = 0;
+    while let Ok(frame) = events.try_recv() {
+        let RuntimeFrame::Notification { params, .. } = frame else {
+            panic!("unexpected frame")
+        };
+        assert_eq!(params["seq"], seen);
+        seen += 1;
+    }
+    assert_eq!(seen, BURST);
+}

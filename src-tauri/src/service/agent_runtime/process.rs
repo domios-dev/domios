@@ -1,5 +1,12 @@
 use super::{model::RuntimeFailure, rpc::Client};
-use codeterm_plugin::agent_runtime::AgentRuntimeCapability;
+use codeterm_plugin::agent_runtime::{AgentRuntimeCapability, AgentRuntimeProtocol};
+
+fn transport_name(protocol: &AgentRuntimeProtocol) -> &'static str {
+    match protocol {
+        AgentRuntimeProtocol::StdioJsonrpc => "stdio-jsonrpc",
+        AgentRuntimeProtocol::HttpSse => "http-sse",
+    }
+}
 use parking_lot::Mutex;
 use std::{collections::HashMap, path::Path, process::Stdio, sync::Arc, time::Duration};
 use tokio::{io::AsyncReadExt, sync::watch};
@@ -51,6 +58,14 @@ pub fn spawn(
     env: HashMap<String, String>,
     tab: &str,
 ) -> Result<Process, RuntimeFailure> {
+    if cap.runtime != codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc {
+        return Err(RuntimeFailure::SpawnFailed {
+            reason: format!(
+                "Runtime transport {} has no reader",
+                transport_name(&cap.runtime)
+            ),
+        });
+    }
     if let Some(problem) = crate::service::spawn_cwd::cwd_problem(cwd) {
         return Err(RuntimeFailure::SpawnFailed {
             reason: format!("Runtime cwd {cwd:?}: {problem}"),

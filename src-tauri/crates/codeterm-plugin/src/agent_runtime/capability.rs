@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 #[serde(rename_all = "kebab-case")]
 pub enum AgentRuntimeProtocol {
     StdioJsonrpc,
+    #[serde(rename = "http-sse")]
+    HttpSse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
