@@ -44,6 +44,18 @@ node scripts/dev-screenshot.mjs /tmp/prod.png '' --api-port 7685   # another ins
 
 It prints the file path and the running build SHA; open the PNG with your file-read/image tool to see it. Check the build SHA before judging a change: the screenshot shows what is running, not what is merged. For state the picture cannot show (counts, attributes), evaluate DOM over the same port (`Runtime.evaluate`) instead of guessing from pixels.
 
+## Prove a wheel/scroll bug (real wheel probe)
+
+`scripts/dev-wheel-probe.mjs` sends a real CDP `mouseWheel` (`deltaY` 240) at an element's center and reports the nearest scrollable ancestor's `scrollTop` before/after, the wheel event target and `defaultPrevented`, and the hit element's ancestor chain with computed overflow, overscroll, pointer-events and app-region. It waits on the scroll event or two rAFs, never a sleep.
+
+```bash
+node scripts/dev-wheel-probe.mjs                                   # sidebar: tab label, same row icon, empty space
+node scripts/dev-wheel-probe.mjs '[data-testid=tab-title]' '.sidebar-tab-badge'   # custom points
+node scripts/dev-wheel-probe.mjs --api-port 7686 --delta 480
+```
+
+Exit 1 means a probe did not move its scroller: first make sure the sidebar actually overflows (open enough tabs), then compare the `chain` of the failing point with the passing one; the first node that differs is the cause.
+
 DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
 From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
 Exact protocol-turn and append-window source links join assistant appends, including late links; a missing assistant stage means pending or missing evidence, not a delivery verdict.
