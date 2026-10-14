@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Builds signed + notarized x86_64 macOS DMG with full embeddings (ONNX dylib bundled).
+# Builds a signed x86_64 macOS DMG; mac-bundle.sh owns notarization.
 # Run from the codeterm repo root on an arm64 Mac.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
-SECRETS="$HOME/.claude/.secrets/apple-notary.env"
-set -a; source "$SECRETS"; set +a
-SIGN_ID="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)"
+: "${APPLE_SIGNING_IDENTITY:?Provide APPLE_SIGNING_IDENTITY}"
+: "${RELEASE_KEYCHAIN:?Import the job signing keychain first}"
+SIGN_ID="$APPLE_SIGNING_IDENTITY"
 
 ONNX_VER="1.23.2"
 ONNX_DIR="/tmp/onnxruntime-osx-x86_64-${ONNX_VER}"
@@ -124,7 +124,7 @@ for f in src-tauri/bundled-embed/codeterm-embed-x86_64-apple-darwin \
          src-tauri/bundled-embed-libs/libc++.1.dylib \
          src-tauri/bundled-embed-libs/libc++abi.1.dylib; do
   [ -f "$f" ] || continue
-  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$f"
+  codesign --force --options runtime --timestamp --keychain "$RELEASE_KEYCHAIN" --sign "$SIGN_ID" "$f"
 done
 
 # 5. Merge config: add bundled-embed-libs/* to resources (don't suppress beforeBuildCommand).
@@ -141,15 +141,14 @@ cat > /tmp/tauri.x86_64.conf.json <<'JSONEOF'
 JSONEOF
 
 # 6. Tauri build with cross-target + updater signing. CARGO_BUILD_TARGET forces every cargo
-# invocation inside beforeBuildCommand to cross-compile; TAURI_SIGNING_PRIVATE_KEY makes Tauri
+# invocation inside beforeBuildCommand to cross-compile; TAURI_SIGNING_PRIVATE_KEY_PATH makes Tauri
 # emit the .app.tar.gz + .sig updater bundle alongside the DMG.
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
-export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/codeterm.key)"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+: "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
 pnpm tauri build --target x86_64-apple-darwin \
   --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
   --config /tmp/tauri.x86_64.conf.json
-unset CARGO_BUILD_TARGET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+unset CARGO_BUILD_TARGET
 
 # 6b. Arch assertion: fail before notarize if CLI or GUI is wrong arch.
 APP_CLI="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app/Contents/Resources/cli/codeterm"
@@ -160,20 +159,10 @@ echo "OK: both bundled CLI and GUI are x86_64"
 
 DMG="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_$(jq -r .version package.json)_x64.dmg"
 
-# 7. Notarize the DMG itself (Tauri skips this)
-xcrun notarytool submit "$DMG" \
-  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-  --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-
-# 8. Staple + verify
-xcrun stapler staple "$DMG"
-spctl --assess --type open --context context:primary-signature --verbose "$DMG"
-xcrun stapler validate "$DMG"
-
-# 9. Restore arm64 CLI to bundled-cli so future arm64 builds aren't broken
+# 7. Restore arm64 CLI to bundled-cli so future arm64 builds aren't broken
 CARGO_TARGET_DIR=cli/target cargo build --release --manifest-path cli/Cargo.toml >/dev/null
 cp cli/target/release/codeterm src-tauri/bundled-cli/codeterm
-codesign --force --options runtime --timestamp --sign "$SIGN_ID" src-tauri/bundled-cli/codeterm
+codesign --force --options runtime --timestamp --keychain "$RELEASE_KEYCHAIN" --sign "$SIGN_ID" src-tauri/bundled-cli/codeterm
 
 echo
 echo "Done. DMG: $DMG"
