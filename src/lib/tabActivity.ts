@@ -1,4 +1,5 @@
 import type { Tab, TabAgentState, TabStatus } from "./types";
+import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
 
 export interface AgentState extends Omit<TabAgentState, "state"> {
@@ -62,7 +63,9 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
   const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
   const question = kind === "waiting-on-user" ? tab?.pending_prompt?.question?.trim() : null;
-  const label = question || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
+  const providerReason = kind !== "working" && kind !== "starting" && kind !== "failed"
+    ? providerErrorReason(tab?.provider_signals?.api_error) : null;
+  const label = question || providerReason || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
     : (matchingLive ? live?.status_line?.trim() : null)
       || (kind === "failed" ? "Launch failed" : kind === "starting" ? "Starting…"
         : kind === "working" ? matchingLive && live?.phase === "compacting" ? "Compacting" : "Working"

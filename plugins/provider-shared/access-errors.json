@@ -133,17 +133,21 @@
     "claude": {
       "type": "assistant",
       "isApiErrorMessage": true,
+      "uuid": "turn-429",
       "error": {
-        "status": 429
+        "status": 429,
+        "retryAfter": 12
       },
       "sessionId": "own"
     },
     "codex": {
       "type": "event_msg",
+      "uuid": "turn-429",
       "payload": {
         "type": "error",
         "error": {
-          "status": 429
+          "status": 429,
+          "retryAfter": 12
         }
       }
     },
@@ -311,7 +315,7 @@
         }
       }
     },
-    "expected": "rate_limit"
+    "expected": "usage_limit"
   },
   {
     "claude": {
@@ -337,5 +341,69 @@
       }
     },
     "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "uuid": "turn-usage",
+      "error": {
+        "code": "usage_limit"
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "uuid": "turn-usage",
+      "payload": {
+        "type": "error",
+        "error": {
+          "code": "usage_limit"
+        }
+      }
+    },
+    "expected": "usage_limit"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "uuid": "turn-503",
+      "error": {
+        "status": 503,
+        "type": "overloaded_error"
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "uuid": "turn-503",
+      "payload": {
+        "type": "error",
+        "error": {
+          "status": 503,
+          "codexErrorInfo": "serverOverloaded"
+        }
+      }
+    },
+    "expected": "server_overloaded"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "uuid": "turn-auth-expiry",
+      "error": "token_expired",
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "uuid": "turn-auth-expiry",
+      "payload": {
+        "type": "error",
+        "error": "token_expired"
+      }
+    },
+    "expected": "auth_expiry"
   }
 ]
