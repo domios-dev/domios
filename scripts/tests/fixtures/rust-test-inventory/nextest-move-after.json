@@ -1,0 +1,59 @@
+{
+  "rust-build-meta": {
+    "target-directory": "/work/target",
+    "base-output-directories": ["debug"],
+    "non-test-binaries": {},
+    "build-script-out-dirs": {},
+    "linked-paths": [],
+    "target-platforms": [],
+    "target-platform": null
+  },
+  "test-count": 6,
+  "rust-suites": {
+    "fixture-app": {
+      "package-name": "fixture-app",
+      "binary-id": "fixture-app",
+      "binary-name": "fixture_app",
+      "package-id": "path+file:///work/src-tauri#fixture-app@0.1.0",
+      "kind": "lib",
+      "binary-path": "/work/target/debug/deps/fixture_app-0f1e2d3c4b5a6978",
+      "build-platform": "target",
+      "cwd": "/work/src-tauri",
+      "status": "listed",
+      "testcases": {
+        "tests::app_stays": { "ignored": false, "filter-match": { "status": "matches" } }
+      }
+    },
+    "fixture-cli::bin/fixture-cli": {
+      "package-name": "fixture-cli",
+      "binary-id": "fixture-cli::bin/fixture-cli",
+      "binary-name": "fixture-cli",
+      "package-id": "path+file:///work/cli#fixture-cli@0.1.0",
+      "kind": "bin",
+      "binary-path": "/work/target/debug/deps/fixture_cli-1a2b3c4d5e6f7081",
+      "build-platform": "target",
+      "cwd": "/work/cli",
+      "status": "listed",
+      "testcases": {
+        "tests::cli_parses": { "ignored": false, "filter-match": { "status": "matches" } }
+      }
+    },
+    "fixture-core": {
+      "package-name": "fixture-core",
+      "binary-id": "fixture-core",
+      "binary-name": "fixture_core",
+      "package-id": "path+file:///work/src-tauri/crates/fixture-core#0.1.0",
+      "kind": "lib",
+      "binary-path": "/work/target/debug/deps/fixture_core-99aa88bb77cc66dd",
+      "build-platform": "target",
+      "cwd": "/work/src-tauri/crates/fixture-core",
+      "status": "listed",
+      "testcases": {
+        "parser::tests::parses_body": { "ignored": false, "filter-match": { "status": "matches" } },
+        "parser::tests::parses_header": { "ignored": false, "filter-match": { "status": "matches" } },
+        "tests::core_stays": { "ignored": true, "filter-match": { "status": "mismatch", "reason": "ignored" } },
+        "tests::generated_case": { "ignored": false, "filter-match": { "status": "matches" } }
+      }
+    }
+  }
+}

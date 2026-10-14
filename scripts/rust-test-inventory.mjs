@@ -6,7 +6,12 @@
 //   {"tests": [{"crate", "module_path", "test_name"}], "warnings": [{"kind", "crate", "file", "line", "message"}]}
 //   tests are sorted by crate, module_path, test_name; module_path is "" at a target root and uses "::".
 //   A test appears once per test binary that compiles it. Warning kinds: macro-body, nested-item,
-//   unreachable-file, cfg-gated, unknown-test-attr, unresolved-module, unresolved-include, parse-error, target-skipped.
+//   unreachable-file, cfg-gated (+ module_path, cfg), unknown-test-attr, unresolved-module, unresolved-include, parse-error, target-skipped.
+//
+// Diff: node scripts/rust-test-inventory.mjs diff <before> <after>
+//   Each side is a static inventory or `cargo nextest list --message-format json`. Keys are module_path::test_name,
+//   counted per binary. Exit 1 when a key loses a copy (lost or renamed); a crate change is "moved" and passes.
+//   New keys are "added", or "nextest-only" when a static before is compared with a nextest after. Exit 2 on bad input.
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -507,7 +512,10 @@ export function scanCrate(crate, root, fs = nodeFs) {
   const { targets, skipped } = crateTargets(crate.dir, crate.manifest, fs);
   for (const s of skipped) warn("target-skipped", s.file, 0, `${s.kind} target has ${s.reason}; its tests are not listed by libtest`);
   for (const target of targets) walk(target.file, [], { dir: posix.dirname(target.file), relative: null }, [], [], false);
-  for (const g of gated.values()) warn("cfg-gated", g.file, g.line, `${g.count} test(s) in ${g.module_path || "<root>"} compile only under cfg(${g.cfg})`);
+  for (const g of gated.values()) {
+    warn("cfg-gated", g.file, g.line, `${g.count} test(s) in ${g.module_path || "<root>"} compile only under cfg(${g.cfg})`);
+    Object.assign(warnings[warnings.length - 1], { module_path: g.module_path, cfg: g.cfg });
+  }
   for (const sub of ["src", "tests"]) {
     for (const file of listRs(fs, posix.join(crate.dir, sub))) {
       if (reached.has(file) || skipped.some((s) => s.file === file)) continue;
@@ -540,12 +548,138 @@ export function formatInventory(inv) {
   return `{\n  "tests": [\n${lines(inv.tests)}\n  ],\n  "warnings": [\n${lines(inv.warnings)}\n  ]\n}\n`;
 }
 
+export const testKey = (t) => (t.module_path ? `${t.module_path}::${t.test_name}` : t.test_name);
+const isStaticTest = (t) => t && typeof t.crate === "string" && typeof t.module_path === "string" && typeof t.test_name === "string";
+
+export function loadInventory(json) {
+  const suites = json && !Array.isArray(json) && typeof json === "object" ? json["rust-suites"] : undefined;
+  if (suites && typeof suites === "object") {
+    const tests = [];
+    for (const [id, suite] of Object.entries(suites)) {
+      const crate = suite["package-name"] ?? id.split("::")[0];
+      const cases = Array.isArray(suite.testcases) ? suite.testcases.map((c) => (typeof c === "string" ? c : c.name)) : Object.keys(suite.testcases ?? {});
+      for (const name of cases) {
+        const cut = name.lastIndexOf("::");
+        tests.push({ crate, module_path: cut < 0 ? "" : name.slice(0, cut), test_name: cut < 0 ? name : name.slice(cut + 2) });
+      }
+    }
+    return { format: "nextest", tests, warnings: [] };
+  }
+  const list = Array.isArray(json) ? json : Array.isArray(json?.tests) ? json.tests : null;
+  if (!list || !list.every(isStaticTest)) {
+    throw new Error("unrecognised inventory: expected a static inventory or `cargo nextest list --message-format json` output");
+  }
+  return { format: "static", tests: list, warnings: Array.isArray(json?.warnings) ? json.warnings : [] };
+}
+
+const multisetMinus = (xs, ys) => {
+  const rest = [...ys];
+  return xs.filter((x) => {
+    const at = rest.indexOf(x);
+    if (at < 0) return true;
+    rest.splice(at, 1);
+    return false;
+  });
+};
+const uniq = (xs) => [...new Set(xs)];
+
+export function diffInventories(before, after) {
+  const group = (inv) => {
+    const m = new Map();
+    for (const t of inv.tests) {
+      const k = testKey(t);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(t.crate);
+    }
+    return m;
+  };
+  const b = group(before);
+  const a = group(after);
+  const nextestOnlySide = before.format === "static" && after.format === "nextest";
+  const lost = [];
+  const moved = [];
+  const added = [];
+  const nextestOnly = [];
+  const gain = (key, crates, count) => (nextestOnlySide ? nextestOnly : added).push({ key, crates: uniq(crates), count });
+  for (const [key, bc] of b) {
+    const ac = a.get(key) ?? [];
+    const gone = multisetMinus(bc, ac);
+    const fresh = multisetMinus(ac, bc);
+    if (bc.length > ac.length) lost.push({ key, crates: uniq(bc), count: bc.length - ac.length, of: bc.length });
+    else if (gone.length) moved.push({ key, from: uniq(gone), to: uniq(fresh) });
+    if (ac.length > bc.length) gain(key, fresh, ac.length - bc.length);
+  }
+  for (const [key, ac] of a) if (!b.has(key)) gain(key, ac, ac.length);
+  const gated = before.warnings?.filter((w) => w.kind === "cfg-gated" && w.module_path !== undefined) ?? [];
+  for (const l of lost) {
+    const cut = l.key.lastIndexOf("::");
+    const mod = cut < 0 ? "" : l.key.slice(0, cut);
+    l.candidates = [...added, ...nextestOnly].filter((x) => x.key.lastIndexOf("::") === cut && x.key.slice(0, Math.max(cut, 0)) === mod).map((x) => x.key);
+    l.cfg = uniq(gated.filter((w) => l.crates.includes(w.crate) && w.module_path === mod).map((w) => w.cfg));
+  }
+  const byKey = (x, y) => cmp(x.key, y.key);
+  return {
+    before: { format: before.format, count: before.tests.length },
+    after: { format: after.format, count: after.tests.length },
+    lost: lost.sort(byKey),
+    moved: moved.sort(byKey),
+    added: added.sort(byKey),
+    nextestOnly: nextestOnly.sort(byKey),
+    ok: lost.length === 0,
+  };
+}
+
+export function formatDiff(d) {
+  const out = [
+    `before: ${d.before.format} (${d.before.count} tests)  after: ${d.after.format} (${d.after.count} tests)`,
+    `lost: ${d.lost.length}  moved: ${d.moved.length}  added: ${d.added.length}  nextest-only: ${d.nextestOnly.length}`,
+  ];
+  const section = (title, xs, fmt) => {
+    if (xs.length) out.push(`${title}:`, ...xs.map((x) => `  ${fmt(x)}`));
+  };
+  section("LOST (fails)", d.lost, (l) => {
+    const notes = [l.of > 1 ? `${l.count} of ${l.of} binaries lost it` : "",l.candidates.length ? `rename candidates: ${l.candidates.join(", ")}` : "", l.cfg.length ? `module is cfg-gated: ${l.cfg.join("; ")}` : ""].filter(Boolean);
+    return `${l.key}  [${l.crates.join(", ")}]${notes.length ? "  (" + notes.join("; ") + ")" : ""}`;
+  });
+  section("MOVED", d.moved, (m) => `${m.key}  ${m.from.join(", ")} -> ${m.to.join(", ")}`);
+  section("ADDED", d.added, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
+  section("NEXTEST-ONLY (not failing)", d.nextestOnly, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
+  out.push(d.ok ? "result: PASS" : "result: FAIL");
+  return out.join("\n") + "\n";
+}
+
+function readInventoryFile(file) {
+  const text = readFileSync(file, "utf8");
+  try {
+    return loadInventory(JSON.parse(text));
+  } catch (err) {
+    const last = text.split(/\r?\n/).filter((l) => l.trimStart().startsWith("{")).pop();
+    if (err instanceof SyntaxError && last) return loadInventory(JSON.parse(last));
+    throw err;
+  }
+}
+
 function argValue(args, flag) {
   const i = args.indexOf(flag);
   return i >= 0 ? args[i + 1] : undefined;
 }
 
 function main(args) {
+  if (args[0] === "diff") {
+    if (args.length !== 3) {
+      process.stderr.write("usage: node scripts/rust-test-inventory.mjs diff <before.json> <after.json>\n");
+      return 2;
+    }
+    let d;
+    try {
+      d = diffInventories(readInventoryFile(args[1]), readInventoryFile(args[2]));
+    } catch (err) {
+      process.stderr.write(`rust-test-inventory diff: ${err.message}\n`);
+      return 2;
+    }
+    process.stdout.write(formatDiff(d));
+    return d.ok ? 0 : 1;
+  }
   const root = argValue(args, "--root") ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   const out = argValue(args, "--out");
   const inv = scanWorkspace(root);
