@@ -110,8 +110,29 @@ fn fixture(status: ReportStatus) -> Fixture {
 
 #[test]
 fn reported_restart_bounce_keeps_one_current_attempt_and_ack_skill_lookup_succeeds() {
+    assert_reported_restart_bounce(false);
+}
+
+#[test]
+fn live_chat_backend_worker_bounce_restores_binding_and_continues_same_attempt() {
+    assert_reported_restart_bounce(true);
+}
+
+fn assert_reported_restart_bounce(runtime: bool) {
     for status in [ReportStatus::Partial, ReportStatus::InReview] {
         let mut f = fixture(status);
+        let _live_runtime = if runtime {
+            let tab = f.mux.get_tab_mut(&f.tab_id).unwrap();
+            tab.pty_id = None;
+            tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+                plugin_id: tab.agent_type.clone().unwrap(),
+                session_id: SESSION.into(),
+            };
+            tab.agent_runtime_state = Some(serde_json::json!({"state":"loaded"}));
+            Some(crate::service::agent_runtime::engine::test_support::live_runtime(tab))
+        } else {
+            None
+        };
         let report = f
             .store
             .show_task(&f.task_id)
@@ -333,6 +354,38 @@ fn restored_bounce_refuses_unproven_or_foreign_session_without_mutating_the_plan
                 .is_err(),
             "{invalid}"
         );
+        assert_eq!(f.store.get(&f.plan_id).unwrap(), before);
+    }
+}
+
+#[test]
+fn runtime_bounce_refuses_unloaded_and_foreign_nonce_without_mutating_plan() {
+    for invalid in ["unloaded", "wrong_nonce", "ended_process"] {
+        let mut f = fixture(ReportStatus::InReview);
+        let tab = f.mux.get_tab_mut(&f.tab_id).unwrap();
+        tab.pty_id = None;
+        tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+            plugin_id: tab.agent_type.clone().unwrap(),
+            session_id: SESSION.into(),
+        };
+        tab.agent_runtime_state = Some(serde_json::json!({"state":"loaded"}));
+        let _live = crate::service::agent_runtime::engine::test_support::live_runtime(tab);
+        let session = crate::service::agent_runtime::engine::for_tab(&f.tab_id).unwrap();
+        match invalid {
+            "unloaded" => session
+                .thread_loaded
+                .store(false, std::sync::atomic::Ordering::Release),
+            "wrong_nonce" => session.context.lock().binding_nonce = "foreign".into(),
+            "ended_process" => {
+                session.process.lock().take();
+            }
+            _ => unreachable!(),
+        }
+        let before = f.store.get(&f.plan_id).unwrap();
+        assert!(restore_review_attempt_binding_for_mux(
+            &f.store, &f.mux, &f.plan_id, &f.task_id, 6
+        )
+        .is_err());
         assert_eq!(f.store.get(&f.plan_id).unwrap(), before);
     }
 }
