@@ -858,6 +858,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     format!("/api/session/backups/{}/restore", urlencoding::encode(name)),
                     None,
                 ),
+                crate::args::sessions::BackupsAction::Export { .. }
+                | crate::args::sessions::BackupsAction::Import { .. } => {
+                    unsupported("`sessions backups export|import` read or write a local file; run it on the target machine")
+                }
             },
         },
         Commands::Keepawake { action } => match action {
