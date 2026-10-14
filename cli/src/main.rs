@@ -1085,3 +1085,6 @@ mod subcommand_contract_tests;
 mod tab_name_contract_tests;
 #[cfg(test)]
 mod zero_flag_plan_context_tests;
+
+#[cfg(test)]
+mod test_support;

@@ -14,7 +14,7 @@ const TIMER_IMPORTS: [&str; 2] = ["use std::thread", "use tokio::time"];
 /// under a new name anywhere in the repository-watch path.
 #[test]
 fn repository_watch_never_polls() {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest = PathBuf::from(crate::test_support::fixture_manifest_dir());
     let app = manifest.join("../..");
     let mut sources = collect(&manifest.join("src"));
     sources.extend(collect(&app.join("src/repowatch")));

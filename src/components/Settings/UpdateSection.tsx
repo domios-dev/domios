@@ -57,7 +57,7 @@ export function UpdateSection({ config, onUpdate }: {
     <SettingsCard
       icon={<Download size={16} />}
       title="Updates"
-      headerRight={<SettingsPill tone={unified?.items.length ? "accent" : statusTone}>{unified?.items.length ? "updates available" : statusText}</SettingsPill>}
+      headerRight={<SettingsPill tone={unified?.error ? "red" : unified?.items.length ? "accent" : statusTone}>{unified?.error ? "failed" : unified?.items.length ? "updates available" : statusText}</SettingsPill>}
     >
       <div className="flex flex-col gap-3">
         {unified && <UpdatePanelContents />}

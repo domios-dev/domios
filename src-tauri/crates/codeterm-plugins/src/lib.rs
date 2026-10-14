@@ -300,3 +300,6 @@ pub(crate) fn test_env_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
 }
+
+#[cfg(test)]
+mod test_support;

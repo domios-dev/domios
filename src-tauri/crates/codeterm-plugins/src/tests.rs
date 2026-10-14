@@ -81,7 +81,7 @@ mod store_index_tests {
     /// Guards that index against drift with the real plugin folders, as the live refresh does.
     #[test]
     fn channel_json_is_a_consistent_store_index() {
-        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+        let plugins_dir = crate::test_support::fixture_manifest_dir().join("../../../plugins");
         let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
             .expect("plugins/channel.json must exist (store index)");
         let manifest: ChannelManifest =
@@ -119,7 +119,7 @@ mod store_index_tests {
 
     #[test]
     fn bundled_plugin_channel_metadata_matches_its_manifest() {
-        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+        let plugins_dir = crate::test_support::fixture_manifest_dir().join("../../../plugins");
         let manifest: ChannelManifest =
             serde_json::from_str(&fs::read_to_string(plugins_dir.join("channel.json")).unwrap())
                 .unwrap();

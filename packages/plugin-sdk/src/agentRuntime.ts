@@ -79,7 +79,7 @@ export type OperationResult =
   | {kind:"turnAccepted"; threadId:string; sendId:string; turnId?:string}
   | {kind:"done"};
 export type RuntimeStep =
-  | {kind:"continue"; plan:RuntimePlan; beforeAcceptance?:boolean}
+  | {kind:"continue"; plan:RuntimePlan; beforeAcceptance?:boolean; history?:Extract<OperationResult,{kind:"historyPage"}>}
   | {kind:"complete"; result:OperationResult; notification?:RpcCall; events?:readonly AgentEvent[]}
   | {kind:"refused"; reason:RuntimeFailure; beforeAcceptance:boolean};
 export type AgentEvent =

@@ -312,7 +312,7 @@ fn pipeline_contract_golden_json() {
     let value = serde_json::to_value(snapshot).unwrap();
     assert_eq!(value["blueprints"][0]["steps"][1]["name"], "match");
     assert!(value["nodes"][0].get("blueprint").is_none());
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let path = crate::test_support::fixture_manifest_dir()
         .join("../tests/fixtures/blueprint-pipeline.golden.json");
     let rendered = format!("{}\n", serde_json::to_string_pretty(&value).unwrap());
     if std::env::var_os("UPDATE_BLUEPRINT_GOLDEN").is_some() {

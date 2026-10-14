@@ -13,7 +13,7 @@ fn write(path: &Path, contents: &str) {
 /// shipped manifest ever loses the declaration that keeps a confined codex
 /// plugin able to reach its own home.
 fn shipped_codex_manifest() -> PluginManifest {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let path = crate::test_support::fixture_manifest_dir()
         .join("../../../plugins/provider-codex/plugin.json");
     PluginManifest::load(&path).expect("the shipped codex manifest parses")
 }

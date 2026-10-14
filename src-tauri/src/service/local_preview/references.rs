@@ -61,6 +61,32 @@ fn directive(line: &str) -> Option<&str> {
     }
 }
 
+fn marker_paths(line: &str) -> Vec<String> {
+    static TAG: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)<domios\b([^<>]*?)/?>"#).unwrap());
+    static ATTRIBUTE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)([a-z]+)="([^"]*)""#).unwrap());
+    TAG.captures_iter(line)
+        .filter_map(|tag| {
+            let attributes: std::collections::HashMap<_, _> = ATTRIBUTE
+                .captures_iter(&tag[1])
+                .map(|value| (value[1].to_ascii_lowercase(), value[2].to_string()))
+                .collect();
+            if attributes.get("type")? != "attachment" {
+                return None;
+            }
+            Some(
+                attributes
+                    .get("path")?
+                    .replace("&quot;", "\"")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&"),
+            )
+        })
+        .collect()
+}
+
 pub(super) fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashSet<String> {
     let mut paths = HashSet::new();
     for message in messages {
@@ -80,6 +106,9 @@ pub(super) fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashS
             }
             if fence.is_some() {
                 continue;
+            }
+            for path in marker_paths(line) {
+                insert(&mut paths, &path, None);
             }
             if let Some(path) = directive(line) {
                 insert(&mut paths, path, None);

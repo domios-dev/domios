@@ -448,6 +448,66 @@
         },
         "state": null
       }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "readHistory",
+        "threadId": "thread-a"
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "items": [],
+          "more": true
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "readHistory",
+            "params": {
+              "kind": "readHistory",
+              "threadId": "thread-a"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "continue",
+        "plan": {
+          "action": {
+            "kind": "request",
+            "call": {
+              "method": "readHistory",
+              "params": {
+                "kind": "readHistory",
+                "threadId": "thread-a"
+              }
+            }
+          },
+          "state": null
+        },
+        "history": {
+          "kind": "historyPage",
+          "threadId": "thread-a",
+          "items": [],
+          "openItems": []
+        },
+        "beforeAcceptance": false
+      }
     }
   ],
   "reductions": [

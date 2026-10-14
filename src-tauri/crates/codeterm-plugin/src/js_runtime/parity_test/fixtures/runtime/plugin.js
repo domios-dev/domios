@@ -11,7 +11,7 @@ module.exports = {
       case 'initialize': return {kind:'complete',result:{kind:'initialized'}};
       case 'openThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:reply.value.threadId,settings:op.settings}};
       case 'resumeThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
-      case 'readHistory': return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]}};
+      case 'readHistory': if (reply.value.more) return {kind:'continue',plan:{action:{kind:"request",call:{method:op.kind,params:op}},state:null},history:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]},beforeAcceptance:false}; return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]}};
       case 'submitTurn': return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId}};
       default: return {kind:'complete',result:{kind:'done'}};
     }

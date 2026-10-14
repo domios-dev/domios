@@ -47,7 +47,9 @@ fn wait_until<F: Fn() -> bool>(deadline_ms: u64, f: F) -> bool {
 }
 
 fn workspace_plugins_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("plugins")
+    crate::test_support::fixture_manifest_dir()
+        .join("..")
+        .join("plugins")
 }
 
 /// Build a registry with a synthetic claude plugin whose sessions.rootDir

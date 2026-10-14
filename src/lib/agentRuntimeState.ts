@@ -57,11 +57,27 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
   return { ...current, state: "degraded", reason: reason.trim() || current.reason || "Agent runtime unavailable" };
 }
 
+const RUNTIME_FAILURE_REASONS: readonly (readonly [RegExp, string])[] = [
+  [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The conversation history is too large to load."],
+  [/^(?:SpawnFailed\b|Runtime could not start:)/, "The agent runtime could not start."],
+  [/^(?:ProcessExited\b|Runtime (?:exited|stopped)\b)/, "The agent runtime stopped."],
+  [/^(?:PipeEof\b|Runtime connection closed)/, "The connection to the agent runtime closed."],
+  [/^(?:PipeFailure\b|Runtime \S+ connection failed:)/, "The connection to the agent runtime failed."],
+  [/^(?:InvalidFrame\b|Runtime sent an invalid response:)/, "The agent runtime sent an invalid response."],
+  [/^(?:Deadline\b|Runtime did not respond in time)/, "The agent runtime did not respond in time."],
+  [/^(?:HookFailed\b|Provider operation failed:)/, "The provider plugin failed while handling a response."],
+  [/^(?:Refused\b|Provider refused:)/, "The provider refused the operation."],
+  [/^(?:PrewriteRefused\b|Input was not sent:)/, "The input could not be sent to the agent runtime."],
+  [/^(?:Superseded\b|Runtime session changed;)/, "The agent session changed and the operation was canceled."],
+];
+
 export function runtimeBannerView(state: AgentRuntimeState | null) {
   if (!state || state.state === "loaded") return null;
   return {
     loading: state.state === "loading",
-    reason: state.reason ?? null,
+    reason: RUNTIME_FAILURE_REASONS.find(([pattern]) => pattern.test(state.reason ?? ""))?.[1]
+      ?? (state.state === "loading" ? "Loading the agent runtime." : "The agent runtime is unavailable."),
+    details: state.reason?.trim() ? state.reason : null,
     canRetry: state.state !== "loading",
   };
 }

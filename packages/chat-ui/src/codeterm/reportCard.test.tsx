@@ -108,9 +108,9 @@ async function main(): Promise<void> {
   assert(inbound.host.querySelector('[data-testid="chat-inbound-report-diagnostics"]')?.textContent === DELIVERED_REJECTED_BODY, "the typed inbound card dropped the exact diagnostic");
   assert(
     inboundBody?.parentElement?.className.includes("ct-compact-scroll")
-      && inboundBody.parentElement.className.includes("overflow-y-auto")
-      && inboundBody.parentElement.className.includes("max-h-64"),
-    "a long inbound report is not internally scrollable",
+      && (inboundBody.parentElement as HTMLElement).style.overflowY === "hidden"
+      && (inboundBody.parentElement as HTMLElement).style.maxHeight === "16rem",
+    "a long inbound report must clip until Show all",
   );
   const showTab = [...inbound.host.querySelectorAll("button")].find((node) => node.textContent === "Show Tab");
   assert(showTab, "inbound Show Tab action is not reachable");

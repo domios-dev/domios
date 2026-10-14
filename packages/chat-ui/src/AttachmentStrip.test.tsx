@@ -60,12 +60,14 @@ const openButton = (scope: ParentNode) =>
 const viewer = () => document.querySelector<HTMLElement>(`[role="dialog"][aria-label="Image ${NAME}"]`);
 
 describe("user image attachments", () => {
-  it("shows a pasted image path attachment as a thumbnail without the host's image-count text", async () => {
+  it("renders an image chip and reads its focus preview", async () => {
     const host = await render(codexImageTurn("[1 image]"));
     const button = openButton(host);
     expect(button).toBeTruthy();
     expect(button!.disabled).toBe(false);
-    expect(button!.querySelector("img")?.getAttribute("src")).toBe(PNG);
+    expect(button!.querySelector("img")).toBeNull();
+    await act(async () => button!.focus());
+    expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe(PNG);
     expect(loader).toHaveBeenCalledWith(PATH, "image", "attachment-owner");
     expect(host.textContent).not.toContain("[1 image]");
     expect(host.textContent).not.toContain("<image");
@@ -90,12 +92,12 @@ describe("user image attachments", () => {
     expect(viewer()).toBeNull();
   });
 
-  it("is a focusable native button so Enter activates it, and focus returns after closing", async () => {
+  it("is a focusable native button and focus returns after closing", async () => {
     const host = await render(codexImageTurn("[1 image]"));
     const button = openButton(host)!;
     expect(button.tagName).toBe("BUTTON");
     expect(button.type).toBe("button");
-    button.focus();
+    await act(async () => button.focus());
     expect(document.activeElement).toBe(button);
     await act(async () => button.click());
     expect(viewer()!.contains(document.activeElement)).toBe(true);
@@ -105,7 +107,7 @@ describe("user image attachments", () => {
     expect(document.activeElement).toBe(button);
   });
 
-  it("leaves an unreadable image as a disabled named control", async () => {
+  it("keeps an unreadable image focusable with retry", async () => {
     const host = await render({
       ...codexImageTurn("[1 image]"),
       attachments: [{ id: "gone", mimeType: "image/png", path: String.raw`C:\gone\missing.png` }],
@@ -113,7 +115,10 @@ describe("user image attachments", () => {
     const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
       (candidate) => candidate.getAttribute("aria-label") === "Open image missing.png",
     );
-    expect(button?.disabled).toBe(true);
+    expect(button?.disabled).toBe(false);
+    await act(async () => button!.focus());
+    expect(document.querySelector('[role="alert"]')).toBeTruthy();
+    expect(document.querySelector('button[aria-label="Retry image missing.png"]')).toBeTruthy();
   });
 });
 
@@ -121,13 +126,10 @@ const userTurn = (content: string): NormalizedChatMessage => ({ id: "user-1", ty
 const DOC = "/home/me/reports/q3 summary.pdf";
 
 describe("attachment markers in the user bubble", () => {
-  it("renders marker attachments as a strip and keeps only the typed text", async () => {
+  it("renders marker attachments as inline controls", async () => {
     const host = await render(userTurn(`check these ${formatAttachmentMarker(PATH)} ${formatAttachmentMarker(DOC)}`));
-    const strip = host.querySelector('[role="group"][aria-label="Attachments"]');
-    expect(strip).toBeTruthy();
-    expect(openButton(strip!)?.querySelector("img")?.getAttribute("src")).toBe(PNG);
-    expect(loader).toHaveBeenCalledWith(PATH, "image", "attachment-owner");
-    expect(strip!.querySelector<HTMLButtonElement>('button[aria-label="Reveal file q3 summary.pdf"]')?.disabled).toBe(true);
+    expect(openButton(host)).toBeTruthy();
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Reveal file q3 summary.pdf"]')?.disabled).toBe(true);
     expect(host.textContent).toContain("check these");
     expect(host.textContent).not.toContain("<domios");
     expect(host.textContent).not.toContain(PATH);
@@ -154,8 +156,36 @@ describe("attachment markers in the user bubble", () => {
 
 it("opens a labeled marker image through the named thumbnail control", async () => {
   const host = await render(userTurn(`${formatAttachmentMarker(PATH, "image", "image1")}caption`));
-  const button = openButton(host)!;
+  const button = host.querySelector<HTMLButtonElement>('button[aria-label="Open image image1"]')!;
   expect(button.disabled).toBe(false);
   await act(async () => button.click());
   expect(viewer()?.querySelector(`img[alt="${NAME}"]`)?.getAttribute("src")).toBe(PNG);
+});
+
+it("retries a failed image read through the same scoped loader", async () => {
+  loader.mockRejectedValueOnce(new Error("read failed"));
+  const host = await render(codexImageTurn("caption"));
+  await act(async () => openButton(host)!.focus());
+  const retry = document.querySelector<HTMLButtonElement>(`button[aria-label="Retry image ${NAME}"]`)!;
+  expect(retry).toBeTruthy();
+  await act(async () => retry.click());
+  expect(loader).toHaveBeenLastCalledWith(PATH, "image", "attachment-owner");
+  expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe(PNG);
+  await act(async () => openButton(host)!.click());
+  expect(viewer()?.querySelector("img")?.getAttribute("src")).toBe(PNG);
+});
+
+it.each([1280, 390])("shows the image preview on hover at viewport width %s", async (width) => {
+  const previous = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  try {
+    const host = await render(codexImageTurn("caption"));
+    const chip = openButton(host)!;
+    await act(async () => chip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe(PNG);
+    await act(async () => chip.click());
+    expect(viewer()?.querySelector("img")?.getAttribute("src")).toBe(PNG);
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: previous });
+  }
 });

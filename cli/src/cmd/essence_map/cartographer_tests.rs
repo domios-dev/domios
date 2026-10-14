@@ -13,7 +13,7 @@ use super::{sha256, validate};
 use crate::{Cli, Commands};
 
 fn source_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
+    PathBuf::from(crate::test_support::fixture_manifest_dir()).join("..")
 }
 
 fn fixture_root() -> TempDir {

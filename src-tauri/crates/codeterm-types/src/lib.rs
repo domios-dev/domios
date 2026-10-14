@@ -21,3 +21,6 @@ pub mod usage;
 
 pub mod blueprint_catalog;
 pub mod blueprint_journal;
+
+#[cfg(test)]
+mod test_support;

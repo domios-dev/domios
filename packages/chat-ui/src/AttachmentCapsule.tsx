@@ -1,13 +1,14 @@
 import { useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Diff, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
-import { attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, type AttachmentSegment } from "@codeterm/chat-core";
+import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { LocalArtifactBlock } from "./LocalArtifactBlock";
 import { RichMarkdown } from "./MarkdownBody";
 import { PRE_WRAP_CLASS } from "./CodeBlock";
 import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
-import { useLocalImage } from "./localImage";
+import { useLocalImage, type LocalImage } from "./localImage";
 import { useLocalTextPreview } from "./localText";
 
 export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
@@ -51,8 +52,9 @@ function fileName(path: string): string {
 }
 
 /** The card a hovered capsule shows: the image itself, the head of its text, or what the capsule points at. */
-export function CapsulePreview({ kind, path, label, actions }: { kind: AttachmentKind; path: string; label: string; actions?: ReactNode }) {
-  const image = useLocalImage(kind === "image" ? path : undefined);
+export function CapsulePreview({ kind, path, label, actions, image: suppliedImage }: { kind: AttachmentKind; path: string; label: string; actions?: ReactNode; image?: LocalImage }) {
+  const localImage = useLocalImage(kind === "image" && !suppliedImage ? path : undefined);
+  const image = suppliedImage ?? localImage;
   const snippet = useLocalTextPreview(attachmentPreviewKind({ kind, path }) === "document" ? path : undefined);
   const Icon = CAPSULE_ICONS[kind];
   return (
@@ -68,7 +70,7 @@ export function CapsulePreview({ kind, path, label, actions }: { kind: Attachmen
         <div className="flex min-h-16 min-w-24 items-center justify-center overflow-hidden rounded-lg" style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 75%, transparent)" }}>
           {image.src
             ? <img src={image.src} alt={label} onError={image.markFailed} className="block max-h-40 max-w-72 object-contain" draggable={false} />
-            : <ImageIcon size={18} aria-hidden className={image.failed ? "opacity-70" : "opacity-40"} />}
+            : image.failed ? <span role="alert">Image unavailable <button type="button" aria-label={`Retry image ${label}`} onClick={image.retry}>Retry</button></span> : <ImageIcon size={18} aria-hidden className="opacity-40" />}
         </div>
       )}
       <div className="flex min-w-0 items-center gap-1.5 px-1">
@@ -91,20 +93,24 @@ export function CapsulePreview({ kind, path, label, actions }: { kind: Attachmen
 }
 
 /** A capsule the user typed inline: images open fullscreen, everything else reveals on disk. */
-export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker }) {
+export function AttachmentCapsule({ attachment, image: nativeImage, labelContent, actions }: { attachment: AttachmentMarker; image?: ChatAttachment; labelContent?: ReactNode; actions?: ReactNode }) {
   const { kind, path } = attachment;
   const label = attachment.label ?? fileName(path);
   const { name, detail } = capsuleLabelParts(label);
-  const image = useLocalImage(kind === "image" ? path : undefined);
+  const inline = nativeImage ? inlineAttachmentSrc(nativeImage) : null;
+  const local = useLocalImage(kind === "image" && !inline ? path : undefined);
+  const image = inline ? { ...local, src: inline, failed: false } : local;
   const [open, setOpen] = useState<FullscreenImage | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const previewRef = useRef<HTMLSpanElement>(null);
   const close = useCallback(() => setOpen(null), []);
   const canReveal = localArtifactOpeningAvailable();
   const opensImage = kind === "image" && Boolean(image.src);
-  const disabled = !opensImage && (kind === "image" || !canReveal);
+  const disabled = kind !== "image" && !canReveal;
+  const bounds = previewing ? anchorRef.current?.getBoundingClientRect() : undefined;
   return (
-    <span ref={anchorRef} className="relative" onMouseEnter={() => setPreviewing(true)} onMouseLeave={() => setPreviewing(false)}>
+    <span ref={anchorRef} className="relative" onMouseEnter={() => setPreviewing(true)} onMouseLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}>
       <button
         type="button"
         data-testid="chat-inline-attachment"
@@ -113,25 +119,26 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
         data-attachment-path={path}
         data-attachment-label={label}
         aria-label={kind === "image" ? `Open image ${label}` : `Reveal ${KIND_NAMES[kind].toLowerCase()} ${label}`}
-        title={disabled && kind !== "image" ? `${path} (${REVEAL_UNAVAILABLE})` : path}
+        title={disabled ? `${path} (${REVEAL_UNAVAILABLE})` : path}
         disabled={disabled}
         onFocus={() => setPreviewing(true)}
-        onBlur={() => setPreviewing(false)}
+        onBlur={(event) => { if (!previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}
         onClick={() => {
-          if (opensImage && image.src) setOpen({ name: fileName(path), src: image.src, path });
+          if (opensImage && image.src) setOpen({ name: nativeImage ? attachmentFileName(nativeImage) : fileName(path), src: image.src, path });
+          else if (kind === "image") setPreviewing(true);
           else revealLocalFile(path);
         }}
-        className="ct-capsule-button"
+        className="ct-capsule-button pointer-events-auto"
       >
-        <span className="ct-capsule ct-capsule--padded">
+        <span className={labelContent ? "ct-capsule" : "ct-capsule ct-capsule--padded"}>
           <CapsuleDecor kind={kind} />
-          {kind === "image" && image.src && <img src={image.src} alt="" onError={image.markFailed} draggable={false} className="mr-1 inline-block h-12 max-w-24 rounded-md object-cover align-middle" />}{name}{detail && <span className="ct-capsule__detail">{detail}</span>}
+          {labelContent ?? <>{name}{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
         </span>
       </button>
-      {previewing && !open && (
-        <span role="presentation" data-copy-skip className="pointer-events-none absolute bottom-full left-0 z-20 block select-none pb-1.5">
-          <CapsulePreview kind={kind} path={path} label={label} />
-        </span>
+      {previewing && !open && createPortal(
+        <span ref={previewRef} role="region" aria-label={`Preview ${label}`} data-copy-skip className="fixed z-50 block select-none pb-1.5" style={{ left: Math.max(0, Math.min(bounds?.left ?? 0, window.innerWidth - 300)), ...(bounds && bounds.top < 200 ? { top: bounds.bottom } : { bottom: window.innerHeight - (bounds?.top ?? 0) }) }} onMouseEnter={() => setPreviewing(true)} onMouseLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}>
+          <CapsulePreview kind={kind} path={path} label={label} image={image} actions={actions} />
+        </span>, document.body
       )}
       {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} />}
     </span>
@@ -139,7 +146,7 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
 }
 
 /** User text with its capsules rendered where they were typed; a copy keeps capsules as tags for a composer. */
-export function InlineAttachmentText({ segments }: { segments: AttachmentSegment[] }) {
+export function InlineAttachmentText({ segments }: { segments: PlacedAttachmentSegment[] }) {
   const copy = (event: ClipboardEvent<HTMLDivElement>) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return;
@@ -157,7 +164,7 @@ export function InlineAttachmentText({ segments }: { segments: AttachmentSegment
         ? <LocalArtifactBlock key={index} directive={segment.directive} renderMarkdown={(text) => <RichMarkdown text={text} localArtifacts={false} />} />
         : "text" in segment
         ? segment.text
-        : <AttachmentCapsule key={`${index}:${segment.attachment.path}`} attachment={segment.attachment} />))}
+        : <AttachmentCapsule key={`${index}:${segment.attachment.path}`} attachment={segment.attachment} image={segments.flatMap((part) => "attachment" in part && part.attachment === segment.attachment && part.image ? [part.image] : [])[0]} />))}
     </div>
   );
 }
