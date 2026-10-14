@@ -651,3 +651,19 @@ test('powershell launcher forwards checks without writing shared Git configurati
     assert.doesNotMatch(result.stdout + result.stderr, /unexpected shared config write/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('nextest verbs use the shared notification wrapper for validation failures', () => {
+  for (const [verb, selector] of [['nextest', 'unknown-notify-scope'], ['nextest-archive', 'does-not-exist-notify-fixture']]) {
+    const h = makeHarness();
+    try {
+      writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+      const result = runBash([buildPath, verb, selector, '--notify-tab', 'agent-tab'], h.env);
+      assert.notEqual(result.status, 0);
+      assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+      const sent = records(h.parentRecord);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].body, new RegExp(`EARLY FAILURE label=${verb}`));
+      assert.ok(sent[0].body.includes(selector));
+    } finally { rmSync(h.dir, { recursive: true, force: true }); }
+  }
+});

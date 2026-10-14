@@ -57,6 +57,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-build-isolated-dev-policy.sh` | build.sh script-guards |
 | `check-build-kill-safety.sh` | scripts qa-gates.lib.sh |
 | `check-build-pdb-retention.sh` | build.sh retain-pdb; scripts qa-gates.lib.sh |
+| `check-build-script-head.sh` | build.sh script-guards |
 | `check-cache-provenance.sh` | build.sh script-guards |
 | `check-comment-length.sh` | CI comment-length.yml; scripts qa-gates.lib.sh; skill build |
 | `check-dev-instance-isolation.ps1` | manual: PowerShell dev-instance isolation check (Windows) |
