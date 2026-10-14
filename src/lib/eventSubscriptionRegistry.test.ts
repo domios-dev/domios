@@ -76,6 +76,28 @@ describe("page event subscription ownership", () => {
     expect(reconnect).toHaveBeenCalledTimes(1);
     expect(f.connect).toHaveBeenCalledTimes(2);
   });
+  it("keeps Jobs consumers attached when the shared stream owner reconnects", () => {
+    const f = fixture();
+    const jobs = vi.fn();
+    const owner = vi.fn();
+    const subscribeOwner = () => f.registry.subscribe("/api/events/stream", owner, {
+      raw: true, onEnd: subscribeOwner,
+    });
+    const stopJobs = f.registry.subscribe("/api/events/stream", jobs);
+    subscribeOwner();
+    f.connect.mock.calls[0][1]("message", { boot: "boot", seq: 1, event_type: "automation-graph-changed", data: { revision: "before" } });
+    f.connect.mock.calls[0][2]?.onEnd?.({ reason: "eof" });
+    expect(f.connect).toHaveBeenCalledTimes(2);
+    f.connect.mock.calls[0][1]("message", { event_type: "automation-graph-changed", data: { revision: "stale" } });
+    f.connect.mock.calls[1][1]("message", { boot: "boot", seq: 2, event_type: "automation-graph-changed", data: { revision: "deleted" } });
+    expect(jobs.mock.calls).toEqual([
+      ["automation-graph-changed", { revision: "before" }],
+      ["automation-graph-changed", { revision: "deleted" }],
+    ]);
+    stopJobs();
+    f.connect.mock.calls[1][1]("message", { event_type: "automation-graph-changed", data: {} });
+    expect(jobs).toHaveBeenCalledTimes(2);
+  });
   it("resumes the last shared cursor when a consumer reconnects first after EOF", () => {
     const f = fixture();
     f.registry.subscribe("/api/events/stream", () => {}, {

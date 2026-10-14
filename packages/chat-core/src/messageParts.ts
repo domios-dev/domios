@@ -55,11 +55,14 @@ function parseAttachmentParts(content: string): MessagePart[] {
   return parts.length ? parts : [{ kind: "text", content }];
 }
 
+// Claude Code wraps a pasted send in this envelope; split around an exact send, the envelope alone is not a row.
+const PASTE_ENVELOPE_TAG = /<[\\/]{0,2}pasted_content(?:\s+id="[^"]*")?\s*>/g;
+
 export function messageRowParts(parts: readonly MessagePart[]): MessagePart[] {
   const rows: MessagePart[] = [];
   let attachmentRow = false;
   for (const part of parts) {
-    if (part.kind === "text" && !part.content.trim()) continue;
+    if (part.kind === "text" && !part.content.replace(PASTE_ENVELOPE_TAG, "").trim()) continue;
     const previous = rows[rows.length - 1];
     if (part.kind !== "frame" && previous?.kind === "text" && previous.correlationId === part.correlationId && (attachmentRow || part.kind === "attachment")) {
       previous.content += part.content;
@@ -79,12 +82,12 @@ export function splitExactSendTexts(content: string, payloads: readonly ExactSen
     if (!payload.content) continue;
     const start = content.indexOf(payload.content, offset);
     if (start < 0) continue;
-    if (start > offset) segments.push(...(offset === 0 ? parseMessageParts(content.slice(offset, start)) : [{ kind: "text" as const, content: content.slice(offset, start) }]));
+    if (start > offset) segments.push(...parseMessageParts(content.slice(offset, start)));
     segments.push(...parseMessageParts(payload.content).map((part) => ({ ...part, correlationId: payload.correlationId })));
     offset = start + payload.content.length;
   }
   if (offset === 0) return parseMessageParts(content);
-  if (offset < content.length) segments.push(...parseAttachmentParts(content.slice(offset)));
+  if (offset < content.length) segments.push(...parseMessageParts(content.slice(offset)));
   return segments;
 }
 

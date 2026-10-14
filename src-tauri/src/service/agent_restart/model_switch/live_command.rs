@@ -451,7 +451,14 @@ impl ServiceContext {
                 "the provider has no live effort command".into(),
             ));
         }
-        let readiness = readiness::CommandReadiness::from_declaration(&commands, &target)?;
+        let provider = self
+            .agent_registry
+            .provider_arc(&target.provider)
+            .ok_or_else(|| {
+                ModelSwitchError::LiveCommandFailed("the command provider is unavailable".into())
+            })?;
+        let readiness =
+            readiness::CommandReadiness::from_declaration(&commands, &target, provider)?;
         let sequence =
             sequence::CommandSequence::new(self, &target, deadline, &commands.transcript);
         if after_turn {
@@ -573,9 +580,11 @@ impl ServiceContext {
             .map_err(ModelSwitchError::LiveCommandFailed)?;
         let pattern = confirmation_pattern(&template.confirmation, model, display_name, effort)
             .map_err(ModelSwitchError::LiveCommandFailed)?;
+        let structural_confirmation = template.confirmation_prompt_kind.is_some();
         let mut prompt = template
             .prompt
             .as_ref()
+            .filter(|_| !structural_confirmation)
             .map(|declaration| CommandPrompt::new(declaration, target, effort))
             .transpose()
             .map_err(ModelSwitchError::LiveCommandFailed)?;
@@ -588,6 +597,7 @@ impl ServiceContext {
         let prompt_pattern = template
             .prompt
             .as_ref()
+            .filter(|_| !structural_confirmation)
             .map(|declaration| {
                 confirmation_pattern(&declaration.screen_regex, model, display_name, effort)
             })
@@ -661,6 +671,12 @@ impl ServiceContext {
                 ready
             },
             || {
+                self.replace_switch_confirmation(pty_id, None);
+                let switch_confirmation = self.prepare_switch_confirmation(
+                    pty_id,
+                    &command,
+                    Some(effort.unwrap_or(model)),
+                );
                 let _claim =
                     crate::service::pty_io::submit_transaction::claim_command_submit_cycle(pty_id);
                 let (session, permit, input) = {
@@ -707,12 +723,17 @@ impl ServiceContext {
                         .map_err(|error| error.to_string())?
                         .len(),
                 );
-                transport::enqueue_command(
+                transport::enqueue_command_observed(
                     &session.write_queue,
                     permit,
                     input.clone(),
                     deadline.saturating_duration_since(Instant::now()),
                     &injected,
+                    move || {
+                        if let Some(confirmation) = switch_confirmation {
+                            confirmation.start();
+                        }
+                    },
                 )?;
                 crate::pty::capture::CaptureRegistry::global().tap_input(
                     pty_id,

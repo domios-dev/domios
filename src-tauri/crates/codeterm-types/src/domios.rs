@@ -66,6 +66,14 @@ pub fn parse_message(text: &str) -> Option<ParsedDomiosMessage> {
 
 pub fn strip_typed_suffix(content: &str) -> &str {
     let mut body = content;
+    while let Some(prefix) = body.strip_suffix("</tip>") {
+        let Some(start) = prefix.rfind("<tip>") else {
+            break;
+        };
+        body = prefix[..start]
+            .strip_suffix(' ')
+            .unwrap_or(&prefix[..start]);
+    }
     let instruction = format!(" {DOMIOS_TYPED_INSTRUCTION}");
     if let Some(stripped) = body.strip_suffix(&instruction) {
         body = stripped;
@@ -131,13 +139,23 @@ fn parse_attributes(source: &str) -> Option<BTreeMap<String, String>> {
         {
             return None;
         }
-        let quoted = rest[equals + 1..].strip_prefix('"')?;
-        let end = quoted.find('"')?;
-        let value = decode_attribute(&quoted[..end])?;
+        let source = &rest[equals + 1..];
+        let (raw, tail) = if let Some(quoted) = source.strip_prefix('"') {
+            let end = quoted.find('"')?;
+            (&quoted[..end], &quoted[end + 1..])
+        } else {
+            let end = source.find(char::is_whitespace).unwrap_or(source.len());
+            let raw = &source[..end];
+            if raw.is_empty() || raw.contains(['"', '\'', '<', '>', '`', '=']) {
+                return None;
+            }
+            (raw, &source[end..])
+        };
+        let value = decode_attribute(raw)?;
         if attrs.insert(name.to_string(), value).is_some() {
             return None;
         }
-        rest = &quoted[end + 1..];
+        rest = tail;
         if !rest.is_empty()
             && !rest.starts_with(' ')
             && !rest.starts_with('\t')
@@ -169,6 +187,32 @@ mod tests {
     }
 
     #[test]
+    fn quoted_and_unquoted_leading_frames_project_identically() {
+        let quoted =
+            parse_message("<domios from=\"system\" context=\"assigned-task\">opaque body</domios>")
+                .unwrap();
+        let unquoted =
+            parse_message("<domios from=system context=assigned-task>opaque body</domios>")
+                .unwrap();
+        assert_eq!(quoted, unquoted);
+        assert_eq!(unquoted.attr("from"), Some("system"));
+        assert_eq!(unquoted.body, "opaque body");
+        let marker = crate::message_markers::parse_host_injected(
+            "<domios from=system context=assigned-task>opaque body</domios>",
+        )
+        .unwrap();
+        assert_eq!(marker.kind, "system");
+        assert_eq!(marker.payload, "opaque body");
+        for invalid in [
+            "<domios from=system context=two words>x</domios>",
+            "<domios from=system from=tab>x</domios>",
+            "prefix<domios from=system>x</domios>",
+        ] {
+            assert!(parse_message(invalid).is_none());
+        }
+    }
+
+    #[test]
     fn opening_tag_attributes_cannot_add_typed_line_breaks() {
         let tag = build_opening_tag(&[("label", "first\nsecond\tthird\rfourth")]);
         assert_eq!(tag, "<domios label=\"first second third fourth\">");
@@ -195,10 +239,22 @@ mod tests {
 
     #[test]
     fn malformed_or_nonterminal_close_tags_are_rejected() {
-        assert!(parse_message("<domios from=tab>body</domios>").is_none());
+        assert!(parse_message("<domios from=>body</domios>").is_none());
         assert!(parse_message("<domiosX from=\"tab\">body</domios>").is_none());
         assert!(parse_message("<domios>body</domios>").is_none());
         assert!(parse_message("<domios from=\"tab\">body</domios>tail").is_none());
+    }
+
+    #[test]
+    fn tip_suffix_is_projected_out_but_preserved_in_agent_content() {
+        let frame = DomiosFrame {
+            opening_tag: build_opening_tag(&[("from", "tab"), ("tab", "abc12345")]),
+            body: "opaque body".into(),
+            suffix: " <tip>opaque hint</tip> <tip>opaque instruction</tip>".into(),
+        };
+        let parsed = parse_message(&frame.to_message()).unwrap();
+        assert_eq!(parsed.body, frame.body);
+        assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
     }
 
     #[test]

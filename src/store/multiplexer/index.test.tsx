@@ -121,15 +121,19 @@ async function mountProvider(options: {
   refuseInitialOrdinary?: boolean;
   storageUnavailableInitialMux?: boolean;
   pairedPeerCount?: number;
+  selectedLeaf?: boolean;
 } = {}) {
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   (globalThis as unknown as { sessionStorage: FakeStorage }).sessionStorage.clear();
 
   const { act, createRoot, React, window } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  const { MultiplexerProvider, STORAGE_UNAVAILABLE_MESSAGE, useMuxState } = await import("./index");
+  const { MultiplexerProvider, STORAGE_UNAVAILABLE_MESSAGE, useMuxState, useMultiplexer } = await import("./index");
 
+  let actions!: ReturnType<typeof useMultiplexer>;
+  const pairCalls: Record<string, unknown>[] = [];
   function StorageStatusProbe() {
+    actions = useMultiplexer();
     const state = useMuxState();
     return React.createElement(
       "div",
@@ -144,7 +148,12 @@ async function mountProvider(options: {
   let refusedInitialOrdinary = false;
   const pendingMuxGetState: Array<Deferred<unknown>> = [];
   const eventListeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
-  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+  __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+    if (cmd === "mux_create_orchestration_pair") {
+      pairCalls.push(args ?? {});
+      if (args?.callerTabId) throw new Error("leaf caller refused");
+      return { orchestrator_tab_id: "new-lead", planner_tab_id: "new-planner" } as T;
+    }
     if (cmd === "mesh_list_peers" && options.pairedPeerCount !== undefined) {
       return { paired: Array.from({ length: options.pairedPeerCount }, () => ({ instance_id: "peer" })) } as T;
     }
@@ -203,7 +212,13 @@ async function mountProvider(options: {
     const pending = pendingMuxGetState.splice(0, pendingMuxGetState.length);
     if (pending.length === 0) return;
     await act(async () => {
-      for (const d of pending) d.resolve(sampleState("ws-renewal"));
+      for (const d of pending) {
+        const snapshot = sampleState("ws-renewal");
+        d.resolve(options.selectedLeaf ? { ...snapshot, focused_tab_id: "manager",
+          tabs: { manager: { id: "manager", workspace_id: "ws-renewal", role: "Manager", agent_type: "provider", session_binding_nonce: "manager-nonce" } },
+          workspaces: [{ ...snapshot.workspaces[0], tabs: ["manager"], active_tab_id: "manager" }],
+        } : snapshot);
+      }
       await Promise.all(pending.map((d) => d.promise));
     });
   };
@@ -219,6 +234,8 @@ async function mountProvider(options: {
     act,
     window,
     host,
+    pairCalls,
+    get actions() { return actions; },
     get muxGetStateCalls() {
       return muxGetStateCalls;
     },
@@ -242,6 +259,27 @@ async function mountProvider(options: {
     },
   };
 }
+
+test("owner pair creation never inherits a selected Manager or a claimed picker tab", async () => {
+  const harness = await mountProvider({ selectedLeaf: true });
+  try {
+    for (const existingTabId of [undefined, "picker"]) {
+      await harness.act(async () => {
+        const result = await harness.actions.createOrchestrationPair({
+          workspaceId: "ws-renewal", orchestratorAgent: "provider", plannerAgent: "provider", existingTabId,
+        });
+        assert(result.orchestrator_tab_id === "new-lead", "owner action must receive the created pair");
+      });
+      const request = harness.pairCalls[harness.pairCalls.length - 1];
+      assert(!("callerTabId" in request), "owner action must carry no agent caller");
+      assert(!("sessionBindingNonce" in request), "owner action must carry no agent session claim");
+      assert((request.params as Record<string, unknown>).existing_tab_id === existingTabId, "picker reuse is preserved");
+    }
+    assert(harness.pairCalls.length === 2, "each owner action creates exactly one pair");
+  } finally {
+    await harness.unmount();
+  }
+});
 
 test("a cancelled rebind waits for the next accepted peer snapshot", async () => {
   const harness = await mountProvider();

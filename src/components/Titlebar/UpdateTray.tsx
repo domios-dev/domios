@@ -28,10 +28,10 @@ export function UpdateTray() {
   const rect = trigger.current?.getBoundingClientRect();
   return <>
     <button ref={trigger} type="button" data-testid="settings-update-action" aria-label="Update" aria-haspopup="dialog" aria-expanded={open}
-      onClick={() => setOpen(!open)} title="Updates available"
-      className="group inline-flex h-6 items-center gap-1 rounded-full bg-[var(--ct-accent)] pl-1.5 pr-2 text-[11px] font-medium text-[var(--ct-on-accent)] hover:brightness-110">
+      onClick={() => setOpen(!open)} title={update.error ? "Update failed" : "Updates available"}
+      className={`group inline-flex h-6 items-center gap-1 rounded-full ${update.error ? "bg-[var(--ct-red)]" : "bg-[var(--ct-accent)]"} pl-1.5 pr-2 text-[11px] font-medium text-[var(--ct-on-accent)] hover:brightness-110`}>
       {update.busy ? <BusySpinner size={12} /> : <ArrowDownToLine size={12} />}
-      <span>Update</span><span role="status" className="hidden sm:inline">{update.busy ? "updating" : available ? "updates available" : "failed"}</span>
+      <span>Update</span><span role="status" className="hidden sm:inline">{update.error ? "failed" : update.busy ? "updating" : available ? "updates available" : "up to date"}</span>
     </button>
     {open && createPortal(<div ref={panel} role="dialog" aria-label="Updates" className="ct-portal-menu fixed z-[70] w-[min(380px,calc(100vw-16px))]"
       style={{ top: rect ? rect.bottom + 4 : 36, right: rect ? Math.max(8, window.innerWidth - rect.right) : 8 }}>

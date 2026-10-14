@@ -63,6 +63,12 @@ export function verifyArchiveBuilds(builds, receipts) {
     builds.map((b) => '| ' + archivePlatform(b.os, b.arch) + ' | ' + b.runner + ' | ' + b.seconds.toFixed(1) + ' s |').join('\n');
 }
 
+export function archiveTargets(lane) {
+  return lane === 'workspace'
+    ? ['--workspace', '--lib', '--exclude', 'codeterm-input-macos', '--exclude', 'codeterm-input-windows']
+    : ['--workspace'];
+}
+
 function build() {
   const os = process.env.RUNNER_OS;
   const arch = process.env.CI_RUNNER_ARCH;
@@ -86,7 +92,7 @@ function build() {
       const include = lane === 'workspace' ? '\narchive.include = [{ path = ' + JSON.stringify('debug/' + runtime) + ', relative-to = "target", on-missing = "error" }]\n' : '\n';
       fs.writeFileSync(config, '[profile.default]\ndefault-filter = "all()"' + include);
       const archive = path.resolve('ci-rust-archives', lane + '.tar.zst');
-      const messages = archiveMessages(['nextest', 'archive', '--manifest-path', manifest, '--workspace', '--locked', ...(lane === 'workspace' ? ['--lib'] : []), '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json']);
+      const messages = archiveMessages(['nextest', 'archive', '--manifest-path', manifest, ...archiveTargets(lane), '--locked', '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json']);
       const generated = generatedDirectories(messages);
       if (lane === 'workspace' && !fs.statSync(path.join(metadata.target_directory, 'debug', runtime)).size) throw new Error('Runtime embed sidecar was overwritten while archiving');
       const extract = path.resolve(process.env.RUNNER_TEMP, 'rust-archive-classify', lane);

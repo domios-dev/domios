@@ -136,7 +136,7 @@ impl PluginHostCtx for AnalyticsHost {
     fn receiver_status_report_json(
         &self,
         plugin_id: &str,
-        query: &crate::local_recording::ReceiverStatusQuery,
+        query: &codeterm_types::local_recording::ReceiverStatusQuery,
     ) -> String {
         json!({ "pluginId": plugin_id, "query": query }).to_string()
     }

@@ -22,6 +22,12 @@ if [ "$TAG" != source ]; then git checkout -q "tags/${TAG}"; fi
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/src/src-tauri/target}"
 export CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}"
 echo "HEAD=$(git rev-parse HEAD)  bundles=$BUNDLES  target=${CARGO_BUILD_TARGET:-native}"
+source scripts/cache-policy.sh
+export CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
+CODETERM_SCCACHE_VERIFY_ONLY=0 ct_configure_sccache
+ct_sccache_verify
+export CODETERM_SCCACHE_VERIFY_ONLY=1
+trap 'ct_sccache_stats' EXIT
 
 # Fast compile gate: cargo check only, no frontend/bundle/sign. Catches
 # target-gated compile breaks in ~1 min. Stub tauri-build resources so its glob

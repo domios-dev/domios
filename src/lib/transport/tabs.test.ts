@@ -51,6 +51,8 @@ const simple = [
   ["chat_stop", "POST", "/api/tabs/tab/chat-raw/stop"],
   ["chat_backfill", "POST", "/api/tabs/tab/chat-raw/backfill"],
   ["chat_send_text", "POST", "/api/tabs/tab/chat-send"],
+  ["chat_send_dismissals", "GET", "/api/tabs/tab/chat-send/dismissals"],
+  ["chat_send_delete", "POST", "/api/tabs/tab/chat-send/dismissals"],
   ["chat_send_status", "GET", "/api/tabs/tab/chat-send"],
   ["ordinary_tabs_list", "GET", "/api/tabs"],
   ["write_pty_string", "POST", "/api/pty/pty/write"],

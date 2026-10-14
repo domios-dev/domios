@@ -11,6 +11,8 @@ use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin}
 
 use super::AppState;
 
+mod dismissal;
+pub use dismissal::{chat_send_delete, chat_send_dismissals};
 mod admissions;
 pub use admissions::chat_send_admissions;
 

@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "../BoundedMessageContent";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { thoughtPresentation } from "./thoughtModel";
@@ -48,9 +49,8 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
       </button>
       <div id={regionId} role="region" aria-label={label} hidden={!open} className="px-2 pb-1">
         {open && (
-          <div
+          <BoundedMessageContent collapsedHeight={THOUGHT_MAX_HEIGHT}
             data-testid="chat-thought-body"
-            style={{ maxHeight: THOUGHT_MAX_HEIGHT, overflowY: "auto" }}
           >
             <p
               data-testid="chat-thought-text"
@@ -59,7 +59,7 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
             >
               {text}
             </p>
-          </div>
+          </BoundedMessageContent>
         )}
       </div>
     </div>

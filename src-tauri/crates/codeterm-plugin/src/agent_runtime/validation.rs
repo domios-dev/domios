@@ -281,6 +281,7 @@ pub fn validate_runtime_step(
     validate_runtime_size(step, MAX_RUNTIME_VALUE_BYTES)?;
     match step {
         RuntimeStep::Continue {
+            history,
             plan,
             before_acceptance,
         } => {
@@ -288,6 +289,18 @@ pub fn validate_runtime_step(
                 && (!before_acceptance || !matches!(reply, RpcReply::Error { .. }))
             {
                 return Err(mismatch("accepted or uncertain submit cannot continue"));
+            }
+            if let Some(history) = history {
+                if !matches!(
+                    history,
+                    RuntimeResult::HistoryPage {
+                        next_cursor: None,
+                        ..
+                    }
+                ) {
+                    return Err(mismatch("continuation requires a history chunk"));
+                }
+                validate_runtime_result(ctx, op, history)?;
             }
             validate_runtime_plan(cap, ctx, op, plan)
         }

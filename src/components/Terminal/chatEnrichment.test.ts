@@ -1,5 +1,5 @@
 import type { NormalizedChatMessage, TimelineItem } from "@codeterm/chat-core";
-import { projectTranscript, reduceTranscript, createTranscriptState } from "@codeterm/chat-core";
+import { projectTranscript, reduceTranscript, createTranscriptState, projectMessageParts } from "@codeterm/chat-core";
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 
 function assert(value: unknown, label: string): asserts value {
@@ -166,3 +166,39 @@ for (const provider of ["opencode", "claude", "codex"] as const) {
   }
 }
 console.log(`routed empty-bubble model: ${routedCases} cases passed`);
+
+{
+  const body = "opaque routed message";
+  const tip = "opaque agent-only token";
+  const frame = `<domios from="tab" label="Sender" tab="abc12345">${body} <tip>${tip}</tip></domios>`;
+  const owner = "1.14.9 и 1.4.10 объединяем";
+  for (const content of [`${frame}${owner}`, `${frame}\n${owner}`]) {
+    const raw = user("glued-tips", content);
+    const entries = enrichTimelineItems([messageItem(raw)], new WeakMap());
+    assert(entries.length === 2, "frame boundary preserves separate sends");
+    assert(entries[0].origin?.kind === "tab" && entries[0].msg.content === body, "routed send keeps sender and body");
+    assert(entries[1].origin === undefined && entries[1].msg.content.trim() === owner, "owner keeps a distinct bubble");
+    assert(raw.content.includes(tip), "agent source remains verbatim");
+    assert(entries.every((entry) => !entry.msg.content.includes(tip)), "tip never enters display content");
+  }
+  const empty = '<domios from="tab" label="Sender" tab="abc12345"> <tip>opaque hint</tip></domios>';
+  const raw = { ...user("ledger-header", `${empty}${owner}`), messageParts: [
+    { kind: "frame" as const, content: empty, correlationId: "routed-send" },
+    { kind: "text" as const, content: owner, correlationId: "owner-send" },
+  ] };
+  const entries = enrichTimelineItems([messageItem(raw)], new WeakMap());
+  assert(entries.length === 2, "an empty routed header cannot swallow a distinct ledger send");
+  assert(entries[0].msg.correlationId === "routed-send" && entries[0].origin?.kind === "tab", "routed ledger identity preserved");
+  assert(entries[1].msg.correlationId === "owner-send" && entries[1].origin === undefined, "owner ledger identity preserved");
+}
+
+{
+  const owner = "opaque owner payload";
+  const report = '<domios from="report" label="Worker" tab="abc">opaque report <tip>opaque instruction</tip></domios>';
+  const combined = { ...user("owner-report", `${owner}${report}`), correlationId: "owner-send" };
+  const projected = projectMessageParts([combined], [{ content: owner, correlationId: "owner-send" }], "owner-report");
+  const entries = enrichTimelineItems(projected.map(messageItem), new WeakMap());
+  assert(entries.length === 2, "exact ledger boundary separates owner input before a routed report");
+  assert(entries[0].origin === undefined && entries[0].msg.content === owner, "owner send keeps its body");
+  assert(entries[1].origin?.kind === "tab" && entries[1].origin.report && entries[1].msg.content === "opaque report", "report keeps its sender without tips");
+}

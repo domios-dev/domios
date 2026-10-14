@@ -116,6 +116,36 @@ pub(super) fn record_write(svc: &ServiceContext, status: &ChatSendStatus) -> Res
 mod tests {
     use super::*;
     #[test]
+    fn accepted_runtime_status_is_written_and_exact_live_evidence_is_delivered() {
+        let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
+        let pending = ledger.try_start("tab", "opaque", None).unwrap();
+        assert!(ledger.bind_rpc_send(
+            &pending.send_id,
+            crate::service::chat_send_transaction::SendLiveBinding {
+                session_id: Some("thread".into()),
+                binding_nonce: Some("nonce".into()),
+            }
+        ));
+        let accepted = ledger.mark_rpc_accepted(&pending.send_id).unwrap();
+        assert!(
+            matches!(outcome(accepted).unwrap(), Delivery::ChatBackend {message_id} if message_id == pending.send_id)
+        );
+        let finished = ledger.finish(&pending.send_id, Ok(())).unwrap();
+        assert!(
+            matches!(outcome(finished).unwrap(), Delivery::ChatBackend {message_id} if message_id == pending.send_id)
+        );
+        assert!(ledger
+            .confirm_rpc_send("tab", "foreign", "nonce", &pending.send_id)
+            .is_none());
+        let delivered = ledger
+            .confirm_rpc_send("tab", "thread", "nonce", &pending.send_id)
+            .unwrap();
+        assert_eq!(delivered.state, ChatSendState::Sent);
+        assert!(
+            matches!(outcome(delivered).unwrap(), Delivery::ChatBackend {message_id} if message_id == pending.send_id)
+        );
+    }
+    #[test]
     fn repeated_uncertain_receipt_is_a_refusal_and_never_a_second_submit() {
         let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
         let status = ledger.try_start("tab", "opaque", None).unwrap();

@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.14.8"
+version = "1.14.9-bs.3"
 dependencies = [
  "aes-gcm",
  "annembed",
@@ -1104,6 +1104,8 @@ dependencies = [
  "codeterm-bridge",
  "codeterm-browser",
  "codeterm-frontend-bundle",
+ "codeterm-input-macos",
+ "codeterm-input-windows",
  "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-mesh",
@@ -1310,6 +1312,17 @@ dependencies = [
  "tempfile",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-input-macos"
+version = "0.1.0"
+
+[[package]]
+name = "codeterm-input-windows"
+version = "0.1.0"
+dependencies = [
+ "codeterm-types",
 ]
 
 [[package]]

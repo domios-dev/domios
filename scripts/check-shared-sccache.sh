@@ -39,6 +39,7 @@ sccache() {
       ;;
   esac
 }
+ct_sccache_server_live() { [ "${FIXTURE_SERVER_LIVE:-1}" = 1 ]; }
 pgrep() { [ "${FIXTURE_BUSY:-0}" = 1 ]; }
 ct_repo_root() { printf '%s\n' "$WORK"; }
 
@@ -188,3 +189,21 @@ printf 'PASS CI verification never configures or refuses busy matching S3\n'
 ) > "$WORK/runner.log" 2>&1
 ! rg -q 'fixture-access|fixture-secret' "$WORK/runner.log"
 printf 'PASS runner process credentials require both keys and never query vault\n'
+
+(
+  printf 's3, name: sccache, prefix: /' > "$WORK/location"
+  curl() { printf 200; }
+  FIXTURE_SERVER_LIVE=0
+  if ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+) > "$WORK/offline.log" 2>&1
+rg -q 'running server: cache location unavailable' "$WORK/offline.log"
+printf 'PASS synthetic offline S3 stats cannot pass verification\n'
+(
+  FIXTURE_SERVER_LIVE=0
+  if ct_sccache_stats; then exit 1; else [ "$?" = 2 ]; fi
+  FIXTURE_SERVER_LIVE=1
+  ct_repo_root() { printf '%s\n' "$ROOT"; }
+  ct_sccache_stats
+) > "$WORK/stats.log" 2>&1
+rg -q '^sccache endpoint:' "$WORK/stats.log"
+printf 'PASS stats refuses offline synthetic counters and names the endpoint\n'

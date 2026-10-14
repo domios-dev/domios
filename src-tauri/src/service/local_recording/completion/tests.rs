@@ -1,6 +1,7 @@
 use super::*;
 use crate::service::local_recording::chat::ChatIdentity;
 use crate::service::local_recording::leases::{CapturePhase, FrozenTarget};
+use codeterm_types::local_recording::LocalRecordingTrigger;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -94,9 +95,7 @@ async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_hand
     };
     use crate::service::local_recording::chat::CapturedChat;
     use crate::service::local_recording::leases::RecordingLeases;
-    use codeterm_plugin::local_recording::{
-        LocalRecordingRegistry, LocalRecordingTrigger, SelectedDevices,
-    };
+    use codeterm_plugin::local_recording::{LocalRecordingRegistry, SelectedDevices};
     let registry = LocalRecordingRegistry::default();
     registry.register(
         "trigger",

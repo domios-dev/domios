@@ -12,10 +12,8 @@ impl Drop for Cleanup {
     }
 }
 
-#[test]
-fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
+fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
-    const PAYLOAD: &str = "opaque supplied user input";
     let (mut mux, tab_id) = MultiplexerState::new();
     let nonce = uuid::Uuid::new_v4().to_string();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -34,6 +32,10 @@ fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
         session_id: "own-thread".into(),
     };
     let fixture = ServiceFixture::new(mux);
+    use tauri::Manager;
+    assert!(fixture
+        ._app
+        .manage(Arc::new(fixture.service.clone()) as crate::service::ServiceState));
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
@@ -109,7 +111,131 @@ module.exports = {
         control_changes: tokio::sync::watch::channel(()).0,
     });
     SESSIONS.lock().insert(tab_id.clone(), session);
-    let _cleanup = Cleanup(tab_id.clone());
+    let cleanup = Cleanup(tab_id.clone());
+    (fixture, tab_id, peer, cleanup)
+}
+
+#[test]
+fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
+    assert_sync_send(false, false, false);
+}
+
+#[test]
+fn bookkeeping_failure_records_typed_warning_and_runtime_remains_ready_and_sendable() {
+    assert_sync_send(true, false, false);
+}
+
+#[test]
+fn restart_bookkeeping_failure_records_warning_and_runtime_remains_ready_and_sendable() {
+    assert_sync_send(true, true, false);
+}
+
+#[test]
+fn task_authority_violation_unbinds_agent_and_records_warning_without_blocking_send() {
+    assert_sync_send(true, false, true);
+}
+
+fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_failure: bool) {
+    const PROVIDER: &str = "sync-send-fixture";
+    const PAYLOAD: &str = "opaque supplied user input";
+    let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+    if bookkeeping_failure {
+        let mut plan = crate::plan::Plan::new(
+            "Warning fixture".into(),
+            fixture.temp.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab("owner"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let target_task = if authority_failure {
+            fixture
+                .service
+                .plan_store
+                .add_task(
+                    &plan.id,
+                    crate::service::plan::NewTask {
+                        name: "Authority fixture".into(),
+                        ..Default::default()
+                    },
+                    2,
+                )
+                .unwrap()
+        } else {
+            "missing-task".into()
+        };
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .task_binding = Some(crate::multiplexer::types::TaskBinding {
+            plan_id: Some(plan.id.clone()),
+            task_id: Some(target_task.clone()),
+            attempt_id: Some("attempt".into()),
+            ..Default::default()
+        });
+        let own_nonce = for_tab(&tab_id)
+            .unwrap()
+            .context
+            .lock()
+            .binding_nonce
+            .clone();
+        if restart_failure {
+            assert!(fixture
+                .service
+                .authorize_runtime_restart_binding(&tab_id, PROVIDER, &own_nonce, false,)
+                .unwrap()
+                .is_none());
+        } else {
+            fixture
+                .service
+                .finalize_runtime_worker_session(&tab_id, "own-thread", &own_nonce)
+                .unwrap();
+        }
+        let current = for_tab(&tab_id).unwrap();
+        assert!(matches!(current.state.lock().phase, RuntimePhase::Ready));
+        assert!(current
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .task_binding
+                .is_none(),
+            authority_failure
+        );
+        let recorded = fixture.service.plan_store.get(&plan.id).unwrap();
+        let warning = recorded
+            .strides
+            .iter()
+            .find(|stride| stride.kind == "runtime_plan_binding_warning")
+            .unwrap();
+        let payload: Value = serde_json::from_str(&warning.text).unwrap();
+        assert_eq!(payload["kind"], "runtime_plan_binding_warning");
+        assert_eq!(
+            payload["failure_kind"],
+            if authority_failure {
+                "authority_violation"
+            } else {
+                "bookkeeping_unavailable"
+            }
+        );
+        assert_eq!(
+            payload["stage"],
+            if restart_failure {
+                "restart_authorization"
+            } else {
+                "finalization"
+            }
+        );
+        assert_eq!(payload["task_id"], target_task);
+        assert_eq!(payload["attempt_id"], "attempt");
+        assert_eq!(payload["tab_id"], tab_id);
+    }
     let pending = fixture
         .service
         .chat_send_ledger
@@ -168,5 +294,138 @@ module.exports = {
             Some(&pending.send_id)
         ),
         Err(crate::service::delivery_error::DeliveryError::SubmitUnconfirmed { .. })
+    ));
+}
+
+#[test]
+fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc() {
+    use crate::service::messenger::{Delivery, MessageEnvelope};
+    const PAYLOAD: &str = "opaque routed payload";
+    let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+    let mut envelope = MessageEnvelope::tab("Source", "source").from_agent(Some(true));
+    envelope.id = Some(uuid::Uuid::new_v4().to_string());
+    let expected_text = crate::service::messenger::Messenger::from(envelope.clone())
+        .routed_frame(PAYLOAD)
+        .to_message();
+    let peer = tauri::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["method"], "fixture/submit");
+        assert_eq!(request["params"]["threadId"], "own-thread");
+        let text = request["params"]["input"]["text"].as_str().unwrap();
+        assert_eq!(text, expected_text);
+        let send_id = request["params"]["sendId"].as_str().unwrap().to_string();
+        let response = json!({"id":request["id"],"result":{"turnId":"accepted-turn"}});
+        peer.get_mut()
+            .write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        (peer, send_id)
+    });
+    let delivery = fixture
+        .service
+        .gateway_deliver_with_pad_file(
+            &tab_id,
+            envelope.clone(),
+            PAYLOAD,
+            crate::service::message_gateway::DeliveryClass::AgentTraffic,
+        )
+        .unwrap()
+        .0;
+    let (mut peer, send_id) = tauri::async_runtime::block_on(peer).unwrap();
+    assert!(matches!(delivery, Delivery::ChatBackend { message_id } if message_id == send_id));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Written
+    );
+    let nonce = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .session_binding_nonce
+        .clone()
+        .unwrap();
+    assert!(fixture
+        .service
+        .chat_send_ledger
+        .confirm_rpc_send(&tab_id, "other-thread", &nonce, &send_id)
+        .is_none());
+    let authority = fixture.service.user_send_authority(&tab_id).unwrap();
+    let mut foreign_provider = authority.clone();
+    foreign_provider.provider_id = "foreign-provider".into();
+    assert!(!fixture.service.user_authority_is_current_session(
+        &foreign_provider,
+        "own-thread",
+        &nonce
+    ));
+    let session = for_tab(&tab_id).unwrap();
+    let epoch = session.state.lock().epoch;
+    session.state.lock().epoch = epoch + 1;
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
+    session.state.lock().epoch = epoch;
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "other-thread", &nonce));
+    assert!(!fixture.service.user_authority_is_current_session(
+        &authority,
+        "own-thread",
+        "foreign-nonce"
+    ));
+    assert!(fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
+    assert!(fixture
+        .service
+        .chat_send_ledger
+        .confirm_rpc_send(&tab_id, "own-thread", &nonce, &send_id)
+        .is_some());
+    let delivery = fixture
+        .service
+        .gateway_deliver_with_pad_file(
+            &tab_id,
+            envelope,
+            PAYLOAD,
+            crate::service::message_gateway::DeliveryClass::AgentTraffic,
+        )
+        .unwrap()
+        .0;
+    assert!(matches!(delivery, Delivery::ChatBackend { message_id } if message_id == send_id));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Sent
+    );
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Wake, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    struct Noop;
+    impl Wake for Noop {
+        fn wake(self: Arc<Self>) {}
+    }
+    let waker = Waker::from(Arc::new(Noop));
+    let mut context = Context::from_waker(&waker);
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut context),
+        Poll::Pending
     ));
 }

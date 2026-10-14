@@ -58,7 +58,8 @@ class SigningMaterialTests(unittest.TestCase):
         commands = []
         with patch.object(signing, 'security', side_effect=lambda *args: commands.append(args)), \
                 patch.object(signing, 'search_list', return_value=['existing.keychain', 'parallel.keychain']), \
-                patch.object(signing, 'notary_profile') as notary:
+                patch.object(signing, 'notary_profile') as notary, \
+                patch.object(signing, 'resolve_identity', return_value='A' * 40):
             signing.setup(True)
         directory = self.material_path()
         keychain = str(directory / 'signing.keychain-db')
@@ -146,6 +147,36 @@ class SigningMaterialTests(unittest.TestCase):
             with patch.dict(os.environ, RELEASE_SIGNING_DIR=str(directory)):
                 signing.cleanup()
         self.assertFalse(keychain.exists())
+
+    def test_identity_name_and_fingerprint_resolve_only_imported_team(self):
+        fingerprint = 'A' * 40
+        name = 'Developer ID Application: Fixture (TEAM)'
+        entries = [(fingerprint, name)]
+        for selector in [name, fingerprint.lower(), ' "' + name + '" ']:
+            self.assertEqual(signing.select_identity(entries, entries, selector, 'TEAM'), fingerprint)
+        for selector, team in [('stale identity', 'TEAM'), (name, 'OTHER')]:
+            with self.assertRaises(RuntimeError):
+                signing.select_identity(entries, entries, selector, team)
+
+    def test_identity_diagnostics_distinguish_missing_private_key_and_invalid_chain(self):
+        name = 'Developer ID Application: Fixture (TEAM)'
+        with self.assertRaisesRegex(RuntimeError, 'private key'):
+            signing.select_identity([], [], name, 'TEAM')
+        with self.assertRaisesRegex(RuntimeError, 'invalid for codesigning'):
+            signing.select_identity([('A' * 40, name)], [], name, 'TEAM')
+        with self.assertRaisesRegex(RuntimeError, 'does not uniquely match'):
+            signing.select_identity([('A' * 40, name)], [('A' * 40, name)], 'stale', 'TEAM')
+
+    def test_apple_intermediates_are_pinned_and_imported_only_into_job_keychain(self):
+        commands = []
+        with patch.object(signing, 'security', side_effect=lambda *args: commands.append(args)):
+            signing.import_intermediates(Path('job.keychain'))
+        self.assertEqual(len(commands), 2)
+        self.assertTrue(all(args[:3] == ('add-certificates', '-k', 'job.keychain') for args in commands))
+        with patch.object(signing.hashlib, 'sha256') as checksum:
+            checksum.return_value.hexdigest.return_value = 'wrong'
+            with self.assertRaisesRegex(RuntimeError, 'checksum'):
+                signing.import_intermediates(Path('job.keychain'))
 
     def test_invalid_updater_key_is_rejected(self):
         with patch.dict(os.environ, TAURI_SIGNING_PRIVATE_KEY=base64.b64encode(b'wrong key').decode()):

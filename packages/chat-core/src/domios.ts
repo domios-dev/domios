@@ -37,11 +37,12 @@ export function parseDomiosMessage(text: string): ParsedDomiosMessage | null {
 function parseAttributes(source: string): Record<string, string> | null {
   const attrs: Record<string, string> = {};
   let rest = source;
-  const attribute = /^\s+([A-Za-z][A-Za-z0-9_]*)="([^"]*)"/;
+  const attribute = /^\s+([A-Za-z][A-Za-z0-9_]*)=(?:"([^"]*)"|([^\s"'<>`=]+))/;
   while (rest.length > 0) {
     const match = attribute.exec(rest);
     if (!match) return null;
-    const [, name, raw] = match;
+    const [, name, quoted, unquoted] = match;
+    const raw = quoted ?? unquoted;
     if (Object.prototype.hasOwnProperty.call(attrs, name)) return null;
     const decoded = decodeAttribute(raw);
     if (decoded === null) return null;
@@ -81,7 +82,7 @@ function decodeAttribute(value: string): string | null {
 }
 
 function stripTypedSuffix(content: string): string {
-  let body = content;
+  let body = content.replace(/ ?<tip>[\s\S]*?<\/tip>/g, "");
   const instruction = ` ${DOMIOS_TYPED_INSTRUCTION}`;
   if (body.endsWith(instruction)) body = body.slice(0, -instruction.length);
   const replyStarts = [" [to reply, run: codeterm send ", " [sender is a shell; reply here]"];

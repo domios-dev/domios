@@ -1,4 +1,4 @@
-import type { ChatSend, NormalizedChatMessage } from "@codeterm/chat-core";
+import type { ChatSend, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
 import { normalizeChatText, timestampMs } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { CapsuleRegistry } from "./composerCapsules";
@@ -12,7 +12,7 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
 
 export function deliveryState(send: DeliverySend): DeliveryState {
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
@@ -45,6 +45,7 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
   if (send.status?.send_id === status.send_id && send.status.ledger_id === status.ledger_id) {
     if (send.status.state === "failed" && status.state !== "failed" && status.state !== "delivered") return send;
     if ((send.status.state === "written" || send.status.state === "submit_unconfirmed") && status.state === "held") return send;
+    if (send.status.state === "submit_unconfirmed" && status.state === "written") return send;
   }
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence === status.sequence
     && send.status.send_id === status.send_id && send.status.state === status.state
@@ -63,7 +64,7 @@ export function reconcileAdmissionEvidence(send: DeliverySend, evidence: Admissi
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
   if (!send.status || deliveryState(send) === "delivered"
     || statuses.some((status) => status.send_id === send.status?.send_id)) return send;
-  if (send.status.state === "held") {
+  if (send.status.state === "held" || send.status.state === "written") {
     return { ...send, status: { ...send.status, state: "submit_unconfirmed", pending_reason: undefined } };
   }
   return send.status.state === "failed" ? { ...send, status: undefined } : send;
@@ -93,10 +94,23 @@ export function reconcileDeliveryStatusesModel(
 export function deliveryProjectionSends(
   sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
-  return sends.filter((send) => resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
+  return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
     .map((send) => ({
       ...send,
       echoEligible: deliveryState(send) !== "failed",
       flowAtMs: send.sentAtMs,
     }));
+}
+
+export function canDeleteChatSend(send: DeliverySend): boolean {
+  return !send.dismissed && !!send.correlationId && !send.status?.system_send
+    && deliveryState(send) !== "delivered"
+    && (!!send.status || deliveryState(send) === "failed" || deliveryState(send) === "uncertain");
+}
+
+export function visibleDeliveryRows(
+  rows: readonly NormalizedChatMessage[], sends: readonly DeliverySend[], echoes?: ReadonlyMap<string, SendEcho>,
+): NormalizedChatMessage[] {
+  const reconciled = echoes ? sends.map((send) => ({ ...send, echo: send.echo ?? echoes.get(send.id) })) : sends;
+  return rows.filter((row) => !sendForRow(reconciled, row)?.dismissed);
 }
