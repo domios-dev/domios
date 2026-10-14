@@ -101,32 +101,42 @@ impl ServiceContext {
         let chat_id = chat_id
             .or_else(|| self.bridge_owner_chat_id())
             .ok_or(ThreadError::NoOwnerChat)?;
-        self.bridge_threads
+        self.ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
             .open(&port, thread_caller, &target, chat_id)
             .await
     }
 
     pub(crate) async fn close_bridge_thread(&self, tab_id: &str) -> Vec<CloseOutcome> {
         let tab_id = self.canonical_tab_id(tab_id);
-        self.bridge_threads.close_tab(&tab_id).await
+        self.ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
+            .close_tab(&tab_id)
+            .await
     }
 
     pub(crate) async fn bridge_thread_menu_state(&self, tab_id: &str) -> ThreadMenuState {
         let tab_id = self.canonical_tab_id(tab_id);
         let mut state = self
-            .bridge_threads
+            .ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
             .menu_state(&tab_id, self.bridge_owner_chat_id())
             .await;
-        state.bridge_active = state.bridge_active && self.bridge_supervisor.is_active();
+        state.bridge_active = state.bridge_active
+            && self
+                .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+                .is_active();
         state
     }
 
     /// Retire a closed tab's threads off the close path; an unbound tab spawns nothing.
     pub(crate) fn release_bridge_threads(&self, tab_id: &str) {
-        if !self.bridge_threads.holds_topics(tab_id) {
+        if !self
+            .ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
+            .holds_topics(tab_id)
+        {
             return;
         }
-        let threads = self.bridge_threads.clone();
+        let threads = self
+            .ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
+            .clone();
         let tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {
             for outcome in threads.close_tab(&tab_id).await {

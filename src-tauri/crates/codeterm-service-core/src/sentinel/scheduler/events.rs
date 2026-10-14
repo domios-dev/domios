@@ -43,8 +43,8 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
         })
         .map(|job| job.id.as_str())
         .collect::<BTreeSet<_>>();
-    let registry = &svc.event_source_registry;
-    let subscriptions = &svc.graph_event_subscriptions;
+    let registry = svc.ext::<std::sync::Arc<codeterm_plugin::event_source::EventSourceRegistry>>();
+    let subscriptions = svc.ext::<codeterm_plugin::graph_events::SubscriptionTable>();
     let mut changed = BTreeSet::new();
     for binding in subscriptions.bindings() {
         let job = jobs.iter().find(|job| job.id == binding.pipeline_id);
@@ -193,14 +193,17 @@ pub(super) fn dispatch_runs(svc: &crate::service::ServiceState, handle: &Handle)
             )
         })
     }) {
-        let Some(event) = svc.graph_event_subscriptions.next_for(&job.id) else {
+        let Some(event) = svc
+            .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
+            .next_for(&job.id)
+        else {
             continue;
         };
         let Some(mut lease) = handle.store.lock().stage_event_lease(event.clone()) else {
             continue;
         };
         let Some(event) = svc
-            .graph_event_subscriptions
+            .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
             .consume(&event.subscription_id, &event.event_id)
         else {
             handle.store.lock().release(&job.id);

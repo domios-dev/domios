@@ -105,7 +105,10 @@ impl PreparedSwitchConfirmation {
             let Some(screen) = screens.get_screen_text(&self.pty) else {
                 break;
             };
-            let mut tracker = self.service.restart_tracker.lock();
+            let mut tracker = self
+                .service
+                .ext::<crate::service::agent_restart::RestartTracker>()
+                .lock();
             if !tracker
                 .switch_confirmations
                 .get(&self.pty)
@@ -186,7 +189,10 @@ impl PreparedSwitchConfirmation {
 
 impl Drop for PreparedSwitchConfirmation {
     fn drop(&mut self) {
-        let mut tracker = self.service.restart_tracker.lock();
+        let mut tracker = self
+            .service
+            .ext::<crate::service::agent_restart::RestartTracker>()
+            .lock();
         if tracker
             .switch_confirmations
             .get(&self.pty)
@@ -208,7 +214,9 @@ impl ServiceContext {
         pty: &str,
         signal: Option<Arc<ScreenChangeSignal>>,
     ) {
-        let mut tracker = self.restart_tracker.lock();
+        let mut tracker = self
+            .ext::<crate::service::agent_restart::RestartTracker>()
+            .lock();
         if let Some(old) = tracker.switch_confirmations.remove(pty) {
             old.mark_changed();
         }

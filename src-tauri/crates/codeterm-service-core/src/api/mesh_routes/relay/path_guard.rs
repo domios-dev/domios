@@ -14,7 +14,7 @@ pub(super) fn validate_relay_path(path: &str) -> Result<(), String> {
             "Relay path must not start with // (protocol-relative): {path}"
         ));
     }
-    let bare = crate::api::access_policy::request_path(path);
+    let bare = crate::api_support::access_policy::request_path(path);
     if bare.contains('\\') || bare.split('/').any(is_dot_segment) {
         return Err(format!(
             "Relay path must not contain dot segments or backslashes: {path}"

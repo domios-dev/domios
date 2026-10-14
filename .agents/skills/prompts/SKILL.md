@@ -175,7 +175,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 ### Seeding, rendering and mirroring
 
-`commands/skills.rs` owns three steps, all on startup:
+`service/skill_mirror.rs` owns three steps, all on startup:
 
 1. **Seed** — bundled `skills/<id>/` → the canonical dir
    (`<data_dir>/skills/<id>/`), whole directory, `references/` included.

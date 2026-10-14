@@ -15,7 +15,7 @@ impl ServiceContext {
             return Err("receiver_status_unavailable".into());
         }
         let (devices, generation) = self
-            .local_recording_registry
+            .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .selected_devices(plugin_id)
             .ok_or("devices_unavailable")?;
         #[cfg(windows)]

@@ -280,12 +280,12 @@ fn channel_ask_offer_requires_a_level() {
     let service = a_registered_channel().to_string();
     // An offer that could never apply is refused when it is made, not accepted and left silently inert.
     assert_eq!(
-        crate::api::notification_routes::offer_requires_level(&service, Some(ASKED_AT)),
+        crate::notification::vet::offer_requires_level(&service, Some(ASKED_AT)),
         Ok(ASKED_AT),
         "a levelled notification names the row its tap would open"
     );
     assert!(
-        crate::api::notification_routes::offer_requires_level(&service, None).is_err(),
+        crate::notification::vet::offer_requires_level(&service, None).is_err(),
         "an unlevelled notification has no row, so it cannot offer one"
     );
 }

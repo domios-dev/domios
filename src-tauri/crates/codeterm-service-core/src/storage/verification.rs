@@ -1,6 +1,5 @@
 use crate::cron::clock::system_clock;
 use crate::cron::store::{CronJob, CronRunInfo, CronRunStatus, CronStorageOptions, CronStore};
-use crate::sentinel::store::{Sentinel, Store as SentinelStore};
 use crate::session::store::{legacy_decode, SessionSnapshot, StorageDeskAdapter};
 use crate::storage::migration::{import_copied_root, LegacyCodecs};
 use crate::storage::{
@@ -8,6 +7,7 @@ use crate::storage::{
     DomainComparison, DomainImport, ImportDomain, ImportOutcome, ImportPlan, ImportProvenance,
     ImportRefusal, ImportRequest, LegacyDecoder, SourceCapture, Storage, StorageConfig,
 };
+use codeterm_sentinel::store::{Sentinel, Store as SentinelStore};
 use codeterm_storage::{capture_sources, DeskAgentSessionIdentity, Storage as StorageOwner};
 use serde::Serialize;
 use serde_json::{json, Value};

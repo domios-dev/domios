@@ -60,7 +60,7 @@ impl ServiceContext {
                     continue;
                 }
                 if let Err(error) = self
-                    .repo_watch
+                    .ext::<crate::repowatch::RepoWatchRegistryHandle>()
                     .retain_lane_watch(worktree_path, Path::new(canonical_path))
                 {
                     log::warn!("[lane-cleanup-offer] repository watch unavailable: {error}");
@@ -72,7 +72,9 @@ impl ServiceContext {
     pub(crate) fn record_lane_turn_boundary(&self, tab_id: &str) {
         let service = self.clone();
         let store = self.plan_store.clone();
-        let repo_watch = self.repo_watch.clone();
+        let repo_watch = self
+            .ext::<crate::repowatch::RepoWatchRegistryHandle>()
+            .clone();
         let app = self.app_handle.clone();
         let tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {

@@ -440,10 +440,11 @@ fn mark_user_activity(
     mux: &crate::multiplexer::commands::MuxState,
     pty_id: &str,
 ) {
-    svc.user_last_activity.mark();
+    svc.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
+        .mark();
     let tab_id = mux.read().tab_id_for_pty(pty_id);
     if let Some(pid) = tab_id {
-        svc.usage_activity.mark(&pid);
+        svc.ext::<crate::usage::TabActivity>().mark(&pid);
     }
 }
 
@@ -467,10 +468,14 @@ fn parse_pty_input(
     };
     let Some(tab_id) = tab_id else { return };
     if locked {
-        svc.input_parser.clear(&tab_id);
+        svc.ext::<std::sync::Arc<crate::service::input_parser::InputParser>>()
+            .clear(&tab_id);
         return;
     }
-    if let Some(provider_id) = svc.input_parser.process(&tab_id, bytes) {
+    if let Some(provider_id) = svc
+        .ext::<std::sync::Arc<crate::service::input_parser::InputParser>>()
+        .process(&tab_id, bytes)
+    {
         log::info!(
             "[input-parser] detected '{}' launch in Tab {} — locking agent_type",
             provider_id,
