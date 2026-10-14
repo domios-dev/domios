@@ -1384,7 +1384,7 @@ check_queue_targets() {
 # Reads cargo --message-format=short output on stdin; prints at most $1 diagnostics.
 check_queue_errors() {
   awk -v max="$1" '
-    /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^error(\[E[0-9]+\])?:/ && !/could not compile/ {
+    /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^(sccache: )?error(\[E[0-9]+\])?:/ && !/could not compile/ {
       total++
       if (total <= max) print
     }
