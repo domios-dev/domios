@@ -1,9 +1,9 @@
 use super::*;
 use crate::agent::registry::AgentRegistry;
-use crate::api::events::{EventBroadcaster, SystemEvent};
 use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::plugin::agent_claude::ClaudeProvider;
+use codeterm_events::{EventBroadcaster, SystemEvent};
 use codeterm_types::pty::{BootStage, TabStatusTracker, TabVerdict, TimelineState};
 
 #[test]
@@ -83,7 +83,7 @@ fn reconciled_completion_is_observable_once_on_shared_event_channel() {
 }
 
 fn assert_status(
-    receiver: &mut tokio::sync::broadcast::Receiver<crate::api::events::SeqEvent>,
+    receiver: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
     tab_id: &str,
     status: &str,
 ) {
@@ -122,7 +122,7 @@ fn service_completion_publishes_idle_without_duplicate_events() {
     drain_mux_events(&mut receiver);
 }
 
-fn drain_mux_events(receiver: &mut tokio::sync::broadcast::Receiver<crate::api::events::SeqEvent>) {
+fn drain_mux_events(receiver: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>) {
     while let Ok(event) = receiver.try_recv() {
         assert!(matches!(event.event, SystemEvent::MuxStateChanged));
     }

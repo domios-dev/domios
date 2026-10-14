@@ -74,7 +74,7 @@ impl super::super::ServiceContext {
                                 .chat_send_ledger
                                 .expire_owned_before_write(&head.send_id, REASON)
                             {
-                                crate::api::events::emit_everywhere(
+                                codeterm_events::emit_everywhere(
                                     &self.app_handle,
                                     "chat-send-status",
                                     &status,
@@ -116,7 +116,7 @@ impl super::super::ServiceContext {
                         &head.send_id,
                         "recording_recipient_changed_before_write",
                     ) {
-                        crate::api::events::emit_everywhere(
+                        codeterm_events::emit_everywhere(
                             &self.app_handle,
                             "chat-send-status",
                             &status,

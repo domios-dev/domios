@@ -609,7 +609,7 @@ impl ServiceContext {
         let plan =
             adopt_plan_for_team_core(&mut mux, &self.plan_store, team_id, plan_id, caller, now_ms)?;
         drop(mux);
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
             serde_json::json!({ "plan_id": plan_id }),
@@ -737,7 +737,7 @@ pub(crate) fn rename_team_core(
 
 pub(crate) fn rename_team_with_state_change(
     mux: &mut MultiplexerState,
-    events: &crate::api::events::EventBroadcaster,
+    events: &codeterm_events::EventBroadcaster,
     team_id: &str,
     name: String,
     caller: &TeamMutationCaller,
@@ -750,7 +750,7 @@ pub(crate) fn rename_team_with_state_change(
 #[allow(clippy::too_many_arguments)]
 fn commit_team_member_with_plan_takeover<F>(
     mux: &mut MultiplexerState,
-    events: &crate::api::events::EventBroadcaster,
+    events: &codeterm_events::EventBroadcaster,
     team_id: &str,
     caller_tab_id: Option<&str>,
     tab_id: &str,

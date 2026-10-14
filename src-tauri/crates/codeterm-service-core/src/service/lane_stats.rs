@@ -167,7 +167,7 @@ fn record_lane_turn(
             *record = stats;
         }
     }) {
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             app,
             "plan-changed",
             &serde_json::json!({ "plan_id": target.plan_id }),
@@ -692,12 +692,12 @@ fn offer_merged_lanes(
                         .update_task_lane(&plan.id, &task.id, update, unix_time_millis())
                         .is_ok()
                     {
-                        crate::api::events::emit_everywhere(
+                        codeterm_events::emit_everywhere(
                             app,
                             "plan-changed",
                             &serde_json::json!({ "plan_id": plan.id }),
                         );
-                        crate::api::events::emit_everywhere(
+                        codeterm_events::emit_everywhere(
                             app,
                             "plan-lane-cleanup-offer",
                             &serde_json::json!({

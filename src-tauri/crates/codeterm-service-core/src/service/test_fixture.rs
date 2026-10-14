@@ -288,7 +288,7 @@ impl ServiceFixture {
             } else {
                 crate::notification::store::NotificationStore::new(10)
             })),
-            events: Arc::new(crate::api::events::EventBroadcaster::new()),
+            events: Arc::new(codeterm_events::EventBroadcaster::new()),
             app_handle: app.handle().clone(),
             cartographer_attach_locks: Default::default(),
             orchestrator_attach_locks: Default::default(),

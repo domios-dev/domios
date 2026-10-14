@@ -58,9 +58,9 @@ pub(crate) async fn mux_add_team_member_service_core(
 mod tests {
     use super::*;
 
-    use crate::api::events::SystemEvent;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
+    use codeterm_events::SystemEvent;
 
     fn team_members() -> (MultiplexerState, String, String, String, String) {
         let (mut mux, orchestrator) = MultiplexerState::new();
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn team_rename_emits_exactly_one_mux_state_changed() {
         let (mut mux, team_id, orchestrator, _, _) = team_members();
-        let events = crate::api::events::EventBroadcaster::new();
+        let events = codeterm_events::EventBroadcaster::new();
         let mut receiver = events.subscribe();
 
         crate::service::rename_team_with_state_change(

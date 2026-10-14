@@ -80,7 +80,7 @@ async fn run_tick(
                 &svc.id,
                 (status_str(prev), status_str(snap.status)),
             ));
-            crate::api::events::emit_everywhere(
+            codeterm_events::emit_everywhere(
                 app_handle,
                 "service-health-changed",
                 serde_json::json!({"service_id": svc.id, "status": snap.status}),

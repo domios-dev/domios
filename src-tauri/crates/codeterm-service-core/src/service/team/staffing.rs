@@ -313,7 +313,7 @@ where
 
 pub(crate) fn commit_team_member_spawn(
     mux: &mut MultiplexerState,
-    events: &crate::api::events::EventBroadcaster,
+    events: &codeterm_events::EventBroadcaster,
     team_id: &str,
     caller_tab_id: Option<&str>,
     tab_id: &str,

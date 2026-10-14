@@ -81,7 +81,7 @@ impl crate::service::ServiceContext {
             .chat_send_ledger
             .expire_owned_before_write(&record.send_id, "launch_degraded_before_write")
         {
-            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
         self.local_recordings.retire_write_ticket(&record.send_id);
         Ok(true)
