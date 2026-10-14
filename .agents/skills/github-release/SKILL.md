@@ -89,7 +89,7 @@ bound, SizeLimit and missing attempt identity, alongside post-fix passes. A
 capture/import success is not startup proof. Worker lanes defer live replay to
 the Orchestrator; frontend-only and plugin-only releases are outside this gate.
 
-**Required before `git push origin release/X.Y.Z` and before any owner hotfix build** (a build handed to the owner to install, such as `X.Y.Z-bs.N`): a green [core-journeys](../../../evals/core-journeys/README.md) run on the exact SHA being pushed or built. In canonical, with DEV running that build and its window open, run `bash evals/core-journeys/run.sh all` in a Team-bound QA shell; for an app release also run `CODETERM_INSTANCE=<disposable> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh upgrade --from-checkout <previous-release-checkout> --all-tabs`. Push or hand over only after exit 0 and `Verdict: PASS` in each `results.md`; put the wall times and `results.json` in the release evidence. Any failed journey blocks the push. The gates skill places this step.
+**Required before `git push origin release/X.Y.Z` and before any owner hotfix build** (a build handed to the owner to install, such as `X.Y.Z-bs.N`): a green [core-journeys](../../../evals/core-journeys/README.md) run on the exact SHA being pushed or built. In canonical, with a named isolated instance running that build and its window open, run `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh all --out <run-dir>` in a Team-bound QA shell, then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>` (`run.sh` refuses ports 7685 and 7686 and an unnamed instance); for an app release also run `CODETERM_INSTANCE=<disposable> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh upgrade --from-checkout <previous-release-checkout> --all-tabs`. Push or hand over only after exit 0 and `Verdict: PASS` in each `results.md`; put the wall times and `results.json` in the release evidence. Any failed journey blocks the push. The gates skill places this step.
 
 ---
 
@@ -793,7 +793,8 @@ git checkout -b fix/<description> && git push origin fix/<description>
 git checkout master && git pull origin master --no-rebase
 
 # 2. Run the core-journeys gate on the merged SHA (see "Application release"); green only:
-bash evals/core-journeys/run.sh all
+CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh all --out <run-dir>
+node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 
 # 3. Move the release trigger tag:
 git tag -f "release-$VER"

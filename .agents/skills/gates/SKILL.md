@@ -175,10 +175,13 @@ app startup gate.
 The [core-journeys suite](../../../evals/core-journeys/README.md) is a required
 pre-push gate for every app release and every owner hotfix build (any build
 handed to the owner to install, such as `X.Y.Z-bs.N`). On that exact SHA, in
-canonical, with DEV running that build and its window open, run
-`bash evals/core-journeys/run.sh all` once in a Team-bound QA shell. Only a zero
-exit with `Verdict: PASS` in `results.md` clears the push; record its wall time
-and keep `results.json` with the release evidence. A failed journey blocks the
+canonical, with a named isolated instance running that build and its window
+open, run `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash
+evals/core-journeys/run.sh all --out <run-dir>` once in a Team-bound QA shell,
+then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>`. `run.sh`
+refuses ports 7685 and 7686 and an unnamed instance. Only exit 0 from both, with
+`Verdict: PASS` in `results.md`, clears the push; record its wall time and keep
+the run directory with the release evidence. A failed journey blocks the
 push until it is fixed and the suite rerun green on the new SHA. An app release
 also runs `run.sh upgrade` from the previous release on a disposable named
 instance. Offline node tests do not replace the live run. Frontend-only and
