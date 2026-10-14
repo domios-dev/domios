@@ -1092,6 +1092,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "codeterm-bridge",
+ "codeterm-build-info",
  "codeterm-decision",
  "codeterm-mem",
  "codeterm-service-core",

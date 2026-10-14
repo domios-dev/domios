@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { devBuildConfiguration } from './dev-build-configuration.mjs';
+import { devBuildConfiguration, assertAppFeatureConfiguration } from './dev-build-configuration.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 
@@ -13,6 +13,13 @@ test('dev features follow manifest defaults while custom-protocol stays out of t
   const manifest = '[features]\ndefault = ["opaque-a", "custom-protocol", "opaque-b"]\nopaque-a=[]\n';
   assert.deepEqual(devBuildConfiguration(manifest).features, ['opaque-a', 'opaque-b']);
   assert.deepEqual(devBuildConfiguration('[features]\ndefault = []').features, []);
+});
+
+test('divergent dev, root-default and core-default test features refuse another core configuration', () => {
+  const manifest = features => `[features]\ndefault = [${features.map(feature => `"${feature}"`).join(',')}]\n`;
+  assert.deepEqual(assertAppFeatureConfiguration(manifest(['opaque']), manifest(['opaque'])), ['opaque']);
+  assert.throws(() => assertAppFeatureConfiguration(manifest(['opaque']), manifest([])), /diverged/);
+  assert.throws(() => assertAppFeatureConfiguration(manifest(['opaque', 'custom-protocol']), manifest(['opaque'])), /diverged/);
 });
 
 test('dev launch and the regular library check share profile, features, flags and no test cfg', () => {
@@ -44,20 +51,21 @@ test('dev launch and the regular library check share profile, features, flags an
     for (const line of source.split('\n').filter(line => line.includes('pnpm tauri dev') && !line.includes('screen -dmS'))) {
       assert.ok(line.includes('CT_DEV_TAURI_ARGS'), line);
     }
-    assert.match(source, /cargo check "\$\{CT_DEV_CHECK_ARGS\[@\]\}" --message-format=short >> "\$out" 2>&1 \|\| dev_status=\$\?/);
+    assert.match(source.match(/^check_queue_run\(\) \{[\s\S]*?^\}/m)[0], /run_check_queue_cargo "\$out" cargo check "\$\{CT_DEV_CHECK_ARGS\[@\]\}" --message-format=short \|\| dev_status=\$\?/);
     assert.match(source, /CODETERM_DEV=1 CODETERM_WEB_DIST="\$cw\/dist" CARGO_TARGET_DIR="\$cw\/target\/app"/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('check-queue reports dev library arguments and its own exit in the summary and full log', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
-  const pass = source.match(/^  configure_dev_cargo\n  local dev_status=0[\s\S]*?(?=^  grep 'cargo::core::compiler::fingerprint')/m)[0];
+  const pass = source.match(/^  configure_dev_cargo\n  local dev_status=0[\s\S]*?(?=^  local test_runner test_status)/m)[0];
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-cargo-receipt-'));
   try {
     for (const exit of [0, 42]) {
       const result = spawnSync(bash, ['-c', `
         set -euo pipefail
         configure_dev_cargo() { CT_DEV_CHECK_ARGS=(--lib --profile opaque-profile --features opaque-feature); }
+        run_check_queue_cargo() { shift; "$@"; }
         cargo() { return ${exit}; }
         run_pass() {
           cw="$PWD"
@@ -74,5 +82,78 @@ test('check-queue reports dev library arguments and its own exit in the summary 
       assert.equal(result.stdout.trim(), `${marker}\naggregate=${exit || 17}`);
       assert.equal(fs.readFileSync(path.join(directory, 'pass.log'), 'utf8').trim(), marker);
     }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('app test checks share both runner configurations and persist per-pass receipts', () => {
+  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
+  const configuration = source.match(/^configure_app_test_cargo\(\) \{[\s\S]*?^\}/m)[0];
+  const nextest = source.match(/^run_nextest_scope\(\) \{[\s\S]*?^\}/m)[0];
+  const app = source.slice(source.indexOf('  test-one)')).match(/^      app\)[\s\S]*?^        ;;/m)[0];
+  const pass = source.match(/^  local test_runner test_status[\s\S]*?^  done/m)[0];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'app-test-cfg-'));
+  try {
+    const command = `
+      set -euo pipefail
+      ${configuration}
+      ${nextest}
+      configure_dev_cargo() { :; }
+      find_app_test_archive() { return 1; }
+      prepare_dev_frontend_dist() { :; }
+      prepare_bundle_stubs() { :; }
+      prepare_exceptional_worktree_target() { :; }
+      run_check_queue_cargo() { shift; "$@"; }
+      cargo() {
+        printf '%s\\n' "$*" >> calls.log
+        if [ "$1" = nextest ]; then return 71; fi
+        return 42
+      }
+      scripts/test-capped.sh() { printf 'test-one %s\\n' "$*" >> calls.log; }
+      run_nextest_scope app || [ "$?" = 71 ]
+      test_filter=opaque-filter
+      case app in
+      ${app}
+      esac
+      run_checks() {
+        cw="$PWD"
+        out=pass.log
+        status=0
+        ${pass}
+        printf 'aggregate=%s\\n' "$status"
+      }
+      run_checks
+    `;
+    fs.writeFileSync(path.join(directory, 'fixture.sh'), command);
+    const result = spawnSync(bash, ['fixture.sh'], { cwd: directory, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const calls = fs.readFileSync(path.join(directory, 'calls.log'), 'utf8').trim().split('\n');
+    const nextestArgs = calls[0];
+    const focusedArgs = calls[1];
+    const checks = calls.slice(2);
+    assert.equal(checks.length, 1);
+    for (const [launch, check] of [[nextestArgs, checks[0]], [focusedArgs, checks[0]]]) {
+      for (const option of ['--manifest-path', '-p']) {
+        const value = launch.split(' ')[launch.split(' ').indexOf(option) + 1];
+        assert.ok(check.includes(`${option} ${value}`), `${launch} vs ${check}`);
+      }
+      assert.ok(launch.includes('--lib') && check.includes('--lib'));
+      assert.equal(launch.includes('--no-default-features'), check.includes('--no-default-features'));
+      assert.equal(launch.includes('--all-features'), check.includes('--all-features'));
+      const featureValue = args => args.match(/(?:--features|-F) (\S+)/)?.[1];
+      assert.equal(featureValue(launch), featureValue(check));
+      assert.ok(check.includes('--tests'), 'test cfg must be checked');
+      assert.ok(check.includes('--profile test'));
+      assert.doesNotMatch(launch, /--release|--profile|--cargo-profile/);
+    }
+    assert.ok(!nextestArgs.includes('--no-default-features'));
+    assert.ok(!focusedArgs.includes('--no-default-features'));
+    const markers = fs.readFileSync(path.join(directory, 'pass.log'), 'utf8').trim().split('\n');
+    assert.equal(markers.length, 1);
+    for (const [index, runner] of ['nextest,test-one'].entries()) {
+      const args = checks[index].replace(/^check /, '').replace(/ --message-format=short$/, '');
+      assert.equal(markers[index], `check-queue: app-test scope=${runner} args=${args} exit=${index ? 0 : 42}`);
+      assert.ok(result.stdout.includes(markers[index]));
+    }
+    assert.ok(result.stdout.includes('aggregate=42'), 'the shared test pass must preserve its failure');
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

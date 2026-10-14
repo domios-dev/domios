@@ -618,3 +618,52 @@ test("build_notify_tab_requires_a_value", () => {
     rmSync(h.dir, { recursive: true, force: true });
   }
 });
+
+test("check_queue_notifies_invalid_revision_without_reaching_cargo", () => {
+  const h = makeHarness();
+  try {
+    writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+    const result = runBash([buildPath, "check-queue", "does-not-exist-notify-fixture", "--notify-tab", "agent-tab"], h.env);
+    assert.notEqual(result.status, 0);
+    assert.notEqual(result.status, 2, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "agent-tab"]);
+    assert.match(sent[0].body, /EARLY FAILURE label=check-queue/);
+    assert.match(sent[0].body, /does-not-exist-notify-fixture/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-check-queue/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test('powershell launcher forwards checks without writing shared Git configuration', { skip: process.platform !== 'win32' }, () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'powershell-build-forward-'));
+  try {
+    const launcher = path.join(directory, 'build.ps1');
+    writeFileSync(launcher, readFileSync(path.join(root, 'build.ps1'), 'utf8'));
+    writeFileSync(path.join(directory, 'build.sh'), '#!/usr/bin/env bash\nprintf "FORWARDED %s\\n" "$*"\n');
+    const quoted = launcher.replaceAll("'", "''");
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', `function global:git { throw 'unexpected shared config write' }; & '${quoted}' check-queue opaque-sha -NotifyTab opaque-tab`], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /FORWARDED check-queue opaque-sha --notify-tab opaque-tab/);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected shared config write/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('nextest verbs use the shared notification wrapper for validation failures', () => {
+  for (const [verb, selector] of [['nextest', 'unknown-notify-scope'], ['nextest-archive', 'does-not-exist-notify-fixture']]) {
+    const h = makeHarness();
+    try {
+      writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+      const result = runBash([buildPath, verb, selector, '--notify-tab', 'agent-tab'], h.env);
+      assert.notEqual(result.status, 0);
+      assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+      const sent = records(h.parentRecord);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].body, new RegExp(`EARLY FAILURE label=${verb}`));
+      assert.ok(sent[0].body.includes(selector));
+    } finally { rmSync(h.dir, { recursive: true, force: true }); }
+  }
+});

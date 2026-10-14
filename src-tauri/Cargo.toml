@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 codeterm-api = { path = "crates/codeterm-api" }
 codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }
+codeterm-build-info = { path = "crates/codeterm-build-info" }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # tauri-build reads plugin ACL manifests only from direct dependencies.
 tauri-plugin-deep-link = "2"
