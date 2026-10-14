@@ -2119,7 +2119,11 @@ function activeClarifyingPromptBlock(screen) {
   return questions.length > 0 ? { questions, options: choice.options } : null;
 }
 function isActiveChoiceFooter(line) {
-  return /^(?:press\s+)?enter\s+\S/i.test(line.trim());
+  const trimmed = line.trim();
+  return /^(?:press\s+)?enter\s+\S/i.test(trimmed) || isCancelOnlyChoiceFooter(trimmed);
+}
+function isCancelOnlyChoiceFooter(line) {
+  return /^esc\s+to\s+cancel(?:\s*[·•]\s*tab\s+to\s+amend)?$/i.test(line);
 }
 function lastMeaningfulLineIndex(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
