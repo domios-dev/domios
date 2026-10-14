@@ -54,8 +54,15 @@ pub fn build_opening_tag(attrs: &[(&str, &str)]) -> String {
     tag
 }
 
+fn strip_leading_marker(text: &str) -> &str {
+    text.strip_prefix(DOMIOS_PASTED_MARKER)
+        .map(|rest| rest.strip_prefix('\n').unwrap_or(rest))
+        .filter(|rest| rest.starts_with("<domios"))
+        .unwrap_or(text)
+}
+
 pub fn parse_message(text: &str) -> Option<ParsedDomiosMessage> {
-    let rest = text.strip_prefix("<domios")?;
+    let rest = strip_leading_marker(text).strip_prefix("<domios")?;
     if !rest.starts_with(' ') && !rest.starts_with('>') {
         return None;
     }
@@ -315,6 +322,14 @@ mod tests {
             parse_message(message).unwrap().body
         );
         assert!(with_legacy_typed_instruction("unframed").is_none());
+    }
+
+    #[test]
+    fn a_legacy_leading_marker_does_not_hide_the_frame() {
+        let framed = "<domios from=\"system\">opaque body</domios>";
+        let leading = format!("{DOMIOS_PASTED_MARKER}{framed}");
+        assert_eq!(parse_message(&leading).unwrap().body, "opaque body");
+        assert!(parse_message(&format!("{DOMIOS_PASTED_MARKER} not a frame")).is_none());
     }
 
     #[test]

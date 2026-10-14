@@ -155,6 +155,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `self-install-local.ps1` | skill github-release |
 | `slow-crate-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing |
 | `slow-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs, ci-rust-shards.mjs; skill build, testing |
+| `split-metrics.py` | skill crate-split; docs/architecture/split-metrics.md |
 | `start-playwright-instance.ts` | package.json script |
 | `submission-matrix.sh` | skill testing |
 | `symbolicate-minidump.py` | scripts pdb_identity.py; skill build |

@@ -1,43 +1,40 @@
 use super::*;
 
-fn state(modal_visible: bool) -> DeliveryReadiness {
+fn state(generation: u64) -> DeliveryReadiness {
     DeliveryReadiness {
         pty_id: "pty".into(),
-        generation: Some(1),
-        modal_visible,
+        generation: Some(generation),
     }
 }
 
 #[test]
-fn output_burst_without_a_readiness_transition_never_wakes_owners() {
+fn output_burst_without_a_generation_change_never_wakes_owners() {
     let events = DeliveryReadinessEvents::default();
-    assert!(!events.observe("tab", state(true)));
+    assert!(!events.observe("tab", state(1)));
     for _ in 0..1000 {
-        assert!(!events.observe("tab", state(true)));
+        assert!(!events.observe("tab", state(1)));
     }
-    assert!(events.observe("tab", state(false)));
+    assert!(events.observe("tab", state(2)));
     for _ in 0..1000 {
-        assert!(!events.observe("tab", state(false)));
+        assert!(!events.observe("tab", state(2)));
     }
 }
 
 #[test]
 fn generation_and_tab_scope_are_preserved() {
     let events = DeliveryReadinessEvents::default();
-    assert!(!events.observe("first", state(false)));
-    assert!(!events.observe("second", state(false)));
-    let mut replaced = state(false);
-    replaced.generation = Some(2);
-    assert!(events.observe("first", replaced.clone()));
-    assert!(!events.observe("first", replaced));
-    assert!(!events.observe("second", state(false)));
+    assert!(!events.observe("first", state(1)));
+    assert!(!events.observe("second", state(1)));
+    assert!(events.observe("first", state(2)));
+    assert!(!events.observe("first", state(2)));
+    assert!(!events.observe("second", state(1)));
 }
 
 #[test]
-fn a_prewrite_guard_cannot_consume_the_readiness_transition() {
+fn a_prewrite_guard_cannot_consume_the_generation_transition() {
     let events = DeliveryReadinessEvents::default();
-    events.prime("tab", state(true));
-    events.prime("tab", state(false));
-    assert!(events.observe("tab", state(false)));
-    assert!(!events.observe("tab", state(false)));
+    events.prime("tab", state(1));
+    events.prime("tab", state(2));
+    assert!(events.observe("tab", state(2)));
+    assert!(!events.observe("tab", state(2)));
 }
