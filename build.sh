@@ -1544,8 +1544,11 @@ check_queue_run() {
       --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" >> "$out" 2>&1 || status=$?
   fi
   configure_dev_cargo
+  local dev_status=0
   CODETERM_DEV=1 CODETERM_WEB_DIST="$cw/dist" CARGO_TARGET_DIR="$cw/target/app" \
-    cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short >> "$out" 2>&1 || status=$?
+    cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short >> "$out" 2>&1 || dev_status=$?
+  [ "$dev_status" = 0 ] || status="$dev_status"
+  echo "check-queue: dev-lib args=${CT_DEV_CHECK_ARGS[*]} exit=$dev_status" | tee -a "$out"
   grep 'cargo::core::compiler::fingerprint' "$out" || true
   check_queue_errors "$max_errors" "$status" < "$out"
   check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
