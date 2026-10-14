@@ -1,0 +1,7 @@
+[32m    Starting[0m 3 tests across 1 binary
+        PASS [   0.011s] codeterm-plan store::tests::opens
+        FAIL [   0.020s] codeterm-plan store::tests::persists
+------------
+     Summary [   1.204s] 3 tests run: 2 passed, 1 failed, 0 skipped
+        FAIL [   0.020s] codeterm-plan store::tests::persists
+error: test run failed

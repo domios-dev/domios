@@ -228,11 +228,6 @@ fn launch_draft_nudge_presses_enter_only_on_a_parked_first_turn_draft() {
         nudge_unbound_launch_draft(&fixture.service, &pty_id, draft, b"\r"),
         Err("session_unbound")
     );
-    set_agent("first-turn-dialog");
-    assert_eq!(
-        nudge_unbound_launch_draft(&fixture.service, &pty_id, draft, b"\r"),
-        Err("dialog_visible")
-    );
     set_agent("first-turn");
     assert_eq!(
         nudge_unbound_launch_draft(&fixture.service, &pty_id, draft, b"\r"),

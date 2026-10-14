@@ -28,11 +28,11 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
                 );
                 obj.insert(
                     "build".into(),
-                    serde_json::json!(codeterm_build_info::BUILD_HASH),
+                    serde_json::json!(codeterm_build_info::hash()),
                 );
                 obj.insert(
                     "build_sha".into(),
-                    serde_json::json!(codeterm_build_info::BUILD_SHA),
+                    serde_json::json!(codeterm_build_info::sha()),
                 );
                 obj.insert(
                     "boot_id".into(),
