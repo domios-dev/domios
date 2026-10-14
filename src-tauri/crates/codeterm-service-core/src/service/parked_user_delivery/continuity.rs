@@ -52,7 +52,7 @@ impl super::super::ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn reconcile_user_send_statuses(
+    pub fn reconcile_user_send_statuses(
         &self,
         tab_id: &str,
     ) -> Result<Vec<ChatSendStatus>, String> {

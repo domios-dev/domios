@@ -100,7 +100,7 @@ pub(crate) async fn hook_provider_event(
                         .observations
                 })
                 .unwrap_or_default();
-            codeterm_service_core::service::provider_signals::apply_structured(
+            codeterm_service_core::service::provider_signals_apply_structured(
                 &svc,
                 &target,
                 &session,

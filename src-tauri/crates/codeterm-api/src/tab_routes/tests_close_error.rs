@@ -52,7 +52,7 @@ fn team_close_authorization_refusal_is_forbidden() {
 fn busy_worker_close_refusal_is_conflict() {
     let error = format!(
         "{}: Tab worker-tab holds work",
-        codeterm_service_core::service::worker_loss::BUSY_WORKER_CLOSE_REFUSAL_PREFIX
+        codeterm_service_core::service::BUSY_WORKER_CLOSE_REFUSAL_PREFIX
     );
     let (status, message) = map_close_error(error);
 

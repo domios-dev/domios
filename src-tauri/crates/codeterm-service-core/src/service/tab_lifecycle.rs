@@ -172,11 +172,7 @@ pub(crate) fn append_minted(
     append(journal, key, transition);
 }
 
-pub(crate) fn append(
-    journal: &TabLifecycleJournal,
-    key: LifecycleKey,
-    transition: LifecycleTransition,
-) {
+pub fn append(journal: &TabLifecycleJournal, key: LifecycleKey, transition: LifecycleTransition) {
     let label = transition.label();
     if let Err(error) = journal.append(key.clone(), transition) {
         log::warn!(

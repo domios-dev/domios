@@ -9,7 +9,7 @@ pub(crate) struct ForkResult {
     pub binding_pending: bool,
 }
 impl ServiceContext {
-    pub(crate) fn agent_fork(&self, source_tab: &str) -> Result<ForkResult, String> {
+    pub fn agent_fork(&self, source_tab: &str) -> Result<ForkResult, String> {
         let (source, workspace) = {
             let mux = self.mux.read();
             let source = mux

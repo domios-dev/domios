@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_service_core::service::pending_delivery_payloads::user_sends::dismissal::UserSendDismissal;
+use codeterm_service_core::service::pending_delivery_payloads::user_sends::UserSendDismissal;
 
 pub async fn chat_send_dismissals(
     AxumState(state): AxumState<AppState>,

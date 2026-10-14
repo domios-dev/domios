@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::api_support::optional_json::OptionalJson;
+use codeterm_service_core::api_support::OptionalJson;
 
 pub async fn list_workspaces(
     AxumState(state): AxumState<AppState>,

@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::agent_routes::{verify_spawn_delivery, SpawnRejection};
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::service::ai_helper_spawn::AiHelperRequest;
+use codeterm_service_core::service::AiHelperRequest;
 
 /// Provider, workspace and cwd are daemon-owned, so a helper names only its work.
 #[derive(Debug, Deserialize)]

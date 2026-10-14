@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::de::DeserializeOwned;
 
-pub(crate) struct OptionalJson<T>(pub Option<T>);
+pub struct OptionalJson<T>(pub Option<T>);
 
 impl<S, T> FromRequest<S> for OptionalJson<T>
 where

@@ -56,7 +56,7 @@ pub(super) async fn close(
         State(state),
         headers,
         Path(id),
-        codeterm_service_core::api_support::optional_json::OptionalJson(Some(body)),
+        codeterm_service_core::api_support::OptionalJson(Some(body)),
     )
     .await
 }

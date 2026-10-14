@@ -67,7 +67,7 @@ pub(crate) fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-pub(crate) fn all(svc: &ServiceContext) {
+pub fn all(svc: &ServiceContext) {
     let tabs = svc
         .mux
         .read()

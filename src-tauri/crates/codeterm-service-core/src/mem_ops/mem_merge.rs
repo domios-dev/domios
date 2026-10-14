@@ -8,13 +8,13 @@ use crate::service::ServiceState;
 
 pub(crate) use codeterm_mem::curation::merge::*;
 
-pub(crate) fn merge_error_status(err: &MergeError) -> StatusCode {
+pub fn merge_error_status(err: &MergeError) -> StatusCode {
     StatusCode::from_u16(err.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Shared by the HTTP and socket transports. Config and the worker registry
 /// are read before the mem connection lock is taken.
-pub(crate) fn merge_items(
+pub fn merge_items(
     svc: &ServiceState,
     body: &MergeBody,
     worker_id: Option<&str>,
@@ -46,7 +46,7 @@ pub(crate) fn merge_items(
 
 /// `mem restore` for both transports: an archived item gets its kind back
 /// (and the body of `version` when given); otherwise the latest body change is undone.
-pub(crate) fn restore_item(
+pub fn restore_item(
     svc: &ServiceState,
     id: &str,
     body: &RestoreBody,

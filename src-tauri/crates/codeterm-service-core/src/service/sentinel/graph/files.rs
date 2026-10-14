@@ -4,7 +4,7 @@ use crate::sentinel::{graph, scheduler::Handle, storage};
 use crate::service::ServiceContext;
 
 impl ServiceContext {
-    pub(crate) fn automation_node_files(
+    pub fn automation_node_files(
         &self,
         identity: &graph::Identity,
         bucket: Option<&str>,

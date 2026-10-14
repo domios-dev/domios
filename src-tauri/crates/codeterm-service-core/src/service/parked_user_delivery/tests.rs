@@ -307,7 +307,7 @@ static SUBMIT_BOUNDARIES: std::sync::OnceLock<
     Mutex<std::collections::HashMap<String, SubmitBoundary>>,
 > = std::sync::OnceLock::new();
 
-pub(crate) struct UserSubmitBoundary(String);
+pub struct UserSubmitBoundary(String);
 
 impl UserSubmitBoundary {
     pub(crate) fn install(tab_id: &str, boundary: SubmitBoundary) -> Self {
@@ -561,7 +561,7 @@ impl crate::agent::provider::AgentProvider for QueueProvider {
     }
 }
 
-pub(crate) fn queue_fixture(anchor: bool, paste_limit: Option<usize>) -> (ServiceFixture, String) {
+pub fn queue_fixture(anchor: bool, paste_limit: Option<usize>) -> (ServiceFixture, String) {
     queue_fixture_with_session_mode(anchor, paste_limit, false)
 }
 
@@ -749,7 +749,7 @@ fn settled_listener(
     (listener, rx)
 }
 
-pub(crate) fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
+pub fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
     fixture
         .service
         .ready_user_send_tasks
@@ -808,7 +808,7 @@ pub(crate) fn await_owner_stopped(fixture: &ServiceFixture, tab_id: &str) {
     }
 }
 
-pub(crate) fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
+pub fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
     let pty_id = fixture
         .service
         .mux

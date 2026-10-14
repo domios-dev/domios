@@ -32,7 +32,7 @@ pub(crate) fn authenticated_tab_binding(tab: &Tab) -> Option<AssignmentRuntimeBi
     })
 }
 
-pub(crate) fn prepare_existing_task_assignment(
+pub fn prepare_existing_task_assignment(
     mux: &MultiplexerState,
     tab_id: &str,
     peer: Option<&str>,
@@ -69,7 +69,7 @@ pub(crate) fn prepare_existing_task_assignment(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn persist_existing_task_assignment(
+pub fn persist_existing_task_assignment(
     store: &PlanStore,
     assignment: ExistingTaskAssignment,
     plan_id: &str,

@@ -1,5 +1,5 @@
 mod delete;
-pub(crate) mod graph;
+pub mod graph;
 use tauri::Manager;
 
 use super::ServiceContext;

@@ -12,7 +12,7 @@ use crate::service::ServiceContext;
 mod worker_transfer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AgentPlacement {
+pub enum AgentPlacement {
     Roleless,
     Worker {
         parent_tab_id: String,
@@ -56,7 +56,7 @@ impl AgentPlacement {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AgentTransitionRequest {
+pub struct AgentTransitionRequest {
     pub tab_id: String,
     pub destination: AgentPlacement,
     /// Plan this placement binds to as planner. An occasion, not a tier.

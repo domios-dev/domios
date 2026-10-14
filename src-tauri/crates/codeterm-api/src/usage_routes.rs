@@ -51,7 +51,7 @@ pub async fn usage_latest(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let result = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::agent_runtime::projections::latest(
+        codeterm_service_core::service::agent_runtime::projections_latest(
             &state.svc,
             &q.provider,
             q.account_id.as_deref(),

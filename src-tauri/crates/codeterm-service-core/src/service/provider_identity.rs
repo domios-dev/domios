@@ -25,7 +25,7 @@ impl TabAgentTypeState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AgentTypeWriteOutcome {
+pub enum AgentTypeWriteOutcome {
     Applied {
         previous: TabAgentTypeState,
         current: TabAgentTypeState,
@@ -44,7 +44,7 @@ pub(crate) enum AgentTypeWriteOutcome {
 }
 
 #[derive(Debug)]
-pub(crate) enum ConditionalAgentTypeWrite<T> {
+pub enum ConditionalAgentTypeWrite<T> {
     Committed {
         value: T,
         identity_write: AgentTypeWriteOutcome,
@@ -177,7 +177,7 @@ impl ServiceContext {
         );
     }
 
-    pub(crate) fn set_and_lock_tab_agent_type_from(
+    pub fn set_and_lock_tab_agent_type_from(
         &self,
         tab_id: &str,
         agent_type: String,
@@ -197,7 +197,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn write_tab_agent_type_with_origin(
+    pub fn write_tab_agent_type_with_origin(
         &self,
         tab_id: &str,
         agent_type: String,
@@ -239,7 +239,7 @@ impl ServiceContext {
         Some(outcome)
     }
 
-    pub(crate) fn write_hook_tab_agent_type_from_claim(
+    pub fn write_hook_tab_agent_type_from_claim(
         &self,
         tab_id: &str,
         agent_type: String,
@@ -256,7 +256,7 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn commit_verified_tab_agent_type_with_origin<T, E>(
+    pub fn commit_verified_tab_agent_type_with_origin<T, E>(
         &self,
         tab_id: &str,
         agent_type: String,

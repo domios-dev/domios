@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::storage::{ImportOutcome, Storage, StorageConfig};
 
 const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
-pub(crate) const STORAGE_UNAVAILABLE_MESSAGE: &str =
+pub const STORAGE_UNAVAILABLE_MESSAGE: &str =
     "Storage unavailable, your data is preserved, see the incident.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +19,7 @@ impl std::fmt::Display for StorageUnavailableError {
 impl std::error::Error for StorageUnavailableError {}
 
 #[derive(Clone)]
-pub(crate) enum StorageAuthority {
+pub enum StorageAuthority {
     Ready(Storage),
     Unavailable {
         storage: Option<Storage>,

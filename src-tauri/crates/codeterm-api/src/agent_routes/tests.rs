@@ -612,7 +612,7 @@ mod spawn_input;
 
 #[test]
 fn cwd_refusal_is_unprocessable_not_server_error() {
-    let rejection = SpawnRejection::from(codeterm_service_core::service::spawn_cwd::CwdRefusal {
+    let rejection = SpawnRejection::from(codeterm_service_core::service::CwdRefusal {
         path: "/missing".into(),
         workspace_id: Some("ws".into()),
         workspace_name: Some("project".into()),

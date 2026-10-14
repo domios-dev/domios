@@ -10,7 +10,6 @@ pub(super) fn record_hook_post(
     let empty = serde_json::Value::Null;
     let _ = state
         .svc
-        .ext::<std::sync::Arc<codeterm_service_core::service::protocol_recorder::ProtocolRecorder>>(
-        )
+        .ext::<std::sync::Arc<codeterm_service_core::service::ProtocolRecorder>>()
         .try_record_hook_post(enabled, tab_id, event, body.unwrap_or(&empty));
 }

@@ -15,7 +15,7 @@ pub fn mux_rename_team_core(
     )
 }
 
-pub(crate) fn mux_rename_team_service_core(
+pub fn mux_rename_team_service_core(
     svc: &codeterm_service_core::service::ServiceContext,
     team_id: String,
     name: String,
@@ -28,7 +28,7 @@ pub(crate) fn mux_rename_team_service_core(
     )
 }
 
-pub(crate) async fn mux_add_team_member_service_core(
+pub async fn mux_add_team_member_service_core(
     svc: &ServiceState,
     team_id: String,
     provider: String,

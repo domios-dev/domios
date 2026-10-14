@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tauri::Manager;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::api_support::optional_json::OptionalJson;
+use codeterm_service_core::api_support::OptionalJson;
 
 #[derive(Deserialize)]
 pub struct SaveSessionBody {
@@ -361,7 +361,7 @@ pub async fn resume_session_api(
     ))?;
 
     let permission_bypass_authorization =
-        codeterm_service_core::service::permission_policy::configured_permission_bypass_for(
+        codeterm_service_core::service::permission_policy_configured_permission_bypass_for(
             &state.svc.app_handle,
             &state.svc.agent_registry,
             &meta.provider,

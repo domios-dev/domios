@@ -18,7 +18,7 @@ pub async fn refresh(
         Err((status, message)) => return (status, message).into_response(),
     };
     match tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::capability_probe::refresh(&state.svc, &tab, true)
+        codeterm_service_core::service::capability_probe_refresh(&state.svc, &tab, true)
     })
     .await
     {

@@ -1082,11 +1082,10 @@ pub(super) fn create_router_with_preview_admission(
         router
     };
 
-    let frontend_origins =
-        codeterm_service_core::startup::frontend_shell::declared_frontend_origins(
-            &state.config.lock().api,
-            state.svc.app_handle.config().build.dev_url.as_ref(),
-        );
+    let frontend_origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
+        &state.config.lock().api,
+        state.svc.app_handle.config().build.dev_url.as_ref(),
+    );
     let router = router.layer(middleware::from_fn_with_state(
         state.clone(),
         super::auth::auth_middleware,

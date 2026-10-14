@@ -4,7 +4,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::general_agent::{general_dir, general_workspace_id};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AiHelperRequest {
+pub struct AiHelperRequest {
     pub title: String,
     pub description: String,
     pub task: String,
@@ -75,7 +75,7 @@ pub(crate) fn ai_helper_params(
 }
 
 impl ServiceContext {
-    pub(crate) async fn spawn_ai_helper(
+    pub async fn spawn_ai_helper(
         &self,
         request: AiHelperRequest,
     ) -> Result<AiHelperLaunch, String> {

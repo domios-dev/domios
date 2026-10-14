@@ -13,25 +13,28 @@ mod spawn_warnings;
 pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
 
 pub(crate) use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
+pub use super::spawn_params::chatbackend_spawn_config;
+pub use super::spawn_params::reject_direct_watcher_chatbackend_config;
 #[cfg(test)]
 pub(crate) use super::spawn_params::validate_watcher_spawn_target;
-pub(crate) use super::spawn_params::{
-    chatbackend_spawn_config, reject_direct_watcher_chatbackend_config,
-};
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
 #[path = "spawn_model_catalogue.rs"]
 mod spawn_model_catalogue;
+pub(crate) use spawn_model::attach_planned_model;
+pub(crate) use spawn_model::normalize_session_model;
+pub(crate) use spawn_model::persist_model_launch_identity;
+pub(crate) use spawn_model::resolve_fresh_agent_model;
+pub(crate) use spawn_model::resolve_fresh_agent_model_with_notice;
+pub use spawn_model::CatalogBackgroundModelPort;
 pub use spawn_model::ModelFallbackNotice;
-pub(crate) use spawn_model::{
-    attach_planned_model, normalize_session_model, persist_model_launch_identity,
-    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
-};
-pub(crate) use spawn_model_catalogue::{
-    catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
-    resolve_agent_model_selection, validate_agent_model, InvalidModelError,
-};
+pub(crate) use spawn_model_catalogue::catalogue_lookup_model;
+pub(crate) use spawn_model_catalogue::catalogue_models_match;
+pub(crate) use spawn_model_catalogue::model_catalogue_capability;
+pub(crate) use spawn_model_catalogue::resolve_agent_model_selection;
+pub use spawn_model_catalogue::validate_agent_model;
+pub use spawn_model_catalogue::InvalidModelError;
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;

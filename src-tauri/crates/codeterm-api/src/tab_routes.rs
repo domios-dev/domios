@@ -294,7 +294,7 @@ pub async fn create_shell_tab(
         body.creator_tab_id = caller_tab_header(&headers);
     }
     if let Some(timeout) = body.timeout.as_deref() {
-        codeterm_service_core::service::utility_deadline_model::parse_timeout(timeout)
+        codeterm_service_core::service::utility_deadline_model_parse_timeout(timeout)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     }
     use codeterm_service_core::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
@@ -632,9 +632,7 @@ pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
     } else if e.starts_with("Workspace is closing:")
         || e.starts_with("Workspace close reservation lost:")
         || e.starts_with("Workspace changed while closing:")
-        || e.starts_with(
-            codeterm_service_core::service::worker_loss::BUSY_WORKER_CLOSE_REFUSAL_PREFIX,
-        )
+        || e.starts_with(codeterm_service_core::service::BUSY_WORKER_CLOSE_REFUSAL_PREFIX)
     {
         StatusCode::CONFLICT
     } else {

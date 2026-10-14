@@ -63,7 +63,7 @@ pub async fn snapshot(
         let since = query.since;
         let journal = state.svc.lifecycle_journal.clone();
         let (messages, count) = tokio::task::spawn_blocking(move || {
-            codeterm_service_core::service::tab_chat::restore_notice::snapshot(
+            codeterm_service_core::service::tab_chat::restore_notice_snapshot(
                 &journal,
                 &tab_id,
                 Vec::new(),

@@ -10,7 +10,7 @@ pub(crate) fn append_restore_notice(
     append_from_journal(&load, tab_id, messages);
 }
 
-pub(crate) fn snapshot(
+pub fn snapshot(
     journal: &TabLifecycleJournal,
     tab_id: &str,
     messages: Vec<ChatMsg>,

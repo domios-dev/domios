@@ -7,7 +7,7 @@ use codeterm_service_core::service::web_access::local_ip_address;
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::api_support::optional_json::OptionalJson;
+use codeterm_service_core::api_support::OptionalJson;
 
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
@@ -159,7 +159,7 @@ pub async fn restart_app(
         codeterm_service_core::crash::shutdown::mark_shutting_down_for(
             codeterm_service_core::crash::lifecycle::ShutdownReason::Restart,
         );
-        codeterm_service_core::startup::restart_stdio::detach_for_restart();
+        codeterm_service_core::startup::restart_stdio_detach_for_restart();
         app.restart();
     });
     Ok(Json(serde_json::json!({ "ok": true })))

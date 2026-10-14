@@ -211,7 +211,7 @@ impl SpawnAgentParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskLaunchAuthority {
+pub struct TaskLaunchAuthority {
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
     pub(crate) attempt_id: String,
@@ -219,7 +219,7 @@ pub(crate) struct TaskLaunchAuthority {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RemoteTaskBinding {
+pub struct RemoteTaskBinding {
     pub plan_id: String,
     pub task_id: String,
     pub attempt_id: String,

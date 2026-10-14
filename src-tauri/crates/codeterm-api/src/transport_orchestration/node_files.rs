@@ -4,7 +4,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use codeterm_service_core::sentinel::graph::{files::FileReference, Identity};
+use codeterm_service_core::sentinel::graph::FileReference;
+use codeterm_service_core::sentinel::graph::Identity;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
