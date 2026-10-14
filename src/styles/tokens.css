@@ -110,6 +110,14 @@
   --ct-radius-lg: 12px;
   --ct-radius-xl: 16px;
 
+  /* User bubble: one padding grid; chips inside nest on it with a concentric radius */
+  --ct-bubble-pad-x: 16px;
+  --ct-bubble-pad-y: 8px;
+  --ct-bubble-gap: 6px;
+  --ct-bubble-radius: 18px;
+  --ct-bubble-tail-radius: 6px;
+  --ct-bubble-chip-height: 28px;
+
   /* Window controls keep the host platform's colours whatever the theme */
   --ct-window-close: #ff5f57;
   --ct-window-close-glyph: #4d0000;

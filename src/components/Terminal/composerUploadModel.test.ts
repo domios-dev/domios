@@ -76,3 +76,16 @@ test("retry resolves the reserved chip once and deleting a pending chip prevents
   assert.equal(draftHasPendingUploads(removed.draft(), removed.registry()), false);
   assert.equal(parseAttachmentMarkers(serializeCapsuleDraft(removed.draft(), removed.registry())).attachments.length, 0);
 });
+
+test("a video upload is labelled video1 and stored; an unknown container fails on the chip without storing", async () => {
+  const stored: string[] = [];
+  const mp4 = new Blob([new Uint8Array([0, 0, 0, 0x18, ...Buffer.from("ftypisom")])], { type: "video/mp4" });
+  const h = fixture(async (_blob, name) => { stored.push(name); return "/uploads/clip.mp4"; });
+  await h.controller.add(mp4, "ScreenRecording_10-14_1.mp4");
+  assert.deepEqual(parseAttachmentMarkers(serializeCapsuleDraft(h.draft(), h.registry())).attachments.map(({ kind, label }) => [kind, label]), [["video", "video1"]]);
+  const bad = fixture(async (_blob, name) => { stored.push(name); return "/uploads/bad.mp4"; });
+  await bad.controller.add(new Blob([new Uint8Array(32)], { type: "video/mp4" }), "bad.mp4");
+  assert.equal(bad.uploads()[0].state, "failed");
+  assert.equal(bad.uploads()[0].failure?.retryable, false);
+  assert.deepEqual(stored, ["ScreenRecording_10-14_1.mp4"]);
+});
