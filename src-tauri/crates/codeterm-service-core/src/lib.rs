@@ -40,7 +40,7 @@ mod native_resize;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
-pub(crate) mod sentinel;
+pub mod sentinel;
 pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;

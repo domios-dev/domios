@@ -171,7 +171,11 @@ pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &crate::app_runtime::
     }
 }
 
-pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::Storage) {
+pub fn start(
+    svc: ServiceState,
+    clock: SharedClock,
+    storage: &crate::storage::Storage,
+) -> Option<crate::ports::sentinel::SentinelPorts> {
     let _ = super::command::START_TRACE.set(|id| {
         crate::flow_trace::record(id, "blueprint.started", "", "", "command", None);
     });
@@ -191,15 +195,17 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
             log::error!("[blueprint] shutdown registration failed: {error}");
             handle.store.lock().close_admission();
             handle.probe_owner.close_admission();
-            return;
+            return None;
         }
     }
     crate::service::sentinel::graph::install_invalidations(&svc, handle.store.clone());
     wake::listen_any(svc.clone(), handle.clone());
     svc.app_handle.manage(handle.clone());
+    let ports = super::ports_impl::ports(&handle);
+    svc.app_handle.manage(ports.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
         log::error!("[blueprint] subsystem unavailable: {error}");
-        return;
+        return Some(ports);
     }
     if let Err(error) = super::input::sweep_orphans(&crate::paths::data_dir()) {
         log::error!("[blueprint-input] startup orphan sweep failed: {error}");
@@ -325,6 +331,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
             }
         }
     });
+    Some(ports)
 }
 
 fn scheduler_wait_ms(store: &Store) -> u64 {

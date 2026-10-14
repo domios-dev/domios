@@ -451,7 +451,6 @@ impl ServiceContext {
             teardown
                 .sentinel
                 .store
-                .lock()
                 .adopt_external_commit(&sentinel_commit)?;
         }
         let commit = {
@@ -582,11 +581,11 @@ impl ServiceContext {
         let team_id = team_id.to_string();
         tokio::task::spawn_blocking(move || {
             service.delete_team_crons(&team_id);
-            if let Some(sentinels) = service
+            if let Some(ports) = service
                 .app_handle
-                .try_state::<crate::sentinel::scheduler::Handle>()
+                .try_state::<crate::ports::sentinel::SentinelPorts>()
             {
-                sentinels.remove_team(&team_id)?;
+                ports.cleanup.remove_team(&team_id)?;
             }
             if let Err(error) = crate::delayed_send::delete_team_series(&service, &team_id) {
                 log::error!("Failed to delete Team delayed series {team_id}: {error}");

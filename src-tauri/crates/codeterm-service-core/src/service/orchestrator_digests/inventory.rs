@@ -19,16 +19,16 @@ pub(super) fn populate(svc: &ServiceContext, plan: &Plan, counters: &mut PlanDig
         .unwrap_or_default();
     let scenarios = svc
         .app_handle
-        .try_state::<crate::sentinel::scheduler::Handle>()
-        .map(|handle| {
-            let store = handle.store.lock();
+        .try_state::<crate::ports::sentinel::SentinelPorts>()
+        .map(|ports| {
+            let records = ports.store.records();
             count_job_roots(
                 team_id,
-                store.list().iter().map(|job| JobRoot {
+                records.iter().map(|job| JobRoot {
                     workspace: &job.workspace_id,
                     id: &job.id,
                     team: job.team_id.as_deref(),
-                    scenario_root: job.is_scenario_root(),
+                    scenario_root: job.scenario_root,
                 }),
             )
         })

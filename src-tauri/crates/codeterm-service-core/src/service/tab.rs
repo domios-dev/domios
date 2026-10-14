@@ -153,11 +153,11 @@ impl ServiceContext {
         crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         self.release_managed_tabs(tab_id);
         self.reply_relays.close(tab_id);
-        if let Some(handle) = self
+        if let Some(ports) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            handle.cancel_tab_owned_runs(tab_id);
+            ports.cleanup.cancel_tab_owned_runs(tab_id);
         }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
