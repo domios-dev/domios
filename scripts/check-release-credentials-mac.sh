@@ -5,8 +5,8 @@ rc=0
 : "${APPLE_SIGNING_IDENTITY:?Provide APPLE_SIGNING_IDENTITY}"
 : "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
 : "${RELEASE_SIGNING_DIR:?Prepare job signing material first}"
-security find-identity -v -p codesigning "$RELEASE_KEYCHAIN" | grep -Fq "\"$APPLE_SIGNING_IDENTITY\"" \
-  && echo "Developer ID present in job keychain" || { echo "::error::Developer ID missing from job keychain"; rc=1; }
+python3 scripts/release-signing-material.py check-identity \
+  && echo "Developer ID present and valid in job keychain" || rc=1
 python3 - <<'PY'
 import base64, os
 from pathlib import Path

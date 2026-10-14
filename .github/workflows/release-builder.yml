@@ -53,6 +53,7 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
       CARGO_INCREMENTAL: '0'
@@ -153,6 +154,8 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
       ASSET_SCOPE: linux-aarch64
