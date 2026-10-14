@@ -1,0 +1,8 @@
+[package]
+name = "codeterm-shutdown"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }

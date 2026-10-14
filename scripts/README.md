@@ -34,6 +34,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
 | `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
+| `check-build-check-queue.sh` |  |
 | `check-build-dev-port-overrides.sh` | build.sh script-guards |
 | `check-build-gateway-mutex-cleanup.sh` | CI build-gateway.yml; skill build |
 | `check-build-gateway-owner-reap.sh` | CI build-gateway.yml; skill build |
@@ -103,6 +104,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `local-install-cache.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/local-install-cache.test.mjs |
 | `merge-latest-json.js` | CI release-macos.yml, release-manifest-validate.yml; scripts tests/updater-manifest.test.mjs |
 | `merge-stack-audit.sh` | scripts test-merge-stack-audit.sh; skill github-release |
+| `module-graph.py` |  |
 | `pdb_identity.py` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-build-pdb-retention.sh, tests/test_pdb_identity.py, symbolicate-minidump.py; skill build |
 | `playwright-coverage-map.mjs` | package.json script |
 | `plugin-release-metadata.mjs` | scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs |

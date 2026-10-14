@@ -1104,10 +1104,14 @@ dependencies = [
  "codeterm-blueprint-types",
  "codeterm-bridge",
  "codeterm-browser",
+ "codeterm-config",
+ "codeterm-cron",
  "codeterm-decision",
+ "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-input-macos",
  "codeterm-input-windows",
+ "codeterm-keepawake",
  "codeterm-local-recording",
  "codeterm-mem",
  "codeterm-mem-store",
@@ -1120,6 +1124,8 @@ dependencies = [
  "codeterm-provider-signals",
  "codeterm-pty",
  "codeterm-repowatch",
+ "codeterm-secrets",
+ "codeterm-shutdown",
  "codeterm-storage",
  "codeterm-types",
  "codeterm-usage",
@@ -1309,11 +1315,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-config"
+version = "1.6.2"
+dependencies = [
+ "codeterm-mesh",
+ "codeterm-notify-types",
+ "codeterm-paths",
+ "codeterm-types",
+ "codeterm-util",
+ "hostname",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-cron"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "cron",
+ "rand 0.8.5",
+]
+
+[[package]]
 name = "codeterm-decision"
 version = "1.6.2"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "codeterm-events"
+version = "1.6.2"
+dependencies = [
+ "codeterm-plugin",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1349,6 +1399,21 @@ dependencies = [
  "codeterm-types",
  "parking_lot",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-keepawake"
+version = "1.6.2"
+dependencies = [
+ "codeterm-events",
+ "codeterm-paths",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
 ]
 
 [[package]]
@@ -1592,11 +1657,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-secrets"
+version = "1.6.2"
+dependencies = [
+ "async-trait",
+ "codeterm-config",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "hostname",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "codeterm-sentinel-ports"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "codeterm-shutdown"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "serde",
 ]
 
 [[package]]
