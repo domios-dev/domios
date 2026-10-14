@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { DEV_BUILD } from "../lib/devBuild";
+import { classifyUpdateFailure } from "../lib/updateStatusModel";
 import { listen } from "../lib/bridge";
 import { useConfig } from "./useConfig";
 import { checkForUpdate, getUpdateStatus, installAppUpdate, requestUpdateChannel } from "./updateTransport";
@@ -273,7 +275,10 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         handleInfo(data);
       } catch (e) {
-        if (silent) return;
+        if (!classifyUpdateFailure(silent ? "background" : "check", e)) {
+          if (DEV_BUILD) console.debug("Background update check failed", e);
+          return;
+        }
         setError(e instanceof Error ? e.message : String(e));
         setStatus("error");
       }
@@ -361,6 +366,10 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "error") {
         const message = next.last_error || "Update failed";
+        if (!classifyUpdateFailure(installingRef.current ? "update" : "background", message)) {
+          if (DEV_BUILD) console.debug("Background update status failed", message);
+          return;
+        }
         installingRef.current = false;
         activeInstallPhaseRef.current = false;
         installCallReturnedRef.current = true;
