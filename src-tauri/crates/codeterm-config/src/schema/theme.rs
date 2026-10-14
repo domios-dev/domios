@@ -61,7 +61,7 @@ pub fn list_builtin_theme_ids() -> Vec<String> {
 
 /// Directory for user custom themes.
 pub fn user_themes_dir() -> Option<std::path::PathBuf> {
-    Some(crate::paths::data_dir().join("themes"))
+    Some(codeterm_paths::data_dir().join("themes"))
 }
 
 /// Load a custom theme from the user themes directory.
