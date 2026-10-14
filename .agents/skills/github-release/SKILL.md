@@ -223,7 +223,8 @@ fingerprint for Tauri/codesign. A stale selector, missing private key, or invali
 before the build with a distinct diagnostic. `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_PASSWORD` provision and validate
 a notary profile in that same keychain through interactive stdin; secret values never enter
 process arguments or logs. `TAURI_SIGNING_PRIVATE_KEY` is written to a mode-0600 temporary
-file exposed as `TAURI_SIGNING_PRIVATE_KEY_PATH`, and `TAURI_KEY_PASSWORD` reaches Tauri through `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+file exposed as `TAURI_SIGNING_PRIVATE_KEY_PATH`; later steps also get `TAURI_SIGNING_PRIVATE_KEY`
+set to that path, because the Tauri bundler reads only that name (key text or file path), and `TAURI_KEY_PASSWORD` reaches Tauri through `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 Every job cleans up in `always()`, removing only its own keychain search entry and files.
 No login-keychain identity, local notary env file or persistent updater key is required.
 The Mac-hosted Linux arm64 job uses the same isolated material and verifies its updater
@@ -825,6 +826,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | CI `rust (linux)` fails at `cargo fmt --check` after local `check` + frontend + file-size all passed | `release-preflight` was skipped; `check` does not run fmt or the test/lint matrix | run `./build.sh release-preflight` at the exact PR head, fix what it reports, push the fix as a new commit and let fresh CI run. Never blind-rerun the job |
+| macOS bundle fails after "Finished 2 bundles" with `A public key has been found, but no private key` | The job exported only `TAURI_SIGNING_PRIVATE_KEY_PATH`; `pnpm tauri build` reads only `TAURI_SIGNING_PRIVATE_KEY` | `release-signing-material.py` exports `TAURI_SIGNING_PRIVATE_KEY=<key file path>` too; push the fix as a new release commit |
 | `tauri build` ends with no DMG, no error | `build.sh dev` still running, Cargo target dir contention | `./build.sh kill` first |
 | DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
 | `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |

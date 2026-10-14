@@ -150,6 +150,8 @@ def setup(mac):
     with open(required('GITHUB_ENV'), 'a') as output:
         output.write(f'RELEASE_SIGNING_DIR={directory}\n')
         output.write(f'TAURI_SIGNING_PRIVATE_KEY_PATH={directory / "updater.key"}\n')
+        # The Tauri bundler reads only TAURI_SIGNING_PRIVATE_KEY, which accepts a key file path.
+        output.write(f'TAURI_SIGNING_PRIVATE_KEY={directory / "updater.key"}\n')
         if mac:
             output.write(f'RELEASE_KEYCHAIN={directory / "signing.keychain-db"}\n')
             output.write('APPLE_KEYCHAIN_PROFILE=release-job\n')
