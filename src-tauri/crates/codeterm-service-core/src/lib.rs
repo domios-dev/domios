@@ -51,7 +51,6 @@ pub mod provider;
 pub mod pty;
 pub mod repowatch;
 pub mod resize_owner;
-mod rpc_bridge;
 pub mod runaway_sweeper;
 pub mod secrets;
 pub mod service;
@@ -96,6 +95,8 @@ pub type UpdateStateHandle = Arc<Mutex<update_state::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
+
+pub use api::routes::register_rest_hooks;
 
 pub fn register_socket() {
     socket::register_rpc_bridge();

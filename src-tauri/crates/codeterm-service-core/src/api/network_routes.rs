@@ -1,14 +1,12 @@
+use crate::service::web_access::local_ip_address;
 use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::Deserialize;
-use crate::service::web_access::local_ip_address;
 
-use crate::api::{
-    routes::{check_auth, AppState},
-};
+use crate::api::routes::{check_auth, AppState};
 use crate::api_support::optional_json::OptionalJson;
 
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {

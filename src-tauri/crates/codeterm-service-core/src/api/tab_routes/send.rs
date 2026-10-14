@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_tab};
 use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin};
+use crate::service::input_transport::{should_prepend_source, TabInputTransport};
 
 use super::AppState;
 
@@ -252,23 +253,6 @@ fn route_payload_bytes(text: Option<&str>, batch: Option<&[BatchCommand]>) -> us
 }
 
 pub(super) use self::await_pty_link as wait_for_pty_link;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabInputTransport {
-    Pty,
-    ChatBackend,
-}
-
-/// Whether to inject the sender return-address marker into the PTY text. The
-/// marker is meaningful only to an AGENT reading its input; a bare shell runs
-/// the bytes verbatim and a chatBackend carries identity structurally.
-pub(crate) fn should_prepend_source(
-    has_source: bool,
-    target_has_agent: bool,
-    transport: TabInputTransport,
-) -> bool {
-    has_source && target_has_agent && transport == TabInputTransport::Pty
-}
 
 pub(crate) fn utility_shell_purpose(tab: &crate::multiplexer::types::Tab) -> Option<String> {
     (tab.is_utility_shell()

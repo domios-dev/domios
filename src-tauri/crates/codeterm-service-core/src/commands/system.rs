@@ -31,9 +31,11 @@ pub fn open_folder(path: String) -> Result<(), String> {
 /// What the OS says about desktop toasts right now, without raising a prompt.
 #[tauri::command]
 pub async fn notify_permission_state(app: crate::app_runtime::AppHandle) -> String {
-    tokio::task::spawn_blocking(move || crate::notification::os_notify::toast_permission(&app).to_string())
-        .await
-        .unwrap_or_else(|_| "unknown".to_string())
+    tokio::task::spawn_blocking(move || {
+        crate::notification::os_notify::toast_permission(&app).to_string()
+    })
+    .await
+    .unwrap_or_else(|_| "unknown".to_string())
 }
 
 /// The enabling gesture: switching the surface on asks the OS, switching it off

@@ -16,9 +16,9 @@ use crate::pty::screen_state::ScreenState;
 use crate::session::store::SessionStore;
 use crate::session::SessionState;
 use crate::{
-    agent, keepawake, mesh, service, AgentTrackerState, KeepAwakeStateHandle,
-    MeshStateHandle, OutputBufferState, PtyState, ReportStoreState, ResizeOwnerState,
-    ScreenStateHandle, UpdateStateHandle,
+    agent, keepawake, mesh, service, AgentTrackerState, KeepAwakeStateHandle, MeshStateHandle,
+    OutputBufferState, PtyState, ReportStoreState, ResizeOwnerState, ScreenStateHandle,
+    UpdateStateHandle,
 };
 
 /// All shared application states, grouped for easier passing between init functions.

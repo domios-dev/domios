@@ -390,8 +390,8 @@ fn mesh_attachment_consumer_refuses_oversized_source_before_relay() {
 
 #[test]
 fn mesh_relay_attachment_requires_authenticated_peer_access() {
-    use crate::api_support::access_policy::check_access;
     use crate::api::auth::{is_custom_auth, PUBLIC_PATHS};
+    use crate::api_support::access_policy::check_access;
 
     for path in ["/api/tabs/t1/attachments", "/api/mesh/attachments/transfer"] {
         assert!(!is_custom_auth(&Method::POST, path), "{path}");

@@ -1,5 +1,8 @@
 //! Update state shared by startup, the updater and prompt resolution.
 
+use std::collections::BTreeMap;
+
+use codeterm_plugins::AvailabilityItem;
 use serde::{Deserialize, Serialize};
 
 use codeterm_types::update::channel::Channel;
@@ -333,4 +336,10 @@ pub struct UpdateInfo {
     /// Release notes (markdown body)
     pub release_notes: Option<String>,
     pub published_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AvailabilitySnapshot {
+    pub items: Vec<AvailabilityItem>,
+    pub errors: BTreeMap<String, String>,
 }

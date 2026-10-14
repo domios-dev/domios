@@ -4,8 +4,10 @@ use axum::{
     Json,
 };
 
-use crate::service::hook_session_binding::{finish_session_binding, SessionBindError, SessionStartClaim};
 use super::routes::{resolve_tab, AppState};
+use crate::service::hook_session_binding::{
+    finish_session_binding, SessionBindError, SessionStartClaim,
+};
 
 #[derive(serde::Deserialize)]
 pub(crate) struct RebindSessionRequest {

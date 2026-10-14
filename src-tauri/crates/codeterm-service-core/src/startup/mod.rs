@@ -21,8 +21,8 @@ mod progress;
 mod rest_api;
 pub(crate) mod restart_stdio;
 mod restore_complete;
-pub(crate) mod snapshot_bound;
 mod servers;
+pub(crate) mod snapshot_bound;
 #[cfg(test)]
 mod stall_tests;
 mod state_incidents;

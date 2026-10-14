@@ -7,9 +7,7 @@ use std::collections::BTreeMap;
 
 use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::agent::registry::AgentRegistry;
-use crate::api::{
-    routes::{check_auth, resolve_tab, AppState},
-};
+use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::api_support::optional_json::OptionalJson;
 
 pub(crate) mod context_feed;
@@ -20,19 +18,22 @@ mod provider_events;
 mod reconciliation;
 mod recording;
 mod stop;
-pub(crate) use provider_events::hook_provider_event;
-use recording::record_hook_post;
-use crate::service::hook_session_binding::{
-    bind_reported_session, escaped_hook_log_field, finish_session_binding,
-    reported_transcript_path, session_start_session_id, unchanged_acknowledged_hook_report,
-    SessionStartClaim,
-};
 #[cfg(test)]
 use crate::service::hook_session_binding::{
     acknowledge_and_reconcile_session_binding, acknowledge_authenticated_launch,
     bind_planner_session_after_claim, session_start_string,
 };
+use crate::service::hook_session_binding::{
+    bind_reported_session, escaped_hook_log_field, finish_session_binding,
+    reported_transcript_path, session_start_session_id, unchanged_acknowledged_hook_report,
+    SessionStartClaim,
+};
+pub(crate) use provider_events::hook_provider_event;
+use recording::record_hook_post;
 pub use stop::hook_stop;
+#[cfg(test)]
+#[path = "hook_routes/prompt_resolution_tests.rs"]
+mod prompt_resolution_tests;
 #[cfg(test)]
 #[path = "hook_routes/review_regressions.rs"]
 mod review_regressions;

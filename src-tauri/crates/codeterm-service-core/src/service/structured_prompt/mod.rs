@@ -214,9 +214,9 @@ pub(crate) fn respond(
     tab_id: &str,
     value: &str,
 ) -> Option<Result<StructuredResponse, String>> {
-    if let Some(result) = crate::service::permission_decision::respond_with_identity(
-        svc, tab_id, value, None,
-    ) {
+    if let Some(result) =
+        crate::service::permission_decision::respond_with_identity(svc, tab_id, value, None)
+    {
         return Some(result.map(|()| StructuredResponse::Advanced));
     }
     if let Some(result) = crate::service::codex_rpc::approvals::respond(svc, tab_id, value) {

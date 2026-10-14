@@ -6,9 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::{
-    routes::{check_auth, resolve_tab, AppState},
-};
+use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::api_support::optional_json::OptionalJson;
 
 #[derive(Deserialize)]

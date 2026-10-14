@@ -653,7 +653,7 @@ mod tests {
         command
             .args([
                 "--exact",
-                "update::conpty_cleanup::tests::openconsole_test_helper",
+                "startup::conpty_cleanup::tests::openconsole_test_helper",
                 "--nocapture",
             ])
             .env("CODETERM_OPENCONSOLE_TEST_HELPER", "1")

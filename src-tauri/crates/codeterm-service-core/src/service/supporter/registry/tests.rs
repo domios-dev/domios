@@ -16,15 +16,15 @@ use super::{
     candidate, registered_adapters, supporter_state, supporter_token_dir, token_store,
     DecisionBackend, SupporterRegistry, Untouched,
 };
-use crate::mem_ops::search::{
-    baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
-    RERANK_EXCLUSIVE,
-};
 use crate::config::schema::{MemoryRerankConfig, SupporterConfig};
 use crate::mem::decision::token_store::TokenStatus;
 use crate::mem::rerank::RerankConfig;
 use crate::mem::search::{SearchConfig, SearchQuery};
 use crate::mem::{MemKind, MemManager, MemScope, NewMemItem, SearchHit};
+use crate::mem_ops::search::{
+    baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
+    RERANK_EXCLUSIVE,
+};
 use crate::service::plan::ports::PlanIndexQuery;
 use crate::service::plan::search_index::PlanSearchHit;
 

@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::service::store::Service;
-use codeterm_mesh::contract::inventory::{InventoryCapability, InventoryOperation, InventoryProvenance};
+use codeterm_mesh::contract::inventory::{
+    InventoryCapability, InventoryOperation, InventoryProvenance,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshInventoryResource {

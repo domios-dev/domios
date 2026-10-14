@@ -52,10 +52,13 @@ pub async fn ingest(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     resolve_tab(&state, &id).map_err(|(s, e)| (s, e.to_string()))?;
     let (name, bytes) = decode_ingest(&req).map_err(|r| (r.status(), r.message()))?;
-    let stored =
-        crate::api::web_routes::store_upload(&crate::service::web_access::uploads_dir(), &name, &bytes)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let stored = crate::api::web_routes::store_upload(
+        &crate::service::web_access::uploads_dir(),
+        &name,
+        &bytes,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let path = stored.to_string_lossy().to_string();
     let reference = match req.kind {
         AttachmentKind::Voice => {

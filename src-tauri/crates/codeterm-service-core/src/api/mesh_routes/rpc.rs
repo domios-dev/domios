@@ -5,7 +5,7 @@ use axum::{extract::State as AxumState, http::HeaderMap, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::api::routes::AppState;
-use crate::rpc_bridge::{bridge, RpcError};
+use crate::ports::socket::{bridge, RpcError};
 
 const CACHE_CAPACITY: usize = 512;
 
@@ -377,9 +377,9 @@ mod tests {
                         method: method.into(),
                         params: Some(serde_json::json!({})),
                         request_id: format!("{method}-{case}"),
-                        protocol_version: Some(serde_json::json!(
-                            crate::socket::server::protocol::PROTOCOL_VERSION
-                        )),
+                        protocol_version: Some(serde_json::json!((crate::ports::socket::bridge()
+                            .protocol_version)(
+                        ))),
                     }),
                 )
                 .await
@@ -414,9 +414,9 @@ mod tests {
                     method: "plan.task.remote_ack".into(),
                     params: Some(serde_json::json!({})),
                     request_id: format!("relayed-{full}"),
-                    protocol_version: Some(serde_json::json!(
-                        crate::socket::server::protocol::PROTOCOL_VERSION
-                    )),
+                    protocol_version: Some(serde_json::json!((crate::ports::socket::bridge()
+                        .protocol_version)(
+                    ))),
                 },
                 move || Ok(peer_id),
             )

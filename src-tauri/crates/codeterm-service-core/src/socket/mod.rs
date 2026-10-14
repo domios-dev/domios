@@ -4,7 +4,8 @@ use server::plan_task_dispatch::remote_recovery;
 use server::protocol;
 
 pub(crate) fn register_rpc_bridge() {
-    crate::rpc_bridge::register(crate::rpc_bridge::RpcBridge {
+    crate::ports::socket::register(crate::ports::socket::RpcBridge {
+        protocol_version: || protocol::PROTOCOL_VERSION,
         version_skew_gate: |raw| {
             protocol::version_skew_gate(
                 protocol::client_protocol_version(raw),

@@ -5,9 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::{
-    routes::{check_auth, AppState},
-};
+use crate::api::routes::{check_auth, AppState};
 use crate::api_support::optional_json::OptionalJson;
 
 pub async fn list_workspaces(

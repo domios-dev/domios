@@ -5,9 +5,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::service::hook_session_binding::finish_session_binding;
 use super::routes::{resolve_tab, AppState};
 use super::session_binding_routes::VerifiedRebindOutcome;
+use crate::service::hook_session_binding::finish_session_binding;
 use crate::service::tab_repair::{
     TabRepairError, TabRepairErrorKind, TabRepairResponse, TabRepairSource,
     TAB_REPAIR_SESSION_BINDING_PENDING, TAB_REPAIR_VERIFIED_SESSION_REQUIRED,

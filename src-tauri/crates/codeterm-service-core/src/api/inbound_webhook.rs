@@ -19,11 +19,11 @@ use crate::plugin::{
     WebhookRegistry,
 };
 use crate::secrets::{SecretError, SecretStore};
-use crate::service::web_access::PEBBLE_WEBHOOK_SECRET;
 use crate::service::message_gateway::{
     DeliveryClass, DeliverySeam, MessageBody, MessageGateway, MessageOrigin, OutboundMessage,
 };
 use crate::service::messenger::MessageEnvelope;
+use crate::service::web_access::PEBBLE_WEBHOOK_SECRET;
 
 mod audio;
 mod payload;

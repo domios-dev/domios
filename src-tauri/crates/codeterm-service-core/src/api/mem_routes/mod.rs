@@ -46,8 +46,8 @@ pub use pinned::{
 pub use search::mem_search;
 pub use sync::{mem_sync, mem_sync_status};
 pub use workers::{
-    workers_get, workers_kill, workers_list, workers_log, workers_progress,
-    workers_report, workers_spawn,
+    workers_get, workers_kill, workers_list, workers_log, workers_progress, workers_report,
+    workers_spawn,
 };
 
 /// Exact Worker id a request is attributed to, for commit authorization. Absent
