@@ -1,3 +1,4 @@
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/bootstrap/embed; CI release-windows.yml; scripts check-build-gateway-policy.sh, dev-prep.mjs, prepare-embed-stub.js
 // Copy codeterm-embed sidecar binary into bundled-cli/ with Tauri's
 // target-triple suffix so it can be referenced as externalBin and land
 // next to codeterm.exe in the installed app.

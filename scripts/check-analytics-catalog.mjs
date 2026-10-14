@@ -1,3 +1,4 @@
+// Caller: scripts check-analytics-catalog.test.mjs
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";

@@ -1,3 +1,4 @@
+# Caller: skill github-release
 # Install codeterm from a local NSIS installer, replacing the running daemon.
 #
 # Usage:

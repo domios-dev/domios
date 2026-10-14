@@ -1,3 +1,4 @@
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; CI qualification.yml, release-windows.yml, tests.yml; scripts ci-rust-prepare.mjs, dev-prep.mjs, qa-gates.lib.sh; skill build
 // Keep a placeholder so `tauri_build::build()` validates `externalBin` before the real
 // sidecar is compiled; `bundle-embed.js` replaces it later.
 const fs = require("fs");

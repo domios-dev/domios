@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts test-merge-stack-audit.sh; skill github-release
 set -euo pipefail
 
 usage() {

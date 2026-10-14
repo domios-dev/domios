@@ -1,3 +1,4 @@
+// Caller: scripts dev-prep.mjs
 //! One-off plan storage migration entry point.
 //!
 //! Rehearse on a COPY first — never run live against the only checkout.

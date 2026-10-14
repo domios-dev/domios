@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: package.json script
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

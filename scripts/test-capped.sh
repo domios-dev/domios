@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check/release-preflight/test-one/verify/test:all; CI qualification.yml; scripts check-build-gateway-policy.sh, check-sccache-basedir-isolation.sh, check-slow-unit-tests.test.mjs; skill build-machine, build-reference, build
 # Run tests under a process-group timeout.
 #
 # The cap kills the WHOLE process group — cargo AND every

@@ -1,3 +1,4 @@
+// Caller: build.sh script-guards
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtempSync, mkdirSync, cpSync, rmSync, appendFileSync } from "node:fs";
