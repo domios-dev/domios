@@ -21,6 +21,7 @@
     "paste": {
       "untrustedAboveLines": 0,
       "typedFollowUp": "\npasted by Domios",
+      "pasteMarkerWhen": "multiline",
       "requiresTypedInstructionForRoutedMessages": true
     },
     "systemPromptDelivery": {

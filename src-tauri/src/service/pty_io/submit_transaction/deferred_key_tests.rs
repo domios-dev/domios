@@ -1,4 +1,3 @@
-use super::readiness::{enter_decision, EnterDecision};
 use super::*;
 use crate::agent::status::TabStatus;
 use crate::service::pty_io::submit_transaction::cycle::{
@@ -12,7 +11,6 @@ use std::time::Duration;
 struct State {
     busy: bool,
     composer_ready: bool,
-    dialog: bool,
     swallowed_keys: usize,
     writes: Vec<String>,
     generation: u64,
@@ -56,7 +54,6 @@ impl EventTransport {
                 state: Mutex::new(State {
                     busy,
                     composer_ready: false,
-                    dialog: false,
                     swallowed_keys,
                     writes: Vec::new(),
                     generation: 0,
@@ -116,16 +113,6 @@ impl EventTransport {
 }
 
 impl SubmitTransport for EventTransport {
-    fn dialog_guard(&self) -> Result<(), InjectionError> {
-        if self.state.lock().unwrap().dialog {
-            Err(InjectionError::AgentTuiPresent {
-                pty_id: "test-pty".into(),
-            })
-        } else {
-            Ok(())
-        }
-    }
-
     fn observe(&self) -> Option<Observation> {
         None
     }
@@ -271,7 +258,6 @@ impl SubmitTransport for EventTransport {
                 state.turn_started = true;
             }
             if state.modal_after_swallowed_key {
-                state.dialog = true;
                 state.composer_ready = !state.modal_closes_composer_after_swallowed_key;
             }
             return Ok(());
@@ -329,27 +315,8 @@ fn run_with_readiness_guard_and_follow_up(
         typed_follow_up,
         tui_strategy(),
         opts(),
-        |_initial_key, _turn_was_started| {
-            let state = transport.state.lock().unwrap();
-            let allowed = enter_decision(state.dialog) == EnterDecision::Submit;
-            if !allowed {
-                return Err(InjectionError::AgentTuiPresent {
-                    pty_id: "test-pty".into(),
-                });
-            }
-            Ok(())
-        },
+        |_initial_key, _turn_was_started| Ok(()),
     )
-}
-
-#[test]
-fn first_key_readiness_allows_post_ready_working_without_a_modal() {
-    assert_eq!(enter_decision(false), EnterDecision::Submit);
-}
-
-#[test]
-fn first_key_readiness_withholds_enter_for_a_confident_prompt() {
-    assert_eq!(enter_decision(true), EnterDecision::WithholdForPrompt);
 }
 
 #[test]
@@ -400,58 +367,6 @@ fn idle_paste_echo_then_idle_poll_keeps_first_key_immediate() {
         ["paste:idle", "enter"]
     );
     assert!(event_wait_rx.try_recv().is_err());
-}
-
-#[test]
-fn modal_after_busy_payload_handoff_holds_first_key_without_replaying_payload() {
-    for composer_ready in [false, true] {
-        let (transport, paste_rx, _, _) = EventTransport::new(true, 0);
-        transport.pause_after_paste();
-        let send_transport = Arc::clone(&transport);
-        let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "busy"));
-        paste_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        {
-            let mut state = transport.state.lock().unwrap();
-            state.dialog = true;
-            state.composer_ready = composer_ready;
-        }
-        transport.release_paste();
-
-        let result = join(send, "active turn modal guard").unwrap().unwrap_err();
-        assert!(matches!(
-            result,
-            InjectionError::SubmitWithheldForPrompt { .. }
-        ));
-        assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
-    }
-}
-
-#[test]
-fn busy_ready_composer_hands_off_payload_once_before_dialog_stops_recovery_keys() {
-    let (transport, paste_rx, _, _) = EventTransport::new(true, 1);
-    {
-        let mut state = transport.state.lock().unwrap();
-        state.composer_ready = true;
-        state.modal_after_swallowed_key = true;
-        state.modal_closes_composer_after_swallowed_key = true;
-    }
-    let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "follow-up"));
-
-    paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the ready busy composer receives the payload before key recovery");
-    match join(send, "busy ready payload handoff").unwrap() {
-        Err(error) => assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. })),
-        Ok(result) => assert!(
-            !result.submit_observed && result.submit_anomaly && result.submit_key_writes == 1,
-            "a dialog after the first key must leave the send unconfirmed without recovery keys: {result:?}"
-        ),
-    }
-    assert_eq!(
-        transport.state.lock().unwrap().writes,
-        ["paste:follow-up", "enter"]
-    );
 }
 
 #[test]
@@ -627,16 +542,7 @@ fn start_claimed_send_with_recovery_window(
                 retry_offsets: [Duration::from_secs(1); 6],
             },
             options,
-            |_initial_key, _turn_was_started| {
-                let state = transport.state.lock().unwrap();
-                let allowed = enter_decision(state.dialog) == EnterDecision::Submit;
-                if !allowed {
-                    return Err(InjectionError::AgentTuiPresent {
-                        pty_id: "test-pty".into(),
-                    });
-                }
-                Ok(())
-            },
+            |_initial_key, _turn_was_started| Ok(()),
         );
         drop(claim);
         result
@@ -734,48 +640,13 @@ fn superseding_a_written_payload_preserves_its_initial_enter() {
 }
 
 #[test]
-fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
-    let (transport, paste_rx, deferred_wait_rx, _) =
-        EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
-    let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "payload"));
-    paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("paste reaches the composer once");
-    deferred_wait_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the bounded key schedule is exhausted");
-    {
-        let mut state = transport.state.lock().unwrap();
-        state.dialog = true;
-        state.composer_ready = false;
-    }
-    transport.signal();
-    let result = join(send, "dialog readiness send").unwrap().unwrap();
-    assert!(!result.submit_observed);
-    assert!(result.submit_anomaly);
-    assert_eq!(
-        transport
-            .state
-            .lock()
-            .unwrap()
-            .writes
-            .iter()
-            .filter(|write| write.as_str() == "enter")
-            .count(),
-        MAX_SUBMIT_KEY_WRITES
-    );
-}
-
-#[test]
-fn provider_dialog_before_paste_still_writes_the_payload_once_and_withholds_enter() {
+fn prompt_on_screen_never_gates_payload_or_enter() {
     let (transport, paste_rx, _, _) = EventTransport::new(false, 0);
-    transport.state.lock().unwrap().dialog = true;
-    let error = run_with_readiness_guard(&transport, "payload").unwrap_err();
-    assert!(matches!(
-        error,
-        InjectionError::SubmitWithheldForPrompt { .. }
-    ));
+    let result = run_with_readiness_guard(&transport, "payload").unwrap();
     assert!(paste_rx.try_recv().is_ok());
-    assert_eq!(transport.state.lock().unwrap().writes, ["paste:payload"]);
+    assert!(result.submit_observed);
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:payload", "enter"]
+    );
 }

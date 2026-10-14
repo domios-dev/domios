@@ -925,10 +925,6 @@ impl super::ServiceContext {
                 .map(|_| ())
         })
         .map_err(|error| match error {
-            error @ super::inject_verify::InjectionError::SubmitWithheldForPrompt { .. } => {
-                self.chat_send_ledger.note_waiting_on_prompt(&record.send_id);
-                DeliveryError::from_injection(tab_id, error)
-            }
             error => DeliveryError::from_injection(tab_id, error),
         })
     }

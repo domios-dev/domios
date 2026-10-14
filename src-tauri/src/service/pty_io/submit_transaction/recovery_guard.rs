@@ -1,4 +1,3 @@
-use super::readiness::{enter_decision, EnterDecision};
 use super::{PtySubmitTransport, SubmitTransport};
 use crate::service::inject_verify::InjectionError;
 
@@ -51,7 +50,6 @@ fn log_recovery_refusal(transport: &PtySubmitTransport<'_>, reason: &'static str
 pub(super) fn submit_key_guard(
     transport: &PtySubmitTransport<'_>,
     allow_initial_key: bool,
-    draft: &str,
 ) -> Result<(), InjectionError> {
     let svc = transport.svc;
     let pty_id = transport.pty_id;
@@ -80,16 +78,13 @@ pub(super) fn submit_key_guard(
         });
     }
     if allow_initial_key {
-        return transport.dialog_guard();
+        return Ok(());
     }
     let Some(agent_id) = agent_id else {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
     };
-    // Measured before taking the registry lock; only an unbound retry reads it.
-    let draft_present =
-        !session_bound && !draft.trim().is_empty() && transport.draft_evidence_count(draft) > 0;
     let authority = svc
         .agent_registry
         .with_provider(&agent_id, |provider| {
@@ -98,7 +93,7 @@ pub(super) fn submit_key_guard(
                 provider_capability: provider.supports_unbound_submit_recovery(),
                 session_starts_on_first_user_turn: provider.session_starts_on_first_user_turn(),
                 launch_owns_pty: launch_nonce,
-                draft_present,
+                draft_present: true,
             })
         })
         .unwrap_or(Err("provider_unavailable"));
@@ -108,20 +103,7 @@ pub(super) fn submit_key_guard(
             pty_id: pty_id.to_string(),
         });
     }
-    transport.dialog_guard()
-}
-
-pub(super) fn recovery_dialog_guard(
-    provider: &dyn codeterm_plugin::provider::AgentProvider,
-    snapshot: &crate::agent::tab_state::TabStateSnapshot,
-    pty_id: &str,
-) -> Result<(), InjectionError> {
-    match enter_decision(provider.delivery_modal_visible(snapshot)) {
-        EnterDecision::Submit => Ok(()),
-        EnterDecision::WithholdForPrompt => Err(InjectionError::AgentTuiPresent {
-            pty_id: pty_id.to_string(),
-        }),
-    }
+    Ok(())
 }
 
 pub(super) fn recovery_session_authorized(session_bound: bool, provider_capability: bool) -> bool {
@@ -172,12 +154,7 @@ pub(crate) fn nudge_unbound_launch_draft(
         launch_owns_pty: launch_nonce,
         draft_present,
     })?;
-    if let Err(error) = super::enter_prompt_guard(svc, pty_id) {
-        return Err(match error {
-            InjectionError::AgentTuiPresent { .. } => "dialog_visible",
-            _ => "pty_not_owned",
-        });
-    }
+    super::pty_owner_guard(svc, pty_id).map_err(|_| "pty_not_owned")?;
     let claim = super::claim_submit_cycle(pty_id);
     if claim.command_wait().is_some() {
         return Err("model_command_in_flight");
