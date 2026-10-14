@@ -2,10 +2,12 @@
   min-width: 0;
 }
 .ct-chat-surface {
-  padding-left: 5.5rem;
+  padding-left: 1.25rem;
   overflow-x: hidden;
   overflow-wrap: anywhere;
 }
+.ct-chat-surface[data-time-gutter="true"] { padding-left: 5.5rem; }
+.ct-chat-surface[data-time-gutter="false"] .ct-chat-message-time { display: none; }
 :where(.ct-chat-surface) :where(div, pre, blockquote, button, a, figure, details, header) {
   min-width: 0;
 }
