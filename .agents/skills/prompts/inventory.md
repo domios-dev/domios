@@ -25,7 +25,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | File | Const | Category | Placeholders | Injection point |
 |---|---|---|---|---|
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` `{interactive_child_pty_operation}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
-| `interactive_child_pty.md` | `INTERACTIVE_CHILD_PTY_OPERATION` | Shared child PTY recovery procedure | — | `service/general_agent/instructions.rs`, `prompts.rs`, and `commands/skills.rs` — delivered to the General Agent and codeterm skill; the Orchestrator trigger refers to it by capability id |
+| `interactive_child_pty.md` | `INTERACTIVE_CHILD_PTY_OPERATION` | Shared child PTY recovery procedure | — | `service/general_agent/instructions.rs`, `prompts.rs`, and `service/skill_mirror.rs` — delivered to the General Agent and codeterm skill; the Orchestrator trigger refers to it by capability id |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
 | `plan_task_flags.md` | `PLAN_TASK_FLAGS` | Task lifecycle flags | — | `prompts.rs` — composed into plan task guidance |
 | `plugin_discovery_rule.md` | `PLUGIN_DISCOVERY_RULE` | Capability discovery pointer | — | `prompts.rs` — composed into agent control guidance |
@@ -33,7 +33,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `utility_tab_guidance.md` | `UTILITY_TAB_GUIDANCE` | Three-line utility purpose, description and reuse guidance | — | `service/orchestrator/prompt_compose.rs` — non-Worker launches only |
 | `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker Domios context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
 | `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/prompt_compose.rs` — included for capable spawned agents |
-| `agent_pad_rule.md` | `AGENT_PAD_RULE` | Shared AgentPad contract — the one semantic source | — | `service/orchestrator/prompt_compose.rs` for every spawned class; `service/general_agent/instructions.rs` (`general_cli_reference`) for the GA; `commands/skills.rs` renders it into the `codeterm` skill via `{agent_pad_rule}` |
+| `agent_pad_rule.md` | `AGENT_PAD_RULE` | Shared AgentPad contract — the one semantic source | — | `service/orchestrator/prompt_compose.rs` for every spawned class; `service/general_agent/instructions.rs` (`general_cli_reference`) for the GA; `service/skill_mirror.rs` renders it into the `codeterm` skill via `{agent_pad_rule}` |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `cartographer_suffix.md` | `CARTOGRAPHER_SUFFIX` | Worker subtype contract | - | `prompts.rs` `cartographer_suffix()` - layered on the Worker suffix for the `cartographer` kind via `service/role_preset.rs` |
 | `tool_less.md` | `TOOL_LESS` | Tool-less provider class rules | - | `prompts.rs` `TOOL_LESS` - materialized by `service/tool_less_instructions.rs` for providers declaring the tool-less capability (external delivery as a read-only file, native delivery composed with the assignment) |
@@ -49,10 +49,10 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `cron/task_text.rs` — appended when a cron job has a `report_target_tab_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
-| `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `commands/skills.rs` — points a cron agent at the resolved skill |
-| `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `commands/skills.rs` — provides a bounded failure handoff when the requested skill is absent |
+| `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `cron/skill_block.rs` — points a cron agent at the resolved skill |
+| `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `cron/skill_block.rs` — provides a bounded failure handoff when the requested skill is absent |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
-| `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; `commands/skills.rs` renders the same constant into the `codeterm` skill through the same placeholder |
+| `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; `service/skill_mirror.rs` renders the same constant into the `codeterm` skill through the same placeholder |
 | `mem_management.md` | `MEM_MANAGEMENT` | Shared memory management | — | GA renderer, Orchestrator and Planner suffixes, and roleless agent onboarding; excluded from Workers and Cartographer |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
 | `worker_task_preamble.md` | `WORKER_TASK_PREAMBLE` | Memory worker wrapper | `{intent}` `{worker_id}` `{task}` | `mem/workers.rs` `build_worker_task()` — wraps every headless memory worker task |
@@ -84,7 +84,7 @@ Substitution is plain, ordered `String::replace()` with no template engine:
 
 - **Spawned agents** — `service/orchestrator/prompt_compose.rs` composes it into every launch prompt: solo, Orchestrator, Planner, watcher, and Worker, with or without an assignment.
 - **General Agent** — `general_cli_reference()` appends it to the CLI reference unconditionally, so a moved section heading cannot drop it.
-- **`codeterm` skill** — `commands/skills.rs` substitutes it into `skills/codeterm/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
+- **`codeterm` skill** — `service/skill_mirror.rs` substitutes it into `skills/codeterm/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
 
 Delivery tests assert constant identity, never wording: `prompt_compose::tests` covers each launch class, `skills_seed_tests::seed_renders_shared_codeterm_fragments_from_constants` covers the skill, the GA writer covers `AGENT.md`/`AGENTS.md`, and `prompts.rs::agent_pad_rule_has_exactly_one_source` rejects duplicate sources.
 

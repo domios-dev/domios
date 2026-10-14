@@ -43,7 +43,7 @@ impl ServiceContext {
         data: &[u8],
     ) {
         let (events, command_state) = {
-            let mut caps = self.shell_caps.lock();
+            let mut caps = self.ext::<crate::ShellCapabilityState>().lock();
             let events = caps.feed(pty_id, nonce, data);
             (events, caps.command_state(pty_id))
         };

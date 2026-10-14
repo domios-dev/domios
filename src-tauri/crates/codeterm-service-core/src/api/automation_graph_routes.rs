@@ -74,8 +74,10 @@ pub async fn event_ingress(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
         .unwrap_or_default();
-    let decision = state.svc.graph_event_subscriptions.admit(
-        codeterm_plugin::graph_events::AdmissionRequest {
+    let decision = state
+        .svc
+        .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
+        .admit(codeterm_plugin::graph_events::AdmissionRequest {
             subscription_id: &subscription_id,
             token,
             plugin_id: &body.plugin_id,
@@ -83,13 +85,12 @@ pub async fn event_ingress(
             payload: &body.payload,
             payload_bytes,
             now_ms,
-        },
-    );
+        });
     match decision {
         codeterm_plugin::graph_events::AdmissionDecision::Admit => {
             if let Some(pipeline_id) = state
                 .svc
-                .graph_event_subscriptions
+                .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                 .pipeline_id_for(&subscription_id)
             {
                 if let Some(handle) = state
@@ -109,7 +110,7 @@ pub async fn event_ingress(
             let (status, code) = admission_refusal_status(reason);
             if let Some(pipeline_id) = state
                 .svc
-                .graph_event_subscriptions
+                .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                 .pipeline_id_for(&subscription_id)
             {
                 if let Some(handle) = state

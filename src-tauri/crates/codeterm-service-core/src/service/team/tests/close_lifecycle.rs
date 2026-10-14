@@ -970,7 +970,7 @@ async fn team_close_deletes_team_bound_recurring_series() {
     ] {
         fixture
             .service
-            .delayed_send
+            .ext::<crate::delayed_send::DelayedSendQueue>()
             .enqueue_with_recurrence(
                 tab_id.into(),
                 None,
@@ -990,7 +990,10 @@ async fn team_close_deletes_team_bound_recurring_series() {
         .await
         .unwrap();
 
-    let remaining = fixture.service.delayed_send.list(None);
+    let remaining = fixture
+        .service
+        .ext::<crate::delayed_send::DelayedSendQueue>()
+        .list(None);
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].tab_id, independent_tab);
     assert_eq!(remaining[0].team_id, None);

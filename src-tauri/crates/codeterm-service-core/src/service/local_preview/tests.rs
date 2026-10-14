@@ -5,7 +5,7 @@ use references::{path_key, referenced_paths};
 #[test]
 fn references_come_only_from_directives_and_structured_file_records() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let directive = root.join("directive.md");
     let attachment = root.join("attachment.png");
     let diff = root.join("changed.txt");
@@ -36,7 +36,7 @@ fn references_come_only_from_directives_and_structured_file_records() {
 #[test]
 fn rejects_secret_directories_credential_files_and_configured_roots() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let configured = root.join("private");
     for relative in [
         ".ssh/key.txt",
@@ -62,7 +62,7 @@ fn rejects_secret_directories_credential_files_and_configured_roots() {
 #[test]
 fn references_do_not_authorize_prefixes_siblings_or_other_tabs() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let own = root.join("own.md");
     let other = root.join("other.md");
     let policy = PreviewPolicy::new([path_key(&own)].into(), &[]).unwrap();
@@ -83,7 +83,7 @@ fn invalid_configured_secret_paths_fail_closed() {
 #[test]
 fn distinct_case_and_separator_paths_do_not_gain_reference_authority() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let referenced = root.join("Owned.md");
     let other = root.join("owned.md");
     let policy = PreviewPolicy::new([path_key(&referenced)].into(), &[]).unwrap();
@@ -95,7 +95,7 @@ fn distinct_case_and_separator_paths_do_not_gain_reference_authority() {
 #[test]
 fn directives_inside_fenced_examples_do_not_authorize_files() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let example = root.join("example.md");
     let actual = root.join("actual.md");
     let messages = vec![ChatMsg {
@@ -115,7 +115,7 @@ fn directives_inside_fenced_examples_do_not_authorize_files() {
 #[test]
 fn source_text_still_requires_its_own_tab_reference() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let owned = root.join("owned.ts");
     let other = root.join("other.ts");
     std::fs::write(&owned, "const owned = 1;").unwrap();
@@ -137,7 +137,7 @@ fn source_text_still_requires_its_own_tab_reference() {
 #[test]
 fn uploaded_artifacts_preview_before_send_without_exposing_private_files() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let private = root.join(".codeterm-dev");
     let uploads = private.join("uploads");
     std::fs::create_dir_all(&uploads).unwrap();
@@ -180,7 +180,7 @@ fn uploaded_artifacts_preview_before_send_without_exposing_private_files() {
 #[test]
 fn inline_markers_authorize_exact_paths_without_routed_or_fenced_prose() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let image = root.join("inline.png");
     std::fs::write(&image, b"image").unwrap();
     let hidden = root.join("hidden.png");
@@ -203,7 +203,7 @@ fn inline_markers_authorize_exact_paths_without_routed_or_fenced_prose() {
 #[test]
 fn native_attachment_buckets_preview_before_send_with_configured_denials() {
     let temp = tempfile::tempdir().unwrap();
-    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let root = crate::service::local_preview::html_preview::preview_test_root(temp.path());
     let chat = root.join("codeterm-chat");
     let images = root.join("codeterm-images");
     for bucket in [&chat, &images] {

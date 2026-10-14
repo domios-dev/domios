@@ -280,7 +280,7 @@ impl ServiceContext {
     ) -> Result<String, String> {
         let VerbCall { args, of } = parse_verb_call(args_json)?;
         let declared = self
-            .surface_registry
+            .ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
             .get(plugin_id)
             .map(|declared| declared.to_vec())
             .unwrap_or_default();
@@ -368,7 +368,7 @@ impl ServiceContext {
 
     fn surface_agent_guide(&self, plugin_id: &str) -> String {
         let catalog = self
-            .agent_command_registry
+            .ext::<crate::agent_commands::AgentCommandRegistryHandle>()
             .get(plugin_id)
             .and_then(|handler| handler.catalog());
         match catalog {

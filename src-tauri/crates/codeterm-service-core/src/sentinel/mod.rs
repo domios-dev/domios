@@ -1,25 +1,29 @@
 pub(crate) use codeterm_sentinel::{
-    agent_stage, amend, classification_policy, cleanup, command, delete, escalation, handlers, input,
-    machine, portable, probe, progress, provenance, public_definition, session,
+    agent_stage, amend, classification_policy, cleanup, command, delete, escalation, handlers,
+    input, machine, portable, probe, progress, provenance, public_definition, session,
     stage_source, storage, store, terminal,
 };
 pub(crate) mod actions;
-mod probe_env;
+mod ports_impl;
+#[cfg(test)]
+pub(crate) use ports_impl::manage_fixture_ports;
+pub use ports_impl::register_sentinel;
 pub(crate) mod classify;
 pub(crate) mod graph;
 mod pipeline;
+mod probe_env;
 pub(crate) mod routes;
 pub(crate) mod run_binding;
 pub(crate) mod scheduler;
-pub(crate) mod source;
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod session_tests;
+pub(crate) mod source;
 #[cfg(test)]
 mod storage_tests;
 #[cfg(test)]
 mod terminal_tests;
+#[cfg(test)]
+mod tests;
 pub(crate) mod wake;
 
 #[cfg(test)]

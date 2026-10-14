@@ -48,12 +48,21 @@ fn plugin_parity_receiver_target_host_and_native_paths_agree() {
         "receiver_not_found"
     );
     assert_eq!(
-        service.receiver_targets.get(RECEIVER),
+        service
+            .ext::<crate::service::receiver_target::ReceiverTargets>()
+            .0
+            .get(RECEIVER),
         Some(scene.tab.clone()),
         "a plugin cannot clear another receiver's binding"
     );
 
     let reset = js_reply(service, RECEIVER, "reset");
     assert_eq!(reset, native_reply(service.clear_receiver_target(RECEIVER)));
-    assert_eq!(service.receiver_targets.get(RECEIVER), None);
+    assert_eq!(
+        service
+            .ext::<crate::service::receiver_target::ReceiverTargets>()
+            .0
+            .get(RECEIVER),
+        None
+    );
 }

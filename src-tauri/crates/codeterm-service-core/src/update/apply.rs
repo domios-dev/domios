@@ -261,7 +261,7 @@ async fn check_and_apply_plugin(
         move |verified_bytes| async move {
             log::info!("[updater] starting verified installer after PTY shutdown");
             tokio::task::spawn_blocking(move || {
-                super::analytics::stage_app(&update.version);
+                crate::service::analytics::update_confirm::stage_app(&update.version);
                 update
                     .install(verified_bytes)
                     .map_err(|e| format!("installer launch failed: {}", e))
@@ -407,9 +407,11 @@ pub(super) async fn install_staged_deb_and_restart(
     initiating_tab_id: Option<&str>,
 ) -> Result<(), String> {
     let target = version.clone();
-    tokio::task::spawn_blocking(move || super::analytics::stage_app(&target))
-        .await
-        .map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        crate::service::analytics::update_confirm::stage_app(&target)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     install_verified_deb_async(path, version).await?;
 
     refresh_bundled_cli_off_runtime(app).await?;

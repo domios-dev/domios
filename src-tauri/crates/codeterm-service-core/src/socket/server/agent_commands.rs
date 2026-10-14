@@ -127,7 +127,7 @@ pub(super) fn dispatch(
     };
 
     let mut result = route(
-        &svc.agent_command_registry,
+        svc.ext::<crate::agent_commands::AgentCommandRegistryHandle>(),
         method,
         params,
         scope.as_deref(),
