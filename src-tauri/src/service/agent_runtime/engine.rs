@@ -606,7 +606,6 @@ async fn run_inner(
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
     let mut next = plan(session, &context, &operation).await?;
     let mut history = RuntimeHistory::default();
-    let mut history_calls = std::collections::HashSet::new();
     let mut steps = 0;
     loop {
         steps += 1;
@@ -634,7 +633,7 @@ async fn run_inner(
             }
             RuntimeAction::Request { call } => {
                 if matches!(operation, RuntimeOperation::ReadHistory { .. })
-                    && !history_calls.insert((call.method.clone(), call.params.to_string()))
+                    && !history.admit_request(&call.method, &call.params.to_string())
                 {
                     return Err(RuntimeFailure::HookFailed(
                         "Repeated history request".into(),

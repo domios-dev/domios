@@ -9,9 +9,16 @@ pub struct RuntimeHistory {
     items: Vec<ChatMsg>,
     open_items: Vec<OpenItem>,
     questions: Vec<RuntimeHistoryQuestion>,
+    requests: std::collections::HashSet<(String, String)>,
 }
 
 impl RuntimeHistory {
+    /// Refuses a request repeated without progress; a byte-split page re-reads the same request.
+    pub fn admit_request(&mut self, method: &str, params: &str) -> bool {
+        self.requests
+            .insert((method.to_string(), params.to_string()))
+    }
+
     pub fn append(&mut self, page: RuntimeResult) {
         let RuntimeResult::HistoryPage {
             items,
@@ -22,6 +29,9 @@ impl RuntimeHistory {
         else {
             return;
         };
+        if !items.is_empty() || !open_items.is_empty() {
+            self.requests.clear();
+        }
         self.reconcile_questions(&items, questions);
         self.items.extend(items);
         self.open_items.extend(open_items);
