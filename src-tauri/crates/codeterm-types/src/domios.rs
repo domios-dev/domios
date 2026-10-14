@@ -87,12 +87,13 @@ pub fn with_pasted_marker(message: &str) -> Option<String> {
 
 pub fn strip_plain_typed_tail(content: &str) -> &str {
     let marker = pasted_marker_tail();
-    LEGACY_CHAT_FOLLOW_UPS
+    let stripped = LEGACY_CHAT_FOLLOW_UPS
         .iter()
         .copied()
         .chain([marker.as_str()])
         .find_map(|tail| content.strip_suffix(tail))
-        .unwrap_or(content)
+        .unwrap_or(content);
+    stripped
 }
 
 pub fn strip_typed_suffix(content: &str) -> &str {
