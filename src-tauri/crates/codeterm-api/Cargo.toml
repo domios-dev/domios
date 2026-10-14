@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_api"
 
 [dependencies]
+codeterm-commands = { path = "../codeterm-commands" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-account = { path = "../codeterm-account" }

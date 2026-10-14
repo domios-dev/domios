@@ -16,6 +16,7 @@ warnings = "deny"
 workspace = true
 
 [dependencies]
+codeterm-commands = { path = "crates/codeterm-commands" }
 codeterm-api = { path = "crates/codeterm-api" }
 codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
@@ -41,7 +42,7 @@ fastembed = { version = "5", optional = true }
 [features]
 default = ["embeddings"]
 embeddings = ["codeterm-service-core/embeddings", "dep:fastembed"]
-dev-updater-allowlocal = ["codeterm-service-core/dev-updater-allowlocal"]
+dev-updater-allowlocal = ["codeterm-commands/dev-updater-allowlocal"]
 
 # x86_64 macOS: pyke does not ship an ort prebuilt for this target, so we
 # enable fastembed's `ort-load-dynamic` feature and dlopen libonnxruntime

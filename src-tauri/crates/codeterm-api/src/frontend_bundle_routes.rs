@@ -25,7 +25,7 @@ pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> 
     let availability_bundles = weak_bundles.clone();
     bundles.bind_availability_observer(Arc::new(move || {
         if let Some(bundles) = availability_bundles.upgrade() {
-            codeterm_service_core::update::discovery::publish_frontend(
+            codeterm_commands::update::discovery::publish_frontend(
                 &availability_app,
                 bundles.local_availability(),
             );
@@ -37,7 +37,7 @@ pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> 
         });
         if let Some(bundles) = weak_bundles.upgrade() {
             if let Some(version) = bundles.status()["active"]["version"].as_str() {
-                codeterm_service_core::update::discovery::frontend_installed(
+                codeterm_commands::update::discovery::frontend_installed(
                     &service.app_handle,
                     version,
                 );

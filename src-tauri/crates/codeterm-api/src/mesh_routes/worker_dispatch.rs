@@ -296,12 +296,12 @@ mod tests {
             cron_wake: std::sync::Arc::new(std::sync::Condvar::new()),
             api_port: 0,
             update_state: std::sync::Arc::new(parking_lot::Mutex::new(
-                codeterm_service_core::update::UpdateState {
-                    install_method: codeterm_service_core::update::InstallMethod::Unknown,
+                codeterm_commands::update::UpdateState {
+                    install_method: codeterm_commands::update::InstallMethod::Unknown,
                     last_check: None,
                     last_check_time: None,
                     channel: config.updater.channel,
-                    phase: codeterm_service_core::update::UpdatePhase::Idle,
+                    phase: codeterm_commands::update::UpdatePhase::Idle,
                     last_error: None,
                     phase_changed_at: None,
                     downloaded_bytes: 0,

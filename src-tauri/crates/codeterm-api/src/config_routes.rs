@@ -259,7 +259,7 @@ pub async fn patch_config_api(
 
     if serde_json::to_value(&cfg.plugins).ok() != serde_json::to_value(&new_cfg.plugins).ok() {
         if let Err(error) =
-            codeterm_service_core::update::discovery::plugins_changed(state.svc.app_handle.clone())
+            codeterm_commands::update::discovery::plugins_changed(state.svc.app_handle.clone())
                 .await
         {
             log::warn!("[plugin-update] settings availability refresh failed: {error}");
