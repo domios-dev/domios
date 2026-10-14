@@ -85,6 +85,7 @@ pub mod parked_user_delivery;
 pub mod post_update;
 pub(crate) mod process_tree;
 pub(crate) mod prompt_resolution;
+#[cfg(any(test, feature = "test-support"))]
 pub use prompt_resolution::tests as prompt_resolution_tests;
 pub(crate) mod protocol_recorder;
 pub use protocol_recorder::ProtocolRecorder;
@@ -300,11 +301,13 @@ pub use inject_verify::{
     InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::arm_provider_session_for_test;
+#[cfg(test)]
 pub(crate) use orchestrator::launch_waits_for_first_turn_binding;
 pub(crate) use orchestrator::move_chatbackend_task_to_system_prompt;
 pub(crate) use orchestrator::record_provider_session;
+#[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::spawn_onboarding_task;
 pub use orchestrator::LaunchGeneration;
 pub(crate) use orchestrator::ProviderSessionBinding;
