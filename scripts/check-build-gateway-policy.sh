@@ -180,7 +180,7 @@ fi
 
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
 expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
-expect_log 'scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"' <<< "$test_one_flow"
+expect_log 'scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib "$test_filter"' <<< "$test_one_flow"
 expect_log 'cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
 
 nextest_flow="$(sed -n '/^  nextest)/,/^  verify)/p' build.sh)"

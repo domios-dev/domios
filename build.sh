@@ -343,7 +343,7 @@ CMD="${1:-dev}"
 run_workspace_lib_tests() {
   local package
   local test_cap_secs="${TEST_CAP_SECS:-3600}"
-  for package in codeterm codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-wire codeterm-sentinel codeterm-decision codeterm-provider-signals codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
+  for package in codeterm-service-core codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-wire codeterm-sentinel codeterm-decision codeterm-provider-signals codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
     TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
@@ -361,7 +361,7 @@ run_nextest_scope() {
   local filter_args=()
 
   case "$scope" in
-    app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
+    app|codeterm|service-core|codeterm-service-core) package="codeterm-service-core"; targets+=(--lib --no-default-features) ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -394,7 +394,7 @@ run_nextest_scope() {
   esac
 
   enter_build_gateway "$CMD $scope${filterset:+ $filterset}"
-  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ]; then
+  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ]; then
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     prepare_exceptional_worktree_target
@@ -2228,7 +2228,7 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib "$test_filter"
         ;;
       input-macos|input-windows)
         enter_build_gateway "$CMD ${*:2}"
