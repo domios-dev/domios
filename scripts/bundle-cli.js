@@ -1,3 +1,4 @@
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/install-local/bootstrap/cli; CI release-windows.yml; scripts dev-prep.mjs, prepare-cli-stub.js, qa-prep.sh
 // Copy CLI binary to src-tauri/bundled-cli/ for Tauri resource bundling.
 // On macOS, codesign with hardened runtime for notarization.
 const fs = require("fs");

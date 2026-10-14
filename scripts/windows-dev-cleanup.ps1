@@ -1,3 +1,4 @@
+# Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1
 param(
   [Parameter(Mandatory = $true)][string] $Root,
   [Parameter(Mandatory = $true)][string] $TargetDebug,

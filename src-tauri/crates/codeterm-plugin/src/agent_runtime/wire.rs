@@ -379,7 +379,7 @@ pub enum AgentRuntimeEvent {
     Auth {
         state: RuntimeAuthState,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        billing_mode: Option<codeterm_types::usage::BillingMode>,
+        billing_mode: Option<codeterm_usage::contract::BillingMode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
     },

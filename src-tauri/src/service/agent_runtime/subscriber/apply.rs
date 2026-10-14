@@ -5,7 +5,7 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::Arc;
 
-pub(super) async fn publish_events(
+pub(in crate::service::agent_runtime) async fn publish_events(
     svc: &ServiceContext,
     session: &Arc<Session>,
     epoch: u64,

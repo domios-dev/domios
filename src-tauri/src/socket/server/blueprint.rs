@@ -279,7 +279,7 @@ pub(super) fn dispatch(
 
 fn pipeline_spec_param(
     params: &Option<Value>,
-) -> Result<codeterm_types::blueprint_pipeline::BlueprintSpec, JsonRpcError> {
+) -> Result<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec, JsonRpcError> {
     let value = params
         .as_ref()
         .and_then(|params| params.get("spec"))
@@ -291,7 +291,7 @@ fn pipeline_spec_param(
 
 fn add_pipeline_show(
     value: &mut Value,
-    spec: &codeterm_types::blueprint_pipeline::BlueprintSpec,
+    spec: &codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec,
     entries: &[crate::storage::BlueprintJournalEntry],
 ) {
     let latest_run = entries.first().map(|entry| entry.run_id.as_str());
@@ -366,7 +366,7 @@ fn add_pipeline_show(
         .collect::<Vec<_>>());
 }
 
-fn step_kind_name(kind: &codeterm_types::blueprint_pipeline::StepKind) -> &'static str {
+fn step_kind_name(kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind) -> &'static str {
     kind.name()
 }
 

@@ -6,39 +6,35 @@ use crate::service::ServiceContext;
 mod agent_binding;
 pub(super) mod readiness;
 
-fn compose_routed_suffix(suffix: &str, requires_instruction: bool) -> String {
-    let mut typed_suffix = suffix.to_string();
-    if requires_instruction {
-        typed_suffix.push_str(" <tip>");
-        typed_suffix.push_str(codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION);
-        typed_suffix.push_str("</tip>");
-    }
-    typed_suffix.push_str(codeterm_types::domios::DOMIOS_CLOSE_TAG);
-    typed_suffix
+fn compose_routed_suffix(suffix: &str) -> String {
+    format!("{suffix}{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG)
 }
 
 struct RoutedInput {
     body: String,
     typed_prefix: Option<String>,
+    pasted_tail: Option<String>,
     typed_suffix: Option<String>,
 }
 
 fn prepare_routed_input(
-    frame: &codeterm_types::domios::DomiosFrame,
+    frame: &codeterm_wire::domios::DomiosFrame,
     requires_typed_instruction: bool,
 ) -> RoutedInput {
     let body = sanitize_agent_prompt_input(&frame.body);
-    let suffix = compose_routed_suffix(&frame.suffix, requires_typed_instruction);
+    let suffix = compose_routed_suffix(&frame.suffix);
     if requires_typed_instruction {
         RoutedInput {
             body,
             typed_prefix: Some(frame.opening_tag.clone()),
+            pasted_tail: Some(codeterm_wire::domios::pasted_marker_tail()),
             typed_suffix: Some(suffix),
         }
     } else {
         RoutedInput {
             body: format!("{}{body}{suffix}", frame.opening_tag),
             typed_prefix: None,
+            pasted_tail: None,
             typed_suffix: None,
         }
     }
@@ -399,7 +395,7 @@ impl ServiceContext {
         expected_pty_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
-        frame: codeterm_types::domios::DomiosFrame,
+        frame: codeterm_wire::domios::DomiosFrame,
     ) -> Result<(), String> {
         let pty_claim = self.pty_ownership.acquire(tab_id);
         let result = self
@@ -497,7 +493,7 @@ impl ServiceContext {
     fn send_authenticated_delivery_with_routed_frame(
         &self,
         delivery: AuthenticatedPtyDelivery,
-        frame: codeterm_types::domios::DomiosFrame,
+        frame: codeterm_wire::domios::DomiosFrame,
     ) -> Result<(), String> {
         log::debug!("[agent-delivery] branch=send_authenticated_delivery_with_routed_frame provider={} pty={}", delivery.provider_id, delivery.pty_id);
         crate::service::codex_rpc::send::route_or_pty(
@@ -535,6 +531,7 @@ impl ServiceContext {
                     &delivery.pty_id,
                     &body,
                     input.typed_prefix.as_deref(),
+                    input.pasted_tail.as_deref(),
                     input.typed_suffix.as_deref(),
                     true,
                     b"\r",

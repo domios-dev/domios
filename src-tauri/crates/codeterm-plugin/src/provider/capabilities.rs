@@ -36,7 +36,8 @@ impl PasteCapability {
         !follow_up.trim().is_empty()
             && follow_up.chars().count() <= MAX_TYPED_FOLLOW_UP_CHARS
             && !follow_up.chars().any(|character| {
-                character.is_control() || matches!(character, '\u{2028}' | '\u{2029}')
+                (character.is_control() && character != '\n')
+                    || matches!(character, '\u{2028}' | '\u{2029}')
             })
     }
 
@@ -78,7 +79,7 @@ mod paste_capability_tests {
         );
 
         let multiline = PasteCapability {
-            typed_follow_up: "marker\nmarker".into(),
+            typed_follow_up: "marker\x1b[201~".into(),
             ..capability
         };
         assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);

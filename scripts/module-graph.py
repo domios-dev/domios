@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Module dependency graph of the src-tauri crate (crate:: references, depth 1 and 2 for service/agent/api).
+
+Usage: python3 scripts/module-graph.py [--json out.json] [--md out.md]
+"""
+import json, os, re, sys
+from collections import defaultdict
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src-tauri", "src")
+DEEP = {"service", "agent", "api"}
+
+def unit_of(rel):
+    parts = rel.replace("\\", "/").split("/")
+    top = parts[0][:-3] if parts[0].endswith(".rs") else parts[0]
+    if top in DEEP and len(parts) > 1:
+        sub = parts[1][:-3] if parts[1].endswith(".rs") else parts[1]
+        return f"{top}/{sub}" if sub != "mod" else top
+    return top
+
+def is_test_file(rel):
+    b = os.path.basename(rel)
+    return b.endswith("_tests.rs") or b == "tests.rs" or "/tests/" in rel.replace("\\", "/") or b.startswith("tests_")
+
+def expand(tree):
+    """Expand a use-tree body after `crate::` into leaf paths."""
+    tree = tree.strip()
+    out = []
+    def rec(prefix, t):
+        t = t.strip()
+        if not t: return
+        i = t.find("{")
+        if i == -1:
+            out.append(prefix + t.split(" as ")[0].strip()); return
+        head = t[:i]; body = t[i+1:t.rfind("}")]
+        depth = 0; cur = ""
+        for ch in body:
+            if ch == "{": depth += 1
+            if ch == "}": depth -= 1
+            if ch == "," and depth == 0:
+                rec(prefix + head, cur); cur = ""
+            else: cur += ch
+        rec(prefix + head, cur)
+    rec("", tree)
+    return out
+
+USE = re.compile(r"\buse\s+crate::([^;]+);", re.S)
+PATH = re.compile(r"\bcrate::([A-Za-z_]\w*)(?:::([A-Za-z_]\w*))?")
+
+def unit_for_path(path):
+    seg = [s for s in re.split(r"::", path) if s and s != "self"]
+    if not seg: return None
+    if seg[0] in DEEP and len(seg) > 1 and re.match(r"^[a-z_0-9]+$", seg[1]):
+        return f"{seg[0]}/{seg[1]}"
+    return seg[0]
+
+def scan(include_tests):
+    edges = defaultdict(lambda: defaultdict(int))
+    loc = defaultdict(int)
+    for dp, _, fs in os.walk(ROOT):
+        for f in fs:
+            if not f.endswith(".rs"): continue
+            p = os.path.join(dp, f); rel = os.path.relpath(p, ROOT)
+            if rel.replace("\\", "/") == "lib.rs": continue
+            src = open(p, encoding="utf-8", errors="ignore").read()
+            u = unit_of(rel)
+            test = is_test_file(rel)
+            if not test: loc[u] += src.count("\n")
+            if test and not include_tests: continue
+            if not include_tests:
+                m = re.search(r"#\[cfg\(test\)\]\s*(?:pub\s+)?mod\s+\w+\s*\{", src)
+                if m: src = src[:m.start()]
+            targets = []
+            for m in USE.finditer(src):
+                for leaf in expand(m.group(1)):
+                    targets.append(unit_for_path(leaf))
+            stripped = USE.sub("", src)
+            for m in PATH.finditer(stripped):
+                targets.append(unit_for_path(m.group(0)[len("crate::"):]))
+            for t in targets:
+                if t and t != u and not (t.split("/")[0] == u.split("/")[0] and "/" not in t and "/" not in u and t == u):
+                    edges[u][t] += 1
+    return edges, loc
+
+def normalize(edges):
+    """Edge to bare `service` (facade items) is kept; resolve edge validity to known units later."""
+    return edges
+
+def sccs(nodes, adj):
+    idx = {}; low = {}; st = []; on = set(); res = []; c = [0]
+    sys.setrecursionlimit(10000)
+    def sc(v):
+        idx[v] = low[v] = c[0]; c[0] += 1; st.append(v); on.add(v)
+        for w in adj.get(v, ()):
+            if w not in idx: sc(w); low[v] = min(low[v], low[w])
+            elif w in on: low[v] = min(low[v], idx[w])
+        if low[v] == idx[v]:
+            comp = []
+            while True:
+                w = st.pop(); on.discard(w); comp.append(w)
+                if w == v: break
+            res.append(comp)
+    for v in nodes:
+        if v not in idx: sc(v)
+    return res
+
+def main():
+    edges, loc = scan(False)
+    known = set(loc)
+    nodes = sorted(known)
+    adj = {u: {t for t in edges[u] if t in known} for u in nodes}
+    inb = defaultdict(set)
+    for u, ts in adj.items():
+        for t in ts: inb[t].add(u)
+    comps = [c for c in sccs(nodes, adj) if len(c) > 1]
+    top = lambda x: x.split("/")[0]
+    # top-level graph
+    tadj = defaultdict(set)
+    for u, ts in adj.items():
+        for t in ts:
+            if top(u) != top(t): tadj[top(u)].add(top(t))
+    tnodes = sorted({top(n) for n in nodes})
+    tcomps = [c for c in sccs(tnodes, tadj) if len(c) > 1]
+    out = {"loc": dict(loc), "edges": {u: sorted(adj[u]) for u in nodes},
+           "inbound": {u: sorted(inb[u]) for u in nodes}, "scc_units": comps, "scc_top": tcomps}
+    if "--json" in sys.argv:
+        json.dump(out, open(sys.argv[sys.argv.index("--json")+1], "w"), indent=1)
+    md = ["# Module dependency graph (generated)", "",
+          "Generated by `python3 scripts/module-graph.py --md docs/architecture/module-graph.md`. Edges are `crate::` references in non-test code of the `codeterm` (src-tauri) crate; `#[cfg(test)]` modules and `*_tests.rs`/`tests/` files are excluded from edges and LOC.", "",
+          "## Top-level modules", "", "| module | LOC | depends on | depended on by |", "|---|---:|---|---|"]
+    tin = defaultdict(set)
+    for a, bs in tadj.items():
+        for b in bs: tin[b].add(a)
+    tl = defaultdict(int)
+    for n in nodes: tl[top(n)] += loc[n]
+    for t in sorted(tl, key=lambda x: -tl[x]):
+        if tl[t] >= 300:
+            md.append(f"| {t} | {tl[t]} | {', '.join(sorted(tadj[t]))} | {', '.join(sorted(tin[t]))} |")
+    md += ["", "## Units (top-level, plus `service/*`, `agent/*`, `api/*` children) of 400+ LOC", "",
+           "| unit | LOC | fan-in | fan-out | fan-in units |", "|---|---:|---:|---:|---|"]
+    for n in sorted(nodes, key=lambda n: (len(inb[n]), -loc[n])):
+        if loc[n] >= 400:
+            ins = sorted(inb[n]); txt = ", ".join(ins) if len(ins) <= 4 else f"{len(ins)} units"
+            md.append(f"| {n} | {loc[n]} | {len(inb[n])} | {len(adj[n])} | {txt} |")
+    md += ["", "## Cycles (strongly connected components)", "",
+           f"Top-level modules: {len(tcomps)} component(s), sizes {[len(c) for c in tcomps]}.", ""]
+    for c in tcomps: md.append("- " + ", ".join(sorted(c)))
+    md += ["", f"Units: {len(comps)} component(s), sizes {[len(c) for c in comps]}, LOC {[sum(loc[x] for x in c) for c in comps]}.", ""]
+    for c in comps: md.append("- " + ", ".join(sorted(c)))
+    if "--md" in sys.argv:
+        open(sys.argv[sys.argv.index("--md")+1], "w", encoding="utf-8").write(chr(10).join(md) + chr(10))
+    else:
+        print(chr(10).join(md))
+main()

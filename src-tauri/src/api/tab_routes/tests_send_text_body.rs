@@ -25,7 +25,7 @@ fn send_text_body_without_source_agent_keeps_agent_reply_hint() {
     assert!(wrapped.contains(crate::service::messenger::Messenger::AGENT_REPLY_COMMAND));
     assert!(wrapped.contains("--mesh BLACKSTAR]"));
     assert_eq!(wrapped.matches("<domios from=").count(), 1);
-    assert!(wrapped.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+    assert!(wrapped.ends_with(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
 }
 
 /// The plain text send always submits — the `enter` knob was removed. A legacy
@@ -198,7 +198,7 @@ fn send_to_agent_tab_with_source_keeps_marker() {
         out.starts_with("<domios from=\"tab\""),
         "an agent Tab still gets the return-address tag"
     );
-    let frame = codeterm_types::domios::parse_message(&out).expect("complete route frame parses");
+    let frame = codeterm_wire::domios::parse_message(&out).expect("complete route frame parses");
     assert_eq!(frame.body, "ship it");
     assert!(frame.content.starts_with("ship it "));
 }

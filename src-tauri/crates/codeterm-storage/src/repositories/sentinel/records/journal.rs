@@ -1,6 +1,6 @@
 use super::{identifier, integer, text};
 use crate::error::StorageError;
-use codeterm_types::blueprint_journal::{
+use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
 use serde::{Deserialize, Serialize};

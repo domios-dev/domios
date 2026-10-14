@@ -16,7 +16,7 @@ use codeterm_bridge::bridge::threads::{
     TopicsState, TOPICS_DISABLED_NOTICE,
 };
 use codeterm_bridge::bridge::traits::{InlineButton, InlineKeyboard, ReplyContext};
-use codeterm_types::message_markers;
+use codeterm_wire::message_markers;
 use parking_lot::Mutex;
 use serde_json::json;
 

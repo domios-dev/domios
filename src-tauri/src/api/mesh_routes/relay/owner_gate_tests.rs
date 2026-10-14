@@ -134,7 +134,7 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
                 assert_eq!(response.status, StatusCode::FORBIDDEN.as_u16());
                 assert_eq!(
                     refusal_code(&response),
-                    Some(codeterm_types::mesh::delivery::PEER_RELAY_NOT_AUTHORIZED)
+                    Some(codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED)
                 );
             }
         }

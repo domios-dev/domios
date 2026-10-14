@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use codeterm_types::sentinel_input::MediaKind;
+use codeterm_blueprint_types::sentinel_input::MediaKind;
 
 use super::converter::JsConverter;
 use crate::converter::{Conversion, ConvertError, ConvertOutput, ConvertRequest, Converter};

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh release-preflight; package.json script
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";

@@ -52,7 +52,7 @@ mod tests {
     use super::*;
     use crate::api::routes::AppState;
     use crate::notification::store::{Ask, NotificationProvenance, NotificationSeverity};
-    use codeterm_types::notification::NotificationAction;
+    use codeterm_notification_core::contract::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptKind, PromptOption};
     use std::sync::Arc;
 

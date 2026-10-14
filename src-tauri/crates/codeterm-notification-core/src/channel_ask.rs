@@ -7,7 +7,7 @@
 //! answer path an in-app tap walks. There is one answer mechanism, and this is
 //! an address for it rather than a second one.
 
-use codeterm_types::notification::OfferedChoice;
+use crate::contract::OfferedChoice;
 
 /// The token prefix. Short on purpose: a channel's callback payload is the
 /// tightest budget anywhere on this path.

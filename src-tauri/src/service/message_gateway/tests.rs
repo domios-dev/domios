@@ -188,7 +188,7 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
     let calls = fake.enveloped.borrow();
     assert_eq!(calls.len(), 1, "exactly one enveloped delivery");
     assert_eq!(calls[0].0, "p1", "target forwarded unchanged");
-    let parsed = codeterm_types::domios::parse_message(&calls[0].1).expect("complete route frame");
+    let parsed = codeterm_wire::domios::parse_message(&calls[0].1).expect("complete route frame");
     assert_eq!(parsed.attr("from"), Some("tab"));
     assert_eq!(parsed.body, "hello");
     assert!(fake.texts.borrow().is_empty(), "not routed to plain text");

@@ -82,7 +82,7 @@ fn a_declared_credential_fills_the_request_header_without_exposing_the_token() {
 
 #[test]
 fn supporter_token_is_added_only_when_available_and_never_replaces_plugin_authorization() {
-    use codeterm_types::decision::TokenMode;
+    use codeterm_decision::TokenMode;
 
     let opts = r#"{"url":"https://example.test/path","headers":{"X-Test":"ok"}}"#;
     let stored = inject_supporter_token(TokenMode::Optional, Some("stored-secret"), opts).unwrap();

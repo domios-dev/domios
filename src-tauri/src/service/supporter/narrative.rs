@@ -1,4 +1,4 @@
-use codeterm_types::decision::{DecisionAnswer, DecisionAnswers};
+use codeterm_decision::{DecisionAnswer, DecisionAnswers};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

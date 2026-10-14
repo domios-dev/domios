@@ -1,3 +1,4 @@
+// Caller: package.json script; scripts check-plugin-bundles.mjs, check-plugin.mjs, ci-scope.mjs; skill build
 // Builds a plugin from TypeScript: both halves in one pass.
 //
 //   node scripts/build-plugin.mjs <id>

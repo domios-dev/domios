@@ -1,3 +1,4 @@
+// Caller: build.sh release-preflight/test:all; package.json script
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";

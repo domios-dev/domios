@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: CI release-credentials.yml, release-macos-build.yml; scripts tests/release-job-graph.test.mjs; skill github-release
 set -uo pipefail
 rc=0
 : "${RELEASE_KEYCHAIN:?Import the job signing keychain first}"

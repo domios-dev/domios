@@ -146,20 +146,20 @@ impl TransportError {
         self.kind
     }
 
-    /// Stable code a caller can branch on, matching `codeterm_types::mesh::delivery`.
+    /// Stable code a caller can branch on, matching `crate::contract::delivery`.
     pub fn code(&self) -> &'static str {
         match self.kind {
             TransportErrorKind::NothingSent => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT
+                crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT
             }
             TransportErrorKind::SubmitUnconfirmed => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+                crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
             }
             TransportErrorKind::PeerRejected => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_PEER_REJECTED
+                crate::contract::delivery::MESH_TRANSPORT_PEER_REJECTED
             }
             TransportErrorKind::BadResponse => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_BAD_RESPONSE
+                crate::contract::delivery::MESH_TRANSPORT_BAD_RESPONSE
             }
         }
     }
@@ -526,7 +526,7 @@ mod tests {
         let transport_error = TransportError::from_send_error(&error);
         assert_eq!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT
+            crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT
         );
         assert_eq!(
             transport_error.bytes_written(),
@@ -535,7 +535,7 @@ mod tests {
         );
         assert_ne!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+            crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
             "nothing-landed must never be confused with landed-unknown"
         );
     }
@@ -585,7 +585,7 @@ mod tests {
         let transport_error = TransportError::from_send_error(&error);
         assert_eq!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+            crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
         );
         assert_eq!(
             transport_error.bytes_written(),
@@ -594,7 +594,7 @@ mod tests {
         );
         assert_ne!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT,
+            crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
             "landed-unknown must never be confused with nothing-landed"
         );
     }

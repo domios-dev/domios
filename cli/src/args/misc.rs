@@ -1,6 +1,6 @@
 use clap::builder::TypedValueParser;
 use clap::Subcommand;
-use codeterm_types::notification::NotifyLevel;
+use codeterm_notification_core::contract::NotifyLevel;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutoConfirmMode {

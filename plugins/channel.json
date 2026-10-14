@@ -7,13 +7,13 @@
     {
       "id": "claude",
       "path": "provider-claude",
-      "version": "1.14.5",
+      "version": "1.14.6",
       "minCodeterm": "1.14.8"
     },
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.14.8",
+      "version": "1.14.9",
       "minCodeterm": "1.14.8"
     },
     {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: CI comment-length.yml; scripts qa-gates.lib.sh; skill build
 # Inline comment length discipline check.
 #
 # Walks .rs / .ts / .tsx and flags files containing inline // comment blocks

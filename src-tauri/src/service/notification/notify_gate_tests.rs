@@ -38,7 +38,7 @@ fn policy_allowing(levels: &[NotifyLevel]) -> DesktopPolicy {
             .map(|level| {
                 let mut row = AgentLevelChoice::open(level.as_str(), &[]);
                 row.set(
-                    codeterm_types::notification::NotifyDestination::Desktop,
+                    codeterm_notification_core::contract::NotifyDestination::Desktop,
                     levels.contains(&level),
                 );
                 row
@@ -76,7 +76,7 @@ fn opted_in_config() -> NotificationConfig {
     };
     for row in &mut cfg.agent_levels {
         row.set(
-            codeterm_types::notification::NotifyDestination::Desktop,
+            codeterm_notification_core::contract::NotifyDestination::Desktop,
             true,
         );
     }
@@ -243,12 +243,15 @@ fn notify_gate_a_stored_bell_of_false_still_reaches_the_panel_at_every_level() {
     let sinks = Sinks::new();
     let mut cfg = opted_in_config();
     for row in &mut cfg.agent_levels {
-        row.set(codeterm_types::notification::NotifyDestination::Bell, false);
+        row.set(
+            codeterm_notification_core::contract::NotifyDestination::Bell,
+            false,
+        );
     }
     assert!(
         cfg.agent_levels
             .iter()
-            .all(|row| !row.allows(codeterm_types::notification::NotifyDestination::Bell)),
+            .all(|row| !row.allows(codeterm_notification_core::contract::NotifyDestination::Bell)),
         "the fixture stores the column closed on every row, so what follows means something"
     );
 

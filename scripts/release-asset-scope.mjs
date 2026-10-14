@@ -1,3 +1,4 @@
+// Caller: scripts release-clear-wedged-assets.mjs, tests/release-asset-scope.test.mjs
 export function ownsReleaseAsset(name, platform) {
   const suffixes = {
     'frontend': /^(?:frontend-v[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|frontend-manifest\.json(?:\.minisig)?)$/,

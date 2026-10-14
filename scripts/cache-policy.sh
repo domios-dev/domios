@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI release-linux-arm64.yml; scripts check-sccache-basedir-isolation.sh, check-shared-sccache.sh, dev-prep.mjs; skill build, github-release
 
 ct_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd

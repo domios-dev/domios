@@ -350,8 +350,8 @@ impl Messenger {
         .build()
     }
 
-    pub fn routed_frame(&self, body: &str) -> codeterm_types::domios::DomiosFrame {
-        codeterm_types::domios::DomiosFrame {
+    pub fn routed_frame(&self, body: &str) -> codeterm_wire::domios::DomiosFrame {
+        codeterm_wire::domios::DomiosFrame {
             opening_tag: self.build(),
             body: body.to_string(),
             suffix: self
@@ -512,7 +512,7 @@ impl Messenger {
         });
         let text = routed_frame
             .as_ref()
-            .map(codeterm_types::domios::DomiosFrame::to_message)
+            .map(codeterm_wire::domios::DomiosFrame::to_message)
             .unwrap_or(prepared_body);
         let relay_id = svc.prepare_reply_relay(
             &resolved_target,
@@ -734,7 +734,7 @@ impl Messenger {
             let wrapped = frame.to_message();
             let (body, _) =
                 svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
-            let input = codeterm_types::domios::DomiosFrame { body, ..frame }.to_message();
+            let input = codeterm_wire::domios::DomiosFrame { body, ..frame }.to_message();
             return super::agent_runtime::transport::send_envelope(
                 svc, to_tab, &input, &token, observer,
             );
@@ -963,7 +963,7 @@ fn domios_opening_tag(attrs: &[(impl AsRef<str>, String)]) -> String {
         .iter()
         .map(|(key, value)| (key.as_ref(), value.as_str()))
         .collect::<Vec<_>>();
-    codeterm_types::domios::build_opening_tag(&attrs)
+    codeterm_wire::domios::build_opening_tag(&attrs)
 }
 
 fn submit_chatbackend_provider_input<T>(
@@ -1076,7 +1076,7 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
             attrs.push((key, value));
         }
     }
-    codeterm_types::domios::DomiosFrame {
+    codeterm_wire::domios::DomiosFrame {
         opening_tag: domios_opening_tag(&attrs),
         body: body.to_string(),
         suffix: String::new(),

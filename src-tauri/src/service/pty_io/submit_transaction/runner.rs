@@ -88,7 +88,7 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         submit_key,
         None,
         typed_follow_up,
-        true,
+        None,
         strategy,
         opts,
         key_guard,
@@ -101,6 +101,7 @@ pub(super) fn run_with_submit_key_and_frame<T: SubmitTransport>(
     enter: bool,
     submit_key: &[u8],
     typed_prefix: Option<&str>,
+    pasted_tail: Option<&str>,
     typed_suffix: Option<&str>,
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
@@ -112,8 +113,8 @@ pub(super) fn run_with_submit_key_and_frame<T: SubmitTransport>(
         enter,
         submit_key,
         typed_prefix,
+        pasted_tail,
         typed_suffix,
-        false,
         strategy,
         opts,
         key_guard,
@@ -126,8 +127,8 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     enter: bool,
     submit_key: &[u8],
     typed_prefix: Option<&str>,
+    pasted_tail: Option<&str>,
     typed_suffix: Option<&str>,
-    type_suffix_after_paste: bool,
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
@@ -143,15 +144,16 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     transport.prepare_paste(text, enter);
     let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
-    let typed_suffix = typed_suffix
-        .filter(|suffix| {
-            !type_suffix_after_paste || PasteCapability::is_valid_typed_follow_up(suffix)
-        })
-        .filter(|_| enter && (!text.is_empty() || typed_prefix.is_some()));
+    let pasted_tail = pasted_tail
+        .filter(|tail| PasteCapability::is_valid_typed_follow_up(tail))
+        .filter(|_| enter && !text.is_empty());
+    let typed_suffix =
+        typed_suffix.filter(|_| enter && (!text.is_empty() || typed_prefix.is_some()));
     let expected_user_turn = if enter && !text.is_empty() {
         format!(
-            "{}{text}{}",
+            "{}{text}{}{}",
             typed_prefix.unwrap_or_default(),
+            pasted_tail.unwrap_or_default(),
             typed_suffix.unwrap_or_default()
         )
     } else {
@@ -166,13 +168,14 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     };
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let bytes_written = if type_suffix_after_paste {
-        transport.write_paste(text, turn_deadline)?
-    } else {
-        transport.write_paste_with_frame(text, typed_prefix, typed_suffix, turn_deadline)?
-    };
+    let bytes_written = transport.write_paste_with_frame(
+        text,
+        typed_prefix,
+        pasted_tail,
+        typed_suffix,
+        turn_deadline,
+    )?;
     let mut submit_key_writes = 0;
-    let mut typed_suffix_written = !type_suffix_after_paste || typed_suffix.is_none();
     let mut paste_observed =
         text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
 
@@ -359,24 +362,6 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         } else {
             Instant::now() + opts.submit_timeout
         };
-        if !typed_suffix_written {
-            if let Some(suffix) = typed_suffix {
-                if transport
-                    .write_typed_follow_up(suffix, key_deadline)
-                    .is_err()
-                {
-                    let screen_tail = transport
-                        .observe()
-                        .map(|state| state.tail)
-                        .unwrap_or_default();
-                    return Err(InjectionError::SubmitNeverConfirmed {
-                        waited: started.elapsed(),
-                        screen_tail,
-                    });
-                }
-                typed_suffix_written = true;
-            }
-        }
         let enter_armed = transport.generation();
         // A prior payload or submit key makes this failure submission uncertainty.
         if let Err(error) = transport.write_submit_key(submit_key, key_deadline) {

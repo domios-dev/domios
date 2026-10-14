@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
-use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
+use codeterm_decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
 use serde_json::json;
 
 use super::host_api::PluginSandbox;
@@ -92,7 +92,7 @@ async fn fetch_async_releases_vm_during_request() {
     let model = Arc::new(JsDecisionModel::new(
         vm,
         "decision-fetch-concurrency",
-        codeterm_types::decision::TokenMode::Optional,
+        codeterm_decision::TokenMode::Optional,
     ));
     let test_lock = super::PROCESS_TEST_LOCK.lock();
     let (result_tx, result_rx) = std::sync::mpsc::channel();
@@ -171,7 +171,7 @@ async fn js_decision_model_models_resolves_fetch_continuation() {
     let model = Arc::new(JsDecisionModel::new(
         vm,
         "decision-models-fetch",
-        codeterm_types::decision::TokenMode::Optional,
+        codeterm_decision::TokenMode::Optional,
     ));
 
     let models = tokio::time::timeout(
@@ -189,7 +189,7 @@ async fn js_decision_model_models_resolves_fetch_continuation() {
 
     assert_eq!(
         models,
-        vec![codeterm_types::decision::DecisionModelInfo {
+        vec![codeterm_decision::DecisionModelInfo {
             id: "loaded".into(),
             display_name: "Loaded model".into(),
         }]

@@ -133,7 +133,7 @@ impl ServiceContext {
                 suffix,
             } => self.send_authenticated_delivery_with_routed_frame(
                 delivery,
-                codeterm_types::domios::DomiosFrame {
+                codeterm_wire::domios::DomiosFrame {
                     opening_tag: opening_tag.clone(),
                     body: body.clone(),
                     suffix: suffix.clone(),

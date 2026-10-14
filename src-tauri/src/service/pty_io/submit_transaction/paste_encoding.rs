@@ -69,6 +69,25 @@ pub(super) fn encode_paste_frame(
     live_mode: Option<bool>,
     capability: PasteEncodingCapability,
 ) -> Vec<u8> {
+    encode_paste_frame_with_tail(
+        text,
+        typed_prefix,
+        None,
+        typed_suffix,
+        live_mode,
+        capability,
+    )
+}
+
+/// `pasted_tail` rides as a second bracketed paste in the same write, only when the body itself is bracketed.
+pub(super) fn encode_paste_frame_with_tail(
+    text: &str,
+    typed_prefix: Option<&str>,
+    pasted_tail: Option<&str>,
+    typed_suffix: Option<&str>,
+    live_mode: Option<bool>,
+    capability: PasteEncodingCapability,
+) -> Vec<u8> {
     if capability == PasteEncodingCapability::TaggedBlock {
         let message = format!(
             "{}{}{}",
@@ -95,6 +114,9 @@ pub(super) fn encode_paste_frame(
     );
     let mut input = typed_prefix.unwrap_or_default().as_bytes().to_vec();
     input.extend_from_slice(paste.as_bytes());
+    if let Some(tail) = pasted_tail.filter(|_| paste.starts_with(BRACKETED_PASTE_START)) {
+        input.extend_from_slice(xterm_paste(tail, Some(true), capability).as_bytes());
+    }
     input.extend_from_slice(typed_suffix.unwrap_or_default().as_bytes());
     input
 }

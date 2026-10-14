@@ -1,3 +1,4 @@
+# Caller: scripts release-bundle-smoke.mjs
 param([string]$App, [string]$Cli, [string]$Embed, [string]$Version)
 $ErrorActionPreference = 'Stop'
 $productVersion = (Get-Item -LiteralPath $App).VersionInfo.ProductVersion

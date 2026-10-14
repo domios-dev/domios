@@ -30,6 +30,54 @@ dev_notify_capture_parent
 CMD="${1:-dev}"
 CT_DEV_WAIT=0
 DEV_NOTIFY_TAB=""
+
+# Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
+# (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
+case "$CMD" in
+  check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check)
+    if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
+      BUILD_NOTIFY_GIVEN=0
+      BUILD_NOTIFY_WANT_VALUE=0
+      BUILD_NOTIFY_ARGS=()
+      [ -z "${BUILD_NOTIFY_TAB+x}" ] || BUILD_NOTIFY_GIVEN=1
+      for BUILD_NOTIFY_ARG in "${@:2}"; do
+        if [ "$BUILD_NOTIFY_WANT_VALUE" = 1 ]; then
+          BUILD_NOTIFY_TAB="$BUILD_NOTIFY_ARG"
+          BUILD_NOTIFY_WANT_VALUE=0
+          continue
+        fi
+        case "$BUILD_NOTIFY_ARG" in
+          --notify-tab) BUILD_NOTIFY_WANT_VALUE=1; BUILD_NOTIFY_GIVEN=1 ;;
+          --notify-tab=*) BUILD_NOTIFY_TAB="${BUILD_NOTIFY_ARG#--notify-tab=}"; BUILD_NOTIFY_GIVEN=1 ;;
+          *) BUILD_NOTIFY_ARGS+=("$BUILD_NOTIFY_ARG") ;;
+        esac
+      done
+      if [ "$BUILD_NOTIFY_GIVEN" = 1 ] && { [ "$BUILD_NOTIFY_WANT_VALUE" = 1 ] || [ -z "${BUILD_NOTIFY_TAB:-}" ]; }; then
+        echo "ERROR: --notify-tab requires a non-empty tab id" >&2
+        exit 2
+      fi
+      if [ "$BUILD_NOTIFY_GIVEN" = 1 ]; then
+        if [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
+          echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
+          exit 127
+        fi
+        BUILD_NOTIFY_LOG="$(mktemp "${TMPDIR:-/tmp}/codeterm-build-$CMD.XXXXXX")"
+        BUILD_NOTIFY_MARKER="$BUILD_NOTIFY_LOG.sent"
+        rm -rf "$BUILD_NOTIFY_MARKER"
+        BUILD_NOTIFY_STATUS=0
+        report_run_stream "$BUILD_NOTIFY_MARKER" "$BUILD_NOTIFY_TAB" "$CMD" "$CMD ${BUILD_NOTIFY_ARGS[*]:-}" "$BUILD_NOTIFY_LOG" \
+          env BUILD_NOTIFY_CHILD=1 bash "$0" "$CMD" ${BUILD_NOTIFY_ARGS[@]+"${BUILD_NOTIFY_ARGS[@]}"} || BUILD_NOTIFY_STATUS=$?
+        if [ "$BUILD_NOTIFY_STATUS" -eq 0 ]; then
+          BUILD_NOTIFY_BODY="$(dev_notify_new_body_file)"
+          printf 'OK label=%s step=%s\nLog: %s\n' "$CMD" "$CMD ${BUILD_NOTIFY_ARGS[*]:-}" "$BUILD_NOTIFY_LOG" > "$BUILD_NOTIFY_BODY"
+          dev_notify_send_once "$BUILD_NOTIFY_MARKER" "$BUILD_NOTIFY_TAB" "$BUILD_NOTIFY_BODY" || true
+        fi
+        rm -rf "$BUILD_NOTIFY_MARKER"
+        exit "$BUILD_NOTIFY_STATUS"
+      fi
+    fi
+    ;;
+esac
 if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
   DEV_NOTIFY_ARGS=("${@:2}")
   DEV_NOTIFY_INDEX=0
@@ -295,7 +343,7 @@ CMD="${1:-dev}"
 run_workspace_lib_tests() {
   local package
   local test_cap_secs="${TEST_CAP_SECS:-3600}"
-  for package in codeterm codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
+  for package in codeterm codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-wire codeterm-decision codeterm-provider-signals codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
     TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
@@ -328,6 +376,9 @@ run_nextest_scope() {
     util|codeterm-util) package="codeterm-util"; targets+=(--lib) ;;
     browser|codeterm-browser) package="codeterm-browser"; targets+=(--lib) ;;
     types|codeterm-types) package="codeterm-types"; targets+=(--all-targets) ;;
+    wire|codeterm-wire) package="codeterm-wire"; targets+=(--all-targets) ;;
+    decision|codeterm-decision) package="codeterm-decision"; targets+=(--all-targets) ;;
+    provider-signals|codeterm-provider-signals) package="codeterm-provider-signals"; targets+=(--all-targets) ;;
     mem|codeterm-mem) package="codeterm-mem"; targets+=(--lib) ;;
     mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
     plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
@@ -958,8 +1009,10 @@ require_release_source() {
     } | sort -u
   )"
   if [ -n "$dirty" ]; then
-    echo "ERROR: release source is not clean; refusing provenance capture" >&2
-    echo "$dirty" >&2
+    echo "ERROR: release source is not clean ($(printf '%s
+' "$dirty" | wc -l | tr -d ' ') paths); refusing provenance capture" >&2
+    printf '%s
+' "$dirty" | head -n 20 >&2
     exit 2
   fi
 }
@@ -1814,13 +1867,19 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <input-macos|input-windows|billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
-  install-local               Build and install locally
+  install-local               Build and install locally (cheap fmt/size/clean gates first)
+  script-guards               Run the script catalogue gate and uncalled fixture guards
+  qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
+  lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
+
+Long operations (check, check-tests, test-one, test, verify, build, install-local, release-preflight)
+accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
   cache-verify                Verify shared S3 configuration and running server without changes
@@ -2000,6 +2059,7 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
+    bash scripts/check-script-catalog.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
@@ -2031,7 +2091,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
+    test_scope="${2:?test-one requires billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -2089,14 +2149,19 @@ EOF
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-browser --lib "$test_filter"
         ;;
       types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter" ;;
+      wire) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-wire/Cargo.toml -p codeterm-wire --all-targets "$test_filter" ;;
+      decision) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-decision/Cargo.toml -p codeterm-decision --all-targets "$test_filter" ;;
+      provider-signals) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-provider-signals/Cargo.toml -p codeterm-provider-signals --all-targets "$test_filter" ;;
       storage) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-storage/Cargo.toml -p codeterm-storage --lib "$test_filter" ;;
       mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
       mesh) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
+      blueprint-types|codeterm-blueprint-types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-blueprint-types/Cargo.toml -p codeterm-blueprint-types --lib "$test_filter" ;;
+      local-recording|codeterm-local-recording) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-local-recording/Cargo.toml -p codeterm-local-recording --lib "$test_filter" ;;
       plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
     esac
     ;;
   nextest)
@@ -2115,6 +2180,7 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
+    bash scripts/check-script-catalog.sh
     ;;
   worktree-check)
     prepare_exceptional_worktree_target
@@ -2162,9 +2228,12 @@ EOF
         exit 2
         ;;
     esac
+    cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+    cargo fmt --manifest-path cli/Cargo.toml --all --check
+    bash scripts/check-file-sizes.sh --fail
+    require_release_source
     enter_build_gateway "$CMD ${*:2}"
     node scripts/check-release-locks.mjs
-    require_release_source
     ct_load_release_signing_key
     prepare_local_install_target
     ensure_deps
@@ -2213,6 +2282,59 @@ EOF
       -u RUSTC_WRAPPER \
       -u SCCACHE_BASEDIRS \
       "$FRESH_CLI" "${INSTALL_ARGS[@]}"
+    ;;
+  script-guards)
+    # Cheap fixture guards for build/dev/QA scripts; Linux-only ones need a POSIX-clean runner (CI linux-ci).
+    sg_failed=0
+    sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
+    sg_run bash scripts/check-script-catalog.sh
+    for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
+      sg_run bash "scripts/$sg"
+    done
+    if [ "$(uname -s)" = Linux ]; then
+      sg_run bash scripts/check-build-dev-port-overrides.sh
+      sg_run bash scripts/check-cache-provenance.sh
+      sg_run node --test scripts/check-analytics-catalog.test.mjs
+    fi
+    exit "$sg_failed"
+    ;;
+  qa-batch)
+    # ./build.sh qa-batch <label> [--notify-tab <tab>] '<cmd>' ... — `check` always runs first.
+    qa_label="${2:?qa-batch requires a label then one or more quoted commands}"
+    qa_cmds=()
+    qa_tab="${BUILD_NOTIFY_TAB:-}"
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --notify-tab) qa_tab="${2:?--notify-tab requires a non-empty tab id}"; shift 2 ;;
+        --notify-tab=*) qa_tab="${1#--notify-tab=}"; shift ;;
+        *) qa_cmds+=("$1"); shift ;;
+      esac
+    done
+    [ "${#qa_cmds[@]}" -gt 0 ] || { echo "ERROR: qa-batch requires at least one command after the label" >&2; exit 2; }
+    QA_NOTIFY_TAB="$qa_tab" bash scripts/qa-report.sh "$qa_label" "./build.sh check" "${qa_cmds[@]}"
+    ;;
+  lane-recover)
+    # ./build.sh lane-recover keep <lane-branch> <worktree> — park the tip on keep/<lane-branch>, drop the clean worktree and lane branch.
+    # ./build.sh lane-recover merge <lane-branch>           — real-merge keep/<lane-branch> into the current branch.
+    lr_mode="${2:?lane-recover requires keep or merge}"
+    lr_branch="${3:?lane-recover requires the lane branch name}"
+    case "$lr_mode" in
+      keep)
+        lr_tree="${4:?lane-recover keep requires the worktree path}"
+        [ -z "$(git -C "$lr_tree" status --porcelain)" ] || { echo "ERROR: worktree $lr_tree is dirty; commit or inspect it first" >&2; exit 2; }
+        git rev-parse --verify --quiet "refs/heads/$lr_branch" >/dev/null || { echo "ERROR: no branch $lr_branch" >&2; exit 2; }
+        git branch --force "keep/$lr_branch" "$lr_branch"
+        git worktree remove "$lr_tree"
+        git branch -D "$lr_branch"
+        echo "Kept tip on keep/$lr_branch; re-dispatch the lane with the correct base, then: ./build.sh lane-recover merge $lr_branch"
+        ;;
+      merge)
+        git merge --no-ff -m "Merge kept lane $lr_branch" "keep/$lr_branch"
+        git merge-base --is-ancestor "keep/$lr_branch" HEAD && git branch -d "keep/$lr_branch"
+        ;;
+      *) echo "ERROR: lane-recover mode must be keep or merge" >&2; exit 2 ;;
+    esac
     ;;
   qa-prep)
     enter_build_gateway "$CMD ${*:2}"

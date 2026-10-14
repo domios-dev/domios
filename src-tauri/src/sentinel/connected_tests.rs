@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use super::provenance::{Classification, Scope, Stage};
 use super::{classify, machine, scheduler};
 use crate::service::supporter::{self, SupporterRuntime, VerdictKind};
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
     DecisionRequest, TokenMode,
 };
@@ -35,7 +35,7 @@ impl DecisionModel for Model {
         request: &DecisionRequest,
         _: Instant,
     ) -> Result<DecisionAnswer, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         let DecisionQuestion::Choice { options } = &request.question else {
             panic!("must use Choice")

@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use codeterm_types::message_markers;
-use codeterm_types::notification::{adopt_caller_actions, answer_actions, NotificationAction};
+use codeterm_notification_core::contract::{
+    adopt_caller_actions, answer_actions, NotificationAction,
+};
+use codeterm_wire::message_markers;
 use parking_lot::Mutex;
 
 use super::*;

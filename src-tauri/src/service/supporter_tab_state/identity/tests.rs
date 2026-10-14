@@ -1,6 +1,6 @@
 use super::{supporter_policy, DecisionErrorCategory, DecisionSource};
+use codeterm_decision::DecisionError;
 use codeterm_types::config::{SupporterConfig, SupporterConnection};
-use codeterm_types::decision::DecisionError;
 use std::collections::BTreeMap;
 
 #[test]

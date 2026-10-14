@@ -552,7 +552,7 @@ pub async fn mesh_relay(
 fn saturated_response() -> crate::mesh::types::RelayResponse {
     relay_failure(
         StatusCode::SERVICE_UNAVAILABLE.as_u16(),
-        codeterm_types::mesh::delivery::MESH_DELIVERY_WINDOW_SATURATED,
+        codeterm_mesh::contract::delivery::MESH_DELIVERY_WINDOW_SATURATED,
         Some(false),
         "mesh delivery window saturated by in-flight sends; nothing written".into(),
     )
@@ -624,14 +624,14 @@ fn forward_failure_response(timed_out: bool, detail: String) -> crate::mesh::typ
     if timed_out {
         relay_failure(
             StatusCode::GATEWAY_TIMEOUT.as_u16(),
-            codeterm_types::mesh::delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED,
+            codeterm_mesh::contract::delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED,
             None,
             format!("local delivery route did not answer within the relay deadline: {detail}"),
         )
     } else {
         relay_failure(
             StatusCode::BAD_GATEWAY.as_u16(),
-            codeterm_types::mesh::delivery::PEER_LOCAL_API_UNREACHABLE,
+            codeterm_mesh::contract::delivery::PEER_LOCAL_API_UNREACHABLE,
             Some(false),
             format!("local relay failed: {detail}"),
         )
@@ -698,7 +698,7 @@ async fn perform_relay_unredacted(
         if !crate::mesh::types::is_supported_relay_protocol(protocol_version) {
             return Ok(relay_failure(
                 StatusCode::UPGRADE_REQUIRED.as_u16(),
-                codeterm_types::mesh::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
+                codeterm_mesh::contract::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
                 Some(false),
                 "Incompatible Mesh relay protocol; update Domios".into(),
             ));
@@ -714,7 +714,7 @@ async fn perform_relay_unredacted(
             PeerRelayAuthorization::Rejected => {
                 return Ok(relay_failure(
                     StatusCode::FORBIDDEN.as_u16(),
-                    codeterm_types::mesh::delivery::PEER_RELAY_NOT_AUTHORIZED,
+                    codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
                     Some(false),
                     format!(
                         "Peer not authorized to {} {} (access_level={:?})",

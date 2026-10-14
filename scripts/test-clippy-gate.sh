@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh script-guards
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 

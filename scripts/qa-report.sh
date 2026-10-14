@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh qa-batch; scripts tests/qa-report-early-alerts.sh, tests/utility-shell-reports.test.mjs; skill utility-shell-reports
 
 set -u
 

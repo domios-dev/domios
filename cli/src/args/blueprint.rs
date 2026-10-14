@@ -188,7 +188,7 @@ fn parse_assignment(value: &str) -> Result<String, String> {
 }
 
 fn parse_blueprint_name(value: &str) -> Result<String, String> {
-    codeterm_types::automation_name::validate_sentinel_name(value)?;
+    codeterm_blueprint_types::automation_name::validate_sentinel_name(value)?;
     Ok(value.to_string())
 }
 
@@ -204,7 +204,7 @@ fn parse_observe(value: &str) -> Result<String, String> {
 }
 
 fn parse_input_kind(value: &str) -> Result<String, String> {
-    codeterm_types::sentinel_input::MediaKind::parse(value)
+    codeterm_blueprint_types::sentinel_input::MediaKind::parse(value)
         .map(|kind| kind.as_str().to_string())
         .ok_or_else(|| "--input: use text, audio, video or image".into())
 }
@@ -217,7 +217,7 @@ fn parse_convert_to(value: &str) -> Result<String, String> {
 }
 
 fn parse_input_url(value: &str) -> Result<String, String> {
-    use codeterm_types::sentinel_input::{validate, DataRef, InputSpec, MediaKind};
+    use codeterm_blueprint_types::sentinel_input::{validate, DataRef, InputSpec, MediaKind};
     let probe = InputSpec {
         kind: MediaKind::Audio,
         data: DataRef::Url(value.to_string()),

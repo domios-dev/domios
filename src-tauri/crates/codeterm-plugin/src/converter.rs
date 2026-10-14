@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use codeterm_types::sentinel_input::MediaKind;
+use codeterm_blueprint_types::sentinel_input::MediaKind;
 
 use crate::transcribe::{TranscribeError, Transcriber};
 use futures_util::FutureExt;

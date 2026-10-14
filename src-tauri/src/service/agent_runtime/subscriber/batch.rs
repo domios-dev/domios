@@ -22,22 +22,24 @@ pub fn drain_ready<T>(first: Poll<T>, mut poll: impl FnMut() -> Poll<T>, cap: us
     let mut frames = Vec::new();
     let mut lagged = false;
     let mut closed = false;
-    let mut stop = false;
-    let mut take = |item: Poll<T>| match item {
-        Poll::Frame(frame) => frames.push(frame),
-        Poll::Empty => stop = true,
-        Poll::Lagged => {
-            lagged = true;
-            stop = true;
+    let mut item = first;
+    loop {
+        match item {
+            Poll::Frame(frame) => frames.push(frame),
+            Poll::Empty => break,
+            Poll::Lagged => {
+                lagged = true;
+                break;
+            }
+            Poll::Closed => {
+                closed = true;
+                break;
+            }
         }
-        Poll::Closed => {
-            closed = true;
-            stop = true;
+        if frames.len() >= cap {
+            break;
         }
-    };
-    take(first);
-    while !stop && frames.len() < cap {
-        take(poll());
+        item = poll();
     }
     if closed {
         Drained::Closed { frames }

@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::DecisionError;
+use codeterm_decision::DecisionError;
 
 #[derive(Clone)]
 pub(crate) struct EnvelopeContext {

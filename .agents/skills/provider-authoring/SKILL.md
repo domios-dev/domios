@@ -41,8 +41,9 @@ terminal mode, multiline TUI framing and typed prefixes. Declare
 tag at the shared PTY submit seam, including typed envelopes. Chat, CLI, reports
 and launch input all use this declaration; do not duplicate transport wrapping
 in a chat preprocessor. Plain frames otherwise normalize newlines to carriage
-returns. A paste-only declaration may omit the typed follow-up
-fields; it adds no sandbox host function.
+returns. `typedFollowUp` is a second bracketed paste in the same write,
+sent only when the body itself is bracketed. A paste-only declaration may omit
+the follow-up fields; it adds no sandbox host function.
 
 `authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
 decodes its supported JSON. `parseSessionObservations(record)` carries typed API

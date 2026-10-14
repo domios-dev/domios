@@ -22,7 +22,7 @@ async fn codex_rpc_send_messenger_preserves_routed_frame_and_queues_while_active
     assert_eq!(writes[0].1["clientUserMessageId"], "client-a");
     assert_eq!(writes[0].1["input"][0]["text"], text);
     assert!(text.starts_with(&frame.opening_tag));
-    assert!(text.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+    assert!(text.ends_with(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn enriched_message_orders_segments() {
 fn inbound_webhook_pebble_pty_and_chatbackend_metadata_are_originated_as_pebble() {
     let envelope = MessageEnvelope::pebble();
     let marker = Messenger::from(envelope.clone()).wrap("focus enabled");
-    let parsed = codeterm_types::domios::parse_message(&marker).expect("pebble frame parses");
+    let parsed = codeterm_wire::domios::parse_message(&marker).expect("pebble frame parses");
     assert_eq!(parsed.attr("from"), Some("pebble"));
     assert_eq!(parsed.attr("source"), Some("Pebble"));
     assert_eq!(parsed.attr("trust"), None);
@@ -88,7 +88,7 @@ fn inbound_webhook_pebble_pty_and_chatbackend_metadata_are_originated_as_pebble(
     let (msg, marked) = build_chatbackend_inbound(&envelope, "focus enabled", "pebble-1".into());
     assert_eq!(msg.inbound_kind.as_deref(), Some("pebble"));
     assert_eq!(msg.from_label.as_deref(), Some("Pebble"));
-    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&marked).expect("inbound tag parses");
     assert_eq!(parsed.attr("from"), Some("pebble"));
     assert_eq!(parsed.attr("trust"), None);
     assert_eq!(parsed.body, "focus enabled");
@@ -99,7 +99,7 @@ fn plugin_icon_svg_webhook_metadata_preserves_id_and_sanitized_icon_for_chatback
     let icon = "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>";
     let envelope = MessageEnvelope::plugin("pebble", Some(icon.into()));
     let marker = Messenger::from(envelope.clone()).wrap("focus enabled");
-    let parsed = codeterm_types::domios::parse_message(&marker).expect("plugin frame parses");
+    let parsed = codeterm_wire::domios::parse_message(&marker).expect("plugin frame parses");
     assert_eq!(parsed.attr("from"), Some("pebble"));
     assert_eq!(parsed.attr("plugin"), Some("pebble"));
     assert_eq!(parsed.body, "focus enabled");
@@ -108,7 +108,7 @@ fn plugin_icon_svg_webhook_metadata_preserves_id_and_sanitized_icon_for_chatback
     assert_eq!(msg.inbound_kind.as_deref(), Some("plugin"));
     assert_eq!(msg.from_plugin.as_deref(), Some("pebble"));
     assert_eq!(msg.plugin_icon_svg.as_deref(), Some(icon));
-    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&marked).expect("inbound tag parses");
     assert_eq!(parsed.attr("from"), Some("plugin"));
     assert_eq!(parsed.attr("plugin"), Some("pebble"));
 }
@@ -156,7 +156,7 @@ fn wrap_appends_body() {
     assert!(wrapped.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
     assert!(wrapped.contains(Messenger::AGENT_REPLY_COMMAND));
     assert!(wrapped.contains("--tab e8a0ac20"));
-    assert!(wrapped.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+    assert!(wrapped.ends_with(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn mesh_reply_hint_carries_the_return_peer() {
         "<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" mesh=\"BLACKSTAR\">hello "
     ));
     assert!(wrapped.contains("--tab e8a0ac20 --mesh BLACKSTAR]"));
-    assert!(wrapped.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+    assert!(wrapped.ends_with(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn reply_hint_for_shell_sender_suggests_no_shell_send() {
     ] {
         let wrapped = Messenger::from(envelope).wrap("hello");
         assert!(wrapped.contains(Messenger::SHELL_REPLY_HINT));
-        assert!(wrapped.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+        assert!(wrapped.ends_with(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
     }
 }
 
@@ -228,7 +228,7 @@ fn inbound_model_context_uses_canonical_marker() {
     let legacy = ["[CodeTerm", " inbound"].concat();
 
     assert!(!marked.contains(&legacy));
-    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&marked).expect("inbound tag parses");
     assert_eq!(parsed.attr("from"), Some("tab"));
     assert_eq!(parsed.attr("label"), Some("Chat Backend"));
     assert_eq!(parsed.attr("tab"), Some("abc12345"));
@@ -388,7 +388,7 @@ fn reminder_inbound_context_is_canonical_with_sender_fields() {
         .fire_at(2000)
         .id(Some("dmsg-1".into()));
     let ctx = inbound_model_context(&envelope, "ping");
-    let parsed = codeterm_types::domios::parse_message(&ctx).expect("reminder inbound tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&ctx).expect("reminder inbound tag parses");
     let legacy = ["[CodeTerm", " inbound"].concat();
 
     assert!(!ctx.contains(&legacy));
@@ -507,7 +507,7 @@ fn chatbackend_system_envelope_carries_source_label_without_address() {
     assert_eq!(msg.from_label.as_deref(), Some(MessageEnvelope::CODETERM));
     assert!(msg.from_tab.is_none());
 
-    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&marked).expect("inbound tag parses");
     assert_eq!(parsed.attr("from"), Some("system"));
     assert_eq!(parsed.attr("label"), Some(MessageEnvelope::CODETERM));
     assert_eq!(parsed.attr("tab"), None);
@@ -536,7 +536,7 @@ fn utility_shell_purpose_follows_tab_in_pty_and_chatbackend_frames() {
     assert_eq!(msg.from_purpose.as_deref(), Some("build"));
     let json = serde_json::to_value(&msg).unwrap();
     assert_eq!(json["fromPurpose"], "build");
-    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&marked).expect("inbound tag parses");
     assert_eq!(parsed.attr("purpose"), Some("build"));
 
     let (plain, plain_marked) = build_chatbackend_inbound(
@@ -555,7 +555,7 @@ fn chatbackend_system_row_keeps_context() {
     assert_eq!(msg.from_context.as_deref(), Some("blueprint:bp-1:result"));
     let json = serde_json::to_value(&msg).unwrap();
     assert_eq!(json["fromContext"], "blueprint:bp-1:result");
-    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&marked).expect("inbound tag parses");
     assert_eq!(parsed.attr("context"), Some("blueprint:bp-1:result"));
 
     let (bare, _) =
@@ -576,7 +576,7 @@ fn chatbackend_planner_payload_reaches_provider_input_as_data() {
     .unwrap();
     assert_eq!(provider_input.len(), 1);
     assert!(provider_input[0].contains(payload));
-    let parsed = codeterm_types::domios::parse_message(&provider_input[0]).unwrap();
+    let parsed = codeterm_wire::domios::parse_message(&provider_input[0]).unwrap();
     assert_eq!(parsed.attr("from"), Some("system"));
     assert_eq!(parsed.attr("context"), Some("planner-request"));
     assert_eq!(parsed.attr("from_tab"), None);
@@ -639,7 +639,7 @@ fn inbound_context_has_sender_with_canonical_marker() {
         .model(Some("opus".into()))
         .mesh(Some("BLACKSTAR".into()));
     let ctx = inbound_model_context(&envelope, "hello");
-    let parsed = codeterm_types::domios::parse_message(&ctx).expect("tag parses");
+    let parsed = codeterm_wire::domios::parse_message(&ctx).expect("tag parses");
     let legacy = ["[CodeTerm", " inbound"].concat();
 
     assert!(!ctx.contains(&legacy));
@@ -656,7 +656,7 @@ fn relay_metadata_preserves_sender_and_hop_count() {
     let mut envelope = MessageEnvelope::tab("relay", "abcdef12-3456-7890-abcd-123456789abc");
     envelope.relay_hops = 3;
     let marked = Messenger::from(envelope).wrap("opaque answer");
-    let parsed = codeterm_types::domios::parse_message(&marked).unwrap();
+    let parsed = codeterm_wire::domios::parse_message(&marked).unwrap();
     assert_eq!(parsed.attr("tab"), Some("abcdef12"));
     assert_eq!(parsed.attr("relay_hops"), Some("3"));
     assert_eq!(parsed.body, "opaque answer");
@@ -672,7 +672,7 @@ fn routed_hint_is_an_agent_only_tip_for_local_mesh_and_shell_senders() {
         let frame = messenger.routed_frame("opaque body");
         let hint = messenger.reply_hint().unwrap();
         assert_eq!(frame.suffix, format!(" <tip>{hint}</tip>"));
-        let parsed = codeterm_types::domios::parse_message(&frame.to_message()).unwrap();
+        let parsed = codeterm_wire::domios::parse_message(&frame.to_message()).unwrap();
         assert_eq!(parsed.body, frame.body);
         assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
     }
