@@ -5,6 +5,7 @@ pub(super) const MAX_RECEIPTS: usize = 256;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ReceiptState {
     Failed,
+    Degraded,
     Uncertain,
     Delivered,
 }
@@ -88,6 +89,73 @@ fn settle_fresh_launch(index: &mut UserIndex, possibly_written: &[String]) -> Ve
 }
 
 impl UserSendStore {
+    pub(crate) fn discard_queued_from_ended_launch(
+        &self,
+        record: &UserSendRecord,
+    ) -> Result<bool, String> {
+        self.discard_queued(record, ReceiptState::Failed)
+    }
+
+    pub(crate) fn discard_queued_for_degraded_launch(
+        &self,
+        record: &UserSendRecord,
+    ) -> Result<bool, String> {
+        self.discard_queued(record, ReceiptState::Degraded)
+    }
+
+    fn discard_queued(
+        &self,
+        record: &UserSendRecord,
+        receipt: ReceiptState,
+    ) -> Result<bool, String> {
+        let tab = self.tab(&record.authority.tab_id);
+        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+        let mut data = tab.data.lock();
+        let loaded = self.load(&tab, &mut data)?;
+        let Some(current) = loaded
+            .index
+            .records
+            .iter()
+            .find(|item| item.send_id == record.send_id)
+        else {
+            return Ok(false);
+        };
+        if current.authority != record.authority
+            || current.state != UserSendState::Queued
+            || current.handoff_session.is_some()
+            || current.owner_epoch != record.owner_epoch
+        {
+            return Ok(false);
+        }
+        let mut next = loaded.index.clone();
+        next.records.retain(|item| item.send_id != record.send_id);
+        retain_receipt(&mut next, record, receipt);
+        self.persist(&tab, &next)?;
+        loaded.index = next;
+        tab.unsettled
+            .store(unsettled_count(&loaded.index), Ordering::Release);
+        let cleanup = (|| {
+            for suffix in ["original", "prepared", "body"] {
+                let path = tab.payload_path(&record.send_id, suffix)?;
+                match fs::remove_file(path) {
+                    Ok(()) => (),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(error) => return Err(io_error(error)),
+                }
+            }
+            sync_directory(&tab.dir)
+        })();
+        if let Err(error) = cleanup {
+            log::warn!(
+                "[chat-send] expired user send {} payload cleanup failed: {error}",
+                record.send_id
+            );
+        }
+        Ok(true)
+    }
+
     pub(crate) fn end_held_for_fresh_restart(
         &self,
         tab_id: &str,
