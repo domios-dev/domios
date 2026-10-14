@@ -59,7 +59,7 @@ function FileChip({ file, onPlay }: { file: AttachmentMarker; onPlay: (file: Att
       title={isVideo || canReveal ? file.path : `${file.path} (${REVEAL_UNAVAILABLE})`}
       disabled={!isVideo && !canReveal}
       onClick={() => (isVideo ? onPlay(file) : revealLocalFile(file.path))}
-      className="ct-liquid-interactive disabled:cursor-default inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
+      className="ct-liquid-interactive ct-bubble-chip disabled:cursor-default border font-mono text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
       style={{
         background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
         borderColor: TILE_BORDER,
@@ -85,7 +85,7 @@ export function AttachmentStrip({ images, files, captioned }: { images: ChatAtta
         role="group"
         aria-label="Attachments"
         data-testid="chat-attachment-strip"
-        className={`flex flex-wrap items-end gap-1.5 ${captioned ? "mb-2" : ""}`}
+        className={`ct-bubble-attachments${captioned ? " ct-bubble-attachments--captioned" : ""}`}
       >
         {images.map((attachment) => (
           <ImageTile key={attachment.id} attachment={attachment} onOpen={setOpen} />
