@@ -54,9 +54,26 @@ node --test scripts/tests/check-provider-boundary.test.mjs
 Run these from the PowerShell tool directly. They are short enough to read.
 
 In a Worker lane only the isolated ones run: `tsc`, a single node test file,
-`test-one plan`, `test-one pty` and the file-size script. `check`, `check-tests`
-and `test-one app` compile the app crate, a full rebuild; report them as
-deferred selectors for the Orchestrator's canonical wave batch.
+`test-one plan`, `test-one pty`, the file-size script and
+`./build.sh check-queue`. `check`, `check-tests` and `test-one app` compile the
+app crate in the lane, a full rebuild; report them as deferred selectors for the
+Orchestrator's canonical wave batch.
+
+## Check before tests
+
+Canonical QA always starts with `./build.sh check`; tests (`check-tests`,
+`test-one`) run only after it is green, so a name or type error costs seconds
+instead of a multi-minute test-profile rebuild.
+
+A Worker proves a committed Rust change with `./build.sh check-queue [<sha>]`
+(default: lane HEAD). It checks the SHA out in the per-machine check worktree
+(`<gateway dir>/check-worktree`, own warm `target/app` and `target/cli`, never
+canonical or a lane target), runs incremental
+`cargo check --all-targets --message-format=short` for the touched packages
+(plus `codeterm` as dependent unless `--touched-only`), and prints at most
+`--max-errors` (default 20) `file:line:col: error[...]` lines with an
+`errors=N shown=M` total. A busy gateway refuses at once with exit 75; do source
+work and never poll. The first run on a machine is cold, later runs are warm.
 
 The provider boundary guard compares exact exceptions with `origin/develop`; CI supplies the target SHA through `PROVIDER_BOUNDARY_BASE`. Each exception names one exact file/token pair and its count. Lower or remove the entry when occurrences leave; moving or formatting existing occurrences within a file is allowed. Counts may only shrink; new provider coupling belongs in the provider plugin.
 

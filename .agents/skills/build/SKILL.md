@@ -53,8 +53,8 @@ command short unless the continuation itself must be customized.
 These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
 authority. A Worker lane may run isolated checks only; in this repository that
-means `tsc --noEmit`, a single node test file, `cargo fmt --check`, and
-`./build.sh test-one plan|pty <NAME>`. `check-tests` compiles app and CLI test
+means `tsc --noEmit`, a single node test file, `cargo fmt --check`,
+`./build.sh test-one plan|pty <NAME>`, and `./build.sh check-queue` (see below). `check-tests` compiles app and CLI test
 targets without running them; its artifacts are reused by matching `test-one`
 app and CLI calls in the same worktree. These app builds are deferred to the
 Orchestrator's canonical wave batch.
@@ -252,6 +252,13 @@ calls; a successful build alone is not cache-hit proof.
 | Windows PowerShell refuses `build.ps1` because scripts are disabled | The shell process uses a restrictive execution policy | Invoke the authorized build through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1 <operation>`; this changes only that process, never machine policy. |
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
+
+## Warm check queue for lanes
+
+`./build.sh check-queue [<sha>] [--max-errors N] [--touched-only]` gives a Worker compile feedback on a committed lane SHA without a cold lane build. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), checks the SHA out in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo check --all-targets --message-format=short` with the worktree's own `target/app` and `target/cli`. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total, and the full log path (`check-worktree-last.log`). It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
+
+Troubleshooting:
+- Symptom `sccache: incremental compilation is prohibited` from `rustc -vV`: cause an exported `CARGO_INCREMENTAL`; recovery is to leave it unset (the verb unsets it) and let the profile decide.
 
 ## Cache retention and troubleshooting
 
