@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_SCOPES: usize = 256;
@@ -75,6 +76,7 @@ pub(crate) struct Gate {
     entries: Mutex<HashMap<String, Entry>>,
     blocker_notices: Mutex<HashSet<String>>,
     epochs: AtomicU64,
+    ticks: Mutex<VecDeque<DeliveryTick>>,
 }
 
 pub(crate) struct Claim<'a> {
@@ -385,6 +387,19 @@ impl Gate {
             .get(key)
             .map(|entry| entry.telemetry.clone())
             .unwrap_or_default()
+    }
+
+    pub(crate) fn record_tick(&self, tick: DeliveryTick) {
+        super::delivery_log::push_tick(&mut self.ticks.lock(), tick);
+    }
+
+    pub(crate) fn ticks_for_tab(&self, tab_id: &str) -> Vec<DeliveryTick> {
+        self.ticks
+            .lock()
+            .iter()
+            .filter(|tick| tick.tab_id == tab_id)
+            .cloned()
+            .collect()
     }
 
     #[cfg(test)]

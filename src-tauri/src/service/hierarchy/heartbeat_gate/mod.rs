@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 mod admission;
 mod decision;
+mod delivery_log;
 #[cfg(test)]
 mod replay_tests;
 mod runtime;
@@ -24,6 +25,7 @@ pub(crate) use decision::criteria_version;
 use decision::{bounded_questions, cadence, classify, error_reason, suppressed};
 #[cfg(test)]
 use decision::{questions, selected_learnings};
+pub(crate) use delivery_log::{delivery_tick, DeliveryTick, TickFact};
 pub(crate) use runtime::{journal, Supporter};
 pub(crate) use snapshot::{binding_digest, collect, collect_owner_messages, collect_worker_scope};
 #[cfg(test)]
@@ -109,9 +111,40 @@ impl Worker {
             },
             "idle_no_report" => format!("request the durable task report for {}", self.task_id),
             "looping" => format!("review progress on {} and choose a new approach", self.task_id),
-            _ => format!("check the ACK, bound session and provider liveness for {}", self.task_id),
+            _ => self.open_liveness_check(),
         };
         format!("{label} on tab {}: {action}", self.tab_id)
+    }
+
+    /// ACK, session and process are separate checks. One that already holds
+    /// is not asked again.
+    fn missing_liveness(&self) -> Vec<&'static str> {
+        let mut checks = Vec::new();
+        if !self.ack_received {
+            checks.push("ACK");
+        }
+        if self.session_key.is_none() {
+            checks.push("bound session");
+        }
+        if self.process != "present" {
+            checks.push("provider liveness");
+        }
+        checks
+    }
+
+    fn open_liveness_check(&self) -> String {
+        let checks = self.missing_liveness();
+        if checks.len() == 3 {
+            return format!(
+                "check the ACK, bound session and provider liveness for {}",
+                self.task_id
+            );
+        }
+        if checks.is_empty() {
+            format!("review the remaining evidence for {}", self.task_id)
+        } else {
+            format!("check the {} for {}", checks.join(", "), self.task_id)
+        }
     }
 }
 

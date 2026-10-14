@@ -761,3 +761,90 @@ fn heartbeat_gate_valid_approval_wakes_once_per_unchanged_snapshot() {
     assert!(tick(&gate, &snapshot, 102, Some(&model)).wake);
     assert_eq!(model.calls.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn open_liveness_check_drops_evidence_already_held() {
+    let checks = ["ACK", "bound session", "provider liveness"];
+    let cases = [
+        (
+            Worker {
+                task_id: "task_a".into(),
+                ack_received: true,
+                session_key: Some("sess".into()),
+                process: "present".into(),
+                ..Default::default()
+            },
+            Vec::<&str>::new(),
+        ),
+        (
+            Worker {
+                task_id: "task_a".into(),
+                ack_received: false,
+                session_key: Some("sess".into()),
+                process: "present".into(),
+                ..Default::default()
+            },
+            vec!["ACK"],
+        ),
+        (
+            Worker {
+                task_id: "task_a".into(),
+                ack_received: true,
+                session_key: None,
+                process: "absent".into(),
+                ..Default::default()
+            },
+            vec!["bound session", "provider liveness"],
+        ),
+        (
+            Worker {
+                task_id: "task_a".into(),
+                process: "absent".into(),
+                ..Default::default()
+            },
+            vec!["ACK", "bound session", "provider liveness"],
+        ),
+    ];
+    for (worker, expected) in cases {
+        assert_eq!(worker.missing_liveness(), expected);
+        let text = worker.open_liveness_check();
+        assert!(text.contains(&worker.task_id));
+        for check in checks {
+            assert_eq!(text.contains(check), expected.contains(&check));
+        }
+    }
+}
+
+#[test]
+fn fresh_owner_messages_need_a_cursor_for_this_session() {
+    use super::snapshot::{fresh_owner_messages, had_session_cursor};
+
+    let session = Some("sess".into());
+    let other = Some("other".into());
+    let watched = Worker {
+        session_key: session.clone(),
+        turn_cursor: Some("turn-1".into()),
+        ..Default::default()
+    };
+    assert!(!had_session_cursor(None, &session));
+    assert!(!had_session_cursor(
+        Some(&Worker {
+            session_key: session.clone(),
+            ..Default::default()
+        }),
+        &session
+    ));
+    assert!(!had_session_cursor(
+        Some(&Worker {
+            session_key: other.clone(),
+            turn_cursor: Some("turn-1".into()),
+            ..Default::default()
+        }),
+        &session
+    ));
+    assert!(had_session_cursor(Some(&watched), &session));
+    assert!(fresh_owner_messages(false, ["m1", "m2"]).is_empty());
+    let fresh = fresh_owner_messages(true, ["m1", "m2"]);
+    assert!(matches!(fresh[0], HardWake::OwnerMessage(ref id) if id == "m1"));
+    assert!(matches!(fresh[1], HardWake::OwnerMessage(ref id) if id == "m2"));
+}

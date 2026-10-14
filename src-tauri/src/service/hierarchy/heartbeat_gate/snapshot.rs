@@ -133,6 +133,24 @@ pub(crate) fn collect_worker_scope(
     (snapshot, observed)
 }
 
+/// A cursor only counts for the session it was taken from. The first look at a
+/// session, and a session change, have no delta to promote into a directive.
+pub(crate) fn had_session_cursor(worker: Option<&Worker>, session_key: &Option<String>) -> bool {
+    worker.is_some_and(|worker| worker.turn_cursor.is_some() && worker.session_key == *session_key)
+}
+
+pub(crate) fn fresh_owner_messages<'a>(
+    had_cursor: bool,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Vec<HardWake> {
+    if !had_cursor {
+        return Vec::new();
+    }
+    ids.into_iter()
+        .map(|id| HardWake::OwnerMessage(id.to_string()))
+        .collect()
+}
+
 pub(crate) fn collect_owner_messages(
     svc: &ServiceContext,
     tab_id: &str,
@@ -144,11 +162,14 @@ pub(crate) fn collect_owner_messages(
     };
     let old = previous.workers.get(tab_id);
     let (turns, cursor, _) = own_session_turns(svc, &owner, old);
-    let hard = turns
-        .iter()
-        .filter(|turn| is_owner_turn(turn))
-        .map(|turn| HardWake::OwnerMessage(turn.id.clone()))
-        .collect();
+    let had_cursor = had_session_cursor(old, &session_key(&owner));
+    let hard = fresh_owner_messages(
+        had_cursor,
+        turns
+            .iter()
+            .filter(|turn| is_owner_turn(turn))
+            .map(|turn| turn.id.as_str()),
+    );
     let observed = Worker {
         session_key: session_key(&owner),
         turn_cursor: cursor,
