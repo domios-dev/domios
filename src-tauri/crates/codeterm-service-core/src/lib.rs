@@ -687,7 +687,7 @@ pub fn run(
                 ))));
             let svc_ctx = ServiceContext {
                 lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
                 agent_pad_data_dir: crate::paths::data_dir(),
                 mux: states.mux.clone(),
@@ -1025,5 +1025,5 @@ pub fn run(
 #[path = "../../../vendor/tauri-runtime-wry/src/owner_thread.rs"]
 mod windows_rc_ownership_regression;
 
-#[cfg(test)]
-mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

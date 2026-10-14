@@ -10,21 +10,21 @@ use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
-pub(crate) struct ServiceFixture {
-    pub(crate) service: ServiceContext,
+pub struct ServiceFixture {
+    pub service: ServiceContext,
     /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
     /// dropping the fixture is itself the teardown signal.
     _owner: Arc<ServiceContext>,
-    pub(crate) _app: crate::app_runtime::App,
-    pub(crate) temp: tempfile::TempDir,
+    pub _app: crate::app_runtime::App,
+    pub temp: tempfile::TempDir,
 }
 
 #[derive(Default)]
-pub(crate) struct TestReadySendTasks {
+pub struct TestReadySendTasks {
     pending: Mutex<HashMap<String, Vec<tokio::sync::oneshot::Receiver<bool>>>>,
 }
 
-pub(crate) struct TestReadySendTask(Option<tokio::sync::oneshot::Sender<bool>>);
+pub struct TestReadySendTask(Option<tokio::sync::oneshot::Sender<bool>>);
 
 impl Drop for TestReadySendTask {
     fn drop(&mut self) {
@@ -35,7 +35,7 @@ impl Drop for TestReadySendTask {
 }
 
 impl TestReadySendTasks {
-    pub(crate) fn start(&self, tab_id: &str) -> TestReadySendTask {
+    pub fn start(&self, tab_id: &str) -> TestReadySendTask {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending
             .lock()
@@ -45,7 +45,7 @@ impl TestReadySendTasks {
         TestReadySendTask(Some(tx))
     }
 
-    pub(crate) fn wait(&self, tab_id: &str, deadline: std::time::Duration) {
+    pub fn wait(&self, tab_id: &str, deadline: std::time::Duration) {
         let pending = self.pending.lock().remove(tab_id).unwrap_or_default();
         tauri::async_runtime::block_on(async {
             tokio::time::timeout(deadline, async {
@@ -62,7 +62,7 @@ impl TestReadySendTasks {
     }
 }
 
-pub(crate) struct TestPtyGuard {
+pub struct TestPtyGuard {
     pty: Arc<TimedMutex<crate::pty::manager::PtyManager>>,
     pty_id: String,
 }
@@ -74,8 +74,8 @@ impl Drop for TestPtyGuard {
 }
 
 #[derive(Default)]
-pub(crate) struct RecordingHierarchyReportDelivery {
-    pub(crate) writes: Mutex<Vec<(String, String)>>,
+pub struct RecordingHierarchyReportDelivery {
+    pub writes: Mutex<Vec<(String, String)>>,
 }
 
 impl super::hierarchy::HierarchyReportDelivery for RecordingHierarchyReportDelivery {
@@ -92,9 +92,9 @@ impl super::hierarchy::HierarchyReportDelivery for RecordingHierarchyReportDeliv
 }
 
 #[derive(Default)]
-pub(crate) struct FailFirstHierarchyReportDelivery {
-    pub(crate) attempts: Mutex<Vec<(String, String)>>,
-    pub(crate) writes: Mutex<Vec<(String, String)>>,
+pub struct FailFirstHierarchyReportDelivery {
+    pub attempts: Mutex<Vec<(String, String)>>,
+    pub writes: Mutex<Vec<(String, String)>>,
 }
 
 impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDelivery {
@@ -118,7 +118,7 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 }
 
 impl ServiceFixture {
-    pub(crate) fn install_seeded_storage_desk(&self) -> crate::storage::Storage {
+    pub fn install_seeded_storage_desk(&self) -> crate::storage::Storage {
         let storage = crate::storage::Storage::open(
             &self.temp.path().join("runtime-desk"),
             crate::storage::StorageConfig::default(),
@@ -148,7 +148,7 @@ impl ServiceFixture {
         storage
     }
 
-    pub(crate) fn set_agent_full_access(&self, full_access: bool) {
+    pub fn set_agent_full_access(&self, full_access: bool) {
         self._app
             .state::<crate::config::ConfigState>()
             .lock()
@@ -156,18 +156,18 @@ impl ServiceFixture {
             .full_access = Some(full_access);
     }
 
-    pub(crate) fn new(mux: MultiplexerState) -> Self {
+    pub fn new(mux: MultiplexerState) -> Self {
         let temp = tempfile::tempdir().unwrap();
         Self::build(mux, temp, None)
     }
 
-    pub(crate) fn new_at(mux: MultiplexerState, data_dir: &std::path::Path) -> Self {
+    pub fn new_at(mux: MultiplexerState, data_dir: &std::path::Path) -> Self {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(data_dir).unwrap();
         Self::build(mux, temp, Some(data_dir.to_path_buf()))
     }
 
-    pub(crate) fn bind_test_pty_session(
+    pub fn bind_test_pty_session(
         &self,
         tab_id: &str,
         session_id: &str,
@@ -533,7 +533,7 @@ impl Drop for ServiceFixture {
 
 impl ServiceFixture {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn seed_prompt_notification(
+    pub fn seed_prompt_notification(
         &self,
         title: String,
         body: Option<String>,
