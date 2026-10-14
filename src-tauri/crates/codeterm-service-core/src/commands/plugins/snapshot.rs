@@ -7,7 +7,7 @@ use super::cli::{read_audit_events, run_plugin_cli};
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
 pub(super) fn scan_plugin_manifests(
 ) -> std::collections::HashMap<String, (std::path::PathBuf, Value, Option<String>)> {
-    let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+    let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."));
     let roots = crate::plugin::js_runtime::default_roots(Some(workspace.as_path()));
     let mut map = std::collections::HashMap::new();
     for root in roots {

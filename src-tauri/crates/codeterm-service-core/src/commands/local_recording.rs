@@ -1,7 +1,7 @@
 use crate::service::ServiceState;
 
 #[tauri::command]
-pub(crate) async fn local_recording_input_devices(
+pub async fn local_recording_input_devices(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
 ) -> Result<Vec<crate::service::local_recording::platform::RecordingInputDevice>, String> {
@@ -9,7 +9,7 @@ pub(crate) async fn local_recording_input_devices(
 }
 
 #[tauri::command]
-pub(crate) fn local_recording_status(
+pub fn local_recording_status(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
 ) -> Result<codeterm_plugin::local_recording::RecordingStatus, String> {
@@ -17,7 +17,7 @@ pub(crate) fn local_recording_status(
 }
 
 #[tauri::command]
-pub(crate) fn local_recording_set_enabled(
+pub fn local_recording_set_enabled(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
     enabled: bool,
@@ -26,7 +26,7 @@ pub(crate) fn local_recording_set_enabled(
 }
 
 #[tauri::command]
-pub(crate) async fn local_recording_select_devices(
+pub async fn local_recording_select_devices(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
     input_id: String,
@@ -49,7 +49,7 @@ pub(crate) async fn local_recording_select_devices(
 }
 
 #[tauri::command]
-pub(crate) fn local_recording_capture_stopped(
+pub fn local_recording_capture_stopped(
     svc: tauri::State<'_, ServiceState>,
     lease: String,
 ) -> Result<(), String> {
@@ -57,12 +57,12 @@ pub(crate) fn local_recording_capture_stopped(
 }
 
 #[tauri::command]
-pub(crate) fn local_recording_cancel(svc: tauri::State<'_, ServiceState>, lease: String) {
+pub fn local_recording_cancel(svc: tauri::State<'_, ServiceState>, lease: String) {
     svc.local_recording_cancel(&lease);
 }
 
 #[tauri::command]
-pub(crate) fn local_recording_manual_capture(
+pub fn local_recording_manual_capture(
     svc: tauri::State<'_, ServiceState>,
     active: bool,
 ) -> Result<(), String> {
@@ -70,7 +70,7 @@ pub(crate) fn local_recording_manual_capture(
 }
 
 #[tauri::command]
-pub(crate) async fn local_recording_save_clip(
+pub async fn local_recording_save_clip(
     svc: tauri::State<'_, ServiceState>,
     lease: String,
     data: String,
@@ -80,7 +80,7 @@ pub(crate) async fn local_recording_save_clip(
 }
 
 #[tauri::command]
-pub(crate) fn local_recording_discard_clip(
+pub fn local_recording_discard_clip(
     svc: tauri::State<'_, ServiceState>,
     lease: String,
     clip_handle: String,
@@ -89,7 +89,7 @@ pub(crate) fn local_recording_discard_clip(
 }
 
 #[tauri::command]
-pub(crate) async fn local_recording_commit(
+pub async fn local_recording_commit(
     svc: tauri::State<'_, ServiceState>,
     lease: String,
     clip_handle: String,
