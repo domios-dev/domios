@@ -554,9 +554,11 @@ fn gateway_send_response(
             "delivery": "sent",
             "bytes_written": true,
         }),
-        crate::service::messenger::Delivery::ChatBackend { .. } => serde_json::json!({
+        crate::service::messenger::Delivery::ChatBackend { message_id } => serde_json::json!({
             "ok": true,
             "delivery": "sent",
+            "bytes_written": true,
+            "send_id": message_id,
         }),
         crate::service::messenger::Delivery::Pending { .. } => serde_json::json!({
             "ok": true,
@@ -603,6 +605,18 @@ mod tests {
     use crate::service::delivery_error::DeliveryError;
     use crate::service::messenger::Delivery;
 
+    #[test]
+    fn accepted_runtime_delivery_response_never_claims_zero_write() {
+        assert_eq!(
+            gateway_send_response(
+                Delivery::ChatBackend {
+                    message_id: "own-send".into()
+                },
+                None
+            ),
+            serde_json::json!({"ok":true,"delivery":"sent","bytes_written":true,"send_id":"own-send"})
+        );
+    }
     #[test]
     fn user_submissions_hold_only_before_first_readiness() {
         assert!(uses_user_send_admission(false, true, true, true, false));
