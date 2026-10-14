@@ -40,7 +40,7 @@ mod reader_readiness;
 mod resume_binding;
 mod startup_readiness;
 mod user_input;
-pub(crate) use command::{
+pub use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service,
 };
@@ -104,7 +104,7 @@ pub fn arm_provider_session_for_test(
         .bind_provider_session(&launch, nonce.to_string());
     launch
 }
-pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
+pub fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
         svc.void_launch_session_proof(&launch.tab_id);
         let reason = LaunchFailure::PtyEof.reason();
@@ -123,7 +123,7 @@ fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) 
     }
 }
 
-pub(crate) fn supersede_tab_launch(tab_id: &str) {
+pub fn supersede_tab_launch(tab_id: &str) {
     LAUNCH_REGISTRY.lock().supersede(tab_id);
     log::debug!("[launch] tab={tab_id} superseded before restart teardown");
 }
@@ -243,7 +243,7 @@ fn await_replacement_pty(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn launch_agent_in_background(
+pub fn launch_agent_in_background(
     svc: ServiceContext,
     tab_id: String,
     launch_cmd: String,
@@ -303,7 +303,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn launch_agent_in_background_with_env(
+pub fn launch_agent_in_background_with_env(
     svc: ServiceContext,
     tab_id: String,
     launch_cmd: String,
@@ -1088,7 +1088,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     });
 }
 
-pub(crate) fn mark_tab_agent_launch_started(
+pub fn mark_tab_agent_launch_started(
     mux: &crate::multiplexer::commands::MuxState,
     tab_id: &str,
 ) {

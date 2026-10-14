@@ -3,7 +3,7 @@ mod cwd;
 mod dispatch_rollback;
 pub(crate) mod runtime_prompt;
 use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
-pub(crate) use runtime_prompt::{
+pub use runtime_prompt::{
     compose_runtime_system_prompt, ensure_tab_runtime_prompt, ROLE_AUTHORITY,
 };
 
@@ -1160,7 +1160,7 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
 
 mod remote_binding;
 use remote_binding::remote_task_binding_matches;
-pub(crate) use remote_binding::remote_task_binding_matches_authority;
+pub use remote_binding::remote_task_binding_matches_authority;
 
 #[cfg(test)]
 mod tests;

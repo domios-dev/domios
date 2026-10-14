@@ -191,7 +191,7 @@ pub(crate) fn existing_cartographer_attachment(
     })
 }
 
-pub(crate) fn prepare_team_member_spawn(
+pub fn prepare_team_member_spawn(
     mux: &MultiplexerState,
     team_id: &str,
     caller_tab_id: Option<&str>,
@@ -315,7 +315,7 @@ where
     Ok(prepared)
 }
 
-pub(crate) fn commit_team_member_spawn(
+pub fn commit_team_member_spawn(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
     team_id: &str,
@@ -380,7 +380,7 @@ pub(crate) fn commit_team_member_spawn(
 /// Hand the Team's active plan to an anchor that just joined. A plan whose
 /// recorded owner is still a live anchor here is left alone; everything else is
 /// the tab-gone case the recovery rebind exists for.
-pub(crate) fn take_over_team_plan(
+pub fn take_over_team_plan(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
