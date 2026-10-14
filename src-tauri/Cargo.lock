@@ -1103,6 +1103,7 @@ dependencies = [
  "codeterm-billing",
  "codeterm-bridge",
  "codeterm-browser",
+ "codeterm-config",
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-input-macos",
@@ -1293,6 +1294,23 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-config"
+version = "1.6.2"
+dependencies = [
+ "codeterm-mesh",
+ "codeterm-paths",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
  "uuid",
 ]
 

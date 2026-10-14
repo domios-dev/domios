@@ -1,5 +1,5 @@
 use super::*;
-use crate::persisted_state::incidents_for;
+use codeterm_util::persisted_state::incidents_for;
 
 const GARBAGE: &str = "\nthis is = = not toml [[[\n";
 
@@ -134,15 +134,15 @@ fn config_parse_error_without_backup_writes_marked_salvage_and_keeps_hold() {
         .or_default()
         .extra
         .insert(
-            crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
+            crate::schema::INTEGRATION_CONSENT_GRANTED.into(),
             toml::Value::Boolean(true),
         );
-    crate::config::save_hook_reconciliation_config_at(&path, &consented).unwrap();
+    crate::save_hook_reconciliation_config_at(&path, &consented).unwrap();
     let saved = std::fs::read_to_string(&path).unwrap();
     assert!(is_salvaged_config(&saved));
     let saved: AppConfig = toml::from_str(&saved).unwrap();
     assert_eq!(
-        saved.agents["claude"].extra[crate::config::schema::INTEGRATION_CONSENT_GRANTED].as_bool(),
+        saved.agents["claude"].extra[crate::schema::INTEGRATION_CONSENT_GRANTED].as_bool(),
         Some(true)
     );
     assert!(
