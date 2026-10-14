@@ -4,7 +4,7 @@ use crate::service::launch_readiness::LaunchSettlement;
 use crate::service::ServiceContext;
 use std::time::Duration;
 
-pub(crate) fn launch_waits_for_first_turn_binding(
+pub fn launch_waits_for_first_turn_binding(
     svc: &ServiceContext,
     tab_id: &str,
     agent_cmd: &str,

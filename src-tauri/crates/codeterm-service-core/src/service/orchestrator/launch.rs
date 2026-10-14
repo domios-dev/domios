@@ -46,7 +46,7 @@ pub(crate) use command::{
 };
 use reader_readiness::{BackendPty, ReaderReadiness};
 #[cfg(test)]
-pub(crate) use startup_readiness::launch_waits_for_first_turn_binding;
+pub use startup_readiness::launch_waits_for_first_turn_binding;
 #[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
@@ -67,7 +67,7 @@ struct ProviderAck {
 static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
     std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
 #[derive(Debug, Clone)]
-pub(crate) struct LaunchGeneration {
+pub struct LaunchGeneration {
     tab_id: String,
     pty_id: String,
     generation: u64,
@@ -78,12 +78,12 @@ pub(crate) struct LaunchGeneration {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderSessionBinding {
+pub struct ProviderSessionBinding {
     pub(crate) pty_id: String,
     pub(crate) binding_nonce: String,
 }
 
-pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
+pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
     let recorded = LAUNCH_REGISTRY
         .lock()
         .record_provider_session(tab_id, binding);
@@ -93,7 +93,7 @@ pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBin
     recorded
 }
 #[cfg(test)]
-pub(crate) fn arm_provider_session_for_test(
+pub fn arm_provider_session_for_test(
     tab_id: &str,
     pty_id: &str,
     nonce: &str,

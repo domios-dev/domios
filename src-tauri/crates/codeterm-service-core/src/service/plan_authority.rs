@@ -16,7 +16,7 @@ pub struct AuthenticatedPlanCaller {
 
 /// Typed planning-authority failures keep binding and role diagnostics distinct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PlanAuthorityError {
+pub enum PlanAuthorityError {
     PlanNotFound,
     /// Live same-tab, same-session caller holding a pre-relaunch lineage nonce.
     /// Recoverable via `codeterm plan rebind` without a full agent restart.
@@ -90,7 +90,7 @@ impl std::fmt::Display for PlanAuthorityError {
 }
 
 impl From<PlanAuthorityError> for String {
-    pub fn from(error: PlanAuthorityError) -> Self {
+    fn from(error: PlanAuthorityError) -> Self {
         error.message().to_string()
     }
 }
@@ -138,7 +138,7 @@ fn binding_failure_class(
     PlanAuthorityError::BindingForeign
 }
 
-pub(crate) fn launch_binding_is_pending(tab: &Tab) -> bool {
+pub fn launch_binding_is_pending(tab: &Tab) -> bool {
     tab.pty_id.is_some()
         && tab.exit_suspected_at.is_none()
         && tab.agent_set_at.is_some_and(|set_at| {

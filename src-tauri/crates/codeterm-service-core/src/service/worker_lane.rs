@@ -38,7 +38,7 @@ fn git_is_primary_checkout(cwd: &Path) -> bool {
     git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir == common_dir)
 }
 
-pub(crate) fn is_linked_worktree(cwd: &Path) -> bool {
+pub fn is_linked_worktree(cwd: &Path) -> bool {
     git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir != common_dir)
 }
 
