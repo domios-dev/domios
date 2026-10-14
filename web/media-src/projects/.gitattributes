@@ -1,4 +1,0 @@
-* -text -diff
-.gitattributes text eol=lf diff
-README.md text eol=lf diff
-inventory.json text eol=lf diff
