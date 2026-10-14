@@ -87,7 +87,7 @@ fn paths() -> Vec<FixturePaths> {
             declaration,
         }];
     }
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let root = PathBuf::from(crate::test_support::fixture_manifest_dir())
         .join("../../..")
         .join("plugins");
     let mut directories: Vec<_> = std::fs::read_dir(root)

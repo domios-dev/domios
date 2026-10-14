@@ -94,7 +94,12 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = Some("own-nonce".into());
     tab.agent_session_model = Some("prior".into());
-    tab.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
+    tab.cwd = Some(
+        crate::test_support::fixture_manifest_dir()
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+    );
     let fixture = ServiceFixture::new(mux);
     fixture.set_agent_full_access(false);
     let storage = fixture.install_seeded_storage_desk();
@@ -111,7 +116,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../tests/fixtures/agent-runtime/fake-peer.mjs",env!("CARGO_MANIFEST_DIR"))]},"requestMethods":methods,"notificationMethods":[]}},
+            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();
     fixture

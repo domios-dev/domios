@@ -1,3 +1,6 @@
+#[path = "../../src-tauri/src/test_support.rs"]
+mod test_support;
+
 use std::path::{Path, PathBuf};
 
 use codeterm_lib::agent::offline_state_classifier::{
@@ -49,10 +52,7 @@ struct DumpVerdict {
 }
 
 pub fn state_dumps_root() -> PathBuf {
-    PathBuf::from(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../testbench/state-dumps"
-    ))
+    test_support::fixture_manifest_dir().join("../testbench/state-dumps")
 }
 
 pub fn run_state_doctor(root: &Path) -> bool {

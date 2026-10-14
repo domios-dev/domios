@@ -631,7 +631,7 @@ fn lazy_composer_readiness_requires_declared_structural_capability() {
 
 #[test]
 fn opencode_sessionless_home_frame_accepts_centered_visible_composer() {
-    let plugins = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins"));
+    let plugins = crate::test_support::fixture_manifest_dir().join("../plugins");
     let provider =
         crate::plugin::js_runtime::load_one(&plugins.join("provider-opencode").join("plugin.json"))
             .expect("load bundled OpenCode provider");
@@ -802,7 +802,7 @@ fn centered_cursor_capability_does_not_change_bottom_composer_providers() {
 
 #[test]
 fn codex_update_and_folder_trust_frames_block_lazy_readiness() {
-    let plugins = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins"));
+    let plugins = crate::test_support::fixture_manifest_dir().join("../plugins");
     let provider =
         crate::plugin::js_runtime::load_one(&plugins.join("provider-codex").join("plugin.json"))
             .expect("load the bundled Codex provider");

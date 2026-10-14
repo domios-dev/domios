@@ -1,3 +1,6 @@
+#[path = "../../src-tauri/src/test_support.rs"]
+mod test_support;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -112,10 +115,7 @@ struct Accumulator {
 }
 
 pub fn state_dumps_root() -> PathBuf {
-    PathBuf::from(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../testbench/state-dumps"
-    ))
+    test_support::fixture_manifest_dir().join("../testbench/state-dumps")
 }
 
 pub fn run_state_calibration(root: &Path) -> StateCalibrationSummary {

@@ -3,7 +3,7 @@ use super::*;
 use std::path::PathBuf;
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    PathBuf::from(crate::test_support::fixture_manifest_dir())
         .join("..")
         .join("..")
         .join("..")

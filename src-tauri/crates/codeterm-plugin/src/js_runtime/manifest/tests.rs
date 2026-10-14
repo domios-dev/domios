@@ -618,8 +618,9 @@ fn assert_context_owner_absent_is_byte_equivalent(source: &str, cap: &ChatBacken
 
 #[test]
 fn context_owner_absent_manifest_parses_byte_equivalent_to_today() {
-    let shipped_root =
-        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../..")).join("plugins");
+    let shipped_root = crate::test_support::fixture_manifest_dir()
+        .join("../../..")
+        .join("plugins");
     let mut shipped = 0usize;
     for entry in std::fs::read_dir(&shipped_root).expect("shipped plugins dir") {
         let manifest_path = entry.expect("plugin dir entry").path().join("plugin.json");

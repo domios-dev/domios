@@ -8,7 +8,7 @@ function fixture() {
   const all = [row('shared_a'), row('shared_b'), row('native', true)];
   return [
     ...['Linux', 'macOS', 'Windows'].map((os) => ({ mode: 'platform', runner: os, os, sha: 'abc', exit: 0, seconds: 1, all: structuredClone(all), selected: ['crate::native'] })),
-    ...[1, 2].map((shard) => ({ mode: 'shared', shard, runner: `runner-${shard}`, os: 'Linux', sha: 'abc', exit: 0, seconds: 2, all: structuredClone(all), selected: [`crate::shared_${shard === 1 ? 'a' : 'b'}`] })),
+    ...[1, 2].map((shard) => ({ mode: 'shared', shard, runner: `runner-${shard}`, os: 'macOS', arch: 'ARM64', sha: 'abc', exit: 0, seconds: 2, all: structuredClone(all), selected: [`crate::shared_${shard === 1 ? 'a' : 'b'}`] })),
   ];
 }
 
@@ -19,6 +19,8 @@ for (const [name, mutate] of [
   ['missing receipt', (r) => r.pop()],
   ['duplicate shard', (r) => { r[4].shard = 1; }],
   ['invalid shard', (r) => { r[4].shard = 3; }],
+  ['shared shard on Linux', (r) => { r[3].os = 'Linux'; }],
+  ['shared shard on X64', (r) => { r[3].arch = 'X64'; }],
   ['wrong OS', (r) => { r[2].os = 'Linux'; }],
   ['mixed source', (r) => { r[0].sha = 'def'; }],
   ['failed job', (r) => { r[0].exit = 1; }],
@@ -56,9 +58,19 @@ test('filters complement native tests within their Cargo binary', () => {
   assert.match(filterFor(rows, 'shared'), /package\(=crate\) & binary\(=crate\)/);
   assert.match(filterFor([row('only_shared')], 'platform'), /none\(\)/);
 });
-test('workflow shards use a shared pool and all results feed the coverage job', () => {
+test('workflow shards use the macOS pool and all results feed the coverage job', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/tests.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /runs-on: \[self-hosted, rust-shard\]/);
+  const shared = workflow.slice(workflow.indexOf('  rust-shards:'), workflow.indexOf('  rust-platform:'));
+  const platform = workflow.slice(workflow.indexOf('  rust-platform:'), workflow.indexOf('  rust-coverage:'));
+  const archives = workflow.slice(workflow.indexOf('  rust-archives:'), workflow.indexOf('  rust-shards:'));
+  assert.match(shared, /runs-on: \[self-hosted, rust-shard, macOS\]/);
+  assert.match(shared, /name: rust-archive-macOS-ARM64/);
+  assert.doesNotMatch(shared, /name: rust-archive-\$\{\{ runner.os/);
+  for (const os of ['Linux', 'macOS', 'Windows']) {
+    assert.match(platform, new RegExp(`- os: ${os}`));
+    assert.match(archives, new RegExp(`- os: ${os}`));
+  }
+  assert.match(platform, /name: rust-archive-\$\{\{ runner.os \}\}-\$\{\{ runner.arch \}\}/);
   assert.match(workflow, /shard: \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12\]/);
   assert.match(workflow, /needs: \[changed, rust-archives, rust-shards, rust-platform\]/);
   assert.match(workflow, /fail-fast: false/);
