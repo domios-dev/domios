@@ -33,7 +33,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check)
+  check|check-tests|test-one|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -361,6 +361,9 @@ run_nextest_scope() {
 
   case "$scope" in
     app|codeterm|service-core|codeterm-service-core) package="codeterm-service-core"; targets+=(--lib --no-default-features) ;;
+    shell) package="codeterm"; targets+=(--lib --test main) ;;
+    mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets+=(--lib) ;;
+    paths|codeterm-paths) package="codeterm-paths"; targets+=(--lib) ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -392,7 +395,7 @@ run_nextest_scope() {
       ;;
   esac
 
-  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ]; then
+  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     prepare_exceptional_worktree_target
@@ -429,7 +432,7 @@ run_nextest_scope() {
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass \
     scripts/test-capped.sh \
     --binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json" \
-    "${filter_args[@]}" --no-fail-fast --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
+    "${filter_args[@]}" --no-fail-fast --no-tests="${NEXTEST_NO_TESTS_MODE:-fail}" 2>&1 | tee "$timing_dir/parallel.log"; then
     run_exit=${PIPESTATUS[0]}
   else
     run_exit=${PIPESTATUS[0]}
@@ -468,6 +471,31 @@ run_nextest_scope() {
   [ "$run_exit" -eq 0 ] || return "$run_exit"
   [ "$alone_exit" -eq 0 ] || return "$alone_exit"
   return "$guard_exit"
+}
+
+# Every release-tier Rust runner from tests/catalogue.json, one nextest scope each, no fail-fast across runners.
+run_release_rust_tests() {
+  local plan scope ids budget no_tests filterset status total=0
+  local red=()
+  plan="$(node scripts/ci-rust-archives.mjs release-plan "$@")" || return $?
+  [ -n "$plan" ] || { echo "release-rust: the catalogue selects no release Rust runner" >&2; return 1; }
+  prepare_exceptional_worktree_target
+  while IFS=$'\t' read -r -u 3 scope ids budget no_tests filterset; do
+    total=$((total + 1))
+    echo "== release-rust: $ids (./build.sh nextest $scope${filterset:+ '$filterset'}, cap ${TEST_CAP_SECS:-$budget}s, no-tests=$no_tests)"
+    if TEST_CAP_SECS="${TEST_CAP_SECS:-$budget}" NEXTEST_NO_TESTS_MODE="$no_tests" run_nextest_scope "$scope" ${filterset:+"$filterset"}; then
+      echo "release-rust: GREEN $ids"
+    else
+      status=$?
+      echo "release-rust: RED $ids (exit $status)"
+      red+=("$ids")
+    fi
+  done 3<<< "$plan"
+  if [ "${#red[@]}" -gt 0 ]; then
+    echo "release-rust: ${#red[@]} of $total runner group(s) red: ${red[*]}" >&2
+    return 1
+  fi
+  echo "release-rust: all $total runner group(s) green"
 }
 
 case "$CMD" in
@@ -1975,7 +2003,7 @@ enter_cargo_gateway() {
 }
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
 esac
@@ -1998,9 +2026,10 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <input-macos|input-windows|billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|shell|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
+  release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
@@ -2009,7 +2038,7 @@ CodeTerm build commands
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
   lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
 
-Long operations (check, check-tests, test-one, test, verify, build, install-local, release-preflight)
+Long operations (check, check-tests, test-one, test, verify, build, install-local, release-preflight, release-rust)
 accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
@@ -2210,8 +2239,7 @@ EOF
     cargo check --manifest-path cli/Cargo.toml
     node scripts/check-release-locks.mjs
     bash scripts/clippy-gate.sh
-    run_workspace_lib_tests
-    scripts/test-capped.sh --manifest-path cli/Cargo.toml
+    run_release_rust_tests
     node node_modules/typescript/bin/tsc --noEmit
     node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     node scripts/check-api-effect-dependencies.mjs
@@ -2227,13 +2255,18 @@ EOF
     node --test scripts/tests/local-install-cache.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
+  release-rust)
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    run_release_rust_tests "${@:2}"
+    ;;
   test)
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
+    test_scope="${2:?test-one requires billing, account, analytics, app, shell, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -2246,6 +2279,14 @@ EOF
         prepare_exceptional_worktree_target
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib "$test_filter"
         ;;
+      shell)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        prepare_exceptional_worktree_target
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
+        ;;
+      mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
+      paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
       input-macos|input-windows)
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
@@ -2295,7 +2336,8 @@ EOF
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
+      codeterm-*) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$test_scope" --lib "$test_filter" ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, shell, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package)" >&2; exit 2 ;;
     esac
     ;;
   nextest)
