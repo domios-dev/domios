@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { parse } from "yaml";
+import { condition } from "./workflow-condition.mjs";
 
 function workflow(name) {
   return parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
@@ -17,12 +18,6 @@ const dependencies = job => [job.needs].flat();
 
 const fastJobs = ["plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
 const longJobs = ["rust-archives", "rust-shards", "rust-platform", "rust-coverage"];
-
-function condition(expression, { needs = {}, inputs = {}, failed = false, cancelled = false, steps = { "cancel-release": { outcome: "skipped" } } } = {}) {
-  const source = expression.replace(/^\$\{\{ | \}\}$/g, "")
-    .replaceAll(/(needs|steps)\.([\w-]+)/g, (_, scope, id) => `${scope}[${JSON.stringify(id)}]`);
-  return Boolean(Function("needs", "steps", "inputs", "failure", "cancelled", "always", `return (${source})`)(needs, steps, inputs, () => failed, () => cancelled, () => true));
-}
 
 test("fast checks gate every build while Rust archives queue independently", () => {
   const gate = release.jobs["quick-checks"];
