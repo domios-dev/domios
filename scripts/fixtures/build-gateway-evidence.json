@@ -1,0 +1,16 @@
+{
+  "start": {"cache_location":"s3, name: sccache, prefix: /","stats":{"compile_requests":100,"cache_hits":{"counts":{"Rust":50,"C/C++":10}},"cache_misses":{"counts":{"Rust":20}},"requests_not_cacheable":20,"not_cached":{"crate-type":20}}},
+  "end": {"cache_location":"s3, name: sccache, prefix: /","stats":{"compile_requests":120,"cache_hits":{"counts":{"Rust":60,"C/C++":12}},"cache_misses":{"counts":{"Rust":25}},"requests_not_cacheable":23,"not_cached":{"crate-type":22,"incremental":1}}},
+  "fingerprint": [
+    "0.1s INFO prepare_target{force=false package_id=getrandom v0.3.4 target=\"getrandom\"}: cargo::core::compiler::fingerprint: fingerprint dirty for getrandom v0.3.4/Build/lib",
+    "0.2s INFO prepare_target{force=false package_id=serde v1.0.0 target=\"serde\"}: cargo::core::compiler::fingerprint: fingerprint error for serde v1.0.0/Build/lib",
+    "0.3s INFO prepare_target{force=false package_id=getrandom v0.3.4 target=\"getrandom\"}: cargo::core::compiler::fingerprint:     dirty: UnitDependencyInfoChanged { old_name: \"cfg_if\", new_name: \"cfg_if\" }",
+    "0.4s INFO prepare_target{force=false package_id=serde v1.0.0 target=\"serde\"}: cargo::core::compiler::fingerprint:     err: failed to read `target/.fingerprint/serde/lib-serde`",
+    "ordinary Cargo output"
+  ],
+  "sccache": [
+    "[DEBUG sccache::server] parse_arguments: CannotCache(crate-type, bin): [\"--crate-name\", \"build_script_build\", \"getrandom/build.rs\", \"--crate-type\", \"bin\", \"--out-dir\", \"C:\\\\target\\\\release\\\\build\\\\getrandom-abcdef123\"]",
+    "[DEBUG sccache::server] parse_arguments: CannotCache(crate-type, proc-macro): [\"--crate-name\", \"serde_derive\", \"src/lib.rs\", \"--crate-type\", \"proc-macro\"]",
+    "[DEBUG sccache::server] parse_arguments: NotCompilation: [\"-vV\"]"
+  ]
+}
