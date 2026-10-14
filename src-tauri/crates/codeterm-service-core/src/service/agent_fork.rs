@@ -1,7 +1,7 @@
 use super::{ServiceContext, SpawnAgentParams};
 
 #[derive(Debug, serde::Serialize)]
-pub(crate) struct ForkResult {
+pub struct ForkResult {
     pub tab_id: String,
     pub source_tab_id: String,
     pub source_session_id: String,

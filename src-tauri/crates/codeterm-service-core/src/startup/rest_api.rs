@@ -31,7 +31,7 @@ pub enum RestApiDiagnostic {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct RestApiStatus {
+pub struct RestApiStatus {
     pub(crate) generation: u64,
     pub(crate) phase: RestApiPhase,
     pub(crate) diagnostic: Option<RestApiDiagnostic>,
@@ -47,7 +47,7 @@ pub(crate) struct RestApiRecovery {
 /// A configured bind the live socket does not serve. Exists because the bind is
 /// snapshotted at process start, so a config write cannot move it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct PendingBind {
+pub struct PendingBind {
     pub(crate) live: String,
     pub(crate) configured: String,
 }

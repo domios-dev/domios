@@ -53,7 +53,7 @@ pub enum UserSendState {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct UserSendRecord {
+pub struct UserSendRecord {
     pub(crate) send_id: String,
     pub(crate) client_token: Option<String>,
     pub(crate) acceptance_sequence: u64,
@@ -141,7 +141,7 @@ pub(crate) struct UserTab {
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
-pub(crate) struct UserReservation {
+pub struct UserReservation {
     pub(crate) send_id: String,
     pub(crate) ledger_sequence: u64,
     pub(crate) authority: UserSendAuthority,
@@ -180,7 +180,7 @@ impl Drop for UserReservation {
     }
 }
 
-pub(crate) struct PreparedUserBody {
+pub struct PreparedUserBody {
     pub(crate) returned_path: PathBuf,
     pub(crate) bytes: Vec<u8>,
 }

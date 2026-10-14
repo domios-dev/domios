@@ -36,7 +36,7 @@ pub(crate) use narrative::{ActivityContext, QuestionAnswer};
 use registry::SupporterRegistry;
 
 #[derive(Default)]
-pub(crate) struct TokenSnapshot {
+pub struct TokenSnapshot {
     pub(crate) usable: bool,
     pub(crate) acl_invalid: bool,
 }

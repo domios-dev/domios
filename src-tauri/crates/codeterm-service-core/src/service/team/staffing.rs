@@ -98,7 +98,7 @@ impl ServiceContext {
 
 /// Where the Team's plan landed when an added anchor took it over.
 #[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct PlanTakeover {
+pub struct PlanTakeover {
     pub plan_id: String,
     pub owner_tab_id: String,
     pub error: Option<String>,

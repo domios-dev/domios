@@ -27,7 +27,7 @@ impl ProviderIdentityEvidence {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum ProviderIdentityWrite {
+pub enum ProviderIdentityWrite {
     Applied {
         previous: Option<String>,
         current: String,

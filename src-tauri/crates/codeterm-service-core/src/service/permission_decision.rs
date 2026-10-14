@@ -35,7 +35,7 @@ pub async fn wait_for_answer(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Answer {
+pub enum Answer {
     Allow,
     Deny,
 }

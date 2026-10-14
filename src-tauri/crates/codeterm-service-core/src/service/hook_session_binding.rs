@@ -32,7 +32,7 @@ pub struct SessionStartClaim {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DeferredBindingPremise {
+pub struct DeferredBindingPremise {
     pub(crate) previous_session_id: String,
 }
 
