@@ -1539,6 +1539,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-sentinel-ports"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeterm-storage"
 version = "0.1.0"
 dependencies = [
