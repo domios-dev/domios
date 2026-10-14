@@ -318,7 +318,7 @@ impl Fixture {
 
 #[cfg(windows)]
 const WINDOWS_CHILD_SELECTOR: &str =
-    "sentinel::command_native_tests::windows_controlled_capture_child";
+    "command_native_tests::windows_controlled_capture_child";
 
 #[cfg(windows)]
 #[test]
