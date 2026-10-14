@@ -7515,14 +7515,14 @@
     {
       "file": "src-tauri/src/service/agent_restart/model_switch/live_command/picker/tests.rs",
       "token": "provider-claude",
-      "count": 5,
+      "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
       "file": "src-tauri/src/service/agent_restart/model_switch/live_command/readiness/tests.rs",
       "token": "provider-claude",
-      "count": 5,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
