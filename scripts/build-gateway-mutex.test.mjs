@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { nativeIdentity } from './build-gateway-guard.mjs';
+import { nativeIdentity, publicationGuard } from './build-gateway-guard.mjs';
 import { once } from 'node:events';
+import { pathToFileURL } from 'node:url';
 import readline from 'node:readline';
 import test from 'node:test';
 
@@ -159,3 +160,87 @@ test('reused native pid does not keep a dead guard owner alive', { timeout: 1500
     assert.equal(fs.existsSync(guard), false);
   } finally { await cleanup(directory, [worker]); }
 });
+
+
+test('transient publication helper identity waits for a filesystem event before publishing', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-helper-identity-'));
+  let available = false;
+  const publisher = publicationGuard(directory, () => available ? { state: 'present', token: 'fixture' } : { state: 'unknown' });
+  const watcher = fs.watch(directory);
+  try {
+    assert.equal(publisher.acquire(), false);
+    assert.equal(publisher.identityUnavailable, true);
+    assert.deepEqual(fs.readdirSync(directory), []);
+    const event = once(watcher, 'change');
+    available = true;
+    fs.writeFileSync(path.join(directory, 'lookup-recovered'), 'ready');
+    await event;
+    assert.equal(publisher.acquire(), true);
+    assert.equal(publisher.identityUnavailable, false);
+    publisher.release();
+    assert.equal(fs.existsSync(path.join(directory, 'state.lock.guard')), false);
+  } finally { watcher.close(); fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+for (const mode of ['recovers', 'refuses']) {
+test(`transient helper lookup ${mode} through the real mutex filesystem wait`, { timeout: 15000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-helper-event-'));
+  const recovered = path.join(directory, 'lookup-recovered');
+  const preload = path.join(directory, 'lookup-fixture.mjs');
+  fs.writeFileSync(preload, `
+    import fs from 'node:fs';
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const recovered = ${JSON.stringify(recovered)};
+    let announced = false;
+    function unavailable() {
+      if (fs.existsSync(recovered)) return false;
+      if (!announced) { process.stdout.write('LOOKUP_UNKNOWN\\n'); announced = true; }
+      return true;
+    }
+    const read = fs.readFileSync;
+    fs.readFileSync = function(file, ...args) {
+      if (String(file) === '/proc/' + process.pid + '/stat' && unavailable()) {
+        throw Object.assign(new Error('fixture unavailable'), { code: 'EACCES' });
+      }
+      return read.call(this, file, ...args);
+    };
+    const spawn = cp.spawnSync;
+    cp.spawnSync = function(command, args, ...rest) {
+      const self = command === 'powershell.exe' && args.some(value => value.includes('GetProcessById(' + process.pid + ')')) ||
+        command === 'ps' && args.includes(String(process.pid));
+      if (self && unavailable()) return { status: 2, stdout: '', stderr: '' };
+      return spawn.call(this, command, args, ...rest);
+    };
+    syncBuiltinESMExports();
+  `);
+  const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href,
+    path.join(root, 'scripts/build-gateway-mutex.mjs'), 'acquire', directory, '99999999', 'fixture', mode === 'refuses' ? '1000' : '10000', 'fixture'],
+  { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const lines = readline.createInterface({ input: child.stdout });
+  let errors = '';
+  child.stderr.on('data', chunk => errors += chunk);
+  const exited = once(child, 'exit');
+  try {
+    const [line] = await once(lines, 'line');
+    assert.equal(line, 'LOOKUP_UNKNOWN');
+    assert.equal(fs.existsSync(path.join(directory, 'state.lock.guard')), false);
+    if (mode === 'recovers') {
+      fs.writeFileSync(recovered, 'ready');
+      assert.equal((await exited)[0], 0, errors);
+      assert.equal(fs.readFileSync(path.join(directory, 'state.lock/pid'), 'utf8').trim(), '99999999');
+    } else {
+      assert.equal((await exited)[0], 75, errors);
+      assert.match(errors, /identity unavailable; no ownership published\. Retry-safe/);
+      assert.equal(fs.existsSync(path.join(directory, 'state.lock')), false);
+    }
+    assert.doesNotMatch(errors, /Cannot establish|Error:/);
+  } finally {
+    lines.close();
+    if (child.exitCode === null) child.kill('SIGKILL');
+    await exited;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+}
