@@ -319,6 +319,7 @@ dependencies = [
  "codeterm-blueprint-types",
  "codeterm-mem-store",
  "codeterm-mesh",
+ "codeterm-notification-core",
  "codeterm-paths",
  "codeterm-plugin",
  "codeterm-plugins",
@@ -389,6 +390,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-notification-core"
+version = "0.1.0"
+dependencies = [
+ "codeterm-notify-types",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-notify-types"
+version = "1.6.2"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "codeterm-paths"
 version = "0.1.0"
 dependencies = [
@@ -453,6 +474,7 @@ dependencies = [
 name = "codeterm-types"
 version = "1.6.2"
 dependencies = [
+ "codeterm-notify-types",
  "serde",
  "serde_json",
  "toml",

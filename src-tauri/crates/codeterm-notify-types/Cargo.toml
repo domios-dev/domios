@@ -1,0 +1,7 @@
+[package]
+name = "codeterm-notify-types"
+version = "1.6.2"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

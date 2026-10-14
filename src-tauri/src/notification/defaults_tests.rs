@@ -8,8 +8,8 @@
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
 use codeterm_bridge::services::ServiceDescriptor;
+use codeterm_notification_core::contract::{NotifyDestination, NotifyLevel};
 use codeterm_types::config::schema::{default_agent_levels, AppConfig, NotificationConfig};
-use codeterm_types::notification::{NotifyDestination, NotifyLevel};
 use parking_lot::Mutex;
 
 use crate::notification::channels::{

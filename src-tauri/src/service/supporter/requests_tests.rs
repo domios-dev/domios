@@ -343,7 +343,7 @@ fn supporter_402_exhaustion_alerts_once_and_blocks_calls() {
     assert_eq!(alerts.lock().len(), 1);
     assert_eq!(
         alerts.lock()[0].level,
-        codeterm_types::notification::NotifyLevel::Failure
+        codeterm_notification_core::contract::NotifyLevel::Failure
     );
     assert_eq!(
         model.decide_questions(&request(2), Instant::now() + Duration::from_secs(2)),

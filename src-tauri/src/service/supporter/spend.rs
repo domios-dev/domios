@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use codeterm_notification_core::contract::NotifyLevel;
 use codeterm_types::decision::{DecisionError, DecisionPricing, DecisionUsage};
-use codeterm_types::notification::NotifyLevel;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

@@ -41,7 +41,7 @@ pub(crate) struct BlockedNotice {
     summary: String,
     task_ids: Vec<String>,
     pause_plan: bool,
-    actions: Vec<codeterm_types::notification::CallerAction>,
+    actions: Vec<codeterm_notification_core::contract::CallerAction>,
 }
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
@@ -447,12 +447,14 @@ fn record_blocker(
     blocker.task_ids.insert(task_id.into());
 }
 
-fn blocked_notice_actions() -> Vec<codeterm_types::notification::CallerAction> {
+fn blocked_notice_actions() -> Vec<codeterm_notification_core::contract::CallerAction> {
     ["wait", "pause plan", "decide"]
         .into_iter()
-        .map(|label| codeterm_types::notification::CallerAction::Answer {
-            label: label.into(),
-        })
+        .map(
+            |label| codeterm_notification_core::contract::CallerAction::Answer {
+                label: label.into(),
+            },
+        )
         .collect()
 }
 

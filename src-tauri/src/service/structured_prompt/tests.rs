@@ -206,12 +206,12 @@ fn structured_prompt_notification_answer_records_tab_respond_metadata() {
         Some("structured prompt".into()),
         Some("warning"),
         Some(vec![
-            codeterm_types::notification::NotificationAction::RespondPromptOption {
+            codeterm_notification_core::contract::NotificationAction::RespondPromptOption {
                 label: "Proceed".into(),
                 value: "yes".into(),
                 identity: identity.clone(),
             },
-            codeterm_types::notification::NotificationAction::RespondPromptOption {
+            codeterm_notification_core::contract::NotificationAction::RespondPromptOption {
                 label: "Cancel".into(),
                 value: "no".into(),
                 identity: identity.clone(),

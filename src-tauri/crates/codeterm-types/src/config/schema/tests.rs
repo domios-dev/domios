@@ -3,7 +3,7 @@ use super::{
     NotificationConfig, OrchestrationConfig, OrchestrationDigestsConfig, PushChannelConfig,
     UiConfig, UsageConfig,
 };
-use crate::notification::{NotifyDestination, NotifyLevel};
+use codeterm_notify_types::{NotifyDestination, NotifyLevel};
 
 /// A channel id core has never heard of. Every column assertion below routes
 /// through one of these, so nothing here can pass by knowing a real channel.

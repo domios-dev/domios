@@ -1,7 +1,6 @@
 pub mod agent;
 pub mod config;
 pub mod decision;
-pub mod notification;
 pub mod plan;
 pub mod pty;
 pub mod startup_records;
