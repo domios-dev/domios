@@ -1,10 +1,12 @@
 # Test strategy proposal
 
 Base: develop `4d81f892d` (contains `ddfca8ee7`). Plan `pl_wuzkps`, task `task_ac7h0v`.
-Companion files: [`catalogue.schema.json`](catalogue.schema.json) and
-[`catalogue.draft.json`](catalogue.draft.json) (111 runner entries, 8 stale and
-1 flaky overlay markers; validates with
-`npx --yes ajv-cli@5 validate --spec=draft2020 -s docs/test-strategy/catalogue.schema.json -d docs/test-strategy/catalogue.draft.json`).
+The catalogue this proposal drafted now lives in `tests/`: the schema is
+[`tests/catalogue.schema.json`](../../tests/catalogue.schema.json), the runners are
+[`tests/catalogue.json`](../../tests/catalogue.json), the stale and flaky markers are
+[`tests/catalogue.overlay.json`](../../tests/catalogue.overlay.json), and the generated
+index is [`tests/README.md`](../../tests/README.md). `node scripts/test-catalogue.mjs validate`
+checks all of them; the draft file was removed when the catalogue landed.
 
 The structure is decided (D1-D10). This document inventories the tree, attaches
 evidence to each decision, and ends with the questions only the owner can answer.
@@ -383,7 +385,7 @@ Recent successful PR wall times: 168s (`38518488217`), 202s (`38522093496`),
 | stale, silent | `mobile-overflow.spec.ts:1013` "@golden mobile web primary surfaces stay inside the viewport ${vp.name}" for `320x568`, `390x844`, `430x932`: the "picker workspace dropdown" audit | `if (await workspaceSelect.isVisible()...)` at 1073-1079 skips the audit, so the test passes without auditing | `ddfca8ee7` | `task_3md5uc` |
 | flaky | `sentinel::tests::sentinel_probe_bounded_runtime_and_output` (`src-tauri/src/sentinel/tests.rs:481`, binary `codeterm`) | passes alone, fails among about 208 parallel tests (`task_k0ywli` brief); not reproduced here (no Rust build in lane) | load-sensitive deadline | `task_k0ywli` (D9) |
 
-All nine are in `catalogue.draft.json` `overlay`.
+The six ddfca8ee7 cases are stale markers in `tests/catalogue.overlay.json` (the three mobile-overflow viewports share one templated title). The sentinel probe carries no flaky marker: `task_k0ywli` fixed it.
 
 ## Decisions D1-D10
 
