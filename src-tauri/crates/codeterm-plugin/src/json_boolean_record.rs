@@ -247,6 +247,10 @@ impl Drop for TempFile {
             return;
         }
         #[cfg(windows)]
+        #[expect(
+            clippy::permissions_set_readonly_false,
+            reason = "Windows-only: clears the read-only attribute so remove_file succeeds; no Unix mode bits"
+        )]
         if let Ok(metadata) = fs::metadata(&self.path) {
             let mut permissions = metadata.permissions();
             permissions.set_readonly(false);
