@@ -2,10 +2,11 @@ use chrono::Utc;
 use rusqlite::{params, Connection};
 
 use super::*;
+use crate::curation::pick_restore_body;
 
 fn open_test_conn() -> (Connection, tempfile::TempDir) {
     let conn = Connection::open_in_memory().unwrap();
-    crate::mem::store::init_schema(&conn).unwrap();
+    crate::store::init_schema(&conn).unwrap();
     (conn, tempfile::tempdir().unwrap())
 }
 
@@ -139,7 +140,7 @@ fn mem_merge_refuses_protected_lesser() {
         )
         .unwrap_err();
         assert!(matches!(err, MergeError::Refused(_)), "{lesser}: {err:?}");
-        assert_eq!(err.status(), StatusCode::CONFLICT);
+        assert_eq!(err.status_code(), 409);
     }
     assert_eq!(kind_of(&conn, "skill"), "skill");
     assert_eq!(kind_of(&conn, "pinned_fact"), "fact");
@@ -200,7 +201,7 @@ fn mem_merge_cap_refuses_past_limit() {
     merge(&conn, &dir, req("keeper", "l2"), &dreamer, 2).unwrap();
     let err = merge(&conn, &dir, req("keeper", "l3"), &dreamer, 2).unwrap_err();
     assert!(matches!(err, MergeError::CapReached(_)), "{err:?}");
-    assert_eq!(err.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(err.status_code(), 429);
     assert_eq!(
         kind_of(&conn, "l3"),
         "fact",
