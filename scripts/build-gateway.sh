@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI build-gateway.yml; scripts build-gateway-mutex.mjs, build-gateway-mutex.test.mjs, build-gateway-reader-deadline.mjs
 
+CT_GATEWAY_SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
 ct_gateway_dir() {
   local home local_app_data
   if [ -n "${CODETERM_BUILD_GATEWAY_DIR:-}" ]; then
@@ -44,7 +46,7 @@ ct_gateway_now() {
 }
 
 ct_gateway_state_tool() {
-  node "${CT_BUILD_GATEWAY_STATE_SCRIPT:-$(ct_repo_root)/scripts/build-gateway-state.mjs}" "$@"
+  node "${CT_BUILD_GATEWAY_STATE_SCRIPT:-$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-state.mjs}" "$@"
 }
 
 # Liveness gets one pid namespace: an MSYS pid under Git Bash is not a Windows
@@ -160,12 +162,12 @@ ct_gateway_mutex_acquire() {
   if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
     timeout="${CT_GATEWAY_MUTEX_TIMEOUT_MS:-30000}"
   fi
-  node "$(ct_repo_root)/scripts/build-gateway-mutex.mjs" acquire "$dir" "$self_pid" "$CT_GATEWAY_MUTEX_START" "$timeout" "${CT_BUILD_GATEWAY_SCOPE:-production}" || rc=$?
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-mutex.mjs" acquire "$dir" "$self_pid" "$CT_GATEWAY_MUTEX_START" "$timeout" "${CT_BUILD_GATEWAY_SCOPE:-production}" || rc=$?
   [ "$rc" -eq 0 ] || { ct_gateway_mutex_timeout; return $?; }
 }
 
 ct_gateway_mutex_release() {
-  node "$(ct_repo_root)/scripts/build-gateway-mutex.mjs" release "$1" "${CT_GATEWAY_MUTEX_PID:-$$}" "${CT_GATEWAY_MUTEX_START:-}"
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-mutex.mjs" release "$1" "${CT_GATEWAY_MUTEX_PID:-$$}" "${CT_GATEWAY_MUTEX_START:-}"
 }
 
 ct_gateway_status() {
@@ -314,7 +316,7 @@ ct_gateway_metadata_abort() {
 ct_gateway_acquire() {
   local command="$1" dir lock wait_mode deadline first owner job log queued_at source_sha worktree owner_command
   local blocker_job blocker_command blocker_owner blocker_record slot_snapshot queued_notice=0
-  CT_BUILD_GATEWAY_STATE_SCRIPT="$(ct_repo_root)/scripts/build-gateway-state.mjs"
+  CT_BUILD_GATEWAY_STATE_SCRIPT="$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-state.mjs"
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
   wait_mode="${CODETERM_BUILD_GATEWAY_MODE:-queue}"
@@ -418,9 +420,9 @@ ct_gateway_acquire() {
         "$CODETERM_INSTANCE" "$CT_BUILD_JOB_ID" "$blocker_job" "$blocker_owner" "$blocker_command" >&2
       queued_notice=1
     fi
-    slot_snapshot="$(node "$(ct_repo_root)/scripts/build-gateway-slot.mjs" snapshot "$dir")" || { ct_gateway_metadata_abort "$dir" "queue snapshot"; return $?; }
+    slot_snapshot="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-slot.mjs" snapshot "$dir")" || { ct_gateway_metadata_abort "$dir" "queue snapshot"; return $?; }
     ct_gateway_mutex_release "$dir" || return $?
-    node "$(ct_repo_root)/scripts/build-gateway-slot.mjs" wait "$dir" "$slot_snapshot" "$((deadline * 1000))" || return $?
+    node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-slot.mjs" wait "$dir" "$slot_snapshot" "$((deadline * 1000))" || return $?
   done
 }
 
