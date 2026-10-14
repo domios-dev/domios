@@ -47,8 +47,21 @@ pub(super) fn session_observation(
     };
     if let Some(error) = error {
         log::debug!("[provider-access] RPC error record");
+        let turn = params.get("turn");
         return Some(SessionObservations {
             api_error: Some(ApiErrorKind::from_error(Some(error), error)),
+            retry_after_secs: ApiErrorKind::retry_after(Some(error), params),
+            turn_id: turn
+                .and_then(|turn| turn.get("id").or_else(|| turn.get("turnId")))
+                .or_else(|| params.get("turnId"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string),
+            retrying: ApiErrorKind::retrying(Some(error), params)
+                || turn
+                    .and_then(|turn| turn.get("willRetry"))
+                    .and_then(Value::as_bool)
+                    == Some(true),
             ..Default::default()
         });
     }
@@ -81,7 +94,7 @@ mod tests {
             ),
             (
                 json!({"codexErrorInfo":"usageLimitExceeded"}),
-                ApiErrorKind::RateLimit,
+                ApiErrorKind::UsageLimit,
             ),
             (
                 json!({"message":"authentication_error"}),
@@ -104,6 +117,15 @@ mod tests {
             session_observation("turn/completed", &json!({"turn":{"status":"interrupted"}}))
                 .is_none()
         );
+        let failed = session_observation(
+            "turn/completed",
+            &json!({"turn":{"id":"turn-a","status":"failed","error":{"codexErrorInfo":"usageLimitExceeded","retryAfter":12}}}),
+        )
+        .unwrap();
+        assert_eq!(failed.api_error, Some(ApiErrorKind::UsageLimit));
+        assert_eq!(failed.turn_id.as_deref(), Some("turn-a"));
+        assert_eq!(failed.retry_after_secs, Some(12));
+        assert!(!failed.retrying);
     }
 
     #[test]

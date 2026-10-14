@@ -280,13 +280,13 @@ function parseContextUsage(record3) {
   }
   const statusline = record3.context_window;
   const hasStatusline = Object.prototype.hasOwnProperty.call(record3, "context_window");
-  const usage = hasStatusline ? statusline?.current_usage : record3.type === "assistant" ? record3.message?.usage : null;
-  if (!usage || typeof usage !== "object") return null;
-  const input = count(usage.input_tokens);
-  const creation = usage.cache_creation_input_tokens === void 0 ? 0 : count(usage.cache_creation_input_tokens);
-  const read = usage.cache_read_input_tokens === void 0 ? 0 : count(usage.cache_read_input_tokens);
+  const usage2 = hasStatusline ? statusline?.current_usage : record3.type === "assistant" ? record3.message?.usage : null;
+  if (!usage2 || typeof usage2 !== "object") return null;
+  const input = count(usage2.input_tokens);
+  const creation = usage2.cache_creation_input_tokens === void 0 ? 0 : count(usage2.cache_creation_input_tokens);
+  const read = usage2.cache_read_input_tokens === void 0 ? 0 : count(usage2.cache_read_input_tokens);
   if (input === null || creation === null || read === null || input + creation + read > LIMIT) return null;
-  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage.context_window_size !== void 0 ? usage.context_window_size : 0);
+  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage2.context_window_size !== void 0 ? usage2.context_window_size : 0);
   if (window === null) return null;
   const rawCost = record3.cost?.total_cost_usd;
   const cost = typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0 && rawCost <= 1e6 ? rawCost : null;
@@ -376,9 +376,39 @@ function statuslineLaunchArgs(args) {
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
+var authExpiry = ["token_expired", "refresh_token_expired", "auth_expired", "auth_expiry"];
+var authentication = [
+  "401",
+  "403",
+  "authentication_error",
+  "auth",
+  "unauthorized",
+  "permission_error",
+  "permission_denied",
+  "forbidden",
+  "subscription_disabled",
+  "organization_disabled",
+  "oauth_refresh_failed",
+  "token_revoked",
+  "refresh_token_reused",
+  "refresh_token_invalidated",
+  "logged_out",
+  "signed_out",
+  "unauthenticated",
+  "authError"
+];
+var usage = ["usageLimitExceeded", "usage_limit", "sessionBudgetExceeded"];
+var rate = ["429", "rate_limit", "rate_limit_error", "rateLimitExceeded"];
+var server = ["overloaded", "overloaded_error", "serverOverloaded", "server_overloaded", "internalServerError", "internal_server_error"];
+function statusCode(value) {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
 function classifyAccessError(error, record3) {
   const detail = object(error);
-  const info = object(detail?.codexErrorInfo);
+  const info = detail?.codexErrorInfo;
+  const infoObject = object(info);
   const fields = [
     typeof error === "string" ? error : null,
     detail?.type,
@@ -387,40 +417,64 @@ function classifyAccessError(error, record3) {
     detail?.statusCode,
     detail?.status_code,
     detail?.httpStatusCode,
-    detail?.codexErrorInfo,
-    ...Object.keys(info ?? {}),
-    ...Object.values(info ?? {}).map((value) => object(value)?.httpStatusCode),
+    typeof info === "string" ? info : null,
+    ...Object.keys(infoObject ?? {}),
+    ...Object.values(infoObject ?? {}).map((value) => object(value)?.httpStatusCode),
     record3.status,
     record3.statusCode,
     record3.status_code,
     record3.apiErrorStatus,
     record3.apiErrorCode
   ];
-  if (fields.some((value) => typeof value === "string" && (value.startsWith("oauth_") || value.startsWith("authentication_")))) return "authentication";
-  if (fields.some((value) => value === 401 || value === 403 || typeof value === "string" && [
-    "401",
-    "403",
-    "authentication_error",
-    "auth",
-    "unauthorized",
-    "permission_error",
-    "permission_denied",
-    "forbidden",
-    "subscription_disabled",
-    "organization_disabled",
-    "oauth_refresh_failed",
-    "token_expired",
-    "token_revoked",
-    "refresh_token_reused",
-    "refresh_token_expired",
-    "refresh_token_invalidated",
-    "logged_out",
-    "signed_out",
-    "unauthenticated",
-    "authError"
-  ].includes(value))) return "authentication";
-  if (fields.some((value) => value === 429 || value === "429" || value === "rate_limit" || value === "rate_limit_error" || value === "usageLimitExceeded")) return "rate_limit";
+  const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
+  const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
+  const status = (match) => fields.some((value) => {
+    const code = statusCode(value);
+    return code != null && match(code);
+  });
+  if (named(authExpiry)) return "auth_expiry";
+  if (named(["authError"]) || prefixed("oauth_") || prefixed("authentication_") || status((code) => code === 401 || code === 403) || named(authentication)) return "authentication";
+  if (named(usage)) return "usage_limit";
+  if (status((code) => code === 429) || named(rate)) return "rate_limit";
+  if (status((code) => code >= 500 && code <= 599) || named(server)) return "server_overloaded";
   return "other";
+}
+function readRetry(value) {
+  if (!value) return null;
+  for (const key of ["retryAfter", "retry_after", "retryAfterSeconds", "retry_after_secs", "retryAfterSecs"]) {
+    const field = value[key];
+    if (typeof field === "number" && Number.isInteger(field) && field >= 0) return field;
+    if (typeof field === "string" && /^\d+$/.test(field)) return Number(field);
+  }
+  return null;
+}
+function retryAfterSecs(error, record3) {
+  return readRetry(object(error)) ?? readRetry(record3);
+}
+function observationTurnId(record3) {
+  for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
+    const value = record3[key];
+    if (typeof value === "string" && value) return value;
+  }
+  const payload = object(record3.payload);
+  if (!payload) return null;
+  for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return null;
+}
+function observationRetrying(error, record3) {
+  return record3.willRetry === true || object(error)?.willRetry === true;
+}
+function observationExtras(error, record3) {
+  const extras = {};
+  const retry = retryAfterSecs(error, record3);
+  if (retry != null) extras.retry_after_secs = retry;
+  const turn = observationTurnId(record3);
+  if (turn) extras.turn_id = turn;
+  if (observationRetrying(error, record3)) extras.retrying = true;
+  return extras;
 }
 
 // plugins/provider-claude/src/signals.ts
@@ -449,7 +503,7 @@ function parseSessionObservations(value) {
   const isError = record3.isApiErrorMessage === true;
   const api_error = isError ? classifyAccessError(record3.error, record3) : null;
   const clears_api_error = record3.type === "assistant" && !isError && !!object2(record3.message);
-  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error } : null;
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3) } : null;
 }
 
 // plugins/provider-claude/src/backgroundWork.ts
@@ -1336,17 +1390,17 @@ function subAgentNotification(content) {
   const callId = xmlTagBody(block, "tool-use-id") ?? "";
   const agentId = xmlTagBody(block, "task-id") ?? "";
   const result = xmlTagBody(block, "result");
-  const usage = xmlTagBody(block, "usage");
-  if (!callId || !PLAIN_ID_RE.test(agentId) || result === null && usage === null) return null;
+  const usage2 = xmlTagBody(block, "usage");
+  if (!callId || !PLAIN_ID_RE.test(agentId) || result === null && usage2 === null) return null;
   return {
     callId,
     agentId,
     state: NOTIFICATION_STATES[xmlTagBody(block, "status") ?? ""] ?? "unknown",
     ...result ? { result } : {},
-    ...usage !== null ? {
-      tokens: count2(xmlTagBody(usage, "subagent_tokens")),
-      toolUses: count2(xmlTagBody(usage, "tool_uses")),
-      durationMs: count2(xmlTagBody(usage, "duration_ms"))
+    ...usage2 !== null ? {
+      tokens: count2(xmlTagBody(usage2, "subagent_tokens")),
+      toolUses: count2(xmlTagBody(usage2, "tool_uses")),
+      durationMs: count2(xmlTagBody(usage2, "duration_ms"))
     } : {}
   };
 }

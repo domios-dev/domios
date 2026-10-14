@@ -282,7 +282,7 @@ check("auth refresh and account updates retain unknown state honestly",()=> {
 });
 check("retry errors remain nonterminal with classified source metadata",()=> {
   const events=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"error",params:{threadId:ctx.threadId!,turnId:"turn-a",willRetry:true,error:{message:"Retrying",codexErrorInfo:{httpConnectionFailed:{httpStatusCode:503}}}}}]).events;
-  assert.equal(events.length,1);const event=events[0];assert.ok(event.kind === "chatItem");assert.equal(event.item.systemSubtype,"provider_retry");assert.deepEqual(plain(event.item.toolInput),{code:"httpConnectionFailed",class:"transport_error",retryable:true});
+  assert.equal(events.length,1);const event=events[0];assert.ok(event.kind === "chatItem");assert.equal(event.item.systemSubtype,"provider_retry");assert.deepEqual(plain(event.item.toolInput),{code:"httpConnectionFailed",class:"server_overloaded",retryable:true});
 });
 console.log(`runtime final hooks: ${count} checks passed`);
 check("history includes optional goal without making a failed optional probe fatal",()=> {
@@ -604,6 +604,21 @@ check("terminal turn errors retain classified failure metadata without a prior e
   assert.equal(row.item.content,"Quota exhausted");
   assert.deepEqual(plain(row.item.toolInput),{code:"usageLimitExceeded",class:"usage_limit",retryable:false});
   assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,turnId:"turn-a",state:"idle",detail:"failed"});
+});
+check("failed turns map each declared provider class once",()=> {
+  const failed=(error:Record<string,unknown>)=>hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:"turn-a",status:"failed",error}}}]);
+  const klass=(error:Record<string,unknown>)=>{
+    const row=failed(error).events[0];
+    if(row.kind !== "chatItem")throw new Error("Expected error item");
+    return plain(row.item.toolInput).class;
+  };
+  assert.equal(klass({message:"Quota exhausted",codexErrorInfo:"usageLimitExceeded"}),"usage_limit");
+  assert.equal(klass({message:"Slow down",codexErrorInfo:"rateLimitExceeded"}),"rate_limit");
+  assert.equal(klass({message:"Busy",codexErrorInfo:"serverOverloaded"}),"server_overloaded");
+  assert.equal(klass({message:"Busy",codexErrorInfo:{httpConnectionFailed:{httpStatusCode:503}}}),"server_overloaded");
+  assert.equal(klass({message:"Expired",codexErrorInfo:"token_expired"}),"auth_expiry");
+  assert.equal(klass({message:"Denied",status:403,codexErrorInfo:"usageLimitExceeded"}),"authentication");
+  assert.equal(klass({message:"Down",codexErrorInfo:"httpConnectionFailed"}),"transport_error");
 });
 console.log(`runtime comparison regressions: ${count} checks passed`);
 

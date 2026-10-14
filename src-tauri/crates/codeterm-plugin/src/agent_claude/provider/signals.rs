@@ -43,5 +43,8 @@ pub(super) fn session(record: &Value) -> Option<SessionObservations> {
         api_error,
         permission_mode,
         clears_api_error,
+        retry_after_secs: ApiErrorKind::retry_after(record.get("error"), record),
+        turn_id: ApiErrorKind::turn_id(record),
+        retrying: ApiErrorKind::retrying(record.get("error"), record),
     })
 }
