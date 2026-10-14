@@ -36,6 +36,12 @@ pub(crate) fn is_ready(svc: &ServiceContext, authority: &UserSendAuthority) -> b
 pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String> {
     let store = &svc.pending_delivery_payloads.user_sends;
     let owner = store.tab(tab);
+    let _drain = super::blocking::deadline(
+        std::time::Duration::from_secs(30),
+        owner.runtime_drain.acquire(),
+    )
+    .map_err(|_| "submit_unconfirmed: runtime drain outcome pending; replay refused")?
+    .map_err(|_| "submit_unconfirmed: runtime drain closed; replay refused")?;
     if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) {
         return Ok(UserDrain::Idle);
     }
