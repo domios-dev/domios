@@ -61,7 +61,7 @@ fn assert_job_exit(cloned: bool) {
     use winapi::um::processthreadsapi::OpenProcess;
     use winapi::um::synchapi::WaitForSingleObject;
     use winapi::um::winbase::WAIT_OBJECT_0;
-    use winapi::um::winnt::SYNCHRONIZE;
+    use winapi::um::winnt::{PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZE};
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -96,7 +96,7 @@ fn assert_job_exit(cloned: bool) {
     let pid = readiness
         .expect("leader readiness event before deadline")
         .expect("descendant PID receipt");
-    let raw = unsafe { OpenProcess(SYNCHRONIZE, 0, pid) };
+    let raw = unsafe { OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     assert!(!raw.is_null());
     let process = unsafe { filedescriptor::OwnedHandle::from_raw_handle(raw as _) };
     assert!(child.contains_process(raw as _).unwrap());
